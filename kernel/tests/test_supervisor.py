@@ -1,8 +1,10 @@
 """Drives ``python -m torno_kernel`` as a subprocess through the frame codec."""
 
+import io
 import math
 import os
 import platform
+import threading
 import time
 from pathlib import Path
 
@@ -246,6 +248,39 @@ def test_request_that_is_not_json_is_a_bad_request_and_the_stream_recovers(brack
     reply, _ = bracket_kernel.recv(5)
     assert (reply["id"], reply["error"]["kind"]) == (None, "bad_request")
     assert bracket_kernel.describe("assembly:base")["ok"] is True
+
+
+def test_a_thousand_pipelined_queries_are_all_answered_in_order(bracket_kernel):
+    stdin = bracket_kernel.proc.stdin
+    pipelined = io.BytesIO()
+    for i in range(1000):
+        write_frame(
+            pipelined,
+            {"id": f"p{i}", "op": "query", "name": "describe", "args": {"ref": "assembly:base"}},
+        )
+    stdin.write(pipelined.getvalue())
+    replies = [bracket_kernel.recv(10)[0] for _ in range(1000)]
+    assert [r["id"] for r in replies] == [f"p{i}" for i in range(1000)]
+    assert all(r["ok"] for r in replies)
+
+
+def test_client_that_writes_many_requests_before_reading_any_reply_is_not_blocked(kernel):
+    # Requests and replies both exceed what the pipes hold, so a supervisor that
+    # blocked on writing replies would never read the rest of the requests.
+    pipelined = io.BytesIO()
+    for i in range(20000):
+        write_frame(pipelined, {"id": i, "op": "nope"})
+    done = threading.Event()
+
+    def write():
+        kernel.proc.stdin.write(pipelined.getvalue())
+        done.set()
+
+    threading.Thread(target=write, daemon=True).start()
+    assert done.wait(10), "the kernel stopped reading requests"
+    replies = [kernel.recv(10)[0] for _ in range(20000)]
+    assert [r["id"] for r in replies] == list(range(20000))
+    assert {r["error"]["kind"] for r in replies} == {"bad_request"}
 
 
 def test_query_before_any_build_is_no_build_and_shutdown_exits(fresh):

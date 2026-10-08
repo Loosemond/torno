@@ -4,8 +4,13 @@ It forks one worker per build and keeps the last successful one alive to answer
 queries. It imports the geometry modules so that workers inherit them, but it
 never calls them: one OCC operation here would start OCC's thread pool, and
 every worker forked afterwards would deadlock.
+
+It never blocks on a write. Frames for the client and for the live worker go
+into outboxes that are drained as the other end makes room, so the loop keeps
+reading from both even when either pipelines faster than it reads.
 """
 
+import io
 import json
 import os
 import select
@@ -15,7 +20,7 @@ import struct
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, BinaryIO
 
@@ -27,6 +32,8 @@ OUTPUT_LINES = 200
 _OUTPUT_TAIL_BYTES = 1 << 20
 _TERM_GRACE = 0.5  # seconds a replaced worker gets to exit on SIGTERM
 _EXIT_GRACE = 2.0  # seconds a worker that closed its socket gets to finish dying
+_DRAIN_GRACE = 1.0  # seconds the client gets to read the last replies at exit
+_WRITE_CHUNK = 1 << 18
 _PREFIX = struct.Struct(">II")
 
 
@@ -54,6 +61,33 @@ class _Decoder:
             yield decoded, blob
 
 
+class _Outbox:
+    """Frames waiting to be written to a non-blocking pipe or socket."""
+
+    def __init__(self, write: Callable[[bytes], int]) -> None:
+        self._write = write
+        self._data = bytearray()
+
+    def __bool__(self) -> bool:
+        return bool(self._data)
+
+    def push(self, header: dict[str, Any], blob: bytes = b"") -> None:
+        """Queue a frame and write as much as the other end has room for."""
+        frame = io.BytesIO()
+        write_frame(frame, header, blob)
+        self._data += frame.getvalue()
+        self.flush()
+
+    def flush(self) -> None:
+        """Write until the queue is empty or the other end is full. May raise OSError."""
+        while self._data:
+            try:
+                written = self._write(bytes(self._data[:_WRITE_CHUNK]))
+            except BlockingIOError:
+                return
+            del self._data[:written]
+
+
 @dataclass
 class _Worker:
     pid: int
@@ -63,6 +97,7 @@ class _Worker:
     deadline: float
     timeout: float
     capture: BinaryIO | None  # the model's stdout and stderr, until the build ends
+    outbox: _Outbox  # queries on their way to it
     decoder: _Decoder = field(default_factory=_Decoder)
     queries: list[Any] = field(default_factory=list)  # ids sent and not yet answered
 
@@ -71,6 +106,9 @@ class Supervisor:
     def __init__(self, stdin_fd: int, proto_out: BinaryIO) -> None:
         self._stdin_fd = stdin_fd
         self._out = proto_out
+        # Written through its descriptor only, never through the buffered file.
+        os.set_blocking(proto_out.fileno(), False)
+        self._outbox = _Outbox(lambda data: os.write(proto_out.fileno(), data))
         self._requests = _Decoder()
         self._building: _Worker | None = None
         self._live: _Worker | None = None
@@ -88,15 +126,34 @@ class Supervisor:
             for worker in (self._building, self._live):
                 if worker:
                     self._stop(worker, signal.SIGKILL)
+        self._drain()
         return 0
+
+    def _drain(self) -> None:
+        """Give the client a moment to read the replies still queued for it."""
+        give_up = time.monotonic() + _DRAIN_GRACE
+        try:
+            while self._outbox and (wait := give_up - time.monotonic()) > 0:
+                select.select([], [self._out], [], wait)
+                self._outbox.flush()
+        except OSError:
+            pass  # the client is gone
 
     def _step(self) -> None:
         workers = [w for w in (self._building, self._live) if w]
         wait = None
         if self._building:
             wait = max(0.0, self._building.deadline - time.monotonic())
-        readable, _, _ = select.select([self._stdin_fd, *(w.sock for w in workers)], [], [], wait)
+        reading = [self._stdin_fd, *(w.sock for w in workers)]
+        writing = [w.sock for w in workers if w.outbox]
+        if self._outbox:
+            writing.append(self._out)
+        readable, writable, _ = select.select(reading, writing, [], wait)
+        if self._out in writable:
+            self._outbox.flush()
         for worker in workers:
+            if worker.sock in writable and worker is self._live:
+                self._send_queries(worker)
             # An earlier iteration may have retired this worker.
             if worker.sock in readable and worker in (self._building, self._live):
                 self._read_worker(worker)
@@ -151,7 +208,13 @@ class Supervisor:
         query = {"id": id, "name": request.get("name"), "args": request.get("args")}
         live.queries.append(id)
         try:
-            write_frame(_SocketWriter(live.sock), query)
+            live.outbox.push(query)
+        except OSError:
+            self._live_died(live)
+
+    def _send_queries(self, live: _Worker) -> None:
+        try:
+            live.outbox.flush()
         except OSError:
             self._live_died(live)
 
@@ -181,12 +244,15 @@ class Supervisor:
             finally:
                 worker_module.run(theirs, capture.fileno(), dir, model)
         theirs.close()
+        ours.setblocking(False)
         now = time.monotonic()
-        return _Worker(pid, ours, id, now, now + timeout, timeout, capture)
+        return _Worker(pid, ours, id, now, now + timeout, timeout, capture, _Outbox(ours.send))
 
     def _read_worker(self, worker: _Worker) -> None:
         try:
             chunk = worker.sock.recv(1 << 20)
+        except BlockingIOError:
+            return
         except OSError:
             chunk = b""
         if not chunk:
@@ -284,23 +350,10 @@ class Supervisor:
     # Output
 
     def _send(self, header: dict[str, Any], blob: bytes = b"") -> None:
-        write_frame(self._out, header, blob)
+        self._outbox.push(header, blob)
 
     def _fail(self, id: Any, kind: str, message: str, **extra: str) -> None:
         self._send({"id": id, "ok": False, "error": {"kind": kind, "message": message, **extra}})
-
-
-class _SocketWriter:
-    """Just enough of a binary file for ``write_frame`` to write to a socket."""
-
-    def __init__(self, sock: socket.socket) -> None:
-        self._sock = sock
-
-    def write(self, data: bytes) -> None:
-        self._sock.sendall(data)
-
-    def flush(self) -> None:
-        pass
 
 
 def _kill(pid: int, sig: signal.Signals) -> None:
