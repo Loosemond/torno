@@ -149,7 +149,10 @@ class Kernel implements KernelClient {
     const [file, ...args] = this.command
     // Three separate pipes: the kernel makes its stdout non-blocking, which
     // would break its stderr too if the two shared one.
-    const proc = spawn(file, args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+    // No bytecode: Python would write __pycache__ beside every model and common/
+    // module it imports, and a workspace is only ever written under .torno/.
+    const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
+    const proc = spawn(file, args, { cwd: this.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this.proc = proc
     const decoder = new FrameDecoder()
     proc.stdout.on('data', (chunk: Buffer) => {
@@ -199,7 +202,7 @@ class Kernel implements KernelClient {
     if (request.type === 'build') {
       // The blob is a view into the read buffer: give the scene one of its own.
       if (header.ok) request.resolve({ ok: true, scene: header.scene, blob: Buffer.from(blob) })
-      else request.resolve({ ok: false, error: header.error })
+      else request.resolve({ ok: false, error: header.error ?? { kind: 'crash', message: 'the build failed' } })
     } else if (header.ok) {
       request.resolve(header.result)
     } else {

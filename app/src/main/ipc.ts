@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
-import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
+import type { WorkspaceInfo } from '../shared/workspace'
 import { Builds, watchFolder } from './builds'
 import { type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
@@ -27,33 +27,30 @@ function broadcast(channel: string, message: unknown): void {
   }
 }
 
-/** Scan the workspace again and return its object in `dir`, if it is still one. */
-async function rescan(ws: OpenWorkspace, dir: string): Promise<{ before?: ObjectInfo; after?: ObjectInfo }> {
-  const before = ws.info.objects.find((o) => o.dir === dir)
-  const info = await scanWorkspace(ws.info.root).catch(() => null)
-  if (info) ws.info = info
-  return { before, after: ws.info.objects.find((o) => o.dir === dir) }
-}
-
 /** Open a workspace: scan it and start a kernel for it. Replaces the one open. */
 export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   const info = await scanWorkspace(resolve(root))
-  await closeWorkspace()
+  // Until none is open: another call may have opened one while this one waited.
+  while (current) await closeWorkspace()
 
   const kernel = startKernel({ workspaceRoot: info.root, hasProject: info.hasProject, kernelDir: kernelDir() })
   const builds: Builds = new Builds({
     kernel,
     // Which file is an object's model can change with its folder's contents
     // (a second candidate removed, a first one added), so a change there is a
-    // reason to choose again before building.
+    // reason to choose again before building. The choice is compared with what
+    // `builds` holds, not with `ws.info`: another folder's change may have
+    // scanned, and replaced that, in the meantime.
     watch: (dir, onChange) =>
       watchFolder(dir, () => {
-        void rescan(ws, dir).then(({ before, after }) => {
-          if (current !== ws) return
-          const chosenAgain = after && (after.model !== before?.model || after.problem !== before?.problem)
-          if (chosenAgain) builds.open(after)
-          else onChange()
-        })
+        void scanWorkspace(ws.info.root)
+          .catch(() => null)
+          .then((scanned) => {
+            if (current !== ws) return
+            if (scanned) ws.info = scanned
+            const obj = ws.info.objects.find((o) => o.dir === dir)
+            if (!obj || !builds.update(obj)) onChange()
+          })
       })
   })
   const ws: OpenWorkspace = { info, kernel, builds, opened: new Set() }
@@ -94,7 +91,10 @@ export function registerIpc(): void {
   ipcMain.handle('object:open', async (event, id: string): Promise<BuildState> => {
     const ws = requireWorkspace()
     // Scanned afresh: the agent may have created the folder a moment ago.
-    ws.info = await scanWorkspace(ws.info.root)
+    const scanned = await scanWorkspace(ws.info.root)
+    // The workspace may have been closed or replaced during the scan; its kernel is then gone.
+    if (current !== ws) throw new Error(`the workspace ${ws.info.root} was closed`)
+    ws.info = scanned
     const obj = ws.info.objects.find((o) => o.id === id)
     if (!obj) throw new Error(`no object named ${id} in ${ws.info.root}`)
     const state = ws.builds.open(obj)

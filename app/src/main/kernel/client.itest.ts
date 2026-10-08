@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -8,8 +8,8 @@ import { toArrayBuffer } from './frames'
 
 const KERNEL_DIR = resolve(__dirname, '../../../../kernel')
 
-// Python writes __pycache__ next to the models it imports, so the kernel works
-// on a copy of the fixture workspace, never on the repository's.
+// The test must not depend on what earlier runs left in the repository's
+// fixtures, so the kernel works on a copy of the fixture workspace.
 let root: string
 let kernel: RunningKernel
 
@@ -113,5 +113,10 @@ describe('the real kernel', () => {
     expect(kernel.pid).not.toBe(uvPid)
     const part = await kernel.query<{ volume: number }>('describe', { ref: 'assembly:post' })
     expect(part.volume).toBeCloseTo(Math.PI * 16 * 20, 3)
+  })
+
+  it('writes nothing into the workspace: no __pycache__ beside the models it imported', () => {
+    const written = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => path.includes('__pycache__'))
+    expect(written).toEqual([])
   })
 })

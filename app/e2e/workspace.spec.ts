@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
@@ -121,6 +121,28 @@ test('an object with two candidate models fails with a message naming them, then
   expect((await twoScenes())[0]).toMatchObject({ revision: 1, parts: ['main:first'] })
   const last = (await seen()).builds.filter((b) => b.objectId === 'two').at(-1)
   expect(last).toMatchObject({ status: 'ok', revision: 1, stale: false })
+})
+
+test('the model is chosen again even when another folder\'s change was scanned first', async () => {
+  // An object of its own, with two candidates like `two`.
+  mkdirSync(join(root, 'pair'))
+  cpSync(join(fixtures, 'two', 'a.py'), join(root, 'pair', 'a.py'))
+  cpSync(join(fixtures, 'two', 'b.py'), join(root, 'pair', 'b.py'))
+  await record()
+  const state = await page.evaluate(() => window.torno.object.open('pair'))
+  expect(state).toMatchObject({ status: 'failed', error: { kind: 'no_model' } })
+  await page.waitForTimeout(500) // the watches start with the open
+
+  // The change in common/ is debounced first, so its scan already sees `pair`
+  // with one model by the time `pair`'s own change is handled.
+  mkdirSync(join(root, 'common'), { recursive: true })
+  writeFileSync(join(root, 'common', 'shared.py'), 'X = 1\n')
+  await page.waitForTimeout(100)
+  rmSync(join(root, 'pair', 'b.py'))
+
+  const last = async () => (await seen()).builds.filter((b) => b.objectId === 'pair').at(-1)
+  await expect.poll(async () => (await last())?.status, { timeout: 20_000 }).toBe('ok')
+  expect(await last()).toMatchObject({ revision: 1, stale: false })
 })
 
 test('an unknown object is refused by name', async () => {

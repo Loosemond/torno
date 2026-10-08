@@ -271,6 +271,65 @@ describe('Builds', () => {
     expect(scenes.map((s) => s.objectId)).toEqual(['gear', 'bracket'])
   })
 
+  it('fails a build the kernel refuses, rather than starting it again for ever', async () => {
+    // What a kernel that has been shut down answers: `cancelled`, at once, every time.
+    class RefusingKernel extends FakeKernel {
+      refused = 0
+      override build(): Promise<BuildResult> {
+        this.refused += 1
+        if (this.refused > 1000) throw new Error('restart loop')
+        return Promise.resolve({ ok: false, error: { kind: 'cancelled', message: 'the kernel was shut down' } })
+      }
+    }
+    const kernel = new RefusingKernel()
+    const builds = new Builds({ kernel, watch: () => () => {} })
+    builds.open(bracket)
+    builds.open(gear)
+    // A timer only fires if the event loop is let run.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // One each, and bracket once more: gear's build had taken the kernel from it.
+    expect(kernel.refused).toBe(3)
+    for (const id of ['bracket', 'gear']) {
+      expect(builds.state(id)).toMatchObject({
+        status: 'failed',
+        revision: 0,
+        error: { kind: 'cancelled', message: 'the kernel was shut down' }
+      })
+    }
+  })
+
+  it('fails a build that was cancelled while no other object holds the kernel', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.cancel()
+    await flush()
+    expect(kernel.calls).toHaveLength(1)
+    expect(builds.state('bracket')).toMatchObject({ status: 'failed', error: { kind: 'cancelled' } })
+    // The next save builds normally.
+    builds.rebuild('bracket')
+    kernel.succeed(1)
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'ok', revision: 1 })
+  })
+
+  it('update: builds again only when the scan chose differently from what it holds', async () => {
+    const { kernel, builds } = setup()
+    const two: ObjectInfo = { id: 'two', name: 'two', dir: '/ws/two', model: null, problem: 'more than one model file in /ws/two: a.py, b.py' }
+    builds.open(two)
+    expect(builds.state('two')).toMatchObject({ status: 'failed', error: { kind: 'no_model' } })
+    // The same answer again is no change, whoever else has scanned in between.
+    expect(builds.update({ ...two })).toBe(false)
+    expect(kernel.calls).toHaveLength(0)
+    expect(builds.update({ id: 'two', name: 'two', dir: '/ws/two', model: 'a.py' })).toBe(true)
+    expect(kernel.calls).toMatchObject([{ dir: '/ws/two', model: 'a.py' }])
+    kernel.succeed(0)
+    await flush()
+    expect(builds.state('two')).toMatchObject({ status: 'ok', revision: 1 })
+    // An object that is not open is none of its business.
+    expect(builds.update(gear)).toBe(false)
+    expect(builds.state('gear')).toBeUndefined()
+  })
+
   it('fails every open object with the stderr tail when the kernel stops for good', async () => {
     const { kernel, builds } = setup()
     builds.open(bracket)

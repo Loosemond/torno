@@ -82,8 +82,8 @@ export class Builds {
   open(obj: ObjectInfo): BuildState {
     let entry = this.entries.get(obj.id)
     if (entry) {
-      if (entry.obj.model === obj.model && entry.obj.problem === obj.problem) return entry.state
-      entry.obj = obj
+      this.update(obj)
+      return entry.state
     } else {
       entry = {
         obj,
@@ -98,6 +98,18 @@ export class Builds {
     }
     this.start(entry)
     return entry.state
+  }
+
+  /**
+   * Take a fresh scan of an open object. If its model was chosen differently
+   * from the one held here, build with the new choice and return true.
+   */
+  update(obj: ObjectInfo): boolean {
+    const entry = this.entries.get(obj.id)
+    if (!entry || (entry.obj.model === obj.model && entry.obj.problem === obj.problem)) return false
+    entry.obj = obj
+    this.start(entry)
+    return true
   }
 
   rebuild(objectId: string): void {
@@ -151,8 +163,13 @@ export class Builds {
       const current = this.entries.get(id) === entry && entry.attempt === attempt
       if (current && this.running === id) this.running = null
       if (current) {
+        // Cancelled while another object holds the kernel: displaced by that
+        // build, and started again after it. Cancelled otherwise (the kernel was
+        // shut down, or refused): a failure. Starting it again from here could
+        // loop without ever yielding, since such a reply need not be a round trip.
+        const displaced = !result.ok && result.error.kind === 'cancelled' && this.running !== null
         if (result.ok) this.succeeded(entry, result.scene, result.blob)
-        else if (result.error.kind === 'cancelled') this.displaced.add(id) // by another object's build
+        else if (displaced) this.displaced.add(id)
         else this.failed(entry, result.error)
       }
       // Otherwise a newer build of this object replaced this one, or the object
