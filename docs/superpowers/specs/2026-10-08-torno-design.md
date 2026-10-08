@@ -1,6 +1,6 @@
 # torno: design
 
-Date: 2026-10-08. Status: draft for review.
+Date: 2026-10-08. Status: draft for review. Sections 3, 4, 6 and 8 include the results of two feasibility spikes run the same day.
 
 ## 1. What torno is
 
@@ -114,27 +114,38 @@ A small helper package, `torno`, is importable from models: `torno.Scene`, `torn
 
 ### Process model
 
-Importing build123d takes about 4 s; building a small part takes about 70 ms. So:
+Measured on this machine: importing build123d takes 2 to 4 s, the helmet stand builds and tessellates in about 1 s, and `airbox.py` takes about 30 s. So:
 
 - A **supervisor** imports build123d once and stays up.
-- Each build runs in a **forked worker**: instant start, and a crash, a segfault in `fillet` or a timeout kills only the worker.
+- Each build runs in a **forked worker** (`os.fork`): 20 to 40 ms of overhead instead of 4 s, and a crash, a segfault in `fillet` or a timeout kills only the worker.
 - The newest successful worker stays alive as the **query server** for its revision, because it holds the exact shapes. Measure, section and clearance go to it.
 - A build in progress is killed when a newer save arrives.
+- Slow models show a "building" state with elapsed time over the previous revision.
+
+Rules the spike proved necessary:
+
+- **The supervisor only imports.** It never loads a model, builds geometry, tessellates or answers a query. One OCC boolean or tessellation in the parent starts OCC's thread pool, and every worker forked afterwards deadlocks. The one allowed warm-up is `Text("warm", 10)`, which loads fontconfig and saves 1.5 s per worker.
+- **Workers never fork.**
+- **Every build has a timeout**, as the backstop for a deadlock.
+- **Workers call `prctl(PR_SET_DUMPABLE, 0)` after fork**, otherwise systemd-coredump delays crash detection by 2 to 3 s.
 
 The kernel is started with the workspace's own environment so the model's imports resolve:
-`uv run --project <workspace> --with-editable <torno>/kernel python -m torno_kernel`.
+`uv run --no-sync --project <workspace> --with-editable <torno>/kernel python -m torno_kernel`.
+`--no-sync` leaves the workspace's `.venv` and lockfile untouched; the kernel's own dependencies (ocp-tessellate, trimesh) go into a uv overlay.
 
 ### Output of a build
 
-Per part: tessellation from ocp-tessellate (vertices, normals, triangles, edge segments, `triangles_per_face`, `segments_per_edge`, face and edge types), bounding box, volume, validity, and a content hash so unchanged parts are not re-sent. Per face and edge: type, area or length, centroid, normal or axis. On failure: the traceback, with the previous revision kept and marked stale.
+Per part: tessellation from ocp-tessellate (vertices, normals, triangles, edge segments, `triangles_per_face`, `segments_per_edge`, face and edge types), the part's location, bounding box, volume, validity, and a content hash so unchanged parts are not re-sent.
+
+Vertices are in the part's local frame and the location is sent beside them; the viewport applies it. Refs and coordinates exchanged with the user and the agent are always in the object's frame. Per face and edge: type, area or length, centroid, normal or axis. On failure: the traceback, with the previous revision kept and marked stale.
 
 ### Queries (all exact, on the B-rep)
 
-`describe(ref)`, `distance(a, b)`, `angle(a, b)`, `radius(ref)`, `thickness(point, direction)`, `bbox(ref)`, `mass(ref, density)`, `section(plane)` → outlines per part, `overlap(a, b)` → volume and box, `clearance(a, b)` → minimum distance and where, `scan_clash(part, scan)` → points inside, deepest penetration and where, `mesh_check(part)` → open edges after welding and where.
+`describe(ref)`, `distance(a, b)`, `angle(a, b)`, `radius(ref)`, `thickness(point, direction)`, `bbox(ref)` (approximate on freeform faces, and labelled so), `mass(ref, density)`, `section(plane)` → outlines per part, `overlap(a, b)` → volume and box, `clearance(a, b)` → minimum distance and where, `scan_clash(part, scan)` → points inside, deepest penetration and where, `mesh_check(part)` → open edges after welding and where.
 
 ### Geometry identity
 
-A face ref is the part name plus the face's index in OCC explorer order (`lid/F12`). Indices change when topology changes. Torno does not try to track faces through rebuilds. Instead:
+A face ref is the part name plus the face's index in OCC explorer order (`lid/F12`); this matches `part.faces()`. Edge indices come from the kernel's own table (`TopExp.MapShapes`), because the tessellation includes degenerate edges that `part.edges()` omits. Indices change when topology changes. Torno does not try to track faces through rebuilds. Instead:
 
 - Marks are anchored to a **point in the model frame**, with the ref recorded as a hint.
 - After each build, each anchor is re-projected to the nearest surface of the same part. The ref is updated; if the surface moved more than a tolerance, the mark is flagged `drifted`; if the part is gone, `orphaned`.
@@ -177,7 +188,7 @@ The real CLI in a PTY, drawn with xterm.js, one or more per object. Launch argum
 
 An **agent adapter** is a small config record: command, argument templates, how to pass MCP config, whether hooks exist. Claude Code is the first adapter. Codex, Gemini CLI and opencode are later adapters. A chat-panel adapter can be added without touching the rest.
 
-Session status (idle, working, needs input) comes from hooks: `UserPromptSubmit`, `Stop`, `Notification`, `PermissionRequest`, `SessionEnd`. Torno does not read Claude's private files.
+Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSubmit`, `Stop`, `Notification`, `PermissionRequest`, `SessionEnd`. (`SessionStart` does not fire as an HTTP hook and is not used.) Torno does not read Claude's private files.
 
 ### Three ways information reaches the agent
 
@@ -200,7 +211,7 @@ Session status (idle, working, needs input) comes from hooks: `UserPromptSubmit`
 | `show(view?, parts?, section?)` | changes the user's viewport |
 | `add_mark(...)`, `resolve_mark(id, note?)` | writes marks |
 
-Images come from the same renderer the user sees (an offscreen render in the window), so the two sides never disagree about what is on screen.
+Images come from the same renderer the user sees (a render target in the window, 20 to 30 ms at 1024 × 768), so the two sides never disagree about what is on screen. The long edge is capped at 2000 px, above which the CLI downscales.
 
 After each build torno also writes a contact sheet (four views per layout) and the mesh check into `.torno/`, and the next prompt's context says whether the build passed.
 
@@ -219,7 +230,7 @@ Custom, on plain three.js with three-mesh-bvh. It is the centre of the product a
 
 ## 8. Scans
 
-Import GLB, OBJ, PLY or STL by drop or dialog. The kernel (trimesh) stores the source, bakes a display mesh of at most about 500k triangles, and records units and transform in `meta.json`.
+Import GLB, OBJ, PLY or STL by drop or dialog. The kernel (trimesh) stores the source, bakes vertex colours from the texture, decimates each geometry to a display mesh of at most about 500k triangles in total (fast-simplification, about 3 s for the 1.6M-triangle Micra scan), and records units and transform in `meta.json`. Polycam files are metres and Y up; import converts to millimetres and Z up by default.
 
 Alignment, in order of use:
 
@@ -256,7 +267,7 @@ Its own, and deliberately far from nerv's dark control room.
 
 - **Kernel:** pytest against small fixture models: scene discovery, tessellation shape, each query against known geometry, anchor re-projection across a topology change, crash isolation.
 - **Main:** vitest: mark store, hook context text, MCP tools against a fake kernel, session launch arguments against a fake CLI.
-- **Viewport:** unit tests for picking maths and face lookup; a Playwright Electron smoke test that opens a fixture object, picks a face, and checks the resulting mark.
+- **Viewport:** unit tests for picking maths and face lookup; a Playwright Electron smoke test, in a hidden window, that opens a fixture object, picks a face, and checks the resulting mark.
 - **End to end, by hand:** open `~/objects/micra-intake`, with the real Claude Code.
 
 ## 13. Milestones
