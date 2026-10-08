@@ -1,0 +1,13 @@
+{
+  "name": "torno",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "pnpm -C app dev",
+    "build": "pnpm -C app build",
+    "test": "pnpm -C app test",
+    "test:kernel": "pnpm -C app test:kernel",
+    "test:e2e": "pnpm -C app test:e2e"
+  }
+}

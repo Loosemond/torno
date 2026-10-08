@@ -1,0 +1,259 @@
+/* Shell layout. The viewport fills the window; the left column, the session
+   dock and the status line sit over it. Colours and sizes come from tokens.css. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 var(--text-size) / var(--text-leading) var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Every number and ref is set in the monospace face. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* ---- Shell ---- */
+
+.shell {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  /* Width the dock takes from the viewport's free area right now. */
+  --dock-space: var(--dock-w);
+}
+
+.shell[data-dock='collapsed'] {
+  --dock-space: 0px;
+}
+
+/* Keeps the resize cursor when the pointer outruns the dock's edge at a limit. */
+.shell[data-resizing] {
+  cursor: col-resize;
+}
+
+/* ---- Viewport: the whole window ---- */
+
+.viewport {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+}
+
+/* Placeholders are centred in the part of the viewport no panel covers. */
+.viewport-empty {
+  position: absolute;
+  inset: 0 var(--dock-space) var(--status-h) var(--left-w);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.datum {
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--space-3);
+  color: var(--accent);
+}
+
+.viewport-empty h2 {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.viewport-empty p {
+  max-width: 40ch;
+  color: var(--muted);
+  text-wrap: balance;
+}
+
+/* ---- Panels over the viewport ---- */
+
+.left,
+.dock {
+  position: absolute;
+  top: 0;
+  bottom: var(--status-h);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+
+.left {
+  left: 0;
+  width: var(--left-w);
+  border-right: var(--divider);
+}
+
+.dock {
+  right: 0;
+  width: var(--dock-w);
+  border-left: var(--divider);
+}
+
+.dock[hidden] {
+  display: none;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 40px;
+  padding: 0 var(--space-4);
+}
+
+.wordmark {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.panel-title {
+  font-weight: 500;
+}
+
+.panel-note {
+  padding: var(--space-1) var(--space-4) 0;
+  color: var(--muted);
+}
+
+/* The dock's left edge is its resize handle: a 9 px hit strip over the hairline. */
+.dock-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.dock-edge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+}
+
+.dock-edge:hover::after,
+.dock-edge:focus-visible::after,
+.shell[data-resizing] .dock-edge::after {
+  background: var(--accent);
+}
+
+.dock-edge:focus-visible {
+  outline: none;
+}
+
+/* Shows and hides the dock. It stays in the window's top right corner either
+   way, so it does not move when the dock goes. */
+.dock-toggle {
+  position: absolute;
+  top: 6px;
+  right: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+}
+
+.dock-toggle:hover {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+/* With the dock hidden the button floats on the viewport and needs its own ground. */
+.shell[data-dock='collapsed'] .dock-toggle {
+  border-color: var(--hairline);
+  background: var(--panel);
+}
+
+.shell[data-dock='collapsed'] .dock-toggle:hover {
+  background: var(--accent-wash);
+}
+
+.dock-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---- Status line ---- */
+
+.status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--status-h);
+  padding: 0 var(--space-4);
+  border-top: var(--divider);
+  background: var(--panel);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.6;
+}

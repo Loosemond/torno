@@ -1,0 +1,73 @@
+/* Design tokens. Light by default, dark when the system asks for it.
+   The idea is a toolroom surface plate: calm, light, exact. The part is the
+   only loud thing on screen, so nothing here competes with it. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Colour */
+  --surface: #F1EFEA;      /* viewport ground; main/index.ts paints the window with the same value */
+  --panel: #FAF9F6;
+  --ink: #22252A;
+  --muted: #6C7178;
+  --hairline: #DAD6CE;
+  --accent: #1D46B8;       /* layout blue */
+  --accent-wash: #E3E9F8;
+  --user-mark: #CF3F2C;    /* red pencil: marks made by the person */
+  --agent-mark: #2B8A5C;   /* marks made by the agent */
+  --ok: #2B8A5C;
+  --warn: #B7791F;
+  --fail: #CF3F2C;
+
+  /* Part palette, assigned in order */
+  --part-1: #7B93B4;
+  --part-2: #C28B6C;
+  --part-3: #8DA888;
+  --part-4: #C8A75B;
+  --part-5: #A48BA7;
+  --part-6: #6E8388;
+  --part-7: #B56F76;
+  --part-8: #7FA7A6;
+
+  /* Type */
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --text-size: 13px;
+  --text-leading: 1.4;
+  --text-small: 12px;
+
+  /* Shape */
+  --radius-control: 6px;
+  --radius-palette: 10px;
+  --divider: 1px solid var(--hairline);
+  --focus-ring: 2px solid var(--accent);
+  /* The only shadow in the app: floating palettes. */
+  --palette-shadow: 0 6px 20px rgb(34 37 42 / 0.10);
+
+  /* Layout */
+  --left-w: 248px;
+  --dock-w: 520px;         /* default; the shell overrides it while the dock is resized */
+  --status-h: 28px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1A1C1F;
+    --panel: #222529;
+    --ink: #E9E7E2;
+    --muted: #9A9FA6;
+    --hairline: #33373C;
+    --accent: #7C9BF7;
+    --accent-wash: #252F4A;
+    --user-mark: #F0705E;
+    --agent-mark: #5CC492;
+    --ok: #5CC492;
+    --warn: #E0A94A;
+    --fail: #F0705E;
+    --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
+  }
+}
