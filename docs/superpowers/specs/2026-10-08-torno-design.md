@@ -1,0 +1,270 @@
+# torno: design
+
+Date: 2026-10-08. Status: draft for review.
+
+## 1. What torno is
+
+Torno is a desktop workbench for making CAD parts with an AI coding agent. The agent (Claude Code first, any terminal LLM CLI later) writes build123d Python. Torno shows the result and gives the human and the agent a shared, exact way to talk about geometry.
+
+Torno is not a modeller. It has no sketcher, no feature tree and no way to edit a solid by hand. Every tool in it exists either to **tell the agent something** (point, mark, sketch, place a rough shape, state a dimension) or to **read the part** (measure, cut, compare with a scan, look from a view).
+
+The name is Portuguese for lathe.
+
+### Why it is needed (evidence from the micra-intake session)
+
+One session, 19 hours, about 28 human messages:
+
+- 13 of 22 attached images were screenshots of a viewer; 9 had red ink drawn on them. Claude received pixels, never the location.
+- About 9 of 20 substantive turns were corrections of something Claude had declared good.
+- One open-mesh slit took 5 messages and 100 minutes, because Claude could not see what the user was looking at or which viewer judged it.
+- Two freehand sketches each ended, in one message, a misunderstanding that had survived two or three rounds of text.
+- Claude wrote 17 throwaway scripts to load, align, slice and clash-check the scan, and the scan viewer was republished by hand 16 times.
+
+### Success criteria
+
+1. A user can click a spot on the part, type "this edge is ugly", and the agent receives the part, face, coordinates, normal and camera, with no screenshot taken by hand.
+2. The agent can ask torno for exactly the view the user is looking at, and for a section or a measurement, and gets an image or exact numbers back.
+3. Saving the model file updates the viewport in about a second for a small part, with the previous build kept on screen when the new one fails.
+4. A Polycam scan can be imported, aligned and overlaid without writing a script, and the agent can query clearance against it.
+5. The existing objects in `~/objects` open without changes to their code.
+
+### Out of scope
+
+Direct modelling, parametric sliders, slicer integration, multi-user collaboration, cloud sync, Windows and macOS packaging, a custom chat UI (the session layer leaves room for one).
+
+## 2. Concepts
+
+| Term | Meaning |
+|---|---|
+| Workspace | A folder of objects sharing one Python environment (`~/objects`). |
+| Object | One folder with one model file (`airbox.py`). The unit a session works on. |
+| Scene | What the model file produces: named parts, grouped in layouts. |
+| Layout | One arrangement of the parts: `assembly` (as mounted) or `print` (posed for the bed). |
+| Reference | A part shown for context that is not printed (a filter, a pipe). |
+| Scan | An imported mesh with a stored transform into the object's frame. |
+| Mark | Anything the user or the agent places on the scene to communicate. Section 5. |
+| Ref | A stable text handle for geometry: `lid`, `lid/F12`, `lid/E40`, `M3` for a mark, `S1` for a scan. |
+| Revision | A counter that increases with each successful build. |
+
+## 3. Architecture
+
+Three processes.
+
+```
+┌─ Electron main (TypeScript) ─────────────────────────────┐
+│ window · workspace state · file watcher                  │
+│ sessions (node-pty)      MCP server (HTTP, 127.0.0.1)    │
+│ hook endpoint (HTTP)     kernel supervisor               │
+└──────┬───────────────────────────┬───────────────────────┘
+       │ IPC (contextIsolated)     │ stdio, framed JSON + binary
+┌──────┴───────────────┐   ┌───────┴──────────────────────┐
+│ Renderer             │   │ Python kernel                │
+│ React + Zustand      │   │ build123d · ocp-tessellate   │
+│ three.js viewport    │   │ trimesh · numpy              │
+│ xterm.js sessions    │   │ supervisor + forked workers  │
+└──────────────────────┘   └──────────────────────────────┘
+```
+
+**Electron**, not Tauri: this machine is NVIDIA on Wayland, which is the documented weak case for WebKitGTK. Electron pins one Chromium, and node-pty plus xterm.js is a proven terminal stack (nerv uses it).
+
+**No daemon.** nerv keeps a daemon so sessions outlive the window. Torno does not: closing the window ends the PTYs, and sessions are resumed with `--resume`. This removes a process, a socket protocol and an install step.
+
+**State ownership.** Main owns durable state (marks, scans, views, layer settings) and writes it to disk. The renderer holds a mirror in Zustand and sends intents. The kernel owns geometry. Per-frame state (camera while orbiting, hover) stays inside the viewport code and never passes through React.
+
+### Repository layout
+
+```
+torno/
+  app/                Electron app (pnpm, TypeScript, Vite)
+    src/main/         shell, sessions, mcp, hooks, kernel client, store
+    src/renderer/     ui/, viewport/, state/
+    src/shared/       types shared by main and renderer (marks, refs, protocol)
+  kernel/             Python package torno_kernel (uv)
+  docs/
+```
+
+### Files torno writes
+
+In each object folder, `.torno/`:
+
+```
+.torno/
+  marks.json          all marks, open and resolved
+  scene.json          layer visibility, colours, named views, section state
+  scans/<id>/         source file, display mesh, meta.json (transform, units)
+  views/              images the agent asked for (latest N)
+  state.md            a plain-text summary any LLM can read
+```
+
+`state.md` exists so an agent with no MCP support still has the build status, the open marks and the refs. Everything is plain JSON or Markdown, safe to commit.
+
+## 4. Kernel
+
+### Loading a model
+
+The kernel imports the object's model file as a module, so `if __name__ == "__main__"` does not run and nothing is exported. It then finds the scene, first match wins:
+
+1. `torno_scene()` if the module defines it. Returns a `torno.Scene`, for full control (layouts, references, colours).
+2. Convention: `Params()` then `assembly(p)` → layout `assembly`; `printables(p)` or `printable(p)` → layout `print`. Each returns `dict[str, Part]`.
+3. Module-level build123d shapes, by variable name.
+
+So today's objects load unchanged. `airbox.py` has only `printable`, so it shows a print layout until it gains an `assembly`.
+
+A small helper package, `torno`, is importable from models: `torno.Scene`, `torno.reference(shape)`, `torno.tag(face_or_edge, "name")`. Tagged geometry gets a named ref (`lid/mount_face`) that survives topology changes. The helper is optional.
+
+### Process model
+
+Importing build123d takes about 4 s; building a small part takes about 70 ms. So:
+
+- A **supervisor** imports build123d once and stays up.
+- Each build runs in a **forked worker**: instant start, and a crash, a segfault in `fillet` or a timeout kills only the worker.
+- The newest successful worker stays alive as the **query server** for its revision, because it holds the exact shapes. Measure, section and clearance go to it.
+- A build in progress is killed when a newer save arrives.
+
+The kernel is started with the workspace's own environment so the model's imports resolve:
+`uv run --project <workspace> --with-editable <torno>/kernel python -m torno_kernel`.
+
+### Output of a build
+
+Per part: tessellation from ocp-tessellate (vertices, normals, triangles, edge segments, `triangles_per_face`, `segments_per_edge`, face and edge types), bounding box, volume, validity, and a content hash so unchanged parts are not re-sent. Per face and edge: type, area or length, centroid, normal or axis. On failure: the traceback, with the previous revision kept and marked stale.
+
+### Queries (all exact, on the B-rep)
+
+`describe(ref)`, `distance(a, b)`, `angle(a, b)`, `radius(ref)`, `thickness(point, direction)`, `bbox(ref)`, `mass(ref, density)`, `section(plane)` → outlines per part, `overlap(a, b)` → volume and box, `clearance(a, b)` → minimum distance and where, `scan_clash(part, scan)` → points inside, deepest penetration and where, `mesh_check(part)` → open edges after welding and where.
+
+### Geometry identity
+
+A face ref is the part name plus the face's index in OCC explorer order (`lid/F12`). Indices change when topology changes. Torno does not try to track faces through rebuilds. Instead:
+
+- Marks are anchored to a **point in the model frame**, with the ref recorded as a hint.
+- After each build, each anchor is re-projected to the nearest surface of the same part. The ref is updated; if the surface moved more than a tolerance, the mark is flagged `drifted`; if the part is gone, `orphaned`.
+- Everything sent to the agent carries a descriptor beside the ref: "planar face, normal +Z, z = 20, 1180 mm²".
+- `torno.tag` gives permanent names where the author wants them.
+
+## 5. Marks
+
+A mark is the unit of communication. One list, one data model, shown in the viewport and in a side list, numbered `M1`, `M2`, … so that images and data refer to the same thing.
+
+| Kind | Made by | Says |
+|---|---|---|
+| Pin | click a point | "here" + a note |
+| Pick | click a face, edge or part | "this one" + a note |
+| Arrow | drag from a point | "move this that way" (direction and length in mm) |
+| Stroke | draw freehand | on the surface, or on a locked view plane: a profile, an outline, a scribble |
+| Shape | place a box, cylinder, sphere or plane with a gizmo | intent: `add`, `remove`, `keep-out`, `reference` |
+| Dimension | two picks | measured value; optionally "should be 12 mm" |
+| Region | paint or lasso on a scan | `ignore`, `movable`, `keep-out` |
+
+Common fields: `id`, `kind`, `author` (`user` or `agent`), `note`, `anchors` (point, normal, ref, descriptor), `camera`, `revision`, `status` (`draft` → `sent` → `resolved`, plus `drifted`, `orphaned`).
+
+Strokes drawn on a locked orthographic view are stored as 2D polylines in millimetres on a named plane (for example "plane XZ at y = 40"). That is the form in which a hand-drawn profile is directly usable by build123d.
+
+The agent can create marks too (`add_mark`), to ask "do you mean this face?" or to show where a change was made, and resolves the user's marks when it has acted on them.
+
+**Pinned dimensions** are dimension marks that stay. They are re-measured on every build. With an expected value and tolerance they show pass or fail. This is the ruler that verifies.
+
+## 6. The agent link
+
+### Sessions
+
+The real CLI in a PTY, drawn with xterm.js, one or more per object. Launch arguments for Claude Code:
+
+- `--session-id <uuid>` (new) or `--resume <id>`
+- `--mcp-config` pointing at torno's HTTP MCP server, with the object in the URL path
+- `--settings` with hooks posting to torno (does not touch `~/.claude/settings.json`)
+- `--append-system-prompt` with a short description of torno's tools and the ref syntax
+- `--allowedTools mcp__torno__*`
+
+An **agent adapter** is a small config record: command, argument templates, how to pass MCP config, whether hooks exist. Claude Code is the first adapter. Codex, Gemini CLI and opencode are later adapters. A chat-panel adapter can be added without touching the rest.
+
+Session status (idle, working, needs input) comes from hooks: `UserPromptSubmit`, `Stop`, `Notification`, `PermissionRequest`, `SessionEnd`. Torno does not read Claude's private files.
+
+### Three ways information reaches the agent
+
+1. **With every prompt.** A `UserPromptSubmit` hook returns `additionalContext`: build status and revision, the current selection, and every `draft` mark as text. Those marks become `sent`. The user points, types a sentence in the terminal, and the agent has both.
+2. **On request.** The agent calls MCP tools.
+3. **By insertion.** "Insert ref" pastes `lid/F12` or `M3` at the terminal cursor, as a bracketed paste, never auto-submitted.
+
+### MCP tools
+
+| Tool | Returns |
+|---|---|
+| `scene()` | parts, layouts, scans, build status, revision, what is visible, the user's camera |
+| `marks(status?)` | marks as data |
+| `look(view?, parts?, section?, marks?, size?)` | an image. No arguments means exactly what the user sees. `view` is a preset name, a named view, or a camera. Each image has axes, a scale bar and mark numbers. |
+| `describe(ref)` | exact geometry of a part, face or edge, and its neighbours |
+| `measure(kind, a, b?)` | distance, angle, radius, thickness, bbox, mass |
+| `section(plane, parts?)` | image plus outlines in mm |
+| `check(kind, a, b?)` | overlap, clearance, scan_clash, mesh |
+| `highlight(refs, note?)` | shows the user those refs |
+| `show(view?, parts?, section?)` | changes the user's viewport |
+| `add_mark(...)`, `resolve_mark(id, note?)` | writes marks |
+
+Images come from the same renderer the user sees (an offscreen render in the window), so the two sides never disagree about what is on screen.
+
+After each build torno also writes a contact sheet (four views per layout) and the mesh check into `.torno/`, and the next prompt's context says whether the build passed.
+
+## 7. Viewport
+
+Custom, on plain three.js with three-mesh-bvh. It is the centre of the product and needs torno's own picking, mark rendering, scan handling and look, so it is not a wrapped third-party viewer. The kernel's tessellation format (ocp-tessellate) is the input.
+
+- **Parts:** one mesh per part with per-face triangle ranges, plus true B-rep edges as lines. Z up, millimetres.
+- **Picking:** BVH raycast; the triangle index maps to a face through the cumulative `triangles_per_face`. Edges and vertices are picked within a pixel radius. Hover highlights the face or edge and shows its type and size.
+- **Layers:** every part, reference and scan has visibility, colour and opacity. Layout switch between assembly and print. Explode slider.
+- **Views:** standard views, perspective/orthographic toggle, named views saved per object.
+- **Section:** one plane, axis-aligned or taken from a picked face, dragged along its normal, with stencil caps coloured per part. Scans are clipped without caps.
+- **Measure:** point, edge and face snapping; live readout from the mesh while hovering, the committed value from the kernel.
+- **Scans:** drawn with vertex colours or texture, opacity slider, a decimated display mesh for large files.
+- **Render on demand**, not a continuous loop.
+
+## 8. Scans
+
+Import GLB, OBJ, PLY or STL by drop or dialog. The kernel (trimesh) stores the source, bakes a display mesh of at most about 500k triangles, and records units and transform in `meta.json`.
+
+Alignment, in order of use:
+
+1. **Floor:** pick three points or a patch on the scan; it becomes the XY plane.
+2. **Pairs:** click matching points on scan and model (three or more); rigid fit with optional uniform scale.
+3. **Nudge:** a gizmo, with numeric entry.
+
+The transform is saved with the object, so clash checks can run in tests later. ICP refinement is deferred.
+
+## 9. Show
+
+A scene with several objects, references and scans, switchable layers and named views, already is the "show". **Export** writes one self-contained HTML file with the same viewer reduced to layers, views, explode and scan opacity, for a phone or for publishing. Torno does not publish anything itself.
+
+## 10. Design language
+
+Its own, and deliberately far from nerv's dark control room.
+
+- **Idea:** a toolroom surface plate. Calm, light, exact. The part is the only loud thing on screen.
+- **Layout:** the viewport fills the window. Tools float on it in one small palette. Layers and marks sit in a narrow column on the left; the session docks on the right and can be widened, hidden or made full height. No frames within frames.
+- **Colour:** warm paper-grey surfaces and graphite text in light mode, with a matching dark mode. One accent, layout blue (the blue machinists paint on steel before scribing). User marks are red pencil, agent marks are green, so authorship is visible at a glance. Parts use a muted, distinguishable palette.
+- **Type:** a humanist sans for UI and a monospace with tabular figures for every number and ref. Sentence case. No all-caps labels.
+- **Feel:** small radii, hairline dividers, no glow, no ornament. Motion only where it explains a change (camera moves, a rebuild landing).
+- **Keyboard:** single-key tools (`P` pin, `A` arrow, `D` draw, `S` shape, `M` measure, `X` section), a command palette, and `Tab` between viewport and session.
+
+## 11. Errors
+
+- **Build fails:** previous revision stays, dimmed, with the traceback one click away. The next prompt's context includes the error tail.
+- **Kernel worker crashes or times out:** reported as a build failure with the signal; the supervisor is unaffected. If the supervisor dies it is restarted once, then reported.
+- **Mark loses its anchor:** `drifted` or `orphaned`, shown in the list, reported to the agent.
+- **Session exits:** the pane offers resume.
+- **MCP call before the first build, or with an unknown ref:** a plain error message naming the valid refs.
+
+## 12. Testing
+
+- **Kernel:** pytest against small fixture models: scene discovery, tessellation shape, each query against known geometry, anchor re-projection across a topology change, crash isolation.
+- **Main:** vitest: mark store, hook context text, MCP tools against a fake kernel, session launch arguments against a fake CLI.
+- **Viewport:** unit tests for picking maths and face lookup; a Playwright Electron smoke test that opens a fixture object, picks a face, and checks the resulting mark.
+- **End to end, by hand:** open `~/objects/micra-intake`, with the real Claude Code.
+
+## 13. Milestones
+
+Each is its own plan and ends in something usable.
+
+1. **Loop.** Shell, kernel, open a workspace, rebuild on save, viewport with parts, layers, views and layouts, one embedded Claude Code session with MCP `scene` and `look`.
+2. **Talk.** Picking, marks (pin, pick, arrow, stroke, shape), prompt context hook, insert ref, `marks`, `highlight`, `show`, `add_mark`, `resolve_mark`, `describe`.
+3. **Read.** Measure, pinned dimensions, section cut, `measure`, `section`, `check` for overlap, clearance and mesh.
+4. **Scan.** Import, align, overlay, regions, `scan_clash`.
+5. **Show.** Explode, named views, HTML export, more agent adapters, polish.
