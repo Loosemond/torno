@@ -1,0 +1,117 @@
+import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { bufView } from '../../shared/scene'
+import { type RunningKernel, startKernel } from './client'
+import { toArrayBuffer } from './frames'
+
+const KERNEL_DIR = resolve(__dirname, '../../../../kernel')
+
+// Python writes __pycache__ next to the models it imports, so the kernel works
+// on a copy of the fixture workspace, never on the repository's.
+let root: string
+let kernel: RunningKernel
+
+beforeAll(() => {
+  root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-kernel-'))
+  cpSync(join(KERNEL_DIR, 'tests/fixtures/ws'), root, {
+    recursive: true,
+    filter: (source) => !source.endsWith('__pycache__')
+  })
+  kernel = startKernel({ workspaceRoot: root, hasProject: false, kernelDir: KERNEL_DIR })
+})
+
+afterAll(async () => {
+  await kernel.dispose()
+  rmSync(root, { recursive: true, force: true })
+})
+
+/** The Python process: `uv run` stays as its parent. */
+function pythonPid(uvPid: number): number {
+  const children = readFileSync(`/proc/${uvPid}/task/${uvPid}/children`, 'utf8').trim().split(/\s+/).filter(Boolean)
+  return children.length ? Number(children[0]) : uvPid
+}
+
+describe('the real kernel', () => {
+  it('starts with build123d in its environment', async () => {
+    const { versions } = await kernel.ready
+    expect(versions.build123d).toMatch(/^\d+\.\d+/)
+    expect(versions.python).toMatch(/^3\./)
+  })
+
+  it('refuses a query before any build', async () => {
+    await expect(kernel.query('describe', { ref: 'assembly:base' })).rejects.toMatchObject({ kind: 'no_build' })
+  })
+
+  it('builds the bracket: four parts, every buffer readable', async () => {
+    let started = 0
+    const result = await kernel.build(join(root, 'bracket'), 'bracket.py', { onStarted: () => (started += 1) })
+    if (!result.ok) throw new Error(`${result.error.kind}: ${result.error.message}`)
+    expect(started).toBe(1)
+    expect(result.scene.parts.map((p) => p.key).sort()).toEqual(
+      ['assembly:base', 'assembly:post', 'print:base', 'print:post']
+    )
+    const blob = toArrayBuffer(result.blob)
+    for (const part of result.scene.parts) {
+      const { mesh } = part
+      const vertices = bufView(blob, mesh.vertices, Float32Array)
+      expect(vertices.length).toBeGreaterThan(0)
+      expect(bufView(blob, mesh.normals, Float32Array).length).toBe(vertices.length)
+      const triangles = bufView(blob, mesh.triangles, Uint32Array)
+      expect(triangles.length).toBe(part.triangleCount * 3)
+      expect(Math.max(...triangles)).toBeLessThan(vertices.length / 3)
+      expect(bufView(blob, mesh.edges, Float32Array).length % 6).toBe(0)
+      expect(bufView(blob, mesh.trianglesPerFace, Uint32Array).length).toBe(part.faceCount)
+      expect(bufView(blob, mesh.segmentsPerEdge, Uint32Array).length).toBe(part.edgeCount)
+      expect(bufView(blob, mesh.faceTypes, Uint32Array).length).toBe(part.faceCount)
+      expect(bufView(blob, mesh.edgeTypes, Uint32Array).length).toBe(part.edgeCount)
+    }
+  })
+
+  it('answers a query about the last good build', async () => {
+    const part = await kernel.query<{ volume: number }>('describe', { ref: 'assembly:base' })
+    expect(part.volume).toBeCloseTo(6000, 6)
+  })
+
+  it('rejects a query for a part that does not exist', async () => {
+    await expect(kernel.query('describe', { ref: 'assembly:nope' })).rejects.toMatchObject({ kind: 'bad_ref' })
+  })
+
+  it('reports a model that raises as an exception, and keeps the last good build', async () => {
+    const result = await kernel.build(join(root, 'broken'), 'broken.py')
+    expect(result).toMatchObject({ ok: false, error: { kind: 'exception' } })
+    if (!result.ok) expect(result.error.traceback).toContain('broken.py')
+    const part = await kernel.query<{ volume: number }>('describe', { ref: 'assembly:base' })
+    expect(part.volume).toBeCloseTo(6000, 6)
+  })
+
+  it('cancels a running build when a newer one starts', async () => {
+    const slow = kernel.build(join(root, 'slow'), 'slow.py')
+    const bracket = kernel.build(join(root, 'bracket'), 'bracket.py')
+    expect(await slow).toMatchObject({ ok: false, error: { kind: 'cancelled' } })
+    expect(await bracket).toMatchObject({ ok: true })
+  })
+
+  it('stops a build that overruns its timeout', async () => {
+    const result = await kernel.build(join(root, 'slow'), 'slow.py', { timeout: 1 })
+    expect(result).toMatchObject({ ok: false, error: { kind: 'timeout' } })
+  })
+
+  it('restarts after the kernel process is killed, and the next build succeeds', async () => {
+    const uvPid = kernel.pid!
+    let started!: () => void
+    const running = new Promise<void>((resolve) => (started = resolve))
+    const slow = kernel.build(join(root, 'slow'), 'slow.py', { onStarted: started })
+    await running
+    process.kill(pythonPid(uvPid), 'SIGKILL')
+    // What was pending fails; a request made once the exit is known goes to the new process.
+    expect(await slow).toMatchObject({ ok: false, error: { kind: 'crash' } })
+
+    const result = await kernel.build(join(root, 'bracket'), 'bracket.py')
+    expect(result).toMatchObject({ ok: true })
+    expect(kernel.pid).not.toBe(uvPid)
+    const part = await kernel.query<{ volume: number }>('describe', { ref: 'assembly:post' })
+    expect(part.volume).toBeCloseTo(Math.PI * 16 * 20, 3)
+  })
+})

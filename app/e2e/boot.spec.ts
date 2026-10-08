@@ -59,7 +59,8 @@ test('the renderer is isolated and the bridge is exposed', async () => {
     const w = window as unknown as Record<string, unknown>
     let message = ''
     try {
-      window.torno.workspace.current()
+      // A method no task has backed yet: those still throw.
+      void window.torno.session.stop('none')
     } catch (e) {
       message = (e as Error).message
     }

@@ -1,9 +1,10 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme } from 'electron'
+import { closeWorkspace, openWorkspace, registerIpc } from './ipc'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
-//   TORNO_WORKSPACE=<path>  workspace to open at start (not read yet: the workspace task adds it)
+//   TORNO_WORKSPACE=<path>  workspace to open at start
 //   TORNO_AGENT_CMD=<cmd>   agent command for sessions (not read yet: the session task adds it)
 const isTest = process.env.TORNO_TEST === '1'
 
@@ -51,9 +52,18 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
+  registerIpc()
+  const root = process.env.TORNO_WORKSPACE
+  if (root) {
+    // Before the window exists, so the renderer's first question finds it open.
+    await openWorkspace(root).catch((e) => console.error(`TORNO_WORKSPACE: cannot open ${root}: ${e.message}`))
+  }
   createWindow()
 })
+
+// The kernel also exits by itself when this process, and so its stdin, goes away.
+app.on('will-quit', () => void closeWorkspace())
 
 // Closing the window ends the app on every platform: sessions do not outlive it.
 app.on('window-all-closed', () => app.quit())
