@@ -35,9 +35,13 @@ function createWindow(): BrowserWindow {
 
   if (!isTest) win.once('ready-to-show', () => win.show())
 
-  // The renderer is a single local page: it opens no windows and goes nowhere else.
+  // The renderer is a single local page: it opens no windows and goes nowhere
+  // else. It may reload itself, which is how the dev server applies a change it
+  // cannot hot-swap.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  win.webContents.on('will-navigate', (event) => event.preventDefault())
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url !== win.webContents.getURL()) event.preventDefault()
+  })
 
   // electron-vite serves the renderer from its dev server under `pnpm dev`.
   const devUrl = process.env.ELECTRON_RENDERER_URL
