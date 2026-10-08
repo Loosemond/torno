@@ -1,16 +1,24 @@
-import { resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
-import type { WorkspaceInfo } from '../shared/workspace'
+import type { SceneFile } from '../shared/scenefile'
+import type { LookResult, ViewState } from '../shared/view'
+import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
 import { Builds, watchFolder } from './builds'
 import { type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
+import { forgetViews, reportView, resolveLook } from './look'
 import { kernelDir } from './paths'
+import { loadSceneFile, saveSceneFile } from './scenefile'
 import { scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
-//   invoke: workspace:current, workspace:pick, workspace:open, object:open, object:rebuild
-//   events: object:build, object:scene
+//   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
+//           object:open, object:rebuild, object:sceneFile
+//   from the renderer: object:saveSceneFile, view:report, view:lookReply
+//   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts)
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the last scan
@@ -66,6 +74,7 @@ export async function closeWorkspace(): Promise<void> {
   const ws = current
   if (!ws) return
   current = null
+  forgetViews()
   for (const id of ws.opened) ws.builds.close(id)
   await ws.kernel.dispose()
 }
@@ -75,18 +84,41 @@ function requireWorkspace(): OpenWorkspace {
   return current
 }
 
-export function registerIpc(): void {
+/** An object of the open workspace as of the last scan. The renderer names objects, never folders. */
+function findObject(id: string): ObjectInfo | undefined {
+  return current?.info.objects.find((o) => o.id === id)
+}
+
+/**
+ * `onWorkspaceChosen` is told the root of every workspace the person opens
+ * from the window, so that it can be opened again at the next start.
+ */
+export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void } = {}): void {
+  const chosen = (info: WorkspaceInfo): WorkspaceInfo => {
+    opts.onWorkspaceChosen?.(info.root)
+    return info
+  }
+
   ipcMain.handle('workspace:current', () => current?.info ?? null)
 
   ipcMain.handle('workspace:pick', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    const options: Electron.OpenDialogOptions = { title: 'Open workspace', properties: ['openDirectory', 'createDirectory'] }
+    const options: Electron.OpenDialogOptions = { title: 'Open folder', properties: ['openDirectory', 'createDirectory'] }
+    // Where objects usually live, suggested until a workspace has been chosen.
+    const usual = join(homedir(), 'objects')
+    if (current) options.defaultPath = current.info.root
+    else if (existsSync(usual)) options.defaultPath = usual
     const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
     if (picked.canceled || picked.filePaths.length === 0) return null
-    return openWorkspace(picked.filePaths[0])
+    return chosen(await openWorkspace(picked.filePaths[0]))
   })
 
-  ipcMain.handle('workspace:open', (_event, root: string) => openWorkspace(root))
+  ipcMain.handle('workspace:open', async (_event, root: string) => chosen(await openWorkspace(root)))
+
+  ipcMain.handle('workspace:versions', async () => {
+    const ws = requireWorkspace()
+    return (await ws.kernel.ready).versions
+  })
 
   ipcMain.handle('object:open', async (event, id: string): Promise<BuildState> => {
     const ws = requireWorkspace()
@@ -108,4 +140,21 @@ export function registerIpc(): void {
   ipcMain.handle('object:rebuild', (_event, id: string) => {
     requireWorkspace().builds.rebuild(id)
   })
+
+  ipcMain.handle('object:sceneFile', (_event, id: string): Promise<SceneFile> => {
+    const obj = findObject(id)
+    return obj ? loadSceneFile(obj.dir) : Promise.resolve({ layers: {} })
+  })
+
+  ipcMain.on('object:saveSceneFile', (_event, id: string, file: SceneFile) => {
+    const obj = findObject(id)
+    if (!obj) return
+    saveSceneFile(obj.dir, file).catch((e) => console.error(`cannot save the scene file of ${id}: ${e.message}`))
+  })
+
+  ipcMain.on('view:report', (_event, view: ViewState) => {
+    if (findObject(view?.objectId)) reportView(view)
+  })
+
+  ipcMain.on('view:lookReply', (_event, id: number, result: LookResult | { error: string }) => resolveLook(id, result))
 }

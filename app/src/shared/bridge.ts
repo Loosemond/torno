@@ -1,5 +1,6 @@
 import type { BuildState } from './build'
 import type { Scene } from './scene'
+import type { SceneFile } from './scenefile'
 import type { LookRequest, LookResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
 
@@ -8,10 +9,13 @@ export interface TornoBridge {
     current(): Promise<WorkspaceInfo | null>
     pick(): Promise<WorkspaceInfo | null>            // folder dialog
     open(root: string): Promise<WorkspaceInfo>
+    versions(): Promise<Record<string, string>>     // of the kernel, once it is ready: build123d, python
   }
   object: {
     open(id: string): Promise<BuildState>            // starts watching and building
     rebuild(id: string): Promise<void>
+    loadSceneFile(id: string): Promise<SceneFile>    // <object>/.torno/scene.json, defaults when there is none
+    saveSceneFile(id: string, file: SceneFile): void
     onBuild(cb: (s: BuildState) => void): () => void
     onScene(cb: (m: { objectId: string; revision: number; scene: Scene; blob: ArrayBuffer }) => void): () => void
   }

@@ -26,6 +26,7 @@ body {
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
   font-size: inherit;
@@ -83,16 +84,40 @@ button {
   background: var(--surface);
 }
 
-/* Placeholders are centred in the part of the viewport no panel covers. */
-.viewport-empty {
+/* The part of the viewport no panel covers: the canvas, the view bar and
+   whatever is said when there is nothing to draw. */
+.viewport-pane {
   position: absolute;
   inset: 0 var(--dock-space) var(--status-h) var(--left-w);
+}
+
+.viewport-canvas,
+.viewport-canvas canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.viewport-canvas canvas {
+  display: block;
+  touch-action: none;
+}
+
+.viewport-empty {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-content: center;
   justify-items: center;
   gap: var(--space-1);
   padding: var(--space-4);
+  background: var(--surface);
   text-align: center;
+}
+
+.viewport-empty .button {
+  margin-top: var(--space-3);
 }
 
 .datum {
@@ -150,9 +175,23 @@ button {
 }
 
 .wordmark {
-  font-size: 15px;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+}
+
+.workspace-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.left .panel-head {
+  gap: var(--space-2);
+  padding-right: var(--space-2);
 }
 
 .panel-title {
@@ -232,6 +271,321 @@ button {
   height: 16px;
 }
 
+/* ---- Controls ---- */
+
+.spacer {
+  flex: 1;
+}
+
+.selectable {
+  user-select: text;
+  cursor: text;
+}
+
+.button {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+}
+
+.button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.button-primary {
+  height: 32px;
+  padding: 0 var(--space-4);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+  font-weight: 500;
+}
+
+.button-primary:hover {
+  color: var(--panel);
+  filter: brightness(1.1);
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+}
+
+.icon-button:hover {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---- First launch: no folder open ---- */
+
+.welcome {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.welcome p {
+  max-width: 38ch;
+  color: var(--muted);
+  text-wrap: balance;
+}
+
+.welcome .button {
+  margin-top: var(--space-3);
+}
+
+/* ---- Left column: objects, then the layers of the open one ---- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.objects {
+  flex: 0 1 auto;
+  max-height: 50%;
+  padding-bottom: var(--space-2);
+}
+
+.layers {
+  flex: 1 1 0;
+  border-top: var(--divider);
+  padding-top: var(--space-1);
+}
+
+.section-title {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-4) var(--space-1);
+  font-size: var(--text-small);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.section-note {
+  padding: 0 var(--space-4);
+  color: var(--muted);
+}
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+}
+
+.row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-row {
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.object-row:hover {
+  background: var(--accent-wash);
+}
+
+.object-row[aria-current] {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.object-row[data-problem] {
+  color: var(--muted);
+}
+
+.object-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.layer-row .row-name {
+  font-size: var(--text-small);
+}
+
+.layer-row[data-hidden] .row-name {
+  color: var(--muted);
+}
+
+.layer-row[data-hidden] .swatch {
+  opacity: 0.35;
+}
+
+/* Opacity: out of the way until the row is pointed at, unless it has been set. */
+.layer-opacity {
+  appearance: none;
+  flex: none;
+  width: 56px;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  opacity: 0;
+}
+
+.layer-row:hover .layer-opacity,
+.layer-opacity:focus-visible,
+.layer-opacity[data-set] {
+  opacity: 1;
+}
+
+.layer-opacity::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--hairline);
+}
+
+.layer-opacity::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.layer-opacity:hover::-webkit-slider-thumb,
+.layer-opacity:focus-visible::-webkit-slider-thumb {
+  background: var(--accent);
+}
+
+/* ---- View bar: the one palette floating on the viewport ---- */
+
+.viewbar {
+  position: absolute;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.viewbar-group {
+  display: flex;
+  gap: 2px;
+}
+
+.viewbar-rule {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--space-1);
+  background: var(--hairline);
+}
+
+.bar-button {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.bar-button:hover {
+  background: var(--accent-wash);
+}
+
+.bar-button[aria-pressed='true'],
+.bar-button[aria-expanded='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.bar-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.bar-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.viewbar-more {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  display: grid;
+  min-width: 96px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.menu-item {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--accent-wash);
+}
+
 /* ---- Status line ---- */
 
 .status {
@@ -241,13 +595,25 @@ button {
   bottom: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-4);
   height: var(--status-h);
   padding: 0 var(--space-4);
   border-top: var(--divider);
   background: var(--panel);
   font-size: var(--text-small);
   color: var(--muted);
+  white-space: nowrap;
+}
+
+.status-name {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.status-build {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .status-dot {
@@ -255,5 +621,96 @@ button {
   height: 6px;
   border-radius: 50%;
   background: var(--muted);
-  opacity: 0.6;
+}
+
+.status-build[data-status='ok'] .status-dot {
+  background: var(--ok);
+}
+
+.status-build[data-status='failed'] .status-dot {
+  background: var(--fail);
+}
+
+.status-build[data-status='building'] .status-dot {
+  background: var(--accent);
+  animation: working 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes working {
+  to {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-build[data-status='building'] .status-dot {
+    animation: none;
+  }
+}
+
+.status-fail {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fail);
+  font-weight: 500;
+}
+
+.status-fail:hover,
+.status-fail[aria-expanded='true'] {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- Build error sheet: rises from the status line over the viewport ---- */
+
+.sheet {
+  position: absolute;
+  left: var(--left-w);
+  right: var(--dock-space);
+  bottom: 100%;
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 560px);
+  border-top: var(--divider);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--text-size);
+  white-space: normal;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-3);
+  height: 44px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+}
+
+.sheet-title {
+  font-weight: 600;
+  color: var(--fail);
+}
+
+.sheet-body {
+  min-height: 0;
+  padding: 0 0 var(--space-4);
+  overflow-y: auto;
+  user-select: text;
+  cursor: text;
+}
+
+.sheet-message {
+  max-width: 90ch;
+  padding: 0 var(--space-4) var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.sheet-pre {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  font: 400 var(--text-small) / 1.55 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

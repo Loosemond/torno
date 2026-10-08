@@ -1,4 +1,10 @@
-import { useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import type { WorkspaceInfo } from '../shared/workspace'
+import { actions, sceneFileOf, store, useStore } from './state/store'
+import { BuildStatus } from './ui/BuildStatus'
+import { Layers } from './ui/Layers'
+import { ObjectList } from './ui/ObjectList'
+import { DatumMark, ViewportPane } from './ui/ViewportPane'
 
 const LEFT_WIDTH = 248
 const DOCK_DEFAULT = 520
@@ -11,7 +17,95 @@ function clampDock(width: number): number {
   return Math.round(Math.min(Math.max(width, DOCK_MIN), max))
 }
 
+const SAVE_DELAY_MS = 500
+
+function showWorkspace(info: WorkspaceInfo | null): void {
+  actions.setWorkspace(info)
+  if (!info) return
+  // The kernel may still be starting: its versions arrive when it is ready.
+  window.torno.workspace.versions().then(
+    (versions) => {
+      if (store.getState().workspace?.root === info.root) actions.setVersions(versions)
+    },
+    () => {} // a kernel that never started is reported by the first build
+  )
+}
+
+async function pickWorkspace(): Promise<void> {
+  const info = await window.torno.workspace.pick()
+  if (info) showWorkspace(info) // null: the dialog was cancelled
+}
+
+let opening = 0
+
+/** Show an object as its scene file left it, and have main watch and build it. */
+async function openObject(id: string): Promise<void> {
+  const turn = ++opening
+  const file = await window.torno.object.loadSceneFile(id).catch(() => ({ layers: {} }))
+  if (turn !== opening) return // another object was chosen meanwhile
+  actions.openObject(id, file)
+  try {
+    const state = await window.torno.object.open(id)
+    // Its build events may have overtaken this answer; they are the newer.
+    if (!store.getState().build) actions.applyBuild(state)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    actions.applyBuild({ objectId: id, status: 'failed', revision: 0, stale: false, error: { kind: 'open', message } })
+  }
+  // Opening scans the folder again: an object made a moment ago is in the list now.
+  const info = await window.torno.workspace.current().catch(() => null)
+  if (info) actions.refreshWorkspace(info)
+}
+
+/** Join the store to main: the workspace at start, build states, and saving the scene file. */
+function useMain(): void {
+  useEffect(() => {
+    let live = true
+    void window.torno.workspace.current().then((info) => {
+      if (live && !store.getState().workspaceKnown) showWorkspace(info)
+    })
+    const offBuild = window.torno.object.onBuild(actions.applyBuild)
+
+    // Layer and layout changes are written to <object>/.torno/scene.json, once they stop coming.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let unsaved: (() => void) | null = null
+    const flush = () => {
+      clearTimeout(timer)
+      unsaved?.()
+      unsaved = null
+    }
+    const offStore = store.subscribe((s, prev) => {
+      if (s.workspace?.root !== prev.workspace?.root) {
+        // Main has left that workspace: the object the save was for is no longer there.
+        clearTimeout(timer)
+        unsaved = null
+      } else if (s.objectId !== prev.objectId) {
+        flush()
+      } else if (s.edits !== prev.edits && s.objectId) {
+        const id = s.objectId
+        const file = sceneFileOf(s)
+        unsaved = () => window.torno.object.saveSceneFile(id, file)
+        clearTimeout(timer)
+        timer = setTimeout(flush, SAVE_DELAY_MS)
+      }
+    })
+    window.addEventListener('pagehide', flush)
+
+    return () => {
+      live = false
+      offBuild()
+      offStore()
+      window.removeEventListener('pagehide', flush)
+      flush()
+    }
+  }, [])
+}
+
 export function App() {
+  useMain()
+  const workspace = useStore((s) => s.workspace)
+  const workspaceKnown = useStore((s) => s.workspaceKnown)
+  const [errorOpen, setErrorOpen] = useState(false)
   const shell = useRef<HTMLDivElement>(null)
   const [dockWidth, setDockWidth] = useState(DOCK_DEFAULT)
   const [dockOpen, setDockOpen] = useState(true)
@@ -47,6 +141,24 @@ export function App() {
     setDockWidth((w) => clampDock(w + (e.key === 'ArrowLeft' ? KEY_STEP : -KEY_STEP)))
   }
 
+  const errorOpened = useCallback((open: boolean) => setErrorOpen(open), [])
+
+  if (!workspaceKnown) return <div className="shell" />
+  if (!workspace) {
+    return (
+      <div className="shell">
+        <main className="viewport welcome" data-region="viewport">
+          <DatumMark />
+          <h1 className="wordmark">torno</h1>
+          <p>Open the folder that holds your objects. Each object is a folder with a Python model in it.</p>
+          <button type="button" className="button button-primary" onClick={() => void pickWorkspace()}>
+            Open folder
+          </button>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div
       ref={shell}
@@ -55,18 +167,20 @@ export function App() {
       style={{ '--dock-w': `${dockWidth}px` } as CSSProperties}
     >
       <main className="viewport" data-region="viewport">
-        <div className="viewport-empty">
-          <DatumMark />
-          <h2>No object open</h2>
-          <p>Choose an object in the left column to see its parts here.</p>
-        </div>
+        <ViewportPane onShowError={() => setErrorOpen(true)} />
       </main>
 
-      <aside className="left" data-region="left" aria-label="Objects, layers and marks">
+      <aside className="left" data-region="left" aria-label="Objects and layers">
         <header className="panel-head">
-          <h1 className="wordmark">torno</h1>
+          <h1 className="workspace-name" title={workspace.root}>
+            {basename(workspace.root)}
+          </h1>
+          <button type="button" className="icon-button" aria-label="Open folder" title="Open folder" onClick={() => void pickWorkspace()}>
+            <FolderIcon />
+          </button>
         </header>
-        <p className="panel-note">No workspace open.</p>
+        <ObjectList onOpen={(id) => void openObject(id)} />
+        <Layers />
       </aside>
 
       <aside className="dock" data-region="session" aria-label="Session" hidden={!dockOpen}>
@@ -101,21 +215,19 @@ export function App() {
         <DockIcon />
       </button>
 
-      <footer className="status" data-region="status">
-        <span className="status-dot" aria-hidden="true" />
-        <span>No build yet</span>
-      </footer>
+      <BuildStatus errorOpen={errorOpen} onErrorOpen={errorOpened} />
     </div>
   )
 }
 
-/** A scribed centre mark: where the part's origin will sit on the plate. */
-function DatumMark() {
+function basename(path: string): string {
+  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+}
+
+function FolderIcon() {
   return (
-    <svg className="datum" viewBox="0 0 44 44" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true">
-      <circle cx="22" cy="22" r="9.5" />
-      <path d="M22 2.5v15M22 26.5v15M2.5 22h15M26.5 22h15" />
-      <circle cx="22" cy="22" r="1" fill="currentColor" stroke="none" />
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h2.6l1.5 1.75h5.4c.83 0 1.5.67 1.5 1.5v5.75c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.5Z" />
     </svg>
   )
 }

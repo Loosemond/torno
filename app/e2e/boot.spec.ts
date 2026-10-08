@@ -1,25 +1,47 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 
 const appDir = resolve(__dirname, '..')
 
 // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
-function launch(): Promise<ElectronApplication> {
-  return electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1' } })
+// With a workspace the window shows its shell; without one, the prompt to open a folder.
+function launch(workspace?: string): Promise<ElectronApplication> {
+  const env = { ...process.env, TORNO_TEST: '1', ...(workspace ? { TORNO_WORKSPACE: workspace } : {}) }
+  return electron.launch({ args: ['.'], cwd: appDir, env })
 }
 
+let root: string
 let app: ElectronApplication
 let page: Page
 
 test.beforeAll(async () => {
-  app = await launch()
+  // An empty folder: the shell with nothing in it.
+  root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-boot-'))
+  app = await launch(root)
   page = await app.firstWindow()
-  await page.waitForSelector('[data-region="viewport"]')
+  await page.waitForSelector('[data-region="left"]')
 })
 
 test.afterAll(async () => {
   await app?.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('with no folder open, the window is one prompt with one button', async () => {
+  const bare = await launch()
+  try {
+    const barePage = await bare.firstWindow()
+    await expect(barePage.locator('[data-region="viewport"]')).toContainText('torno')
+    await expect(barePage.getByRole('button')).toHaveText(['Open folder'])
+    await expect(barePage.locator('[data-region="left"], [data-region="session"], [data-region="status"]')).toHaveCount(0)
+    // Centred in the window.
+    const button = (await barePage.getByRole('button').boundingBox())!
+    expect(Math.abs(button.x + button.width / 2 - 720)).toBeLessThan(1)
+  } finally {
+    await bare.close()
+  }
 })
 
 test('the window is hidden, 1440 × 900, and titled torno', async () => {
@@ -33,7 +55,9 @@ test('the window is hidden, 1440 × 900, and titled torno', async () => {
 })
 
 test('the four shell regions exist with their placeholders', async () => {
-  await expect(page.locator('aside[data-region="left"]')).toContainText('torno')
+  await expect(page.locator('aside[data-region="left"] .workspace-name')).toHaveText(root.split('/').pop()!)
+  await expect(page.locator('aside[data-region="left"]')).toContainText('No objects here yet')
+  await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
   await expect(page.locator('main[data-region="viewport"]')).toContainText('No object open')
   await expect(page.locator('aside[data-region="session"]')).toBeVisible()
   await expect(page.locator('footer[data-region="status"]')).toBeVisible()
@@ -141,11 +165,11 @@ for (const scheme of ['light', 'dark'] as const) {
     const dir = process.env.TORNO_SHOTS
     test.skip(!dir, 'TORNO_SHOTS is not set')
     mkdirSync(dir!, { recursive: true })
-    const shotApp = await launch()
+    const shotApp = await launch(root)
     try {
       const shotPage = await shotApp.firstWindow()
       await shotPage.emulateMedia({ colorScheme: scheme })
-      await shotPage.waitForSelector('[data-region="viewport"]')
+      await shotPage.waitForSelector('[data-region="left"]')
       await shotPage.evaluate(async () => {
         await document.fonts.ready
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))

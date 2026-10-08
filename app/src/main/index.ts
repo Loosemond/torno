@@ -1,10 +1,13 @@
-import { join } from 'node:path'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { app, BrowserWindow, nativeTheme } from 'electron'
 import { closeWorkspace, openWorkspace, registerIpc } from './ipc'
+import { latestView, requestLook } from './look'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
-//   TORNO_WORKSPACE=<path>  workspace to open at start
+//   TORNO_WORKSPACE=<path>  workspace to open at start, instead of the one remembered
+//   TORNO_CONFIG=<path>     config file to use instead of ~/.config/torno/config.json
 //   TORNO_AGENT_CMD=<cmd>   agent command for sessions (not read yet: the session task adds it)
 const isTest = process.env.TORNO_TEST === '1'
 
@@ -13,6 +16,35 @@ const isTest = process.env.TORNO_TEST === '1'
 // every mouse move in a test takes a second. Without the frame-rate limit it
 // keeps drawing at 60 Hz. Never set for a visible window.
 if (isTest) app.commandLine.appendSwitch('disable-frame-rate-limit')
+
+// The workspace last opened from the window is remembered in
+// ~/.config/torno/config.json and opened again at the next start. A test run
+// neither reads nor writes the person's own file: only one it names itself.
+const configPath: string | null =
+  process.env.TORNO_CONFIG ?? (isTest ? null : join(app.getPath('appData'), 'torno', 'config.json'))
+
+async function rememberedWorkspace(): Promise<string | undefined> {
+  if (!configPath) return undefined
+  try {
+    const config: unknown = JSON.parse(await readFile(configPath, 'utf8'))
+    const root = (config as { workspace?: unknown } | null)?.workspace
+    return typeof root === 'string' && root ? root : undefined
+  } catch {
+    return undefined // no file yet, or not one of ours
+  }
+}
+
+async function rememberWorkspace(root: string): Promise<void> {
+  if (!configPath) return
+  try {
+    await mkdir(dirname(configPath), { recursive: true })
+    const temp = `${configPath}.${process.pid}.tmp`
+    await writeFile(temp, `${JSON.stringify({ workspace: root }, null, 2)}\n`)
+    await rename(temp, configPath)
+  } catch (e) {
+    console.error(`cannot write ${configPath}: ${(e as Error).message}`)
+  }
+}
 
 // The window's own background, painted before the renderer's first frame.
 // Keep equal to --surface in src/renderer/styles/tokens.css.
@@ -45,19 +77,24 @@ function createWindow(): BrowserWindow {
   })
 
   // electron-vite serves the renderer from its dev server under `pnpm dev`.
+  // `?test=1` tells the renderer to expose its test hook (window.__tornoTest).
   const devUrl = process.env.ELECTRON_RENDERER_URL
-  if (!app.isPackaged && devUrl) void win.loadURL(devUrl)
-  else void win.loadFile(join(__dirname, '../renderer/index.html'))
+  if (!app.isPackaged && devUrl) void win.loadURL(isTest ? `${devUrl}?test=1` : devUrl)
+  else void win.loadFile(join(__dirname, '../renderer/index.html'), isTest ? { query: { test: '1' } } : undefined)
 
   return win
 }
 
 void app.whenReady().then(async () => {
-  registerIpc()
-  const root = process.env.TORNO_WORKSPACE
+  registerIpc({ onWorkspaceChosen: (root) => void rememberWorkspace(root) })
+  // What a test needs of main that it cannot reach through the window.
+  if (isTest) Object.assign(globalThis, { __tornoMain: { requestLook, latestView } })
+  const named = process.env.TORNO_WORKSPACE
+  const root = named ?? (await rememberedWorkspace())
   if (root) {
     // Before the window exists, so the renderer's first question finds it open.
-    await openWorkspace(root).catch((e) => console.error(`TORNO_WORKSPACE: cannot open ${root}: ${e.message}`))
+    const source = named ? 'TORNO_WORKSPACE' : configPath
+    await openWorkspace(root).catch((e) => console.error(`${source}: cannot open ${root}: ${e.message}`))
   }
   createWindow()
 })

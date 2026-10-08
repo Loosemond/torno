@@ -37,6 +37,7 @@ const MOVE_MS = 240
 const STALE_FADE = 0.6
 /** Long edge of a picture for the agent, in pixels. */
 const MAX_IMAGE = 2000
+const DEFAULT_IMAGE = 1280
 const MIN_IMAGE = 64
 const NAMED_ASPECT = 4 / 3
 /** What `fit` and the named views frame when no part is shown. */
@@ -93,7 +94,7 @@ export class Viewport {
     this.perspective.position.set(120, -120, 96)
 
     // The sky is +Z. With the key light riding on the camera, no side goes black.
-    const sky = new THREE.HemisphereLight(0xffffff, 0x8c8880, 1.5)
+    const sky = new THREE.HemisphereLight(0xffffff, 0xc8c4bc, 1.5)
     sky.position.set(0, 0, 1)
     this.scene.add(sky, this.keyLight, this.keyLight.target)
 
@@ -240,13 +241,17 @@ export class Viewport {
    * the long edge in pixels. Named views are orthographic, 4:3 and fitted to the
    * parts shown; `current` is what the user sees.
    */
-  async renderImage(req: { view: 'current' | ViewName | Camera; layout: string; visibleKeys: string[]; size: number }): Promise<LookResult> {
+  async renderImage(req: { view: 'current' | ViewName | Camera; layout: string; visibleKeys: string[]; size?: number }): Promise<LookResult> {
+    // Before anything is drawn: nothing below may wait between hiding parts and restoring them.
+    await overlayFonts()
+    if (this.disposed) throw new Error('The viewport is closed')
     if (!this.layouts.includes(req.layout)) {
       const known = this.layouts.length > 0 ? `the layouts are ${this.layouts.join(', ')}` : 'nothing has been built yet'
       throw new Error(`No layout "${req.layout}": ${known}`)
     }
     const aspect = req.view === 'current' ? this.aspect : NAMED_ASPECT
-    const long = Math.round(Math.min(Math.max(req.size, MIN_IMAGE), MAX_IMAGE))
+    const size = typeof req.size === 'number' && Number.isFinite(req.size) ? req.size : DEFAULT_IMAGE
+    const long = Math.round(Math.min(Math.max(size, MIN_IMAGE), MAX_IMAGE))
     const width = aspect >= 1 ? long : Math.max(1, Math.round(long * aspect))
     const height = aspect >= 1 ? Math.max(1, Math.round(long / aspect)) : long
 
@@ -267,23 +272,23 @@ export class Viewport {
       viewName = 'custom'
     }
 
-    // Everything from here to `restore` is synchronous, so no frame on screen sees it.
+    // Everything from here to the end of `finally` is synchronous, so no frame on screen sees it.
     const before = new Map([...this.entries.values()].map((e) => [e, e.built.group.visible]))
-    for (const entry of this.entries.values()) entry.built.group.visible = false
-    for (const entry of shown) entry.built.group.visible = true
-    const extent = req.layout === this.layout ? this.extent : this.rebuildGround(req.layout)
-
     const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
-    camera.up.fromArray(view.up)
-    camera.position.fromArray(view.position)
-    camera.zoom = view.zoom
-    const target = new THREE.Vector3().fromArray(view.target)
-    camera.lookAt(target)
-    setProjection(camera, target, view.fov, aspect, extent)
-    this.aimKeyLight(camera, target)
-
     let pixels: Uint8ClampedArray<ArrayBuffer>
     try {
+      for (const entry of this.entries.values()) entry.built.group.visible = false
+      for (const entry of shown) entry.built.group.visible = true
+      const extent = req.layout === this.layout ? this.extent : this.rebuildGround(req.layout)
+
+      camera.up.fromArray(view.up)
+      camera.position.fromArray(view.position)
+      camera.zoom = view.zoom
+      const target = new THREE.Vector3().fromArray(view.target)
+      camera.lookAt(target)
+      setProjection(camera, target, view.fov, aspect, extent)
+      this.aimKeyLight(camera, target)
+
       const targets = this.targetsFor(width, height)
       this.renderer.setRenderTarget(targets.drawn)
       this.renderer.render(this.scene, camera)
@@ -649,6 +654,20 @@ function setProjection(camera: AnyCamera, target: THREE.Vector3, fovDeg: number,
     camera.far = reach + radius
   }
   camera.updateProjectionMatrix()
+}
+
+let fontsLoaded: Promise<unknown> | undefined
+
+/**
+ * The faces the overlay is set in, loaded once. A canvas does not wait for a
+ * web font: text drawn before it has arrived comes out in the fallback face.
+ */
+function overlayFonts(): Promise<unknown> {
+  if (typeof document === 'undefined' || !document.fonts) return Promise.resolve()
+  fontsLoaded ??= Promise.all(
+    ['12px "IBM Plex Mono"', '600 12px "IBM Plex Mono"', '12px "IBM Plex Sans"'].map((font) => document.fonts.load(font))
+  ).catch(() => {}) // a face that cannot be loaded leaves the fallback, as before
+  return fontsLoaded
 }
 
 /** The box around some parts, in the object frame, or null for none. */

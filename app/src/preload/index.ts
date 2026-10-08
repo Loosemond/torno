@@ -21,18 +21,21 @@ const bridge: TornoBridge = {
   workspace: {
     current: () => ipcRenderer.invoke('workspace:current'),
     pick: () => ipcRenderer.invoke('workspace:pick'),
-    open: (root) => ipcRenderer.invoke('workspace:open', root)
+    open: (root) => ipcRenderer.invoke('workspace:open', root),
+    versions: () => ipcRenderer.invoke('workspace:versions')
   },
   object: {
     open: (id) => ipcRenderer.invoke('object:open', id),
     rebuild: (id) => ipcRenderer.invoke('object:rebuild', id),
+    loadSceneFile: (id) => ipcRenderer.invoke('object:sceneFile', id),
+    saveSceneFile: (id, file) => ipcRenderer.send('object:saveSceneFile', id, file),
     onBuild: (cb) => subscribe('object:build', cb),
     onScene: (cb) => subscribe('object:scene', cb)
   },
   view: {
-    report: notImplemented,
-    onLook: notImplemented,
-    lookReply: notImplemented
+    report: (v) => ipcRenderer.send('view:report', v),
+    onLook: (cb) => subscribe('view:look', cb),
+    lookReply: (id, result) => ipcRenderer.send('view:lookReply', id, result)
   },
   session: {
     start: notImplemented,

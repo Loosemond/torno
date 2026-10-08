@@ -1,0 +1,191 @@
+import { useEffect, useRef, useState } from 'react'
+import type { Scene } from '../../shared/scene'
+import type { LookRequest, LookResult } from '../../shared/view'
+import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
+import { Viewport } from '../viewport/Viewport'
+import { ViewBar } from './ViewBar'
+
+const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output: '' }
+
+/**
+ * A picture of the open object for the agent. `parts` are names in the layout
+ * asked for (the one shown, by default); without them, the parts switched on.
+ */
+async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
+  const s = store.getState()
+  if (!s.scene) throw new Error('no build yet')
+  const layout = req.layout ?? s.layout
+  let keys = visibleKeys(s, layout)
+  if (req.parts) {
+    const parts = partsInLayout(s, layout)
+    // An unknown layout is left to the viewport, whose error names the layouts.
+    const known = s.scene.layouts.includes(layout)
+    keys = []
+    for (const name of req.parts) {
+      const part = parts.find((p) => p.name === name)
+      if (part) keys.push(part.key)
+      else if (known) throw new Error(`unknown part '${name}'; parts in layout ${layout}: ${parts.map((p) => p.name).join(', ')}`)
+    }
+  }
+  return viewport.renderImage({ view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size })
+}
+
+/** Join a viewport to the store and to main. Returns what undoes it. */
+function connect(viewport: Viewport): () => void {
+  const applyLayers = (s: TornoState) => {
+    // Every part, each time: the viewport remembers settings by key, and keys repeat between objects.
+    for (const part of s.scene?.parts ?? []) {
+      const layer = s.layers[part.name]
+      viewport.setLayer(part.key, { visible: layer?.visible !== false, color: layer?.color, opacity: layer?.opacity ?? 1 })
+    }
+  }
+  const report = () => {
+    const s = store.getState()
+    if (!s.objectId || !s.scene) return
+    window.torno.view.report({ objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s) })
+  }
+
+  const offScene = window.torno.object.onScene((m) => {
+    const first = store.getState().scene === null
+    if (!actions.applyScene(m)) return
+    const s = store.getState()
+    applyLayers(s)
+    viewport.setScene(m.scene, m.blob)
+    viewport.setLayout(s.layout)
+    viewport.setStale(s.build?.stale ?? false)
+    if (first) viewport.setView('iso')
+    report()
+  })
+
+  const offStore = store.subscribe((s, prev) => {
+    if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
+      viewport.setScene(NO_SCENE, new ArrayBuffer(0))
+      viewport.setStale(false)
+      return
+    }
+    if (s.scene !== prev.scene) return // the scene handler above brings the viewport in line
+    if (s.build !== prev.build) viewport.setStale((s.build?.stale ?? false) && s.scene !== null)
+    if (s.layout !== prev.layout) viewport.setLayout(s.layout)
+    if (s.layers !== prev.layers) applyLayers(s)
+    if (s.layout !== prev.layout || s.layers !== prev.layers) report()
+  })
+
+  viewport.onCameraSettled((camera) => {
+    if (camera.ortho !== store.getState().ortho) actions.setOrtho(camera.ortho)
+    report()
+  })
+
+  const offLook = window.torno.view.onLook(({ id, request }) => {
+    look(viewport, request).then(
+      (result) => window.torno.view.lookReply(id, result),
+      (e: unknown) => window.torno.view.lookReply(id, { error: e instanceof Error ? e.message : String(e) })
+    )
+  })
+
+  if (new URLSearchParams(location.search).has('test')) {
+    window.__tornoTest = {
+      state: () => store.getState(),
+      look: (req) => look(viewport, req),
+      camera: () => viewport.getCamera()
+    }
+  }
+
+  return () => {
+    offScene()
+    offStore()
+    offLook()
+    delete window.__tornoTest
+  }
+}
+
+/**
+ * The 3D view of the open object, in the part of the window no panel covers,
+ * with the view bar floating on it. What to say when there is nothing to draw
+ * is here too.
+ */
+export function ViewportPane({ onShowError }: { onShowError: () => void }) {
+  const host = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState<Viewport | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const name = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
+  const hasScene = useStore((s) => s.scene !== null)
+  const build = useStore((s) => s.build)
+
+  useEffect(() => {
+    // A canvas of its own for each viewport: a WebGL context is not handed on.
+    const canvas = document.createElement('canvas')
+    host.current!.append(canvas)
+    let made: Viewport
+    try {
+      made = new Viewport(canvas)
+    } catch (e) {
+      canvas.remove()
+      setFailure(e instanceof Error ? e.message : String(e))
+      return
+    }
+    const disconnect = connect(made)
+    const sized = new ResizeObserver(() => made.resize())
+    sized.observe(host.current!)
+    setViewport(made)
+    return () => {
+      sized.disconnect()
+      disconnect()
+      made.dispose()
+      canvas.remove()
+      setViewport(null)
+    }
+  }, [])
+
+  const error = build?.status === 'failed' ? build.error : undefined
+  const hasDetails = Boolean(error?.traceback?.trim() || error?.output?.trim())
+
+  return (
+    <div className="viewport-pane">
+      {/* Always laid out, so the camera is fitted to its real shape; what is said below covers it. */}
+      <div className="viewport-canvas" ref={host} />
+      {viewport && hasScene && <ViewBar viewport={viewport} />}
+      {!hasScene && (
+        <div className="viewport-empty">
+          <DatumMark />
+          {failure !== null ? (
+            <>
+              <h2>The 3D view could not start</h2>
+              <p className="selectable">{failure}</p>
+            </>
+          ) : name === null ? (
+            <>
+              <h2>No object open</h2>
+              <p>Choose an object in the left column to see its parts here.</p>
+            </>
+          ) : error ? (
+            <>
+              <h2>{name} did not build</h2>
+              <p className="selectable" data-part="reason">{error.message}</p>
+              {hasDetails && (
+                <button type="button" className="button" onClick={onShowError}>
+                  Show the error
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <h2>Building {name}</h2>
+              <p>Its parts appear here when the build finishes.</p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A scribed centre mark: where the part's origin will sit on the plate. */
+export function DatumMark() {
+  return (
+    <svg className="datum" viewBox="0 0 44 44" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true">
+      <circle cx="22" cy="22" r="9.5" />
+      <path d="M22 2.5v15M22 26.5v15M2.5 22h15M26.5 22h15" />
+      <circle cx="22" cy="22" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
