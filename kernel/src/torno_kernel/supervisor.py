@@ -1,0 +1,322 @@
+"""The kernel's long-running process: routes requests and owns the workers.
+
+It forks one worker per build and keeps the last successful one alive to answer
+queries. It imports the geometry modules so that workers inherit them, but it
+never calls them: one OCC operation here would start OCC's thread pool, and
+every worker forked afterwards would deadlock.
+"""
+
+import json
+import os
+import select
+import signal
+import socket
+import struct
+import sys
+import tempfile
+import time
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from typing import Any, BinaryIO
+
+from . import worker as worker_module
+from .frames import write_frame
+
+DEFAULT_TIMEOUT = 300.0
+OUTPUT_LINES = 200
+_OUTPUT_TAIL_BYTES = 1 << 20
+_TERM_GRACE = 0.5  # seconds a replaced worker gets to exit on SIGTERM
+_EXIT_GRACE = 2.0  # seconds a worker that closed its socket gets to finish dying
+_PREFIX = struct.Struct(">II")
+
+
+class _Decoder:
+    """Reassembles frames from whatever chunks a pipe or socket delivers."""
+
+    def __init__(self) -> None:
+        self._data = bytearray()
+
+    def feed(self, chunk: bytes) -> Iterator[tuple[Any, bytes]]:
+        """Add a chunk and yield every frame it completes."""
+        self._data += chunk
+        while len(self._data) >= _PREFIX.size:
+            header_len, blob_len = _PREFIX.unpack_from(self._data)
+            end = _PREFIX.size + header_len + blob_len
+            if len(self._data) < end:
+                return
+            header = bytes(self._data[_PREFIX.size : _PREFIX.size + header_len])
+            blob = bytes(self._data[_PREFIX.size + header_len : end])
+            del self._data[:end]
+            try:
+                decoded = json.loads(header.decode("utf-8"))
+            except ValueError:
+                decoded = None  # not JSON; the framing is intact, so carry on
+            yield decoded, blob
+
+
+@dataclass
+class _Worker:
+    pid: int
+    sock: socket.socket
+    request_id: Any  # the build request it is, or was, working on
+    started: float
+    deadline: float
+    timeout: float
+    capture: BinaryIO | None  # the model's stdout and stderr, until the build ends
+    decoder: _Decoder = field(default_factory=_Decoder)
+    queries: list[Any] = field(default_factory=list)  # ids sent and not yet answered
+
+
+class Supervisor:
+    def __init__(self, stdin_fd: int, proto_out: BinaryIO) -> None:
+        self._stdin_fd = stdin_fd
+        self._out = proto_out
+        self._requests = _Decoder()
+        self._building: _Worker | None = None
+        self._live: _Worker | None = None
+        self._running = True
+
+    def run(self, versions: dict[str, str]) -> int:
+        """Serve requests until ``shutdown`` or the end of stdin. Returns the exit code."""
+        try:
+            self._send({"event": "ready", "versions": versions})
+            while self._running:
+                self._step()
+        except BrokenPipeError:
+            pass  # the client is gone
+        finally:
+            for worker in (self._building, self._live):
+                if worker:
+                    self._stop(worker, signal.SIGKILL)
+        return 0
+
+    def _step(self) -> None:
+        workers = [w for w in (self._building, self._live) if w]
+        wait = None
+        if self._building:
+            wait = max(0.0, self._building.deadline - time.monotonic())
+        readable, _, _ = select.select([self._stdin_fd, *(w.sock for w in workers)], [], [], wait)
+        for worker in workers:
+            # An earlier iteration may have retired this worker.
+            if worker.sock in readable and worker in (self._building, self._live):
+                self._read_worker(worker)
+        if self._building and time.monotonic() >= self._building.deadline:
+            self._time_out(self._building)
+        if self._stdin_fd in readable:
+            chunk = os.read(self._stdin_fd, 1 << 16)
+            if not chunk:
+                self._running = False
+                return
+            for request, _ in self._requests.feed(chunk):
+                self._handle(request)
+
+    # Requests
+
+    def _handle(self, request: Any) -> None:
+        if not isinstance(request, dict):
+            self._fail(None, "bad_request", "a request must be a JSON object")
+            return
+        id = request.get("id")
+        op = request.get("op")
+        if op == "build":
+            self._build(id, request)
+        elif op == "query":
+            self._query(id, request)
+        elif op == "cancel":
+            self._cancel_building("cancelled by request")
+        elif op == "shutdown":
+            self._running = False
+        else:
+            self._fail(id, "bad_request", f"unknown op {op!r}")
+
+    def _build(self, id: Any, request: dict[str, Any]) -> None:
+        dir, model, timeout = request.get("dir"), request.get("model"), request.get("timeout")
+        if not isinstance(dir, str) or not isinstance(model, str):
+            self._fail(id, "bad_request", "build needs dir and model, both strings")
+            return
+        if timeout is None:
+            timeout = DEFAULT_TIMEOUT
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            self._fail(id, "bad_request", "build timeout must be a positive number of seconds")
+            return
+        self._cancel_building("replaced by a newer build")
+        self._building = self._fork(id, dir, model, float(timeout))
+        self._send({"id": id, "event": "build.started", "pid": self._building.pid})
+
+    def _query(self, id: Any, request: dict[str, Any]) -> None:
+        live = self._live
+        if live is None:
+            self._fail(id, "no_build", "no build has succeeded yet, so there is nothing to query")
+            return
+        query = {"id": id, "name": request.get("name"), "args": request.get("args")}
+        live.queries.append(id)
+        try:
+            write_frame(_SocketWriter(live.sock), query)
+        except OSError:
+            self._live_died(live)
+
+    def _cancel_building(self, reason: str) -> None:
+        worker = self._building
+        if worker is None:
+            return
+        self._building = None
+        self._stop(worker, signal.SIGKILL)
+        self._fail(worker.request_id, "cancelled", reason, output=self._take_output(worker))
+
+    # Workers
+
+    def _fork(self, id: Any, dir: str, model: str, timeout: float) -> _Worker:
+        ours, theirs = socket.socketpair()
+        capture = tempfile.TemporaryFile()
+        # Whatever is buffered here would otherwise be written again by the child.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                ours.close()
+                self._out.close()  # nothing is buffered: every frame is flushed
+                if self._live:
+                    self._live.sock.close()
+            finally:
+                worker_module.run(theirs, capture.fileno(), dir, model)
+        theirs.close()
+        now = time.monotonic()
+        return _Worker(pid, ours, id, now, now + timeout, timeout, capture)
+
+    def _read_worker(self, worker: _Worker) -> None:
+        try:
+            chunk = worker.sock.recv(1 << 20)
+        except OSError:
+            chunk = b""
+        if not chunk:
+            if worker is self._building:
+                self._build_died(worker)
+            else:
+                self._live_died(worker)
+            return
+        for header, blob in worker.decoder.feed(chunk):
+            if worker is self._building:
+                self._build_finished(worker, header, blob)
+            else:
+                if header.get("id") in worker.queries:
+                    worker.queries.remove(header.get("id"))
+                self._send(header, blob)
+
+    def _build_finished(self, worker: _Worker, result: dict[str, Any], blob: bytes) -> None:
+        self._building = None
+        output = self._take_output(worker)
+        if not result.get("ok"):
+            self._stop(worker, signal.SIGKILL)
+            error = {**result["error"], "output": output}
+            self._send({"id": worker.request_id, "ok": False, "error": error})
+            return
+        scene = {**result["scene"], "seconds": time.monotonic() - worker.started, "output": output}
+        previous, self._live = self._live, worker
+        if previous:
+            self._retire(previous)
+        self._send({"id": worker.request_id, "ok": True, "scene": scene}, blob)
+
+    def _build_died(self, worker: _Worker) -> None:
+        """The building worker closed its socket without sending a result."""
+        self._building = None
+        worker.sock.close()
+        status = _wait(worker.pid, _EXIT_GRACE)
+        if status is None:
+            # Its socket is closed but it is still running: it cannot report any more.
+            _kill(worker.pid, signal.SIGKILL)
+            _, status = os.waitpid(worker.pid, 0)
+        if os.WIFSIGNALED(status):
+            number = os.WTERMSIG(status)
+            how = f"was killed by {signal.Signals(number).name} ({signal.strsignal(number)})"
+        else:
+            how = f"exited with status {os.WEXITSTATUS(status)}"
+        self._fail(
+            worker.request_id,
+            "crash",
+            f"the build process {how} before it finished",
+            output=self._take_output(worker),
+        )
+
+    def _time_out(self, worker: _Worker) -> None:
+        self._building = None
+        self._stop(worker, signal.SIGKILL)
+        self._fail(
+            worker.request_id,
+            "timeout",
+            f"the build did not finish within {worker.timeout:g} s and was stopped",
+            output=self._take_output(worker),
+        )
+
+    def _live_died(self, worker: _Worker) -> None:
+        self._live = None
+        self._stop(worker, signal.SIGKILL)
+        for id in worker.queries:
+            self._fail(id, "crash", "the process holding the built parts died; rebuild to query")
+
+    def _retire(self, worker: _Worker) -> None:
+        """Stop a live worker that a newer build has replaced."""
+        self._stop(worker, signal.SIGTERM)
+        for id in worker.queries:
+            self._fail(id, "cancelled", "a newer build replaced the one this query was sent to")
+
+    def _stop(self, worker: _Worker, sig: signal.Signals) -> None:
+        """Signal a worker, close its socket and reap it."""
+        worker.sock.close()
+        _kill(worker.pid, sig)
+        if sig != signal.SIGKILL and _wait(worker.pid, _TERM_GRACE) is not None:
+            return
+        _kill(worker.pid, signal.SIGKILL)
+        os.waitpid(worker.pid, 0)
+
+    def _take_output(self, worker: _Worker) -> str:
+        """The last lines the model printed. Closes the capture file."""
+        capture, worker.capture = worker.capture, None
+        if capture is None:
+            return ""
+        with capture:
+            # pread, because the worker shares this descriptor's file offset.
+            size = os.fstat(capture.fileno()).st_size
+            start = max(0, size - _OUTPUT_TAIL_BYTES)
+            text = os.pread(capture.fileno(), size - start, start).decode("utf-8", "replace")
+        return "".join(text.splitlines(keepends=True)[-OUTPUT_LINES:])
+
+    # Output
+
+    def _send(self, header: dict[str, Any], blob: bytes = b"") -> None:
+        write_frame(self._out, header, blob)
+
+    def _fail(self, id: Any, kind: str, message: str, **extra: str) -> None:
+        self._send({"id": id, "ok": False, "error": {"kind": kind, "message": message, **extra}})
+
+
+class _SocketWriter:
+    """Just enough of a binary file for ``write_frame`` to write to a socket."""
+
+    def __init__(self, sock: socket.socket) -> None:
+        self._sock = sock
+
+    def write(self, data: bytes) -> None:
+        self._sock.sendall(data)
+
+    def flush(self) -> None:
+        pass
+
+
+def _kill(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        pass
+
+
+def _wait(pid: int, seconds: float) -> int | None:
+    """Reap a child that is expected to exit. Returns its status, or None if it has not."""
+    give_up = time.monotonic() + seconds
+    while True:
+        reaped, status = os.waitpid(pid, os.WNOHANG)
+        if reaped:
+            return status
+        if time.monotonic() >= give_up:
+            return None
+        time.sleep(0.002)
