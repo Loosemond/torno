@@ -25,7 +25,10 @@ export interface TornoBridge {
     lookReply(id: number, result: LookResult | { error: string }): void
   }
   session: {
-    start(objectId: string, opts?: { resume?: boolean }): Promise<{ sessionId: string; cols: number; rows: number }>
+    /** What there is for an object: its running session, and whether an earlier conversation can be resumed. */
+    current(objectId: string): Promise<{ running: { sessionId: string; status: SessionStatus } | null; resumable: boolean }>
+    /** Starts the agent in the object's folder, at the terminal's size; returns the session already running there, if any. */
+    start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }): Promise<{ sessionId: string; cols: number; rows: number }>
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
     stop(sessionId: string): Promise<void>

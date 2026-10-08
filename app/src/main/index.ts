@@ -1,14 +1,17 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app, BrowserWindow, nativeTheme } from 'electron'
+import { startHttp } from './http'
 import { closeWorkspace, openWorkspace, registerIpc } from './ipc'
 import { latestView, requestLook } from './look'
+import { claudeAdapter } from './sessions/claude'
+import { Sessions } from './sessions/manager'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
 //   TORNO_WORKSPACE=<path>  workspace to open at start, instead of the one remembered
 //   TORNO_CONFIG=<path>     config file to use instead of ~/.config/torno/config.json
-//   TORNO_AGENT_CMD=<cmd>   agent command for sessions (not read yet: the session task adds it)
+//   TORNO_AGENT_CMD=<cmd>   command to run for a session instead of `claude`, split on spaces
 const isTest = process.env.TORNO_TEST === '1'
 
 // A hidden window stops getting frame callbacks from the compositor. Once a
@@ -85,8 +88,19 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+let sessions: Sessions | null = null
+
 void app.whenReady().then(async () => {
-  registerIpc({ onWorkspaceChosen: (root) => void rememberWorkspace(root) })
+  // What the agent's CLI talks to: its hooks now, the MCP server with the next task.
+  const http = await startHttp()
+  sessions = new Sessions({
+    http,
+    adapter: claudeAdapter(process.env.TORNO_AGENT_CMD),
+    contextFor: () => '',
+    systemPrompt: '',
+    mcpUrlFor: (id) => http.url(`/mcp/${encodeURIComponent(id)}`)
+  })
+  registerIpc({ onWorkspaceChosen: (root) => void rememberWorkspace(root), sessions })
   // What a test needs of main that it cannot reach through the window.
   if (isTest) Object.assign(globalThis, { __tornoMain: { requestLook, latestView } })
   const named = process.env.TORNO_WORKSPACE
@@ -100,7 +114,15 @@ void app.whenReady().then(async () => {
 })
 
 // The kernel also exits by itself when this process, and so its stdin, goes away.
-app.on('will-quit', () => void closeWorkspace())
+// Sessions are hung up on, and the quit waits until they have gone: one that
+// ignores the hangup is killed two seconds later. With none left, the second
+// quit goes through.
+app.on('will-quit', (event) => {
+  void closeWorkspace()
+  if (!sessions || sessions.size === 0) return
+  event.preventDefault()
+  void sessions.stopAll().finally(() => app.quit())
+})
 
 // Closing the window ends the app on every platform: sessions do not outlive it.
 app.on('window-all-closed', () => app.quit())

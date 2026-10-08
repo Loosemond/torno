@@ -12,13 +12,17 @@ import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveLook } from './look'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
+import type { Sessions } from './sessions/manager'
 import { scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
-//           object:open, object:rebuild, object:sceneFile
-//   from the renderer: object:saveSceneFile, view:report, view:lookReply
-//   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts)
+//           object:open, object:rebuild, object:sceneFile,
+//           session:current, session:start, session:stop
+//   from the renderer: object:saveSceneFile, view:report, view:lookReply,
+//           session:write, session:resize
+//   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts),
+//           session:data, session:status
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the last scan
@@ -28,6 +32,9 @@ interface OpenWorkspace {
 }
 
 let current: OpenWorkspace | null = null
+
+/** The agent sessions, once `registerIpc` has been given them. They belong to the objects of the open workspace. */
+let sessions: Sessions | null = null
 
 function broadcast(channel: string, message: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -75,6 +82,8 @@ export async function closeWorkspace(): Promise<void> {
   if (!ws) return
   current = null
   forgetViews()
+  // Not waited for: an agent that ignores the hangup is killed two seconds later.
+  void sessions?.stopAll()
   for (const id of ws.opened) ws.builds.close(id)
   await ws.kernel.dispose()
 }
@@ -92,8 +101,17 @@ function findObject(id: string): ObjectInfo | undefined {
 /**
  * `onWorkspaceChosen` is told the root of every workspace the person opens
  * from the window, so that it can be opened again at the next start.
+ * `sessions` backs the session pane; without it there are no sessions.
  */
-export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void } = {}): void {
+export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void; sessions?: Sessions } = {}): void {
+  sessions = opts.sessions ?? null
+  sessions?.on('data', (m) => broadcast('session:data', m))
+  sessions?.on('status', (m) => broadcast('session:status', m))
+  const requireSessions = (): Sessions => {
+    if (!sessions) throw new Error('sessions are not available')
+    return sessions
+  }
+
   const chosen = (info: WorkspaceInfo): WorkspaceInfo => {
     opts.onWorkspaceChosen?.(info.root)
     return info
@@ -150,6 +168,31 @@ export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void }
     const obj = findObject(id)
     if (!obj) return
     saveSceneFile(obj.dir, file).catch((e) => console.error(`cannot save the scene file of ${id}: ${e.message}`))
+  })
+
+  ipcMain.handle('session:current', (_event, objectId: string) => {
+    const obj = findObject(objectId)
+    const running = sessions?.current(objectId) ?? null
+    return {
+      running: running && { sessionId: running.sessionId, status: running.status },
+      resumable: obj !== undefined && sessions !== null && sessions.resumable(obj)
+    }
+  })
+
+  ipcMain.handle('session:start', (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }) => {
+    const obj = findObject(objectId)
+    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
+    return requireSessions().start(obj, { resume: opts?.resume === true, cols: opts?.cols, rows: opts?.rows })
+  })
+
+  ipcMain.handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
+
+  ipcMain.on('session:write', (_event, sessionId: string, data: string) => {
+    if (typeof data === 'string') sessions?.write(String(sessionId), data)
+  })
+
+  ipcMain.on('session:resize', (_event, sessionId: string, cols: number, rows: number) => {
+    sessions?.resize(String(sessionId), cols, rows)
   })
 
   ipcMain.on('view:report', (_event, view: ViewState) => {

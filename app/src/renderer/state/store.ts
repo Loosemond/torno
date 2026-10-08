@@ -1,9 +1,16 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
+import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import type { Part, Scene } from '../../shared/scene'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
+
+/** The agent session of an object. Its output is not here: it goes straight into the terminal. */
+export interface SessionView {
+  sessionId: string
+  status: SessionStatus
+}
 
 /**
  * What the window shows, as plain data: no functions, no mesh bytes. The blob
@@ -28,6 +35,8 @@ export interface TornoState {
   ortho: boolean
   /** Counts changes of layout and layers made by hand: what the scene file is saved for. */
   edits: number
+  /** By object id: the session started there, running or ended. It outlives the object being shown. */
+  sessions: Record<string, SessionView>
 }
 
 const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {} }
@@ -38,7 +47,8 @@ export const store = createStore<TornoState>(() => ({
   versions: {},
   ...NO_OBJECT,
   ortho: false,
-  edits: 0
+  edits: 0,
+  sessions: {}
 }))
 
 export function useStore<T>(selector: (s: TornoState) => T): T {
@@ -48,7 +58,7 @@ export function useStore<T>(selector: (s: TornoState) => T): T {
 export const actions = {
   /** A workspace was opened (or there is none): nothing of the old one stays. */
   setWorkspace(workspace: WorkspaceInfo | null): void {
-    store.setState({ workspace, workspaceKnown: true, versions: {}, ...NO_OBJECT })
+    store.setState({ workspace, workspaceKnown: true, versions: {}, ...NO_OBJECT, sessions: {} })
   },
 
   /** The object list was scanned again. */
@@ -100,6 +110,19 @@ export const actions = {
 
   setOrtho(ortho: boolean): void {
     store.setState({ ortho })
+  },
+
+  /** A session was started in an object, replacing the one it had. */
+  setSession(objectId: string, session: SessionView): void {
+    store.setState({ sessions: { ...store.getState().sessions, [objectId]: session } })
+  },
+
+  /** A session changed status. One that is no longer the session of its object is not followed. */
+  applySessionStatus(m: { sessionId: string; status: SessionStatus }): void {
+    const { sessions } = store.getState()
+    const objectId = Object.keys(sessions).find((id) => sessions[id].sessionId === m.sessionId)
+    if (objectId === undefined || sessions[objectId].status === m.status) return
+    store.setState({ sessions: { ...sessions, [objectId]: { sessionId: m.sessionId, status: m.status } } })
   }
 }
 

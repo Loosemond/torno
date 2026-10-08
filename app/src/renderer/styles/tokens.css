@@ -29,6 +29,28 @@
   --part-7: #B56F76;
   --part-8: #7FA7A6;
 
+  /* Terminal: the sixteen colours an agent's CLI may ask for by name, toned to
+     sit on --panel, and what the terminal draws of its own. */
+  --ansi-black: #22252A;
+  --ansi-red: #B5382A;
+  --ansi-green: #2A7D54;
+  --ansi-yellow: #94660F;
+  --ansi-blue: #1D46B8;
+  --ansi-magenta: #8A4594;
+  --ansi-cyan: #1C7480;
+  --ansi-white: #6C7178;
+  --ansi-bright-black: #858A91;
+  --ansi-bright-red: #CF3F2C;
+  --ansi-bright-green: #2B8A5C;
+  --ansi-bright-yellow: #B7791F;
+  --ansi-bright-blue: #3D63D1;
+  --ansi-bright-magenta: #A259AE;
+  --ansi-bright-cyan: #23909E;
+  --ansi-bright-white: #4A4F56;
+  --term-selection: #D5DEF5;
+  --term-scroll: rgb(34 37 42 / 0.14);
+  --term-scroll-hover: rgb(34 37 42 / 0.28);
+
   /* Type */
   --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -69,5 +91,25 @@
     --warn: #E0A94A;
     --fail: #F0705E;
     --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
+
+    --ansi-black: #15171A;
+    --ansi-red: #E8695A;
+    --ansi-green: #5CC492;
+    --ansi-yellow: #E0A94A;
+    --ansi-blue: #7C9BF7;
+    --ansi-magenta: #C792D4;
+    --ansi-cyan: #62BFC9;
+    --ansi-white: #C4C2BD;
+    --ansi-bright-black: #7C8189;
+    --ansi-bright-red: #F58B7D;
+    --ansi-bright-green: #7FD6AB;
+    --ansi-bright-yellow: #EDC272;
+    --ansi-bright-blue: #9DB5FA;
+    --ansi-bright-magenta: #DAB0E4;
+    --ansi-bright-cyan: #8AD5DD;
+    --ansi-bright-white: #F4F2ED;
+    --term-selection: #33405F;
+    --term-scroll: rgb(233 231 226 / 0.14);
+    --term-scroll-hover: rgb(233 231 226 / 0.28);
   }
 }

@@ -81,20 +81,12 @@ test('the viewport fills the window and the panels sit over it', async () => {
 test('the renderer is isolated and the bridge is exposed', async () => {
   const probe = await page.evaluate(() => {
     const w = window as unknown as Record<string, unknown>
-    let message = ''
-    try {
-      // A method no task has backed yet: those still throw.
-      void window.torno.session.stop('none')
-    } catch (e) {
-      message = (e as Error).message
-    }
-    return { hasRequire: typeof w.require, hasProcess: typeof w.process, groups: Object.keys(window.torno).sort(), message }
+    return { hasRequire: typeof w.require, hasProcess: typeof w.process, groups: Object.keys(window.torno).sort() }
   })
   expect(probe).toEqual({
     hasRequire: 'undefined',
     hasProcess: 'undefined',
-    groups: ['object', 'session', 'view', 'workspace'],
-    message: 'not implemented'
+    groups: ['object', 'session', 'view', 'workspace']
   })
 })
 

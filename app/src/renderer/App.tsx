@@ -4,6 +4,7 @@ import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
 import { Layers } from './ui/Layers'
 import { ObjectList } from './ui/ObjectList'
+import { SessionPane } from './ui/SessionPane'
 import { DatumMark, ViewportPane } from './ui/ViewportPane'
 
 const LEFT_WIDTH = 248
@@ -142,6 +143,7 @@ export function App() {
   }
 
   const errorOpened = useCallback((open: boolean) => setErrorOpen(open), [])
+  const revealDock = useCallback(() => setDockOpen(true), [])
 
   if (!workspaceKnown) return <div className="shell" />
   if (!workspace) {
@@ -198,10 +200,7 @@ export function App() {
           onPointerCancel={onEdgeUp}
           onKeyDown={onEdgeKey}
         />
-        <header className="panel-head">
-          <h2 className="panel-title">Session</h2>
-        </header>
-        <p className="panel-note">The agent's session starts here when you open an object.</p>
+        <SessionPane onReveal={revealDock} />
       </aside>
 
       <button

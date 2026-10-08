@@ -12,5 +12,12 @@ declare global {
       look(req: LookRequest): Promise<LookResult>
       camera(): Camera
     }
+    /** Only with TORNO_TEST=1: what the terminal of the open object shows, as text. */
+    __tornoTerm?: {
+      text(): string
+      size(): { cols: number; rows: number } | null
+      theme(): { background?: string; foreground?: string }
+      renderer(): 'webgl' | 'dom' | null
+    }
   }
 }
