@@ -256,7 +256,10 @@ export function registerIpc(
 
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
   ipcMain.handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
-  ipcMain.handle('marks:add', (_event, objectId: string, mark: NewMark) => requireMarks().add(String(objectId), mark))
+  // A mark made in the window is the person's. The agent's come through its tools, which call the store themselves.
+  ipcMain.handle('marks:add', (_event, objectId: string, mark: NewMark) =>
+    requireMarks().add(String(objectId), { ...mark, author: 'user' })
+  )
   ipcMain.handle('marks:update', (_event, objectId: string, id: string, patch: MarkPatch) =>
     requireMarks().update(String(objectId), String(id), patch)
   )

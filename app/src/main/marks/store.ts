@@ -126,8 +126,11 @@ export class MarkStore {
       const result = edit(file)
       if (result === UNCHANGED) return result
       await saveMarksFile(dir, file)
-      if (epoch === this.epoch) this.files.set(dir, file)
-      this.emit('changed', { objectId, marks: structuredClone(file.marks) })
+      // Told only to the workspace it was asked in: the write of one that has been left lands, and is not broadcast.
+      if (epoch === this.epoch) {
+        this.files.set(dir, file)
+        this.emit('changed', { objectId, marks: structuredClone(file.marks) })
+      }
       return structuredClone(result)
     })
   }
@@ -136,16 +139,19 @@ export class MarkStore {
   private turn<T>(objectId: string, task: (file: MarksFile, dir: string, epoch: number) => T | Promise<T>): Promise<T> {
     const dir = this.deps.dirOf(objectId)
     if (dir === undefined) return Promise.reject(new Error(`no object named ${objectId} in the open workspace`))
+    // As of the asking: the workspace may be left while this waits its turn.
+    const epoch = this.epoch
     const turn = (this.turns.get(dir) ?? Promise.resolve())
       .catch(() => {})
       .then(async () => {
-        const epoch = this.epoch
         let file = this.files.get(dir)
         if (!file) {
           const loaded = await loadMarksFile(dir, () => this.now())
           file = loaded.file
-          if (epoch === this.epoch) this.files.set(dir, file)
-          if (loaded.problem) this.emit('problem', { objectId, message: loaded.problem })
+          if (epoch === this.epoch) {
+            this.files.set(dir, file)
+            if (loaded.problem) this.emit('problem', { objectId, message: loaded.problem })
+          }
         }
         return task(file, dir, epoch)
       })

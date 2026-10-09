@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme } from 'electron'
+import { writeFileAtomic } from './atomic'
 import { startHttp } from './http'
 import { contextFor } from './context'
 import { buildState, closeWorkspace, findObject, lastScene, openObjectId, openWorkspace, registerIpc } from './ipc'
@@ -56,10 +57,7 @@ async function rememberedWorkspace(): Promise<string | undefined> {
 async function rememberWorkspace(root: string): Promise<void> {
   if (!configPath) return
   try {
-    await mkdir(dirname(configPath), { recursive: true })
-    const temp = `${configPath}.${process.pid}.tmp`
-    await writeFile(temp, `${JSON.stringify({ workspace: root }, null, 2)}\n`)
-    await rename(temp, configPath)
+    await writeFileAtomic(configPath, `${JSON.stringify({ workspace: root }, null, 2)}\n`)
   } catch (e) {
     console.error(`cannot write ${configPath}: ${(e as Error).message}`)
   }

@@ -276,9 +276,44 @@ describe('what is on disk', () => {
     expect(problems).toHaveLength(1)
     expect(problems[0].objectId).toBe('bracket')
     expect(problems[0].message).toContain('marks.json.corrupt-2026-10-09T12-00-00-000Z')
-    expect((await store.add('bracket', pin())).id).toBe('M1')
+    // M1 was given out by the file that was lost: it is not given out again.
+    expect((await store.add('bracket', pin())).id).toBe('M2')
     expect(readdirSync(join(dirs.bracket, '.torno')).sort()).toEqual(['marks.json', 'marks.json.corrupt-2026-10-09T12-00-00-000Z'])
     expect(problems).toHaveLength(1)
+  })
+
+  it('marks it cannot read are left out, kept in a copy and said once; their ids are not given out again', async () => {
+    const first = await store.add('bracket', pin())
+    const raw = JSON.stringify({ next: 2, marks: [first, { ...first, id: 'M5', kind: 'dimension' }] })
+    writeFileSync(join(dirs.bracket, '.torno', 'marks.json'), raw)
+    store.forget()
+    expect(await store.list('bracket')).toEqual([first])
+    expect(problems).toEqual([{ objectId: 'bracket', message: expect.stringContaining('marks.json.dropped-2026-10-09T12-00-00-000Z') }])
+    expect((await store.add('bracket', pin())).id).toBe('M6')
+    expect(readFileSync(join(dirs.bracket, '.torno', 'marks.json.dropped-2026-10-09T12-00-00-000Z'), 'utf8')).toBe(raw)
+    store.forget()
+    await store.list('bracket')
+    expect(problems).toHaveLength(1)
+  })
+
+  it('says nothing of an object once the workspace it was asked in has been left', async () => {
+    await store.add('bracket', pin())
+    changes = []
+    // Asked, then the workspace is left before the write lands.
+    const pending = store.add('bracket', pin('late'))
+    store.forget()
+    expect((await pending).id).toBe('M2')
+    expect(changes).toEqual([])
+    // The write itself went through: the file is the truth the next read starts from.
+    expect(ids(onDisk('bracket').marks)).toEqual(['M1', 'M2'])
+    expect(ids(await store.list('bracket'))).toEqual(['M1', 'M2'])
+
+    mkdirSync(join(dirs.two, '.torno'))
+    writeFileSync(join(dirs.two, '.torno', 'marks.json'), 'not json')
+    const listing = store.list('two')
+    store.forget()
+    await listing
+    expect(problems).toEqual([])
   })
 
   it('a write that fails changes nothing in memory, and the next one goes through', async () => {

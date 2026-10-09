@@ -90,39 +90,66 @@ describe('marks file', () => {
   })
 
   it.each([
-    ['half a file', '{"next": 3, "marks": [{"id"'],
-    ['not a marks file', '[1, 2]'],
-    ['marks that are not a list', '{"next": 3, "marks": {}}']
-  ])('a corrupt file (%s) is kept aside and a fresh one started', async (_what, text) => {
+    ['half a file', '{"next": 3, "marks": [{"id"', 3],
+    ['not a marks file', '[1, 2]', 1],
+    ['marks that are not a list', '{"next": 3, "marks": {}}', 3],
+    ['half a file whose next is behind its marks', '{"next": 2, "marks": [{"id": "M6", "kind": "pin"}, {"id": "M4"', 7],
+    ['a file cut before its marks, with next last', '{"marks": {"id": "M2"}, "next": 12', 12]
+  ])('a corrupt file (%s) is kept aside and a fresh one started, past the ids the old one gave out', async (_what, text, next) => {
     writeRaw(text)
     const loaded = await loadMarksFile(dir, NOW)
-    expect(loaded.file).toEqual({ next: 1, marks: [] })
+    expect(loaded.file).toEqual({ next, marks: [] })
     const aside = 'marks.json.corrupt-2026-10-09T12-34-56-789Z'
-    expect(readdirSync(join(dir, '.torno'))).toEqual([aside])
+    expect(readdirSync(join(dir, '.torno')).sort()).toEqual(['marks.json', aside])
     expect(readFileSync(join(dir, '.torno', aside), 'utf8')).toBe(text)
     expect(loaded.problem).toContain(`.torno/${aside}`)
-    // The next read finds no file: the problem is told once.
-    expect(await loadMarksFile(dir, NOW)).toEqual({ file: { next: 1, marks: [] } })
+    // The fresh file is written at once, so the ids are safe whatever happens next; the problem is told once.
+    expect(JSON.parse(readFileSync(path(), 'utf8'))).toEqual({ next, marks: [] })
+    expect(await loadMarksFile(dir, NOW)).toEqual({ file: { next, marks: [] } })
   })
 
-  it('drops marks of unknown kinds and marks that are not whole, keeping the others', async () => {
-    writeRaw(
-      JSON.stringify({
-        next: 9,
-        marks: [
-          pin(),
-          { ...pin(), id: 'M2', kind: 'dimension' },
-          { ...pin(), id: 'M3', anchor: { point: [1, null, 3] } },
-          { ...pin(), id: 'M4', revision: 'three' },
-          { ...pin(), id: 'four' },
-          null,
-          { ...shape, id: 'M5', extra: true }
-        ]
-      })
-    )
-    const { file, problem } = await loadMarksFile(dir)
-    expect(problem).toBeUndefined()
+  it('keeps the whole marks of a file that has others, sets the file as it was aside, and says how many were left out', async () => {
+    const text = JSON.stringify({
+      next: 9,
+      marks: [
+        pin(),
+        { ...pin(), id: 'M2', kind: 'dimension' },
+        { ...pin(), id: 'M3', anchor: { point: [1, null, 3] } },
+        { ...pin(), id: 'M4', revision: 'three' },
+        { ...pin(), id: 'four' },
+        null,
+        { ...shape, id: 'M5', extra: true }
+      ]
+    })
+    writeRaw(text)
+    const { file, problem } = await loadMarksFile(dir, NOW)
     expect(file).toEqual({ next: 9, marks: [pin(), { ...shape, id: 'M5' }] })
+    const aside = 'marks.json.dropped-2026-10-09T12-34-56-789Z'
+    expect(problem).toContain('5 marks')
+    expect(problem).toContain(`.torno/${aside}`)
+    expect(readFileSync(join(dir, '.torno', aside), 'utf8')).toBe(text)
+    // The file now holds what was kept, so the next read has nothing to say and makes no second copy.
+    expect(JSON.parse(readFileSync(path(), 'utf8'))).toEqual(file)
+    expect(await loadMarksFile(dir, () => new Date('2026-10-10T00:00:00.000Z'))).toEqual({ file })
+    expect(readdirSync(join(dir, '.torno')).sort()).toEqual(['marks.json', aside])
+  })
+
+  it('says it of one mark in the singular, and a stray field alone is nothing to say', async () => {
+    writeRaw(JSON.stringify({ next: 3, marks: [pin(), { ...pin(), id: 'M2', kind: 'region' }] }))
+    expect((await loadMarksFile(dir, NOW)).problem).toMatch(/^1 mark in the marks file of this object was /)
+    writeRaw(JSON.stringify({ next: 2, marks: [{ ...pin(), extra: 1 }] }))
+    expect(await loadMarksFile(dir, NOW)).toEqual({ file: { next: 2, marks: [pin()] } })
+  })
+
+  it('never gives the id of a mark it left out to another, whatever the file says of next', async () => {
+    writeRaw(JSON.stringify({ next: 2, marks: [pin(), { ...pin(), id: 'M8', kind: 'dimension' }, { id: 'M11' }, { id: 'M99999999999999999999999' }] }))
+    const { file } = await loadMarksFile(dir, NOW)
+    expect(file).toEqual({ next: 12, marks: [pin()] })
+    // A file whose marks are all of kinds this version does not know is not emptied without a copy.
+    writeRaw(JSON.stringify({ next: 3, marks: [{ ...pin(), kind: 'dimension' }, { ...pin(), id: 'M2', kind: 'dimension' }] }))
+    const all = await loadMarksFile(dir, () => new Date('2026-10-11T00:00:00.000Z'))
+    expect(all.file).toEqual({ next: 3, marks: [] })
+    expect(readdirSync(join(dir, '.torno'))).toContain('marks.json.dropped-2026-10-11T00-00-00-000Z')
   })
 
   it('never hands out an id again: next is past every id in the file, whatever the file says', async () => {

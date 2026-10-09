@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeFileAtomic } from './atomic'
 import type { LayerSettings, SceneFile } from '../shared/scenefile'
 
 export type { LayerSettings, SceneFile }
@@ -19,27 +20,9 @@ export async function loadSceneFile(dir: string): Promise<SceneFile> {
   }
 }
 
-/** The last write to each file, so that saves of one file land in the order they were made. */
-const writes = new Map<string, Promise<void>>()
-
 /** Writes `<dir>/.torno/scene.json`, creating the folder. Readers see the old file or the new one, never half of one. */
 export function saveSceneFile(dir: string, f: SceneFile): Promise<void> {
-  const folder = join(dir, FOLDER)
-  const path = join(folder, NAME)
-  const text = `${JSON.stringify(clean(f), null, 2)}\n`
-  const write = (writes.get(path) ?? Promise.resolve())
-    .catch(() => {})
-    .then(async () => {
-      await mkdir(folder, { recursive: true })
-      const temp = `${path}.${process.pid}.tmp`
-      await writeFile(temp, text)
-      await rename(temp, path)
-    })
-    .finally(() => {
-      if (writes.get(path) === write) writes.delete(path)
-    })
-  writes.set(path, write)
-  return write
+  return writeFileAtomic(join(dir, FOLDER, NAME), `${JSON.stringify(clean(f), null, 2)}\n`)
 }
 
 /** Keeps what a scene file may hold, whatever it was given. */

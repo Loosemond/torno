@@ -126,6 +126,18 @@ test('what cannot be done is refused in plain words, and changes nothing', async
   expect((await state()).marks.map((m: Mark) => m.id)).toEqual(['M1'])
 })
 
+test('a mark made in the window is the person\'s, whatever it says of its author', async () => {
+  const forged = await page.evaluate(async () => {
+    const [first] = await window.torno.marks.list('bracket')
+    const added = await window.torno.marks.add('bracket', { ...first, author: 'agent', note: 'not the agent' } as never)
+    await window.torno.marks.remove('bracket', added.id)
+    return added
+  })
+  expect(forged).toMatchObject({ id: 'M2', author: 'user', note: 'not the agent' })
+  await expect.poll(async () => (await state()).marks.map((m: Mark) => m.id)).toEqual(['M1'])
+  expect(marksOnDisk()).toMatchObject({ next: 3, marks: [{ id: 'M1', author: 'user' }] })
+})
+
 test('what the bridge declares for later tasks is there, and does nothing yet', async () => {
   expect(await rejection('describe')).toBe('not implemented')
   const sorts = await page.evaluate(() => {
@@ -145,13 +157,13 @@ test('the mark is still there after the window is reloaded', async () => {
   await openBracket()
   await expect.poll(async () => (await state()).marks).toEqual(kept)
   expect((await state()).marksProblem).toBeNull()
-  // And the next mark does not take its id.
+  // And the next mark takes no id that was given out, not even that of the mark removed since.
   const second = await page.evaluate(
     (first) => window.torno.marks.add('bracket', { ...first, note: 'and here' } as never),
     kept[0]
   )
-  expect(second.id).toBe('M2')
-  await expect.poll(async () => (await state()).marks.map((m: Mark) => m.id)).toEqual(['M1', 'M2'])
+  expect(second.id).toBe('M3')
+  await expect.poll(async () => (await state()).marks.map((m: Mark) => m.id)).toEqual(['M1', 'M3'])
 })
 
 test('nothing else in the object folder changed', async () => {

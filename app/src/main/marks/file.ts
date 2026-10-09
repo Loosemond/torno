@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { copyFile, readFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Anchor, Mark, MarksFile, Quat, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
+import { writeFileAtomic } from '../atomic'
 
 const FOLDER = '.torno'
 const NAME = 'marks.json'
@@ -12,10 +13,16 @@ export const MAX_NOTE = 2000
 export const MAX_STROKE_POINTS = 400
 
 /**
- * The marks of the object in `dir`. A missing file is an empty list. A file
- * that is not a marks file is moved aside, as `marks.json.corrupt-<time>`
- * beside it, and an empty list started; `problem` then says so, once, since
- * the next read finds no file. A file that cannot be read at all is an error.
+ * The marks of the object in `dir`. A missing file is an empty list, and
+ * nothing is written. A file that cannot be read at all is an error.
+ *
+ * A file that is not a marks file is moved aside, as
+ * `marks.json.corrupt-<time>` beside it, and an empty list started whose ids
+ * go on from the highest the old file is seen to have given out. A file some
+ * of whose marks are not marks this version can keep is copied aside, as
+ * `marks.json.dropped-<time>`, and the others kept. Either way the file is
+ * rewritten at once and `problem` says what happened: once, since the next
+ * read finds a file with nothing wrong.
  */
 export async function loadMarksFile(dir: string, now: () => Date = () => new Date()): Promise<{ file: MarksFile; problem?: string }> {
   const path = join(dir, FOLDER, NAME)
@@ -26,42 +33,37 @@ export async function loadMarksFile(dir: string, now: () => Date = () => new Dat
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { file: { next: 1, marks: [] } }
     throw e
   }
-  let file: MarksFile | null = null
+  let parsed: unknown
   try {
-    file = sanitiseMarksFile(JSON.parse(text))
+    parsed = JSON.parse(text)
   } catch {
     // not JSON
   }
-  if (file) return { file }
-  const aside = `${NAME}.corrupt-${now().toISOString().replace(/[:.]/g, '-')}`
-  await rename(path, join(dir, FOLDER, aside))
-  return {
-    file: { next: 1, marks: [] },
-    problem: `The marks file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started.`
-  }
-}
+  const read = readMarksFile(parsed)
+  if (read && read.dropped === 0) return { file: read.file }
 
-/** The last write to each file, so that saves of one file land in the order they were made. */
-const writes = new Map<string, Promise<void>>()
+  const stamp = now().toISOString().replace(/[:.]/g, '-')
+  if (!read) {
+    const aside = `${NAME}.corrupt-${stamp}`
+    await rename(path, join(dir, FOLDER, aside))
+    const file: MarksFile = { next: salvagedNext(text, parsed), marks: [] }
+    await writeFileAtomic(path, textOf(file))
+    return { file, problem: `The marks file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started.` }
+  }
+  const aside = `${NAME}.dropped-${stamp}`
+  await copyFile(path, join(dir, FOLDER, aside))
+  await writeFileAtomic(path, textOf(read.file))
+  const what = read.dropped === 1 ? '1 mark in the marks file of this object was' : `${read.dropped} marks in the marks file of this object were`
+  return { file: read.file, problem: `${what} not of a kind this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}.` }
+}
 
 /** Writes `<dir>/.torno/marks.json`, creating the folder. Readers see the old file or the new one, never half of one. */
 export function saveMarksFile(dir: string, file: MarksFile): Promise<void> {
-  const folder = join(dir, FOLDER)
-  const path = join(folder, NAME)
-  const text = `${JSON.stringify(sanitiseMarksFile(file) ?? { next: 1, marks: [] }, null, 2)}\n`
-  const write = (writes.get(path) ?? Promise.resolve())
-    .catch(() => {})
-    .then(async () => {
-      await mkdir(folder, { recursive: true })
-      const temp = `${path}.${process.pid}.tmp`
-      await writeFile(temp, text)
-      await rename(temp, path)
-    })
-    .finally(() => {
-      if (writes.get(path) === write) writes.delete(path)
-    })
-  writes.set(path, write)
-  return write
+  return writeFileAtomic(join(dir, FOLDER, NAME), textOf(sanitiseMarksFile(file) ?? { next: 1, marks: [] }))
+}
+
+function textOf(file: MarksFile): string {
+  return `${JSON.stringify(file, null, 2)}\n`
 }
 
 /**
@@ -69,18 +71,44 @@ export function saveMarksFile(dir: string, file: MarksFile): Promise<void> {
  * and a `next` past every id in it. Null when the value is not a marks file.
  */
 export function sanitiseMarksFile(value: unknown): MarksFile | null {
+  return readMarksFile(value)?.file ?? null
+}
+
+/**
+ * `sanitiseMarksFile`, and how many entries of `marks` it left out. `next` is
+ * past the id of every entry that has one, kept or not: an id that was given
+ * out is never given out again.
+ */
+function readMarksFile(value: unknown): { file: MarksFile; dropped: number } | null {
   if (!isRecord(value) || !Array.isArray(value.marks)) return null
   const marks: Mark[] = []
   const seen = new Set<string>()
-  let next = Number.isSafeInteger(value.next) && (value.next as number) >= 1 ? (value.next as number) : 1
+  let next = idNumber(value.next) ?? 1
   for (const raw of value.marks) {
+    const given = isRecord(raw) && typeof raw.id === 'string' ? idNumber(Number(/^M(\d+)$/.exec(raw.id)?.[1])) : undefined
+    if (given !== undefined) next = Math.max(next, given + 1)
     const mark = sanitiseMark(raw)
     if (!mark || seen.has(mark.id)) continue
     seen.add(mark.id)
     marks.push(mark)
-    next = Math.max(next, Number(mark.id.slice(1)) + 1)
   }
-  return { next, marks }
+  return { file: { next, marks }, dropped: value.marks.length - marks.length }
+}
+
+/**
+ * Where the ids of a fresh list start after a file that could not be read:
+ * past its `next` and past every mark id that can be made out in its text.
+ */
+function salvagedNext(text: string, parsed: unknown): number {
+  let next = (isRecord(parsed) ? idNumber(parsed.next) : undefined) ?? 1
+  for (const match of text.matchAll(/"next"\s*:\s*(\d+)/g)) next = Math.max(next, idNumber(Number(match[1])) ?? 1)
+  for (const match of text.matchAll(/"M(\d+)"/g)) next = Math.max(next, (idNumber(Number(match[1])) ?? 0) + 1)
+  return next
+}
+
+/** A number an id can have, or a file can say is next: a whole one from 1 that still counts exactly. */
+function idNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value < Number.MAX_SAFE_INTEGER ? value : undefined
 }
 
 /**
