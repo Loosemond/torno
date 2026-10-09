@@ -537,11 +537,17 @@ than two parts is never exploded.
     `tools/regionPainting.ts`) takes the scan only where it is
     what is drawn at the pixel under the pointer: not behind a part in front
     of it, not in the half a section took away. The brush is a ball round
-    that point. A stamp takes nothing a part hides: with a part in front of
-    any of its rim each triangle is asked about, 400 a stamp at most, and
-    the rest are left (`tools/stamp.ts` `stampTriangles`; the rim is the
-    stamp's middle and eight points round it on the screen, and a triangle
-    is asked about at its middle, one pick of the parts each). When none is
+    that point. A stamp takes nothing a part hides: whenever the box of a
+    part that is drawn meets the square round the stamp on the screen
+    (`boxMeetsBrush`), each triangle the stamp would change is asked about
+    at its middle, one pick of the parts' faces (`edges: false`: an edge is
+    found 6 px off it, and is no part in front; the pointer's own pick is
+    asked again so when it names an edge), and what a part is nearer than
+    is left (`tools/stamp.ts` `stampTriangles`). What was asked is kept for
+    the stroke while the camera is where it was. A stamp asks about 1,000
+    anew at most (`STAMP_TESTS`) and takes none unasked: the bar then says,
+    once the stroke has ended, that near a part the brush paints slower
+    (`SLOWER`). With no part's box near, nothing is asked. When none is
     chosen the brush is a thirtieth of the scan, 25 mm at
     most (`usualRadius`); a box takes what faces the eye unless "Through"
     is chosen, and does not look at what hides what. It works while the build

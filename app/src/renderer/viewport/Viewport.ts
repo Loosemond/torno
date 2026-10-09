@@ -607,6 +607,11 @@ export class Viewport {
     return { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] }
   }
 
+  /** The box of each part that is drawn, in the object frame: what can be in front of anything else on the screen is inside one of them. */
+  partBoxes(): Array<{ min: Vec3; max: Vec3 }> {
+    return this.shownParts().map((part) => ({ min: [...part.bbox.min] as Vec3, max: [...part.bbox.max] as Vec3 }))
+  }
+
   getCamera(): Camera {
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion)
     return {

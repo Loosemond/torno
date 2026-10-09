@@ -330,7 +330,7 @@ test('a stamp beside a part takes nothing the part hides', async () => {
   await bar().getByRole('textbox', { name: 'Brush radius' }).press('Enter')
   // From the plate's edge outwards, to the first pixel where no part is seen, and 3 px on.
   const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
-  const onPlate = (x: number, y: number): Promise<boolean> => page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy, { partsOnly: true }) !== null, [(x - canvas.x) / canvas.width, (y - canvas.y) / canvas.height] as const)
+  const onPlate = (x: number, y: number): Promise<boolean> => page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy, { partsOnly: true, edges: false }) !== null, [(x - canvas.x) / canvas.width, (y - canvas.y) / canvas.height] as const)
   let [x, y] = await at([8, 0, -3])
   expect(await onPlate(x, y)).toBe(true)
   const [far] = await at([14, 0, -3])
@@ -339,6 +339,9 @@ test('a stamp beside a part takes nothing the part hides', async () => {
   x += 3 * outwards
   // A millimetre of the sheet is several pixels: the brush reaches well under the plate.
   expect(Math.abs(far - x)).toBeGreaterThan(20)
+  // What of the sheet is under the pointer there: 3 px beside the plate's outline, in plain sight.
+  const under = await page.evaluate(([fx, fy]) => window.__tornoTest!.pickScanAt(fx, fy), [(x - canvas.x) / canvas.width, (y - canvas.y) / canvas.height] as const)
+  expect(under).toMatchObject({ scan: 'S1' })
   await page.mouse.move(x, y)
   await page.mouse.down()
   await page.mouse.up()
@@ -356,8 +359,10 @@ test('a stamp beside a part takes nothing the part hides', async () => {
     middles.push([0, 1, 2].map((axis) => (sheet.vertices[corners[0] + axis] + sheet.vertices[corners[1] + axis] + sheet.vertices[corners[2] + axis]) / 3) as [number, number, number])
   }
   expect(middles.length).toBe(region.triangles)
+  // Fix round 1 (I1): the triangle under the pointer is painted. An edge of the plate is within reach of a pick there, and is no part in front.
+  expect((mask[under!.triangle >> 3] >> (under!.triangle & 7)) & 1).toBe(1)
   // Not one of them is drawn where the plate is seen.
-  const hidden = await page.evaluate((middles) => middles.filter((local) => window.__tornoTest!.pickAt(...window.__tornoTest!.projectScan('S1', local), { partsOnly: true }) !== null).length, middles)
+  const hidden = await page.evaluate((middles) => middles.filter((local) => window.__tornoTest!.pickAt(...window.__tornoTest!.projectScan('S1', local), { partsOnly: true, edges: false }) !== null).length, middles)
   expect(hidden).toBe(0)
   // And the ball did reach under it: a whole one would have taken more than was seen, about half as much again.
   const [cx] = middles.reduce((sum, m) => [sum[0] + m[0] / middles.length, 0, 0] as [number, number, number], [0, 0, 0] as [number, number, number])

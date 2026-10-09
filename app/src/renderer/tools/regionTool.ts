@@ -9,7 +9,7 @@ import type { Viewport, ViewportPointer } from '../viewport/Viewport'
 import { boxOutline, boxPlanes } from './regionBox'
 import { CHOOSE_SCAN, KEEPING, NOT_INDEXED, NO_SCAN, type Painting, type Step, areaOf, brushRadius, cleared, current, isSending, join, keepRegion, paintOn, paintingOn, paintings, pointerAt, publish, show, touched, undoStroke, waiting } from './regionPainting'
 import { tintRegions } from './regionTints'
-import { stampTriangles } from './stamp'
+import { boxMeetsBrush, stampTriangles } from './stamp'
 import { DRAG_PX, type Tool, type ToolContext } from './Tool'
 
 export { boxPlanes }
@@ -27,8 +27,8 @@ const MOST_STAMPS = 48
 /** A part this much nearer than the scan along the pointer's ray is in front of it: the scan is not what is seen there. */
 const IN_FRONT_MM = 1e-3
 
-/** The eight points of a stamp's rim that are asked about, as the cosine and sine of where each is round it. */
-const RIM = Array.from({ length: 8 }, (_, n): [number, number] => [Math.cos((n * Math.PI) / 4), Math.sin((n * Math.PI) / 4)])
+/** Said in the bar after a stroke of which a stamp met `STAMP_TESTS`: what it did not ask about it left, and another stroke takes it. */
+export const SLOWER = 'Near a part the brush paints slower: stroke again to take what it left'
 
 const a = new THREE.Vector3()
 const b = new THREE.Vector3()
@@ -47,7 +47,7 @@ function centroid(geometry: THREE.BufferGeometry, triangle: number, out: THREE.V
 export function regionTool(): Tool {
   /** What a held press is doing: a stroke of the brush, or a box. */
   let drag:
-    | { kind: 'stroke'; of: Painting; erase: boolean; step: Step; last: THREE.Vector3 | null }
+    | { kind: 'stroke'; of: Painting; erase: boolean; step: Step; last: THREE.Vector3 | null; seen?: Seen; slowed?: boolean }
     | { kind: 'box'; of: Painting; erase: boolean; from: ViewportPointer; outline: ReturnType<typeof boxOutline> }
     | null = null
   const inverse = new THREE.Matrix4()
@@ -60,6 +60,8 @@ export function regionTool(): Tool {
   const middle = new THREE.Vector3()
   const seen = new THREE.Vector3()
   type Found = NonNullable<ReturnType<Viewport['scanTree']>>
+  /** What a stroke knows of the view it is drawn in, for as long as the camera is as it was (`view`): where the box of each part is drawn, and of each triangle asked about whether a part hides it. */
+  interface Seen { view: string; boxes: Array<Array<[number, number] | null>>; hidden: Map<number, boolean> }
 
   /** Whether a triangle of a scan faces away from a direction, in the scan's own frame: it is seen from behind, as every triangle of a scan wound the other way round is. */
   const facesAway = (found: Found, triangle: number, to: THREE.Vector3): boolean => {
@@ -78,7 +80,10 @@ export function regionTool(): Tool {
    */
   const onScan = (e: ViewportPointer, ctx: ToolContext): ScanHit | null => {
     const hit = ctx.viewport.pickScan(e.client[0], e.client[1])
-    return hit && !(e.hit && e.hit.distance < hit.distance - IN_FRONT_MM) ? hit : null
+    if (!hit) return null
+    // An edge is found some pixels off it: beside a part's outline it is no part in front. A face of the part is, where there is one.
+    const front = e.hit?.kind === 'edge' ? ctx.viewport.pick(e.client[0], e.client[1], { partsOnly: true, edges: false }) : e.hit
+    return front && front.distance < hit.distance - IN_FRONT_MM ? null : hit
   }
 
   /** The side a section keeps, as a plane in a scan's own frame (`inverse` is set for it); null with no section. */
@@ -151,41 +156,48 @@ export function regionTool(): Tool {
     const origin = new THREE.Vector3().fromArray(e.ray.origin)
     const forward = new THREE.Vector3().fromArray(e.ray.direction)
     const depthOf = (point: THREE.Vector3): number => (ctx.camera.ortho ? seen.copy(point).sub(origin).dot(forward) : point.distanceTo(origin))
-    /** Whether a part is drawn in front of a point of the object frame: at its pixel a part is nearer. */
+    /** Whether a part is drawn in front of a point of the object frame: at its pixel a face of a part is nearer. Its faces alone: an edge is found some pixels off it. */
     const partBefore = (point: THREE.Vector3): boolean => {
       const [x, y] = project(point)
-      const part = ctx.viewport.pick(x, y, { partsOnly: true })
+      const part = ctx.viewport.pick(x, y, { partsOnly: true, edges: false })
       return part !== null && part.distance < depthOf(point) - IN_FRONT_MM
     }
     // Across the screen, a brush radius long: from the middle of a stamp to its rim as it is seen.
-    const across = new THREE.Vector3().fromArray(ctx.camera.target).sub(new THREE.Vector3().fromArray(ctx.camera.position)).cross(new THREE.Vector3().fromArray(ctx.camera.up))
+    const look = new THREE.Vector3().fromArray(ctx.camera.target).sub(new THREE.Vector3().fromArray(ctx.camera.position)).normalize()
+    const across = look.clone().cross(new THREE.Vector3().fromArray(ctx.camera.up))
     if (across.lengthSq() < 1e-12) across.set(1, 0, 0)
     across.normalize().multiplyScalar(radius * scale)
-    // What was asked of a triangle holds for the whole event: the stamps of one overlap, and the camera is still.
-    const asked = new Map<number, boolean>()
-    const hidden = (triangle: number): boolean => {
-      let is = asked.get(triangle)
-      if (is === undefined) asked.set(triangle, (is = partBefore(centroid(geometry, triangle, middle).applyMatrix4(matrix))))
-      return is
+    // What is known of the view holds while the camera is where it was: the wheel may zoom in the middle of a stroke.
+    const view = JSON.stringify(ctx.camera)
+    if (drag.seen?.view !== view) {
+      const eye = new THREE.Vector3().fromArray(ctx.camera.position)
+      // Where the box of each part that is drawn is on the screen: a part can hide only what is drawn inside that.
+      const boxes = (ctx.viewport.partBoxes?.() ?? [ctx.viewport.bounds()]).map(({ min, max }) =>
+        [min[0], max[0]].flatMap((x) => [min[1], max[1]].flatMap((y) => [min[2], max[2]].map((z) => (ctx.camera.ortho || seen.set(x, y, z).sub(eye).dot(look) > 1e-6 ? project(seen.set(x, y, z)) : null))))
+      )
+      drag.seen = { view, boxes, hidden: new Map() }
     }
+    const { boxes, hidden: known } = drag.seen
+    const stroke = drag
     /** One stamp, at a point of the scan's own frame: what a part hides of the scan under it is left (`stampTriangles`). */
     const stamp = (at: THREE.Vector3): void => {
       // Only what the stamp would change: what is asked about is then what is still to take.
       const gathered: number[] = []
       gatherSphere(found.tree, geometry, at, radius, towards, (t) => void (hand.set.has(t) === erase && gathered.push(t)), keeps)
       if (gathered.length === 0) return
-      // The middle of the stamp and eight points of its rim, on the screen: a part in front of the scan at any of them may hide some of it.
+      // The square round the stamp on the screen: with the box of a part in it, each triangle is asked about.
       world.copy(at).applyMatrix4(matrix)
       const [x, y] = project(world)
       const [rx, ry] = project(rim.copy(world).add(across))
       const pixels = Math.hypot(rx - x, ry - y)
-      const reach = depthOf(world) - IN_FRONT_MM
-      const before = (px: number, py: number): boolean => {
-        const part = ctx.viewport.pick(px, py, { partsOnly: true })
-        return part !== null && part.distance < reach
-      }
-      const blocked = [before(x, y), ...RIM.map(([cos, sin]) => before(x + pixels * cos, y + pixels * sin))]
-      for (const t of stampTriangles(gathered, blocked, hidden)) take(t)
+      const near = boxes.some((corners) => boxMeetsBrush(corners, x, y, pixels))
+      const { taken, capped } = stampTriangles(gathered, near, (t) => known.get(t), (t) => {
+        const is = partBefore(centroid(geometry, t, middle).applyMatrix4(matrix))
+        known.set(t, is)
+        return is
+      })
+      if (capped) stroke.slowed = true
+      for (const t of taken) take(t)
     }
     centre.fromArray(hit.local)
     const from = drag.last
@@ -216,6 +228,8 @@ export function regionTool(): Tool {
     } else if (was.step.added.length + was.step.removed.length > 0) was.of.steps.push(was.step)
     if (was.of.set.count === 0) was.of.area = 0
     publish()
+    // Said once the stroke has ended, as everything of a stroke is: some stamp left triangles for the next.
+    if (was.kind === 'stroke' && was.slowed) regionStore.setState({ notice: SLOWER })
   }
 
   /** The stroke or the box under way is given up: what the stroke changed is put back, and nothing else is touched. */
