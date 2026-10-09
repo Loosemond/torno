@@ -31,7 +31,11 @@ function squared(v: Vec3): Vec3 {
  * `y` its up. When the view looks along a principal axis to within half a
  * degree the plane is that principal plane exactly, and its label names it
  * and where it is: the two axes it spans, the one along `x` first, then the
- * fixed one and its coordinate (`XZ at y = 40.0`). Any other is `view plane`.
+ * fixed one and its coordinate; any other is `view plane`. Either way the
+ * label then says which way the plane's own two axes run, `u` along `x` and
+ * `v` along `y`: `XZ at y = 40.0 (u = +X, v = +Z)`. The same plane seen from
+ * the other side has its `u` the other way, and says so, so a profile is
+ * never read mirrored by whoever has only the label.
  */
 export function viewPlane(camera: Pick<Camera, 'position' | 'target' | 'up'>, through: Vec3): Plane {
   const looks = squared(unit(sub(camera.target, camera.position)) ?? [0, 1, 0])
@@ -42,13 +46,26 @@ export function viewPlane(camera: Pick<Camera, 'position' | 'target' | 'up'>, th
   const x = squared(unit(cross(looks, y)) ?? [1, 0, 0]).map((c) => c + 0) as Vec3
   const origin: Vec3 = [...through]
 
+  const axes = `(u = ${direction(x)}, v = ${direction(y)})`
   const fixed = axisOf(looks)
-  if (fixed < 0) return { origin, x, y, label: 'view plane' }
+  if (fixed < 0) return { origin, x, y, label: `view plane ${axes}` }
   const across = axisOf(x)
   const first = across >= 0 ? across : [0, 1, 2].find((i) => i !== fixed)!
   const second = [0, 1, 2].find((i) => i !== fixed && i !== first)!
   const at = through[fixed].toFixed(1)
-  return { origin, x, y, label: `${LETTERS[first]}${LETTERS[second]} at ${LETTERS[fixed].toLowerCase()} = ${at === '-0.0' ? '0.0' : at}` }
+  return { origin, x, y, label: `${LETTERS[first]}${LETTERS[second]} at ${LETTERS[fixed].toLowerCase()} = ${at === '-0.0' ? '0.0' : at} ${axes}` }
+}
+
+/** Which way a unit vector points, in a label: `+X` or `-Z` along a principal axis, else its three numbers to the hundredth. */
+function direction(v: Vec3): string {
+  const axis = v.findIndex((c) => Math.abs(c) === 1)
+  if (axis >= 0 && v.every((c, i) => i === axis || c === 0)) return `${v[axis] > 0 ? '+' : '-'}${LETTERS[axis]}`
+  return `[${v.map((c) => Math.round(c * 100) / 100 + 0).join(', ')}]`
+}
+
+/** A plane's label without the directions of its axes: `XZ at y = 40.0`, `view plane`. For where there is room for a few words only. */
+export function planeName(label: string): string {
+  return label.split(' (')[0]
 }
 
 /** A point of the object frame in a plane's own two axes, in millimetres from its origin. What is off the plane is dropped. */

@@ -55,6 +55,9 @@ export type MarkPatch = Partial<Pick<MarkBase, 'note' | 'status' | 'resolvedNote
   Partial<Pick<ShapeMark, 'intent' | 'position' | 'rotation' | 'size' | 'shape'>>
 export interface MarksFile { next: number; marks: Mark[] }
 
+/** The most points a stroke keeps. Main cuts a longer one there; whoever draws one sends no more. */
+export const MAX_STROKE_POINTS = 400
+
 /** The anchors a mark carries: where it is tied to the geometry. A shape placed in empty space has none. */
 export function markAnchors(mark: Mark): Anchor[] {
   switch (mark.kind) {

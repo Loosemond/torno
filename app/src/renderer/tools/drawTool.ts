@@ -1,16 +1,14 @@
-import type { Vec3 } from '../../shared/marks'
+import { MAX_STROKE_POINTS, type Vec3 } from '../../shared/marks'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { fromPlane, rayOnPlane, toPlane, viewPlane, type Plane } from './planes'
+import { fromPlane, planeName, rayOnPlane, toPlane, viewPlane, type Plane } from './planes'
 import { simplify } from './simplify'
-import { anchorFromHit, type Tool, type ToolContext } from './Tool'
+import { MIN_LENGTH_MM, anchorFromHit, type Tool, type ToolContext } from './Tool'
 
 /** The pointer is sampled each time it has travelled this far, in pixels. */
 export const SAMPLE_PX = 3
 /** Points nearer than this to the line through their neighbours are dropped when the stroke is kept, in millimetres. */
 export const TOLERANCE_MM = 0.2
-/** The most points a stroke is kept with: main cuts there without a word, so it is never sent more. */
-export const MAX_POINTS = 400
 
 type Client = [number, number]
 type Drawing = {
@@ -29,6 +27,13 @@ function inSpace(drawing: Drawing): Vec3[] {
   if (drawing.on === 'surface') return drawing.points
   const { plane } = drawing
   return drawing.points.map((p) => fromPlane(plane, p))
+}
+
+/** How long a drawn line is, from its first point to its last along it. */
+function lengthOf(points: number[][]): number {
+  let length = 0
+  for (let i = 1; i < points.length; i++) length += Math.hypot(...points[i].map((c, k) => c - points[i - 1][k]))
+  return length
 }
 
 /** How wide and how high a drawing on a plane is, in millimetres: `12.0 × 7.5 mm`. */
@@ -50,8 +55,11 @@ function extent(points: [number, number][]): string {
  * each sample is where the pointer is on a part then; those beside the parts
  * are left out. A press beside the parts turns the camera as ever.
  *
- * Either way the stroke is simplified when it is let go, a stroke of fewer
- * than two points is none, and the wheel still zooms while drawing.
+ * Either way the stroke is simplified when it is let go (to at most the
+ * points main keeps: it would cut more without a word), a stroke of fewer
+ * than two points or shorter than 0.1 mm is none, and the wheel still zooms
+ * while drawing. On a locked view every press of the left button draws, so
+ * a press with Alt held is left alone: it turns the camera, as on any view.
  */
 export function drawTool(): Tool {
   let drawing: Drawing | null = null
@@ -105,7 +113,8 @@ export function drawTool(): Tool {
     cursor: 'crosshair',
     onPointer(e: ViewportPointer, ctx: ToolContext) {
       if (e.type === 'down') {
-        if (!(e.buttons & 1)) return
+        // With Alt the press is the camera's: the way to turn a locked view with this tool in hand.
+        if (!(e.buttons & 1) || e.alt) return
         const locked = ctx.viewport.lockedView() !== null
         if (!locked && !e.hit) return
         if (locked) {
@@ -125,6 +134,10 @@ export function drawTool(): Tool {
         if (e.type === 'move' && e.hit && e.buttons === 0) {
           ctx.viewport.setHover(e.hit)
           ctx.readout.show(e.client, e.hit.ref)
+        } else if (e.type === 'move' && e.buttons === 0 && ctx.viewport.lockedView() !== null) {
+          // Beside the parts on a locked view a press draws too: which plane on, and how to turn the view instead.
+          ctx.viewport.setHover(null)
+          ctx.readout.say(e.client, `Draws on ${planeName(viewPlane(ctx.camera, centre(ctx.viewport.bounds())).label)}. Alt-drag or Iso (1) to turn the view`)
         } else if (e.type !== 'click') {
           ctx.viewport.setHover(null)
           ctx.readout.hide()
@@ -150,10 +163,12 @@ export function drawTool(): Tool {
       // Each kind by itself: its points are of two numbers or of three.
       const drawn: Drawing =
         drawing.on === 'surface'
-          ? { ...drawing, points: simplify(drawing.points, TOLERANCE_MM, MAX_POINTS) }
-          : { ...drawing, points: simplify(drawing.points, TOLERANCE_MM, MAX_POINTS) }
+          ? { ...drawing, points: simplify(drawing.points, TOLERANCE_MM, MAX_STROKE_POINTS) }
+          : { ...drawing, points: simplify(drawing.points, TOLERANCE_MM, MAX_STROKE_POINTS) }
+      // Measured as it was drawn: a small circle is short from end to end, and long.
+      const short = lengthOf(drawing.points) < MIN_LENGTH_MM
       drop(ctx)
-      if (drawn.points.length < 2) return ctx.viewport.setDraft(null)
+      if (drawn.points.length < 2 || short) return ctx.viewport.setDraft(null)
       // Stays drawn, as it will be kept, until main has it.
       ctx.viewport.setDraft({ kind: 'stroke', points: inSpace(drawn) })
       void place(drawn, ctx)

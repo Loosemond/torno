@@ -101,7 +101,7 @@ export class MarkLayer {
    * A shape as a drag of the gizmo has it for now: drawn so, and taken for the
    * mark (its label follows) until `setMarks` says what main made of it.
    */
-  preview(id: string, shape: Pick<ShapeMark, 'position' | 'rotation' | 'size'>): void {
+  preview(id: string, shape: Partial<Pick<ShapeMark, 'position' | 'rotation' | 'size'>>): void {
     const entry = this.entries.get(id)
     if (entry?.mark.kind !== 'shape') return
     this.drop(entry)

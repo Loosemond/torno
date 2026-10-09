@@ -20,7 +20,7 @@ function hitAt(point: Vec3, normal: Vec3 | null = [0, 0, 1]): Hit {
 
 /** A pointer event over the XZ plane: the ray looks along +Y through (x, z), and the client pixel is the same two numbers. */
 function pointer(type: ViewportPointer['type'], x: number, z: number, opts: { hit?: Hit | null; shift?: boolean } = {}): ViewportPointer {
-  return { type, hit: opts.hit ?? null, ray: { origin: [x, -100, z], direction: [0, 1, 0] }, client: [x, -z], buttons: type === 'up' || type === 'click' ? 0 : 1, shift: opts.shift ?? false }
+  return { type, hit: opts.hit ?? null, ray: { origin: [x, -100, z], direction: [0, 1, 0] }, client: [x, -z], buttons: type === 'up' || type === 'click' ? 0 : 1, shift: opts.shift ?? false, alt: false }
 }
 
 function fake(over: Partial<ToolContext> = {}) {

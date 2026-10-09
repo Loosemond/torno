@@ -2,6 +2,7 @@ import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Anchor, Mark, MarksFile, Quat, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
+import { MAX_STROKE_POINTS } from '../../shared/marks'
 import { writeFileAtomic } from '../atomic'
 
 const FOLDER = '.torno'
@@ -9,8 +10,7 @@ const NAME = 'marks.json'
 
 /** The longest note a mark keeps, in characters. */
 export const MAX_NOTE = 2000
-/** The most points a stroke keeps. */
-export const MAX_STROKE_POINTS = 400
+export { MAX_STROKE_POINTS }
 
 /**
  * The marks of the object in `dir`. A missing file is an empty list, and

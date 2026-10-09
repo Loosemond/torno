@@ -156,7 +156,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
 }
 
 /** What the lock on a view's button means, for its tooltip. */
-const LOCKED = 'Locked: Draw makes a flat profile on this plane, in mm. Turning the view unlocks it.'
+const LOCKED = 'Locked to this view: strokes are flat profiles. Turning the view unlocks it'
 
 /** A small padlock: the view is square to a principal plane, and stays so until it is turned. */
 function LockIcon() {

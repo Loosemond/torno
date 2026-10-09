@@ -132,7 +132,7 @@ function hitAt(point: Vec3, normal: Vec3 | null = [0, 0, 1]): Hit {
 }
 
 function pointer(type: ViewportPointer['type'], x: number, y: number, hit: Hit | null = null): ViewportPointer {
-  return { type, hit, ray: { origin: [x, -100, y], direction: [0, 1, 0] }, client: [x, y], buttons: type === 'up' || type === 'click' ? 0 : 1, shift: false }
+  return { type, hit, ray: { origin: [x, -100, y], direction: [0, 1, 0] }, client: [x, y], buttons: type === 'up' || type === 'click' ? 0 : 1, shift: false, alt: false }
 }
 
 function fake(over: Partial<ToolContext> = {}) {

@@ -1,17 +1,17 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { TransformControls } from 'three/addons/controls/TransformControls.js'
-import type { Mark, Quat, ShapeMark } from '../../shared/marks'
+import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, ViewName } from '../../shared/view'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
-import { fitSize, labelAnchor, markPoints } from './marks/markObjects'
+import { labelAnchor, markPoints } from './marks/markObjects'
 import type { Placed } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayUnit, type LabelStyle } from './overlay'
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickParts, pointerRay } from './picking'
+import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection, visibleHeight } from './views'
 
 export interface LayerState {
@@ -40,14 +40,7 @@ interface Theme {
   axisZ: string
 }
 
-/** A shape as the gizmo leaves it: where it is, how it is turned, and its size in millimetres. */
-export type ShapeTransform = Pick<ShapeMark, 'position' | 'rotation' | 'size'>
-/** What the gizmo on a shape does to it: move it, turn it, or change its size. */
-export type GizmoMode = 'translate' | 'rotate' | 'scale'
-/** How large the gizmo is on screen, against three.js's own. */
-const GIZMO_SIZE = 0.72
-/** What a drag of the gizmo leaves is kept to the hundredth of a millimetre: this many steps to one. */
-const GIZMO_PER_MM = 100
+export type { GizmoMode, ShapeTransform }
 
 type AnyCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
 
@@ -82,6 +75,8 @@ export interface ViewportPointer {
   client: [number, number]
   buttons: number
   shift: boolean
+  /** Alt is held: a tool that takes every press leaves this one to the camera. */
+  alt: boolean
 }
 
 /** The light values of styles/tokens.css, used where no stylesheet is loaded. */
@@ -151,18 +146,8 @@ export class Viewport {
   private allMarks: Mark[] = []
   /** Over the canvas, for the labels of the marks: drawn anew with every frame, never through React. */
   private readonly labelCanvas: HTMLCanvasElement | null
-  /**
-   * The gizmo on the shape being edited: three.js's own, on a stand-in object
-   * that is where the shape is. It is no part of a picture, and is never picked.
-   */
-  private readonly gizmo: TransformControls
-  private readonly gizmoAt = new THREE.Object3D()
-  /** The shape the gizmo is asked to be on, and who hears what a drag made of it. */
-  private editing: { id: string; mode: GizmoMode; onChange: (shape: ShapeTransform) => void } | null = null
-  /** While the gizmo is dragged: the size the shape had when the drag began, and what the drag has made of it so far. */
-  private gizmoDrag: { size: ShapeMark['size']; now: ShapeTransform | null } | null = null
-  /** The button went down on the gizmo: that press is not the tool's, to its end. */
-  private gizmoPress = false
+  /** The gizmo on the shape being edited. */
+  private readonly gizmo: ShapeGizmo
   /** The tool has been told the pointer is the gizmo's. */
   private gizmoHasPointer = false
   private pointerListener: ((e: ViewportPointer) => void) | null = null
@@ -215,13 +200,24 @@ export class Viewport {
     this.controls.addEventListener('change', this.onCameraChange)
 
     // Before this class listens to the pointer: by then the gizmo has said whether the pointer is on it.
-    this.gizmo = new TransformControls(this.perspective, canvas)
-    this.gizmo.setSize(GIZMO_SIZE)
-    this.gizmo.addEventListener('change', this.onGizmoDrawn)
-    this.gizmo.addEventListener('dragging-changed', this.onGizmoDragging)
-    this.gizmo.addEventListener('objectChange', this.onGizmoMoved)
-    this.gizmo.addEventListener('axis-changed', this.onGizmoAxis)
-    this.scene.add(this.gizmoAt, this.gizmo.getHelper())
+    this.gizmo = new ShapeGizmo(this.perspective, canvas, {
+      shape: (id) => {
+        const mark = this.marks.markOf(this.layout, id)
+        return mark?.kind === 'shape' ? mark : null
+      },
+      preview: (id, shape) => {
+        this.marks.preview(id, shape)
+        this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+        this.invalidate()
+      },
+      dragging: (on) => {
+        // The drag is the gizmo's, not the orbit's.
+        if (on) this.controls.enabled = false
+        else if (!this.held) this.controls.enabled = this.navigation
+      },
+      redraw: () => this.invalidate()
+    })
+    this.scene.add(...this.gizmo.objects)
 
     for (const type of POINTER_EVENTS) canvas.addEventListener(type, this.onPointerEvent)
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
@@ -286,7 +282,7 @@ export class Viewport {
     this.marks.show(this.layout)
     this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
     this.tintPicks(this.layout)
-    this.placeGizmo()
+    this.gizmo.place()
     this.invalidate()
   }
 
@@ -294,89 +290,19 @@ export class Viewport {
    * Puts a gizmo on a shape mark of the layout shown, to move it, turn it or
    * size it by dragging; null takes the gizmo away. While it is dragged the
    * shape is drawn as the drag has it, and nothing is told; when it is let go
-   * `onChange` is called once, with what the shape now is. Sizing changes the
-   * size in millimetres, never a scale: no axis under 0.1 mm, a cylinder's
-   * two diameters and a sphere's three kept equal, a plane kept flat. The mark
-   * is the caller's to change: if it is not changed to what `onChange` was
-   * given, calling this again draws it as it is.
+   * `onChange` is called once, with what of the shape the drag changed: its
+   * position, its rotation or its size, by `mode`. Sizing changes the size in
+   * millimetres, never a scale: no axis under 0.1 mm, a cylinder's two
+   * diameters and a sphere's three kept equal, a plane kept flat. The mark is
+   * the caller's to change: if it is not changed to what `onChange` was given,
+   * calling this again draws it as it is.
    */
-  editShape(id: string | null, mode: GizmoMode, onChange: (shape: ShapeTransform) => void): void {
-    this.editing = id === null ? null : { id, mode, onChange }
+  editShape(id: string | null, mode: GizmoMode, onChange: (shape: Partial<ShapeTransform>) => void): void {
+    this.gizmo.edit(id, mode, onChange)
     // As main has them: a drag that came to nothing leaves no trace.
     this.marks.setMarks(this.allMarks)
     this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
-    this.placeGizmo()
-    this.invalidate()
-  }
-
-  /** The shape the gizmo is asked to be on, if it is drawn. */
-  private editedShape(): ShapeMark | null {
-    const mark = this.editing && this.marks.markOf(this.layout, this.editing.id)
-    return mark?.kind === 'shape' ? mark : null
-  }
-
-  /** Brings the gizmo to the shape being edited, as the shape now is, or takes it away. A drag under way is left alone. */
-  private placeGizmo(): void {
-    const mark = this.editedShape()
-    if (!mark || !this.editing) {
-      if (this.gizmo.object) this.gizmo.detach()
-      this.gizmoDrag = null
-      delete this.canvas.dataset.gizmo
-      return
-    }
-    if (this.gizmo.dragging) return
-    this.gizmoAt.position.fromArray(mark.position)
-    this.gizmoAt.quaternion.copy(quaternionOf(mark.rotation))
-    this.gizmoAt.scale.set(1, 1, 1)
-    if (this.gizmo.object !== this.gizmoAt) this.gizmo.attach(this.gizmoAt)
-    this.gizmo.setMode(this.editing.mode)
-    // A plane has no thickness to size.
-    this.gizmo.showZ = !(this.editing.mode === 'scale' && mark.shape === 'plane')
-    this.canvas.dataset.gizmo = this.editing.mode
-  }
-
-  private readonly onGizmoDrawn = (): void => this.invalidate()
-
-  /** Which handle the pointer is on, for the cursor: an attribute of the canvas, set when it changes. */
-  private readonly onGizmoAxis = (): void => {
-    if (this.gizmo.axis) this.canvas.dataset.gizmoAxis = this.gizmo.axis
-    else delete this.canvas.dataset.gizmoAxis
-  }
-
-  private readonly onGizmoDragging = (): void => {
-    const mark = this.editedShape()
-    if (this.gizmo.dragging) {
-      this.controls.enabled = false // the drag is the gizmo's, not the orbit's
-      this.gizmoDrag = mark ? { size: mark.size, now: null } : null
-      return
-    }
-    if (!this.held) this.controls.enabled = this.navigation
-    const made = this.gizmoDrag?.now
-    this.gizmoDrag = null
-    this.placeGizmo()
-    if (made && this.editing) this.editing.onChange(made)
-  }
-
-  /** The gizmo moved its stand-in: the shape is drawn there, at that turn, of that size. */
-  private readonly onGizmoMoved = (): void => {
-    const mark = this.editedShape()
-    const drag = this.gizmoDrag
-    if (!mark || !drag || !this.editing) return
-    const round = (mm: number): number => Math.round(mm * GIZMO_PER_MM) / GIZMO_PER_MM + 0
-    let size = drag.size
-    if (this.editing.mode === 'scale') {
-      // The gizmo sizes by scaling from where the drag began: taken as millimetres, and the scale put back to 1.
-      const scale = this.gizmoAt.scale
-      size = fitSize(mark.shape, [round(drag.size[0] * Math.abs(scale.x)), round(drag.size[1] * Math.abs(scale.y)), round(drag.size[2] * Math.abs(scale.z))], drag.size)
-      scale.set(1, 1, 1)
-    }
-    drag.now = {
-      position: this.gizmoAt.position.toArray().map(round) as Vec3,
-      rotation: this.gizmoAt.quaternion.clone().normalize().toArray() as Quat,
-      size
-    }
-    this.marks.preview(mark.id, drag.now)
-    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.gizmo.place()
     this.invalidate()
   }
 
@@ -590,6 +516,7 @@ export class Viewport {
   setNavigation(enabled: boolean, opts: { wheel?: boolean } = {}): void {
     this.navigation = enabled
     this.wheelZooms = !enabled && opts.wheel === true
+    this.gizmo.setEnabled(enabled) // a tool that drags has the pointer to itself: no handle lights up under it
     if (!enabled || !this.held) this.controls.enabled = enabled
   }
 
@@ -649,9 +576,7 @@ export class Viewport {
     // Everything from here to the end of `finally` is synchronous, so no frame on screen sees it.
     const before = new Map([...this.entries.values()].map((e) => [e, e.built.group.visible]))
     this.highlights.setVisible(false) // a picture is of the parts and the marks, not of what the person points at
-    const gizmo = this.gizmo.getHelper()
-    const gizmoShown = gizmo.visible
-    gizmo.visible = false // nor of what they hold a shape by
+    const showGizmo = this.gizmo.hide() // nor of what they hold a shape by
     const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
     // Fat lines take their width in pixels from the renderer's viewport, which is the
     // canvas's whatever is being drawn to: for the picture it is the picture's size.
@@ -690,7 +615,7 @@ export class Viewport {
       this.renderer.setViewport(onScreen)
       this.renderer.setRenderTarget(null)
       for (const [entry, visible] of before) entry.built.group.visible = visible
-      gizmo.visible = gizmoShown
+      showGizmo()
       this.highlights.setVisible(true)
       this.marks.show(this.layout) // sized for the screen again by the next frame drawn
       this.marks.showDraft(true)
@@ -759,8 +684,6 @@ export class Viewport {
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored)
     this.controls.dispose()
-    this.gizmo.detach()
-    this.gizmo.getHelper().dispose()
     this.gizmo.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
@@ -791,7 +714,7 @@ export class Viewport {
     this.marks.show(this.layout)
     this.highlights.apply(this.partNamed) // the refs may name other geometry now, or none
     this.tintPicks(this.layout)
-    this.placeGizmo() // a shape of another layout is not there to hold
+    this.gizmo.place() // a shape of another layout is not there to hold
   }
 
   /**
@@ -842,17 +765,14 @@ export class Viewport {
     else if (kind !== 'move') this.press = null
     this.held = e.buttons !== 0
     if (!this.held && !this.gizmo.dragging) this.controls.enabled = this.navigation
-    // On a handle of the gizmo, or in a press that began on one, the pointer is the gizmo's: the tool is told once that it has gone.
-    const onGizmo = this.gizmo.dragging || (this.gizmo.object !== undefined && this.gizmo.axis !== null)
-    if (kind === 'down') this.gizmoPress = onGizmo
-    const gizmos = onGizmo || this.gizmoPress
-    if (kind === 'up' || kind === 'cancel') this.gizmoPress = false
+    // Over a handle of the gizmo, or in a press that began on one, the pointer is the gizmo's: the tool is told once that it has gone.
+    const gizmos = this.gizmo.takes(kind, e.buttons)
     const cb = this.pointerListener
     const at = this.canvasPoint(e.clientX, e.clientY)
     if (!cb || !at) return
 
     if (gizmos) {
-      if (!this.gizmoHasPointer) cb({ type: 'cancel', hit: null, ray: pointerRay(this.camera, at.ndc), client: [e.clientX, e.clientY], buttons: e.buttons, shift: e.shiftKey })
+      if (!this.gizmoHasPointer) cb({ type: 'cancel', hit: null, ray: pointerRay(this.camera, at.ndc), client: [e.clientX, e.clientY], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey })
       this.gizmoHasPointer = true
       return
     }
@@ -862,7 +782,7 @@ export class Viewport {
     const turning = kind === 'move' && e.buttons !== 0 && this.controls.enabled
     const hit = kind === 'cancel' || turning ? null : this.pick(e.clientX, e.clientY)
     this.syncMatrices()
-    const event = { hit, ray: pointerRay(this.camera, at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey }
+    const event = { hit, ray: pointerRay(this.camera, at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey }
     cb({ type: kind, ...event })
     const still = press && e.button === 0 && Math.hypot(e.clientX - press.x, e.clientY - press.y) <= CLICK_PX && e.timeStamp - press.at <= CLICK_MS
     if (kind === 'up' && still) cb({ type: 'click', ...event })
@@ -982,7 +902,7 @@ export class Viewport {
       axisZ: read('--axis-z', LIGHT_THEME.axisZ)
     }
     // The axes keep their usual colours, toned to the palette; the handle under the pointer is ink, like anything pressed.
-    this.gizmo.setColors(toHex(this.theme.axisX), toHex(this.theme.axisY), toHex(this.theme.axisZ), toHex(this.theme.ink))
+    this.gizmo.setColours(toHex(this.theme.axisX), toHex(this.theme.axisY), toHex(this.theme.axisZ), toHex(this.theme.ink))
     this.highlights.setColors(this.theme)
     this.marks.setColours(markColours(this.theme))
     this.marks.show(this.layout)
@@ -1019,7 +939,7 @@ export class Viewport {
     camera.zoom = c.zoom
     this.fov = c.fov
     this.camera = camera
-    this.gizmo.camera = camera
+    this.gizmo.setCamera(camera)
     this.controls.object = camera
     this.controls.target.copy(target)
     this.controls.update()
@@ -1247,12 +1167,6 @@ function boxOf(parts: Part[]): { min: number[]; max: number[] } | null {
 
 function markColours(theme: Theme): { user: string; agent: string; reference: string } {
   return { user: toHex(theme.user), agent: toHex(theme.agent), reference: toHex(theme.muted) }
-}
-
-/** A shape's rotation; one that is no rotation at all (all zeros) turns nothing. */
-function quaternionOf(rotation: Quat): THREE.Quaternion {
-  const q = new THREE.Quaternion().fromArray(rotation)
-  return q.lengthSq() > 0 ? q.normalize() : q.identity()
 }
 
 /** Any CSS colour as #RRGGBB. */
