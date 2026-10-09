@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { apply } from '../../shared/align'
+import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
 import { connectAgent, picture, setPictures } from '../state/agent'
@@ -278,6 +280,27 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   setPictures((request) => look(viewport, request))
 
   if (new URLSearchParams(location.search).has('test')) {
+    const project = (point: Vec3): [number, number] => {
+      const box = canvasBox(viewport)
+      const [x, y] = viewport.project(point)
+      return [(x - box.left) / box.width, (y - box.top) / box.height]
+    }
+    /** What `count` calls cost at points spread over the canvas in a grid, in client pixels, and how many said yes. */
+    const timed = (count: number, at: (clientX: number, clientY: number) => boolean): { count: number; hits: number; meanMs: number; worstMs: number } => {
+      const box = canvasBox(viewport)
+      const side = Math.ceil(Math.sqrt(count))
+      let worst = 0
+      let hits = 0
+      const started = performance.now()
+      for (let i = 0; i < count; i++) {
+        const fx = ((i % side) + 0.5) / side
+        const fy = (Math.floor(i / side) + 0.5) / side
+        const before = performance.now()
+        if (at(box.left + fx * box.width, box.top + fy * box.height)) hits += 1
+        worst = Math.max(worst, performance.now() - before)
+      }
+      return { count, hits, meanMs: (performance.now() - started) / count, worstMs: worst }
+    }
     window.__tornoTest = {
       state: () => store.getState(),
       look: (req) => picture(req),
@@ -286,26 +309,22 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         const box = canvasBox(viewport)
         return viewport.pick(box.left + fx * box.width, box.top + fy * box.height, opts)
       },
-      project: (point) => {
+      project,
+      // What a pointer move costs: the same call, at points spread over the canvas in a grid.
+      timePicks: (count = 200, opts) => timed(count, (x, y) => viewport.pick(x, y, opts) !== null),
+      pickScanAt: (fx, fy) => {
         const box = canvasBox(viewport)
-        const [x, y] = viewport.project(point)
-        return [(x - box.left) / box.width, (y - box.top) / box.height]
+        return viewport.pickScan(box.left + fx * box.width, box.top + fy * box.height)
       },
-      timePicks: (count = 200, opts) => {
-        // What a pointer move costs: the same call, at points spread over the canvas in a grid.
-        const box = canvasBox(viewport)
-        const side = Math.ceil(Math.sqrt(count))
-        let worst = 0
-        let hits = 0
-        const started = performance.now()
-        for (let i = 0; i < count; i++) {
-          const fx = ((i % side) + 0.5) / side
-          const fy = (Math.floor(i / side) + 0.5) / side
-          const before = performance.now()
-          if (viewport.pick(box.left + fx * box.width, box.top + fy * box.height, opts)) hits += 1
-          worst = Math.max(worst, performance.now() - before)
-        }
-        return { count, hits, meanMs: (performance.now() - started) / count, worstMs: worst }
+      projectScan: (id, local) => {
+        const scan = viewport.scanState().find((s) => s.id === id)
+        if (!scan) throw new Error(`no scan ${id}`)
+        return project(apply(scan.transform, local))
+      },
+      timeScanPicks: (count = 200) => {
+        const how: Record<string, 'worker' | 'main'> = {}
+        for (const scan of viewport.scanState()) if (scan.how) how[scan.id] = scan.how
+        return { ...timed(count, (x, y) => viewport.pickScan(x, y) !== null), how }
       },
       timeFrames: (count = 20) => {
         // What drawing the view as it is costs: each frame waited for until the graphics card has finished it.

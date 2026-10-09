@@ -2,7 +2,7 @@ import type { TornoBridge } from '../shared/bridge'
 import type { Camera, LookRequest, LookResult } from '../shared/view'
 import type { TornoState } from './state/store'
 import type { Hit } from './viewport/picking'
-import type { ScanLayerState } from './viewport/scans'
+import type { ScanHit, ScanLayerState } from './viewport/scans'
 
 declare global {
   interface Window {
@@ -14,7 +14,7 @@ declare global {
       look(req: LookRequest): Promise<LookResult>
       camera(): Camera
       /** What a point of the canvas is on; `fx` and `fy` are fractions of its width and height, from the top left. */
-      pickAt(fx: number, fy: number, opts?: { edges?: boolean }): Hit | null
+      pickAt(fx: number, fy: number, opts?: { edges?: boolean; partsOnly?: boolean }): Hit | null
       /** How long `count` picks spread over the canvas take, as a pointer move makes them: the mean and the worst, in milliseconds, and how many were on a part. */
       timePicks(count?: number, opts?: { edges?: boolean }): { count: number; hits: number; meanMs: number; worstMs: number }
       /** What drawing the view as it is costs, over `count` frames: the mean and the worst, in milliseconds. */
@@ -25,6 +25,12 @@ declare global {
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
       /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */
       scans(): ScanLayerState[]
+      /** What a point of the canvas is on of the scans drawn, as `pickAt` is of the parts. */
+      pickScanAt(fx: number, fy: number): ScanHit | null
+      /** Where a point of a scan, in the scan's own frame, is drawn: fractions of the canvas, as `project`. */
+      projectScan(id: string, local: [number, number, number]): [number, number]
+      /** What `count` picks of the scans cost, at points spread over the canvas, and how each tree was made. */
+      timeScanPicks(count?: number): { count: number; hits: number; meanMs: number; worstMs: number; how: Record<string, 'worker' | 'main'> }
     }
     /** Only with TORNO_TEST=1: what the terminal of the open object shows, as text. */
     __tornoTerm?: {

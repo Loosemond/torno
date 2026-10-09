@@ -22,6 +22,8 @@ export interface ViewportPointer {
   alt: boolean
   /** The pointer is on the cut face of a section: `hit` is null, since what a section draws is no face of the model. */
   cut?: boolean
+  /** A scan drawn thin is in front of the part the pointer would be on, and took the pick: `hit` is null. Its id. */
+  scan?: string
 }
 
 /** A press released within this many pixels and milliseconds of where and when it was made is a click, not a drag. */
@@ -61,6 +63,8 @@ export interface PointerHost {
   pick(clientX: number, clientY: number): Hit | null
   /** Whether that last `pick` found nothing because the point is on the cut face of a section. */
   pickedCut?(): boolean
+  /** The scan that last `pick` was left to, when it found nothing because one drawn thin is in front of a part; null otherwise. */
+  pickedScan?(): string | null
   /** Brings the matrices a ray is cast with up to date. */
   syncMatrices(): void
   /** The camera as it is, and a way to put it elsewhere at once, ending a move under way. */
@@ -175,8 +179,9 @@ export class PointerRouter {
     const turning = kind === 'move' && e.buttons !== 0 && host.orbit.enabled
     const hit = kind === 'cancel' || turning ? null : host.pick(e.clientX, e.clientY)
     const cut = kind !== 'cancel' && !turning && hit === null && host.pickedCut?.() === true
+    const scan = kind !== 'cancel' && !turning && hit === null ? (host.pickedScan?.() ?? null) : null
     host.syncMatrices()
-    const event = { hit, ray: pointerRay(host.camera(), at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey, ...(cut ? { cut } : {}) }
+    const event = { hit, ray: pointerRay(host.camera(), at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey, ...(cut ? { cut } : {}), ...(scan ? { scan } : {}) }
     cb({ type: kind, ...event })
     if (kind === 'up' && isClick(press, { button: e.button, x: e.clientX, y: e.clientY, at: e.timeStamp })) cb({ type: 'click', ...event })
   }

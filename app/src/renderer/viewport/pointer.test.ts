@@ -46,7 +46,7 @@ function fire(target: EventTarget, type: string, init: Partial<Record<'button' |
 }
 
 /** A router on a canvas of its own, with what it told its listener and what it asked of the viewport. */
-function router(): { pointer: PointerRouter; canvas: EventTarget; orbit: { enabled: boolean }; gizmo: { dragging: boolean; onIt: boolean; enabled: boolean; ended: number }; told: () => string[]; picks: () => number; views: Camera[] } {
+function router(over: Partial<PointerHost> = {}): { pointer: PointerRouter; canvas: EventTarget; orbit: { enabled: boolean }; gizmo: { dragging: boolean; onIt: boolean; enabled: boolean; ended: number }; told: () => string[]; picks: () => number; views: Camera[] } {
   const canvas = new EventTarget()
   const orbit = { enabled: true }
   const gizmo = { dragging: false, onIt: false, enabled: true, ended: 0 }
@@ -81,7 +81,8 @@ function router(): { pointer: PointerRouter; canvas: EventTarget; orbit: { enabl
     },
     syncMatrices: () => {},
     view: () => VIEW,
-    setView: (c) => views.push(c)
+    setView: (c) => views.push(c),
+    ...over
   }
   const pointer: PointerRouter = new PointerRouter(host)
   pointer.listen((e) => events.push(e))
@@ -94,6 +95,23 @@ describe('the pointer over the canvas', () => {
   })
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('says which scan took the pick when one drawn thin is in front of a part, and not while a drag turns the camera', () => {
+    const events: ViewportPointer[] = []
+    const { pointer, canvas } = router({ pick: () => null, pickedScan: () => 'S1' })
+    pointer.listen((e) => events.push(e))
+    fire(canvas, 'pointermove')
+    expect(events[0]).toMatchObject({ type: 'move', hit: null, scan: 'S1' })
+    fire(canvas, 'pointermove', { buttons: 1 })
+    expect(events[1].hit).toBeNull()
+    expect('scan' in events[1]).toBe(false)
+    // With no scan in the way nothing is said of one.
+    const plain: ViewportPointer[] = []
+    const other = router()
+    other.pointer.listen((e) => plain.push(e))
+    fire(other.canvas, 'pointermove')
+    expect('scan' in plain[0]).toBe(false)
   })
 
   it('tells of a click after the release of a press that did not move, and of none after a drag', () => {

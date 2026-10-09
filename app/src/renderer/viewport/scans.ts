@@ -1,6 +1,9 @@
 import * as THREE from 'three'
+import { type MeshBVH, acceleratedRaycast } from 'three-mesh-bvh'
+import type { Vec3 } from '../../shared/marks'
 import { IDENTITY, MIN_SCAN_OPACITY, alignmentOf, staleText, type ScanInfo, type ScanTransform, type ScanView } from '../../shared/scans'
 import { STALE_FADE, mix } from './palette'
+import { buildScanBvh } from './scanBvh'
 import { buildScan, disposeScan, fadeOwn, placeScan, type BuiltScan } from './scanMesh'
 
 export interface ScanLayerState {
@@ -8,6 +11,8 @@ export interface ScanLayerState {
   loaded: boolean
   /** Its tree is there: it can be picked. */
   ready: boolean
+  /** Where that tree was made: in a worker, or on the window's own thread; null until it is there. */
+  how: 'worker' | 'main' | null
   triangles: number
   aligned: boolean
   visible: boolean
@@ -17,6 +22,18 @@ export interface ScanLayerState {
 
 /** What is drawn of a scan, and what must be said of it with a picture: whether it is aligned in the layout drawn, and why that may no longer hold. */
 export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null }
+
+/**
+ * What a pointer is on, of a scan. `point` and `normal` are in the object frame of the layout shown; `local` is
+ * the same point in the scan's own frame. The normal looks towards the eye. `triangle` is its number in the
+ * scan's mesh file, and `distance` is along the ray from where it starts, in millimetres of the object frame.
+ */
+export interface ScanHit { scan: string; triangle: number; point: Vec3; local: Vec3; normal: Vec3; distance: number }
+
+/** A ray as a pointer event has it (`ViewportPointer.ray`), for `ScanLayer.pick`. */
+export function rayOf(ray: { origin: Vec3; direction: Vec3 }): THREE.Ray {
+  return new THREE.Ray(new THREE.Vector3().fromArray(ray.origin), new THREE.Vector3().fromArray(ray.direction))
+}
 
 /** How many times the size of the parts the camera reaches for a scan. */
 export const SCAN_REACH = 200
@@ -36,6 +53,11 @@ export function reaching(extent: THREE.Sphere, box: THREE.Box3 | null, parts: TH
   const round = new THREE.Sphere(parts.center.clone(), most)
   return extent.copy(round.union(extent.clone()))
 }
+/**
+ * A scan takes the pick from a part only when it is nearer than the part by more than this, in millimetres:
+ * where the two lie in one surface the part is the one drawn (the scan is pushed back in depth), so it is the one picked.
+ */
+export const SCAN_BEHIND_MM = 0.01
 /** From here up a scan is drawn solid: it writes depth, and what is behind it is hidden. */
 const SOLID_FROM = 0.95
 
@@ -43,7 +65,13 @@ interface Entry {
   info: ScanInfo
   /** Null until its mesh has come. */
   built: BuiltScan | null
+  /** The bounds tree of that mesh, and how it was made; null until it is there. */
+  tree: { tree: MeshBVH; how: 'worker' | 'main' } | null
 }
+
+/** A coordinate as it is told: to the millionth of a micrometre, and never -0. */
+const rounded = (c: number): number => Math.round(c * 1e9) / 1e9 + 0
+const roundedAll = (v: THREE.Vector3): Vec3 => [rounded(v.x), rounded(v.y), rounded(v.z)]
 
 /**
  * The scans of the object on show: surroundings the parts are looked at in.
@@ -62,6 +90,8 @@ export class ScanLayer {
   private planes: THREE.Plane[] | null = null
   /** While a picture is drawn: the scans it draws, and the layout it is of. */
   private pictured: { ids: ReadonlySet<string>; layout: string } | null = null
+  /** Who waits for the tree of a scan, by id (`whenReady`). */
+  private readonly waiting = new Map<string, Array<() => void>>()
 
   constructor(private readonly redraw: () => void) {}
 
@@ -73,13 +103,10 @@ export class ScanLayer {
       const entry = had.get(info.id)
       had.delete(info.id)
       // The mesh is that of one record: converted to another unit, written to another file, or gone from the disk, it is not what was built.
-      if (entry?.built && (info.meshState !== 'ok' || meshOf(info) !== meshOf(entry.info))) {
-        disposeScan(entry.built)
-        entry.built = null
-      }
-      return { info, built: entry?.built ?? null }
+      if (entry?.built && (info.meshState !== 'ok' || meshOf(info) !== meshOf(entry.info))) this.letGo(entry)
+      return { info, built: entry?.built ?? null, tree: entry?.tree ?? null }
     })
-    for (const gone of had.values()) if (gone.built) disposeScan(gone.built)
+    for (const gone of had.values()) this.letGo(gone)
     this.arrange()
   }
 
@@ -92,8 +119,72 @@ export class ScanLayer {
   load(id: string, blob: ArrayBuffer): void {
     const entry = this.entries.find((e) => e.info.id === id)
     if (!entry || entry.built) return
-    entry.built = buildScan(id, blob)
+    const built = buildScan(id, blob)
+    entry.built = built
     this.arrange()
+    // Drawn at once; it can be pointed at when its tree is there, which a worker makes meanwhile.
+    buildScanBvh(built.mesh.geometry).then(
+      (made) => {
+        // Let go of meanwhile (removed, converted): the tree is of a mesh that is no longer drawn.
+        const now = this.entries.find((e) => e.built === built)
+        if (!now) return
+        built.mesh.geometry.boundsTree = made.tree
+        built.mesh.raycast = acceleratedRaycast
+        now.tree = made
+        this.told(id)
+        this.redraw()
+      },
+      // No tree can be made of it: it is drawn, and cannot be pointed at.
+      () => this.told(id)
+    )
+  }
+
+  /** Resolves once the scan's tree is there, or it has been let go of (removed, or its mesh replaced or gone); at once for a scan that is not there. */
+  whenReady(id: string): Promise<void> {
+    const entry = this.entries.find((e) => e.info.id === id)
+    if (!entry || entry.tree) return Promise.resolve()
+    return new Promise((resolve) => this.waiting.set(id, [...(this.waiting.get(id) ?? []), resolve]))
+  }
+
+  /** A scan's tree and how it was made; null until it is there. */
+  tree(id: string): { tree: MeshBVH; how: 'worker' | 'main'; built: BuiltScan } | null {
+    const entry = this.entries.find((e) => e.info.id === id)
+    return entry?.built && entry.tree ? { ...entry.tree, built: entry.built } : null
+  }
+
+  /**
+   * The first thing a ray meets of the scans drawn whose trees are there, from either side; nothing further
+   * along it than `within`. With a section (`keeps`: what it keeps is on the plane's positive side), the first
+   * the plane keeps. The ray is in the object frame, its direction of length one.
+   */
+  pick(ray: THREE.Ray, keeps: THREE.Plane | null, within = Infinity): ScanHit | null {
+    let best: ScanHit | null = null
+    for (const { info, built, tree } of this.entries) {
+      if (!built || !tree || !built.group.visible) continue
+      // In the scan's own frame, where its tree is. A scan that was scaled stretches distances: they are taken again in the object frame.
+      const { matrix } = built.group
+      localRay.copy(ray).applyMatrix4(inverse.copy(matrix).invert())
+      const hits = keeps ? tree.tree.raycast(localRay, THREE.DoubleSide).sort((a, b) => a.distance - b.distance) : [tree.tree.raycastFirst(localRay, THREE.DoubleSide)]
+      for (const hit of hits) {
+        if (!hit) break
+        point.copy(hit.point).applyMatrix4(matrix)
+        if (keeps && keeps.distanceToPoint(point) < 0) continue
+        const distance = point.distanceTo(ray.origin)
+        if (distance <= within && (!best || distance < best.distance)) {
+          normal.copy(hit.face?.normal ?? ray.direction).transformDirection(matrix)
+          if (normal.dot(ray.direction) > 0) normal.negate()
+          best = { scan: info.id, triangle: hit.faceIndex ?? -1, point: roundedAll(point), local: roundedAll(hit.point), normal: roundedAll(normal), distance: rounded(distance) }
+        }
+        break
+      }
+    }
+    return best
+  }
+
+  /** Whether a scan is drawn thin enough for what is behind it to be seen through it. */
+  seenThrough(id: string): boolean {
+    const entry = this.entries.find((e) => e.info.id === id)
+    return entry !== undefined && this.opacityOf(entry) < SOLID_FROM
   }
 
   /** How a scan is looked at; what is left out keeps its value. */
@@ -168,7 +259,8 @@ export class ScanLayer {
       return {
         id: info.id,
         loaded: built !== null,
-        ready: false,
+        ready: entry.tree !== null,
+        how: entry.tree?.how ?? null,
         triangles: built?.triangles ?? info.imported.triangles,
         aligned: alignment !== null,
         visible: this.views.get(info.id)?.visible !== false,
@@ -179,9 +271,27 @@ export class ScanLayer {
   }
 
   dispose(): void {
-    for (const { built } of this.entries) if (built) disposeScan(built)
+    for (const entry of this.entries) this.letGo(entry)
     this.entries = []
     this.group.clear()
+  }
+
+  /** Lets go of a scan's mesh and of its tree: whoever waited for the tree waits no longer. */
+  private letGo(entry: Entry): void {
+    if (entry.built) {
+      entry.built.mesh.geometry.boundsTree = undefined
+      disposeScan(entry.built)
+    }
+    entry.built = null
+    entry.tree = null
+    this.told(entry.info.id)
+  }
+
+  /** Tells whoever waited for a scan's tree. */
+  private told(id: string): void {
+    const waiting = this.waiting.get(id)
+    this.waiting.delete(id)
+    for (const resolve of waiting ?? []) resolve()
   }
 
   /** Has the group hold the scans built, in their order, each as it is to be drawn. */
@@ -224,6 +334,11 @@ export class ScanLayer {
     built.group.visible = this.pictured ? this.pictured.ids.has(info.id) : view?.visible !== false
   }
 }
+
+const localRay = new THREE.Ray()
+const inverse = new THREE.Matrix4()
+const point = new THREE.Vector3()
+const normal = new THREE.Vector3()
 
 /**
  * What says which mesh a scan's record is of: when it was imported or converted, how, and the file main keeps it in.

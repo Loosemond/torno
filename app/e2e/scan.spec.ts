@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { LookRequest, ViewState } from '../src/shared/view'
-import { box, stl } from '../src/test/scanFixtures'
+import { box, grid, stl } from '../src/test/scanFixtures'
 import type { ScanLayerState } from '../src/renderer/viewport/scans'
 
 // A scan on screen: imported from the panel with the real import process, drawn with the parts, switched and
@@ -259,4 +259,97 @@ test('a scan whose mesh is gone says so, is not drawn, and has its source read a
   await expect(row('S2').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
   await expect(row('S3')).toHaveCount(0)
   expect((await picture({ view: 'iso', size: 256 })).caption).toContain(' · scans S2 · ')
+})
+
+// Task 4: pointing at a scan.
+
+test('a scan in front of a part takes the pick, however thin it is drawn, unless the parts alone are asked for or a section takes it away', async () => {
+  // The plate 2.5 mm over the top of the post, which is at z = 22.5: from above, the post is behind it.
+  await page.evaluate(() => window.torno.scans.align('bracket', 'S2', 'assembly', { transform: { t: [0, 0, 35], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] }))
+  await expect.poll(async () => (await scans())[0]).toMatchObject({ id: 'S2', ready: true, how: 'worker', transform: { t: [0, 0, 35] } })
+  const [fx, fy] = await page.evaluate(() => window.__tornoTest!.project([0, 0, 22.5]))
+  const at = [fx, fy] as const
+  const part = await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy, { partsOnly: true }), at)
+  expect(part).toMatchObject({ part: 'post', kind: 'face' })
+  const onScan = await page.evaluate(([fx, fy]) => window.__tornoTest!.pickScanAt(fx, fy), at)
+  expect(onScan).toMatchObject({ scan: 'S2', normal: [0, 0, 1] })
+  expect(onScan!.point[2]).toBeCloseTo(26, 6)
+  expect(onScan!.local[2]).toBeCloseTo(-9, 6)
+  expect(onScan!.distance).toBeLessThan(part!.distance)
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), at)).toBeNull()
+
+  // Drawn solid, the scan hides the part and nothing needs saying; drawn thin, the part shows through, and the pointer says why it is not picked.
+  const readout = page.locator('.pick-readout')
+  const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
+  const [x, y] = [canvas.x + fx * canvas.width, canvas.y + fy * canvas.height]
+  await page.keyboard.press('v')
+  await page.mouse.move(x + 3, y)
+  await page.mouse.move(x, y)
+  await expect(readout).toBeHidden()
+  await row('S2').getByRole('slider', { name: 'Opacity of S2' }).fill('0.4')
+  await expect.poll(async () => (await scans())[0].opacity).toBe(0.4)
+  await page.mouse.move(x + 3, y)
+  await page.mouse.move(x, y)
+  await expect(readout).toHaveText('Scan S2 is in front of the part here: switch it off to point at the part')
+  await page.mouse.down()
+  await page.mouse.up()
+  expect((await state()).selection).toEqual([])
+
+  // A section that takes the plate away takes it out of the pointer's way: what it removes is not picked.
+  const show = (request: object): Promise<void> => app.evaluate(({ BrowserWindow }, req) => BrowserWindow.getAllWindows()[0].webContents.send('view:show', { id: 987700, request: req }), request)
+  await show({ objectId: 'bracket', section: { origin: [0, 0, 23.5], normal: [0, 0, 1] } })
+  await expect.poll(async () => (await state()).section).toEqual({ origin: [0, 0, 23.5], normal: [0, 0, 1] })
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickScanAt(fx, fy), at)).toBeNull()
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), at)).toMatchObject({ part: 'post' })
+  await show({ objectId: 'bracket', section: null })
+  await expect.poll(async () => (await state()).section).toBeNull()
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), at)).toBeNull()
+
+  // Switched off, it is in nobody's way.
+  await row('S2').getByRole('button', { name: 'Show S2' }).click()
+  await expect.poll(async () => (await scans())[0].visible).toBe(false)
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickScanAt(fx, fy), at)).toBeNull()
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), at)).toMatchObject({ part: 'post' })
+  await page.mouse.move(x + 3, y)
+  await page.mouse.move(x, y)
+  await expect(readout.locator('.pick-readout-ref')).toHaveText(/^post\/F/)
+})
+
+test.describe('a large scan', () => {
+  // A launch and a copy of its own: the one above is closed first, and the file's `afterAll` clears this one away.
+  test.beforeAll(async () => {
+    await app?.close()
+    rmSync(root, { recursive: true, force: true })
+    root = copyFixtures()
+    app = await launch({ TORNO_WORKSPACE: root })
+    page = await app.firstWindow()
+    await page.waitForSelector('[data-region="left"]')
+    await open('bracket')
+  })
+
+  test('200,000 triangles are drawn at once, and can be pointed at when their tree arrives from the worker', async () => {
+    test.setTimeout(120_000)
+    // A wavy sheet 316 mm square, 199,712 triangles: 10 MB of STL, written here and nowhere else.
+    const wavy = join(root, 'wavy.stl')
+    writeFileSync(wavy, stl(grid(317, 1, (x, y) => -20 + 3 * Math.sin(x / 20) * Math.cos(y / 20))))
+    await pickFile(wavy)
+    await page.getByRole('button', { name: 'Import scan…' }).click()
+    await expect.poll(async () => (await scans())[0]?.loaded, { timeout: 60_000 }).toBe(true)
+    // The window answers while the tree is built: a round trip to it takes no longer than it does idle.
+    const before = Date.now()
+    await page.evaluate(() => window.__tornoTest!.state().objectId)
+    expect(Date.now() - before).toBeLessThan(500)
+    await expect.poll(async () => (await scans())[0].ready, { timeout: 30_000 }).toBe(true)
+    const cost = await page.evaluate(() => window.__tornoTest!.timeScanPicks(200))
+    expect(cost.how).toEqual({ S1: 'worker' })
+    expect(cost.hits).toBeGreaterThan(20)
+    expect(cost.meanMs).toBeLessThan(2)
+    // A point of the sheet, found again by pointing at where it is drawn.
+    await page.evaluate(() => window.__tornoTest!.state())
+    const [fx, fy] = await page.evaluate(() => window.__tornoTest!.projectScan('S1', [10.5, -20.5, -20 + 3 * Math.sin(10.5 / 20) * Math.cos(-20.5 / 20)]))
+    const hit = await page.evaluate(([fx, fy]) => window.__tornoTest!.pickScanAt(fx, fy), [fx, fy])
+    expect(hit).toMatchObject({ scan: 'S1' })
+    expect(Math.hypot(hit!.local[0] - 10.5, hit!.local[1] + 20.5)).toBeLessThan(1.5)
+    expect(hit!.triangle).toBeLessThan(199_712)
+  })
 })

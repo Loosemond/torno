@@ -11,10 +11,10 @@ import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { chipSize, drawLabels, overlayFonts, type LabelStyle } from './overlay'
 import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
-import { type Hit, pickUnder } from './picking'
+import { type Hit, pickUnder, pointerRay } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
 import { PointerRouter, type ViewportPointer } from './pointer'
-import { ScanLayer, reaching, type ScanLayerState } from './scans'
+import { SCAN_BEHIND_MM, ScanLayer, rayOf, reaching, type ScanHit, type ScanLayerState } from './scans'
 import { SectionCut, nearSegmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
@@ -116,6 +116,8 @@ export class Viewport {
   )
   /** Whether the last `pick` ended on the cut face of a solid. */
   private onCut = false
+  /** The scan the last `pick` was left to, being in front of what it would have found; null for none. */
+  private scanInFront: string | null = null
   private readonly marks = new MarkLayer(markColours(LIGHT_THEME))
   /** The marks of the object as last given, resolved ones too: `focusMark` goes to any of them. */
   private allMarks: Mark[] = []
@@ -191,6 +193,7 @@ export class Viewport {
       canvasPoint: (x, y) => this.canvasPoint(x, y),
       pick: (x, y) => this.pick(x, y),
       pickedCut: () => this.onCut,
+      pickedScan: () => (this.scanInFront !== null && this.scans.seenThrough(this.scanInFront) ? this.scanInFront : null),
       syncMatrices: () => this.syncMatrices(),
       view: () => this.getCamera(),
       setView: (c) => {
@@ -525,8 +528,10 @@ export class Viewport {
    * of the parts of the current layout that are switched on. A part that is
    * hidden is never hit; one that is see-through is hit like any other.
    * Coordinates are the browser's client pixels; the answer is in the object frame.
+   * What is seen is what is picked: where a scan is drawn in front, however thin, nothing of the parts is hit,
+   * unless the parts alone are asked for (`partsOnly`).
    */
-  pick(clientX: number, clientY: number, opts?: { edges?: boolean }): Hit | null {
+  pick(clientX: number, clientY: number, opts?: { edges?: boolean; partsOnly?: boolean }): Hit | null {
     const at = this.canvasPoint(clientX, clientY)
     if (!at) return null
     this.syncMatrices()
@@ -534,8 +539,19 @@ export class Viewport {
     const parts = [...this.entries.values()].filter((e) => e.built.group.visible && !this.section.removed(e.built)).map((e) => ({ key: e.part.key, name: e.part.name, built: e.built }))
     const keeps = this.section.keeps()
     const picked = pickUnder(parts, this.camera, at.ndc, at.size, { ...opts, cut: keeps && { keeps } })
-    this.onCut = picked.cut
-    return picked.hit
+    const ray = rayOf(pointerRay(this.camera, at.ndc))
+    const reach = picked.hit?.distance ?? (picked.cut && keeps ? ray.distanceToPlane(keeps) : null)
+    this.scanInFront = reach === null || opts?.partsOnly ? null : (this.scans.pick(ray, keeps, reach - SCAN_BEHIND_MM)?.scan ?? null)
+    this.onCut = picked.cut && this.scanInFront === null
+    return this.scanInFront === null ? picked.hit : null
+  }
+
+  /** What a point of the window is on of the scans drawn, whatever part is in front: `pick`'s twin. Nothing of a scan whose tree is not there yet, nor of what a section takes away. */
+  pickScan(clientX: number, clientY: number): ScanHit | null {
+    const at = this.canvasPoint(clientX, clientY)
+    if (!at) return null
+    this.syncMatrices()
+    return this.scans.pick(rayOf(pointerRay(this.camera, at.ndc)), this.section.keeps())
   }
 
   // ---- the section ----
