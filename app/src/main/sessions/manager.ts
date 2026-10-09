@@ -58,6 +58,8 @@ export class Sessions {
       contextFor: (objectId: string) => string
       systemPrompt: string
       mcpUrlFor: (objectId: string) => string
+      /** Print the command line of every session started. */
+      debug?: boolean
     }
   ) {
     deps.http.route('/hooks', (req, res, rest) => this.hook(req, res, rest))
@@ -89,6 +91,7 @@ export class Sessions {
       hookUrl: (event) => http.url(`/hooks/${id}/${encodeURIComponent(event)}`),
       systemPrompt: this.deps.systemPrompt
     })
+    if (this.deps.debug) console.error(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`)
     const env = cleanEnv({ ...process.env, ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id })
     // node-pty reports a command that does not exist only as a process that exits at once.
     if (!findCommand(launch.command, env.PATH)) throw new Error(`cannot start the agent: '${launch.command}' was not found on PATH`)

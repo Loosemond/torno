@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
+import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { LookResult, ViewState } from '../shared/view'
 import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
@@ -29,6 +30,7 @@ interface OpenWorkspace {
   kernel: KernelClient
   builds: Builds
   opened: Set<string> // ids of the objects being watched and built
+  shown: string | null // the object the window shows: the last one it opened
 }
 
 let current: OpenWorkspace | null = null
@@ -68,7 +70,7 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
           })
       })
   })
-  const ws: OpenWorkspace = { info, kernel, builds, opened: new Set() }
+  const ws: OpenWorkspace = { info, kernel, builds, opened: new Set(), shown: null }
   builds.on('build', (state) => broadcast('object:build', state))
   builds.on('scene', ({ objectId, revision, scene, blob }) =>
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
@@ -93,9 +95,24 @@ function requireWorkspace(): OpenWorkspace {
   return current
 }
 
-/** An object of the open workspace as of the last scan. The renderer names objects, never folders. */
-function findObject(id: string): ObjectInfo | undefined {
+/** An object of the open workspace as of the last scan. The renderer and the agent name objects, never folders. */
+export function findObject(id: string): ObjectInfo | undefined {
   return current?.info.objects.find((o) => o.id === id)
+}
+
+/** The object the window shows, which is the one its pictures are of. */
+export function openObjectId(): string | null {
+  return current?.shown ?? null
+}
+
+/** Where the build of an object stands, once the object has been opened. */
+export function buildState(id: string): BuildState | undefined {
+  return current?.builds.state(id)
+}
+
+/** The last successful build of an object. */
+export function lastScene(id: string): { revision: number; scene: Scene } | undefined {
+  return current?.builds.scene(id)
 }
 
 /**
@@ -140,6 +157,8 @@ export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void; 
 
   ipcMain.handle('object:open', async (event, id: string): Promise<BuildState> => {
     const ws = requireWorkspace()
+    // From here on the window shows this object, whatever comes of building it.
+    ws.shown = id
     // Scanned afresh: the agent may have created the folder a moment ago.
     const scanned = await scanWorkspace(ws.info.root)
     // The workspace may have been closed or replaced during the scan; its kernel is then gone.

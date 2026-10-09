@@ -2,8 +2,13 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app, BrowserWindow, nativeTheme } from 'electron'
 import { startHttp } from './http'
-import { closeWorkspace, openWorkspace, registerIpc } from './ipc'
+import { contextFor } from './context'
+import { buildState, closeWorkspace, findObject, lastScene, openObjectId, openWorkspace, registerIpc } from './ipc'
 import { latestView, requestLook } from './look'
+import { mountMcp } from './mcp/server'
+import type { ToolDeps } from './mcp/tools'
+import { saveView } from './mcp/views'
+import { SYSTEM_PROMPT } from './prompt'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 
@@ -12,7 +17,9 @@ import { Sessions } from './sessions/manager'
 //   TORNO_WORKSPACE=<path>  workspace to open at start, instead of the one remembered
 //   TORNO_CONFIG=<path>     config file to use instead of ~/.config/torno/config.json
 //   TORNO_AGENT_CMD=<cmd>   command to run for a session instead of `claude`, split on spaces
+//   TORNO_DEBUG=1           print where the MCP server is, and the command line of every session
 const isTest = process.env.TORNO_TEST === '1'
+const isDebug = process.env.TORNO_DEBUG === '1'
 
 // A hidden window stops getting frame callbacks from the compositor. Once a
 // repaint coincides with input, Chromium then waits a second for each frame, so
@@ -90,19 +97,42 @@ function createWindow(): BrowserWindow {
 
 let sessions: Sessions | null = null
 
+/** What the MCP tools and the text attached to a prompt are made from: the open workspace and the window. */
+const toolDeps: ToolDeps = {
+  object: findObject,
+  build: buildState,
+  scene: lastScene,
+  // A view reported for an object stays on record after the window has moved on to another.
+  view: (id) => (openObjectId() === id ? latestView(id) : undefined),
+  openObjectId,
+  look(_objectId, req) {
+    // The tool has made sure that the object asked for is the one the window shows.
+    const win = BrowserWindow.getAllWindows()[0]
+    return win ? requestLook(win, req) : Promise.reject(new Error('the torno window is closed'))
+  },
+  saveImage(objectId, png) {
+    const obj = findObject(objectId)
+    return obj ? saveView(obj.dir, png) : Promise.reject(new Error(`unknown object: ${objectId}`))
+  }
+}
+
 void app.whenReady().then(async () => {
-  // What the agent's CLI talks to: its hooks now, the MCP server with the next task.
+  // What the agent's CLI talks to: its hooks, and the MCP server through which it sees what the window shows.
   const http = await startHttp()
+  const mcpUrlFor = (id: string): string => http.url(`/mcp/${encodeURIComponent(id)}`)
+  mountMcp(http, toolDeps)
   sessions = new Sessions({
     http,
     adapter: claudeAdapter(process.env.TORNO_AGENT_CMD),
-    contextFor: () => '',
-    systemPrompt: '',
-    mcpUrlFor: (id) => http.url(`/mcp/${encodeURIComponent(id)}`)
+    contextFor: (id) => contextFor(toolDeps, id),
+    systemPrompt: SYSTEM_PROMPT,
+    mcpUrlFor,
+    debug: isDebug
   })
   registerIpc({ onWorkspaceChosen: (root) => void rememberWorkspace(root), sessions })
   // What a test needs of main that it cannot reach through the window.
-  if (isTest) Object.assign(globalThis, { __tornoMain: { requestLook, latestView } })
+  if (isTest) Object.assign(globalThis, { __tornoMain: { requestLook, latestView, mcpUrlFor } })
+  if (isDebug) console.error(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`)
   const named = process.env.TORNO_WORKSPACE
   const root = named ?? (await rememberedWorkspace())
   if (root) {

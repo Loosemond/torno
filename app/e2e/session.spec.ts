@@ -142,8 +142,8 @@ test('the terminal is drawn in the colours of the tokens, in both schemes', asyn
 
 test('the status follows the hooks the agent posts', async () => {
   await typeLine('hook')
-  // No context yet: the prompt is answered with nothing.
-  await expect.poll(text).toContain('context: (none)')
+  // The prompt is answered with where the object's build stands.
+  await expect.poll(text).toContain('context: [torno] bracket · ')
   await expect(sessionStatus()).toHaveText('Working')
   await typeLine('hook PermissionRequest')
   await expect(sessionStatus()).toHaveText('Needs input')

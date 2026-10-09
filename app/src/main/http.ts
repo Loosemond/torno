@@ -46,11 +46,38 @@ export function readBody(req: IncomingMessage, limit: number): Promise<string> {
   })
 }
 
-/** Listens on 127.0.0.1 only, on a port the system chooses. */
+/**
+ * Why a request is not served, if it is not. The server is for the agent's CLI
+ * on this machine, and what it serves (pictures of the person's work, the
+ * status of their sessions) is not for a web page open in their browser:
+ *   - a browser names the page a cross-origin request comes from in `Origin`;
+ *     the CLI sends none, so any request that has one is refused;
+ *   - a page whose own name was pointed at 127.0.0.1 (DNS rebinding) is of the
+ *     same origin as this server in the browser's eyes, but still asks for it
+ *     by that name in `Host`, so only this server's own names are accepted.
+ */
+function refuse(req: IncomingMessage, port: number): string | null {
+  if (req.headers.origin !== undefined) return 'requests from a web page are not accepted'
+  const host = req.headers.host
+  if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return 'the Host header does not name this server'
+  return null
+}
+
+/**
+ * Listens on 127.0.0.1 only, on a port the system chooses. Serves only requests
+ * addressed to it by that name, and none that a web page made.
+ */
 export function startHttp(): Promise<HttpRouter> {
   const routes: { segments: string[]; handler: Handler }[] = []
 
   const server = createServer((req, res) => {
+    const refusal = refuse(req, (server.address() as AddressInfo).port)
+    if (refusal) {
+      console.error(`${req.method} ${req.url}: refused, ${refusal}`)
+      // Unread, the body would hold the answer back.
+      req.resume()
+      return sendJson(res, 403, { error: refusal })
+    }
     let segments: string[]
     try {
       const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
