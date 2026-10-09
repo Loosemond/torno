@@ -67,6 +67,37 @@ export const DESCRIBE_WITHIN_MS = 1500
 /** A drag shorter than this many pixels is no drag: the same reach as a click. */
 export const DRAG_PX = 4
 
+/** A click this near the last one that placed a mark, and this soon after it, is the second half of a double click. */
+export const REPEAT_PX = 6
+export const REPEAT_MS = 400
+/** An arrow shorter than this is none: it would be read out as 0.0 mm. */
+export const MIN_LENGTH_MM = 0.1
+
+/**
+ * Tells the second click of a double click from a click that places another
+ * mark. The viewport reports a click for every quick release, so without this
+ * a double click leaves two marks one on the other, the first with its note
+ * closed empty under the second. `begin` is called for each click that would
+ * place a mark: null says it repeats the last one (it is within `REPEAT_PX` of
+ * it, and either within `REPEAT_MS` of it or while main is still keeping what
+ * it placed); otherwise the click counts, and what comes back is to be called
+ * once its mark is kept or refused.
+ */
+export function clickGuard(): { begin(client: [number, number]): (() => void) | null } {
+  let last: { client: [number, number]; at: number; pending: boolean } | null = null
+  return {
+    begin(client) {
+      const now = performance.now()
+      if (last && Math.hypot(client[0] - last.client[0], client[1] - last.client[1]) <= REPEAT_PX && (last.pending || now - last.at <= REPEAT_MS)) return null
+      const mine = { client, at: now, pending: true }
+      last = mine
+      return () => {
+        mine.pending = false
+      }
+    }
+  }
+}
+
 /**
  * Hands a pointer event to a tool, unless the parts on screen are stale: their
  * refs would name other geometry in the new build, so nothing is pointed at

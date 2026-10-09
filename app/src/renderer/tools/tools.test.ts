@@ -111,10 +111,57 @@ describe('the pin tool', () => {
     const tool = pinTool()
     routePointer(tool, pointer('click', 1, 2.5, { hit: hitAt([1, 0, 2.5]) }), ctx)
     await settled()
-    routePointer(tool, pointer('click', 2, 2.5, { hit: hitAt([2, 0, 2.5]) }), ctx)
+    routePointer(tool, pointer('click', 12, 2.5, { hit: hitAt([12, 0, 2.5]) }), ctx)
     await settled()
-    expect(committed.map((m) => m.kind === 'pin' && m.anchor.point)).toEqual([[1, 0, 2.5], [2, 0, 2.5]])
+    expect(committed.map((m) => m.kind === 'pin' && m.anchor.point)).toEqual([[1, 0, 2.5], [12, 0, 2.5]])
     expect(noted).toEqual(['M1', 'M2'])
+  })
+
+  it('takes a double click for one pin: the second click, on the same spot at once, places nothing', async () => {
+    vi.useFakeTimers()
+    const { ctx, committed, noted } = fake()
+    const tool = pinTool()
+    routePointer(tool, pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), ctx)
+    // While the first is still on its way to main, and 3 px off.
+    routePointer(tool, pointer('click', 16, 0.5, { hit: hitAt([16, 9, 0.5]) }), ctx)
+    await vi.advanceTimersByTimeAsync(200)
+    // Kept by now, and still within the time of a double click.
+    routePointer(tool, pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), ctx)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(committed).toHaveLength(1)
+    expect(noted).toEqual(['M1'])
+  })
+
+  it('pins again on the same spot once the time of a double click has passed, and at once further off', async () => {
+    vi.useFakeTimers()
+    const { ctx, committed } = fake()
+    const tool = pinTool()
+    routePointer(tool, pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), ctx)
+    await vi.advanceTimersByTimeAsync(10)
+    routePointer(tool, pointer('click', 21, 2.5, { hit: hitAt([21, 9, 2.5]) }), ctx)
+    await vi.advanceTimersByTimeAsync(401)
+    routePointer(tool, pointer('click', 21, 2.5, { hit: hitAt([21, 9, 2.5]) }), ctx)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(committed.map((m) => m.kind === 'pin' && m.anchor.point[0])).toEqual([14, 21, 21])
+  })
+
+  it('does not pin twice on one spot while main still has the first to keep, however long that takes', async () => {
+    vi.useFakeTimers()
+    const waiting: Array<() => void> = []
+    const { ctx, committed } = fake({ describe: () => new Promise((resolve) => waiting.push(() => resolve(null))) })
+    const tool = pinTool()
+    routePointer(tool, pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), ctx)
+    await vi.advanceTimersByTimeAsync(1000)
+    routePointer(tool, pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), ctx)
+    for (const answer of waiting) answer()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(committed).toHaveLength(1)
+    // Once it is kept and the moment has passed, the spot takes another.
+    await vi.advanceTimersByTimeAsync(401)
+    routePointer(tool, pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), ctx)
+    for (const answer of waiting) answer()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(committed).toHaveLength(2)
   })
 
   it('pins without a descriptor when the kernel cannot say', async () => {
@@ -229,6 +276,64 @@ describe('the arrow tool', () => {
     routePointer(tool, pointer('up', 30, 40), ctx)
     await settled()
     expect(committed).toEqual([])
+  })
+
+  it('drops the drag when a move comes with no button held: a release was missed', async () => {
+    const { ctx, committed, navigation, drafts } = fake()
+    const tool = arrowTool()
+    routePointer(tool, pointer('down', 0, 0, { hit: start }), ctx)
+    routePointer(tool, pointer('move', 12, 5), ctx)
+    routePointer(tool, { ...pointer('move', 20, 5), buttons: 0 }, ctx)
+    expect(navigation).toEqual([false, true])
+    expect(drafts.at(-1)).toBeNull()
+    // The next press and release elsewhere is not the end of that arrow.
+    routePointer(tool, pointer('up', 30, 40), ctx)
+    await settled()
+    expect(committed).toEqual([])
+  })
+
+  it('drops the drag when the pointer is taken away, and when the tool is put down', async () => {
+    for (const end of ['cancel', 'put down'] as const) {
+      const { ctx, committed, navigation, drafts } = fake()
+      const tool = arrowTool()
+      routePointer(tool, pointer('down', 0, 0, { hit: start }), ctx)
+      routePointer(tool, pointer('move', 12, 5), ctx)
+      if (end === 'cancel') routePointer(tool, pointer('cancel', 12, 5), ctx)
+      else tool.cancel(ctx)
+      expect(navigation.at(-1)).toBe(true)
+      expect(drafts.at(-1)).toBeNull()
+      routePointer(tool, pointer('up', 30, 40), ctx)
+      await settled()
+      expect(committed).toEqual([])
+    }
+  })
+
+  it('putting the tool down leaves the draft of an arrow main is still keeping to nobody: it is taken away', async () => {
+    let keep: (() => void) | undefined
+    const { ctx, committed, drafts } = fake({ describe: () => new Promise((resolve) => (keep = () => resolve(null))) })
+    const tool = arrowTool()
+    routePointer(tool, pointer('down', 0, 0, { hit: start }), ctx)
+    routePointer(tool, pointer('up', 30, 40), ctx)
+    expect(drafts.at(-1)).toEqual({ kind: 'arrow', from: [0, 0, 0], to: [30, 0, 40] })
+    tool.cancel(ctx)
+    expect(drafts.at(-1)).toBeNull()
+    keep!()
+    await settled()
+    // What was let go is still kept.
+    expect(committed).toHaveLength(1)
+  })
+
+  it('is no arrow when it comes out shorter than 0.1 mm, however far the pointer went', async () => {
+    const { ctx, committed, drafts } = fake()
+    const tool = arrowTool()
+    // With Shift a drag 16° off Z is held to the normal, which it is all but square to: 10 mm of drag, 0.05 mm of arrow.
+    const normal: Vec3 = [1 / Math.hypot(1, 0.3), 0, 0.3 / Math.hypot(1, 0.3)]
+    routePointer(tool, pointer('down', 0, 0, { hit: hitAt([0, 0, 0], normal) }), ctx)
+    routePointer(tool, pointer('move', -2.95, 10, { shift: true }), ctx)
+    routePointer(tool, pointer('up', -2.95, 10, { shift: true }), ctx)
+    await settled()
+    expect(committed).toEqual([])
+    expect(drafts.at(-1)).toBeNull()
   })
 
   it('draws nothing on a stale build', async () => {

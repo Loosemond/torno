@@ -1,7 +1,7 @@
 import type { Vec3 } from '../../shared/marks'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { DRAG_PX, along, anchorFromHit, dot, sub, unit, type Tool, type ToolContext } from './Tool'
+import { DRAG_PX, MIN_LENGTH_MM, along, anchorFromHit, dot, sub, unit, type Tool, type ToolContext } from './Tool'
 
 /** With Shift, a drag this near a principal axis runs along it; any other runs along the normal. */
 const AXIS_SNAP_DEG = 15
@@ -54,8 +54,9 @@ function signed(mm: number): string {
  * The arrow tool: press on a part, drag, let go. The arrow says "move this
  * that way": its head follows the pointer on the plane that faces the camera,
  * or with Shift along the normal or an axis, and its length and vector are
- * read out beside it. A drag of less than 4 px is no arrow. A press beside
- * the parts turns the camera as ever.
+ * read out beside it. A drag of less than 4 px, or an arrow that comes out
+ * shorter than 0.1 mm, is no arrow. A press beside the parts turns the camera
+ * as ever.
  */
 export function arrowTool(): Tool {
   let drag: { start: Hit; client: [number, number]; view: Vec3 } | null = null
@@ -104,7 +105,8 @@ export function arrowTool(): Tool {
         }
         return
       }
-      if (e.type === 'cancel') {
+      // The pointer was taken away, or moves with no button held: a release that never came. The drag is nobody's.
+      if (e.type === 'cancel' || (e.type === 'move' && !(e.buttons & 1))) {
         ctx.viewport.setDraft(null)
         return drop(ctx)
       }
@@ -122,7 +124,7 @@ export function arrowTool(): Tool {
         return
       }
       drop(ctx)
-      if (!far || Math.hypot(...sub(to, from)) === 0) return ctx.viewport.setDraft(null)
+      if (!far || Math.hypot(...sub(to, from)) < MIN_LENGTH_MM) return ctx.viewport.setDraft(null)
       // Stays drawn until main has it.
       ctx.viewport.setDraft({ kind: 'arrow', from, to })
       void place(start, to, ctx)

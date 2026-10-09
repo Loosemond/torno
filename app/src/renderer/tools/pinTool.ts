@@ -1,17 +1,18 @@
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { anchorFromHit, type Tool, type ToolContext } from './Tool'
+import { anchorFromHit, clickGuard, type Tool, type ToolContext } from './Tool'
 
 /**
  * The pin tool: a click on a part leaves a pin there and opens its note. A
  * click beside the parts does nothing, and dragging turns the camera as ever.
- * The tool stays in hand, for the next pin.
+ * The tool stays in hand, for the next pin. A double click is one pin.
  */
 export function pinTool(): Tool {
   /** Counts the pins placed: the one still waiting on main owns the draft drawn meanwhile. */
   let placing = 0
+  const clicks = clickGuard()
 
-  const place = async (hit: Hit, ctx: ToolContext): Promise<void> => {
+  const place = async (hit: Hit, ctx: ToolContext, kept: () => void): Promise<void> => {
     // As they are now: the kernel is asked before the mark is made, and the view may move meanwhile.
     const { layout, revision, camera } = ctx
     const mine = ++placing
@@ -22,6 +23,7 @@ export function pinTool(): Tool {
     } catch {
       // Main refused it, and whoever made `commit` has said so: there is no pin.
     } finally {
+      kept()
       if (mine === placing) ctx.viewport.setDraft(null)
     }
   }
@@ -30,7 +32,10 @@ export function pinTool(): Tool {
     id: 'pin',
     cursor: 'crosshair',
     onPointer(e: ViewportPointer, ctx: ToolContext) {
-      if (e.type === 'click' && e.hit) void place(e.hit, ctx)
+      if (e.type === 'click' && e.hit) {
+        const kept = clicks.begin(e.client)
+        if (kept) void place(e.hit, ctx, kept)
+      }
       // Once it is placed, the pin says where it is: the hover makes way for it and its note.
       if (e.type === 'click' || e.type === 'cancel' || !e.hit) {
         ctx.viewport.setHover(null)
