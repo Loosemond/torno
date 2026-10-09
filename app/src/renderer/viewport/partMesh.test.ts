@@ -1,6 +1,7 @@
+import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Buf, Part } from '../../shared/scene'
-import { buildPart, faceOfTriangle } from './partMesh'
+import { buildPart, faceOfTriangle, isFaceted } from './partMesh'
 
 /** Packs typed arrays into one blob, the way the kernel does. */
 function pack(arrays: Record<string, Float32Array | Uint32Array>): { blob: ArrayBuffer; bufs: Record<string, Buf> } {
@@ -92,6 +93,94 @@ describe('buildPart', () => {
     new Uint8Array(copy).fill(0)
     expect(Array.from(b.mesh.geometry.getAttribute('position').array)).toEqual(Array.from(vertices))
     expect(Array.from(b.faceStarts)).toEqual([0, 6, 18])
+  })
+})
+
+describe('isFaceted', () => {
+  const faces = (count: number, triangles: (i: number) => number) => Uint32Array.from({ length: count }, (_, i) => triangles(i))
+
+  it('is true for a solid made of a mesh: a thousand faces or more, nearly all of one or two triangles', () => {
+    expect(isFaceted(faces(1000, () => 1))).toBe(true)
+    expect(isFaceted(faces(5000, (i) => (i % 2) + 1))).toBe(true)
+    // Exactly nine in ten.
+    expect(isFaceted(faces(1000, (i) => (i < 900 ? 2 : 40)))).toBe(true)
+  })
+
+  it('is false for a part with fewer than a thousand faces, whatever they are', () => {
+    expect(isFaceted(faces(999, () => 1))).toBe(false)
+    expect(isFaceted(new Uint32Array([2, 2, 2, 2, 2, 2]))).toBe(false) // a box
+    expect(isFaceted(new Uint32Array(0))).toBe(false)
+  })
+
+  it('is false for a part with many faces that are real surfaces', () => {
+    expect(isFaceted(faces(1000, (i) => (i < 899 ? 2 : 40)))).toBe(false)
+    expect(isFaceted(faces(4000, () => 3))).toBe(false)
+  })
+})
+
+/**
+ * A sheet of 50 × 10 squares, folded square along its middle, as a sewn STL
+ * arrives: every triangle a face of its own with its own three vertices, and
+ * every triangle's outline among the B-rep edges.
+ */
+function foldedSheet(): { part: Part; blob: ArrayBuffer } {
+  const at = (i: number, j: number): [number, number, number] => (i <= 25 ? [i, j, 0] : [25, j, i - 25])
+  const positions: number[] = []
+  const lines: number[] = []
+  for (let i = 0; i < 50; i++) {
+    for (let j = 0; j < 10; j++) {
+      const [a, b, c, d] = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)]
+      for (const triangle of [[a, b, c], [a, c, d]]) {
+        positions.push(...triangle.flat())
+        for (let k = 0; k < 3; k++) lines.push(...triangle[k], ...triangle[(k + 1) % 3])
+      }
+    }
+  }
+  const count = positions.length / 9
+  const packed = pack({
+    vertices: new Float32Array(positions),
+    normals: new Float32Array(positions.length).map((_, i) => (i % 3 === 2 ? 1 : 0)),
+    triangles: Uint32Array.from({ length: count * 3 }, (_, i) => i),
+    edges: new Float32Array(lines),
+    trianglesPerFace: new Uint32Array(count).fill(1),
+    segmentsPerEdge: new Uint32Array(count * 3).fill(1),
+    faceTypes: new Uint32Array(count),
+    edgeTypes: new Uint32Array(count * 3)
+  })
+  return {
+    blob: packed.blob,
+    part: { ...part, key: 'main:sheet', name: 'sheet', faceCount: count, edgeCount: count * 3, triangleCount: count, mesh: packed.bufs as unknown as Part['mesh'] }
+  }
+}
+
+describe('buildPart, for a part made of a mesh', () => {
+  const sheet = foldedSheet()
+  const built = buildPart(sheet.part, sheet.blob)
+  const drawn = built.edges.geometry.getAttribute('position')
+
+  it('knows it for one, and an ordinary part for none', () => {
+    expect(sheet.part.faceCount).toBe(1000)
+    expect(built.faceted).toBe(true)
+    expect(buildPart(part, blob).faceted).toBe(false)
+  })
+
+  it('draws its creases and its rim, not the outline of every triangle', () => {
+    // The kernel sent 3000 segments. The rim is 2 × (50 + 10) long, the fold 10.
+    expect(drawn.count).toBe(2 * (120 + 10))
+    const onFold = (k: number) => drawn.getX(k) === 25 && drawn.getZ(k) === 0
+    let fold = 0
+    for (let k = 0; k < drawn.count; k += 2) if (onFold(k) && onFold(k + 1) && drawn.getY(k) !== drawn.getY(k + 1)) fold += 1
+    expect(fold).toBe(10)
+  })
+
+  it('takes them from the surface, with a crease at 25° or more', () => {
+    const creases = new THREE.EdgesGeometry(built.mesh.geometry, 25).getAttribute('position')
+    expect(Array.from(drawn.array)).toEqual(Array.from(creases.array))
+  })
+
+  it('still places and parents the edges as for any part', () => {
+    expect(built.edges.parent).toBe(built.group)
+    expect(Array.from(built.faceStarts.slice(0, 3))).toEqual([0, 3, 6])
   })
 })
 

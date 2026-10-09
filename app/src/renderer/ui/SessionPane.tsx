@@ -5,9 +5,16 @@ import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { SessionStatus } from '../../shared/bridge'
 import { actions, store, useStore } from '../state/store'
+import { Confirm } from './Confirm'
 
 const AGENT = 'Claude Code'
 const FONT_SIZE = 13
+
+/** What a session is in the middle of, when ending it would lose something; null when it would not. */
+const BUSY: Partial<Record<SessionStatus, string>> = {
+  working: 'is working',
+  needs_input: 'is waiting for your answer'
+}
 
 const STATUS_WORD: Record<SessionStatus, string> = {
   starting: 'Starting',
@@ -200,6 +207,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const [resumable, setResumable] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  /** Whether "New session" is waiting for a yes: the session it would end is in the middle of something. */
+  const [asking, setAsking] = useState(false)
   const host = useRef<HTMLDivElement>(null)
   const reveal = useRef(onReveal)
   reveal.current = onReveal
@@ -304,6 +313,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   // The terminal of the object shown is the one in the pane.
   useEffect(() => {
     setProblem(null)
+    setAsking(false)
     if (!objectId) return
     const mine = terminals.get(objectId)
     if (mine) mount(mine, host.current!)
@@ -375,6 +385,18 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   }
 
   const ended = status === 'exited'
+  const busy = status ? BUSY[status] : undefined
+
+  /** A new session in place of the one running, asked about first if that one is in the middle of something. */
+  function startNew(): void {
+    if (busy) setAsking(true)
+    else void start(false)
+  }
+
+  function keepSession(): void {
+    setAsking(false)
+    if (objectId) terminals.get(objectId)?.term.focus()
+  }
 
   return (
     <>
@@ -394,7 +416,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
                 Resume
               </button>
             )}
-            <button type="button" className="button button-quiet" disabled={starting} onClick={() => void start(false)}>
+            <button type="button" className="button button-quiet" disabled={starting || asking} onClick={startNew}>
               New session
             </button>
           </>
@@ -402,6 +424,20 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       </header>
 
       <div className="session-body">
+        {asking && session && (
+          <Confirm
+            label="End the running session?"
+            accept="End it and start new"
+            cancel="Keep it"
+            onCancel={keepSession}
+            onAccept={() => {
+              setAsking(false)
+              void start(false)
+            }}
+          >
+            {AGENT} {busy ?? 'is running'}. A new session ends this one.
+          </Confirm>
+        )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
         <div className="session-term" ref={host} data-shown={session ? '' : undefined} />
         {!objectId ? (

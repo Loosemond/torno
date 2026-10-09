@@ -378,6 +378,51 @@ button {
   overflow-wrap: anywhere;
 }
 
+/* ---- A question asked in place (ui/Confirm.tsx) ---- */
+
+.confirm {
+  flex: none;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--divider);
+  border-bottom: var(--divider);
+  background: var(--panel);
+}
+
+.confirm p {
+  text-wrap: pretty;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The button that ends something: marked, but not the one a stray Enter presses. */
+.confirm-accept {
+  border-color: var(--fail);
+  color: var(--fail);
+}
+
+.confirm-accept:hover {
+  border-color: var(--fail);
+  background: var(--fail);
+  color: var(--panel);
+}
+
+/* Over the top of the terminal, which keeps its size. */
+.session-body > .confirm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Above the terminal's own layers, which are stacked up to 11. */
+  z-index: 20;
+  border-top: none;
+}
+
 /* ---- Controls ---- */
 
 .spacer {

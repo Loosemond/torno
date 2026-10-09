@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { Part, Scene } from '../../shared/scene'
-import type { Camera, LookResult, ViewName } from '../../shared/view'
+import type { Camera, ViewName } from '../../shared/view'
 import { PERSPECTIVE_NOTE, drawOverlay } from './overlay'
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart } from './partMesh'
@@ -26,6 +26,21 @@ interface Theme {
 }
 
 type AnyCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
+
+/** What to draw for a picture: a view, a layout and the keys of the parts to show. `size` is the long edge in pixels. */
+export interface ImageRequest {
+  view: 'current' | ViewName | Camera
+  layout: string
+  visibleKeys: string[]
+  size?: number
+}
+
+export interface Picture {
+  png: Uint8Array
+  width: number
+  height: number
+  caption: string
+}
 type Vec3 = [number, number, number]
 
 /** The light values of styles/tokens.css, used where no stylesheet is loaded. */
@@ -112,6 +127,10 @@ export class Viewport {
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
     this.controls.addEventListener('start', this.onControlStart)
     this.controls.addEventListener('change', this.onCameraChange)
+
+    // Without preventDefault the browser never restores a lost context.
+    canvas.addEventListener('webglcontextlost', this.onContextLost)
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored)
 
     this.scheme = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
     this.scheme?.addEventListener('change', this.onSchemeChange)
@@ -240,11 +259,17 @@ export class Viewport {
    * screen are left alone, and it works while the window is hidden. `size` is
    * the long edge in pixels. Named views are orthographic, 4:3 and fitted to the
    * parts shown; `current` is what the user sees.
+   *
+   * A request given as a function is asked for in the same turn as the drawing,
+   * after every wait that comes before it: what it reads then (the scene on
+   * show, its revision) is what the picture is of.
    */
-  async renderImage(req: { view: 'current' | ViewName | Camera; layout: string; visibleKeys: string[]; size?: number }): Promise<LookResult> {
+  async renderImage(request: ImageRequest | (() => ImageRequest)): Promise<Picture> {
     // Before anything is drawn: nothing below may wait between hiding parts and restoring them.
     await overlayFonts()
     if (this.disposed) throw new Error('The viewport is closed')
+    if (this.renderer.getContext().isContextLost()) throw new Error('The 3D view has lost its graphics context; try again in a moment')
+    const req = typeof request === 'function' ? request() : request
     if (!this.layouts.includes(req.layout)) {
       const known = this.layouts.length > 0 ? `the layouts are ${this.layouts.join(', ')}` : 'nothing has been built yet'
       throw new Error(`No layout "${req.layout}": ${known}`)
@@ -344,6 +369,8 @@ export class Viewport {
     clearTimeout(this.settleTimer)
     this.settledListeners.length = 0
     this.scheme?.removeEventListener('change', this.onSchemeChange)
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost)
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored)
     this.controls.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
@@ -559,6 +586,15 @@ export class Viewport {
       this.draw()
       if (this.move) this.invalidate()
     })
+  }
+
+  private readonly onContextLost = (event: Event): void => {
+    event.preventDefault()
+  }
+
+  /** three.js has made its GPU state again by now; the canvas is blank until something draws. */
+  private readonly onContextRestored = (): void => {
+    this.invalidate()
   }
 
   private draw(): void {

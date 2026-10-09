@@ -55,6 +55,8 @@ interface Picture {
   caption: string
   /** Share of pixels that are neither the background nor as faint as the ground grid: the parts. */
   drawn: number
+  /** What the window says it drew. */
+  of: { objectId: string; revision: number; stale: boolean }
 }
 
 /** A picture through the renderer's look, measured in the page. */
@@ -74,7 +76,7 @@ function look(req: LookRequest, p: Page = page): Promise<Picture> {
     }
     let binary = ''
     for (let i = 0; i < result.png.length; i += 0x8000) binary += String.fromCharCode(...result.png.subarray(i, i + 0x8000))
-    return { base64: btoa(binary), width: result.width, height: result.height, caption: result.caption, drawn: drawn / (data.length / 4) }
+    return { base64: btoa(binary), width: result.width, height: result.height, caption: result.caption, drawn: drawn / (data.length / 4), of: { objectId: result.objectId, revision: result.revision, stale: result.stale } }
   }, req)
 }
 
@@ -103,7 +105,7 @@ const sceneFile = () => join(root, 'bracket', '.torno', 'scene.json')
 
 test('the object list shows the objects; one that cannot be built is muted, with the reason', async () => {
   const rows = page.locator('.object-row')
-  await expect(rows).toHaveText(['bracket', 'broken', 'chatty', 'crash', 'exits', 'noscene', 'plain', 'slow', 'two'])
+  await expect(rows).toHaveText(['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'noscene', 'plain', 'slow', 'two'])
   const two = page.getByRole('button', { name: 'two', exact: true })
   await expect(two).toHaveAttribute('title', /more than one model file in .*two: a\.py, b\.py/)
   await expect(two).toHaveAttribute('data-problem', '')
@@ -255,6 +257,7 @@ test('saving the model leads to the next revision', async () => {
 
 test('a broken save fails the build and keeps the last good parts, dimmed; the error is one click away', async () => {
   const clean = await look({ view: 'iso' })
+  expect(clean.of).toEqual({ objectId: 'bracket', revision: 2, stale: false })
   writeFileSync(model(), 'def assembly(p):\n    return {"base": Box(40, 30, 5)\n')
   await expect.poll(async () => (await state()).build?.status, { timeout: 15_000 }).toBe('failed')
   const s = await state()
@@ -264,6 +267,7 @@ test('a broken save fails the build and keeps the last good parts, dimmed; the e
 
   // The old parts are still drawn, fainter.
   const stale = await look({ view: 'iso' })
+  expect(stale.of).toEqual({ objectId: 'bracket', revision: 2, stale: true })
   expect(stale.drawn).toBeGreaterThan(0.02)
   expect(stale.base64).not.toBe(clean.base64)
 

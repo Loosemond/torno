@@ -10,24 +10,32 @@ const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output:
 /**
  * A picture of the open object for the agent. `parts` are names in the layout
  * asked for (the one shown, by default); without them, the parts switched on.
+ * The answer names the object, the revision and whether the parts were stale,
+ * all read in the turn the picture is drawn in: a build that lands while the
+ * PNG is being made does not change what the picture is said to be of.
  */
 async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
-  const s = store.getState()
-  if (!s.scene) throw new Error('no build yet')
-  const layout = req.layout ?? s.layout
-  let keys = visibleKeys(s, layout)
-  if (req.parts) {
-    const parts = partsInLayout(s, layout)
-    // An unknown layout is left to the viewport, whose error names the layouts.
-    const known = s.scene.layouts.includes(layout)
-    keys = []
-    for (const name of req.parts) {
-      const part = parts.find((p) => p.name === name)
-      if (part) keys.push(part.key)
-      else if (known) throw new Error(`unknown part '${name}'; parts in layout ${layout}: ${parts.map((p) => p.name).join(', ')}`)
+  let drawn: { objectId: string; revision: number; stale: boolean } | undefined
+  const picture = await viewport.renderImage(() => {
+    const s = store.getState()
+    if (!s.objectId || !s.scene) throw new Error('no build yet')
+    const layout = req.layout ?? s.layout
+    let keys = visibleKeys(s, layout)
+    if (req.parts) {
+      const parts = partsInLayout(s, layout)
+      // An unknown layout is left to the viewport, whose error names the layouts.
+      const known = s.scene.layouts.includes(layout)
+      keys = []
+      for (const name of req.parts) {
+        const part = parts.find((p) => p.name === name)
+        if (part) keys.push(part.key)
+        else if (known) throw new Error(`unknown part '${name}'; parts in layout ${layout}: ${parts.map((p) => p.name).join(', ')}`)
+      }
     }
-  }
-  return viewport.renderImage({ view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size })
+    drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size }
+  })
+  return { ...picture, ...drawn! }
 }
 
 /** Join a viewport to the store and to main. Returns what undoes it. */

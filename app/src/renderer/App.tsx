@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Keyb
 import type { WorkspaceInfo } from '../shared/workspace'
 import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
+import { Confirm } from './ui/Confirm'
 import { Layers } from './ui/Layers'
 import { ObjectList } from './ui/ObjectList'
 import { SessionPane } from './ui/SessionPane'
@@ -35,6 +36,23 @@ function showWorkspace(info: WorkspaceInfo | null): void {
 async function pickWorkspace(): Promise<void> {
   const info = await window.torno.workspace.pick()
   if (info) showWorkspace(info) // null: the dialog was cancelled
+}
+
+/** Stands for the folder the person has yet to choose in the dialog. */
+const PICK = 'pick'
+
+/** Leave the workspace for a folder, or for the one chosen in the dialog. */
+async function goTo(to: string): Promise<void> {
+  if (to === PICK) return pickWorkspace()
+  if (store.getState().workspace?.root === to) return
+  // A folder that cannot be opened leaves the workspace as it is; main has said why on stderr.
+  const info = await window.torno.workspace.open(to).catch(() => null)
+  if (info) showWorkspace(info)
+}
+
+/** Whether a session of this workspace is in the middle of something that leaving the workspace would end. */
+function sessionsBusy(): boolean {
+  return Object.values(store.getState().sessions).some((s) => s.status === 'working' || s.status === 'needs_input')
 }
 
 let opening = 0
@@ -142,6 +160,17 @@ export function App() {
     setDockWidth((w) => clampDock(w + (e.key === 'ArrowLeft' ? KEY_STEP : -KEY_STEP)))
   }
 
+  // Leaving a workspace ends its sessions. `leaving` is where to, while that is
+  // being asked about: a folder, or 'pick' for the one still to be chosen.
+  const [leaving, setLeaving] = useState<string | null>(null)
+  const leave = useCallback((to: string) => {
+    if (sessionsBusy()) setLeaving(to)
+    else void goTo(to)
+  }, [])
+  // Another launch of torno was given a folder: it is opened here.
+  useEffect(() => window.torno.workspace.onRequested((root) => leave(root)), [leave])
+  useEffect(() => setLeaving(null), [workspace?.root])
+
   const errorOpened = useCallback((open: boolean) => setErrorOpen(open), [])
   const revealDock = useCallback(() => setDockOpen(true), [])
 
@@ -177,10 +206,24 @@ export function App() {
           <h1 className="workspace-name" title={workspace.root}>
             {basename(workspace.root)}
           </h1>
-          <button type="button" className="icon-button" aria-label="Open folder" title="Open folder" onClick={() => void pickWorkspace()}>
+          <button type="button" className="icon-button" aria-label="Open folder" title="Open folder" disabled={leaving !== null} onClick={() => leave(PICK)}>
             <FolderIcon />
           </button>
         </header>
+        {leaving !== null && (
+          <Confirm
+            label="End the sessions of this folder?"
+            accept="Open another folder"
+            cancel="Stay here"
+            onCancel={() => setLeaving(null)}
+            onAccept={() => {
+              setLeaving(null)
+              void goTo(leaving)
+            }}
+          >
+            A session here is in the middle of its work. Opening another folder ends it.
+          </Confirm>
+        )}
         <ObjectList onOpen={(id) => void openObject(id)} />
         <Layers />
       </aside>
