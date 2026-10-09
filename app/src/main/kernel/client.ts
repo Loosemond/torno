@@ -26,7 +26,12 @@ export interface KernelClient {
   ready: Promise<{ versions: Record<string, string> }>
   /** Starting a build cancels the one running, which then resolves with kind `cancelled`. Never rejects. */
   build(dir: string, model: string, opts?: { timeout?: number; onStarted?: () => void }): Promise<BuildResult>
-  query<T = unknown>(name: string, args: object): Promise<T> // rejects with KernelError(kind, message)
+  /**
+   * Ask about the last successful build of the object in the folder `dir`. The
+   * kernel keeps one per folder, for a few folders. Rejects with
+   * KernelError(kind, message): `no_build` when it holds none for that folder.
+   */
+  query<T = unknown>(dir: string, name: string, args: object): Promise<T>
   cancel(): void
   dispose(): Promise<void>
   /** Called when the kernel has exited unexpectedly and was not restarted. */
@@ -88,14 +93,14 @@ class Kernel implements KernelClient {
     })
   }
 
-  async query<T = unknown>(name: string, args: object): Promise<T> {
+  async query<T = unknown>(dir: string, name: string, args: object): Promise<T> {
     try {
-      return (await this.queryOnce(name, args)) as T
+      return (await this.queryOnce(dir, name, args)) as T
     } catch (e) {
       // The build this query was sent to has just been replaced by a newer
-      // one: ask the newer one.
+      // one of the same object: ask the newer one.
       if (e instanceof KernelError && e.kind === 'cancelled' && !this.disposed) {
-        return (await this.queryOnce(name, args)) as T
+        return (await this.queryOnce(dir, name, args)) as T
       }
       throw e
     }
@@ -137,13 +142,13 @@ class Kernel implements KernelClient {
     return this.proc?.pid
   }
 
-  private queryOnce(name: string, args: object): Promise<unknown> {
+  private queryOnce(dir: string, name: string, args: object): Promise<unknown> {
     if (this.disposed) return Promise.reject(new KernelError('cancelled', 'the kernel was shut down'))
     if (!this.proc) return Promise.reject(new KernelError('crash', 'kernel stopped'))
     return new Promise((resolve, reject) => {
       const id = this.nextId++
       this.pending.set(id, { type: 'query', resolve, reject })
-      this.send({ id, op: 'query', name, args })
+      this.send({ id, op: 'query', dir, name, args })
     })
   }
 

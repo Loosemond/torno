@@ -57,7 +57,7 @@ function handle(request) {
       fail(id, 'cancelled', 'a newer build replaced the one this query was sent to')
     } else if (request.name === 'bad-ref') fail(id, 'bad_ref', 'no part named x')
     else if (request.name === 'hang') return
-    else send({ id, ok: true, result: { name: request.name, args: request.args, pid: process.pid } })
+    else send({ id, ok: true, result: { dir: request.dir, name: request.name, args: request.args, pid: process.pid } })
   } else if (op === 'cancel') {
     if (building !== null) fail(building, 'cancelled', 'cancelled by request')
     building = null

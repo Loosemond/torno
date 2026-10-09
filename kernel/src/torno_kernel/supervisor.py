@@ -1,13 +1,15 @@
 """The kernel's long-running process: routes requests and owns the workers.
 
-It forks one worker per build and keeps the last successful one alive to answer
-queries. It imports the geometry modules so that workers inherit them, but it
-never calls them: one OCC operation here would start OCC's thread pool, and
-every worker forked afterwards would deadlock.
+It forks one worker per build and keeps, for each object folder, the last one
+that succeeded alive to answer queries about that object: at most MAX_LIVE of
+them, the least recently built or queried making room for another. It imports
+the geometry modules so that workers inherit them, but it never calls them: one
+OCC operation here would start OCC's thread pool, and every worker forked
+afterwards would deadlock.
 
-It never blocks on a write. Frames for the client and for the live worker go
+It never blocks on a write. Frames for the client and for the live workers go
 into outboxes that are drained as the other end makes room, so the loop keeps
-reading from both even when either pipelines faster than it reads.
+reading from all of them even when one pipelines faster than it reads.
 """
 
 import io
@@ -30,6 +32,8 @@ from .frames import write_frame
 
 DEFAULT_TIMEOUT = 600.0
 MAX_TIMEOUT = 86400.0  # a day; a longer wait is also more than the event loop can sleep
+MAX_LIVE = 4  # object folders whose last good build is kept for queries
+QUERY_TIMEOUT = 30.0  # seconds a live worker has to answer a query
 OUTPUT_LINES = 200
 _OUTPUT_TAIL_BYTES = 1 << 20
 _TERM_GRACE = 0.5  # seconds a replaced worker gets to exit on SIGTERM
@@ -115,6 +119,7 @@ class _Outbox:
 @dataclass
 class _Worker:
     pid: int
+    dir: str  # the object folder it built
     sock: socket.socket
     request_id: Any  # the build request it is, or was, working on
     started: float
@@ -123,7 +128,16 @@ class _Worker:
     capture: BinaryIO | None  # the model's stdout and stderr, until the build ends
     outbox: _Outbox  # queries on their way to it
     decoder: _Decoder = field(default_factory=_Decoder)
-    queries: list[Any] = field(default_factory=list)  # ids sent and not yet answered
+    # Queries sent and not yet answered, oldest first: (id, when to give up on it).
+    queries: list[tuple[Any, float]] = field(default_factory=list)
+
+    def answered(self, id: Any) -> bool:
+        """Take the query ``id`` off the list. False if it was not waiting for an answer."""
+        for index, (waiting, _) in enumerate(self.queries):
+            if waiting == id:
+                del self.queries[index]
+                return True
+        return False
 
 
 class Supervisor:
@@ -135,7 +149,8 @@ class Supervisor:
         self._outbox = _Outbox(lambda data: os.write(proto_out.fileno(), data))
         self._requests = _Decoder()
         self._building: _Worker | None = None
-        self._live: _Worker | None = None
+        # By object folder, the least recently built or queried first.
+        self._live: dict[str, _Worker] = {}
         self._running = True
 
     def run(self, versions: dict[str, str]) -> int:
@@ -147,7 +162,7 @@ class Supervisor:
         except BrokenPipeError:
             pass  # the client is gone
         finally:
-            for worker in (self._building, self._live):
+            for worker in (self._building, *self._live.values()):
                 if worker:
                     self._stop(worker, signal.SIGKILL)
         self._drain()
@@ -164,10 +179,15 @@ class Supervisor:
             pass  # the client is gone
 
     def _step(self) -> None:
-        workers = [w for w in (self._building, self._live) if w]
-        wait = None
+        # The live workers first: a build that finishes in this round replaces
+        # one of them, and the replies that one has already sent are passed on
+        # before its unanswered queries are called cancelled.
+        workers = list(self._live.values())
+        deadlines = [w.queries[0][1] for w in workers if w.queries]
         if self._building:
-            wait = max(0.0, self._building.deadline - time.monotonic())
+            workers.append(self._building)
+            deadlines.append(self._building.deadline)
+        wait = max(0.0, min(deadlines) - time.monotonic()) if deadlines else None
         reading = [self._stdin_fd, *(w.sock for w in workers)]
         writing = [w.sock for w in workers if w.outbox]
         if self._outbox:
@@ -176,12 +196,15 @@ class Supervisor:
         if self._out in writable:
             self._outbox.flush()
         for worker in workers:
-            if worker.sock in writable and worker is self._live:
+            if worker.sock in writable and self._is_live(worker):
                 self._send_queries(worker)
             # An earlier iteration may have retired this worker.
-            if worker.sock in readable and worker in (self._building, self._live):
+            if worker.sock in readable and (worker is self._building or self._is_live(worker)):
                 self._read_worker(worker)
-        if self._building and time.monotonic() >= self._building.deadline:
+        now = time.monotonic()
+        for worker in list(self._live.values()):
+            self._time_out_queries(worker, now)
+        if self._building and now >= self._building.deadline:
             self._time_out(self._building)
         if self._stdin_fd in readable:
             chunk = os.read(self._stdin_fd, 1 << 16)
@@ -226,12 +249,22 @@ class Supervisor:
         self._send({"id": id, "event": "build.started", "pid": self._building.pid})
 
     def _query(self, id: Any, request: dict[str, Any]) -> None:
-        live = self._live
-        if live is None:
-            self._fail(id, "no_build", "no build has succeeded yet, so there is nothing to query")
+        dir = request.get("dir")
+        if not isinstance(dir, str):
+            self._fail(id, "bad_request", "query needs dir, the object's folder, a string")
             return
+        live = self._live.get(dir)
+        if live is None:
+            self._fail(
+                id,
+                "no_build",
+                f"there is no build of {dir} to query: none has succeeded yet, "
+                "or it made room for more recent ones; build it again",
+            )
+            return
+        self._live[dir] = self._live.pop(dir)  # the most recently used
         query = {"id": id, "name": request.get("name"), "args": request.get("args")}
-        live.queries.append(id)
+        live.queries.append((id, time.monotonic() + QUERY_TIMEOUT))
         try:
             live.outbox.push(query)
         except OSError:
@@ -264,14 +297,17 @@ class Supervisor:
             try:
                 ours.close()
                 self._out.close()  # nothing is buffered: every frame is flushed
-                if self._live:
-                    self._live.sock.close()
+                for live in self._live.values():
+                    live.sock.close()
             finally:
                 worker_module.run(theirs, capture.fileno(), dir, model)
         theirs.close()
         ours.setblocking(False)
         now = time.monotonic()
-        return _Worker(pid, ours, id, now, now + timeout, timeout, capture, _Outbox(ours.send))
+        return _Worker(pid, dir, ours, id, now, now + timeout, timeout, capture, _Outbox(ours.send))
+
+    def _is_live(self, worker: _Worker) -> bool:
+        return self._live.get(worker.dir) is worker
 
     def _read_worker(self, worker: _Worker) -> None:
         try:
@@ -292,14 +328,13 @@ class Supervisor:
                     self._build_finished(worker, header, blob)
                 else:
                     self._build_garbled(worker)
-            elif worker is not self._live:
+            elif not self._is_live(worker):
                 return  # an earlier frame of this chunk ended it
             elif not isinstance(header, dict):
                 self._live_died(worker)
-            else:
-                if header.get("id") in worker.queries:
-                    worker.queries.remove(header.get("id"))
+            elif worker.answered(header.get("id")):
                 self._send(header, blob)
+            # Otherwise the answer to a query already given up on: it is dropped.
 
     def _build_finished(self, worker: _Worker, result: dict[str, Any], blob: bytes) -> None:
         self._building = None
@@ -310,9 +345,19 @@ class Supervisor:
             self._send({"id": worker.request_id, "ok": False, "error": error})
             return
         scene = {**result["scene"], "seconds": time.monotonic() - worker.started, "output": output}
-        previous, self._live = self._live, worker
+        previous = self._live.pop(worker.dir, None)
+        self._live[worker.dir] = worker
         if previous:
-            self._retire(previous)
+            self._retire(
+                previous, "cancelled", "a newer build replaced the one this query was sent to"
+            )
+        while len(self._live) > MAX_LIVE:
+            least_recent = next(iter(self._live))
+            self._retire(
+                self._live.pop(least_recent),
+                "no_build",
+                f"the build of {least_recent} made room for more recent ones; build it again",
+            )
         self._send({"id": worker.request_id, "ok": True, "scene": scene}, blob)
 
     def _build_died(self, worker: _Worker) -> None:
@@ -358,17 +403,28 @@ class Supervisor:
             output=self._take_output(worker),
         )
 
+    def _time_out_queries(self, worker: _Worker, now: float) -> None:
+        """Answer the queries a live worker has had for too long. The worker is left alone."""
+        while worker.queries and worker.queries[0][1] <= now:
+            id, _ = worker.queries.pop(0)
+            self._fail(
+                id,
+                "timeout",
+                f"the query was not answered within {QUERY_TIMEOUT:g} s; "
+                "the build it was sent to is still there",
+            )
+
     def _live_died(self, worker: _Worker) -> None:
-        self._live = None
+        del self._live[worker.dir]
         self._stop(worker, signal.SIGKILL)
-        for id in worker.queries:
+        for id, _ in worker.queries:
             self._fail(id, "crash", "the process holding the built parts died; rebuild to query")
 
-    def _retire(self, worker: _Worker) -> None:
-        """Stop a live worker that a newer build has replaced."""
+    def _retire(self, worker: _Worker, kind: str, reason: str) -> None:
+        """Stop a worker that is no longer live, answering its waiting queries with ``kind``."""
         self._stop(worker, signal.SIGTERM)
-        for id in worker.queries:
-            self._fail(id, "cancelled", "a newer build replaced the one this query was sent to")
+        for id, _ in worker.queries:
+            self._fail(id, kind, reason)
 
     def _stop(self, worker: _Worker, sig: signal.Signals) -> None:
         """Signal a worker, close its socket and reap it."""

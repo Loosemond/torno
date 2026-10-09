@@ -6,7 +6,7 @@ import type { BuildError, BuildState } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
-import { type KernelClient, startKernel } from './kernel/client'
+import { type KernelClient, KernelError, startKernel } from './kernel/client'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
 
@@ -47,8 +47,12 @@ class FakeKernel implements KernelClient {
   fail(index: number, error: BuildError): void {
     this.calls[index].settle({ ok: false, error })
   }
-  query<T>(): Promise<T> {
-    return Promise.reject(new Error('not used'))
+  queries: Array<{ dir: string; name: string; args: object }> = []
+  /** What the next queries fail with; they are answered with what they asked when unset. */
+  queryError: KernelError | null = null
+  query<T>(dir: string, name: string, args: object): Promise<T> {
+    this.queries.push({ dir, name, args })
+    return this.queryError ? Promise.reject(this.queryError) : Promise.resolve({ dir, name, args } as T)
   }
   cancel(): void {
     this.cancels += 1
@@ -95,6 +99,68 @@ function setup(over: { timeout?: number; exists?: (path: string) => boolean } = 
   builds.on('scene', (m) => scenes.push(m))
   return { kernel, watched, builds, states, scenes, advance: (ms: number) => (clock += ms) }
 }
+
+describe('Builds.query', () => {
+  it('rejects with no_build before the first successful build, without asking the kernel', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    const building = await builds.query('bracket', 'describe', { ref: 'assembly:base' }).catch((e) => e)
+    expect(building).toBeInstanceOf(KernelError)
+    expect(building).toMatchObject({ kind: 'no_build', message: 'bracket has not been built successfully yet, so there is nothing to ask about' })
+    kernel.fail(0, { kind: 'exception', message: 'boom' })
+    await flush()
+    await expect(builds.query('bracket', 'describe', {})).rejects.toMatchObject({ kind: 'no_build' })
+    await expect(builds.query('never-opened', 'describe', {})).rejects.toMatchObject({ kind: 'no_build' })
+    expect(kernel.queries).toEqual([])
+  })
+
+  it("passes the object's own folder, whichever object was built last", async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    builds.open(gear)
+    kernel.succeed(1)
+    await flush()
+    expect(await builds.query('bracket', 'describe', { ref: 'assembly:base' })).toEqual(
+      { dir: '/ws/bracket', name: 'describe', args: { ref: 'assembly:base' } }
+    )
+    expect(await builds.query('gear', 'nearest', { layout: 'assembly', anchors: [] })).toEqual(
+      { dir: '/ws/gear', name: 'nearest', args: { layout: 'assembly', anchors: [] } }
+    )
+    expect(kernel.queries.map((q) => q.dir)).toEqual(['/ws/bracket', '/ws/gear'])
+  })
+
+  it('still asks about the last good build while a later build runs or after one failed', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    builds.rebuild('bracket')
+    await expect(builds.query('bracket', 'describe', {})).resolves.toMatchObject({ dir: '/ws/bracket' })
+    kernel.fail(1, { kind: 'exception', message: 'boom' })
+    await flush()
+    await expect(builds.query('bracket', 'describe', {})).resolves.toMatchObject({ dir: '/ws/bracket' })
+  })
+
+  it("rejects with the kernel's own error", async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    kernel.queryError = new KernelError('bad_ref', 'no part named x')
+    await expect(builds.query('bracket', 'describe', { ref: 'assembly:x' })).rejects.toBe(kernel.queryError)
+  })
+
+  it('has nothing to ask about an object that was closed', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    builds.close('bracket')
+    await expect(builds.query('bracket', 'describe', {})).rejects.toMatchObject({ kind: 'no_build' })
+  })
+})
 
 describe('Builds', () => {
   it('starts a build as soon as an object is opened', () => {

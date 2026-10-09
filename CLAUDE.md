@@ -54,9 +54,13 @@ While iterating run the focused test; run all four suites before a commit.
   only routes frames. It never loads a model, builds, tessellates or answers a
   query: one OCC operation in it would start OCC's thread pool, and every
   worker forked afterwards would deadlock.
-- **Workers never fork.** One worker is forked per build. The last one that
-  succeeded stays alive to answer queries, and is replaced when the next build
-  succeeds. A worker leaves through `os._exit`.
+- **Workers never fork.** One worker is forked per build. For each object
+  folder, the last one that succeeded stays alive to answer queries about that
+  object, and is replaced when the next build of that folder succeeds. At most
+  four stay alive: a fifth folder retires the one least recently built or
+  queried, whose queries are then `no_build`. A query names its folder (`dir`)
+  and has 30 s, after which it is answered `timeout` and the worker left alone.
+  A worker leaves through `os._exit`.
 - **prctl.** Each worker sets `PR_SET_PDEATHSIG` to SIGKILL, so it dies with
   the supervisor even when that is killed, and `PR_SET_DUMPABLE` to 0, so a
   crashing model does not wait seconds on a core dump.

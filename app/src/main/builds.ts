@@ -4,7 +4,7 @@ import { watch as chokidarWatch } from 'chokidar'
 import type { BuildError, BuildState } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import type { KernelClient } from './kernel/client'
+import { type KernelClient, KernelError } from './kernel/client'
 
 const DEBOUNCE_MS = 300
 // torno's own folder, and where models and tools keep what they make: exports,
@@ -203,6 +203,20 @@ export class Builds {
   /** The last successful build, whatever has happened since. */
   scene(objectId: string): LastGood | undefined {
     return this.entries.get(objectId)?.lastGood
+  }
+
+  /**
+   * Ask the kernel about the last successful build of an open object. Rejects
+   * with a KernelError: `no_build` when the object has not been built
+   * successfully yet (or is not open), or whatever kind the kernel answers with.
+   */
+  query<T = unknown>(objectId: string, name: string, args: object): Promise<T> {
+    const entry = this.entries.get(objectId)
+    if (!entry?.lastGood) {
+      const message = `${objectId} has not been built successfully yet, so there is nothing to ask about`
+      return Promise.reject(new KernelError('no_build', message))
+    }
+    return this.kernel.query<T>(entry.obj.dir, name, args)
   }
 
   on(event: 'build', cb: (s: BuildState) => void): void

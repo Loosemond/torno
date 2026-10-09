@@ -1,0 +1,370 @@
+"""Queries and descriptors, in-process, on the shapes of the fixture models."""
+
+import math
+from pathlib import Path
+
+import pytest
+
+from torno_kernel import queries, topo
+from torno_kernel.describe import descriptor, number
+from torno_kernel.loader import load_scene
+from torno_kernel.tess import build_scene
+
+WS = Path(__file__).parent / "fixtures" / "ws"
+
+
+@pytest.fixture(scope="module")
+def shapes():
+    _, _, shapes = build_scene(load_scene(WS / "bracket", "bracket.py"), "bracket.py")
+    return shapes
+
+
+def face_of(shapes, key: str, **facts) -> dict:
+    """The one face of a part whose description holds these facts."""
+    count = len(topo.faces(shapes[key]))
+    described = [queries.describe(shapes, f"{key}/F{i}") for i in range(count)]
+    found = [d for d in described if all(d[k] == pytest.approx(v) for k, v in facts.items())]
+    assert len(found) == 1, found
+    return found[0]
+
+
+# Numbers
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        (20, "20"),
+        (20.0, "20"),
+        (1180.0, "1180"),
+        (502.6548, "502.7"),
+        (25.1327, "25.13"),
+        (6000.0000001, "6000"),
+        (12345.6, "12350"),
+        (0.5, "0.5"),
+        (0.012346, "0.01235"),
+        (-2.5, "-2.5"),
+        (-0.0, "0"),
+        (1e-12, "0"),
+        (-1e-12, "0"),
+    ],
+)
+def test_numbers_have_at_most_four_significant_digits_and_no_trailing_zeros(value, text):
+    assert number(value) == text
+
+
+# Descriptors from facts
+
+
+@pytest.mark.parametrize(
+    ("normal", "center", "text"),
+    [
+        ([0, 0, 1], [3, 4, 20], "plane, normal +Z, z = 20, 1180 mm²"),
+        ([0, 0, -1], [3, 4, -2.5], "plane, normal -Z, z = -2.5, 1180 mm²"),
+        ([1, 0, 0], [20, 4, 1], "plane, normal +X, x = 20, 1180 mm²"),
+        ([-1, 0, 0], [-20, 4, 1], "plane, normal -X, x = -20, 1180 mm²"),
+        ([0, 1, 0], [3, 15, 1], "plane, normal +Y, y = 15, 1180 mm²"),
+        ([0, -1, 0], [3, -15, 1], "plane, normal -Y, y = -15, 1180 mm²"),
+    ],
+)
+def test_plane_on_an_axis_names_it_and_the_coordinate_it_sits_at(normal, center, text):
+    facts = {"type": "plane", "normal": normal, "center": center, "area": 1180.0}
+    assert descriptor("face", facts) == text
+
+
+def test_tilted_plane_gives_its_normal_as_a_vector():
+    s = math.sqrt(0.5)
+    facts = {"type": "plane", "normal": [s, 0, s], "center": [1, 2, 3], "area": 1180.0}
+    assert descriptor("face", facts) == "plane, normal (0.71, 0, 0.71), 1180 mm²"
+
+
+def test_plane_within_half_a_degree_of_an_axis_is_named_and_beyond_it_is_not():
+    def tilted(degrees):
+        a = math.radians(degrees)
+        return {"type": "plane", "normal": [math.sin(a), 0, math.cos(a)], "center": [0, 0, 20], "area": 100.0}
+
+    assert descriptor("face", tilted(0.4)) == "plane, normal +Z, z = 20, 100 mm²"
+    assert descriptor("face", tilted(0.6)) == "plane, normal (0.01, 0, 1), 100 mm²"
+
+
+def test_plane_without_a_normal_is_still_described():
+    facts = {"type": "plane", "normal": None, "center": [0, 0, 0], "area": 12.0}
+    assert descriptor("face", facts) == "plane, 12 mm²"
+
+
+def test_cylinder_gives_radius_and_axis():
+    facts = {"type": "cylinder", "radius": 4.0, "axis": [0, 0, 1], "area": 502.6548}
+    assert descriptor("face", facts) == "cylinder, radius 4, axis Z, 502.7 mm²"
+    # An axis has no sense: pointing down is the same axis.
+    assert descriptor("face", {**facts, "axis": [0, -1, 0]}) == "cylinder, radius 4, axis Y, 502.7 mm²"
+    s = math.sqrt(0.5)
+    assert descriptor("face", {**facts, "axis": [s, s, 0]}) == (
+        "cylinder, radius 4, axis (0.71, 0.71, 0), 502.7 mm²"
+    )
+
+
+def test_other_faces_give_their_type_and_area():
+    assert descriptor("face", {"type": "bspline", "area": 913.2, "radius": None}) == "bspline, 913.2 mm²"
+    assert descriptor("face", {"type": "sphere", "area": 201.06, "radius": 4.0}) == "sphere, 201.1 mm²"
+
+
+def test_edges():
+    assert descriptor("edge", {"type": "line", "length": 40.0}) == "line, 40 mm"
+    assert descriptor("edge", {"type": "circle", "radius": 4.0, "length": 25.1327}) == (
+        "circle, radius 4, 25.13 mm"
+    )
+    assert descriptor("edge", {"type": "bspline", "length": 31.4}) == "bspline, 31.4 mm"
+
+
+def test_part():
+    facts = {
+        "bbox": {"min": [-20, -15, -2.5], "max": [20, 15, 2.5]},
+        "volume": 6000.0,
+        "faceCount": 6,
+    }
+    assert descriptor("part", facts) == "part, 40 × 30 × 5 mm, 6000 mm³, 6 faces"
+    assert descriptor("part", {**facts, "faceCount": 1}) == "part, 40 × 30 × 5 mm, 6000 mm³, 1 face"
+
+
+def test_unknown_kind_is_refused():
+    with pytest.raises(ValueError):
+        descriptor("vertex", {})
+
+
+# describe carries the descriptor
+
+
+def test_describe_part_carries_its_descriptor(shapes):
+    assert queries.describe(shapes, "assembly:base")["descriptor"] == (
+        "part, 40 × 30 × 5 mm, 6000 mm³, 6 faces"
+    )
+
+
+def test_describe_plane_on_each_axis(shapes):
+    found = {
+        queries.describe(shapes, f"assembly:base/F{i}")["descriptor"] for i in range(6)
+    }
+    assert found == {
+        "plane, normal +X, x = 20, 150 mm²",
+        "plane, normal -X, x = -20, 150 mm²",
+        "plane, normal +Y, y = 15, 200 mm²",
+        "plane, normal -Y, y = -15, 200 mm²",
+        "plane, normal +Z, z = 2.5, 1200 mm²",
+        "plane, normal -Z, z = -2.5, 1200 mm²",
+    }
+
+
+def test_describe_cylinder_names_the_axis_it_has_in_this_layout(shapes):
+    upright = face_of(shapes, "assembly:post", type="cylinder")
+    assert upright["descriptor"] == "cylinder, radius 4, axis Z, 502.7 mm²"
+    # The same post lies on its side on the print bed.
+    lying = face_of(shapes, "print:post", type="cylinder")
+    assert lying["descriptor"] == "cylinder, radius 4, axis Y, 502.7 mm²"
+
+
+def test_describe_line_and_circle_edges(shapes):
+    assert queries.describe(shapes, "assembly:base/E1")["descriptor"] == "line, 30 mm"
+    count = len(topo.edges(shapes["assembly:post"]))
+    edges = [queries.describe(shapes, f"assembly:post/E{i}") for i in range(count)]
+    circles = [e["descriptor"] for e in edges if e["type"] == "circle"]
+    assert circles == ["circle, radius 4, 25.13 mm"] * 2
+
+
+def test_describe_keeps_the_fields_it_had(shapes):
+    edge = queries.describe(shapes, "assembly:base/E1")
+    assert set(edge) == {"kind", "ref", "type", "length", "center", "descriptor"}
+    face = queries.describe(shapes, "assembly:base/F0")
+    assert set(face) == {"kind", "ref", "type", "area", "center", "normal", "radius", "descriptor"}
+
+
+def test_describe_tilted_plane():
+    from build123d import Box, Rot
+
+    shapes = {"main:wedge": Rot(0, 45, 0) * Box(10, 10, 10)}
+    found = {queries.describe(shapes, f"main:wedge/F{i}")["descriptor"] for i in range(6)}
+    assert "plane, normal (0.71, 0, 0.71), 100 mm²" in found
+    assert "plane, normal (-0.71, 0, -0.71), 100 mm²" in found
+    assert "plane, normal +Y, y = 5, 100 mm²" in found
+
+
+# nearest
+
+
+def nearest(shapes, layout, *anchors):
+    args = {"layout": layout, "anchors": [{"part": part, "point": point} for part, point in anchors]}
+    return queries.run(shapes, "nearest", args)["anchors"]
+
+
+def test_nearest_above_the_base_is_its_top_face(shapes):
+    top = face_of(shapes, "assembly:base", normal=[0, 0, 1])
+    [anchor] = nearest(shapes, "assembly", ("base", [5, 3, 5.5]))
+    assert anchor == {
+        "part": "base",
+        "found": True,
+        "point": pytest.approx([5, 3, 2.5]),
+        "normal": pytest.approx([0, 0, 1]),
+        # Without the layout: the reply is about one layout already.
+        "ref": top["ref"].removeprefix("assembly:"),
+        "distance": pytest.approx(3),
+        "descriptor": "plane, normal +Z, z = 2.5, 1200 mm²",
+    }
+
+
+def test_nearest_below_the_base_points_down(shapes):
+    [anchor] = nearest(shapes, "assembly", ("base", [5, 3, -4.5]))
+    assert anchor["normal"] == pytest.approx([0, 0, -1])
+    assert anchor["distance"] == pytest.approx(2)
+    assert anchor["descriptor"] == "plane, normal -Z, z = -2.5, 1200 mm²"
+
+
+def test_nearest_beside_the_post_is_its_cylindrical_face(shapes):
+    cylinder = face_of(shapes, "assembly:post", type="cylinder")
+    [anchor] = nearest(shapes, "assembly", ("post", [7, 0, 12]))
+    assert anchor["ref"] == cylinder["ref"].removeprefix("assembly:")
+    assert anchor["point"] == pytest.approx([4, 0, 12])
+    assert anchor["normal"] == pytest.approx([1, 0, 0])
+    assert anchor["distance"] == pytest.approx(3)
+    assert anchor["descriptor"] == "cylinder, radius 4, axis Z, 502.7 mm²"
+
+
+def test_nearest_on_the_surface_is_at_distance_zero(shapes):
+    [anchor] = nearest(shapes, "assembly", ("base", [5, 3, 2.5]))
+    assert anchor["distance"] == pytest.approx(0, abs=1e-9)
+    assert anchor["normal"] == pytest.approx([0, 0, 1])
+
+
+def test_nearest_inside_the_part_is_the_closest_face_not_zero(shapes):
+    [anchor] = nearest(shapes, "assembly", ("base", [5, 3, 2]))
+    assert anchor["distance"] == pytest.approx(0.5)
+    assert anchor["normal"] == pytest.approx([0, 0, 1])
+
+
+def test_nearest_on_an_edge_or_a_corner_is_the_adjacent_face_of_lowest_index(shapes):
+    def faces_at(point):
+        """Indices of the base's faces whose plane this point of its surface lies on."""
+        found = []
+        for i in range(6):
+            face = queries.describe(shapes, f"assembly:base/F{i}")
+            offset = [p - c for p, c in zip(point, face["center"], strict=True)]
+            if abs(sum(o * n for o, n in zip(offset, face["normal"], strict=True))) < 1e-9:
+                found.append(i)
+        return found
+
+    # Beyond the edge between the top and the +X side.
+    [on_edge] = nearest(shapes, "assembly", ("base", [23, 3, 5.5]))
+    assert on_edge["point"] == pytest.approx([20, 3, 2.5])
+    assert on_edge["distance"] == pytest.approx(math.hypot(3, 3))
+    assert len(faces_at([20, 3, 2.5])) == 2
+    assert on_edge["ref"] == f"base/F{min(faces_at([20, 3, 2.5]))}"
+    # Beyond a corner.
+    [on_corner] = nearest(shapes, "assembly", ("base", [23, 18, 5.5]))
+    assert on_corner["point"] == pytest.approx([20, 15, 2.5])
+    assert len(faces_at([20, 15, 2.5])) == 3
+    assert on_corner["ref"] == f"base/F{min(faces_at([20, 15, 2.5]))}"
+    # The normal is the one of the face named.
+    named = queries.describe(shapes, f"assembly:{on_corner['ref']}")
+    assert on_corner["normal"] == pytest.approx(named["normal"])
+    assert on_corner["descriptor"] == named["descriptor"]
+
+
+def test_nearest_missing_part_is_not_found_and_the_others_are_answered(shapes):
+    anchors = nearest(shapes, "assembly", ("gone", [0, 0, 0]), ("base", [5, 3, 5.5]))
+    assert anchors[0] == {"part": "gone", "found": False}
+    assert anchors[1]["found"] is True
+    assert nearest(shapes, "assembly") == []
+
+
+def test_nearest_answers_in_the_frame_of_the_layout_asked_for(shapes):
+    # On the print bed the post lies along Y at x = 60, z = 4.
+    [anchor] = nearest(shapes, "print", ("post", [60, 0, 11]))
+    assert anchor["point"] == pytest.approx([60, 0, 8])
+    assert anchor["normal"] == pytest.approx([0, 0, 1], abs=1e-9)
+    assert anchor["distance"] == pytest.approx(3)
+    assert anchor["descriptor"] == "cylinder, radius 4, axis Y, 502.7 mm²"
+
+
+def test_nearest_on_parts_spread_apart_answers_where_they_were_moved_to():
+    # Two plates posed on top of each other for the bed: the second is moved along X.
+    source = {"print": {"a": __import__("build123d").Box(20, 20, 2), "b": __import__("build123d").Box(20, 20, 2)}}
+    scene, _, shapes = build_scene(source, "plates.py")
+    moved = next(p for p in scene["parts"] if p["key"] == "print:b")["arranged"]
+    assert moved == pytest.approx([30, 0, 0])
+    [anchor] = nearest(shapes, "print", ("b", [30, 0, 4]))
+    assert anchor["point"] == pytest.approx([30, 0, 1])
+    assert anchor["distance"] == pytest.approx(3)
+
+
+def test_nearest_unknown_layout_is_bad_ref_naming_the_layouts(shapes):
+    with pytest.raises(queries.QueryError) as e:
+        nearest(shapes, "exploded", ("base", [0, 0, 0]))
+    assert e.value.kind == "bad_ref"
+    assert e.value.message == "no layout 'exploded'; the layouts are assembly, print"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        None,
+        {},
+        {"layout": "assembly"},
+        {"layout": 3, "anchors": []},
+        {"layout": "assembly", "anchors": {}},
+        {"layout": "assembly", "anchors": ["base"]},
+        {"layout": "assembly", "anchors": [{"part": "base"}]},
+        {"layout": "assembly", "anchors": [{"part": 1, "point": [0, 0, 0]}]},
+        {"layout": "assembly", "anchors": [{"part": "base", "point": [0, 0]}]},
+        {"layout": "assembly", "anchors": [{"part": "base", "point": [0, 0, "1"]}]},
+        {"layout": "assembly", "anchors": [{"part": "base", "point": [0, 0, True]}]},
+        {"layout": "assembly", "anchors": [{"part": "base", "point": [0, 0, float("nan")]}]},
+        {"layout": "assembly", "anchors": [{"part": "base", "point": [0, 0, float("inf")]}]},
+    ],
+)
+def test_nearest_with_bad_arguments_is_a_bad_request(shapes, args):
+    with pytest.raises(queries.QueryError) as e:
+        queries.run(shapes, "nearest", args)
+    assert e.value.kind == "bad_request"
+
+
+def test_unknown_query_names_the_queries(shapes):
+    with pytest.raises(queries.QueryError) as e:
+        queries.run(shapes, "nope", {})
+    assert e.value.kind == "bad_request"
+    assert e.value.message == "unknown query 'nope'; the queries are describe and nearest"
+
+
+def test_nearest_after_a_rebuild_with_other_topology_names_the_face_now_there():
+    """Review focus 1: a mark keeps its point; its ref is the face that is there now."""
+    from build123d import Box, Cylinder, Pos
+
+    def top_of(shapes):
+        """The ref of the plate's largest face that looks up."""
+        count = len(topo.faces(shapes["main:plate"]))
+        faces = [queries.describe(shapes, f"main:plate/F{i}") for i in range(count)]
+        up = [f for f in faces if f["type"] == "plane" and f["normal"] == pytest.approx([0, 0, 1])]
+        return max(up, key=lambda f: f["area"])["ref"].removeprefix("main:")
+
+    point = [5, 3, 2.5]  # a pin on the top of a plate 5 mm thick
+    before = {"main:plate": Box(40, 30, 5)}
+    [placed] = nearest(before, "main", ("plate", point))
+    assert (placed["ref"], placed["distance"]) == (top_of(before), pytest.approx(0, abs=1e-9))
+
+    # A hole through it and a boss beside it: the faces are numbered otherwise.
+    holed = Box(40, 30, 5) - Pos(-10, 0, 0) * Cylinder(3, 5) + Pos(12, -8, 5) * Cylinder(2, 5)
+    after = {"main:plate": holed}
+    assert top_of(after) != top_of(before)
+    [same_place] = nearest(after, "main", ("plate", point))
+    assert same_place["ref"] == top_of(after)
+    assert same_place["distance"] == pytest.approx(0, abs=1e-9)
+    assert same_place["normal"] == pytest.approx([0, 0, 1])
+
+    # The plate made thinner: the surface moved away from the pin, and the distance says so.
+    thinner = {"main:plate": Pos(0, 0, -1) * Box(40, 30, 3)}
+    [drifted] = nearest(thinner, "main", ("plate", point))
+    assert drifted["ref"] == top_of(thinner)
+    assert drifted["point"] == pytest.approx([5, 3, 0.5])
+    assert drifted["distance"] == pytest.approx(2)
+
+    # The part renamed away.
+    assert nearest({"main:slab": Box(40, 30, 5)}, "main", ("plate", point)) == [
+        {"part": "plate", "found": False}
+    ]

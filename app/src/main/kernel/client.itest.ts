@@ -41,7 +41,7 @@ describe('the real kernel', () => {
   })
 
   it('refuses a query before any build', async () => {
-    await expect(kernel.query('describe', { ref: 'assembly:base' })).rejects.toMatchObject({ kind: 'no_build' })
+    await expect(kernel.query(join(root, 'bracket'), 'describe', { ref: 'assembly:base' })).rejects.toMatchObject({ kind: 'no_build' })
   })
 
   it('builds the bracket: four parts, every buffer readable', async () => {
@@ -70,19 +70,61 @@ describe('the real kernel', () => {
   })
 
   it('answers a query about the last good build', async () => {
-    const part = await kernel.query<{ volume: number }>('describe', { ref: 'assembly:base' })
+    const part = await kernel.query<{ volume: number }>(join(root, 'bracket'), 'describe', { ref: 'assembly:base' })
     expect(part.volume).toBeCloseTo(6000, 6)
   })
 
   it('rejects a query for a part that does not exist', async () => {
-    await expect(kernel.query('describe', { ref: 'assembly:nope' })).rejects.toMatchObject({ kind: 'bad_ref' })
+    await expect(kernel.query(join(root, 'bracket'), 'describe', { ref: 'assembly:nope' })).rejects.toMatchObject({ kind: 'bad_ref' })
+  })
+
+  it('answers about each of two objects, whichever was built last', async () => {
+    const bracket = join(root, 'bracket')
+    const plain = join(root, 'plain')
+    expect(await kernel.build(plain, 'plain.py')).toMatchObject({ ok: true })
+
+    type Part = { volume: number; descriptor: string }
+    const base = await kernel.query<Part>(bracket, 'describe', { ref: 'assembly:base' })
+    expect(base.volume).toBeCloseTo(6000, 6)
+    expect(base.descriptor).toBe('part, 40 × 30 × 5 mm, 6000 mm³, 6 faces')
+    const plate = await kernel.query<Part>(plain, 'describe', { ref: 'main:plate' })
+    expect(plate.volume).toBeCloseTo(800, 6)
+    expect(plate.descriptor).toBe('part, 20 × 20 × 2 mm, 800 mm³, 6 faces')
+    // Neither holds the other's parts.
+    await expect(kernel.query(plain, 'describe', { ref: 'assembly:base' })).rejects.toMatchObject({ kind: 'bad_ref' })
+    await expect(kernel.query(bracket, 'describe', { ref: 'main:plate' })).rejects.toMatchObject({ kind: 'bad_ref' })
+    // A folder that was never built.
+    await expect(kernel.query(join(root, 'chatty'), 'describe', { ref: 'assembly:plate' })).rejects.toMatchObject({
+      kind: 'no_build'
+    })
+  })
+
+  it('finds the face nearest to a point, in the object asked for', async () => {
+    type Nearest = {
+      anchors: Array<{ part: string; found: boolean; point?: number[]; normal?: number[]; ref?: string; distance?: number; descriptor?: string }>
+    }
+    const anchors = [
+      { part: 'base', point: [5, 3, 5.5] },
+      { part: 'gone', point: [0, 0, 0] }
+    ]
+    const result = await kernel.query<Nearest>(join(root, 'bracket'), 'nearest', { layout: 'assembly', anchors })
+    const [above, gone] = result.anchors
+    expect(above).toMatchObject({ part: 'base', found: true, descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
+    expect(above.ref).toMatch(/^base\/F\d+$/)
+    expect(above.distance).toBeCloseTo(3, 9)
+    expect(above.point![2]).toBeCloseTo(2.5, 9)
+    expect(above.normal![2]).toBeCloseTo(1, 9)
+    expect(gone).toEqual({ part: 'gone', found: false })
+    await expect(
+      kernel.query(join(root, 'bracket'), 'nearest', { layout: 'exploded', anchors })
+    ).rejects.toMatchObject({ kind: 'bad_ref', message: "no layout 'exploded'; the layouts are assembly, print" })
   })
 
   it('reports a model that raises as an exception, and keeps the last good build', async () => {
     const result = await kernel.build(join(root, 'broken'), 'broken.py')
     expect(result).toMatchObject({ ok: false, error: { kind: 'exception' } })
     if (!result.ok) expect(result.error.traceback).toContain('broken.py')
-    const part = await kernel.query<{ volume: number }>('describe', { ref: 'assembly:base' })
+    const part = await kernel.query<{ volume: number }>(join(root, 'bracket'), 'describe', { ref: 'assembly:base' })
     expect(part.volume).toBeCloseTo(6000, 6)
   })
 
@@ -111,7 +153,7 @@ describe('the real kernel', () => {
     const result = await kernel.build(join(root, 'bracket'), 'bracket.py')
     expect(result).toMatchObject({ ok: true })
     expect(kernel.pid).not.toBe(uvPid)
-    const part = await kernel.query<{ volume: number }>('describe', { ref: 'assembly:post' })
+    const part = await kernel.query<{ volume: number }>(join(root, 'bracket'), 'describe', { ref: 'assembly:post' })
     expect(part.volume).toBeCloseTo(Math.PI * 16 * 20, 3)
   })
 

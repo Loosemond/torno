@@ -14,6 +14,7 @@ from kclient import Kernel
 from torno_kernel.frames import write_frame
 
 WS = Path(__file__).parent / "fixtures" / "ws"
+BRACKET = WS / "bracket"
 
 
 @pytest.fixture(scope="module")
@@ -251,7 +252,7 @@ def test_cancel_kills_the_running_build(kernel, ws):
 
 
 def test_describe_part(bracket_kernel):
-    reply = bracket_kernel.describe("assembly:base")
+    reply = bracket_kernel.describe(BRACKET, "assembly:base")
     assert reply["ok"] is True
     result = reply["result"]
     assert result["kind"] == "part"
@@ -264,7 +265,7 @@ def test_describe_part(bracket_kernel):
 
 
 def test_describe_planar_face(bracket_kernel):
-    result = bracket_kernel.describe("assembly:base/F0")["result"]
+    result = bracket_kernel.describe(BRACKET, "assembly:base/F0")["result"]
     assert result["kind"] == "face"
     assert result["ref"] == "assembly:base/F0"
     assert result["type"] == "plane"
@@ -276,8 +277,8 @@ def test_describe_planar_face(bracket_kernel):
 
 
 def test_describe_cylindrical_face_gives_its_radius_in_the_object_frame(bracket_kernel):
-    count = bracket_kernel.describe("assembly:post")["result"]["faceCount"]
-    faces = [bracket_kernel.describe(f"assembly:post/F{i}")["result"] for i in range(count)]
+    count = bracket_kernel.describe(BRACKET, "assembly:post")["result"]["faceCount"]
+    faces = [bracket_kernel.describe(BRACKET, f"assembly:post/F{i}")["result"] for i in range(count)]
     cylinders = [f for f in faces if f["type"] == "cylinder"]
     assert len(cylinders) == 1
     assert cylinders[0]["radius"] == pytest.approx(4)
@@ -286,18 +287,64 @@ def test_describe_cylindrical_face_gives_its_radius_in_the_object_frame(bracket_
 
 
 def test_describe_edge(bracket_kernel):
-    result = bracket_kernel.describe("assembly:base/E1")["result"]
+    result = bracket_kernel.describe(BRACKET, "assembly:base/E1")["result"]
     assert result == {
         "kind": "edge",
         "ref": "assembly:base/E1",
         "type": "line",
         "length": pytest.approx(30),
         "center": pytest.approx([-20, 0, 2.5]),
+        "descriptor": "line, 30 mm",
+    }
+
+
+def test_describe_replies_carry_a_descriptor(bracket_kernel):
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["result"]["descriptor"] == (
+        "part, 40 × 30 × 5 mm, 6000 mm³, 6 faces"
+    )
+    assert bracket_kernel.describe(BRACKET, "assembly:base/F0")["result"]["descriptor"] == (
+        "plane, normal -X, x = -20, 150 mm²"
+    )
+
+
+def test_nearest_over_the_protocol(bracket_kernel):
+    anchors = [
+        {"part": "base", "point": [5, 3, 5.5]},
+        {"part": "gone", "point": [0, 0, 0]},
+        {"part": "post", "point": [7, 0, 12]},
+    ]
+    reply = bracket_kernel.nearest(BRACKET, "assembly", anchors)
+    assert reply["ok"] is True, reply
+    above, gone_part, beside = reply["result"]["anchors"]
+    assert above == {
+        "part": "base",
+        "found": True,
+        "point": pytest.approx([5, 3, 2.5]),
+        "normal": pytest.approx([0, 0, 1]),
+        "ref": above["ref"],
+        "distance": pytest.approx(3),
+        "descriptor": "plane, normal +Z, z = 2.5, 1200 mm²",
+    }
+    # The ref is one describe takes once the layout is put in front of it.
+    assert above["ref"].startswith("base/F")
+    described = bracket_kernel.describe(BRACKET, f"assembly:{above['ref']}")["result"]
+    assert described["descriptor"] == above["descriptor"]
+    assert gone_part == {"part": "gone", "found": False}
+    assert beside["descriptor"] == "cylinder, radius 4, axis Z, 502.7 mm²"
+    assert beside["distance"] == pytest.approx(3)
+
+
+def test_nearest_in_an_unknown_layout_is_bad_ref_naming_the_layouts(bracket_kernel):
+    reply = bracket_kernel.nearest(BRACKET, "exploded", [])
+    assert reply["ok"] is False
+    assert reply["error"] == {
+        "kind": "bad_ref",
+        "message": "no layout 'exploded'; the layouts are assembly, print",
     }
 
 
 def test_describe_unknown_part_lists_the_valid_keys(bracket_kernel):
-    reply = bracket_kernel.describe("assembly:nope")
+    reply = bracket_kernel.describe(BRACKET, "assembly:nope")
     assert reply["ok"] is False
     assert reply["error"]["kind"] == "bad_ref"
     for key in ("assembly:base", "assembly:post", "print:base", "print:post"):
@@ -305,13 +352,13 @@ def test_describe_unknown_part_lists_the_valid_keys(bracket_kernel):
 
 
 def test_describe_face_index_out_of_range_is_bad_ref(bracket_kernel):
-    reply = bracket_kernel.describe("assembly:base/F6")
+    reply = bracket_kernel.describe(BRACKET, "assembly:base/F6")
     assert reply["error"]["kind"] == "bad_ref"
     assert "6 faces" in reply["error"]["message"]
 
 
 def test_unknown_query_and_unknown_op_are_bad_requests(bracket_kernel):
-    id = bracket_kernel.send("query", name="nope", args={})
+    id = bracket_kernel.send("query", dir=str(BRACKET), name="nope", args={})
     reply, _ = bracket_kernel.recv(5)
     assert (reply["id"], reply["error"]["kind"]) == (id, "bad_request")
     id = bracket_kernel.send("nope")
@@ -327,7 +374,7 @@ def test_request_that_is_not_json_is_a_bad_request_and_the_stream_recovers(brack
     write_frame(stdin, [1, 2])
     reply, _ = bracket_kernel.recv(5)
     assert (reply["id"], reply["error"]["kind"]) == (None, "bad_request")
-    assert bracket_kernel.describe("assembly:base")["ok"] is True
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
 
 
 def test_a_thousand_pipelined_queries_are_all_answered_in_order(bracket_kernel):
@@ -336,7 +383,13 @@ def test_a_thousand_pipelined_queries_are_all_answered_in_order(bracket_kernel):
     for i in range(1000):
         write_frame(
             pipelined,
-            {"id": f"p{i}", "op": "query", "name": "describe", "args": {"ref": "assembly:base"}},
+            {
+                "id": f"p{i}",
+                "op": "query",
+                "dir": str(BRACKET),
+                "name": "describe",
+                "args": {"ref": "assembly:base"},
+            },
         )
     stdin.write(pipelined.getvalue())
     replies = [bracket_kernel.recv(10)[0] for _ in range(1000)]
@@ -364,25 +417,140 @@ def test_client_that_writes_many_requests_before_reading_any_reply_is_not_blocke
 
 
 def test_query_before_any_build_is_no_build_and_shutdown_exits(fresh):
-    reply = fresh.describe("assembly:base")
+    reply = fresh.describe(BRACKET, "assembly:base")
     assert reply["ok"] is False
     assert reply["error"]["kind"] == "no_build"
     fresh.send("shutdown")
     assert fresh.proc.wait(2) == 0
 
 
+def test_query_without_a_folder_is_a_bad_request(bracket_kernel):
+    id = bracket_kernel.send("query", name="describe", args={"ref": "assembly:base"})
+    reply, _ = bracket_kernel.recv(5)
+    assert reply == {
+        "id": id,
+        "ok": False,
+        "error": {"kind": "bad_request", "message": "query needs dir, the object's folder, a string"},
+    }
+
+
+def test_each_object_is_answered_by_its_own_build_whichever_built_last(fresh, ws):
+    bracket, plain = ws / "bracket", ws / "plain"
+    build_bracket(fresh, ws)
+    reply, _ = fresh.build(plain, "plain.py")
+    assert reply["ok"], reply
+    [plate] = [p["key"] for p in reply["scene"]["parts"]]
+    # The plain plate built last; the bracket is still the bracket.
+    assert fresh.describe(bracket, "assembly:base")["result"]["volume"] == pytest.approx(6000)
+    assert fresh.describe(plain, plate)["result"]["volume"] == pytest.approx(800)
+    # Neither knows the other's parts.
+    assert fresh.describe(plain, "assembly:base")["error"]["kind"] == "bad_ref"
+    assert fresh.describe(bracket, plate)["error"]["kind"] == "bad_ref"
+    layout = plate.split(":")[0]
+    near_plate = fresh.nearest(plain, layout, [{"part": "plate", "point": [0, 0, 4]}])
+    assert near_plate["result"]["anchors"][0]["distance"] == pytest.approx(3)
+    near_base = fresh.nearest(bracket, "assembly", [{"part": "plate", "point": [0, 0, 4]}])
+    assert near_base["result"]["anchors"] == [{"part": "plate", "found": False}]
+    # A folder that was never built has nothing to ask.
+    never = fresh.describe(ws / "chatty", "assembly:plate")
+    assert never["error"]["kind"] == "no_build"
+    assert str(ws / "chatty") in never["error"]["message"]
+
+
+def test_failed_build_of_one_object_leaves_every_live_worker(fresh, ws):
+    build_bracket(fresh, ws)
+    assert fresh.build(ws / "plain", "plain.py")[0]["ok"]
+    assert fresh.build(ws / "broken", "broken.py")[0]["ok"] is False
+    assert fresh.describe(ws / "bracket", "assembly:base")["ok"] is True
+    assert fresh.describe(ws / "plain", "main:plate")["ok"] is True
+    assert fresh.describe(ws / "broken", "assembly:base")["error"]["kind"] == "no_build"
+
+
+def copies(ws, tmp_path, count: int) -> list[Path]:
+    """Object folders that each hold the bracket."""
+    folders = []
+    for i in range(count):
+        folder = tmp_path / f"object{i}"
+        folder.mkdir()
+        (folder / "bracket.py").write_text((ws / "bracket" / "bracket.py").read_text())
+        folders.append(folder)
+    return folders
+
+
+def started_build(k: Kernel, folder) -> int:
+    """Build the bracket in ``folder``; returns the worker's pid."""
+    id = k.send("build", dir=str(folder), model="bracket.py")
+    started, _ = k.recv(5)
+    reply, _ = k.recv(20)
+    assert (started["id"], reply["id"], reply["ok"]) == (id, id, True), reply
+    return started["pid"]
+
+
+def test_a_fifth_object_retires_the_least_recently_used(fresh, ws, tmp_path):
+    folders = copies(ws, tmp_path, 5)
+    pids = [started_build(fresh, folder) for folder in folders]
+    first = fresh.describe(folders[0], "assembly:base")
+    assert first["error"]["kind"] == "no_build"
+    assert gone(pids[0])
+    for folder, pid in zip(folders[1:], pids[1:], strict=True):
+        assert not gone(pid)
+        assert fresh.describe(folder, "assembly:base")["result"]["volume"] == pytest.approx(6000)
+
+
+def test_a_query_counts_as_use_when_choosing_which_to_retire(fresh, ws, tmp_path):
+    folders = copies(ws, tmp_path, 5)
+    pids = [started_build(fresh, folder) for folder in folders[:4]]
+    # The first was built longest ago, but it is the one just asked.
+    assert fresh.describe(folders[0], "assembly:base")["ok"] is True
+    pids.append(started_build(fresh, folders[4]))
+    assert fresh.describe(folders[1], "assembly:base")["error"]["kind"] == "no_build"
+    assert gone(pids[1])
+    for index in (0, 2, 3, 4):
+        assert fresh.describe(folders[index], "assembly:base")["ok"] is True
+    # Building one of the four again does not retire any of them.
+    pids.append(started_build(fresh, folders[2]))
+    assert gone(pids[2])
+    for index in (0, 2, 3, 4):
+        assert fresh.describe(folders[index], "assembly:base")["ok"] is True
+
+
+def test_cancelling_a_build_leaves_the_live_workers(fresh, ws):
+    build_bracket(fresh, ws)
+    assert fresh.build(ws / "plain", "plain.py")[0]["ok"]
+    fresh.send("build", dir=str(ws / "bracket"), model="bracket.py")  # cancelled at once
+    fresh.send("build", dir=str(ws / "slow"), model="slow.py")
+    frames = [fresh.recv(5)[0] for _ in range(3)]
+    assert sorted(f.get("event") or f["error"]["kind"] for f in frames) == [
+        "build.started",
+        "build.started",
+        "cancelled",
+    ]
+    fresh.send("cancel")
+    assert fresh.recv(5)[0]["error"]["kind"] == "cancelled"
+    assert fresh.describe(ws / "bracket", "assembly:base")["ok"] is True
+    assert fresh.describe(ws / "plain", "main:plate")["ok"] is True
+
+
+def test_closing_stdin_leaves_no_live_worker_of_any_object(fresh, ws, tmp_path):
+    pids = [started_build(fresh, folder) for folder in copies(ws, tmp_path, 3)]
+    assert not any(gone(pid) for pid in pids)
+    fresh.proc.stdin.close()
+    assert fresh.proc.wait(2) == 0
+    assert all(gone(pid) for pid in pids)
+
+
 def test_failed_build_keeps_the_previous_worker_for_queries(kernel, ws):
     build_bracket(kernel, ws)
     reply, _ = kernel.build(ws / "broken", "broken.py")
     assert reply["ok"] is False
-    assert kernel.describe("assembly:base")["result"]["volume"] == pytest.approx(6000)
+    assert kernel.describe(ws / "bracket", "assembly:base")["result"]["volume"] == pytest.approx(6000)
 
 
 def test_queries_are_answered_while_another_build_runs(kernel, ws):
     build_bracket(kernel, ws)
     kernel.send("build", dir=str(ws / "slow"), model="slow.py")
     assert kernel.recv(5)[0]["event"] == "build.started"
-    assert kernel.describe("assembly:base")["result"]["volume"] == pytest.approx(6000)
+    assert kernel.describe(ws / "bracket", "assembly:base")["result"]["volume"] == pytest.approx(6000)
     kernel.send("cancel")
     assert kernel.recv(5)[0]["error"]["kind"] == "cancelled"
 
@@ -391,12 +559,16 @@ def test_successful_build_replaces_and_stops_the_previous_worker(kernel, ws):
     id = kernel.send("build", dir=str(ws / "bracket"), model="bracket.py")
     first, _ = kernel.recv(5)
     assert kernel.recv(20)[0]["ok"] is True
+    assert first["id"] == id
+    # Another object's build leaves it alone.
     reply, _ = kernel.build(ws / "chatty", "chatty.py")
     assert reply["ok"] is True
-    assert first["id"] == id
+    assert not gone(first["pid"])
+    # The next build of the same object replaces it.
+    build_bracket(kernel, ws)
     assert gone(first["pid"])
-    assert kernel.describe("assembly:base")["error"]["kind"] == "bad_ref"
-    assert kernel.describe("assembly:plate")["ok"] is True
+    assert kernel.describe(ws / "bracket", "assembly:base")["ok"] is True
+    assert kernel.describe(ws / "chatty", "assembly:plate")["ok"] is True
 
 
 def test_ten_builds_in_a_row_each_finish_quickly(kernel, ws):
@@ -436,3 +608,161 @@ def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
     assert reply["error"]["kind"] == "exception"
     assert "Out of range float values are not JSON compliant" in reply["error"]["message"]
     assert read_frame(channel) is None  # one frame, and nothing half written before it
+
+
+class Routed:
+    """A supervisor in this process, with stand-ins for its workers.
+
+    For what cannot be arranged from outside: which of two frames it reads in
+    one round, and a worker that takes too long over a query. Each stand-in is
+    a real child, so that it can be signalled and reaped, and a socket whose
+    other end the test holds.
+    """
+
+    def __init__(self) -> None:
+        import socket
+        import subprocess
+
+        from torno_kernel import supervisor
+
+        self._socket, self._subprocess, self._module = socket, subprocess, supervisor
+        stdin, self.requests = os.pipe()
+        self.replies, out = os.pipe()
+        self._fds = [stdin, self.requests, self.replies]
+        self._out = os.fdopen(out, "wb", buffering=0)
+        self.supervisor = supervisor.Supervisor(stdin, self._out)
+        self._decoder = supervisor._Decoder()
+        self._children = []
+        self._ends = []
+
+    def worker(self, dir: str, request_id=None):
+        """A stand-in worker and the test's end of its socket."""
+        ours, theirs = self._socket.socketpair()
+        ours.setblocking(False)
+        child = self._subprocess.Popen(["sleep", "60"])
+        self._children.append(child)
+        self._ends += [ours, theirs]
+        now = time.monotonic()
+        outbox = self._module._Outbox(ours.send)
+        worker = self._module._Worker(child.pid, dir, ours, request_id, now, now + 60, 60, None, outbox)
+        return worker, theirs
+
+    def request(self, **fields) -> None:
+        frame = io.BytesIO()
+        write_frame(frame, fields)
+        os.write(self.requests, frame.getvalue())
+
+    def sent(self) -> list[dict]:
+        """The frames the supervisor has written to its client so far."""
+        os.set_blocking(self.replies, False)
+        frames = []
+        try:
+            while chunk := os.read(self.replies, 1 << 16):
+                frames += [header for header, _ in self._decoder.feed(chunk)]
+        except BlockingIOError:
+            pass
+        return frames
+
+    def close(self) -> None:
+        for child in self._children:
+            child.kill()
+            try:
+                os.waitpid(child.pid, 0)
+            except ChildProcessError:
+                pass  # the supervisor reaped it
+            child.returncode = -9
+        for end in self._ends:
+            end.close()
+        self._out.close()
+        for fd in self._fds:
+            os.close(fd)
+
+
+@pytest.fixture
+def routed():
+    r = Routed()
+    yield r
+    r.close()
+
+
+def frame(header: dict) -> bytes:
+    data = io.BytesIO()
+    write_frame(data, header)
+    return data.getvalue()
+
+
+def test_reply_already_received_is_passed_on_when_a_build_replaces_its_worker(routed):
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    building, building_end = routed.worker("/object", request_id="build")
+    sup._live["/object"] = live
+    sup._building = building
+    live.queries += [("answered", time.monotonic() + 30), ("unanswered", time.monotonic() + 30)]
+    # Both are there to read in the same round: the answer, and the result that retires its worker.
+    live_end.sendall(frame({"id": "answered", "ok": True, "result": {"volume": 1}}))
+    building_end.sendall(frame({"ok": True, "scene": {"model": "m.py", "layouts": [], "parts": []}}))
+    sup._step()
+    sent = routed.sent()
+    assert [(f["id"], f["ok"]) for f in sent] == [("answered", True), ("unanswered", False), ("build", True)]
+    assert sent[0]["result"] == {"volume": 1}
+    assert sent[1]["error"]["kind"] == "cancelled"
+    assert sup._live == {"/object": building}
+    assert gone(live.pid)
+
+
+def test_query_not_answered_in_time_is_a_timeout_and_the_worker_is_left_alone(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    assert supervisor.QUERY_TIMEOUT == 30
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.3)
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="slow", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    start = time.monotonic()
+    sup._step()  # reads the request and sends the query on
+    assert routed.sent() == []
+    sup._step()  # wakes at the query's deadline, with nothing to read
+    assert 0.25 < time.monotonic() - start < 2
+    assert routed.sent() == [
+        {
+            "id": "slow",
+            "ok": False,
+            "error": {
+                "kind": "timeout",
+                "message": "the query was not answered within 0.3 s; "
+                "the build it was sent to is still there",
+            },
+        }
+    ]
+    assert sup._live == {"/object": live}
+    assert not gone(live.pid)
+
+    # The answer, when it does come, is nobody's: it is dropped, and the next query is answered.
+    live_end.sendall(frame({"id": "slow", "ok": True, "result": {}}))
+    sup._step()
+    assert routed.sent() == []
+    routed.request(id="next", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    sup._step()
+    live_end.sendall(frame({"id": "next", "ok": True, "result": {"n": 1}}))
+    sup._step()
+    assert routed.sent() == [{"id": "next", "ok": True, "result": {"n": 1}}]
+    assert sup._live == {"/object": live}
+
+
+def test_the_wait_ends_at_the_earlier_of_the_build_and_query_deadlines(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.2)
+    sup = routed.supervisor
+    live, _ = routed.worker("/object")
+    building, _ = routed.worker("/other", request_id="build")  # its deadline is a minute away
+    sup._live["/object"] = live
+    sup._building = building
+    routed.request(id="q", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    start = time.monotonic()
+    sup._step()
+    assert time.monotonic() - start < 2
+    assert [f["error"]["kind"] for f in routed.sent()] == ["timeout"]
+    assert sup._building is building and not gone(building.pid)

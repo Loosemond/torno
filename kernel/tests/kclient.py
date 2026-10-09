@@ -54,11 +54,18 @@ class Kernel:
         assert reply["id"] == id, reply
         return reply, blob
 
-    def describe(self, ref: str) -> dict:
-        id = self.send("query", name="describe", args={"ref": ref})
+    def query(self, dir, name: str, args: dict) -> dict:
+        """Ask the live worker of the object folder ``dir`` and return its reply."""
+        id = self.send("query", dir=str(dir), name=name, args=args)
         reply, _ = self.recv(10)
         assert reply["id"] == id, reply
         return reply
+
+    def describe(self, dir, ref: str) -> dict:
+        return self.query(dir, "describe", {"ref": ref})
+
+    def nearest(self, dir, layout: str, anchors: list[dict]) -> dict:
+        return self.query(dir, "nearest", {"layout": layout, "anchors": anchors})
 
     def close(self) -> None:
         """Close stdin and wait for the kernel to exit."""

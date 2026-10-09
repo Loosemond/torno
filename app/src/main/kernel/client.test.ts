@@ -57,7 +57,7 @@ describe('a workspace with a pyproject.toml and no .venv', () => {
       expect(await kernel.build(join(root, 'a'), 'a.py')).toEqual({ ok: false, error: { kind: 'crash', message: message() } })
     }
     await expect(kernel.ready).rejects.toMatchObject({ kind: 'crash', message: message() })
-    await expect(kernel.query('describe', {})).rejects.toMatchObject({ kind: 'crash', message: message() })
+    await expect(kernel.query('/ws/a', 'describe', {})).rejects.toMatchObject({ kind: 'crash', message: message() })
     kernel.cancel()
     expect(kernel.stderrTail()).toBe('')
     expect(kernel.pid).toBeUndefined()
@@ -117,27 +117,36 @@ describe('kernel client', () => {
 
   it('resolves a query with its result and rejects with the kernel\'s error kind', async () => {
     const k = start()
-    expect(await k.query('echo', { ref: 'a:b' })).toMatchObject({ name: 'echo', args: { ref: 'a:b' } })
-    const error = await k.query('bad-ref', {}).catch((e) => e)
+    expect(await k.query('/ws/a', 'echo', { ref: 'a:b' })).toMatchObject({ dir: '/ws/a', name: 'echo', args: { ref: 'a:b' } })
+    const error = await k.query('/ws/a', 'bad-ref', {}).catch((e) => e)
     expect(error).toBeInstanceOf(KernelError)
     expect(error).toMatchObject({ kind: 'bad_ref', message: 'no part named x' })
   })
 
-  it('retries a cancelled query once', async () => {
+  it('sends each query with the folder of the object it is about', async () => {
     const k = start()
-    expect(await k.query('cancelled-once', {})).toMatchObject({ name: 'cancelled-once' })
-    await expect(k.query('always-cancelled', {})).rejects.toMatchObject({ kind: 'cancelled' })
+    const [a, b] = await Promise.all([
+      k.query<{ dir: string }>('/ws/a', 'echo', {}),
+      k.query<{ dir: string }>('/ws/b', 'echo', {})
+    ])
+    expect([a.dir, b.dir]).toEqual(['/ws/a', '/ws/b'])
+  })
+
+  it('retries a cancelled query once, for the same folder', async () => {
+    const k = start()
+    expect(await k.query('/ws/a', 'cancelled-once', {})).toMatchObject({ dir: '/ws/a', name: 'cancelled-once' })
+    await expect(k.query('/ws/a', 'always-cancelled', {})).rejects.toMatchObject({ kind: 'cancelled' })
   })
 
   it('fails what is pending with kind crash when the kernel dies, and restarts it once', async () => {
     const k = start()
-    const before = await k.query<{ pid: number }>('echo', {})
-    const query = k.query('hang', {}).catch((e) => e)
+    const before = await k.query<{ pid: number }>('/ws/a', 'echo', {})
+    const query = k.query('/ws/a', 'hang', {}).catch((e) => e)
     const build = await k.build('/ws/a', 'die.py')
     expect(build).toMatchObject({ ok: false, error: { kind: 'crash' } })
     expect(await query).toMatchObject({ kind: 'crash' })
 
-    const after = await k.query<{ pid: number }>('echo', {})
+    const after = await k.query<{ pid: number }>('/ws/a', 'echo', {})
     expect(after.pid).not.toBe(before.pid)
     expect(await k.build('/ws/a', 'a.py')).toMatchObject({ ok: true })
   })
@@ -149,7 +158,7 @@ describe('kernel client', () => {
     expect(await k.build('/ws/a', 'die.py')).toMatchObject({ ok: false, error: { kind: 'crash' } })
     expect(await exit).toBe(3)
     expect(k.stderrTail()).toMatch(/fake kernel \d+ starting/)
-    await expect(k.query('echo', {})).rejects.toMatchObject({ kind: 'crash', message: 'kernel stopped' })
+    await expect(k.query('/ws/a', 'echo', {})).rejects.toMatchObject({ kind: 'crash', message: 'kernel stopped' })
 
     expect(await k.build('/ws/a', 'a.py')).toMatchObject({ ok: true })
   })
@@ -175,7 +184,7 @@ describe('kernel client', () => {
   it('keeps the last 200 lines of stderr', async () => {
     const k = start('noisy')
     await k.ready
-    await k.query('echo', {})
+    await k.query('/ws/a', 'echo', {})
     const lines = k.stderrTail().split('\n')
     expect(lines).toHaveLength(201) // 200 whole lines and the unfinished one
     expect(lines[0]).toBe('line 300')
@@ -195,6 +204,6 @@ describe('kernel client', () => {
     expect(k.pid).toBeUndefined()
     expect(exits).toBe(0)
     expect(await k.build('/ws/a', 'a.py')).toMatchObject({ ok: false, error: { kind: 'cancelled' } })
-    await expect(k.query('echo', {})).rejects.toMatchObject({ kind: 'cancelled' })
+    await expect(k.query('/ws/a', 'echo', {})).rejects.toMatchObject({ kind: 'cancelled' })
   })
 })
