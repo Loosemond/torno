@@ -80,16 +80,19 @@ While iterating run the focused test; run all four suites before a commit.
     and every report of it says so. Revisions count from 1 in every run, so
     the store drops what a file says of it when the file is read. A check
     that could not say of every mark is tried again after 2, 10 and 30 s
-    (`retrying`), until the workspace is closed.
+    (`retrying`), until the workspace is closed; and every 30 s beyond that
+    while the kernel only answers that its worker is still busy (`isBusy` in
+    `kernel/client.ts`: the check resolves `'busy'`).
   - A pin whose point is on an edge is on that edge (`judgePin`): its anchor
     has `edge` and, when two faces meet there, `between`.
 - Status: `draft` until a `UserPromptSubmit` hook has carried the mark to the
   agent of its own object (`src/main/context.ts`; turned `sent` only once the
   answer has left), then `resolved`. No other hook consumes drafts. A sent
   mark of the person's whose note or shape changes is a draft again
-  (`sentBefore`: told as `(changed)`), and one the person makes a draft again
-  after it was resolved says so until it is sent (`reopened`: told as
-  `(reopened by the user)`).
+  (`sentBefore`: told as `(changed)`), as is a dimension of the agent's whose
+  `expected` or `tolerance` the person changes; and one the person makes a
+  draft again after it was resolved says so until it is sent (`reopened`:
+  told as `(reopened by the user)`).
 - What only main says of a mark (`MAIN_ONLY_KEYS` in `shared/marks.ts`:
   `resolvedBy`, `acknowledged`, `sentBefore`, `reopened`, `checkedRevision`) is never
   taken from the window or from a tool's arguments. A mark the agent resolved
@@ -119,10 +122,19 @@ While iterating run the focused test; run all four suites before a commit.
     dimension is tried again like one that could not check every mark.
   - `measuredRevision` is the build the kernel last said of it on. A
     dimension whose value is not of the last build has no value there
-    (`measuredValue(mark, revision)`, the one rule for the row, the chip, the
-    picture, `describeMark` and the tools' data): it is `not measured on rN
-    (was 6 mm on r11)`, with no verdict. Revisions are of this run, so on the
-    first build of a run every dimension is measured.
+    (`measuredValue(mark, revision)`, the one rule for `describeMark` and the
+    tools' data, and through `shownDimension` in `shared/dimension.ts` for
+    the row, the chip and the picture): it is `not measured on rN (was 6 mm
+    on r11)`, with no verdict, and its line on the part is drawn dimmed
+    (`staleValue`). Revisions are of this run, so on the first build of a
+    run every dimension is measured; until then one read from its file is
+    `not measured yet`, and what it holds is told to no one.
+  - A resolved dimension is no longer measured. Whatever shows it gives what
+    it holds as `as measured on rN`, stale, with no verdict
+    (`shownDimension`; `[as measured on rN]` and `resolvedValue` in main).
+    So `resolve_mark` refuses a dimension of the person's that has an
+    `expected` (`resolveMarkTool`), saying how the check stands, and says of
+    any other dimension it resolves that it is no longer measured.
   - An end the build moved (`drifted`) is measured from the face its
     refreshed ref names, and the mark says `[moved since it was placed: check
     it]`. Nothing is ever measured through a ref the check did not confirm or
@@ -136,9 +148,10 @@ While iterating run the focused test; run all four suites before a commit.
     part is on that very edge and within the part's tolerance (`tolerance`:
     `max(0.5 mm, 0.5 % of the bbox diagonal)`). So a dimension between two
     edges of a plate that gets thinner by more than that, or whose edges are
-    renumbered, is not measurable, while one whose edge moved less is
-    measured through it; between its faces it is always measured again.
-    Faces are what to click for a check that must hold across edits. Besides
+    renumbered, is not measurable and has to be placed again, while one
+    whose edge moved less is measured through it. Between the plate's faces
+    it is measured again however thin the plate gets: faces are what to
+    click for a check that must hold across edits. Besides
     that, only a lost part (`orphaned`) or a refusal by the kernel makes it
     `not measurable`; `refused` keeps the reason.
   - A measurement is of the build its refs are of: `measureDimension` is
@@ -148,7 +161,9 @@ While iterating run the focused test; run all four suites before a commit.
     `MarkStore.measured` keeps nothing measured through other ends, or for a
     resolved mark.
   - Sent and unresolved, it is "pinned": with every prompt, under
-    `Dimensions:`, each pinned dimension that fails, is not measurable or was
+    `Dimensions (measured on rN):` (`dimensionsHead`: it also says when a
+    build is running or the latest failed, so that these are not of the last
+    edit), each pinned dimension that fails, is not measurable or was
     not measured on the last build has its line, until it passes, and the
     number that pass is said, naming those among them that moved
     (`src/main/context.ts`). A draft dimension is
@@ -163,21 +178,37 @@ While iterating run the focused test; run all four suites before a commit.
   button is held in the viewport. `marks`, `describe`, `add_mark`, `measure`,
   `section` and `check` say which
   revision they answer from, and that it is stale while a newer build runs or
-  has failed.
+  has failed. `scene` counts the unresolved dimensions held to a value
+  (`dimensions: {pass, fail, notMeasured}`).
+  - The schemas of a plane and of an end of a measurement refuse nothing
+    (`planeInput`, `endInput`: a union that ends in `z.unknown()`): whatever
+    is given reaches the handler, which answers with what one looks like
+    (`NO_PLANE`, `noEnd`). Keep it so: the schema's own refusal says only
+    "Invalid input".
   - `measure`, `section` and `check` answer with the kernel's reply and a
     `reading` of it in a line. Refs and marks are checked against the scene in
     main before the kernel is asked (`endsOf`: a mark stands for what it is on
-    only when the last build's check confirmed it), and nothing is said to be
-    exact that the kernel does not say is: `≈` and `approximate` otherwise.
+    only when the last build's check confirmed it, and a dimension for
+    neither of its ends), and nothing is said to be exact that the kernel
+    does not say is: `≈` and `approximate` otherwise. A query that took its
+    30 s is told as that; the answer of a worker still busy with one is told
+    in the kernel's words (`refusal` in `mcp/readTools.ts`).
   - The picture `section` returns is a 2D drawing of the kernel's outlines
     (`src/renderer/viewport/sectionDrawing.ts`), made by the window on a
     canvas of its own whichever object it shows, on the light sheet whatever
-    the theme, with what is up in the world up on it. Its JSON holds each loop
-    in at most 200 points unless one part is asked for.
+    the theme, with what is up in the world up on it. The kernel is asked for
+    outlines within 0.01 mm (`SECTION_DEFLECTION`; the agent may give
+    `deflection`, 0.005 to 0.05), and the drawing is made from them in full.
+    The JSON holds at most 4,000 points in all (`pointsFor`): each loop its
+    share by its length, 8 at least, the shortest beyond 500 loops left out
+    and counted (`loopsOmitted`); areas are the kernel's, never worked out
+    from thinned points.
   - A plane is `{origin, normal}` or `{axis, at}` (`planeOf` in
     `shared/view.ts`): the latter has its normal along +axis.
-  - `add_mark` with `kind: 'dimension'` goes through `addDimension`, as the
-    Measure tool's do, kept `sent`.
+  - `add_mark` with `kind: 'dimension'` goes through `addDimensionTold`, as
+    the Measure tool's do through `addDimension`, kept `sent`. One kept
+    without a value of the last build is answered `NOT MEASURED: …` first
+    (`keptUnmeasured`), so that its line is not taken for a measurement.
 - `<object>/.torno/state.md` says the same as the tools, as text
   (`src/main/statefile.ts`); its first line is when it was written.
 - User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and
@@ -185,9 +216,10 @@ While iterating run the focused test; run all four suites before a commit.
   every mark alike: no active mark, no selection, no hover, no gizmo. A mark
   on a part that is not drawn is not drawn either, on screen or in a picture.
 - Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `X`
-  section, `M` measure (`T` there: the wall under the pointer, which the tool
-  knows only from a pointer move made while it is in hand); `G`, `R`, `T` for
-  the gizmo of the active shape. The Measure tool is `tools/measureTool.ts`;
+  section, `M` measure (`T` there: the wall under the pointer as of the key,
+  picked anew where `Viewport.pointerAt` says the pointer is); `G`, `R`, `T`
+  for the gizmo of the active shape. A slider is no field to type in
+  (`ui/typing.ts`): the keys work with one in focus. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
   `ui/DimensionFields.tsx`. A tool is a `Tool`
@@ -229,24 +261,31 @@ While iterating run the focused test; run all four suites before a commit.
 - Areas and volumes are measured in one place, `kernel/src/torno_kernel/extent.py`.
   A volume is integrated by Gauss-Kronrod to 1e-9 of itself and given as
   exact. An area is exact of planes, cylinders, cones, spheres and tori, and
-  of a curve extruded straight whose length settles; of any other face three
-  integrals are taken and it is exact only when they agree to 1e-6,
-  otherwise `exact: false` (`areaExact` in `describe` and `section`) with the
-  digits that can be relied on. A bbox is exact only of planes and cylinders
-  with straight and circular edges (`measure.py` `_boxed_exactly`).
+  of a curve extruded straight and not cut along its height. The area of any
+  other face (loft, B-spline, revolved spline, offset) is never said to be
+  exact: `exact: false` (`areaExact` in `describe` and `section`), and `how`
+  says `approximate, good to about N significant digits` (2 to 6), or
+  `approximate: its integrals differ by 2.1 %`, with no count of digits, when
+  they are too far apart for two. The app reads neither: it tells `how` as
+  it is.
+  A bbox is exact only of planes and cylinders with straight and circular
+  edges (`measure.py` `_boxed_exactly`).
 - This costs time on freeform parts, at every build (each part's volume is in
-  the scene) and in `describe`, `volume`, `mass` and `area`: on the owner's
-  `micra-intake` lid (2,635 faces, lofts), with the machine loaded,
-  `describe` of the part took 10 s and its volume 4 s, against 0.5 s and
-  0.07 s for the tub (358 faces, one spline face). A query has 30 s.
+  the scene) and in `describe`, `volume`, `mass` and `area` of a whole part:
+  seconds on the first ask of a freeform part, then kept by the worker until
+  the next build. A query has 30 s.
 - `measure`'s `moved`, on a thickness, is how far the given point was from
   the face it was laid on; it says nothing of the value's precision.
 - A `print` layout that was spread (`arrange.py`) has its parts where torno
   put them. Between two parts of which either was moved, `check overlap`,
   `check clearance` and `measure distance` are refused in main
-  (`spreadApart` in `mcp/readTools.ts`), naming the layouts that place both
-  as assembled; an angle is answered, since parts are moved and never
-  turned. An answer of one part carries its `arranged`, and a `section` a
+  (`spreadApart` in `marks/spread.ts`), naming the layouts that place both
+  as assembled; so is a distance from a bare point to a part that was moved.
+  A dimension of such a distance is not kept, and one there already is not
+  measurable on that build (`spreadReason`, with where to measure it). An
+  angle is answered, since parts are moved and never turned: each end of a
+  dimension moves with its own part (`shiftB`). The window says it in a line
+  (`SPREAD_LINE` in `tools/measureTool.ts`), in place of the estimate. An answer of one part carries its `arranged`, and a `section` a
   note and each part's. Fit is checked in a layout that places the parts as
   assembled (`assembly(p)`).
 

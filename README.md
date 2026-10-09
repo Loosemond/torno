@@ -148,9 +148,10 @@ pictures the agent takes are cut the same way.
 what two clicks measure (Distance or Angle), what a double click on a hole, a
 cylinder or a circular edge measures (Diameter or Radius), and the key `T`,
 which has no button: with the pointer on a face it measures the wall there,
-from that point along the inward normal to where the part ends. Move the
-pointer onto the face after taking up the tool: `T` acts on what the pointer
-was last moved over. With Shift a click is a bare point, tied to no face.
+from that point along the inward normal to where the part ends. `T` acts on
+what is under the pointer at that moment, also straight after the tool was
+taken up or the wheel zoomed. With Shift a click is a bare point, tied to no
+face.
 While the second click is pending the pointer reads out an estimate from the
 mesh, marked `≈`. What is kept is never that: torno asks the kernel, which
 measures on the exact geometry and says how (`6 mm between planes`, `axis to
@@ -159,7 +160,12 @@ faces is the distance between their planes, between two cylinders or circles
 with parallel axes the distance between the axes, and of anything else the
 least distance. When the kernel refuses (an angle between a flat face and a
 cylinder), nothing is kept and its reason is read out at the pointer for four
-seconds. `Esc` drops a first click; the tool stays in hand.
+seconds. Between two parts that torno spread apart in a `print` layout there
+is no distance to measure (see [Measuring tools](#measuring-tools)): the
+pointer says `Parts are spread for printing here: no distance between them.
+Add assembly(p) to check fit.` in place of the estimate, and after a click
+until the next click or `Esc`. `Esc` drops a first click; the tool stays in
+hand.
 
 **Dimensions.** What the Measure tool leaves is a dimension: a mark (`M4`)
 with a value, drawn on the part with its number and value, and listed with
@@ -174,13 +180,21 @@ one is ringed on the part and in the agent's pictures.
   the agent. From then until it is resolved its row says **pinned**: it is
   one of the checks the agent is told about (see
   [What the agent gets](#what-the-agent-gets)). Changing what is expected or
-  the tolerance makes it a draft again, sent as `(changed)`.
+  the tolerance makes it a draft again, sent as `(changed)`; so does changing
+  them on a dimension the agent placed.
+- A **resolved** dimension is no longer measured. Its row keeps the value it
+  was last measured as, greyed, with no tick or cross, and says
+  `as measured on r5`. So a dimension of yours that has an expected value is
+  yours alone to resolve: the agent is refused, and told how the check
+  stands. It may resolve a dimension it placed itself.
 - After every build, every dimension that is not resolved is measured again
   on the new geometry, once its ends have been checked against it like any
   mark's. Until that has happened its row shows the old value greyed and says
-  `not measured on r12: this is what it was on r11`; it has no verdict
-  meanwhile, and the agent is told `not measured on r12 (was 6 mm on r11)`.
-  In a new run of torno every dimension is measured at the first build.
+  `not measured on r12: this is what it was on r11`, and its line on the part
+  is drawn dimmed; it has no verdict meanwhile, and the agent is told
+  `not measured on r12 (was 6 mm on r11)`. In a new run of torno every
+  dimension is measured at the first build, and says `not measured yet` until
+  then: what its file holds is of no build of this run.
 - An end the build moved away from is measured from the face that is under
   it now, and the dimension says `measured from what is under its ends now`
   (to the agent: `[moved since it was placed: check it]`).
@@ -188,7 +202,10 @@ one is ringed on the part and in the agent's pictures.
   the kernel refuses it on the new geometry (the hole is no longer round),
   or when an end that was put on an **edge** is no longer on that edge. It
   then has no value and no verdict, and the row and the agent are told why:
-  `the edge plate/E7 it was on is not under its end on r12`.
+  `the edge plate/E7 it was on is not under its end on r12`. So is a distance
+  between two parts on a build whose `print` layout torno spread, and one
+  from a bare point to a part torno moved: the reason names the layout to
+  measure it in, if the object has one that places the parts as assembled.
 - Ends on faces and ends on edges behave differently when the part changes
   size. A face is found again under the point, so a thickness measured
   between the top and the bottom face follows the plate as it gets thinner.
@@ -246,7 +263,8 @@ When a check cannot be made (the kernel did not answer in time, or could not
 say where a point is), the marks it was about keep what the last check found
 and say "not checked against r12", in their rows and wherever the agent reads
 them, until a check succeeds. Torno tries again after 2, 10 and 30 seconds,
-and at the next build.
+and at the next build; and every 30 seconds for as long as the kernel only
+says it is still busy with an earlier question.
 
 ### How a model is read
 
@@ -287,7 +305,8 @@ them.
 - **`mcp__torno__scene`**: the build status and error, the layouts, every part
   with its size, bounding box, volume and whether it is visible, your camera
   and your section, if you have one. It notes when the parts of the print
-  layout were spread along X.
+  layout were spread along X, and counts the dimensions that are held to a
+  value: `dimensions: {pass, fail, notMeasured}` on that build.
 - **`mcp__torno__look`**: a picture from the renderer you are looking at. With
   no arguments it is exactly your view, cut by your section if you have one.
   It also takes a named view (`iso`, `front`, `back`, `left`, `right`, `top`,
@@ -311,7 +330,13 @@ them.
   marks of its own, in green, and resolves yours with a line on what it did,
   which you then confirm or reopen. With `kind: 'dimension'` (`measure`, `a`,
   for a distance or an angle `b`, and optionally `expected` and `tolerance`)
-  it leaves a dimension, measured at once and on every build like yours.
+  it leaves a dimension, measured at once and on every build like yours. One
+  that was kept but could not be measured yet (the kernel did not answer, or
+  the model was rebuilt meanwhile) is answered `NOT MEASURED: …`, with when
+  it will be. `resolve_mark` refuses a dimension of yours that has an
+  expected value (`M1 is the person's check of the part: it stays measured on
+  every build and only they resolve it. It passes on r5.`), and says of any
+  other dimension it resolves that it is no longer measured.
 - **`mcp__torno__measure`**, **`mcp__torno__section`**,
   **`mcp__torno__check`**: exact numbers from the geometry, so the agent
   need not work a size out from the code or write a script. See
@@ -341,12 +366,16 @@ them.
   pass.
 
   ```
-  Dimensions:
+  Dimensions (measured on r3):
   M1 distance 6 mm between planes, plate/F2 to plate/F4 (expected 8 ± 0.05: FAIL, 2 under)
   1 pinned dimension passes
   Open marks: M2
   ```
 
+  The head names the build the values are of. While a newer build is running
+  or has failed it says so
+  (`Dimensions (measured on r3; a build is running, so these are not of your last edit):`),
+  so that a FAIL of the build before is not read as a verdict on the edit.
   A line stays until its dimension passes or is resolved. A pinned dimension
   with no expected value has a line only while it has no value. Among those
   that pass, the ones whose end the build moved are named
@@ -359,7 +388,10 @@ grams; Z is up. The three tools answer from the last build that worked and
 say which revision that is, and that it is stale while a newer build runs or
 has failed. Each reply is JSON with a `reading`: the answer in one line, such
 as `6 mm between planes, plate/F2 to plate/F4`. A question the kernel has not
-answered within 30 s is an error that says so.
+answered within 30 s is an error that says so; until it has finished with
+that one, the next questions are answered at once that it is still busy, in
+the kernel's words. An argument that is no plane or no end is answered with
+what one looks like, such as `{"axis": "z", "at": 3}`.
 
 **`measure`** takes `kind`, `a`, for a distance or an angle `b`, for a mass
 `density`, and `layout`. An end is a ref (`lid/F12`, `lid/E3`, or a whole
@@ -378,16 +410,22 @@ only if the last build's check confirmed it), `{point: [x, y, z]}`, or
 | `volume` | a part that is a solid | mm³ |
 | `mass` | a part that is a solid | grams, with the `density` used (g/cm³; 1.24, PLA, when none is given, and the reply says so) and the `volume` |
 
-**`section`** takes `plane`, and optionally `parts`, `layout` and `size`. A
+**`section`** takes `plane`, and optionally `parts`, `layout`, `size` and
+`deflection`. A
 plane is `{origin, normal}`, or `{axis: 'x' | 'y' | 'z', at}` for the plane
 across that axis at that coordinate, or `'current'` for your own section.
 The reply has, for each part, the outlines the plane cuts of it as closed
 loops of `[u, v]` points in mm along the plane's own axes (given as `x` and
 `y`), each loop's `area` (negative round a hole), the part's `area`, how many
 loops are `open`, and the extent of the whole cut. The outlines come from
-the exact geometry, as polylines within 0.05 mm of it. With several parts
-each loop is thinned to at most 200 points and says so (`thinned`, with the
-`deflection` it then has); name one part to get up to 2,000 points a loop.
+the exact geometry, as polylines within 0.01 mm of it, or within the
+`deflection` asked for (0.005 to 0.05 mm). A reply holds at most 4,000 points
+in all, whether or not parts are named: beyond that each loop has its share
+by its length, eight points at least, and says so (`thinned`, the `of` it
+had and the `deflection` it then has), as does the reply (`thinned`, `points`,
+`of`); beyond 500 loops the shortest are left out and counted
+(`loopsOmitted`). Areas are the kernel's, of the true outlines, whatever was
+thinned, and the drawing is always made from the outlines in full.
 With it comes a 2D drawing of the cut on a millimetre grid, each part in its
 colour, with what is up in the world up on the page; it is also saved under
 `.torno/views/`. To see the cut in 3D the agent calls `look` with a
@@ -411,11 +449,13 @@ and says `approximate`, and `how` says why:
 - A volume is integrated adaptively until it has converged to one part in
   10⁹, and is given as exact.
 - An area is exact for planes, cylinders, cones, spheres and tori, and for a
-  curve extruded straight whose length is settled. Of any other face
-  (a spline surface, a loft) three integrals are taken, and the area is
-  exact only when they agree to one part in 10⁶; when they do not it is
-  approximate, and `how` says to how many digits they agree. The area of a
-  part is exact only when the area of every face is.
+  curve extruded straight and not cut along its height. The area of any other
+  face (a loft, a B-spline surface, a revolved spline, an offset) is never
+  said to be exact: no integral converges on every such face, and none says
+  when it has not. `how` says `approximate, good to about N significant
+  digits` (2 to 6), or, when its integrals are too far apart to vouch for
+  two, `approximate: its integrals differ by 2.1 %`, with no count of digits.
+  The area of a part is exact only when the area of every face is.
 - A bounding box is exact when all the faces of what is boxed are planes or
   cylinders and all its edges lines or circles; of anything freeform it is
   approximate.
@@ -424,13 +464,11 @@ and says `approximate`, and `how` says why:
   was given lay from the face before it was laid on it. A pick from the mesh
   is a few thousandths of a millimetre off a curved face.
 
-**What it costs.** Since volumes and areas are integrated until they
-converge, a part with many freeform faces takes seconds where a prismatic
-one takes milliseconds. On a 2,600-face part with lofted surfaces, on a
-loaded machine: `describe` of the whole part 10 s, its `volume` or `mass`
-4 s, a `section` through it 2 s, `check mesh` 1 s, while every measurement
-on a face took under 0.1 s. The volume of every part is also worked out
-during each build.
+**What it costs.** Since volumes and areas are integrated, what is asked of a
+whole part with many freeform faces (`describe`, `volume`, `mass`, `area`)
+takes seconds on the first ask, and is then kept until the next build; of a
+prismatic part, and of a single face, it takes milliseconds. The volume of
+every part is also worked out during each build.
 
 **Parts that fit together.** `overlap`, `clearance` and a distance between
 two parts are of the parts where the layout has them, so fit can only be
@@ -438,7 +476,9 @@ checked in a layout that places the parts as assembled (`assembly(p)` in the
 model). In a `print` layout that torno spread along X the parts are where
 torno put them for display, not where the model has them: there these three
 are refused between two parts, with a sentence that says why and names the
-layouts that do place both parts, if the object has any. What is of one part
+layouts that do place both parts, if the object has any. So is a distance
+from a bare point to a part torno moved, and a dimension of either kind is
+not kept: one that is there already is not measurable on such a build. What is of one part
 is answered as ever (thickness, diameter, bbox, area, volume, mass, mesh, a
 distance within the part, and an angle, which moving a part does not
 change), with `arranged`, how far torno moved the part, beside any points.
