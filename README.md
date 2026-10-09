@@ -455,7 +455,9 @@ and says `approximate`, and `how` says why:
   when it has not. `how` says `approximate, good to about N significant
   digits` (2 to 6), or, when its integrals are too far apart to vouch for
   two, `approximate: its integrals differ by 2.1 %`, with no count of digits.
-  The area of a part is exact only when the area of every face is.
+  The area of a part is exact only when the area of every face is; otherwise
+  its digits are of the whole, so a part may say N digits while one small face
+  says none.
 - A bounding box is exact when all the faces of what is boxed are planes or
   cylinders and all its edges lines or circles; of anything freeform it is
   approximate.

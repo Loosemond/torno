@@ -343,7 +343,8 @@ class Supervisor:
         self._live[dir] = self._live.pop(dir)  # the most recently used
         if live.stalled:
             # It answers one query at a time: this one would only wait its own 30 s behind
-            # the one that was given up on.
+            # the one that was given up on. The app knows this answer by its words (isBusy in
+            # app/src/main/kernel/client.ts, pinned by client.busy.test.ts): change both.
             self._fail(
                 id,
                 "timeout",

@@ -286,7 +286,7 @@ export interface ResolveMarkArgs {
 export const TOOLS = {
   scene: {
     description:
-      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the pinned dimensions pass, fail and are not measured on that revision. Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
+      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision. Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
   },
   look: {
     description:

@@ -84,6 +84,8 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
   const typed = (): void => {
     const input = field.current
     if (!input || !section) return
+    // Left as it was written: the field shows four digits of an offset that may have more, and that is no request.
+    if (input.value.trim() === number(offset)) return
     const mm = typedOffset(input.value, offset)
     if (mm !== null) actions.setSection(atOffset(section, box, mm))
     else input.value = number(offset)

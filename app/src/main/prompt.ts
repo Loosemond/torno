@@ -28,7 +28,7 @@ export const SYSTEM_PROMPT = [
   'These values are exact, from the geometry; ≈, "approximate" or "exact": false marks one that is not, such as the area of a freeform face.',
   'In a print layout whose parts torno spread apart for display, distances, clearances and overlaps between two parts are refused: ask in a layout that places them as assembled, and if the model has none, add one (def assembly(p)).',
   'A dimension is a mark that holds a measurement, taken again on every build: mcp__torno__add_mark {"kind": "dimension", "note": "wall", "measure": "distance", "a": "plate/F2", "b": "plate/F4", "expected": 8, "tolerance": 0.1} leaves one of your own.',
-  'Dimensions with an expected value are the user’s acceptance checks: those that fail or could not be measured are listed under "Dimensions (measured on rN):" with every prompt until they pass, and that list is of build rN only.',
+  'Dimensions with an expected value are acceptance checks, the user’s above all: those that fail or could not be measured are listed under "Dimensions (measured on rN):" with every prompt until they pass, and that list is of build rN only.',
   'After your own edit, once scene says the build is ok, read them again with mcp__torno__marks.',
   'Coordinates are millimetres, Z up.',
   'Do not write to the .torno/ folder: it is torno’s own.',

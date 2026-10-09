@@ -266,8 +266,9 @@ While iterating run the focused test; run all four suites before a commit.
   exact: `exact: false` (`areaExact` in `describe` and `section`), and `how`
   says `approximate, good to about N significant digits` (2 to 6), or
   `approximate: its integrals differ by 2.1 %`, with no count of digits, when
-  they are too far apart for two. The app reads neither: it tells `how` as
-  it is.
+  they are too far apart for two. A part's digits are of its own area (its
+  faces' spreads summed, against the whole), so it may say N while one small
+  face says none. The app reads neither: it tells `how` as it is.
   A bbox is exact only of planes and cylinders with straight and circular
   edges (`measure.py` `_boxed_exactly`).
 - This costs time on freeform parts, at every build (each part's volume is in
