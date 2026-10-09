@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { MeshBVH } from 'three-mesh-bvh'
 import { describe, expect, it } from 'vitest'
 import { grid, meshBin } from '../../test/scanFixtures'
-import { MAX_COLOURED, deviationColour, deviationColours, linearOf, type Rgb } from './scanDeviation'
+import { MAX_COLOURED, TIME_LIMIT_MS, deviationColour, deviationColours, linearOf, type Rgb } from './scanDeviation'
 import { buildScan, placeScan } from './scanMesh'
 
 const COLOURS = { near: [1, 0, 0] as Rgb, far: [0, 0, 1] as Rgb, inside: [0, 0, 0] as Rgb }
@@ -68,7 +68,36 @@ describe('the colours of a scan by its distance to a part', () => {
   it('refuses more vertices near the part than a picture colours, saying how many and what to do', () => {
     const scan = sheet()
     placeScan(scan, { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 })
-    expect(() => deviationColours(scan, boxPart(true), 20, COLOURS, 4)).toThrow('9 points of S1 are within 20 mm of the part, more than the 4 a picture colours: ask for a smaller range')
-    expect(MAX_COLOURED).toBe(300_000)
+    expect(() => deviationColours(scan, boxPart(true), 20, COLOURS, { most: 4 })).toThrow('9 points of S1 are within 20 mm of the part, more than the 4 a picture colours: ask for a smaller range')
+    // The window's own thread works them out: no more than can be done while nobody notices.
+    expect(MAX_COLOURED).toBe(60_000)
+  })
+
+  it('gives up when it takes longer than the window can be held, looking at the clock every 2,000 points', () => {
+    // 70 × 70 points 0.25 mm apart over the box: all of them near it.
+    const scan = buildScan('S1', meshBin(grid(70, 0.25, () => 4)))
+    placeScan(scan, { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 })
+    const looked: number[] = []
+    const clock = (times: number[]) => () => {
+      looked.push(looked.length)
+      return times[Math.min(looked.length - 1, times.length - 1)]
+    }
+    // In time: looked at when it starts, then after 2,000 and after 4,000 of the 4,900.
+    expect(deviationColours(scan, boxPart(true), 20, COLOURS, { now: clock([0, 400, 800]) })).toHaveLength(4900 * 3)
+    expect(looked).toHaveLength(3)
+    expect(TIME_LIMIT_MS).toBe(1500)
+    looked.length = 0
+    expect(() => deviationColours(scan, boxPart(true), 20, COLOURS, { now: clock([0, 700, 1501]) })).toThrow('colouring S1 by its distance to the part took more than 1.5 s (4,000 of 4,900 points done): ask for a smaller range')
+    // Just in time is in time.
+    looked.length = 0
+    expect(deviationColours(scan, boxPart(true), 20, COLOURS, { now: clock([0, 700, 1500]) })).toHaveLength(4900 * 3)
+  })
+
+  it('refuses a part it cannot measure to, where it would have drawn the whole scan as far away', () => {
+    const scan = sheet()
+    placeScan(scan, { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 })
+    const bare = boxPart(true)
+    bare.mesh.geometry.boundsTree = undefined
+    expect(() => deviationColours(scan, bare, 20, COLOURS)).toThrow('the part has no mesh to measure to: nothing was coloured')
   })
 })

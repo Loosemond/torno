@@ -175,29 +175,54 @@ describe('layouts and layers', () => {
       expect(sceneFileOf(store.getState())).toEqual({ layout: 'print', layers: { base: { visible: false } } })
     })
 
-    it('of the scans is on screen and not in the scene file, until the person sets one by hand: that one is theirs again', () => {
+    describe('of the scans', () => {
       const scan = (id: string) => ({ id, name: id, alignments: {}, checks: {} }) as never
-      actions.setScans({ objectId: 'bracket', scans: [scan('S1'), scan('S2')] })
-      actions.setScanView('S1', { opacity: 0.7 })
-      const edits = store.getState().edits
-      actions.showForAgent('assembly', {}, undefined, { S1: { visible: false }, S2: { visible: true, opacity: 0.3 } })
-      expect(store.getState()).toMatchObject({ scanViews: { S1: { opacity: 0.7, visible: false }, S2: { visible: true, opacity: 0.3 } }, edits })
-      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, scans: { S1: { opacity: 0.7 } } })
-      // Shown again otherwise: what the person had is still what was theirs before the first.
-      actions.showForAgent('assembly', {}, undefined, { S1: { visible: true, opacity: 1 } })
-      expect(sceneFileOf(store.getState()).scans).toEqual({ S1: { opacity: 0.7 } })
-      // By hand: what is on screen of that scan is theirs now, the other is still as the agent left it.
-      actions.setScanView('S1', { visible: false })
-      expect(sceneFileOf(store.getState()).scans).toEqual({ S1: { opacity: 1, visible: false } })
-      expect(store.getState().scanViews.S2).toEqual({ visible: true, opacity: 0.3 })
-      // Theirs too, once they set it: nothing of the agent's is left to remember.
-      actions.setScanView('S2', { visible: true })
-      expect(store.getState().shownByAgent).toBeNull()
-      // A scan that is removed takes what was remembered of it with it.
-      actions.showForAgent('assembly', {}, undefined, { S1: { visible: true } })
-      actions.setScans({ objectId: 'bracket', scans: [scan('S2')] })
-      expect(store.getState().shownByAgent).toBeNull()
-      expect(sceneFileOf(store.getState()).scans).toEqual({ S2: { visible: true, opacity: 0.3 } })
+      beforeEach(() => actions.setScans({ objectId: 'bracket', scans: [scan('S1'), scan('S2')] }))
+
+      it('is on screen, counts as no edit, and is not what the scene file keeps', () => {
+        actions.setScanView('S1', { opacity: 0.7 })
+        const edits = store.getState().edits
+        actions.showForAgent('assembly', {}, undefined, { S1: { visible: false }, S2: { visible: true, opacity: 0.3 } })
+        expect(store.getState()).toMatchObject({ scanViews: { S1: { opacity: 0.7, visible: false }, S2: { visible: true, opacity: 0.3 } }, edits })
+        expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, scans: { S1: { opacity: 0.7 } } })
+        // Shown again otherwise: what the person had is still what was theirs before the first.
+        actions.showForAgent('assembly', {}, undefined, { S1: { visible: true, opacity: 1 } })
+        expect(sceneFileOf(store.getState()).scans).toEqual({ S1: { opacity: 0.7 } })
+      })
+
+      it('never reaches the scene file through a change the person makes to another field of that scan', () => {
+        // They had it at 60 %; the agent hides it; they move the slider: the hiding is still the agent's.
+        actions.setScanView('S1', { opacity: 0.6 })
+        actions.showForAgent('assembly', {}, undefined, { S1: { visible: false } })
+        actions.setScanView('S1', { opacity: 0.8 })
+        expect(store.getState().scanViews.S1).toEqual({ opacity: 0.8, visible: false })
+        expect(sceneFileOf(store.getState()).scans).toEqual({ S1: { opacity: 0.8 } })
+        // The other way round: the agent thins it to 30 %; they switch it off: 0.3 is not theirs.
+        actions.showForAgent('assembly', {}, undefined, { S2: { visible: true, opacity: 0.3 } })
+        actions.setScanView('S2', { visible: false })
+        expect(store.getState().scanViews.S2).toEqual({ visible: false, opacity: 0.3 })
+        expect(sceneFileOf(store.getState()).scans).toEqual({ S1: { opacity: 0.8 }, S2: { visible: false } })
+        // And a colour mode they choose while it is thinned and hidden by the agent is theirs, and nothing else.
+        actions.setScanView('S1', { colour: 'plain' })
+        expect(sceneFileOf(store.getState()).scans?.S1).toEqual({ opacity: 0.8, colour: 'plain' })
+      })
+
+      it('is the person\'s again field by field: once they have set every field the agent changed, nothing is left to remember', () => {
+        actions.showForAgent('assembly', {}, undefined, { S1: { visible: false, opacity: 0.3 } })
+        actions.setScanView('S1', { visible: false })
+        expect(store.getState().shownByAgent?.scans).toEqual({ S1: { visible: false } })
+        actions.setScanView('S1', { opacity: 0.3 })
+        expect(store.getState().shownByAgent).toBeNull()
+        expect(sceneFileOf(store.getState()).scans).toEqual({ S1: { visible: false, opacity: 0.3 } })
+      })
+
+      it('goes with a scan that is removed', () => {
+        actions.showForAgent('assembly', {}, undefined, { S1: { visible: false }, S2: { opacity: 0.3 } })
+        actions.setScans({ objectId: 'bracket', scans: [scan('S2')] })
+        expect(store.getState().shownByAgent?.scans).toEqual({ S2: undefined })
+        actions.setScans({ objectId: 'bracket', scans: [] })
+        expect(store.getState().shownByAgent).toBeNull()
+      })
     })
 
     it('is forgotten when the agent shows again what the person had, and with the object', () => {

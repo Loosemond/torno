@@ -221,11 +221,14 @@ describe('the drawing of a section', () => {
 
     it('has its line in the legend as a scan and as approximate, after the parts', () => {
       const sheet = sectionSheet(PLATE, 'assembly', undefined, SCAN)!
-      expect(sheet.legend).toEqual([{ part: 'plate', text: ' 1100 mm²' }, { part: null, scan: 'S1', text: ' (scan, ≈)' }])
+      // Its lines go on past what is shown of them: the sheet says so, where it would read as the whole of the scan.
+      expect(sheet.legend).toEqual([{ part: 'plate', text: ' 1100 mm²' }, { part: null, scan: 'S1', text: ' (scan, ≈; it goes on beyond the plot)' }])
+      const whole = sectionSheet(PLATE, 'assembly', undefined, { id: 'S1', polylines: [{ points: [[-10, 17], [10, 17]], closed: false }] })!
+      expect(whole.legend[1]).toEqual({ part: null, scan: 'S1', text: ' (scan, ≈)' })
       const { ctx, texts } = recorder()
       drawSection(ctx, sheet, PLATE, colourOf, SCAN)
       expect(texts.find((t) => t.text === 'S1')?.font).toContain('IBM Plex Mono')
-      expect(texts.map((t) => t.text).join('')).toContain('S1 (scan, ≈)')
+      expect(texts.map((t) => t.text).join('')).toContain('S1 (scan, ≈; it goes on beyond the plot)')
     })
 
     it('widens the plot to hold what of the scan is near the cut, never so far that the parts are lost, and keeps the extents those of the parts', () => {
@@ -264,6 +267,8 @@ describe('the drawing of a section', () => {
       const sheet = sectionSheet(none, 'assembly', undefined, { id: 'S1', polylines: [SCAN.polylines[0]] })!
       expect(sheet.bounds).toEqual({ min: [-80, 17], max: [20, 17.5] })
       expect(sheet.legend).toEqual([{ part: 'plate', text: ', not cut' }, { part: null, scan: 'S1', text: ' (scan, ≈)' }])
+      // The extents written are then the scan's: not exact, and said so.
+      expect(sheet.extents).toEqual({ u: '≈ 100 mm', v: '≈ 0.5 mm' })
     })
   })
 

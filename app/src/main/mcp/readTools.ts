@@ -1,7 +1,7 @@
 import { valueText } from '../../shared/dimension'
 import type { CheckedClearance, CheckedMesh, CheckedOverlap, Measured, MeasuredValue, ScanSectioned, SectionLoop, Sectioned } from '../../shared/geometry'
 import type { Part, Scene } from '../../shared/scene'
-import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeOf, planeText } from '../../shared/view'
+import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
 import { KernelError, isBusy } from '../kernel/client'
 import { number, sizes, vector } from '../marks/describe'
@@ -9,7 +9,7 @@ import { plain, wire } from '../marks/measure'
 import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
 import { type ScanAsked, SCAN_APPROXIMATE, noteOf, scanFor, scanFrame, scanSpread } from './scanTools'
-import { type PlaneArg, type ToolDeps, type ToolResult, NO_PLANE, SPREAD_NOTE, built, clampSize, failure, layoutFor, messageOf, notOpen, ofBuild, tidy } from './tools'
+import { type PlaneArg, type ToolDeps, type ToolResult, SPREAD_NOTE, built, clampSize, failure, layoutFor, messageOf, notOpen, ofBuild, planeArg, tidy } from './tools'
 
 // The tools the agent reads the part with: `measure`, `section` and `check`.
 // Each asks the kernel about the last build that worked, and answers with what
@@ -146,15 +146,19 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const { layout, a, b, measured } = asked.got
   // Nothing measured to a point of a scan is exact, whatever the kernel says of the distance from that point.
   const scan = a.scan ?? b?.scan
-  const taken = scan ? measureReading({ ...measured, exact: false }, a, b, scan.id) : measureReading(measured, a, b)
+  // Both ends on scans, and not on the same one: what is said of the one alignment is said of the other too.
+  const other = a.scan && b?.scan && b.scan.id !== a.scan.id ? b.scan : undefined
+  const because = scan ? (other ? `${scan.id} and ${other.id} are scans` : `${scan.id} is a scan`) : undefined
+  const taken = scan ? measureReading({ ...measured, exact: false }, a, b, because) : measureReading(measured, a, b)
   if (taken === null) return failure('the kernel did not answer with a measurement')
-  const reading = scan ? `${scan.aligned.first}${taken}. ${scan.aligned.last()}` : taken
+  const reading = scan ? `${scan.aligned.first}${other?.aligned.first ?? ''}${taken}. ${scan.aligned.last()}${other ? ` ${other.aligned.last()}` : ''}` : taken
   // Of one part (an end that is a bare point is of none): its points are where the part is shown, and that is said.
   // Of two, the points of an angle are apart as torno put the parts, and are left out where it moved one.
   const parts = [...new Map([a, ...(b ? [b] : [])].flatMap((end) => (end.part ? [[end.part.name, end.part] as const] : []))).values()]
   const { points: _points, ...angleOnly } = measured as Measured & { points?: unknown }
   const told = parts.length === 2 && parts.some(isMoved) ? angleOnly : measured
-  const ofScan = scan ? { exact: false, scan: scan.id, alignment: scan.aligned.data, ...noteOf(scan.aligned, layout), approximate: SCAN_APPROXIMATE } : {}
+  const ofOther = other ? { other: { scan: other.id, alignment: other.aligned.data, ...noteOf(other.aligned, '') } } : {}
+  const ofScan = scan ? { exact: false, scan: scan.id, alignment: scan.aligned.data, ...ofOther, ...noteOf(scan.aligned, layout), approximate: SCAN_APPROXIMATE } : {}
   return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 && !scan ? movedForDisplay(parts[0], layout, told) : {}), ...ofScan, reading })
 }
 
@@ -166,13 +170,13 @@ const isVec = (value: unknown): value is Vec3 => Array.isArray(value) && value.l
  * taken, and of what. `≈` and `approximate` wherever the kernel does not say
  * the value is exact. Null for a reply that is no measurement.
  */
-export function measureReading(measured: Measured, a: End, b?: End, scan?: string): string | null {
+export function measureReading(measured: Measured, a: End, b?: End, ofScan?: string): string | null {
   const ends = b ? `${a.text} to ${b.text}` : a.text
   const how = typeof measured?.how === 'string' ? measured.how : ''
   const exact = measured?.exact === true
   const about = exact ? '' : '≈ '
   // Said once: a way that already says it is approximate is not followed by the word.
-  const because = scan ? ` (${scan} is a scan)` : ''
+  const because = ofScan ? ` (${ofScan})` : ''
   const roughly = exact ? '' : /approximate/.test(how) ? because : `, approximate${because}`
   if (measured?.kind === 'bbox') {
     if (!isVec(measured.size) || !isVec(measured.min) || !isVec(measured.max)) return null
@@ -405,7 +409,7 @@ function scanLines(of: ScanAsked, lines: ScanSectioned, layout: string, moved: s
   const crosses =
     polylines.length === 0
       ? `${id} (a scan) does not cross the plane`
-      : `≈ ${id} (a scan, approximate) crosses the plane in ${polylines.length} line${polylines.length === 1 ? '' : 's'}${omitted > 0 ? `, and ${omitted} more that ${omitted === 1 ? 'is' : 'are'} not told` : ''}`
+      : `≈ ${id} (a scan, approximate) crosses the plane in ${polylines.length} line${polylines.length === 1 ? '' : 's'}${points < found ? `, told in ${points.toLocaleString('en-US')} of the ${found.toLocaleString('en-US')} points found` : ''}${omitted > 0 ? `, and ${omitted} more that ${omitted === 1 ? 'is' : 'are'} not told` : ''}`
   return {
     data: {
       id,
@@ -438,7 +442,7 @@ function coloursText(drawing: SectionDrawingResult, obj: ObjectInfo): string {
 
 /** The plane a section is asked by: the user's own for `'current'`, which only the object on screen has. */
 function planeAsked(deps: ToolDeps, objectId: string, obj: ObjectInfo, asked: SectionToolArgs['plane'], layout: string): SectionPlane | ToolResult {
-  if (asked !== 'current') return planeOf(asked) ?? failure(NO_PLANE)
+  if (asked !== 'current') return planeArg(asked)
   const open = deps.openObjectId()
   if (open !== objectId) return failure(`${notOpen(obj, open)}, so the user's section of it is not known: give a plane`)
   const view = deps.view(objectId)

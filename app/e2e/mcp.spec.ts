@@ -876,6 +876,9 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
   expect(clash).toMatchObject({ layout: 'assembly', scan: 'S1', exact: false, alignment: { state: 'aligned', by: 'by 3 pairs (rms 0 mm, worst 0 mm)', pairs: 3 }, inside: { count: 400, crossing: 0 }, points: { scan: 400, touching: 0 } })
   expect(clash.deepest.depth).toBeCloseTo(1, 6)
   expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(rms 0 mm, worst 0 mm\): a depth under that says nothing \(tied to no point of the model: not checked against builds\)\.$/)
+  // What was applied is said back, and a key the tool does not take is refused by name, never dropped.
+  expect(clash.ignore).toEqual([])
+  expect(await call(hollow, 'scan_clash', { part: 'tub', ignored: ['M7'] })).toMatchObject({ isError: true, text: 'scan_clash takes no "ignored": did you mean ignore? An unknown key is not ignored: nothing was done. It takes: part, scan, ignore, margin, layout.' })
   const lid = JSON.parse((await call(hollow, 'scan_clash', { part: 'lid' })).text)
   expect(lid.inside.count).toBe(0)
   expect(lid.reading).toContain('no scan point is within 5 mm of the part')
@@ -888,7 +891,7 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
   const distance = JSON.parse((await call(hollow, 'measure', { kind: 'distance', a: { scan: 'S1', point: [0.5, 0.5, 1] }, b: 'lid' })).text)
   expect(distance).toMatchObject({ exact: false, scan: 'S1', approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
   expect(distance.value).toBeCloseTo(37, 6)
-  expect(distance.reading).toMatch(/^≈ 37 mm .*approximate \(S1 is a scan\), \(0\.5, 0\.5, 1\) on S1 to lid\. S1 is aligned by 3 pairs/)
+  expect(distance.reading).toMatch(/^≈ 37 mm .*approximate \(S1 is a scan\), \(0\.5, 0\.5, 1\) given as a point of S1 to lid\. S1 is aligned by 3 pairs/)
 
   const cut = await call(hollow, 'section', { plane: { axis: 'x', at: 0.25 }, scan: 'S1', size: 256 })
   const cutData = JSON.parse(cut.text)
@@ -909,7 +912,7 @@ test('look draws the scans or leaves them out, and colours one by its distance t
   // From below, with the tub left out: the sheet is seen in front of the lid, and every point of it is in the tub's floor.
   const inside = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'tub' } })
   expect(inside.isError).toBe(false)
-  expect(inside.text).toContain(` · scans S1 (${BASIS}) · scan S1 coloured by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A) · `)
+  expect(inside.text).toContain(` · scans S1 (${BASIS}) · scan S1 coloured at the scan's points by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A) · `)
   expect(near((await pixelAt(inside.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.inside)).toBe(true)
   // Against the lid it is 37 mm away: beyond 20 mm it has the far colour, and within 74 mm it is half way along the ramp.
   const beyond = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'lid' } })

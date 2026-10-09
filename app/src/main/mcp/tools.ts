@@ -4,7 +4,7 @@ import type { BuildState } from '../../shared/build'
 import type { Described } from '../../shared/geometry'
 import { type DimensionStanding, standingOf } from '../../shared/dimension'
 import type { DimensionMark, Mark, MarkPatch, MeasureKind, NewMark, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
-import { type ScanInfo, MIN_SCAN_OPACITY } from '../../shared/scans'
+import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
 import {
   type AxisPlane,
@@ -27,9 +27,10 @@ import type { Unmeasured } from '../marks/measure'
 import { movedForDisplay } from '../marks/spread'
 import { alignmentSaid } from '../scans/said'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
+import { onlyKeysWrong, unknownKeys } from './keys'
 import { type EndArg, addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { type MeasureToolArgs, type SectionToolArgs, checkTool, measureTool, sectionTool } from './readTools'
-import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, NO_SCANS, scanClashTool, scanDeviationTool, scanFor, scanFrame, scanSpread, scansTool } from './scanTools'
+import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanClashTool, scanColourFor, scanDeviationTool, scanIds, scansTool } from './scanTools'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -114,7 +115,7 @@ const vec3 = z.tuple([z.number(), z.number(), z.number()])
  * answers what is no plane with what one looks like (`NO_PLANE`), where the
  * schema's own refusal would say only that the input is invalid.
  */
-const planeInput = z.union([z.object({ axis: z.enum(['x', 'y', 'z']), at: z.number() }), z.object({ origin: vec3, normal: vec3 }), z.unknown()])
+const planeInput = z.union([z.strictObject({ axis: z.enum(['x', 'y', 'z']), at: z.number() }), z.strictObject({ origin: vec3, normal: vec3 }), z.unknown()])
 const planeHelp = '{"axis": "z", "at": 3} for the plane across x, y or z at that coordinate, its normal along +axis, or {"origin": [x, y, z], "normal": [x, y, z]}, a point of the plane and its normal, in mm in the frame of the layout'
 /** Said of a plane that is none. */
 export const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for the plane across x, y or z at that coordinate in mm, or {"origin": [x, y, z], "normal": [x, y, z]} with a normal that is not all zeros'
@@ -125,7 +126,22 @@ export const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for th
  */
 const loose = <T extends z.ZodType>(shape: T) => z.union([shape, z.unknown()])
 const scanText = 'The number of a scan (S1), as listed by scans. Default: the only scan of the object.'
-const cameraInput = z.object({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional() })
+// Loose: a key a camera does not take reaches the tool, which refuses it by name (`cameraKeys`).
+const cameraInput = z.looseObject({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional() })
+const CAMERA_KEYS = ['position', 'target', 'up', 'ortho']
+/** Why a view given as a camera holds a key a camera does not take, or null. */
+const cameraKeys = (view: unknown): string | null => unknownKeys(view, CAMERA_KEYS, 'view, as a camera,')
+const PLANE_KEYS = ['axis', 'at', 'origin', 'normal']
+
+/**
+ * The plane a tool was given, in either form; or the error to answer with: a key no plane takes, by name (it is
+ * not dropped: `{axis, at, offset}` is not the plane at `at`), or what a plane looks like for what is none.
+ */
+export function planeArg(value: unknown): SectionPlane | ToolResult {
+  if (onlyKeysWrong(value, PLANE_KEYS, (plane) => planeOf(plane) !== null)) return failure(unknownKeys(value, PLANE_KEYS, 'the plane')!)
+  // With a key that is none of a plane's and no slip of one, it is something else altogether: what a plane looks like is said.
+  return (unknownKeys(value, PLANE_KEYS, 'the plane') === null ? planeOf(value) : null) ?? failure(NO_PLANE)
+}
 
 const lookInput = {
   view: z
@@ -146,7 +162,7 @@ const lookInput = {
   scans: loose(z.union([z.boolean(), z.array(z.string())]))
     .optional()
     .describe("Which scans are drawn: true or absent, those on the user's screen; false, none; or their numbers, [\"S1\"]."),
-  scanColour: loose(z.object({ part: z.string(), scan: z.string().optional(), range: z.number().optional() }))
+  scanColour: loose(z.looseObject({ part: z.string(), scan: z.string().optional(), range: z.number().optional() }))
     .optional()
     .describe('{"part": "tub"}, with scan and range when needed: colours one scan by its distance to a part, from 0 to range mm (default 20), with scan points inside the part marked: a picture for the eye, made from the meshes on screen; the numbers are scan_deviation\'s. The caption gives the colours.')
 }
@@ -412,22 +428,39 @@ export const TOOLS = {
   }
 }
 
-/** The tools of one object's MCP server. */
+/** The keys each tool takes: those its schema names. */
+const KEYS = Object.fromEntries(Object.entries(TOOLS).map(([name, tool]) => [name, Object.keys('inputSchema' in tool ? tool.inputSchema : {})])) as Record<keyof typeof TOOLS, string[]>
+
+/** Why a tool was given a key it does not take, as the error to answer with, or null (`unknownKeys`). */
+export function refusedKeys(name: keyof typeof TOOLS, args: unknown): ToolResult | null {
+  const wrong = unknownKeys(args, KEYS[name], name)
+  return wrong === null ? null : failure(wrong)
+}
+
+/**
+ * The tools of one object's MCP server. Each is registered with a schema that lets every key through, and is
+ * run only when every key given is one it takes: the SDK would drop the others without a word, and a misspelt
+ * key would change what is done (`refusedKeys`).
+ */
 export function registerTools(server: McpServer, deps: ToolDeps, objectId: string): void {
-  server.registerTool('scene', { description: TOOLS.scene.description }, async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined)))
-  server.registerTool('look', TOOLS.look, async (args) => lookTool(deps, objectId, args as LookArgs))
-  server.registerTool('marks', TOOLS.marks, async (args) => marksTool(deps, objectId, args))
-  server.registerTool('describe', TOOLS.describe, async (args) => describeTool(deps, objectId, args))
-  server.registerTool('highlight', TOOLS.highlight, async (args) => highlightTool(deps, objectId, args))
-  server.registerTool('show', TOOLS.show, async (args) => showTool(deps, objectId, args as ShowArgs))
-  server.registerTool('add_mark', TOOLS.add_mark, async (args) => addMarkTool(deps, objectId, args as AddMarkArgs))
-  server.registerTool('resolve_mark', TOOLS.resolve_mark, async (args) => resolveMarkTool(deps, objectId, args))
-  server.registerTool('measure', TOOLS.measure, async (args) => measureTool(deps, objectId, args as MeasureToolArgs))
-  server.registerTool('section', TOOLS.section, async (args) => sectionTool(deps, objectId, args as SectionToolArgs))
-  server.registerTool('check', TOOLS.check, async (args) => checkTool(deps, objectId, args))
-  server.registerTool('scans', TOOLS.scans, async (args) => scansTool(deps, objectId, args as ScansArgs))
-  server.registerTool('scan_clash', TOOLS.scan_clash, async (args) => scanClashTool(deps, objectId, args as ScanClashArgs))
-  server.registerTool('scan_deviation', TOOLS.scan_deviation, async (args) => scanDeviationTool(deps, objectId, args as ScanDeviationArgs))
+  const tool = <A>(name: keyof typeof TOOLS, run: (args: A) => ToolResult | Promise<ToolResult>): void => {
+    const of = TOOLS[name]
+    server.registerTool(name, { description: of.description, inputSchema: z.looseObject('inputSchema' in of ? of.inputSchema : {}) }, async (args: unknown) => refusedKeys(name, args) ?? run(args as A))
+  }
+  tool('scene', async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined)))
+  tool<LookArgs>('look', (args) => lookTool(deps, objectId, args))
+  tool<MarksArgs>('marks', (args) => marksTool(deps, objectId, args))
+  tool<DescribeArgs>('describe', (args) => describeTool(deps, objectId, args))
+  tool<HighlightArgs>('highlight', (args) => highlightTool(deps, objectId, args))
+  tool<ShowArgs>('show', (args) => showTool(deps, objectId, args))
+  tool<AddMarkArgs>('add_mark', (args) => addMarkTool(deps, objectId, args))
+  tool<ResolveMarkArgs>('resolve_mark', (args) => resolveMarkTool(deps, objectId, args))
+  tool<MeasureToolArgs>('measure', (args) => measureTool(deps, objectId, args))
+  tool<SectionToolArgs>('section', (args) => sectionTool(deps, objectId, args))
+  tool<Parameters<typeof checkTool>[2]>('check', (args) => checkTool(deps, objectId, args))
+  tool<ScansArgs>('scans', (args) => scansTool(deps, objectId, args))
+  tool<ScanClashArgs>('scan_clash', (args) => scanClashTool(deps, objectId, args))
+  tool<ScanDeviationArgs>('scan_deviation', (args) => scanDeviationTool(deps, objectId, args))
 }
 
 export function failure(text: string): ToolResult {
@@ -535,6 +568,8 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   const elsewhere = (open: string | null) => failure(`${notOpen(obj, open)}. Ask the user to open it.`)
   if (deps.openObjectId() !== objectId) return elsewhere(deps.openObjectId())
 
+  const wrong = cameraKeys(args.view)
+  if (wrong !== null) return failure(wrong)
   const view = camera(args.view)
   if (view === null) return failure('position and target are the same')
   const request: LookRequest = { view, size: clampSize(args.size) }
@@ -543,8 +578,8 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   if (args.marks !== undefined) request.marks = args.marks
   if (args.section === null || args.section === 'current') request.section = args.section
   else if (args.section !== undefined) {
-    const plane = planeOf(args.section)
-    if (!plane) return failure(NO_PLANE)
+    const plane = planeArg(args.section)
+    if ('content' in plane) return plane
     request.section = plane
   }
   if (args.scans === false) request.scans = false
@@ -554,20 +589,9 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
     request.scans = ids
   }
   if (args.scanColour !== undefined) {
-    const asked = args.scanColour as { part?: unknown; scan?: unknown; range?: unknown } | null
-    if (typeof asked !== 'object' || asked === null || typeof asked.part !== 'string' || asked.part === '' || (asked.scan !== undefined && typeof asked.scan !== 'string')) return failure(NO_SCAN_COLOUR)
-    if (asked.range !== undefined && !(typeof asked.range === 'number' && asked.range >= COLOUR_RANGE.least && asked.range <= COLOUR_RANGE.most)) return failure(NO_SCAN_COLOUR)
-    const layout = layoutFor(deps, objectId, scene, args.layout)
-    if (typeof layout !== 'string') return layout
-    const part = checkRef(scene, layout, asked.part)
-    if (typeof part === 'string') return failure(part)
-    if (part.target !== 'part') return failure(`a scan is coloured by its distance to a whole part, and ${asked.part} is ${part.target === 'face' ? 'a face' : 'an edge'}: give ${part.part.name}`)
-    // The colours say how far the scan is from the part: where it is not aligned, or the part is not where the model has it, they would say nothing.
-    const of = await scanFor(deps, objectId, layout, revision, asked.scan as string | undefined)
-    if ('content' in of) return of
-    const apart = scanSpread(scene, layout, part.part.name) ?? scanFrame(scene, layout, revision, part.part.name, of.scan.id, of.alignment)
-    if (apart !== null) return failure(apart)
-    request.scanColour = { scan: of.scan.id, part: part.part.name, range: asked.range ?? COLOUR_RANGE.usual }
+    const colouring = await scanColourFor(deps, objectId, scene, revision, args.layout, args.scanColour)
+    if ('content' in colouring) return colouring
+    request.scanColour = colouring
   }
 
   let picture: LookResult
@@ -593,27 +617,6 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
       { type: 'text', text: `${picture.caption}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
     ]
   }
-}
-
-/** How far from a part a scan is coloured to, mm. */
-const COLOUR_RANGE = { least: 0.1, most: 1000, usual: 20 }
-const NO_LOOK_SCANS = 'scans is true for the scans on the user\'s screen, false for none, or a list of their numbers: {"scans": ["S1"]}'
-const NO_SHOW_SCANS = 'scans is a list of the numbers of the scans to leave switched on, [] to hide them all: {"scans": ["S1"]}'
-const NO_SCAN_COLOUR = `scanColour is {"part": "tub"}, the part a scan is coloured by its distance to, with "scan": "S1" when there are several and "range" in mm, ${COLOUR_RANGE.least} to ${COLOUR_RANGE.most} (default ${COLOUR_RANGE.usual})`
-const NO_SCAN_OPACITY = `scanOpacity is a number from ${MIN_SCAN_OPACITY} to 1, how see-through the scans left on are drawn: {"scans": ["S1"], "scanOpacity": 0.5}`
-
-/** The numbers of scans a tool was given, each a scan of the object, or the error to answer with: `help` for what is no list of them. */
-async function scanIds(deps: ToolDeps, objectId: string, given: unknown, help: string): Promise<string[] | ToolResult> {
-  if (!Array.isArray(given) || !given.every((id) => typeof id === 'string')) return failure(help)
-  let scans: ScanInfo[]
-  try {
-    scans = await deps.scans(objectId)
-  } catch (e) {
-    return failure(messageOf(e))
-  }
-  const unknown = (given as string[]).find((id) => !scans.some((scan) => scan.id === id))
-  if (unknown !== undefined) return failure(scans.length > 0 ? `no scan ${unknown}; scans: ${scans.map((scan) => scan.id).join(', ')}` : NO_SCANS)
-  return [...new Set(given as string[])]
 }
 
 /** What to say after the revision of a picture whose parts are not the latest build's. '' when they are. */
@@ -754,6 +757,8 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
 
   const request: ShowRequest = { objectId }
   if (args.view !== undefined) {
+    const wrong = cameraKeys(args.view)
+    if (wrong !== null) return failure(wrong)
     const view = camera(args.view)
     if (view === null) return failure('position and target are the same')
     if (view !== 'current') request.view = view
@@ -762,8 +767,8 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
   if (args.parts !== undefined) request.parts = args.parts
   if (args.section === null) request.section = null
   else if (args.section !== undefined) {
-    const plane = planeOf(args.section)
-    if (!plane) return failure(NO_PLANE)
+    const plane = planeArg(args.section)
+    if ('content' in plane) return plane
     request.section = plane
   }
   if (args.scans !== undefined) {
@@ -772,7 +777,7 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
     request.scans = ids
   }
   if (args.scanOpacity !== undefined) {
-    if (!(typeof args.scanOpacity === 'number' && args.scanOpacity >= MIN_SCAN_OPACITY && args.scanOpacity <= 1)) return failure(NO_SCAN_OPACITY)
+    if (!isScanOpacity(args.scanOpacity)) return failure(NO_SCAN_OPACITY)
     request.scanOpacity = args.scanOpacity
   }
 

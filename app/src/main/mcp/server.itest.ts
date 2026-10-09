@@ -257,6 +257,48 @@ describe('the MCP server', () => {
     expect(await said('add_mark', { kind: 'dimension', note: '', measure: 'diameter', a: 12 })).toBe(noEnd('a'))
   })
 
+  it('refuses a key no tool takes, of every tool, naming it, the nearest it does take and all of them: none is dropped in silence', async () => {
+    const client = await connect('bracket')
+    const said = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      const result = await client.callTool({ name, arguments: args }).catch((e: Error) => ({ isError: true, content: [{ type: 'text', text: `THROWN ${e.message}` }] }))
+      expect(result.isError, `${name} ${JSON.stringify(args)}`).toBe(true)
+      return (result.content as Content)[0].text!
+    }
+    for (const [name, args] of Object.entries(MINIMAL)) expect(await said(name, { ...args, colour: 'red' }), name).toMatch(new RegExp(`^${name} takes no "colour"\\. An unknown key is not ignored: nothing was done\\. It takes`))
+    expect(await said('scene', { layout: 'main' })).toBe('scene takes no "layout". An unknown key is not ignored: nothing was done. It takes no arguments.')
+    // What a slip would have changed without a word: the region counted after all, the whole part measured, no scan cut, the scans drawn.
+    expect(await said('scan_clash', { part: 'base', ignored: ['M7'] })).toBe('scan_clash takes no "ignored": did you mean ignore? An unknown key is not ignored: nothing was done. It takes: part, scan, ignore, margin, layout.')
+    expect(await said('scan_deviation', { part: 'base', face: ['base/F5'] })).toContain('takes no "face": did you mean faces?')
+    expect(await said('scan_deviation', { part: 'base', regions: 'M7' })).toContain('takes no "regions": did you mean region?')
+    expect(await said('section', { plane: { axis: 'z', at: 2 }, scans: 'S1' })).toContain('section takes no "scans": did you mean scan?')
+    expect(await said('look', { scan: false })).toContain('look takes no "scan": did you mean scans?')
+    expect(await said('measure', { kind: 'distance', a: 'base/F5', B: 'base/F0' })).toContain('measure takes no "B": did you mean b?')
+    expect(await said('add_mark', { kind: 'pin', note: '', ref: 'base', notes: 'x' })).toContain('add_mark takes no "notes": did you mean note?')
+    expect(added).toEqual([])
+    expect(looks).toEqual([])
+  })
+
+  it('refuses a key that an end, a plane, a camera or a scan to colour does not take, where it would have been read as something else', async () => {
+    const client = await connect('bracket')
+    const said = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      const result = await client.callTool({ name, arguments: args }).catch((e: Error) => ({ isError: true, content: [{ type: 'text', text: `THROWN ${e.message}` }] }))
+      expect(result.isError, `${name} ${JSON.stringify(args)}`).toBe(true)
+      return (result.content as Content)[0].text!
+    }
+    // A point of a scan under a misspelt key is no bare point of the layout, which would be measured as exact.
+    expect(await said('measure', { kind: 'distance', a: { point: [1, 2, 3], scann: 'S1' }, b: 'base/F5' })).toBe('the end a takes no "scann": did you mean scan? An unknown key is not ignored: nothing was done. It takes: ref, point, scan.')
+    expect(await said('measure', { kind: 'distance', a: 'base/F5', b: { ref: 'base/F0', at: [1, 2, 3] } })).toBe('the end b takes no "at". An unknown key is not ignored: nothing was done. It takes: ref, point, scan.')
+    expect(await said('measure', { kind: 'distance', a: { scan: 'S1', point: [1, 2, 3], ref: 'base/F5' }, b: 'base/F0' })).toBe('a names nothing: a point of a scan is {"scan": "S1", "point": [x, y, z]}, in mm in the frame of the layout')
+    expect(await said('add_mark', { kind: 'dimension', note: '', measure: 'radius', a: { ref: 'base/F5', pt: [1, 2, 3] } })).toContain('the end a takes no "pt"')
+    expect(await said('section', { plane: { axis: 'z', at: 2, offset: 1 } })).toBe('the plane takes no "offset". An unknown key is not ignored: nothing was done. It takes: axis, at, origin, normal.')
+    expect(await said('look', { section: { origin: [0, 0, 1], normal: [0, 0, 1], flip: true } })).toContain('the plane takes no "flip"')
+    expect(await said('show', { section: { axis: 'z', att: 3 } })).toContain('the plane takes no "att": did you mean at?')
+    expect(await said('look', { view: { position: [0, 0, 100], target: [0, 0, 0], orthographic: true } })).toBe('view, as a camera, takes no "orthographic". An unknown key is not ignored: nothing was done. It takes: position, target, up, ortho.')
+    expect(await said('show', { view: { position: [0, 0, 100], target: [0, 0, 0], fov: 20 } })).toContain('view, as a camera, takes no "fov"')
+    expect(await said('look', { scanColour: { part: 'base', within: 5 } })).toBe('scanColour takes no "within". An unknown key is not ignored: nothing was done. It takes: part, scan, range.')
+    expect(looks).toEqual([])
+  })
+
   it('refuses arguments that are not what look takes', async () => {
     const client = await connect('bracket')
     const result = await client.callTool({ name: 'look', arguments: { view: 'sideways' } }).catch((e: Error) => ({ isError: true, content: [{ type: 'text', text: e.message }] }))

@@ -17,8 +17,14 @@ export function deviationColour(distance: number, inside: boolean, range: number
   return colours.near.map((c, i) => c + (colours.far[i] - c) * share) as Rgb
 }
 
-/** The most scan vertices near a part that a picture colours. */
-export const MAX_COLOURED = 300_000
+/**
+ * The most scan vertices near a part that a picture colours, and the longest working them out may take: it is done
+ * on the window's own thread, which draws nothing and answers no pointer meanwhile.
+ */
+export const MAX_COLOURED = 60_000
+export const TIME_LIMIT_MS = 1500
+/** Every how many vertices the clock is looked at. */
+const CLOCK_EVERY = 2000
 
 /** Linear light of an sRGB share: what three.js takes a vertex colour to be. */
 export function linearOf(c: number): number {
@@ -32,16 +38,21 @@ const stored = (rgb: Rgb): Rgb => rgb.map((c) => Math.round(linearOf(c) * 65535)
  * group's place), as a `color` attribute's array: linear light, 0 to 65535, so that what is drawn at a vertex is
  * exactly the colour `deviationColour` gives. A vertex outside the part's box grown by `range` has `far` without
  * being measured. One is inside when the part is a solid and a ray from it along the part's own +Z crosses the
- * part's mesh an odd number of times. Throws when more than `most` vertices are within the grown box.
+ * part's mesh an odd number of times. Throws, with what to do, when more than `limits.most` vertices are within the
+ * grown box, when working them out takes longer than `TIME_LIMIT_MS` (`limits.now` is the clock), and for a part
+ * with no mesh to measure to.
  */
-export function deviationColours(scan: BuiltScan, part: Pick<BuiltPart, 'group' | 'mesh' | 'solid'>, range: number, colours: { near: Rgb; far: Rgb; inside: Rgb }, most = MAX_COLOURED): Uint16Array {
+export function deviationColours(scan: BuiltScan, part: Pick<BuiltPart, 'group' | 'mesh' | 'solid'>, range: number, colours: { near: Rgb; far: Rgb; inside: Rgb }, limits: { most?: number; now?: () => number } = {}): Uint16Array {
+  const most = limits.most ?? MAX_COLOURED
+  const now = limits.now ?? (() => performance.now())
   const positions = scan.mesh.geometry.getAttribute('position')
   const out = new Uint16Array(positions.count * 3)
   const far = stored(colours.far)
   for (let v = 0; v < positions.count; v++) out.set(far, 3 * v)
   const geometry = part.mesh.geometry
   const tree = geometry.boundsTree as MeshBVH | undefined
-  if (!tree) return out
+  // With nothing to measure to, every vertex would be drawn as far away, under a caption that says otherwise.
+  if (!tree) throw new Error('the part has no mesh to measure to: nothing was coloured')
   // Into the part's own frame, where its tree is. Parts are placed and turned, never scaled: distances there are millimetres.
   scan.group.updateMatrix()
   part.group.updateMatrix()
@@ -56,7 +67,11 @@ export function deviationColours(scan: BuiltScan, part: Pick<BuiltPart, 'group' 
   if (near.length > most) throw new Error(`${near.length.toLocaleString('en-US')} points of ${scan.id} are within ${range} mm of the part, more than the ${most.toLocaleString('en-US')} a picture colours: ask for a smaller range`)
   const ray = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, 0, 1))
   const target = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 }
-  for (const v of near) {
+  const started = now()
+  for (const [done, v] of near.entries()) {
+    if (done > 0 && done % CLOCK_EVERY === 0 && now() - started > TIME_LIMIT_MS) {
+      throw new Error(`colouring ${scan.id} by its distance to the part took more than ${TIME_LIMIT_MS / 1000} s (${done.toLocaleString('en-US')} of ${near.length.toLocaleString('en-US')} points done): ask for a smaller range`)
+    }
     point.fromBufferAttribute(positions, v).applyMatrix4(toPart)
     const distance = tree.closestPointToPoint(point, target)?.distance ?? Infinity
     let inside = false

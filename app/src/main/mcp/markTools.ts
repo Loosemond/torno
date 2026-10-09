@@ -9,6 +9,7 @@ import { MAX_NOTE } from '../marks/file'
 import type { Unmeasured } from '../marks/measure'
 import { spreadApart } from '../marks/spread'
 import { EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance } from '../marks/reanchor'
+import { onlyKeysWrong, unknownKeys } from './keys'
 import type { AlignmentSaid } from '../scans/said'
 import { type RegionOfScan, isRegion, scanFor } from './scanTools'
 import {
@@ -77,10 +78,15 @@ const isPoint = (point: unknown): point is Vec3 => Array.isArray(point) && point
 /** Said of an end that is none, with what one looks like: whatever was given reaches the tool, so that this is the answer. */
 export const noEnd = (name: string): string => `${name} names nothing: give a ref ("lid/F12"), the number of a mark ("M3"), {"point": [x, y, z]} in mm, or {"ref": "lid/F12", "point": [x, y, z]}`
 
-/** An end as it was given, when it is one: a ref, or an object with a ref, a point of three finite numbers, or both. */
+/** The keys an end may have: a ref, a point, or a scan with a point. */
+const END_KEYS = ['ref', 'point', 'scan']
+const isScanPoint = (end: unknown): boolean => typeof (end as { scan?: unknown } | null)?.scan === 'string' && isPoint((end as { point?: unknown }).point)
+
+/** An end as it was given, when it is one: a ref, or an object with a ref, a point of three finite numbers, or both, and no other key. */
 function endOf(arg: unknown): { ref?: string; point?: Vec3 } | null {
   if (typeof arg === 'string') return arg === '' ? null : { ref: arg }
   if (typeof arg !== 'object' || arg === null || Array.isArray(arg)) return null
+  if (Object.keys(arg).some((key) => key !== 'ref' && key !== 'point')) return null
   const { ref, point } = arg as { ref?: unknown; point?: unknown }
   const isPoint = Array.isArray(point) && point.length === 3 && point.every((c) => typeof c === 'number' && Number.isFinite(c))
   if ((ref !== undefined && (typeof ref !== 'string' || ref === '')) || (point !== undefined && !isPoint)) return null
@@ -149,12 +155,16 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
       ends.push({ ref: on.ref, point: on.point, part: checked.part, text: `${on.ref} (${arg})` })
       continue
     }
+    // A key an end does not take is refused by name: dropped, `{point, scann}` would be a bare point, measured as exact.
+    if (onlyKeysWrong(arg, END_KEYS, (end) => endOf(end) !== null || isScanPoint(end))) return failure(unknownKeys(arg, END_KEYS, `the end ${name}`)!)
     if (typeof arg === 'object' && arg !== null && 'scan' in arg) {
+      // A point of a scan is that and nothing else: with a ref beside it, which of the two is meant is not for torno to guess.
+      if ('ref' in arg) return failure(noScanEnd(name))
       const { scan, point } = arg as { scan?: unknown; point?: unknown }
       if (typeof scan !== 'string' || scan === '' || !isPoint(point)) return failure(noScanEnd(name))
       const of = await scanFor(deps, objectId, layout, revision, scan)
       if ('content' in of) return of
-      ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned }, text: `${vector(point)} on ${of.scan.id}` })
+      ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned }, text: `${vector(point)} given as a point of ${of.scan.id}` })
       continue
     }
     const given = endOf(arg)

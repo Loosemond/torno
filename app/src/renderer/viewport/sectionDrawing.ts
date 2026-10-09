@@ -105,7 +105,11 @@ export function sectionSheet(section: Sectioned, layout: string, size?: number, 
   const named = section.parts.slice(0, MAX_LEGEND)
   const legend: Sheet['legend'] = named.map((part) => ({ part: part.part, text: cutText(part).slice(part.part.length) }))
   if (section.parts.length > named.length) legend.push({ part: null, text: `and ${section.parts.length - named.length} more` })
-  if (drawn) legend.push({ part: null, scan: drawn.id, text: ' (scan, ≈)' })
+  // What of the scan's lines is past the box shown is not drawn: said, where the line would read as all there is of it.
+  const beyond = drawn !== undefined && drawn.polylines.some((line) => line.points.some(([u, v]) => u < min[0] || u > max[0] || v < min[1] || v > max[1]))
+  if (drawn) legend.push({ part: null, scan: drawn.id, text: beyond ? ' (scan, ≈; it goes on beyond the plot)' : ' (scan, ≈)' })
+  // Where the plane cuts no part the box is the scan's own, and so are the extents written: approximate.
+  const about = drawn !== undefined && section.parts.every((part) => part.loops.length === 0) ? '≈ ' : ''
 
   const pad = 28 * unit
   const header = pad + 24 * unit + legend.length * 19 * unit + 8 * unit
@@ -139,7 +143,7 @@ export function sectionSheet(section: Sectioned, layout: string, size?: number, 
     labelEvery,
     title: planeText(section.plane),
     layout: `layout ${layout}`,
-    extents: { u: `${number(cut.max[0] - cut.min[0])} mm`, v: `${number(cut.max[1] - cut.min[1])} mm` },
+    extents: { u: `${about}${number(cut.max[0] - cut.min[0])} mm`, v: `${about}${number(cut.max[1] - cut.min[1])} mm` },
     axes: { u: axisName('u', section.plane.x), v: axisName('v', section.plane.y) },
     legend
   }

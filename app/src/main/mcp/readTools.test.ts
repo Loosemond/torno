@@ -253,13 +253,13 @@ describe('measure', () => {
     const deps = fake(() => ({ kind: 'distance', value: 12.5, unit: 'mm', how: 'point to plane', points: [[0, 0, 15.5], [0, 0, 3]], exact: true }), scanned())
     const result = await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 15.5] }, b: 'tub/F5' })
     expect(deps.queries[0].args).toEqual({ kind: 'distance', a: { layout: 'assembly', point: [0, 0, 15.5] }, b: { ref: 'assembly:tub/F5' } })
-    expect(data(result)).toMatchObject({ exact: false, scan: 'S1', alignment: { state: 'aligned', by: 'by hand (typed values)' }, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact', reading: 'S1 was placed by hand: no fit says how well. ≈ 12.5 mm point to plane, approximate (S1 is a scan), (0, 0, 15.5) on S1 to tub/F5. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).' })
+    expect(data(result)).toMatchObject({ exact: false, scan: 'S1', alignment: { state: 'aligned', by: 'by hand (typed values)' }, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact', reading: 'S1 was placed by hand: no fit says how well. ≈ 12.5 mm point to plane, approximate (S1 is a scan), (0, 0, 15.5) given as a point of S1 to tub/F5. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).' })
     expect(text(await measureTool(deps, 'box', { kind: 'angle', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('only a distance is measured to a point of a scan')
     expect(text(await measureTool(fake(), 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
     // A way that already says it is approximate is not followed by the word twice.
     const rough = fake(() => ({ kind: 'distance', value: 1, unit: 'mm', how: 'minimum, approximate', exact: false }), scanned({ rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan' }))
     expect(data(await measureTool(rough, 'box', { kind: 'distance', a: 'tub/F5', b: { scan: 'S1', point: [0, 0, 1] } })).reading).toBe(
-      'S1 was placed by hand: no fit says how well. S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) on S1. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).'
+      'S1 was placed by hand: no fit says how well. S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) given as a point of S1. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).'
     )
   })
 
@@ -270,6 +270,14 @@ describe('measure', () => {
     expect(deps.queries[0].args).toMatchObject({ a: { layout: 'assembly', point: [1, 2, 13] } })
     expect(said.reading).toBe('S1 was placed by hand: no fit says how well. ≈ 4 mm point to plane, approximate (S1 is a scan), the centroid of region M8 (S1) at (1, 2, 13) to tub/F5. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).')
     expect(text(await measureTool(deps, 'box', { kind: 'radius', a: 'M8' }))).toBe('only a distance is measured to a point of a scan')
+  })
+
+  it('says of two points of two scans what puts either alignment in doubt, and how both are aligned', async () => {
+    const two = { scans: async () => ['S1', 'S2'].map((id) => ({ id, name: `${id}.glb`, alignments: { assembly: { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs: [1, 2, 3].map((n) => ({ scan: [n, 0, 0], model: [n, 0, 0], residual: 1 })), rms: 1, frame: {}, at: '', ...(id === 'S2' ? { rough: 'its pairs of points are in a line: how it is turned about that line is not fixed' } : {}) } }, meshState: 'ok', checks: {} })) as never }
+    const deps = fake(() => ({ kind: 'distance', value: 5, unit: 'mm', how: 'between points', exact: true }), two)
+    const said = data(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: { scan: 'S2', point: [0, 0, 6] } })) as any
+    expect(said).toMatchObject({ exact: false, scan: 'S1', other: { scan: 'S2', alignment: { state: 'aligned', rough: expect.any(String) } } })
+    expect(said.reading).toMatch(/S2 is only roughly aligned: its pairs of points are in a line.*\. ≈ 5 mm between points, approximate \(S1 and S2 are scans\), \(0, 0, 1\) given as a point of S1 to \(0, 0, 6\) given as a point of S2\. S1 is aligned by 3 pairs .*\. S2 is aligned by 3 pairs/)
   })
 
   it('refuses a scan end where the scan is not aligned, against a part torno moved, and what is no such end', async () => {
@@ -463,8 +471,9 @@ describe('section', () => {
     const told = said.scan.polylines.reduce((sum: number, line: { points: unknown[] }) => sum + line.points.length, 0)
     expect(told).toBeLessThanOrEqual(2000)
     expect(said.scan).toMatchObject({ points: told, of: 9000, thinned: true, linesOmitted: 2 })
+    expect(said.reading).toContain(`crosses the plane in 2 lines, told in ${told.toLocaleString('en-US')} of the 9,000 points found, and 2 more that are not told`)
     expect(said.reading).toBe(
-      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1 was placed by hand: no fit says how well. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, and 2 more that are not told. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds)."
+      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1 was placed by hand: no fit says how well. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, told in " + told.toLocaleString('en-US') + " of the 9,000 points found, and 2 more that are not told. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds)."
     )
     // The window is given every point the kernel told: the drawing is not made from the thinned ones.
     expect(deps.drawings[0].scan!.polylines[0].points).toHaveLength(3000)

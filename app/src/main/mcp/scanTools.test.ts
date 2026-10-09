@@ -130,8 +130,13 @@ describe('scan_clash', () => {
     const clear = { ...CLASHED, inside: { count: 0, crossing: 0, crossingAtLeast: false, clusters: [], clustersOmitted: 0 }, crossings: { ...CLASHED.crossings, clusters: [] }, deepest: null, nearest: { ...CLASHED.nearest, distance: 12 } }
     const reading = async (said: object): Promise<string> => data(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS })], () => said), 'box', { part: 'tub' })).reading
     expect(await reading(clear)).toBe(`scan_clash tub vs S1 (assembly, r12): no scan point is inside the part (≈ 13,476 checked within 5 mm of it) and no scan triangle crosses its surface; nearest 12 mm from tub/F12. ${ALIGNED}: a distance under that says nothing.`)
-    expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 540000, checked: 180000 }, sampling: { ...CLASHED.sampling, every: 3 } })).toContain('(≈ 180,000 checked within 5 mm of it, every 3rd point)')
-    expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 180000, checked: 100000 }, sampling: { ...CLASHED.sampling, partial: true, seconds: 10.1 } })).toContain(', the time ran out after 10.1 s with 100,000 of 180,000 points checked.')
+    // A count that is thinned or unfinished is not a "no": the reading opens with what was really checked.
+    expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 540000, checked: 180000 }, sampling: { ...CLASHED.sampling, every: 3 } })).toBe(
+      `scan_clash tub vs S1 (assembly, r12): none of the ≈ 180,000 scan points checked (every 3rd of the 540,000 within 5 mm of the part) is inside it, and no scan triangle crosses its surface; nearest of those checked 12 mm from tub/F12. ${ALIGNED}: a distance under that says nothing.`
+    )
+    expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 180000, checked: 100000 }, sampling: { ...CLASHED.sampling, partial: true, seconds: 10.1 } })).toBe(
+      `scan_clash tub vs S1 (assembly, r12): none of the ≈ 100,000 scan points checked before the time ran out (of the 180,000 within 5 mm of the part) is inside it, and no scan triangle crosses its surface; nearest of those checked 12 mm from tub/F12, the time ran out after 10.1 s with 100,000 of 180,000 points checked. ${ALIGNED}: a distance under that says nothing.`
+    )
     expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 0, checked: 0 }, nearest: null })).toContain('r12): no scan point is within 5 mm of the part. S1 is aligned')
   })
 
@@ -286,7 +291,7 @@ describe('scan_deviation', () => {
     const said = data(await scanDeviationTool(deps, 'box', { part: 'tub', faces: ['tub/F5'], region: 'M7', samples: 20000 }))
     expect(deps.queries).toEqual([{ name: 'scan_deviation', args: { layout: 'assembly', part: 'tub', faces: [5], from: 'part', within: 50, samples: 20000, scan: { id: 'S1', path: '/ws/box/.torno/scans/S1/mesh.bin', transform: BY_PAIRS.transform, ignore: [], only: '/ws/box/.torno/scans/S1/M7.mask' } } }])
     expect(said.reading).toBe(
-      `scan_deviation tub/F5 vs S1 (assembly, r12): ≈ 1.3 mm median, 1.9 mm mean, 7.4 mm at most (95 % within 5.1 mm), from 18,840 points of the part to the scan; the scan is inside the part at 212 of them; 1,160 more had no scan within 50 mm; furthest at (10, 4, 6) on tub/F5. ${ALIGNED}: a distance under that says nothing.`
+      `scan_deviation tub/F5 vs S1 region M7 (assembly, r12): ≈ 1.3 mm median, 1.9 mm mean, 7.4 mm at most (95 % within 5.1 mm), from 18,840 points of the part to the scan; the scan is inside the part at 212 of them; 1,160 more had no scan within 50 mm; furthest at (10, 4, 6) on tub/F5. ${ALIGNED}: a distance under that says nothing.`
     )
     expect(said).toMatchObject({ layout: 'assembly', revision: 12, scan: 'S1', region: 'M7', exact: false, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact', alignment: { state: 'aligned' } })
   })
@@ -309,6 +314,10 @@ describe('scan_deviation', () => {
     expect(await reading(few)).toContain('from 632 points of the part to the scan (10,000 were asked: the part has no more, 1 mm apart); the part is no solid, so no side is told; furthest')
     const unsure = { ...DEVIATED, sampling: { ...DEVIATED.sampling, unsure: 3 }, how: 'no figure here' }
     expect(await reading(unsure)).toContain('; 3 of the distances may be told too far, by less than the spacing of the points that stand for the scan (1 mm); ')
+    expect(await reading({ ...DEVIATED, sampling: { ...DEVIATED.sampling, unsure: 3 }, how: '3 of them may be told up to 1.09545 mm too far: not every triangle' })).toContain('; 3 of the distances may be told up to 1.095 mm too far; ')
+    // The time ran out, and none of those it got to had the scan within reach: that is not "nothing of the scan is within 50 mm".
+    const unfinished = { ...DEVIATED, faces: null, samples: 500, compared: 0, beyond: 500, distance: null, signed: null, worst: null, sampling: { ...DEVIATED.sampling, asked: 10000, partial: true } }
+    expect(await reading(unfinished)).toBe(`scan_deviation tub vs S1 (assembly, r12): none of the 500 points measured before the time ran out (of 10,000 asked) had the scan within 50 mm: ask for fewer samples or a smaller within. ${ALIGNED}.`)
     const none = { ...DEVIATED, samples: 0, compared: 0, beyond: 0, distance: null, signed: null, worst: null, sampling: { ...DEVIATED.sampling, partial: true } }
     expect(await reading(none)).toBe(`scan_deviation tub vs S1 (assembly, r12): the time ran out before any point was measured: ask for fewer samples or a smaller within. ${ALIGNED}.`)
   })
@@ -349,6 +358,74 @@ describe('scan_deviation', () => {
     expect(text(await scanDeviationTool(fake([scan('S1')]), 'box', { part: 'tub' }))).toBe('S1 is not aligned in layout assembly (it is aligned in no layout), so nothing is checked against it there: the user aligns it with the Align tool')
     expect(text(await scanDeviationTool(fake([scan('S1', { print: BY_PAIRS })], undefined, { scene: PRINT_ONLY }), 'box', { part: 'lid' }))).toMatch(/^In layout print torno moved lid for display/)
     expect(text(await scanDeviationTool(aligned(undefined, { marks: [REGION] }), 'box', { part: 'tub', region: 'M1' }))).toBe('M1 is not a region of S1; its regions: M7')
+  })
+})
+
+describe('what a scan tool says it did', () => {
+  const DEVIATED = {
+    part: 'tub', faces: [5], scan: 'S1', from: 'part', samples: 200, compared: 200, beyond: 0,
+    distance: { min: 0, mean: 1.9, max: 7.4, rms: 2.4, p50: 1.3, p90: 4, p95: 5.1 }, signed: { min: -3.1, mean: 0.4, max: 7.4, inside: 2 },
+    worst: { distance: 7.4, at: [10, 4, 6], on: [10, 4, 13.4], face: 'tub/F5' }, sampling: { deflection: 0.1, retakesFailed: 0, surface: 1, scanSurface: 1, asked: 200, partial: false, unsure: 0, seconds: 1.1 }, how: '…', exact: false
+  }
+
+  it('echoes what was applied: the regions left out, the region and the faces measured, or that there were none', async () => {
+    const deps = fake([scan('S1', { assembly: BY_PAIRS })], undefined, { marks: [REGION] })
+    expect(data(await scanClashTool(deps, 'box', { part: 'tub', ignore: ['M7', 'M7'] })).ignore).toEqual(['M7'])
+    expect(data(await scanClashTool(deps, 'box', { part: 'tub' })).ignore).toEqual([])
+    const of = fake([scan('S1', { assembly: BY_PAIRS })], () => DEVIATED, { marks: [REGION] })
+    const some = data(await scanDeviationTool(of, 'box', { part: 'tub', faces: ['tub/F5'], region: 'M7' }))
+    expect(some).toMatchObject({ region: 'M7', faces: ['tub/F5'] })
+    // Only that part of the scan counted: the reading says of which region it is.
+    expect(some.reading).toMatch(/^scan_deviation tub\/F5 vs S1 region M7 \(assembly, r12\): /)
+    const whole = data(await scanDeviationTool(fake([scan('S1', { assembly: BY_PAIRS })], () => ({ ...DEVIATED, faces: null })), 'box', { part: 'tub' }))
+    expect(whole).toMatchObject({ region: null, faces: null })
+    expect(whole.reading).toMatch(/^scan_deviation tub vs S1 \(assembly, r12\): /)
+  })
+
+  it('never passes on an exact the kernel might say: nothing of a scan is', async () => {
+    const clash = data(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS })], () => ({ ...CLASHED, exact: true })), 'box', { part: 'tub' }))
+    expect(clash.exact).toBe(false)
+    const deviation = data(await scanDeviationTool(fake([scan('S1', { assembly: BY_PAIRS })], () => ({ ...DEVIATED, exact: true })), 'box', { part: 'tub' }))
+    expect(deviation.exact).toBe(false)
+  })
+
+  it('refuses a region that no longer fits the mesh of its scan, for leaving out and for measuring', async () => {
+    const orphaned = { ...(REGION as unknown as Record<string, unknown>), anchorState: 'orphaned' } as unknown as Mark
+    const deps = fake([scan('S1', { assembly: BY_PAIRS })], undefined, { marks: [orphaned] })
+    const GONE = 'M7 no longer fits the mesh of S1 (the scan was converted or imported again since it was painted): the user paints it again'
+    expect(await scanClashTool(deps, 'box', { part: 'tub', ignore: ['M7'] })).toEqual(refused(GONE))
+    expect(await scanDeviationTool(deps, 'box', { part: 'tub', region: 'M7' })).toEqual(refused(GONE))
+    expect(deps.queries).toEqual([])
+  })
+
+  it('says the build that was asked, whatever is built while the answer is written', async () => {
+    for (const tool of [scanClashTool, scanDeviationTool]) {
+      // The kernel answers of r12; r13 lands once that answer was checked against the build there was.
+      let answered = false
+      let asked = 0
+      const deps = fake([scan('S1', { assembly: BY_PAIRS })], () => {
+        answered = true
+        return tool === scanClashTool ? CLASHED : DEVIATED
+      })
+      deps.scene = () => ({ revision: answered && ++asked > 1 ? 13 : 12, scene: SCENE })
+      const said = data(await tool(deps, 'box', { part: 'tub' }))
+      expect(said.revision).toBe(12)
+      expect(said.reading).toContain('(assembly, r12)')
+    }
+  })
+})
+
+describe('scans before anything is built', () => {
+  it('lists the scans there are, with the layouts each is aligned in, and says why no more is told', async () => {
+    const deps = fake([scan('S1', { print: BY_PAIRS }), scan('S2')])
+    deps.scene = () => undefined
+    deps.build = () => ({ objectId: 'box', status: 'failed', revision: 0, stale: false, error: { kind: 'exception', message: 'boom' } }) as never
+    const said = data(await scansTool(deps, 'box', {}))
+    expect(said).toMatchObject({ layout: null, revision: null, note: 'nothing is built yet: how a scan is aligned is told for a layout of a build' })
+    expect(said.scans).toMatchObject([{ id: 'S1', triangles: 1607144, alignedIn: ['print'] }, { id: 'S2', alignedIn: [] }])
+    expect(said.scans[0].alignment).toBeUndefined()
+    expect(said.reading).toBe('Nothing is built yet. S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in: print, shown at 60 %. S2 S2.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in no layout, shown at 60 %.')
+    expect(text(await scansTool(fake([]), 'nowhere', {}))).toBe('unknown object: nowhere')
   })
 })
 

@@ -62,8 +62,8 @@ describe('the scans a picture has, in its caption', () => {
 describe('a scan coloured by its distance to a part, in the caption', () => {
   const colours = { near: '#8A4594', far: '#D3D8DF', inside: '#22252A' }
   it('says which scan, to which part, over what range, and the very colours it is drawn in', () => {
-    expect(colouringNote({ scan: 'S1', part: 'tub', range: 20 }, colours, true)).toBe(' · scan S1 coloured by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A)')
-    expect(colouringNote({ scan: 'S1', part: 'tub', range: 2.5 }, colours, false)).toBe(' · scan S1 coloured by distance to tub: 0 to 2.5 mm (0 mm #8A4594, 2.5 mm and beyond #D3D8DF; tub is no solid, so nothing is marked as inside it)')
+    expect(colouringNote({ scan: 'S1', part: 'tub', range: 20 }, colours, true)).toBe(" · scan S1 coloured at the scan's points by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A)")
+    expect(colouringNote({ scan: 'S1', part: 'tub', range: 2.5 }, colours, false)).toBe(" · scan S1 coloured at the scan's points by distance to tub: 0 to 2.5 mm (0 mm #8A4594, 2.5 mm and beyond #D3D8DF; tub is no solid, so nothing is marked as inside it)")
   })
 })
 

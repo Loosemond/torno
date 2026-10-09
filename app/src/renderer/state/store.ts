@@ -93,7 +93,9 @@ export interface TornoState {
    * theirs again, and is taken out of here. `section` is there when the agent
    * cut the parts otherwise: `theirs` is the person's plane, or null for none.
    * `scans` holds, by scan id, how the person looked at each scan the agent
-   * shows otherwise (undefined for one they had never changed).
+   * shows otherwise (undefined for one they had never changed). What they set
+   * of such a scan by hand afterwards is theirs, field by field: the fields
+   * they did not touch stay as they had them.
    */
   shownByAgent: { layout?: string; visible: Record<string, boolean | undefined>; section?: { theirs: SectionPlane | null }; scans?: Record<string, ScanView | undefined> } | null
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
@@ -291,8 +293,15 @@ export const actions = {
   /** Change how one scan is looked at, by hand; what is left out keeps its value. It is what the scene file keeps. */
   setScanView(id: string, view: ScanView): void {
     const s = store.getState()
-    // The person's own choice from here on, whatever the agent had shown of that scan: what is on screen of it is theirs.
-    store.setState({ scanViews: { ...s.scanViews, [id]: { ...s.scanViews[id], ...view } }, edits: s.edits + 1, shownByAgent: withoutScans(s.shownByAgent, (one) => one === id) })
+    const shown = { ...s.scanViews[id], ...view }
+    // Their own choice from here on, for what they set: where the agent shows that scan otherwise, what they have
+    // just set is theirs, and what they did not touch stays the agent's on screen and theirs as they had it.
+    let shownByAgent = s.shownByAgent
+    if (shownByAgent?.scans && id in shownByAgent.scans) {
+      const theirs = { ...shownByAgent.scans[id], ...view }
+      shownByAgent = sameScanView(shown, theirs) ? withoutScans(shownByAgent, (one) => one === id) : { ...shownByAgent, scans: { ...shownByAgent.scans, [id]: theirs } }
+    }
+    store.setState({ scanViews: { ...s.scanViews, [id]: shown }, edits: s.edits + 1, shownByAgent })
   },
 
   /** What the import of a scan into an object is doing; no stage when it is over. Of another object than the open one, nothing is kept. */

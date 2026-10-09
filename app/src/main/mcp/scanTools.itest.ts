@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { apply } from '../../shared/align'
 import type { Scene } from '../../shared/scene'
 import type { ScanAlignment, ScanInfo } from '../../shared/scans'
 import { grid, meshBin } from '../../test/scanFixtures'
@@ -138,7 +139,7 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
       if (said.normal && said.normal[2] < -0.9) under = face
     }
     const face = await call('scan_deviation', { part: 'lid', faces: [`lid/F${under}`], within: 100, samples: 200 })
-    expect(face.data).toMatchObject({ faces: [under], from: 'part', samples: 200 })
+    expect(face.data).toMatchObject({ faces: [`lid/F${under}`], region: null, from: 'part', samples: 200 })
     expect(face.data.distance.min).toBeCloseTo(37, 3)
     expect(face.data.reading).toContain(`scan_deviation lid/F${under} vs S1 (assembly, r1): S1 was placed by hand: no fit says how well. ≈ `)
   })
@@ -147,7 +148,7 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
     const { data } = await call('measure', { kind: 'distance', a: { scan: 'S1', point: [0.5, 0.5, 1] }, b: 'lid' })
     expect(data).toMatchObject({ layout: 'assembly', revision: 1, kind: 'distance', exact: false, scan: 'S1', approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
     expect(data.value).toBeCloseTo(37, 6)
-    expect(data.reading).toMatch(/^S1 was placed by hand: no fit says how well\. ≈ 37 mm .*, approximate \(S1 is a scan\), \(0\.5, 0\.5, 1\) on S1 to lid\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
+    expect(data.reading).toMatch(/^S1 was placed by hand: no fit says how well\. ≈ 37 mm .*, approximate \(S1 is a scan\), \(0\.5, 0\.5, 1\) given as a point of S1 to lid\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
   })
 
   it('section cuts the scan by the same plane as the parts, and tells its line in the plane’s own axes', async () => {
@@ -185,6 +186,34 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
     expect(data.inside.count).toBeGreaterThan(0)
     expect(data.inside.count).toBeLessThan(60)
     expect(data.deepest.depth).toBeLessThanOrEqual(1 + 1e-6)
+    scans = [record({ assembly: TYPED })]
+  })
+
+  it('turns, scales and moves the scan as the window does: a quarter turn about X at twice the size, counted against the app\'s own arithmetic', async () => {
+    // The sheet stood up in the plane y = 0, twice as large: through the floor, both walls and the post.
+    const transform = { t: [0.5, 2, 18] as [number, number, number], q: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] as [number, number, number, number], s: 2 }
+    const placed: Array<[number, number, number]> = []
+    for (let n = 0; n < SHEET.vertices.length; n += 3) placed.push(apply(transform, [SHEET.vertices[n], SHEET.vertices[n + 1], SHEET.vertices[n + 2]]))
+    // Where the app's own arithmetic puts it: every point in y = 0, x from -18.5 to 19.5, z from -1 to 37.
+    for (const [, y] of placed) expect(y).toBeCloseTo(0, 9)
+    expect([Math.min(...placed.map((p) => p[0])), Math.max(...placed.map((p) => p[0])), Math.min(...placed.map((p) => p[2])), Math.max(...placed.map((p) => p[2]))].map((c) => Math.round(c * 1e6) / 1e6)).toEqual([-18.5, 19.5, -1, 37])
+    // The tub as its model makes it: a box 40 × 40 × 38 on z = 0, less a cavity 36 × 36 from z = 2, plus a post Ø6 to z = 22.
+    const inTub = ([x, y, z]: [number, number, number]): boolean => {
+      const inBox = Math.abs(x) < 20 && Math.abs(y) < 20 && z > 0 && z < 38
+      const inCavity = Math.abs(x) < 18 && Math.abs(y) < 18 && z > 2
+      const inPost = x * x + y * y < 9 && z > 2 && z < 22
+      return inBox && (!inCavity || inPost)
+    }
+    const expected = placed.filter(inTub).length
+    expect(expected).toBe(86)
+    scans = [record({ assembly: { ...TYPED, transform, scaled: true } })]
+    const { data, isError } = await call('scan_clash', { part: 'tub' })
+    expect(isError).toBe(false)
+    expect(data.inside.count).toBe(expected)
+    expect(data.points).toMatchObject({ scan: 400, touching: 0 })
+    expect(data.ignore).toEqual([])
+    // The deepest are in the post, 0.5 mm from its axis: 2.5 mm under its side.
+    expect(data.deepest.depth).toBeCloseTo(2.5, 6)
     scans = [record({ assembly: TYPED })]
   })
 })

@@ -217,12 +217,13 @@ const rgbOf = (hex: string): Rgb => [1, 3, 5].map((at) => parseInt(hex.slice(at,
 
 /**
  * What a picture's caption says of the scan it drew by distance: which, to which part, over what range, and the
- * very colours: whoever reads the picture reads distances off them. Of a part that is no solid nothing is inside.
+ * very colours: whoever reads the picture reads distances off them. They are exact at the scan's own points:
+ * between them the picture blends, so a pixel may be on neither the ramp nor the swatch. Of a part that is no solid nothing is inside.
  */
 export function colouringNote(colouring: ScanColouring, colours: DeviationColours, solid: boolean): string {
   const range = number(colouring.range)
   const key = `0 mm ${colours.near}, ${range} mm and beyond ${colours.far}`
-  return ` · scan ${colouring.scan} coloured by distance to ${colouring.part}: 0 to ${range} mm${solid ? `, inside the part marked (${key}, inside the part ${colours.inside})` : ` (${key}; ${colouring.part} is no solid, so nothing is marked as inside it)`}`
+  return ` · scan ${colouring.scan} coloured at the scan's points by distance to ${colouring.part}: 0 to ${range} mm${solid ? `, inside the part marked (${key}, inside the part ${colours.inside})` : ` (${key}; ${colouring.part} is no solid, so nothing is marked as inside it)`}`
 }
 
 /**
