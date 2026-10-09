@@ -1,0 +1,62 @@
+#!/bin/sh
+# Start torno: scripts/torno [workspace]
+#
+# Works from any directory. Installs the dependencies if they are missing,
+# builds the app if the build is missing or older than its sources, then starts
+# Electron on it. A folder given as the argument is opened as the workspace;
+# with none, torno opens the one it was last pointed at.
+set -eu
+
+# The repository is the parent of this file's folder, also when called through a symlink.
+self=$0
+while [ -L "$self" ]; do
+  target=$(readlink "$self")
+  case $target in
+    /*) self=$target ;;
+    *) self=$(dirname "$self")/$target ;;
+  esac
+done
+root=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd -P)
+app=$root/app
+
+case ${1-} in
+  -h | --help)
+    echo "usage: torno [workspace]"
+    echo "  workspace  a folder of objects to open (default: the one opened last)"
+    exit 0
+    ;;
+esac
+if [ $# -gt 1 ]; then
+  echo "torno: expected at most one argument, a workspace folder" >&2
+  exit 2
+fi
+if [ $# -eq 1 ]; then
+  if [ ! -d "$1" ]; then
+    echo "torno: not a folder: $1" >&2
+    exit 2
+  fi
+  TORNO_WORKSPACE=$(CDPATH= cd -- "$1" && pwd -P)
+  export TORNO_WORKSPACE
+fi
+
+for tool in node pnpm uv; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "torno: '$tool' was not found on PATH (see README.md, Requirements)" >&2
+    exit 1
+  fi
+done
+
+if [ ! -d "$root/node_modules" ] || [ ! -d "$app/node_modules" ]; then
+  echo "torno: installing dependencies" >&2
+  (cd "$root" && pnpm install) >&2
+fi
+
+# Built once, and again whenever a source or the build's own configuration is newer than the build.
+built=$app/out/main/index.js
+if [ ! -f "$built" ] || [ ! -f "$app/out/preload/index.js" ] || [ ! -f "$app/out/renderer/index.html" ] ||
+  [ -n "$(find "$app/src" "$app/package.json" "$app/electron.vite.config.ts" "$app/tsconfig.json" "$root/pnpm-lock.yaml" -newer "$built" -print | head -n 1)" ]; then
+  echo "torno: building the app" >&2
+  (cd "$root" && pnpm build) >&2
+fi
+
+exec "$app/node_modules/.bin/electron" "$app"

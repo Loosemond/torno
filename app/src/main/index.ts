@@ -17,7 +17,8 @@ import { Sessions } from './sessions/manager'
 //   TORNO_WORKSPACE=<path>  workspace to open at start, instead of the one remembered
 //   TORNO_CONFIG=<path>     config file to use instead of ~/.config/torno/config.json
 //   TORNO_AGENT_CMD=<cmd>   command to run for a session instead of `claude`, split on spaces
-//   TORNO_DEBUG=1           print where the MCP server is, the command line of every session and its hooks
+//   TORNO_DEBUG=1           print the workspace opened at start, where the MCP server is, and the command
+//                           line and the hooks of every session
 const isTest = process.env.TORNO_TEST === '1'
 const isDebug = process.env.TORNO_DEBUG === '1'
 
@@ -138,7 +139,9 @@ void app.whenReady().then(async () => {
   if (root) {
     // Before the window exists, so the renderer's first question finds it open.
     const source = named ? 'TORNO_WORKSPACE' : configPath
-    await openWorkspace(root).catch((e) => console.error(`${source}: cannot open ${root}: ${e.message}`))
+    await openWorkspace(root)
+      .then((info) => isDebug && console.error(`[torno] workspace ${info.root}: ${info.objects.length} objects`))
+      .catch((e) => console.error(`${source}: cannot open ${root}: ${e.message}`))
   }
   createWindow()
 })
