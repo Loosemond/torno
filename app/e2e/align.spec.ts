@@ -513,3 +513,56 @@ test('a pair’s row shows a point of a scan the size of a room uncut at a 1280 
   await page.keyboard.press('Escape')
   await expect(bar()).toHaveCount(0)
 })
+
+// Milestone 5 (M11): what the final fix wave left without a test through the window.
+test('in Pairs, Tab changes which end is asked for first, and leaves a button its own Tab', async () => {
+  await open('bracket')
+  await page.keyboard.press('l')
+  await bar().getByRole('button', { name: 'Pairs' }).click()
+  const next = bar().locator('.alignbar-next')
+  await expect(next).toHaveText(/Pair 1: click its point on the scan$/)
+  // With the focus on nothing that takes a key.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press('Tab')
+  await expect(next).toHaveText(/Pair 1: click its point on the model, or type it$/)
+  await page.keyboard.press('Tab')
+  await expect(next).toHaveText(/Pair 1: click its point on the scan$/)
+  // On a button of the bar, Tab moves the focus as everywhere, and asks for no other end.
+  await bar().getByRole('button', { name: 'Pairs' }).focus()
+  await page.keyboard.press('Tab')
+  await expect(next).toHaveText(/Pair 1: click its point on the scan$/)
+  expect(await page.evaluate(() => document.activeElement?.closest('.alignbar') !== null && document.activeElement?.textContent !== 'Pairs')).toBe(true)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press('Escape')
+  await expect(bar()).toHaveCount(0)
+})
+
+test('"Use this alignment" in another layout keeps it there as placed by hand, with no fit said', async () => {
+  await open('bracket')
+  // S1 fitted in assembly by four pairs, and aligned to nothing in print: as main keeps a fit made in the window.
+  const pairs = ([[0, 0, 0], [10, 0, 0], [0, 10, 0], [0, 0, 5]] as Vec3[]).map((scan) => ({ scan, model: [scan[0] + 3, scan[1], scan[2] + 1] as Vec3 }))
+  await app.evaluate(async (_electron, pairs) => {
+    const { scans } = (globalThis as unknown as { __tornoMain: { scans: { align(objectId: string, id: string, layout: string, alignment: object | null): Promise<unknown> } } }).__tornoMain
+    await scans.align('bracket', 'S1', 'print', null)
+    await scans.align('bracket', 'S1', 'assembly', { transform: { t: [3, 0, 1], q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs, frame: { base: [0, 0, 0], post: [0, 0, 0] }, at: new Date().toISOString() })
+  }, pairs)
+  await expect.poll(async () => (await alignment('assembly'))?.pairs?.length).toBe(4)
+  expect(await alignment('print')).toBeUndefined()
+  await page.getByRole('button', { name: 'print', exact: true }).click()
+  await expect(row('S1').locator('.chip[data-state="unaligned"]')).toHaveText('not aligned here')
+  await expect(row('S1').locator('.scan-said[data-part="start"]')).toContainText('Aligned in assembly.')
+  await row('S1').getByRole('button', { name: 'Use the alignment of S1 in assembly here' }).click()
+  await expect.poll(async () => (await alignment('print'))?.steps).toEqual(['typed'])
+  const kept = await alignment('print')
+  // Where it stands in assembly, and nothing of how it came to stand there: no pairs, no fit, no rms.
+  expect(kept.transform).toEqual({ t: [3, 0, 1], q: [0, 0, 0, 1], s: 1 })
+  expect(kept.pairs ?? []).toEqual([])
+  expect(kept.fitRms).toBeUndefined()
+  expect(kept.rms).toBeUndefined()
+  expect(kept.rough).toBeUndefined()
+  await expect(row('S1').locator('.scan-basis')).toHaveText('· by hand')
+  await expect(row('S1').locator('.scan-said[data-part="start"]')).toHaveCount(0)
+  // The fit it was taken from is as it was.
+  expect((await alignment('assembly')).pairs).toHaveLength(4)
+  expect(JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scans.json'), 'utf8')).scans[0].alignments.print.steps).toEqual(['typed'])
+})

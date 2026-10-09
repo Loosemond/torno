@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
+import { letGoText } from '../src/shared/build'
 import type { Camera, LookRequest, LookResult, ViewState } from '../src/shared/view'
 
 // The whole loop through the window: choose an object, see its parts, change
@@ -405,6 +406,19 @@ test('an object with two candidate models says what was looked for, and nothing 
   await page.getByRole('button', { name: 'bracket', exact: true }).click()
   await expect.poll(async () => (await state()).scene !== null, { timeout: 20_000 }).toBe(true)
   expect(await layerNames()).toEqual(['base', 'post'])
+})
+
+// Milestone 5 (M11): the kernel let the build go to make room for another's. No test's kernel is short of memory,
+// so main is told it was (`__tornoMain.letGo`): the status line says it in the words the tools use.
+test('an object whose build the kernel let go says so in the status line', async () => {
+  await expect.poll(async () => (await state()).build?.status, { timeout: 20_000 }).toBe('ok')
+  await expect(page.locator('.status-letgo')).toHaveCount(0)
+  await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { letGo(id: string): void } }).__tornoMain.letGo(id), 'bracket')
+  await expect.poll(async () => (await state()).build?.letGo).toBe('memory')
+  await expect(page.locator('.status-letgo[data-part="let-go"]')).toHaveText(letGoText({ status: 'ok', letGo: 'memory' })!)
+  expect(letGoText({ status: 'ok', letGo: 'memory' })).toBe('This build was let go to make room (memory): it is built again when something is asked of it.')
+  // Nothing else of the build is said otherwise: it is the one there was.
+  expect((await state()).build).toMatchObject({ objectId: 'bracket', status: 'ok', stale: false })
 })
 
 test('the workspace is written nowhere but under .torno/', async () => {

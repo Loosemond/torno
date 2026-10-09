@@ -78,6 +78,11 @@ export function marksChecks(objectId: string): { started: number; finished: numb
   return { ...(checks.get(objectId) ?? { started: 0, finished: 0 }) }
 }
 
+/** For tests: has the status of an object say that the kernel let its build go (`Builds.letGoForTest`). */
+export function letGoForTest(objectId: string): void {
+  current?.builds.letGoForTest(objectId)
+}
+
 /**
  * The scans of an object were asked for (a tool, the prompt's line): when an alignment among them was not
  * checked against the last build, it is asked for again. A check that gave up is not given up for good.

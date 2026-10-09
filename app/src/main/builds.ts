@@ -295,6 +295,14 @@ export class Builds {
     return this.kernel.query<T>(entry.obj.dir, name, args)
   }
 
+  /** For tests: as when the kernel let an object's build go to make room for another's (`letGo`), without a kernel short of memory. */
+  letGoForTest(objectId: string): void {
+    const entry = this.entries.get(objectId)
+    if (!entry || entry.letGo) return
+    entry.letGo = true
+    this.set(entry, { ...entry.state })
+  }
+
   /**
    * What the kernel says of a part, a face or an edge of the last build, for what the pointer rests on: asked
    * without ever having the object built again. A hover is no reason to build a model.

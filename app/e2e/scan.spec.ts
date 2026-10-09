@@ -344,6 +344,45 @@ test('a scan drawn solid in front of a part takes the pick, and one that is seen
   await expect(readout.locator('.pick-readout-ref')).toHaveText(/^post\/F/)
 })
 
+// Milestone 5 (M11): "Frame" on a scan's row brings it into view with the parts, without turning the view.
+test('"Frame" on its row brings a scan that stands far off into view, and does not turn the camera', async () => {
+  await row('S2').getByRole('button', { name: 'Show S2' }).click()
+  await expect.poll(async () => (await scans())[0].visible).toBe(true)
+  // The plate, 60 × 50 × 2 round (0, 0, -10) in its own frame, stood 400 mm along X: out of a view of the parts.
+  await place('S2', [400, 0, 35])
+  await expect.poll(async () => (await scans())[0].transform.t).toEqual([400, 0, 35])
+  await page.getByRole('button', { name: 'Iso', exact: true }).click()
+  const corners: Array<[number, number, number]> = [[-30, -25, -11], [30, 25, -9], [30, -25, -11], [-30, 25, -9]]
+  const drawn = () => page.evaluate((corners) => corners.map((local) => window.__tornoTest!.projectScan('S2', local)), corners)
+  const inView = (points: Array<[number, number]>): boolean => points.every(([x, y]) => x >= 0 && x <= 1 && y >= 0 && y <= 1)
+  // Once the view has come to rest on the parts: the scan is not all in it.
+  await expect.poll(async () => {
+    const { position, target } = await page.evaluate(() => window.__tornoTest!.camera())
+    return Math.hypot(...target) < 30 && position[0] > 0 && position[1] < 0
+  }).toBe(true)
+  await expect.poll(async () => inView(await drawn())).toBe(false)
+  const before = await page.evaluate(() => window.__tornoTest!.camera())
+  const towards = (camera: { position: number[]; target: number[] }): number[] => {
+    const d = camera.target.map((t, i) => t - camera.position[i])
+    const length = Math.hypot(...d)
+    return d.map((c) => c / length)
+  }
+  await row('S2').getByRole('button', { name: 'Frame S2' }).click()
+  await expect.poll(async () => inView(await drawn())).toBe(true)
+  const after = await page.evaluate(() => window.__tornoTest!.camera())
+  // Moved, not turned: it looks the same way, the same way up, through the same lens.
+  expect(after.position).not.toEqual(before.position)
+  for (const [i, c] of towards(after).entries()) expect(c).toBeCloseTo(towards(before)[i], 6)
+  for (const [i, c] of after.up.entries()) expect(c).toBeCloseTo(before.up[i], 6)
+  expect(after.ortho).toBe(before.ortho)
+  // The parts are still in it.
+  const [px, py] = await page.evaluate(() => window.__tornoTest!.project([0, 0, 0]))
+  expect(inView([[px, py]])).toBe(true)
+  // And the view is drawn as far as the scan reaches: its row has nothing to say of that.
+  expect((await scans())[0].clipped).toBe(false)
+  await expect(row('S2').locator('.chip[data-state="clipped"]')).toHaveCount(0)
+})
+
 test.describe('a large scan', () => {
   // A launch and a copy of its own: the one above is closed first, and the file's `afterAll` clears this one away.
   test.beforeAll(async () => {
