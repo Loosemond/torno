@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
-import { type Anchor, type AnchorState, type Mark, type MarkPatch, type MarksFile, type NewMark, type Replacement, type Vec3, MAIN_ONLY_KEYS, markAnchors, translated } from '../../shared/marks'
+import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type Measurement, type NewMark, type Replacement, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, markAnchors, translated } from '../../shared/marks'
 import { loadMarksFile, sanitiseMark, saveMarksFile } from './file'
 
 /** What a check of a mark against a build found (`reanchorAll`), for `MarkStore.reanchor` to write. */
@@ -41,8 +41,10 @@ interface MarkEvents {
 /** What a patch may change of any mark, and of a shape only. */
 const COMMON_KEYS = ['note', 'status', 'resolvedNote'] as const
 const SHAPE_KEYS = ['intent', 'position', 'rotation', 'size', 'shape'] as const
-/** What a mark says to the agent, of what a patch may change: a change to any of it is news. */
-const CONTENT_KEYS = ['note', ...SHAPE_KEYS] as const
+/** And of a dimension only: what it should measure. `null` takes either away. */
+const DIMENSION_KEYS = ['expected', 'tolerance'] as const
+/** What a mark says to the agent, of what a patch may change: a change to any of it is news. What a dimension measures is not among it: that is the kernel's to say, build after build. */
+const CONTENT_KEYS = ['note', ...SHAPE_KEYS, ...DIMENSION_KEYS] as const
 
 /**
  * The marks of the objects of the open workspace, and the only writer of their
@@ -114,12 +116,15 @@ export class MarkStore {
   /**
    * Keeps a new mark, as a draft: what the agent is yet to be told. One the
    * agent made itself is added as `sent`, since there is nothing to tell.
+   * `measured` is what the kernel has already said of a dimension: main's own
+   * to give, kept in the same write.
    */
-  add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft'): Promise<Mark> {
+  add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft', measured?: Measurement): Promise<Mark> {
     return this.change(objectId, (file) => {
-      // What main alone says is not taken from whoever made the mark.
-      const given = Object.fromEntries(Object.entries(Object(mark) as object).filter(([key]) => !(MAIN_ONLY_KEYS as readonly string[]).includes(key)))
-      const added = sanitiseMark({ ...given, id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
+      // What main alone says is not taken from whoever made the mark: nor, of a dimension, what it measures.
+      const mainOnly: readonly string[] = (mark as { kind?: unknown } | null)?.kind === 'dimension' ? [...MAIN_ONLY_KEYS, ...MEASURED_KEYS] : MAIN_ONLY_KEYS
+      const given = Object.fromEntries(Object.entries(Object(mark) as object).filter(([key]) => !mainOnly.includes(key)))
+      const added = sanitiseMark({ ...given, ...(mainOnly === MAIN_ONLY_KEYS ? {} : measured), id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
       if (!added) throw new Error('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
       file.next += 1
       file.marks.push(added)
@@ -128,11 +133,13 @@ export class MarkStore {
   }
 
   /**
-   * Changes the note, the status or, of a shape, what it is. `by` is who asks:
-   * a mark that becomes resolved says who resolved it.
+   * Changes the note, the status or, of a shape, what it is, or of a
+   * dimension what it should measure (its verdict is then judged anew from
+   * the value it has). `by` is who asks: a mark that becomes resolved says who
+   * resolved it.
    *
-   * A mark of the person's that the agent was sent, and whose note or shape
-   * is changed without the patch naming a status, is a draft again: the next
+   * A mark of the person's that the agent was sent, and whose note, shape or
+   * expectation is changed without the patch naming a status, is a draft again: the next
    * prompt carries it once more, as changed. A mark that is no longer
    * resolved forgets who resolved it; one the person makes a draft again
    * says that it was reopened, until it is sent. `acknowledged` can only be set, and only
@@ -147,9 +154,15 @@ export class MarkStore {
       const given = (keys: readonly (keyof MarkPatch)[]) => keys.filter((key) => asked[key] !== undefined)
       const forShape = given(SHAPE_KEYS)
       if (mark.kind !== 'shape' && forShape.length > 0) throw new Error(`${id} is a ${mark.kind}, not a shape: it has no ${forShape.join(', ')}`)
+      const forDimension = given(DIMENSION_KEYS)
+      if (mark.kind !== 'dimension' && forDimension.length > 0) throw new Error(`${id} is a ${mark.kind}, not a dimension: it has no ${forDimension.join(', ')}`)
+      const finite = (value: unknown): boolean => typeof value === 'number' && Number.isFinite(value)
+      if (asked.expected !== undefined && asked.expected !== null && !finite(asked.expected)) throw new Error('expected is a number, or null for none')
+      if (asked.tolerance !== undefined && asked.tolerance !== null && !(finite(asked.tolerance) && asked.tolerance >= 0)) throw new Error('tolerance is a number, zero or more, or null for the default')
       // Forward, to resolved from anywhere, or back to draft when asked: all but sending a resolved mark again.
       if (mark.status === 'resolved' && asked.status === 'sent') throw new Error(`${id} is resolved: reopen it as a draft before it is sent again`)
-      const changed = sanitiseMark({ ...mark, ...Object.fromEntries([...given(COMMON_KEYS), ...forShape].map((key) => [key, asked[key]])) })
+      // A null takes the expectation or the tolerance away: the sanitiser keeps neither. The verdict follows from what is left.
+      const changed = sanitiseMark({ ...mark, ...Object.fromEntries([...given(COMMON_KEYS), ...forShape, ...forDimension].map((key) => [key, asked[key]])) })
       if (!changed) throw new Error(`that is not a valid change to ${id}`)
       const said = changed as unknown as Record<string, unknown>
       const before = mark as unknown as Record<string, unknown>
@@ -245,7 +258,12 @@ export class MarkStore {
         if (!isDeepStrictEqual(markAnchors(mark), judged)) continue
         // Whatever else the mark holds is moved from where it is now: a shape may have been dragged meanwhile.
         const where = shift && anchors[0] ? translated(mark, shift) : mark
-        const anchor = anchors[0] ? { [mark.kind === 'arrow' ? 'from' : 'anchor']: anchors[0] } : {}
+        const anchor =
+          mark.kind === 'dimension'
+            ? { ...(anchors[0] ? { a: anchors[0] } : {}), ...(anchors[1] && mark.b ? { b: anchors[1] } : {}) }
+            : anchors[0]
+              ? { [mark.kind === 'arrow' ? 'from' : 'anchor']: anchors[0] }
+              : {}
         const moved = sanitiseMark({ ...where, ...anchor, anchorState, ...(checkedRevision === undefined ? {} : { checkedRevision }) })
         if (!moved) continue
         file.marks[at] = moved
@@ -253,6 +271,29 @@ export class MarkStore {
       }
       return any ? undefined : UNCHANGED
     }).then(() => {})
+  }
+
+  /**
+   * Writes what the kernel measured of a dimension: its value, how it was
+   * taken, between which points and on which build, or that it could not be
+   * measured (no value: what it had is gone). `of` is the dimension as it was
+   * measured: one whose ends have been put elsewhere since, or which is gone
+   * or no dimension, is passed over, and null returned. A check that only
+   * refreshed what its ends are on leaves them the same ends. Nothing else of
+   * the mark changes: a value measured again is not news of the mark.
+   */
+  measured(objectId: string, id: string, of: Pick<DimensionMark, 'measure' | 'a' | 'b'>, result: Measurement): Promise<Mark | null> {
+    return this.change(objectId, (file) => {
+      const at = file.marks.findIndex((m) => m.id === id)
+      const mark = file.marks[at]
+      if (mark?.kind !== 'dimension' || mark.measure !== of.measure) return UNCHANGED
+      if (!isDeepStrictEqual([mark.a.point, mark.b?.point], [of.a.point, of.b?.point])) return UNCHANGED
+      const bare = Object.fromEntries(Object.entries(mark).filter(([key]) => !(MEASURED_KEYS as readonly string[]).includes(key)))
+      const now = sanitiseMark({ ...bare, ...Object.fromEntries(MEASURED_KEYS.map((key) => [key, result[key]])) })
+      if (!now || isDeepStrictEqual(now, mark)) return UNCHANGED
+      file.marks[at] = now
+      return now
+    }).then((now) => (now === UNCHANGED ? null : now))
   }
 
   /**
@@ -314,9 +355,12 @@ export class MarkStore {
         if (!file) {
           const loaded = await loadMarksFile(dir, () => this.now())
           file = loaded.file
-          // Which build a mark was checked against is of the run that checked it: revisions count anew in
-          // this one, and a number read from the file would pass for one of them.
-          for (const mark of file.marks) delete mark.checkedRevision
+          // Which build a mark was checked against, or a dimension measured on, is of the run that did it:
+          // revisions count anew in this one, and a number read from the file would pass for one of them.
+          for (const mark of file.marks) {
+            delete mark.checkedRevision
+            if (mark.kind === 'dimension') delete mark.measuredRevision
+          }
           if (loaded.problem) this.problems.set(dir, loaded.problem)
           if (epoch === this.epoch) {
             this.files.set(dir, file)

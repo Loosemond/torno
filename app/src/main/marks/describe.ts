@@ -1,27 +1,11 @@
-import { type Anchor, type Mark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
+import { number } from '../../shared/format'
+import { expectedText, measuredValue, offBy, valueText } from '../../shared/dimension'
+import { type Anchor, type DimensionMark, type Mark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
 
 /** Marks the note of a mark the last build moved off its surface, or left without its part. */
 const ANCHOR_SUFFIX = { ok: '', drifted: ' [moved since it was placed: check it]', orphaned: ' [its part is gone]' } as const
 
-/** A length or a coordinate smaller than this is what modelling leaves where it means nothing. */
-const NOISE = 1e-6
-
-/**
- * A number with at most four significant digits and no trailing zeros, as the
- * kernel writes them in descriptors (`number` in kernel/src/torno_kernel/describe.py).
- * Millimetres are meant: a magnitude under a millionth is written `0`.
- */
-export function number(value: number): string {
-  if (!Number.isFinite(value)) return String(value)
-  if (Math.abs(value) < NOISE) return '0'
-  const decimals = 3 - Math.floor(Math.log10(Math.abs(value)))
-  if (decimals <= 0) {
-    const step = 10 ** -decimals
-    return String(Math.round(value / step) * step)
-  }
-  const text = value.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '')
-  return text === '-0' ? '0' : text
-}
+export { number }
 
 /** `(12, 40.5, 20)` */
 export function vector(v: readonly number[]): string {
@@ -40,13 +24,47 @@ export function sizes(v: readonly number[]): string {
  * moved the surface it was on or dropped its part. `tag` is said before it,
  * in brackets: what the line is news of (`changed`). Given the `revision` of
  * the last build that worked, it says so when nothing has checked the mark
- * against that build: what it says of the ref is then of an older one.
+ * against that build: what it says of the ref is then of an older one; and
+ * of a dimension, when its value was measured on another.
  */
 export function describeMark(mark: Mark, opts: { tag?: string; revision?: number } = {}): string {
   const tags = [mark.author === 'agent' ? 'yours' : '', opts.tag ?? ''].filter(Boolean).join(', ')
   const note = mark.note.replace(/\s+/g, ' ').trim()
   const unchecked = isUnchecked(mark, opts.revision) ? ` [not checked against r${opts.revision}]` : ''
-  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark)}${note ? `: "${note}"` : ''}${ANCHOR_SUFFIX[mark.anchorState]}${unchecked}`
+  // A dimension that lost an end says so in place of its value, not after its note.
+  const suffix = mark.kind === 'dimension' && mark.anchorState !== 'ok' ? '' : ANCHOR_SUFFIX[mark.anchorState]
+  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark)}${note ? `: "${note}"` : ''}${suffix}${unchecked}${measuredOn(mark, opts.revision)}`
+}
+
+/**
+ * Said after a dimension whose value is of another build than the last: the
+ * value is exact, of the geometry of that build.
+ */
+function measuredOn(mark: Mark, revision: number | undefined): string {
+  if (mark.kind !== 'dimension' || mark.status === 'resolved' || revision === undefined || revision <= 0) return ''
+  if (measuredValue(mark) === undefined || mark.measuredRevision === revision) return ''
+  return ` [measured on ${mark.measuredRevision === undefined ? 'an earlier build' : `r${mark.measuredRevision}`}, not on r${revision}]`
+}
+
+/**
+ * `distance 6 mm between planes, base/F5 to base/F0`: the kind of measurement,
+ * the value with how it was taken, and its ends; then what was expected and
+ * the verdict, with how far off and which way when it fails. Without a value
+ * it says `not measurable` in its place, and when an end was moved or lost
+ * its part nothing of the ends: only that.
+ */
+function dimension(mark: DimensionMark): string {
+  const value = measuredValue(mark)
+  if (mark.anchorState !== 'ok') return `${mark.measure}: not measurable, ${ANCHOR_SUFFIX[mark.anchorState].trim()}`
+  const end = (anchor: Anchor): string => anchor.ref ?? vector(anchor.point)
+  const ends = mark.measure === 'thickness' ? `${end(mark.a)}${mark.a.ref ? ` at ${vector(mark.a.point)}` : ''}` : mark.b ? `${end(mark.a)} to ${end(mark.b)}` : end(mark.a)
+  const expected = mark.expected === undefined ? '' : ` (expected ${expectedText(mark)}`
+  if (value === undefined) return `${mark.measure}: not measurable, ${ends}${expected && `${expected})`}`
+  // Of a radius or a diameter the way is what the thing is, which its ref says already: said only when it says which radius.
+  const round = mark.measure === 'radius' || mark.measure === 'diameter'
+  const how = !mark.how ? '' : round ? (/^(cylinder|circle|sphere)$/.test(mark.how) ? '' : ` (${mark.how})`) : ` ${mark.how}`
+  const verdict = mark.expected === undefined ? '' : `${expected}: ${mark.verdict === 'pass' ? 'pass' : `FAIL, ${offBy(value, mark.expected)}`})`
+  return `${mark.measure} ${valueText(mark.measure, value).replace(/^(⌀|R) /, '')}${how}, ${ends}${verdict}`
 }
 
 function what(mark: Mark): string {
@@ -67,6 +85,8 @@ function what(mark: Mark): string {
       return stroke(mark)
     case 'shape':
       return shape(mark)
+    case 'dimension':
+      return dimension(mark)
   }
 }
 

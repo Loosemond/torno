@@ -3,7 +3,7 @@ import { createStore } from 'zustand/vanilla'
 import type { ShapeKind } from '../../shared/marks'
 import type { GizmoMode } from '../viewport/Viewport'
 
-export type ToolName = 'select' | 'pin' | 'arrow' | 'draw' | 'shape'
+export type ToolName = 'select' | 'pin' | 'arrow' | 'draw' | 'shape' | 'measure'
 
 /** The tools of the palette, in its order. One that is not `ready` is shown, and cannot be chosen yet. */
 export const TOOLS: { name: ToolName; label: string; key: string; ready: boolean }[] = [
@@ -11,7 +11,8 @@ export const TOOLS: { name: ToolName; label: string; key: string; ready: boolean
   { name: 'pin', label: 'Pin', key: 'P', ready: true },
   { name: 'arrow', label: 'Arrow', key: 'A', ready: true },
   { name: 'draw', label: 'Draw', key: 'D', ready: true },
-  { name: 'shape', label: 'Shape', key: 'S', ready: true }
+  { name: 'shape', label: 'Shape', key: 'S', ready: true },
+  { name: 'measure', label: 'Measure', key: 'M', ready: true }
 ]
 
 export type { GizmoMode }
@@ -31,6 +32,18 @@ export const GIZMO_MODES: { mode: GizmoMode; label: string; key: string }[] = [
   { mode: 'scale', label: 'Size', key: 'T' }
 ]
 
+/** What the Measure tool takes between two picks, and of one round thing: each with the one chosen last. */
+export type BetweenMeasure = 'distance' | 'angle'
+export type RoundMeasure = 'diameter' | 'radius'
+export const BETWEEN: { measure: BetweenMeasure; label: string; title: string }[] = [
+  { measure: 'distance', label: 'Distance', title: 'Two clicks measure the distance between the two' },
+  { measure: 'angle', label: 'Angle', title: 'Two clicks measure the angle between two flat faces or straight edges' }
+]
+export const ROUND: { measure: RoundMeasure; label: string; title: string }[] = [
+  { measure: 'diameter', label: 'Diameter', title: 'A double click on a hole, a cylinder or a circle measures its diameter' },
+  { measure: 'radius', label: 'Radius', title: 'A double click on a hole, a cylinder or a circle measures its radius' }
+]
+
 interface ToolState {
   /** Which tool the pointer works as in the viewport. */
   tool: ToolName
@@ -44,10 +57,14 @@ interface ToolState {
    * `back` is the tool that is taken up again afterwards. Null for none.
    */
   replacing: { objectId: string; id: string; back: ToolName } | null
+  /** What two picks of the Measure tool measure. */
+  between: BetweenMeasure
+  /** What a double click of the Measure tool on a round thing measures. */
+  round: RoundMeasure
 }
 
 /** What the pointer does in the viewport. It changes on a click or a key, never on a pointer move. */
-export const toolStore = createStore<ToolState>(() => ({ tool: 'select', shape: 'box', gizmo: 'translate', replacing: null }))
+export const toolStore = createStore<ToolState>(() => ({ tool: 'select', shape: 'box', gizmo: 'translate', replacing: null, between: 'distance', round: 'diameter' }))
 
 export function useTool(): ToolName {
   return useZustand(toolStore, (s) => s.tool)
@@ -59,6 +76,24 @@ export function useShape(): ShapeKind {
 
 export function useGizmo(): GizmoMode {
   return useZustand(toolStore, (s) => s.gizmo)
+}
+
+export function useBetween(): BetweenMeasure {
+  return useZustand(toolStore, (s) => s.between)
+}
+
+export function useRound(): RoundMeasure {
+  return useZustand(toolStore, (s) => s.round)
+}
+
+/** Choose what two picks of the Measure tool measure: also of the pair whose second pick is pending. */
+export function setBetween(between: BetweenMeasure): void {
+  toolStore.setState({ between })
+}
+
+/** Choose what a double click of the Measure tool on a round thing measures. */
+export function setRound(round: RoundMeasure): void {
+  toolStore.setState({ round })
 }
 
 /** Choose the shape the Shape tool places from now on. */

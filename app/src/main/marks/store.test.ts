@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Anchor, Mark, MarksFile, NewMark, PinMark, Replacement, ShapeMark } from '../../shared/marks'
+import type { Anchor, DimensionMark, Mark, MarksFile, NewMark, PinMark, Replacement, ShapeMark } from '../../shared/marks'
 import * as file from './file'
 import { MarkStore } from './store'
 
@@ -652,5 +652,104 @@ describe('what is on disk', () => {
     expect(ids(await store.list('bracket'))).toEqual(['M1'])
     expect(changes).toEqual([])
     expect((await store.add('bracket', pin('kept'))).id).toBe('M2')
+  })
+})
+
+describe('a dimension', () => {
+  const TOP: Anchor = { point: [5, 3, 3], normal: [0, 0, 1], part: 'plate', ref: 'plate/F5' }
+  const BOTTOM: Anchor = { point: [5, 3, -3], normal: [0, 0, -1], part: 'plate', ref: 'plate/F0' }
+  const distance = (more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', measure: 'distance', a: TOP, b: BOTTOM, ...more }) as NewMark
+  const hole = (more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'plate', ref: 'plate/F9' }, ...more }) as NewMark
+  const EIGHT = { value: 8, how: 'cylinder', points: [[-14, 5, 0], [-6, 5, 0]] as [[number, number, number], [number, number, number]], measuredRevision: 2 }
+
+  it('is a mark like any other: the next number, a draft, written and told', async () => {
+    await store.add('bracket', pin())
+    const added = await store.add('bracket', distance())
+    expect(added).toMatchObject({ id: 'M2', kind: 'dimension', measure: 'distance', status: 'draft', anchorState: 'ok', a: TOP, b: BOTTOM })
+    expect(onDisk('bracket').marks[1]).toEqual(added)
+    expect(ids(changes.at(-1)!.marks)).toEqual(['M1', 'M2'])
+  })
+
+  it('takes what was measured from main alone: never from whoever adds it or patches it', async () => {
+    const forged = await store.add('bracket', hole({ value: 8.5, how: 'as I say', points: [[0, 0, 0], [1, 1, 1]], measuredRevision: 9, verdict: 'pass', expected: 8.5 }))
+    for (const key of ['value', 'how', 'points', 'measuredRevision', 'verdict']) expect(forged).not.toHaveProperty(key)
+    expect(forged).toMatchObject({ expected: 8.5 })
+    const patched = await store.update('bracket', 'M1', { value: 8.5, verdict: 'pass', how: 'x', note: 'the hole' } as never)
+    for (const key of ['value', 'how', 'verdict']) expect(patched).not.toHaveProperty(key)
+    // Main's own, given beside the mark, is kept: in the one write, told once.
+    changes = []
+    const measured = await store.add('bracket', hole({ value: 99 }), 'draft', EIGHT)
+    expect(measured).toMatchObject({ id: 'M2', ...EIGHT })
+    expect(changes).toHaveLength(1)
+  })
+
+  it('writes what the kernel measured of it, while its ends are those that were measured', async () => {
+    const added = (await store.add('bracket', hole({ expected: 8.5 }))) as DimensionMark
+    expect(await store.measured('bracket', 'M1', added, EIGHT)).toMatchObject({ ...EIGHT, expected: 8.5, verdict: 'fail', status: 'draft' })
+    expect(onDisk('bracket').marks[0]).toMatchObject({ value: 8, verdict: 'fail' })
+    // Not measurable: the value it had is gone, with the points and the verdict.
+    const gone = await store.measured('bracket', 'M1', added, { measuredRevision: 3 })
+    expect(gone).toMatchObject({ measuredRevision: 3, expected: 8.5 })
+    for (const key of ['value', 'how', 'points', 'verdict']) expect(gone).not.toHaveProperty(key)
+    // Its ends refreshed by a check meanwhile are still its ends: the points are the same.
+    await store.reanchor('bracket', [{ id: 'M1', judged: [added.a], anchors: [{ ...added.a, ref: 'plate/F11', descriptor: 'cylinder, radius 4' }], anchorState: 'ok', checkedRevision: 3 }])
+    expect(await store.measured('bracket', 'M1', added, EIGHT)).toMatchObject({ value: 8, a: { ref: 'plate/F11' } })
+    // A mark that is gone, or is no dimension, is passed over.
+    await store.add('bracket', pin())
+    expect(await store.measured('bracket', 'M2', added, EIGHT)).toBeNull()
+    expect(await store.measured('bracket', 'M9', added, EIGHT)).toBeNull()
+  })
+
+  it('judges anew when what it should measure or the tolerance is changed, without another measurement', async () => {
+    await store.add('bracket', hole(), 'draft', EIGHT)
+    expect(await store.update('bracket', 'M1', { expected: 8.5 })).toMatchObject({ value: 8, expected: 8.5, verdict: 'fail' })
+    expect(await store.update('bracket', 'M1', { tolerance: 0.5 })).toMatchObject({ expected: 8.5, tolerance: 0.5, verdict: 'pass' })
+    // Null puts the tolerance back to the default, and takes the expectation away.
+    const strict = await store.update('bracket', 'M1', { tolerance: null })
+    expect(strict).toMatchObject({ verdict: 'fail' })
+    expect(strict).not.toHaveProperty('tolerance')
+    const free = await store.update('bracket', 'M1', { expected: null })
+    expect(free).toMatchObject({ value: 8 })
+    expect(free).not.toHaveProperty('expected')
+    expect(free).not.toHaveProperty('verdict')
+    await expect(store.update('bracket', 'M1', { expected: 'eight' } as never)).rejects.toThrow('expected is a number')
+    await expect(store.update('bracket', 'M1', { tolerance: -0.1 })).rejects.toThrow('tolerance is a number, zero or more')
+  })
+
+  it('has no expectation on any other mark', async () => {
+    await store.add('bracket', pin())
+    await expect(store.update('bracket', 'M1', { expected: 8 })).rejects.toThrow('M1 is a pin, not a dimension: it has no expected')
+  })
+
+  it('is told again when what it should be changes, and not when it is measured again', async () => {
+    const added = (await store.add('bracket', hole(), 'draft', EIGHT)) as DimensionMark
+    await store.markSent('bracket')
+    expect(await store.measured('bracket', 'M1', added, { ...EIGHT, value: 8.2, measuredRevision: 3 })).toMatchObject({ status: 'sent', value: 8.2 })
+    expect(await store.update('bracket', 'M1', { expected: 8 })).toMatchObject({ status: 'draft', sentBefore: true, verdict: 'fail' })
+    await store.markSent('bracket')
+    expect(await store.update('bracket', 'M1', { expected: 8 })).toMatchObject({ status: 'sent' })
+    expect(await store.update('bracket', 'M1', { tolerance: 0.3 })).toMatchObject({ status: 'draft', verdict: 'pass' })
+  })
+
+  it('has both its ends refreshed by a check, and moves with them, with the points it was measured between', async () => {
+    const added = (await store.add('bracket', distance(), 'draft', { value: 6, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], measuredRevision: 1 })) as DimensionMark
+    await store.reanchor('bracket', [
+      { id: 'M1', judged: [added.a, added.b!], anchors: [{ ...TOP, point: [15, 3, 3], ref: 'plate/F7' }, { ...BOTTOM, point: [15, 3, -3], ref: 'plate/F2' }], anchorState: 'ok', shift: [10, 0, 0], checkedRevision: 2 }
+    ])
+    const [now] = (await store.list('bracket')) as DimensionMark[]
+    expect(now).toMatchObject({ a: { point: [15, 3, 3], ref: 'plate/F7' }, b: { point: [15, 3, -3], ref: 'plate/F2' }, points: [[15, 3, 3], [15, 3, -3]], value: 6, checkedRevision: 2 })
+  })
+
+  it('is not put somewhere else by a click', async () => {
+    await store.add('bracket', distance())
+    await expect(store.replace('bracket', 'M1', { anchor: ANCHOR, revision: 2, camera: CAMERA } as Replacement)).rejects.toThrow('M1 is a dimension: only a pin, a pick or an arrow is put somewhere else')
+  })
+
+  it('forgets which build it was measured on when the file is read in another run: the value stays', async () => {
+    await store.add('bracket', hole(), 'draft', EIGHT)
+    expect(onDisk('bracket').marks[0]).toMatchObject({ measuredRevision: 2 })
+    const [read] = await newStore().list('bracket')
+    expect(read).toMatchObject({ value: 8 })
+    expect(read).not.toHaveProperty('measuredRevision')
   })
 })

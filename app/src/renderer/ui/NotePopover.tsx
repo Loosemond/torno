@@ -1,3 +1,4 @@
+import { dimensionText, measuredValue } from '../../shared/dimension'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AnchorState, Mark } from '../../shared/marks'
 import { actions, store, useStore } from '../state/store'
@@ -18,6 +19,8 @@ const KEEP_CLEAR = { left: 60, top: 54, right: 12, bottom: 12 }
  */
 export function subject(mark: Mark): { ref: string; detail: string; state: AnchorState } {
   const state = mark.anchorState
+  // A dimension: its value, how it was taken, and that an end moved.
+  if (mark.kind === 'dimension') return { ref: dimensionText(mark), detail: [measuredValue(mark) === undefined ? '' : (mark.how ?? ''), state === 'ok' ? '' : ANCHOR_BADGE[state]].filter(Boolean).join(', '), state }
   const anchor = mark.kind === 'arrow' ? mark.from : mark.anchor
   const moved = state === 'ok' ? '' : ANCHOR_BADGE[state]
   const from = anchor?.ref ? `from ${anchor.ref}` : ''

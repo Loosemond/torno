@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { measuredValue } from '../../shared/dimension'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
 import { actions, store } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { labelText } from '../viewport/marks/labels'
+import { DimensionFields, VerdictIcon, shownValue } from './DimensionFields'
 import { ShapeFields } from './ShapeFields'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
 
 /** The longest note a mark keeps (main cuts there); the field stops at it, so nothing is cut unseen. */
 export const MAX_NOTE = 2000
 
-const KIND_ICON: Record<MarkKind, ReactNode> = { pin: ICONS.pin, pick: ICONS.select, arrow: ICONS.arrow, stroke: ICONS.draw, shape: ICONS.shape }
-const KIND_NAME: Record<MarkKind, string> = { pin: 'Pin', pick: 'Pick', arrow: 'Arrow', stroke: 'Stroke', shape: 'Shape' }
+const KIND_ICON: Record<MarkKind, ReactNode> = { pin: ICONS.pin, pick: ICONS.select, arrow: ICONS.arrow, stroke: ICONS.draw, shape: ICONS.shape, dimension: ICONS.measure }
+const KIND_NAME: Record<MarkKind, string> = { pin: 'Pin', pick: 'Pick', arrow: 'Arrow', stroke: 'Stroke', shape: 'Shape', dimension: 'Dimension' }
+/** What the row says of a dimension the agent has been given: it stays, with its value, until it is resolved. */
+export const PINNED = 'pinned'
 const ANCHOR_NOTE = {
   ok: '',
   drifted: 'The surface it was on has moved since it was placed',
@@ -45,7 +49,10 @@ function useLasting(on: boolean, ms: number): boolean {
  * write it), whether the last build moved the surface it is on or dropped its
  * part, whether anything has checked it against the build on show, whether
  * the agent has been sent it, and what can be done with it. A shape that is
- * the active mark opens out below into its numbers (`ShapeFields`). A mark
+ * the active mark opens out below into its numbers (`ShapeFields`). A
+ * dimension shows its value beside its number, with a tick or a cross when
+ * something is expected of it, says `pinned` once the agent has it, and opens
+ * out into what it should be (`DimensionFields`). A mark
  * the agent resolved, and the person has not yet confirmed, says so on a
  * line of its own, with the agent's note and the two things to do about it.
  * `change` and `remove` are the panel's, which says so when main refuses.
@@ -102,8 +109,10 @@ export function MarkRow({
   }
   // A shape is edited where it can be seen: in its own layout, while it is the one being worked on.
   const fields = mark.kind === 'shape' && active && !resolved && !elsewhere
+  // A dimension's numbers need no view of it: they open wherever it is the one being worked on.
+  const expects = mark.kind === 'dimension' && active && !resolved
 
-  const what = [KIND_NAME[mark.kind], mark.kind === 'shape' ? `${mark.shape}, ${mark.intent}` : '', elsewhere ? `in layout ${mark.layout}` : ''].filter(Boolean).join(' · ')
+  const what = [KIND_NAME[mark.kind], mark.kind === 'shape' ? `${mark.shape}, ${mark.intent}` : mark.kind === 'dimension' ? mark.measure : '', elsewhere ? `in layout ${mark.layout}` : ''].filter(Boolean).join(' · ')
 
   return (
     <li
@@ -115,7 +124,7 @@ export function MarkRow({
       data-elsewhere={elsewhere ? '' : undefined}
       data-hidden={partHidden ? '' : undefined}
       data-awaiting={awaiting ? '' : undefined}
-      data-expanded={fields || awaiting ? '' : undefined}
+      data-expanded={fields || expects || awaiting ? '' : undefined}
       data-replacing={replacing ? '' : undefined}
       aria-current={active ? 'true' : undefined}
       onClick={() => actions.focusMark(mark.id)}
@@ -126,6 +135,21 @@ export function MarkRow({
       <span className="mark-kind" title={what} aria-label={what} role="img">
         {mark.kind === 'shape' ? SHAPE_ICONS[mark.shape] : KIND_ICON[mark.kind]}
       </span>
+      {mark.kind === 'dimension' && (
+        <span
+          className="mark-value num"
+          data-none={measuredValue(mark) === undefined ? '' : undefined}
+          data-verdict={measuredValue(mark) === undefined ? undefined : mark.verdict}
+          title={
+            measuredValue(mark) === undefined
+              ? undefined
+              : [`${mark.value} ${mark.measure === 'angle' ? '°' : 'mm'}`, mark.how, mark.verdict === 'pass' ? 'as expected' : mark.verdict === 'fail' ? 'not what was expected' : ''].filter(Boolean).join(', ')
+          }
+        >
+          {shownValue(mark)}
+          {measuredValue(mark) !== undefined && mark.verdict && <VerdictIcon pass={mark.verdict === 'pass'} />}
+        </span>
+      )}
       {draft === null ? (
         <button
           type="button"
@@ -189,8 +213,8 @@ export function MarkRow({
       )}
       {elsewhere && <span className="mark-layout num">{mark.layout}</span>}
       {!resolved && (
-        <span className="mark-status" data-status={mark.status}>
-          {mark.status}
+        <span className="mark-status" data-status={mark.status} title={mark.kind === 'dimension' && mark.status === 'sent' ? 'The agent has it. It stays here with its value until it is resolved' : undefined}>
+          {mark.kind === 'dimension' && mark.status === 'sent' ? PINNED : mark.status}
         </span>
       )}
       <span className="mark-actions" onClick={(e) => e.stopPropagation()}>
@@ -230,6 +254,7 @@ export function MarkRow({
         </button>
       </span>
       {fields && <ShapeFields mark={mark} change={change} />}
+      {expects && <DimensionFields mark={mark} change={change} />}
       {awaiting && (
         <div className="mark-resolution" onClick={(e) => e.stopPropagation()}>
           <p className="mark-resolution-note selectable">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ShapeKind } from '../../shared/marks'
-import { SHAPES, TOOLS, setShape, setTool, useShape, useTool, type ToolName } from '../state/tools'
+import { BETWEEN, ROUND, SHAPES, TOOLS, setBetween, setRound, setShape, setTool, useBetween, useRound, useShape, useTool, type ToolName } from '../state/tools'
 import { TYPING } from './typing'
 
 /**
@@ -49,6 +49,8 @@ export function ToolPalette() {
   }, [])
 
   return (
+    <>
+    {tool === 'measure' && <MeasureChoice />}
     <div className="toolbox" role="toolbar" aria-label="Tools" aria-orientation="vertical">
       {TOOLS.map((t) =>
         t.name === 'shape' ? (
@@ -116,6 +118,39 @@ export function ToolPalette() {
           </button>
         )
       )}
+    </div>
+    </>
+  )
+}
+
+/**
+ * In the bottom corner of the viewport while the Measure tool is in hand,
+ * clear of the part: what two clicks measure, what a double click on something round
+ * measures, and the key that has no button. Each choice holds for the pair
+ * of clicks under way, and from then on.
+ */
+function MeasureChoice() {
+  const between = useBetween()
+  const round = useRound()
+  return (
+    <div className="measure-choice" role="group" aria-label="What to measure">
+      <div className="segmented" role="group" aria-label="Two clicks measure">
+        {BETWEEN.map((b) => (
+          <button key={b.measure} type="button" title={b.title} aria-pressed={b.measure === between} onClick={() => setBetween(b.measure)}>
+            {b.label}
+          </button>
+        ))}
+      </div>
+      <div className="segmented" role="group" aria-label="A double click on something round measures">
+        {ROUND.map((r) => (
+          <button key={r.measure} type="button" title={r.title} aria-pressed={r.measure === round} onClick={() => setRound(r.measure)}>
+            {r.label}
+          </button>
+        ))}
+      </div>
+      <span className="measure-key" title="Press T with the pointer on a face to measure the wall under it. Shift-click measures from a bare point">
+        <kbd className="num">T</kbd> thickness
+      </span>
     </div>
   )
 }
@@ -185,5 +220,11 @@ export const ICONS: Record<ToolName, ReactNode> = {
       <path d="m2.750 13.250.7-3L10.900 2.800a1.100 1.100 0 0 1 1.550 0l.75.750a1.100 1.100 0 0 1 0 1.550L5.750 12.550l-3 .7ZM9.750 4l2.250 2.250" />
     </Icon>
   ),
-  shape: SHAPE_ICONS.box
+  shape: SHAPE_ICONS.box,
+  // A rule, laid across: its edge and its graduations.
+  measure: (
+    <Icon>
+      <path d="M1.750 10.250 10.250 1.750l4 4-8.500 8.500-4-4ZM4.500 7.500l1.500 1.500M6.750 5.250l1 1M9 3l1.500 1.500" />
+    </Icon>
+  ),
 }

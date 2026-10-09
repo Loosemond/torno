@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { dimensionText, measuredValue } from '../../../shared/dimension'
 import type { Mark } from '../../../shared/marks'
 import { LEADER_PX, labelAnchor } from './markObjects'
 
@@ -20,7 +21,17 @@ export interface Label {
   /** The way the chip leans off its point, on screen (unit, y down), and how far it stands off, in pixels. */
   lean: [number, number]
   gap: number
+  /** Of a dimension: its value as it is written beside its number (`⌀ 8 mm`, or `—` for none), and whether that is what was expected, when something was. */
+  value?: LabelValue
 }
+
+export interface LabelValue {
+  text: string
+  verdict?: 'pass' | 'fail'
+}
+
+/** How large the chip of a label is: of its text and, for a dimension, its value beside it. */
+export type Chip = (text: string, value?: LabelValue) => { w: number; h: number }
 
 /** A label with the box of its chip, top left and size in pixels. */
 export interface Placed extends Label {
@@ -73,12 +84,16 @@ export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 
   return marks.map((mark) => {
     const anchor = labelAnchor(mark)
     const point = new THREE.Vector3().fromArray(anchor.point)
-    const base = { id: mark.id, text: labelText(mark), author: mark.author }
+    const base: Pick<Label, 'id' | 'text' | 'author' | 'value'> = { id: mark.id, text: labelText(mark), author: mark.author }
+    if (mark.kind === 'dimension') {
+      const verdict = measuredValue(mark) === undefined ? undefined : mark.verdict
+      base.value = { text: dimensionText(mark), ...(verdict ? { verdict } : {}) }
+    }
     const foot = toPx(point)
     if (!anchor.leader) return { ...base, ...foot, lean: DEFAULT_LEAN, gap: GAP_PX * unit }
 
-    // A pin's label hangs at the end of its leader, and leans the way the leader runs on screen.
-    const reach = LEADER_PX * unit * mmPerPx(camera, point, size.height)
+    // A pin's label hangs at the end of its leader, and leans the way the leader runs on screen: so does that of whatever else has one.
+    const reach = (anchor.reach ?? LEADER_PX) * unit * mmPerPx(camera, point, size.height)
     const end = toPx(point.clone().addScaledVector(new THREE.Vector3().fromArray(anchor.leader), reach))
     const run = Math.hypot(end.x - foot.x, end.y - foot.y)
     // Seen end on, the leader is a point: the chip goes above the pin, clear of its dot.
@@ -93,12 +108,12 @@ export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 
  * about its point, then moved further out. `chip` says how large the chip of a
  * text is. Labels are placed in the order given, so the first keeps its place.
  */
-export function place(labels: Label[], chip: (text: string) => { w: number; h: number }, size: Size, unit = 1): Placed[] {
+export function place(labels: Label[], chip: Chip, size: Size, unit = 1): Placed[] {
   const placed: Placed[] = []
   const pad = SPACING_PX * unit
   const points = labels.filter((l) => l.visible)
   for (const label of labels) {
-    const { w, h } = chip(label.text)
+    const { w, h } = chip(label.text, label.value)
     const boxAt = (turn: number, ring: number): Placed['box'] => {
       const dx = label.lean[0] * Math.cos(turn) - label.lean[1] * Math.sin(turn)
       const dy = label.lean[0] * Math.sin(turn) + label.lean[1] * Math.cos(turn)

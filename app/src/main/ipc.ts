@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
-import type { Described } from '../shared/geometry'
+import type { Described, MeasureArgs, Measured } from '../shared/geometry'
 import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
@@ -14,6 +14,7 @@ import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
 import { type Retrying, asPlaced, asReplaced, followMarks, reanchorAll, retrying } from './marks/reanchor'
+import { addDimension, measure, remeasure } from './marks/measure'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
@@ -26,7 +27,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:stop,
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
-//           marks:dismissProblem, geometry:describe
+//           marks:dismissProblem, geometry:describe, geometry:measure
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight (sent by src/main/look.ts),
@@ -349,13 +350,24 @@ export function registerIpc(
   ipcMain.handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
   // A mark made in the window is the person's. The agent's come through its tools, which call the store themselves.
   // What only main says of a mark is said here: how far its part is spread on the build it was placed on.
-  ipcMain.handle('marks:add', (_event, objectId: string, mark: NewMark) =>
-    requireMarks().add(String(objectId), placedMark({ ...mark, author: 'user' }, String(objectId)))
-  )
+  // A dimension is measured as it is kept (`addDimension`): its value is the kernel's, never the window's.
+  const measuring = (store: MarkStore) => ({ marks: store, query: queryObject, scene: lastScene })
+  ipcMain.handle('marks:add', (_event, objectId: string, mark: NewMark) => {
+    const placed = placedMark({ ...mark, author: 'user' }, String(objectId))
+    return placed.kind === 'dimension' ? addDimension(measuring(requireMarks()), String(objectId), placed) : requireMarks().add(String(objectId), placed)
+  })
   // Whoever resolves a mark from the window is the person.
-  ipcMain.handle('marks:update', (_event, objectId: string, id: string, patch: MarkPatch) =>
-    requireMarks().update(String(objectId), String(id), patch, 'user')
-  )
+  ipcMain.handle('marks:update', async (_event, objectId: string, id: string, patch: MarkPatch) => {
+    const store = requireMarks()
+    const changed = await store.update(String(objectId), String(id), patch, 'user')
+    // What a dimension should measure was changed: its verdict is already judged anew from the value it has.
+    // A value of an older build than the last, or none, is measured again, and the verdict follows it.
+    const expects = typeof patch === 'object' && patch !== null && (patch.expected !== undefined || patch.tolerance !== undefined)
+    if (expects && changed.kind === 'dimension' && changed.status !== 'resolved' && changed.measuredRevision !== lastScene(String(objectId))?.revision) {
+      void remeasure(measuring(store), String(objectId), changed)
+    }
+    return changed
+  })
   ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))
   ipcMain.handle('marks:replace', async (_event, objectId: string, id: string, placed: Replacement) => {
     const store = requireMarks()
@@ -376,6 +388,9 @@ export function registerIpc(
       throw new Error(e instanceof Error ? e.message : String(e))
     }
   })
+
+  // An exact measurement of an object's last good build, between refs or points of a layout.
+  ipcMain.handle('geometry:measure', (_event, objectId: string, args: MeasureArgs): Promise<Measured> => measure(queryObject, String(objectId), args))
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

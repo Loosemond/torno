@@ -13,6 +13,8 @@ import { DESCRIBE_WITHIN_MS, within } from './Tool'
  */
 export function commitMark(objectId: string, mark: NewMark): Promise<Mark> {
   return window.torno.marks.add(objectId, mark).catch((e: unknown) => {
+    // A dimension the kernel would not measure: the Measure tool says why at the pointer, and nothing is left to dismiss.
+    if (mark.kind === 'dimension') throw e
     actions.setMarksProblem({ objectId, message: `The mark was not kept: ${e instanceof Error ? e.message : String(e)}` })
     throw e
   })

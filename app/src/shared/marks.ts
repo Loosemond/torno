@@ -79,16 +79,45 @@ export interface ShapeMark extends MarkBase {
   size: Vec3               // box: x y z; cylinder: diameter, diameter, height; sphere: diameter ×3; plane: width, height, 0
   anchor?: Anchor          // where it was first placed
 }
-export type Mark = PinMark | PickMark | ArrowMark | StrokeMark | ShapeMark
+export type MeasureKind = 'distance' | 'angle' | 'radius' | 'diameter' | 'thickness'
+/**
+ * A measurement that stays: an exact value from the kernel between its ends,
+ * and, when the person says what it should be, whether it is. Like any mark
+ * it is a draft until the agent has been given it; while it is not resolved
+ * it is "pinned": it stays in the list with its value.
+ */
+export interface DimensionMark extends MarkBase {
+  kind: 'dimension'
+  measure: MeasureKind
+  a: Anchor                 // first end; for radius, diameter and thickness the only one
+  b?: Anchor                // second end, for distance and angle
+  value?: number            // mm or degrees, as last measured by the kernel; absent when not measurable
+  how?: string              // "between planes" | "axis to axis" | "point to plane" | "minimum" | "wall, along the normal" | ...
+  measuredRevision?: number // this run's build it was last asked of the kernel on, measurable or not (dropped on load, like checkedRevision)
+  expected?: number
+  tolerance?: number        // default 0.05 mm, 0.1°
+  verdict?: 'pass' | 'fail' // present when expected is set and value is known
+  points?: [Vec3, Vec3]     // the two points the value was taken between, for drawing the dimension line
+}
+export type Mark = PinMark | PickMark | ArrowMark | StrokeMark | ShapeMark | DimensionMark
 export type MarkKind = Mark['kind']
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 /** What main alone says of a mark: no caller supplies these. */
 export const MAIN_ONLY_KEYS = ['resolvedBy', 'acknowledged', 'sentBefore', 'reopened', 'checkedRevision'] as const
+/** What main alone says of a dimension: what the kernel measured, on which build, and the verdict. No caller supplies these either. */
+export const MEASURED_KEYS = ['value', 'how', 'points', 'measuredRevision', 'verdict'] as const
+/** What the kernel's measurement leaves on a dimension (`MEASURED_KEYS`). */
+export type Measurement = Pick<DimensionMark, (typeof MEASURED_KEYS)[number]>
+type Given<M> = M extends DimensionMark ? Omit<M, (typeof MEASURED_KEYS)[number]> : M
 /** What a caller supplies; main adds id, status, anchorState, createdAt, and what only it says. */
-export type NewMark = DistributiveOmit<Mark, 'id' | 'status' | 'anchorState' | 'createdAt' | (typeof MAIN_ONLY_KEYS)[number]>
+export type NewMark = DistributiveOmit<Given<Mark>, 'id' | 'status' | 'anchorState' | 'createdAt' | (typeof MAIN_ONLY_KEYS)[number]>
 /** `acknowledged` may only be set, and only on a mark the agent resolved. */
 export type MarkPatch = Partial<Pick<MarkBase, 'note' | 'status' | 'resolvedNote' | 'acknowledged'>> &
-  Partial<Pick<ShapeMark, 'intent' | 'position' | 'rotation' | 'size' | 'shape'>>
+  Partial<Pick<ShapeMark, 'intent' | 'position' | 'rotation' | 'size' | 'shape'>> & {
+    /** Of a dimension: what it should measure, and how far off it may be. Null takes the expectation away, or puts the tolerance back to its default. */
+    expected?: number | null
+    tolerance?: number | null
+  }
 export interface MarksFile { next: number; marks: Mark[] }
 /** Where a mark is put again, by a click on a part: the anchor found there, on which build and from which view. */
 export interface Replacement { anchor: Anchor; revision: number; camera: Camera }
@@ -110,6 +139,8 @@ export function markAnchors(mark: Mark): Anchor[] {
       return [mark.from]
     case 'shape':
       return mark.anchor ? [mark.anchor] : []
+    case 'dimension':
+      return mark.b ? [mark.a, mark.b] : [mark.a]
   }
 }
 
@@ -148,7 +179,8 @@ const moved = (p: Vec3, by: Vec3): Vec3 => [p[0] + by[0], p[1] + by[1], p[2] + b
 /**
  * A mark with everything it holds in the frame of its layout moved by `by`:
  * its anchor's point, an arrow's end, the points of a stroke on the surface,
- * the origin of a stroke's plane, a shape's position. Used when the part it
+ * the origin of a stroke's plane, a shape's position, both ends of a
+ * dimension and the points its value was taken between. Used when the part it
  * is on is spread otherwise than it was (`Anchor.arranged`).
  */
 export function translated<M extends Mark>(mark: M, by: Vec3): M {
@@ -169,5 +201,7 @@ export function translated<M extends Mark>(mark: M, by: Vec3): M {
       } as M
     case 'shape':
       return { ...m, position: moved(m.position, by), ...(m.anchor ? { anchor: at(m.anchor) } : {}) } as M
+    case 'dimension':
+      return { ...m, a: at(m.a), ...(m.b ? { b: at(m.b) } : {}), ...(m.points ? { points: [moved(m.points[0], by), moved(m.points[1], by)] } : {}) } as M
   }
 }

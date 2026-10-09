@@ -1,6 +1,7 @@
 import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Anchor, Mark, MarksFile, Quat, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
+import { verdictOf } from '../../shared/dimension'
+import type { Anchor, DimensionMark, Mark, MarksFile, Quat, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import { MAX_STROKE_POINTS, MIN_SHAPE_SIZE } from '../../shared/marks'
 import { writeFileAtomic } from '../atomic'
@@ -174,9 +175,43 @@ export function sanitiseMark(value: unknown): Mark | null {
       if (!position || !rotation || !size) return null
       return { ...base, kind: 'shape', shape: value.shape, intent: value.intent, position, rotation, size: shapeSize(value.shape, size), ...(anchor ? { anchor } : {}) }
     }
+    case 'dimension':
+      return dimensionOf(base, value)
     default:
       return null
   }
+}
+
+/** The longest account of how a value was taken that a dimension keeps. */
+export const MAX_HOW = 120
+
+/**
+ * A dimension: a kind of measurement this version knows, its first end, and a
+ * second where the measurement is taken between two (any other has one end,
+ * and a second is left out). What was measured is kept as far as it can be
+ * what it says: the way and the points only with a value. The verdict is not
+ * read: it is what the value, the expectation and the tolerance make it.
+ */
+function dimensionOf(base: Omit<DimensionMark, 'kind' | 'measure' | 'a'>, value: Record<string, unknown>): DimensionMark | null {
+  if (!oneOf(value.measure, ['distance', 'angle', 'radius', 'diameter', 'thickness'] as const)) return null
+  const a = anchorOf(value.a)
+  const between = value.measure === 'distance' || value.measure === 'angle'
+  const b = between ? anchorOf(value.b) : null
+  if (!a || (between && !b)) return null
+  const mark: DimensionMark = { ...base, kind: 'dimension', measure: value.measure, a, ...(b ? { b } : {}) }
+  if (isNumber(value.value)) {
+    mark.value = value.value
+    if (typeof value.how === 'string') mark.how = value.how.slice(0, MAX_HOW)
+    const from = Array.isArray(value.points) && value.points.length === 2 ? tuple<Vec3>(value.points[0], 3) : null
+    const to = from ? tuple<Vec3>((value.points as unknown[])[1], 3) : null
+    if (from && to) mark.points = [from, to]
+  }
+  if (isNumber(value.measuredRevision)) mark.measuredRevision = value.measuredRevision
+  if (isNumber(value.expected)) mark.expected = value.expected
+  if (isNumber(value.tolerance) && value.tolerance >= 0) mark.tolerance = value.tolerance
+  const verdict = verdictOf(mark)
+  if (verdict) mark.verdict = verdict
+  return mark
 }
 
 /**

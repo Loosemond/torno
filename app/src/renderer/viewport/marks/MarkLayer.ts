@@ -1,15 +1,20 @@
 import * as THREE from 'three'
 import { type Mark, type ShapeMark, type Vec3, markAnchors } from '../../../shared/marks'
-import { mmPerPx, place, project, type Placed, type Size } from './labels'
+import { mmPerPx, place, project, type Chip, type Placed, type Size } from './labels'
 import { build, dispose, markPoints, rescale, setActive, type MarkColours } from './markObjects'
 
 /**
  * A mark as it is while the pointer is still making it: a pin where it was
  * clicked, an arrow being dragged, a stroke being drawn (its points in the
- * object frame, wherever it is drawn). Drawn like the person's marks, fainter,
+ * object frame, wherever it is drawn), a measurement between two clicks. Drawn like the person's marks, fainter,
  * and with no number: it is not a mark until main has kept it.
  */
-export type Draft = { kind: 'pin'; point: Vec3; normal: Vec3 | null } | { kind: 'arrow'; from: Vec3; to: Vec3 } | { kind: 'stroke'; points: Vec3[] }
+export type Draft =
+  | { kind: 'pin'; point: Vec3; normal: Vec3 | null }
+  | { kind: 'arrow'; from: Vec3; to: Vec3 }
+  | { kind: 'stroke'; points: Vec3[] }
+  /** A measurement under way: its first end, and the line to where the second would be; `to` null while there is only the first. */
+  | { kind: 'dimension'; from: Vec3; to: Vec3 | null }
 
 /** How much of a mark's colour a draft has. */
 const DRAFT_OPACITY = 0.7
@@ -152,8 +157,8 @@ export class MarkLayer {
   /** Sizes what is measured in pixels for a view: `camera` with its matrices up to date, `size` in pixels, `unit` pixels to a nominal one. */
   update(camera: THREE.Camera, size: Size, unit = 1): void {
     const scale = (at: THREE.Vector3): number => mmPerPx(camera, at, size.height)
-    for (const entry of this.entries.values()) if (entry.object.visible) rescale(entry.object, scale, unit)
-    if (this.draft?.object.visible) rescale(this.draft.object, scale, unit)
+    for (const entry of this.entries.values()) if (entry.object.visible) rescale(entry.object, scale, unit, camera)
+    if (this.draft?.object.visible) rescale(this.draft.object, scale, unit, camera)
   }
 
   /**
@@ -161,7 +166,7 @@ export class MarkLayer {
    * other. Those of marks on the parts switched off are left out: the parts
    * as `show` was last told, or `hidden` for a view that draws other parts.
    */
-  labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: (text: string) => { w: number; h: number }, hidden?: ReadonlySet<string>): Placed[] {
+  labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: Chip, hidden?: ReadonlySet<string>): Placed[] {
     return place(project(this.marksOf(layout, hidden), camera, size, unit), chip, size, unit)
   }
 
@@ -223,6 +228,8 @@ export function onHidden(mark: Mark, hidden: ReadonlySet<string>): boolean {
 /** Everything of a mark that changes how it is drawn, as one string: a note or a status does not. */
 function drawnAsOf(mark: Mark): string {
   const { note: _note, status: _status, resolvedNote: _resolvedNote, createdAt: _createdAt, camera: _camera, revision: _revision, sentBefore: _sentBefore, reopened: _reopened, checkedRevision: _checkedRevision, ...drawn } = mark
+  // Nor which build a dimension was measured on.
+  if (drawn.kind === 'dimension') delete drawn.measuredRevision
   return JSON.stringify(drawn)
 }
 
@@ -236,6 +243,10 @@ function asMark(draft: Draft): Mark {
       return { ...base, kind: 'arrow', from: { point: draft.from }, to: draft.to }
     case 'stroke':
       return { ...base, kind: 'stroke', space: 'surface', anchor: { point: draft.points[0] ?? [0, 0, 0] }, points: draft.points }
+    case 'dimension':
+      // Its first end alone is a dot; with a second, the line a dimension between the two would be drawn as.
+      if (!draft.to) return { ...base, kind: 'pick', target: 'face', anchor: { point: draft.from } }
+      return { ...base, kind: 'dimension', measure: 'distance', a: { point: draft.from }, b: { point: draft.to }, points: [draft.from, draft.to] }
   }
 }
 

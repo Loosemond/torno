@@ -51,8 +51,8 @@ While iterating run the focused test; run all four suites before a commit.
 
 ## Marks
 
-- A mark is a pin, a pick, an arrow, a stroke or a shape, with a note
-  (`app/src/shared/marks.ts`). Ids are `M1`, `M2`, … per object, never reused,
+- A mark is a pin, a pick, an arrow, a stroke, a shape or a dimension, with a
+  note (`app/src/shared/marks.ts`). Ids are `M1`, `M2`, … per object, never reused,
   given by main only.
 - Main is the only writer of `<object>/.torno/marks.json`
   (`src/main/marks/store.ts`): one change at a time per object, written
@@ -94,6 +94,20 @@ While iterating run the focused test; run all four suites before a commit.
   `resolvedBy`, `acknowledged`, `sentBefore`, `reopened`, `checkedRevision`) is never
   taken from the window or from a tool's arguments. A mark the agent resolved
   stays in the panel's main list until the person acknowledges it.
+- A dimension is a mark that holds an exact value: a distance or an angle
+  between its two ends (`a`, `b`), or a radius, a diameter or a wall thickness
+  at its one. Main measures it with the kernel's `measure` as it is kept
+  (`src/main/marks/measure.ts`: each end goes with its ref and its point, an
+  end with no ref as a bare point), and one the kernel refuses is not kept.
+  `value`, `how`, `points`, `measuredRevision` and `verdict` (`MEASURED_KEYS`)
+  are main's alone, like `MAIN_ONLY_KEYS`. The verdict is never stored on
+  anyone's word: the sanitiser works it out (`shared/dimension.ts`: pass when
+  `|value − expected| <= tolerance`, 0.05 mm or 0.1° when none is given). A
+  changed `expected` or `tolerance` is news of the mark (`(changed)`); a value
+  measured again is not. Its ends are judged like pins. A dimension whose ends
+  moved or lost their part, or that has no value, is never given one anywhere:
+  it says `not measurable` (`measuredValue`). Unresolved, it is "pinned".
+  Numbers shown are written by `shared/format.ts` `number`, on both sides.
 - The MCP tools (`src/main/mcp/tools.ts`, and those that place and resolve
   marks in `mcp/markTools.ts`): `scene`, `look`, `marks`, `describe`,
   `highlight`, `show`, `add_mark`, `resolve_mark`. `show` changes
@@ -107,8 +121,9 @@ While iterating run the focused test; run all four suites before a commit.
   nothing else in the UI uses those colours. A picture for the agent draws
   every mark alike: no active mark, no selection, no hover, no gizmo. A mark
   on a part that is not drawn is not drawn either, on screen or in a picture.
-- Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape; `G`,
-  `R`, `T` for the gizmo of the active shape. A tool is a `Tool`
+- Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `M`
+  measure (`T` there: the wall under the pointer); `G`, `R`, `T` for the gizmo
+  of the active shape. A tool is a `Tool`
   (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.

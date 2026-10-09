@@ -154,9 +154,10 @@ const withSpread = (anchor: Anchor, arranged: Vec3 | null): Anchor => {
   return arranged ? { ...rest, arranged: [arranged[0], arranged[1], arranged[2]] } : rest
 }
 
-/** A mark, or what a mark is put on again, with `change` made to the anchor that ties it to the geometry. */
+/** A mark, or what a mark is put on again, with `change` made to the anchor that ties it to the geometry: to both ends of a dimension. */
 function withAnchor<M extends Mark | NewMark>(mark: M, change: (anchor: Anchor) => Anchor): M {
   if (mark.kind === 'arrow') return { ...mark, from: change(mark.from) }
+  if (mark.kind === 'dimension') return { ...mark, a: change(mark.a), ...(mark.b ? { b: change(mark.b) } : {}) }
   return mark.anchor ? { ...mark, anchor: change(mark.anchor) } : mark
 }
 
@@ -233,7 +234,7 @@ export interface ReanchorDeps {
  * its edge ref, and is ok only while the build has an edge of that number
  * within the tolerance of the mark's point: the kernel measures that distance.
  * Otherwise it is drifted, whatever the surface did. A pin on an edge:
- * `judgePin`.
+ * `judgePin`; each end of a dimension is judged as a pin is.
  *
  * A stroke on the surface is anchored by its first point, and is more than
  * that point: a few points along it (`strokeSamples`) are asked about in the
@@ -254,7 +255,9 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
     const now = primary?.part === undefined ? null : spreadOf(scene, original.layout, primary.part)
     if (!primary || now === null) return { original, shift: null, mark: original }
     const shift = shiftOf(primary, now)
-    return { original, shift, mark: withAnchor(shift ? translated(original, shift) : original, (anchor) => withSpread(anchor, now)) }
+    // A dimension moves as one, with the part of its first end; each end then says how its own part is spread.
+    const spread = (anchor: Anchor): Vec3 | null => (anchor.part === primary.part ? now : anchor.part === undefined ? null : spreadOf(scene, original.layout, anchor.part))
+    return { original, shift, mark: withAnchor(shift ? translated(original, shift) : original, (anchor) => withSpread(anchor, spread(anchor))) }
   })
   const marks = checked.map((one) => one.mark)
 
@@ -274,7 +277,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       if (anchor.part === undefined) continue
       const entries = byLayout.get(mark.layout) ?? []
       byLayout.set(mark.layout, entries)
-      const edge = mark.kind === 'pin' ? edgeOfPin(anchor) : edgeRef(mark)
+      const edge = likePin(mark) ? edgeOfPin(anchor) : edgeRef(mark)
       entries.push({ mark, anchor, asked: { part: anchor.part, point: anchor.point, ...(edge === undefined ? {} : { edge }) } })
       const names = scene.parts.filter((p) => p.layout === mark.layout).map((p) => p.name)
       const parts = names.length <= STROKE_PARTS && names.includes(anchor.part) ? names : [anchor.part]
@@ -309,7 +312,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
         return
       }
       nearest.set(anchor, said)
-      judged.set(anchor, (mark.kind === 'pin' ? judgePin : judge)(anchor, said, toleranceOf(layout, anchor.part)))
+      judged.set(anchor, (likePin(mark) ? judgePin : judge)(anchor, said, toleranceOf(layout, anchor.part)))
     })
     let at = entries.length
     for (const sample of samples) {
@@ -385,6 +388,11 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
   if (changes.length > 0) await deps.marks.reanchor(objectId, changes)
   if (failures.length > 0) (deps.log ?? console.error)(`cannot check the marks of ${objectId} against its last build: ${failures.join('; ')}`)
   return failures.length === 0
+}
+
+/** Whether a mark's anchors are judged as a pin's is (`judgePin`): a pin, and each end of a dimension, which is on a face or on an edge as a pin is. */
+function likePin(mark: Mark): boolean {
+  return mark.kind === 'pin' || mark.kind === 'dimension'
 }
 
 /** The edge a mark was put on, as its anchor names it: of a pick of an edge whose ref is one of its part's edges. */

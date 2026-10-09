@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Anchor, ArrowMark, Mark, MarksFile, NewMark, PinMark, ShapeMark, StrokeMark } from '../../shared/marks'
+import type { Anchor, ArrowMark, DimensionMark, Mark, MarksFile, NewMark, PinMark, ShapeMark, StrokeMark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import * as file from './file'
@@ -610,6 +610,72 @@ describe('reanchorAll', () => {
       expect(await run()).toBe(false)
       expect((await byId()).M1).toMatchObject({ anchorState: 'ok' })
       expect((await byId()).M1).not.toHaveProperty('checkedRevision')
+    })
+  })
+
+  describe('a dimension', () => {
+    const UNDER: Anchor = { point: [5, 3, -2.5], normal: [0, 0, -1], part: 'base', ref: 'base/F0' }
+    const ON_EDGE: Anchor = { point: [20, 3, 2.5], part: 'base', ref: 'base/E5' }
+    const between = (a: Anchor, b?: Anchor, more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', measure: b ? 'distance' : 'diameter', a, ...(b ? { b } : {}), ...more }) as NewMark
+
+    it('has both its ends asked about, each found again by where it is, and says the build it was checked against', async () => {
+      await store.add('bracket', between(ON_TOP, UNDER))
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part, point }) => found(part, point[2] > 0 ? 'base/F7' : 'base/F2', 0, { normal: [0, 0, Math.sign(point[2])] })) })
+      revision = 2
+      expect(await run()).toBe(true)
+      expect(anchorsOf(asked[0].args)).toEqual([{ part: 'base', point: [5, 3, 2.5] }, { part: 'base', point: [5, 3, -2.5] }])
+      const kept = (await byId()).M1 as DimensionMark
+      expect(kept).toMatchObject({ anchorState: 'ok', checkedRevision: 2, a: { point: [5, 3, 2.5], ref: 'base/F7' }, b: { point: [5, 3, -2.5], ref: 'base/F2' } })
+    })
+
+    it('is as bad as the worse of its ends: drifted when one is off its surface, orphaned when the part of one is gone', async () => {
+      await store.add('bracket', between(ON_TOP, UNDER)) // M1
+      await store.add('bracket', between(ON_TOP, ON_POST)) // M2
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part, point }) => (part === 'post' ? { part, found: false } : found(part, 'base/F1', point[2] > 0 ? 0 : 3))) })
+      await run()
+      const marks = await byId()
+      expect(marks.M1.anchorState).toBe('drifted')
+      expect(marks.M2.anchorState).toBe('orphaned')
+      // The end that lost its part is kept as it was, to be found again if the part comes back.
+      expect((marks.M2 as DimensionMark).b).toEqual({ ...ON_POST, arranged: [0, 0, 0] })
+    })
+
+    it('an end on an edge is judged like a pin on one: on the edge the kernel finds its point on, whatever its number now', async () => {
+      await store.add('bracket', between(ON_EDGE, UNDER))
+      answer = (_name, args) => ({
+        anchors: anchorsOf(args).map(({ part, point }) =>
+          point[2] > 0
+            ? { ...found(part, 'base/F1', 0), edgeFound: true, edgeDistance: 12, edgeDescriptor: 'line, 30 mm', support: 'edge', edgeUnder: 'base/E9', edgeUnderDescriptor: 'line, 31 mm', between: ['base/F1', 'base/F6'] }
+            : found(part, 'base/F0', 0)
+        )
+      })
+      await run()
+      expect((asked[0].args.anchors as object[])[0]).toEqual({ part: 'base', point: [20, 3, 2.5], edge: 'base/E5' })
+      const kept = (await byId()).M1 as DimensionMark
+      expect(kept.a).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E9', edge: 'base/E9', between: ['base/F1', 'base/F6'], descriptor: 'line, 31 mm', arranged: [0, 0, 0] })
+      expect(kept.anchorState).toBe('ok')
+    })
+
+    it('an end that is a bare point is on no part: never asked about, always where it is', async () => {
+      await store.add('bracket', between({ point: [0, 0, 40] }, UNDER))
+      await run()
+      expect(anchorsOf(asked[0].args)).toEqual([{ part: 'base', point: [5, 3, -2.5] }])
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', a: { point: [0, 0, 40] }, checkedRevision: 1 })
+    })
+
+    it('moves with its part when the build spreads that otherwise, with the points it was measured between', async () => {
+      scene = sceneOf(['print:base'])
+      ;(scene.parts[0] as { arranged?: number[] }).arranged = [0, 0, 0]
+      const placed = asPlaced(between(ON_TOP, UNDER, { layout: 'print' }), { revision: 1, scene })
+      expect((placed as DimensionMark).a.arranged).toEqual([0, 0, 0])
+      expect((placed as DimensionMark).b!.arranged).toEqual([0, 0, 0])
+      await store.add('bracket', placed, 'draft', { value: 5, how: 'between planes', points: [[5, 3, 2.5], [5, 3, -2.5]], measuredRevision: 1 })
+      scene = sceneOf(['print:base'])
+      ;(scene.parts[0] as { arranged?: number[] }).arranged = [30, 0, 0]
+      revision = 2
+      await run()
+      const kept = (await byId()).M1 as DimensionMark
+      expect(kept).toMatchObject({ a: { point: [35, 3, 2.5], arranged: [30, 0, 0] }, b: { point: [35, 3, -2.5], arranged: [30, 0, 0] }, points: [[35, 3, 2.5], [35, 3, -2.5]], value: 5 })
     })
   })
 

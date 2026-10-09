@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ArrowMark, Mark, MarksFile, PickMark, PinMark, ShapeMark, StrokeMark } from '../../shared/marks'
+import type { ArrowMark, DimensionMark, Mark, MarksFile, PickMark, PinMark, ShapeMark, StrokeMark } from '../../shared/marks'
 import { markAnchors } from '../../shared/marks'
 import * as atomic from '../atomic'
 import { loadMarksFile, MAX_NOTE, MAX_STROKE_POINTS, sanitiseMark, saveMarksFile } from './file'
@@ -306,5 +306,80 @@ describe('the anchors of a mark', () => {
     expect(markAnchors(arrow)).toEqual([ANCHOR])
     expect(markAnchors(shape)).toEqual([])
     expect(markAnchors({ ...shape, anchor: ANCHOR } as ShapeMark)).toEqual([ANCHOR])
+  })
+})
+
+describe('a dimension', () => {
+  const TOP = { point: [5, 3, 3], normal: [0, 0, 1], part: 'plate', ref: 'plate/F5', descriptor: 'plane, normal +Z, z = 3, 1100 mm²' }
+  const BOTTOM = { point: [5, 3, -3], normal: [0, 0, -1], part: 'plate', ref: 'plate/F0' }
+  const distance = (over: object = {}): DimensionMark =>
+    ({ ...BASE, id: 'M7', kind: 'dimension', measure: 'distance', a: TOP, b: BOTTOM, value: 6, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], measuredRevision: 3, ...over }) as DimensionMark
+  const hole = (over: object = {}): DimensionMark =>
+    ({ ...BASE, id: 'M8', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'plate', ref: 'plate/F9' }, value: 8, how: 'cylinder', points: [[-14, 5, 0], [-6, 5, 0]], ...over }) as DimensionMark
+
+  it('round trips, measured or not, with or without what it should be', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'torno-dimension-'))
+    const marks = [distance(), hole({ expected: 8.5, tolerance: 0.1, verdict: 'fail' }), distance({ id: 'M9', value: undefined, how: undefined, points: undefined, measuredRevision: undefined })].map((m) => JSON.parse(JSON.stringify(m)))
+    await saveMarksFile(dir, { next: 10, marks })
+    expect(await loadMarksFile(dir)).toEqual({ file: { next: 10, marks } })
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('has the anchors of both its ends, or of its one', () => {
+    expect(markAnchors(distance())).toEqual([TOP, BOTTOM])
+    expect(markAnchors(hole())).toEqual([hole().a])
+  })
+
+  it('needs a kind of measurement this version knows, a first end, and a second where it is taken between two', () => {
+    expect(sanitiseMark(distance({ measure: 'clearance' }))).toBeNull()
+    expect(sanitiseMark(distance({ a: undefined }))).toBeNull()
+    expect(sanitiseMark(distance({ b: undefined }))).toBeNull()
+    expect(sanitiseMark({ ...distance(), measure: 'angle', b: { point: [1, 2, NaN] } })).toBeNull()
+    // One end is all a diameter, a radius or a thickness has: a second says nothing.
+    expect(sanitiseMark(hole({ b: BOTTOM }))).not.toHaveProperty('b')
+  })
+
+  it('says pass or fail itself, from the value, what was expected and the tolerance: whatever it is told', () => {
+    expect(sanitiseMark(hole({ expected: 8.5 }))).toMatchObject({ verdict: 'fail' })
+    expect(sanitiseMark(hole({ expected: 8.5, verdict: 'pass' }))).toMatchObject({ verdict: 'fail' })
+    expect(sanitiseMark(hole({ expected: 8.04, verdict: 'fail' }))).toMatchObject({ verdict: 'pass' })
+    expect(sanitiseMark(hole({ verdict: 'pass' }))).not.toHaveProperty('verdict')
+    expect(sanitiseMark(hole({ value: undefined, expected: 8 }))).not.toHaveProperty('verdict')
+  })
+
+  it('passes at the tolerance itself, and fails just beyond it', () => {
+    const verdict = (value: number, expected: number, tolerance?: number, measure = 'diameter') => (sanitiseMark(hole({ measure, value, expected, tolerance })) as DimensionMark).verdict
+    // 8.05 - 8 is 0.05000000000000071 in floating point.
+    expect(verdict(8.05, 8)).toBe('pass')
+    expect(verdict(7.95, 8)).toBe('pass')
+    expect(verdict(8.0501, 8)).toBe('fail')
+    expect(verdict(7.9499, 8)).toBe('fail')
+    expect(verdict(8.3, 8, 0.3)).toBe('pass')
+    expect(verdict(8.31, 8, 0.3)).toBe('fail')
+    expect(verdict(8, 8, 0)).toBe('pass')
+    // Of an angle the default is a tenth of a degree.
+    expect((sanitiseMark(distance({ measure: 'angle', value: 45.1, expected: 45 })) as DimensionMark).verdict).toBe('pass')
+    expect((sanitiseMark(distance({ measure: 'angle', value: 45.11, expected: 45 })) as DimensionMark).verdict).toBe('fail')
+    expect((sanitiseMark(distance({ value: 6.06, expected: 6 })) as DimensionMark).verdict).toBe('fail')
+  })
+
+  it('keeps of what was measured only what it can be: no points or way without a value, no tolerance below zero', () => {
+    expect(sanitiseMark(hole({ value: 'eight' }))).toEqual(sanitiseMark(hole({ value: undefined, how: undefined, points: undefined })))
+    expect(sanitiseMark(hole({ points: [[0, 0, 0]] }))).not.toHaveProperty('points')
+    expect(sanitiseMark(hole({ tolerance: -1 }))).not.toHaveProperty('tolerance')
+    expect(sanitiseMark(hole({ expected: Infinity }))).not.toHaveProperty('expected')
+    expect((sanitiseMark(hole({ how: 'x'.repeat(500) })) as DimensionMark).how).toHaveLength(120)
+  })
+
+  it('of a kind of measurement from a later version is set aside like a mark of an unknown kind, and the others kept', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'torno-dimension-'))
+    mkdirSync(join(dir, '.torno'))
+    writeFileSync(join(dir, '.torno', 'marks.json'), JSON.stringify({ next: 9, marks: [pin(), distance({ measure: 'clearance' }), JSON.parse(JSON.stringify(hole()))] }))
+    const { file, problem } = await loadMarksFile(dir, () => new Date('2026-10-09T12:00:00.000Z'))
+    expect(file.marks.map((m) => m.id)).toEqual(['M1', 'M8'])
+    expect(file.next).toBe(9)
+    expect(problem).toContain('1 mark in the marks file of this object was not of a kind this version of torno can read')
+    expect(readdirSync(join(dir, '.torno')).some((name) => name.startsWith('marks.json.dropped-'))).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
   })
 })

@@ -7,6 +7,7 @@ import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState }
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { arrowTool } from '../tools/arrowTool'
 import { drawTool } from '../tools/drawTool'
+import { measureTool } from '../tools/measureTool'
 import { commitMark, replaceMark } from '../tools/pickMarks'
 import { pinTool } from '../tools/pinTool'
 import { selectTool } from '../tools/selectTool'
@@ -141,7 +142,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // The one pointer subscription: every event goes to the tool in use, and to
   // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
-  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool() }
+  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), measure: measureTool() }
   let tool = tools[toolStore.getState().tool]
   const putDown = () => {
     tool?.cancel(context())
