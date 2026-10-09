@@ -212,9 +212,20 @@ describe('a session', () => {
       TORNO_WORKSPACE: '/x',
       TORNO_DEBUG: '1',
       TORNO_SHOTS: '/x',
+      // What a Claude Code session exports to what it starts.
       CLAUDECODE: '1',
+      CLAUDE_CODE_CHILD_SESSION: '1',
       CLAUDE_CODE_ENTRYPOINT: 'cli',
-      CLAUDE_CODE_SSE_PORT: '1',
+      CLAUDE_CODE_EXECPATH: '/x',
+      CLAUDE_CODE_MESSAGING_SOCKET: '/x',
+      CLAUDE_CODE_MESSAGING_TOKEN: 'x',
+      CLAUDE_CODE_SESSION_ATTENDED: '1',
+      CLAUDE_CODE_SESSION_ID: 'x',
+      CLAUDE_EFFORT: 'high',
+      CLAUDE_PID: '1',
+      // What a person sets on purpose.
+      CLAUDE_CODE_USE_BEDROCK: '1',
+      CLAUDE_CODE_OAUTH_TOKEN: 'kept',
       CLAUDE_CONFIG_DIR: '/kept',
       ANTHROPIC_KEPT_FOR_TEST: 'kept'
     }
@@ -226,9 +237,10 @@ describe('a session', () => {
       await expect.poll(() => said(sessionId)).toMatch(/env: (\[.*?\])\r?\n/)
       const names: string[] = JSON.parse(/env: (\[.*?\])\r?\n/.exec(said(sessionId))![1])
       expect(names.filter((name) => name.startsWith('TORNO'))).toEqual(['TORNO_OBJECT', 'TORNO_SESSION_ID'])
-      expect(names.filter((name) => name === 'CLAUDECODE' || name.startsWith('CLAUDE_CODE_'))).toEqual([])
+      // Of Claude Code's, only the marks of a parent session are withheld: the person's own settings pass.
+      expect(names.filter((name) => name.startsWith('CLAUDE')).sort()).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CONFIG_DIR'])
       // Everything else is passed on.
-      for (const name of ['ANTHROPIC_KEPT_FOR_TEST', 'CLAUDE_CONFIG_DIR', 'HOME', 'PATH']) expect(names).toContain(name)
+      for (const name of ['ANTHROPIC_KEPT_FOR_TEST', 'HOME', 'PATH']) expect(names).toContain(name)
     } finally {
       for (const [name, value] of Object.entries(before)) {
         if (value === undefined) delete process.env[name]
