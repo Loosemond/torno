@@ -7,12 +7,14 @@ import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
 import { labelAnchor, markPoints } from './marks/markObjects'
 import type { Placed } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
-import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayUnit, type LabelStyle } from './overlay'
+import { chipSize, drawLabels, overlayFonts, type LabelStyle } from './overlay'
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
-import { type Hit, pickParts, pointerRay } from './picking'
+import { type Hit, pickParts } from './picking'
+import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
+import { PointerRouter, type ViewportPointer } from './pointer'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
-import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection, visibleHeight } from './views'
+import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
 
 export interface LayerState {
   visible?: boolean
@@ -40,64 +42,19 @@ interface Theme {
   axisZ: string
 }
 
-export type { GizmoMode, ShapeTransform }
+export type { GizmoMode, ImageRequest, Picture, ShapeTransform, ViewportPointer }
 
 type AnyCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
 
-/** What to draw for a picture: a view, a layout and the keys of the parts to show. `size` is the long edge in pixels. */
-export interface ImageRequest {
-  view: 'current' | ViewName | Camera
-  layout: string
-  visibleKeys: string[]
-  size?: number
-  /** Whether the marks of the layout are drawn, with their numbers. True when left out. */
-  marks?: boolean
-}
-
-export interface Picture {
-  png: Uint8Array
-  width: number
-  height: number
-  caption: string
-}
 type Vec3 = [number, number, number]
-
-/**
- * The pointer over the canvas. `hit` is what it is on, among the parts shown;
- * null while a drag turns the camera. A `click` follows the `up` of a press
- * released where it was made; `cancel` says the pointer left or was taken away.
- */
-export interface ViewportPointer {
-  type: 'move' | 'down' | 'up' | 'click' | 'cancel'
-  hit: Hit | null
-  /** Where the pointer looks along, in the object frame. */
-  ray: { origin: Vec3; direction: Vec3 }
-  client: [number, number]
-  buttons: number
-  shift: boolean
-  /** Alt is held: a tool that takes every press leaves this one to the camera. */
-  alt: boolean
-}
 
 /** The light values of styles/tokens.css, used where no stylesheet is loaded. */
 const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C', user: '#CF3F2C', panel: '#FAF9F6', axisX: '#9A3350', axisY: '#4C7F2C', axisZ: '#2E5FA9' }
-
-/** A press released within this many pixels and milliseconds of where and when it was made is a click, not a drag. */
-const CLICK_PX = 4
-const CLICK_MS = 400
-const POINTER_EVENTS = ['pointermove', 'pointerdown', 'pointerup', 'pointercancel', 'pointerleave'] as const
 
 const SETTLE_MS = 150
 const MOVE_MS = 240
 /** How far a stale part's colour is taken towards the background. */
 const STALE_FADE = 0.6
-/** Long edge of a picture for the agent, in pixels. */
-const MAX_IMAGE = 2000
-const DEFAULT_IMAGE = 1280
-const MIN_IMAGE = 64
-const NAMED_ASPECT = 4 / 3
-/** How much larger the number of a mark is in a picture than on screen: a picture is read at a glance, and often scaled down first. */
-const PICTURE_CHIP = 1.3
 /** What `fit` and the named views frame when no part is shown. */
 const EMPTY_BOX = { min: [-50, -50, 0], max: [50, 50, 50] }
 
@@ -148,23 +105,13 @@ export class Viewport {
   private readonly labelCanvas: HTMLCanvasElement | null
   /** The gizmo on the shape being edited. */
   private readonly gizmo: ShapeGizmo
-  /** The tool has been told the pointer is the gizmo's. */
-  private gizmoHasPointer = false
-  private pointerListener: ((e: ViewportPointer) => void) | null = null
-  /** Whether the camera is the pointer's to move, as last asked; whether the wheel zooms while it is not; and whether a button is down on the canvas. */
-  private navigation = true
-  private wheelZooms = false
-  private held = false
-  /** The left button's press, until it is released: where and when. */
-  private press: { x: number; y: number; at: number } | null = null
-
-  private imageTargets: { width: number; height: number; drawn: THREE.WebGLRenderTarget; encoded: THREE.WebGLRenderTarget } | null = null
-  private readonly encoder = new Encoder()
+  private readonly pointer: PointerRouter
+  private readonly pictures: PictureMaker
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
-    // Pictures for the agent are encoded by hand to match these two (see Encoder).
+    // Pictures for the agent are encoded by hand to match these two (see Encoder in picture.ts).
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.NoToneMapping
 
@@ -210,20 +157,47 @@ export class Viewport {
         this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
         this.invalidate()
       },
-      dragging: (on) => {
-        // The drag is the gizmo's, not the orbit's.
-        if (on) this.controls.enabled = false
-        else if (!this.held) this.controls.enabled = this.navigation
-      },
+      dragging: (on) => this.pointer.gizmoDragging(on),
       redraw: () => this.invalidate()
     })
     this.scene.add(...this.gizmo.objects)
 
-    for (const type of POINTER_EVENTS) canvas.addEventListener(type, this.onPointerEvent)
-    canvas.addEventListener('wheel', this.onWheel, { passive: false })
-    // A button let go beside the canvas, or the window left mid-drag: the canvas is told of neither.
-    window.addEventListener('pointerup', this.onReleasedAnywhere)
-    window.addEventListener('blur', this.onReleasedAnywhere)
+    // After the orbit and the gizmo, whose listeners on the canvas are to run before its own.
+    this.pointer = new PointerRouter({
+      canvas,
+      orbit: this.controls,
+      gizmo: this.gizmo,
+      camera: () => this.camera,
+      canvasPoint: (x, y) => this.canvasPoint(x, y),
+      pick: (x, y) => this.pick(x, y),
+      syncMatrices: () => this.syncMatrices(),
+      view: () => this.getCamera(),
+      setView: (c) => {
+        this.move = null
+        this.applyCamera(c)
+      }
+    })
+    this.pictures = new PictureMaker({
+      renderer: this.renderer,
+      scene: this.scene,
+      marks: this.marks,
+      highlights: this.highlights,
+      closed: () => this.disposed,
+      layouts: () => this.layouts,
+      layout: () => this.layout,
+      aspect: () => this.aspect,
+      parts: () => this.entries.values(),
+      currentView: () => this.getCamera(),
+      namedView: (name, parts, aspect) => this.namedCamera(name, boxOf(parts) ?? EMPTY_BOX, aspect, true),
+      cameraFor: (view, aspect, extent) => this.pictureCamera(view, aspect, extent),
+      hiddenParts: (layout, drawn) => this.hiddenParts(layout, drawn),
+      hideGizmo: () => this.gizmo.hide(),
+      layGround: (layout) => this.rebuildGround(layout),
+      groundExtent: () => this.groundExtent,
+      tintPicks: (layout) => this.tintPicks(layout),
+      showMarks: () => this.showMarks(),
+      colours: () => ({ ...this.labelStyle(), muted: this.theme.muted })
+    })
 
     // Without preventDefault the browser never restores a lost context.
     canvas.addEventListener('webglcontextlost', this.onContextLost)
@@ -532,7 +506,7 @@ export class Viewport {
    * whoever calls this routes the events on, and a second call replaces the first.
    */
   onPointer(cb: (e: ViewportPointer) => void): void {
-    this.pointerListener = cb
+    this.pointer.listen(cb)
   }
 
   /**
@@ -543,10 +517,7 @@ export class Viewport {
    * the wheel zooming: a long stroke is drawn across more than one zoom.
    */
   setNavigation(enabled: boolean, opts: { wheel?: boolean } = {}): void {
-    this.navigation = enabled
-    this.wheelZooms = !enabled && opts.wheel === true
-    this.gizmo.setEnabled(enabled) // a tool that drags has the pointer to itself: no handle lights up under it
-    if (!enabled || !this.held) this.controls.enabled = enabled
+    this.pointer.setNavigation(enabled, opts)
   }
 
   /**
@@ -555,7 +526,7 @@ export class Viewport {
    * the view under them waits.
    */
   pointerBusy(): boolean {
-    return this.held || this.gizmo.dragging
+    return this.pointer.busy
   }
 
   /** Calls back 150 ms after the camera stops moving, however it was moved. */
@@ -574,127 +545,8 @@ export class Viewport {
    * after every wait that comes before it: what it reads then (the scene on
    * show, its revision) is what the picture is of.
    */
-  async renderImage(request: ImageRequest | (() => ImageRequest)): Promise<Picture> {
-    // Before anything is drawn: nothing below may wait between hiding parts and restoring them.
-    await overlayFonts()
-    if (this.disposed) throw new Error('The viewport is closed')
-    if (this.renderer.getContext().isContextLost()) throw new Error('The 3D view has lost its graphics context; try again in a moment')
-    const req = typeof request === 'function' ? request() : request
-    if (!this.layouts.includes(req.layout)) {
-      const known = this.layouts.length > 0 ? `the layouts are ${this.layouts.join(', ')}` : 'nothing has been built yet'
-      throw new Error(`No layout "${req.layout}": ${known}`)
-    }
-    const aspect = req.view === 'current' ? this.aspect : NAMED_ASPECT
-    const size = typeof req.size === 'number' && Number.isFinite(req.size) ? req.size : DEFAULT_IMAGE
-    const long = Math.round(Math.min(Math.max(size, MIN_IMAGE), MAX_IMAGE))
-    const width = aspect >= 1 ? long : Math.max(1, Math.round(long * aspect))
-    const height = aspect >= 1 ? Math.max(1, Math.round(long / aspect)) : long
-
-    const wanted = new Set(req.visibleKeys)
-    const shown = [...this.entries.values()].filter((e) => e.part.layout === req.layout && wanted.has(e.part.key))
-    const box = boxOf(shown.map((e) => e.part)) ?? EMPTY_BOX
-
-    let view: Camera
-    let viewName: string
-    if (req.view === 'current') {
-      view = this.getCamera()
-      viewName = 'current'
-    } else if (typeof req.view === 'string') {
-      view = this.namedCamera(req.view, box, aspect, true)
-      viewName = req.view
-    } else {
-      view = req.view
-      viewName = 'custom'
-    }
-
-    const withMarks = req.marks !== false
-    // A mark on a part the picture leaves out is left out with it.
-    const notDrawn = this.hiddenParts(req.layout, wanted)
-    const unit = overlayUnit(width, height)
-    const otherLayout = req.layout !== this.layout
-
-    // Everything from here to the end of `finally` is synchronous, so no frame on screen sees it.
-    const before = new Map([...this.entries.values()].map((e) => [e, e.built.group.visible]))
-    this.highlights.setVisible(false) // a picture is of the parts and the marks, not of what the person points at
-    const showGizmo = this.gizmo.hide() // nor of what they hold a shape by
-    const active = this.marks.activeId // nor of which mark they are working on: every mark is drawn alike
-    const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
-    // Fat lines take their width in pixels from the renderer's viewport, which is the
-    // canvas's whatever is being drawn to: for the picture it is the picture's size.
-    const onScreen = this.renderer.getViewport(new THREE.Vector4())
-    let pixels: Uint8ClampedArray<ArrayBuffer>
-    try {
-      this.renderer.setViewport(0, 0, width, height)
-      for (const entry of this.entries.values()) entry.built.group.visible = false
-      for (const entry of shown) entry.built.group.visible = true
-      let extent = otherLayout ? this.rebuildGround(req.layout) : this.groundExtent
-      this.marks.setActive(null)
-      this.marks.show(withMarks ? req.layout : null, notDrawn)
-      this.marks.showDraft(false) // not a mark yet
-      if (withMarks) {
-        extent = this.marks.extend(extent.clone(), req.layout)
-        this.highlights.setVisible(true, MARK_LAYERS)
-        // Of the marks the picture draws: other parts may be switched on in it than on screen.
-        this.tintPicks(req.layout)
-      }
-
-      camera.up.fromArray(view.up)
-      camera.position.fromArray(view.position)
-      camera.zoom = view.zoom
-      const target = new THREE.Vector3().fromArray(view.target)
-      camera.lookAt(target)
-      setProjection(camera, target, view.fov, aspect, extent)
-      this.aimKeyLight(camera, target)
-      // In the picture's own pixels: a dot is as large a share of a big picture as of a small one.
-      this.marks.update(camera, { width, height }, unit)
-
-      const targets = this.targetsFor(width, height)
-      this.renderer.setRenderTarget(targets.drawn)
-      this.renderer.render(this.scene, camera)
-      this.encoder.render(this.renderer, targets.drawn.texture, targets.encoded)
-      pixels = new Uint8ClampedArray(width * height * 4)
-      this.renderer.readRenderTargetPixels(targets.encoded, 0, 0, width, height, pixels)
-    } finally {
-      this.renderer.setViewport(onScreen)
-      this.renderer.setRenderTarget(null)
-      for (const [entry, visible] of before) entry.built.group.visible = visible
-      showGizmo()
-      this.highlights.setVisible(true)
-      this.marks.setActive(active)
-      this.showMarks() // sized for the screen again by the next frame drawn
-      this.marks.showDraft(true)
-      if (otherLayout) this.rebuildGround(this.layout)
-      if (withMarks) this.tintPicks(this.layout)
-    }
-
-    const picture = new OffscreenCanvas(width, height)
-    const ctx = picture.getContext('2d')
-    if (!ctx) throw new Error('Could not get a 2D canvas to compose the picture')
-    ctx.putImageData(new ImageData(pixels, width, height), 0, 0)
-    camera.updateMatrixWorld()
-    const m = camera.matrixWorld.elements
-    drawOverlay(ctx, {
-      width,
-      height,
-      right: [m[0], m[1], m[2]],
-      up: [m[4], m[5], m[6]],
-      mmPerPx: view.ortho ? visibleHeight(view) / height : null,
-      ink: this.theme.ink,
-      muted: this.theme.muted,
-      surface: this.theme.surface
-    })
-    if (withMarks) {
-      // With the camera of the picture, which for a named view is not the one on screen.
-      const labels = this.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP), notDrawn)
-      drawLabels(ctx, labels, this.labelStyle(), unit * PICTURE_CHIP)
-    }
-    const blob = await picture.convertToBlob({ type: 'image/png' })
-    const png = new Uint8Array(await blob.arrayBuffer())
-
-    const names = shown.map((e) => e.part.name).join(', ') || 'none'
-    const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names} · ${projection} · ${width}×${height}`
-    return { png, width, height, caption }
+  renderImage(request: ImageRequest | (() => ImageRequest)): Promise<Picture> {
+    return this.pictures.render(request)
   }
 
   /** Matches the drawing buffer to the canvas's size on the page. Call when the canvas is resized. */
@@ -719,11 +571,7 @@ export class Viewport {
     clearTimeout(this.settleTimer)
     this.settledListeners.length = 0
     this.drawnListeners.clear()
-    this.pointerListener = null
-    for (const type of POINTER_EVENTS) this.canvas.removeEventListener(type, this.onPointerEvent)
-    this.canvas.removeEventListener('wheel', this.onWheel)
-    window.removeEventListener('pointerup', this.onReleasedAnywhere)
-    window.removeEventListener('blur', this.onReleasedAnywhere)
+    this.pointer.dispose()
     this.scheme?.removeEventListener('change', this.onSchemeChange)
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored)
@@ -736,9 +584,7 @@ export class Viewport {
     this.labelCanvas?.remove()
     this.ground.geometry.dispose()
     this.ground.material.dispose()
-    this.imageTargets?.drawn.dispose()
-    this.imageTargets?.encoded.dispose()
-    this.encoder.dispose()
+    this.pictures.dispose()
     this.renderer.dispose()
   }
 
@@ -800,68 +646,6 @@ export class Viewport {
     setProjection(this.camera, this.controls.target, this.fov, this.aspect, this.extent)
     this.camera.updateMatrixWorld()
     this.scene.updateMatrixWorld()
-  }
-
-  private readonly onPointerEvent = (e: PointerEvent): void => {
-    const kind = e.type === 'pointermove' ? 'move' : e.type === 'pointerdown' ? 'down' : e.type === 'pointerup' ? 'up' : 'cancel'
-    const press = this.press
-    if (kind === 'down') this.press = e.button === 0 ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null
-    else if (kind !== 'move') this.press = null
-    this.held = e.buttons !== 0
-    if (!this.held && !this.gizmo.dragging) this.controls.enabled = this.navigation
-    // Over a handle of the gizmo, or in a press that began on one, the pointer is the gizmo's: the tool is told once that it has gone.
-    const gizmos = this.gizmo.takes(kind, e.buttons)
-    const cb = this.pointerListener
-    const at = this.canvasPoint(e.clientX, e.clientY)
-    if (!cb || !at) return
-
-    if (gizmos) {
-      if (!this.gizmoHasPointer) cb({ type: 'cancel', hit: null, ray: pointerRay(this.camera, at.ndc), client: [e.clientX, e.clientY], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey })
-      this.gizmoHasPointer = true
-      return
-    }
-    this.gizmoHasPointer = false
-
-    // Nothing is pointed at while a drag turns the camera.
-    const turning = kind === 'move' && e.buttons !== 0 && this.controls.enabled
-    const hit = kind === 'cancel' || turning ? null : this.pick(e.clientX, e.clientY)
-    this.syncMatrices()
-    const event = { hit, ray: pointerRay(this.camera, at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey }
-    cb({ type: kind, ...event })
-    const still = press && e.button === 0 && Math.hypot(e.clientX - press.x, e.clientY - press.y) <= CLICK_PX && e.timeStamp - press.at <= CLICK_MS
-    if (kind === 'up' && still) cb({ type: 'click', ...event })
-  }
-
-  private readonly onReleasedAnywhere = (e: Event): void => {
-    if (e.type === 'blur' || (e as PointerEvent).buttons === 0) this.held = false
-  }
-
-  /**
-   * The wheel while a tool has the pointer and asked to keep it zooming: the
-   * orbit is switched off then, and takes no wheel in the middle of a drag in
-   * any case. Zooms as the orbit does, by the same step; an orthographic
-   * camera keeps what is under the pointer where it is, a perspective one
-   * comes nearer its target. The camera is not turned.
-   */
-  private readonly onWheel = (e: WheelEvent): void => {
-    if (this.navigation || !this.wheelZooms || e.deltaY === 0) return
-    e.preventDefault()
-    const by = 0.95 ** (Math.abs(e.deltaY) * 0.01 * (e.deltaMode === 1 ? 16 : 1)) // lines to pixels, as the orbit takes them
-    const closer = e.deltaY < 0 ? 1 / by : by
-    const c = this.getCamera()
-    const at = this.canvasPoint(e.clientX, e.clientY)
-    this.move = null
-    if (!c.ortho || !at) {
-      const position = c.position.map((p, i) => c.target[i] + (p - c.target[i]) / closer) as Vec3
-      return this.applyCamera({ ...c, position })
-    }
-    this.syncMatrices()
-    const { origin, direction } = pointerRay(this.camera, at.ndc)
-    // The pointer's place on the plane through the target that faces the camera.
-    const off = origin.map((o, i) => o - c.target[i])
-    const depth = off[0] * direction[0] + off[1] * direction[1] + off[2] * direction[2]
-    const shift = off.map((o, i) => (o - direction[i] * depth) * (1 - 1 / closer))
-    this.applyCamera({ ...c, zoom: c.zoom * closer, position: c.position.map((p, i) => p + shift[i]) as Vec3, target: c.target.map((t, i) => t + shift[i]) as Vec3 })
   }
 
   private applyLook(entry: Entry): void {
@@ -1053,6 +837,19 @@ export class Viewport {
     this.keyLight.target.updateMatrixWorld()
   }
 
+  /** A camera of its own for a picture of a view, with its frustum around `extent`; the key light is aimed along it. */
+  private pictureCamera(view: Camera, aspect: number, extent: THREE.Sphere): AnyCamera {
+    const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
+    camera.up.fromArray(view.up)
+    camera.position.fromArray(view.position)
+    camera.zoom = view.zoom
+    const target = new THREE.Vector3().fromArray(view.target)
+    camera.lookAt(target)
+    setProjection(camera, target, view.fov, aspect, extent)
+    this.aimKeyLight(camera, target)
+    return camera
+  }
+
   // ---- drawing ----
 
   /** Asks for one frame. Any number of changes before it share that frame. */
@@ -1097,66 +894,6 @@ export class Viewport {
     drawLabels(ctx, labels, this.labelStyle(), 1, this.marks.activeId)
   }
 
-  private targetsFor(width: number, height: number): NonNullable<Viewport['imageTargets']> {
-    const have = this.imageTargets
-    if (have && have.width === width && have.height === height) return have
-    have?.drawn.dispose()
-    have?.encoded.dispose()
-    this.imageTargets = {
-      width,
-      height,
-      // Linear light, so half floats: eight bits would band in the shadows.
-      drawn: new THREE.WebGLRenderTarget(width, height, { samples: 4, type: THREE.HalfFloatType }),
-      encoded: new THREE.WebGLRenderTarget(width, height, { depthBuffer: false })
-    }
-    return this.imageTargets
-  }
-}
-
-/**
- * Turns a render target's picture into what the screen would show. three.js
- * writes linear light into a render target and applies the output colour space
- * only when drawing to the canvas; read back as it is, the picture comes out
- * dark. This pass applies the sRGB curve (the renderer uses sRGB output and no
- * tone mapping) and flips the rows, since a read-back starts at the bottom row.
- */
-class Encoder {
-  private readonly material = new THREE.ShaderMaterial({
-    uniforms: { map: { value: null as THREE.Texture | null } },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main() {
-        vUv = vec2(uv.x, 1.0 - uv.y);
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }`,
-    fragmentShader: /* glsl */ `
-      uniform sampler2D map;
-      varying vec2 vUv;
-      void main() {
-        gl_FragColor = vec4(sRGBTransferOETF(texture2D(map, vUv)).rgb, 1.0);
-      }`,
-    depthTest: false,
-    depthWrite: false
-  })
-  private readonly quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material)
-  private readonly camera = new THREE.Camera()
-
-  constructor() {
-    this.quad.frustumCulled = false
-  }
-
-  /** Leaves `to` as the renderer's current target. */
-  render(renderer: THREE.WebGLRenderer, from: THREE.Texture, to: THREE.WebGLRenderTarget): void {
-    this.material.uniforms.map.value = from
-    renderer.setRenderTarget(to)
-    renderer.render(this.quad, this.camera)
-    this.material.uniforms.map.value = null
-  }
-
-  dispose(): void {
-    this.quad.geometry.dispose()
-    this.material.dispose()
-  }
 }
 
 /**
@@ -1183,20 +920,6 @@ function setProjection(camera: AnyCamera, target: THREE.Vector3, fovDeg: number,
     camera.far = reach + radius
   }
   camera.updateProjectionMatrix()
-}
-
-let fontsLoaded: Promise<unknown> | undefined
-
-/**
- * The faces the overlay is set in, loaded once. A canvas does not wait for a
- * web font: text drawn before it has arrived comes out in the fallback face.
- */
-function overlayFonts(): Promise<unknown> {
-  if (typeof document === 'undefined' || !document.fonts) return Promise.resolve()
-  fontsLoaded ??= Promise.all(
-    ['12px "IBM Plex Mono"', '600 12px "IBM Plex Mono"', '12px "IBM Plex Sans"'].map((font) => document.fonts.load(font))
-  ).catch(() => {}) // a face that cannot be loaded leaves the fallback, as before
-  return fontsLoaded
 }
 
 /** The box around some parts, in the object frame, or null for none. */

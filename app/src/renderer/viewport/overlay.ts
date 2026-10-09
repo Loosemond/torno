@@ -249,3 +249,17 @@ export function drawLabels(
   }
   ctx.restore()
 }
+
+let fontsLoaded: Promise<unknown> | undefined
+
+/**
+ * The faces the overlay is set in, loaded once. A canvas does not wait for a
+ * web font: text drawn before it has arrived comes out in the fallback face.
+ */
+export function overlayFonts(): Promise<unknown> {
+  if (typeof document === 'undefined' || !document.fonts) return Promise.resolve()
+  fontsLoaded ??= Promise.all(
+    ['12px "IBM Plex Mono"', '600 12px "IBM Plex Mono"', '12px "IBM Plex Sans"'].map((font) => document.fonts.load(font))
+  ).catch(() => {}) // a face that cannot be loaded leaves the fallback, as before
+  return fontsLoaded
+}
