@@ -265,3 +265,65 @@ def test_a_process_that_is_told_to_end_leaves_no_half_written_mesh(tmp_path):
         process.kill()
         process.communicate()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["writing"]
+
+
+def test_a_file_that_says_in_its_head_how_many_triangles_it_has_is_refused_before_it_is_read(tmp_path, capsys, monkeypatch):
+    import trimesh
+
+    def read(*args, **kwargs):
+        raise AssertionError("it was read")
+
+    monkeypatch.setattr(scans, "MAX_SOURCE_TRIANGLES", 11)
+    monkeypatch.setattr(trimesh, "load", read)
+    binary = tmp_path / "binary.ply"
+    trimesh.Trimesh(*BOX, process=False).export(str(binary))
+    assert b"format binary_little_endian" in binary.read_bytes()[:64]
+    for source in (scanfix.write_stl(tmp_path / "box.stl", *BOX), scanfix.write_ply(tmp_path / "box.ply", *BOX), binary):
+        assert scans.declared(source) == 12
+        status, said = run(capsys, "import", source, tmp_path / "mesh.bin")
+        assert status == 1 and said == {"ok": False, "error": {"kind": "too_large", "message": f"{source.name} has more than 11 triangles"}}
+        assert "hashing" not in capsys.readouterr().err
+    assert not (tmp_path / "mesh.bin").exists()
+
+
+def test_what_a_file_does_not_say_in_its_head_is_not_guessed(tmp_path):
+    assert scans.declared(scanfix.write_obj(tmp_path / "box.obj", *BOX)) is None
+    assert scans.declared(scanfix.write_glb(tmp_path / "box.glb", *BOX)) is None
+    # An STL in text, one cut short, a PLY with no end to its head or no faces named: none says.
+    (tmp_path / "text.stl").write_text("solid box\n" + "facet normal 0 0 1\n outer loop\n  vertex 0 0 0\n  vertex 1 0 0\n  vertex 0 1 0\n endloop\nendfacet\n" * 12 + "endsolid box\n")
+    (tmp_path / "short.stl").write_bytes(b"\0" * 50)
+    (tmp_path / "endless.ply").write_bytes(b"ply\nformat ascii 1.0\nelement face 12\n" + b"comment \n" * 20000)
+    (tmp_path / "cloud.ply").write_text("ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nend_header\n0\n")
+    (tmp_path / "odd.ply").write_text("ply\nformat ascii 1.0\nelement face many\nend_header\n")
+    for name in ("text.stl", "short.stl", "endless.ply", "cloud.ply", "odd.ply", "none.stl"):
+        assert scans.declared(tmp_path / name) is None, name
+
+
+def test_a_file_of_several_meshes_with_too_many_triangles_is_refused_before_any_is_worked_on(tmp_path, capsys, monkeypatch):
+    import trimesh
+
+    scene = trimesh.Scene()
+    for n in range(2):
+        scene.add_geometry(trimesh.Trimesh(BOX[0] / 1000 + [n, 0, 0], BOX[1], process=False), node_name=f"box{n}")
+    scene.export(str(tmp_path / "two.glb"))
+    worked = []
+    monkeypatch.setattr(scans, "_colours", lambda mesh, say: worked.append(mesh) or (None, "none"))
+    monkeypatch.setattr(scans, "MAX_SOURCE_TRIANGLES", 23)
+    status, said = run(capsys, "import", tmp_path / "two.glb", tmp_path / "mesh.bin")
+    assert status == 1 and said["error"] == {"kind": "too_large", "message": "two.glb has more than 23 triangles"}
+    assert worked == []
+    monkeypatch.setattr(scans, "MAX_SOURCE_TRIANGLES", 24)
+    status, said = run(capsys, "import", tmp_path / "two.glb", tmp_path / "mesh.bin")
+    assert status == 0 and said["triangles"] == 24 and len(worked) == 2
+
+
+def test_paths_after_two_dashes_are_paths_whatever_they_begin_with(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    scanfix.write_stl(tmp_path / "--unit.stl", *BOX)
+    status, said = run(capsys, "import", "--unit", "cm", "--", "--unit.stl", "-mesh.bin")
+    assert status == 0 and said["unit"] == "cm" and said["triangles"] == 12
+    status, said = run(capsys, "convert", "--from-unit", "cm", "--to-unit", "mm", "--from-up", "z", "--to-up", "z", "--", "-mesh.bin")
+    assert status == 0 and said["unit"] == "mm" and said["bbox"]["max"] == [20, 15, 2.5]
+    # Without them a path that begins with a dash is taken for a flag, and refused as one.
+    status, said = run(capsys, "import", "--unit.stl", "-mesh.bin")
+    assert status == 1 and said["error"]["kind"] == "bad_request"

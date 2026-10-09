@@ -17,7 +17,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import signal
+import struct
 import sys
 import time
 from pathlib import Path
@@ -30,9 +32,13 @@ from . import scanfile
 FORMATS = (".glb", ".gltf", ".obj", ".ply", ".stl")
 UNIT_MM = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "in": 25.4}
 MAX_TRIANGLES = 2_000_000
-# More than this is refused before it is read: reading it would take the machine's memory.
+# More than this is refused before it is read: reading it would take the machine's memory. The triangles are
+# counted from the file's head where it says them there (``declared``), and otherwise once it is read, before
+# anything is worked out of them.
 MAX_SOURCE_BYTES = 2 << 30
 MAX_SOURCE_TRIANGLES = 20_000_000
+# No more of a PLY is looked through for the end of its head.
+_PLY_HEAD = 1 << 16
 # How often the cell of a reduction grows before it is given up: by then it is 1.5 ** 64 of what it was.
 MAX_REDUCTIONS = 64
 # A mesh under this across, in its own numbers, is taken to be in metres: a scan 20 mm across is of nothing.
@@ -62,6 +68,38 @@ def from_z_up(vertices: np.ndarray, up: str) -> np.ndarray:
     return vertices if up == "z" else np.stack([vertices[:, 0], vertices[:, 2], -vertices[:, 1]], axis=1)
 
 
+def declared(path: Path) -> int | None:
+    """How many triangles a file says in its head that it has: None where it does not, or cannot be read.
+
+    A binary STL says it after its 80 bytes, and is one when its size is
+    that of so many triangles. A PLY names its faces in its head: each is a
+    triangle at least. No other format says, and an STL in text does not.
+    """
+    try:
+        suffix, size = path.suffix.lower(), path.stat().st_size
+        with open(path, "rb") as file:
+            if suffix == ".stl":
+                head = file.read(84)
+                if len(head) < 84:
+                    return None
+                (count,) = struct.unpack_from("<I", head, 80)
+                return count if size == 84 + 50 * count else None
+            if suffix == ".ply":
+                head = file.read(_PLY_HEAD)
+                end = head.find(b"end_header")
+                if not head.startswith(b"ply") or end < 0:
+                    return None
+                faces = re.search(rb"^element\s+face\s+(\d+)\s*$", head[:end], re.MULTILINE)
+                return int(faces.group(1)) if faces else None
+    except OSError:
+        pass
+    return None
+
+
+def _too_many(path: Path) -> ScanError:
+    return ScanError("too_large", f"{path.name} has more than {MAX_SOURCE_TRIANGLES:,} triangles")
+
+
 def load(path: Path, say: Callable[[str], None]) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, str]:
     """Vertices in the file's own numbers, triangles, colours or None, and where the colours are from."""
     try:
@@ -80,7 +118,14 @@ def load(path: Path, say: Callable[[str], None]) -> tuple[np.ndarray, np.ndarray
         scene = trimesh.load(str(path), force="scene", process=False)
     except Exception as e:
         raise ScanError("unreadable", f"{path.name} could not be read: {e}") from e
-    vertices, triangles, colours, kinds, base, points_alone = [], [], [], set(), 0, False
+    # Counted first: nothing is worked out of a file that has too many.
+    count = 0
+    for node in scene.graph.nodes_geometry:
+        faces = getattr(scene.geometry[scene.graph[node][1]], "faces", None)
+        count += 0 if faces is None else len(faces)
+        if count > MAX_SOURCE_TRIANGLES:
+            raise _too_many(path)
+    vertices, triangles, colours, kinds, points_alone = [], [], [], set(), False
     for node in scene.graph.nodes_geometry:
         transform, name = scene.graph[node]
         mesh = scene.geometry[name]
@@ -89,15 +134,12 @@ def load(path: Path, say: Callable[[str], None]) -> tuple[np.ndarray, np.ndarray
             found = getattr(mesh, "vertices", None)
             points_alone = points_alone or (found is not None and len(found) > 0)
             continue
-        if base // 3 + len(faces) > MAX_SOURCE_TRIANGLES:
-            raise ScanError("too_large", f"{path.name} has more than {MAX_SOURCE_TRIANGLES:,} triangles")
         points = trimesh.transformations.transform_points(np.asarray(mesh.vertices, dtype=np.float64), transform)
         colour, kind = _colours(mesh, say)
         kinds.add(kind)
         vertices.append(points)
         triangles.append(np.asarray(faces, dtype=np.int64) + sum(len(v) for v in vertices[:-1]))
         colours.append(colour)
-        base += 3 * len(faces)
     if not triangles and points_alone:
         raise ScanError("no_triangles", f"{path.name} has no triangles: a point cloud cannot be shown or checked against")
     if not triangles:
@@ -187,6 +229,8 @@ def import_scan(source: Path, out: Path, unit: str | None, up: str | None, most:
         raise ScanError("unreadable", f"{source.name} could not be read: {e.strerror or e}") from e
     if size > MAX_SOURCE_BYTES:
         raise ScanError("too_large", f"{source.name} is {size / 2**30:.1f} GiB: more than the 2 GiB torno reads")
+    if (declared(source) or 0) > MAX_SOURCE_TRIANGLES:
+        raise _too_many(source)
     _may_write(source, out)
     say("hashing")
     digest = hashlib.sha256()
