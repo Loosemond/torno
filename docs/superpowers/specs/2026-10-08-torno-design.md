@@ -60,7 +60,7 @@ Three processes.
 ┌──────┴───────────────┐   ┌───────┴──────────────────────┐
 │ Renderer             │   │ Python kernel                │
 │ React + Zustand      │   │ build123d · ocp-tessellate   │
-│ three.js viewport    │   │ trimesh · numpy              │
+│ three.js viewport    │   │ numpy                        │
 │ xterm.js sessions    │   │ supervisor + forked workers  │
 └──────────────────────┘   └──────────────────────────────┘
 ```
@@ -140,9 +140,9 @@ Per part: tessellation from ocp-tessellate (vertices, normals, triangles, edge s
 
 Vertices are in the part's local frame and the location is sent beside them; the viewport applies it. Refs and coordinates exchanged with the user and the agent are always in the object's frame. Per face and edge: type, area or length, centroid, normal or axis. On failure: the traceback, with the previous revision kept and marked stale.
 
-### Queries (all exact, on the B-rep)
+### Queries (exact, on the B-rep; those of a scan approximate, and saying so)
 
-`describe(ref)`, `distance(a, b)`, `angle(a, b)`, `radius(ref)`, `thickness(point, direction)`, `bbox(ref)` (approximate on freeform faces, and labelled so), `mass(ref, density)`, `section(plane)` → outlines per part, `overlap(a, b)` → volume and box, `clearance(a, b)` → minimum distance and where, `scan_clash(part, scan)` → scan points inside the part in clusters, the deepest and where, the nearest outside; `scan_deviation(part or faces, scan)` → how far apart they lie, as min, mean, max and percentiles; `scan_section(plane, scan)` → the scan's polylines in a plane. These three are approximate by nature and say so: only the distance from a reported scan point to the B-rep is exact. `mesh_check(part)` → open edges after welding and where.
+`describe(ref)`, `distance(a, b)`, `angle(a, b)`, `radius(ref)`, `thickness(point, direction)`, `bbox(ref)` (approximate on freeform faces, and labelled so), `mass(ref, density)`, `section(plane)` → outlines per part, `overlap(a, b)` → volume and box, `clearance(a, b)` → minimum distance and where, `scan_clash(part, scan)` → scan points inside the part in clusters, the deepest and where, the nearest outside, and the scan's triangles that go through its surface, whether or not a vertex of theirs is inside; `scan_deviation(part or faces, scan)` → how far apart they lie, as min, mean, max and percentiles; `scan_section(plane, scan)` → the scan's polylines in a plane. These three are approximate by nature and say so: only the distance from a reported scan point to the B-rep is exact. `mesh_check(part)` → open edges after welding and where.
 
 ### Geometry identity
 
