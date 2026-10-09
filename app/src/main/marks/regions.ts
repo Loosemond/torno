@@ -1,7 +1,8 @@
 import type { Mark, NewMark, NewRegion, RegionMark } from '../../shared/marks'
 import { bitsRefused, maskStem, meshIdentity, popcount, regionStats } from '../../shared/regions'
 import { type ScanInfo, type ScanUnit, type ScanUp, maskBits, parseScanMesh } from '../../shared/scans'
-import { MaskGone, type ScanStore } from '../scans/store'
+import { MaskGone } from '../scans/masks'
+import type { ScanStore } from '../scans/store'
 import type { MarkStore, RegionSaid } from './store'
 
 // Regions of scans, kept: a region is a mark whose triangles are a mask beside its scan's mesh. What the window

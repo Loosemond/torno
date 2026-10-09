@@ -8,7 +8,8 @@ import type { ImportReply, Importer } from './importer'
 import type { Scene } from '../../shared/scene'
 import { sanitiseAlignment, sanitiseScan } from './file'
 import { MESH_NAME } from './meshfiles'
-import { ScanStore, frameOf } from './store'
+import { frameOf } from './alignments'
+import { ScanStore } from './store'
 
 let root: string
 let dir: string

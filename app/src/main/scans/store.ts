@@ -1,17 +1,11 @@
-import { copyFile, mkdir, readFile, readdir, realpath, rm, stat as statFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, realpath, rm, stat as statFile, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { isDeepStrictEqual } from 'node:util'
 import type { Vec3 } from '../../shared/marks'
-import type { Scene } from '../../shared/scene'
-import { number } from '../../shared/format'
-import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, MAX_PAIRS, SCAN_FORMATS, UNIT_MM, alignmentOf } from '../../shared/scans'
-import { reckoned } from '../../shared/align'
-import { bytesFor } from '../../shared/regions'
-import { maskFile } from '../../shared/scans'
-import { writeFileAtomic } from '../atomic'
-import { anchoredPoints } from './alignCheck'
-import { loadScansFile, sanitiseAlignment, sanitiseScan, saveScansFile, scanName } from './file'
+import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, SCAN_FORMATS, UNIT_MM } from '../../shared/scans'
+import { aligned, checked, held, undone } from './alignments'
+import { loadScansFile, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
+import { maskPath, maskStems, readMaskFile, removeMaskFile, writeMaskFile } from './masks'
 import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, ownFolders, removeMesh, scanFolder, sweep } from './meshfiles'
 
 interface ScanEvents {
@@ -425,85 +419,25 @@ export class ScanStore {
 
   /**
    * Keeps where the scan is in a layout, or with null that it is aligned to
-   * nothing there. What the last check found of that layout is forgotten:
-   * it was of the alignment before.
-   *
-   * What follows from the transform and the pairs is worked out here, never
-   * taken: residuals, rms, whether the scan was scaled, why it is rough
-   * (`sanitiseAlignment`). An alignment that is rough, or that changes the
-   * scan's size, is kept only with the person's yes to that (`accepted`).
-   * The alignment it takes the place of is kept with it, for one `undoAlign`;
-   * `before` and `sourceChanged` are never a caller's to say.
+   * nothing there (`aligned`). What the last check found of that layout is
+   * forgotten: it was of the alignment before.
    */
   align(objectId: string, id: string, layout: string, alignment: ScanAlignment | null, accepted: { rough?: boolean; scaled?: boolean } = {}): Promise<ScanInfo> {
-    return this.of(objectId, (place) => this.aligning(place, id, layout, alignment, accepted))
+    return this.of(objectId, (place) => this.inLayout(place, id, layout, (scan) => aligned(scan, layout, alignment, accepted)))
   }
 
-  private aligning(place: Place, id: string, layout: string, alignment: ScanAlignment | null, accepted: { rough?: boolean; scaled?: boolean }): Promise<ScanInfo> {
-    return this.inLayout(place, id, layout, (scan, others) => {
-      if (alignment === null) {
-        scan.alignments = Object.fromEntries(others)
-        return
-      }
-      const given = Object(alignment).pairs
-      if (Array.isArray(given) && given.length > MAX_PAIRS) throw new Error(`an alignment keeps ${MAX_PAIRS} pairs at most: this one has ${given.length}`)
-      const candidate = sanitiseAlignment({ ...Object(alignment), before: undefined, sourceChanged: undefined, confirmed: undefined, fitRms: undefined })
-      if (!candidate) throw new Error('that is not an alignment: its transform, its steps, its frame or its time is missing, or a number is not finite')
-      const was = alignmentOf(scan, layout)
-      const byHand = ['nudge', 'typed'].includes(candidate.steps[candidate.steps.length - 1])
-      // How well its pairs were fitted: of this fit when it is one, else what main kept of the fit these very pairs came from. Never a caller's.
-      const fitRms = candidate.steps[candidate.steps.length - 1] === 'pairs' ? candidate.rms : was && byHand && samePairs(was, candidate) ? was.fitRms : undefined
-      const kept = reckoned({ ...candidate, ...(fitRms === undefined ? {} : { fitRms }) })
-      // Moved by hand with the model's points where they were: what the person confirmed of those is still so.
-      if (was?.confirmed && byHand && isDeepStrictEqual(anchoredPoints(was), anchoredPoints(kept))) kept.confirmed = structuredClone(was.confirmed)
-      // Moved by hand with the pairs it had: it is still the alignment that was made before the scan was read again from a changed source, and still says so.
-      if (was?.sourceChanged && byHand && samePairs(was, candidate)) kept.sourceChanged = true
-      if (kept.scaled && accepted.scaled !== true) throw new Error(`this alignment changes the size of the scan (× ${number(kept.transform.s)}): it is kept only when that scale was chosen`)
-      if (kept.rough !== undefined && accepted.rough !== true) throw new Error(`this alignment is rough (${kept.rough}): it is kept only once that is accepted`)
-      kept.before = was ? withoutBefore(was) : null
-      scan.alignments = Object.fromEntries([...others, [layout, kept]])
-    })
-  }
-
-  /**
-   * Puts back the alignment the scan had in a layout before the last one was
-   * kept, as it was: its frame, its time and what it was made of. One step
-   * back: what is put back has nothing before it. Rejects when there is
-   * nothing to go back to.
-   */
+  /** Puts back the alignment the scan had in a layout before the last one was kept (`undone`). Rejects when there is nothing to go back to. */
   undoAlign(objectId: string, id: string, layout: string): Promise<ScanInfo> {
-    return this.of(objectId, (place) =>
-      this.inLayout(place, id, layout, (scan, others) => {
-        const now = alignmentOf(scan, layout)
-        if (!now) throw new Error(`${scan.id} is not aligned in ${layout}: there is nothing to undo`)
-        if (now.before === undefined) throw new Error(`${scan.id} has no alignment in ${layout} before this one: there is nothing to undo`)
-        scan.alignments = Object.fromEntries(now.before === null ? others : [...others, [layout, structuredClone(now.before)]])
-      })
-    )
+    return this.of(objectId, (place) => this.inLayout(place, id, layout, (scan) => undone(scan, layout)))
   }
 
-  /**
-   * The person looked and says an alignment still holds, whatever put it in doubt: a scan read again from a
-   * changed source, a build that moved the model or spread the layout otherwise. It is no longer said to be in
-   * doubt for that: `holds` is the model as it now is (the build, how its parts are spread, how far each point
-   * the alignment is tied to is from its part), and later builds are judged from there (`judgeAlignment`).
-   * That it was confirmed is kept and said. Nothing of the alignment itself is changed.
-   */
+  /** The person looked and says an alignment still holds, whatever put it in doubt (`held`). Nothing of the alignment itself is changed. */
   alignmentHolds(objectId: string, id: string, layout: string, holds: { revision: number; frame: Record<string, Vec3>; held: Array<Vec3 | null> } | null): Promise<ScanInfo> {
     return this.of(objectId, (place) =>
       this.change(place, (file) => {
-        const scan = file.scans[indexOf(file, id)]
-        const now = alignmentOf(scan, layout)
-        if (!now) throw new Error(`${scan.id} is not aligned in ${String(layout)}`)
-        // With nothing of the model to hold it against (null): only that the scan was read again is no longer a doubt.
-        if (holds === null) {
-          delete now.sourceChanged
-          return scan
-        }
-        const kept = sanitiseAlignment({ ...now, frame: holds.frame, confirmed: { revision: holds.revision, at: this.now().toISOString(), held: holds.held }, sourceChanged: undefined })
-        if (!kept) throw new Error('that is not how a model stands: its frame or its points are missing')
-        if (now.before !== undefined) kept.before = now.before
-        scan.alignments[layout] = kept
+        const at = indexOf(file, id)
+        const scan = (file.scans[at] = held(file.scans[at], layout, holds, this.now()))
+        if (holds === null) return scan
         // What was found of it was held against what it was held against before.
         const checks = this.checks.get(place.dir)?.get(scan.id)
         if (checks) delete checks[layout]
@@ -512,12 +446,12 @@ export class ScanStore {
     )
   }
 
-  /** Changes the alignment of a scan in one layout (`edit` is given the scan and its alignments in the others), and forgets what was checked of it there. */
-  private inLayout(place: Place, id: string, layout: string, edit: (scan: Scan, others: Array<[string, ScanAlignment]>) => void): Promise<ScanInfo> {
+  /** Changes the alignment of a scan in one layout (`edit` is given the scan and gives the scan it makes of it), and forgets what was checked of it there. */
+  private inLayout(place: Place, id: string, layout: string, edit: (scan: Scan) => Scan): Promise<ScanInfo> {
     return this.change(place, (file) => {
-      const scan = file.scans[indexOf(file, id)]
+      const at = indexOf(file, id)
       if (typeof layout !== 'string' || layout === '') throw new Error('a scan is aligned in a layout: name it')
-      edit(scan, Object.entries(scan.alignments).filter(([name]) => name !== layout))
+      const scan = (file.scans[at] = edit(file.scans[at]))
       const checks = this.checks.get(place.dir)?.get(scan.id)
       if (checks) delete checks[layout]
       const failed = this.failures.get(place.dir)?.get(scan.id)
@@ -561,21 +495,14 @@ export class ScanStore {
       const scan = file.scans.find((s) => s.id === id)
       if (!scan || epoch !== this.epoch) return
       const ofObject = this.checks.get(dir) ?? new Map<string, Record<string, AlignmentCheck>>()
-      const ofScan = ofObject.get(scan.id) ?? {}
-      if (check === null) {
-        if (!Object.hasOwn(ofScan, layout)) return
-        delete ofScan[layout]
-      } else {
-        if (!Object.hasOwn(scan.alignments, layout)) return
-        // Judged as it was when the check was asked: made anew or confirmed since, it is another to judge, and has its own check.
-        const now = scan.alignments[layout]
-        if (judged && (now.at !== judged.at || now.confirmed?.at !== judged.confirmed?.at || !isDeepStrictEqual(now.confirmed?.held, judged.confirmed?.held))) return
-        Object.defineProperty(ofScan, layout, { value: structuredClone(check), enumerable: true, writable: true, configurable: true })
+      const kept = checked(scan, ofObject.get(scan.id) ?? {}, layout, check, judged)
+      if (kept === null) return
+      if (check !== null) {
         // A check has said something: why an earlier one could not is no longer to be said.
         const failed = this.failures.get(dir)?.get(scan.id)
         if (failed) delete failed[layout]
       }
-      this.checks.set(dir, ofObject.set(scan.id, ofScan))
+      this.checks.set(dir, ofObject.set(scan.id, kept))
       const scans = await this.told(dir, file)
       if (epoch === this.epoch) this.emit('changed', { objectId, scans })
     })
@@ -600,40 +527,19 @@ export class ScanStore {
     )
   }
 
-  /**
-   * Writes the triangles of a region of a scan as `<scan>/<stem>.mask` (`maskStem`: the mark's number, and which
-   * painting of it): a bit a triangle of the mesh the scan has. Through a temp file, so the name is of a whole
-   * file whenever it is read. Refuses bits of another length than the mesh has triangles for, and a bit past its
-   * last. The path is made here, from the scan and the stem: never given.
-   */
+  /** Writes the triangles of a region of a scan, a bit a triangle of the mesh the scan has (`writeMaskFile`). The path is made from the scan and the stem: never given. */
   writeMask(objectId: string, id: string, stem: string, bits: Uint8Array): Promise<void> {
     return this.of(objectId, (place) =>
-      this.turn(place, async (file, dir) => {
+      this.turn(place, (file, dir) => {
         const scan = file.scans[indexOf(file, id)]
-        const path = maskPath(dir, scan.id, stem)
-        await ownFolders(dir, scan.id)
-        const { triangles } = scan.imported
-        const mark = stem.split('.')[0]
-        if (!(bits instanceof Uint8Array) || bits.length !== bytesFor(triangles)) throw new Error(`${mark} has ${bits?.length ?? 0} bytes of triangles, and ${scan.id} has ${triangles} triangles: ${bytesFor(triangles)} bytes`)
-        if ((triangles & 7) !== 0 && bits[bits.length - 1] >> (triangles & 7) !== 0) throw new Error(`${mark} names a triangle past the last of ${scan.id}, which has ${triangles}`)
-        await writeFileAtomic(path, maskFile(bits, triangles))
+        return writeMaskFile(dir, scan.id, stem, bits, scan.imported.triangles)
       })
     )
   }
 
   /** The `.mask` of a region of a scan, as the file is. Rejects with a `MaskGone` for one that is not there, and with what the disk said for one that could not be read. */
   mask(objectId: string, id: string, stem: string): Promise<Buffer> {
-    return this.of(objectId, (place) =>
-      this.turn(place, async (file, dir) => {
-        const path = maskPath(dir, file.scans[indexOf(file, id)].id, stem)
-        try {
-          return await readFile(path)
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-          throw new MaskGone(`${stem.split('.')[0]} has no triangles on the disk: its file is gone from ${path}`)
-        }
-      })
-    )
+    return this.of(objectId, (place) => this.turn(place, (file, dir) => readMaskFile(dir, file.scans[indexOf(file, id)].id, stem)))
   }
 
   /** Deletes the mask of a region: that file only. One that is not there, or of a scan that is gone, is nothing to delete. */
@@ -641,7 +547,7 @@ export class ScanStore {
     return this.of(objectId, (place) =>
       this.turn(place, async (file, dir) => {
         const scan = file.scans.find((one) => one.id === id)
-        if (scan) await rm(maskPath(dir, scan.id, stem), { force: true })
+        if (scan) await removeMaskFile(dir, scan.id, stem)
       })
     )
   }
@@ -649,11 +555,9 @@ export class ScanStore {
   /** The masks there are in a scan's folder, each by its stem: for whoever clears away those no mark names. None for a scan that is not there. */
   masks(objectId: string, id: string): Promise<string[]> {
     return this.of(objectId, (place) =>
-      this.turn(place, async (file, dir) => {
+      this.turn(place, (file, dir) => {
         const scan = file.scans.find((one) => one.id === id)
-        if (!scan) return []
-        const names = await readdir(scanFolder(dir, scan.id)).catch(() => [] as string[])
-        return names.filter((name) => name.endsWith('.mask') && MASK_STEM.test(name.slice(0, -5))).map((name) => name.slice(0, -5))
+        return scan ? maskStems(dir, scan.id) : []
       })
     )
   }
@@ -832,29 +736,6 @@ export class ScanStore {
   }
 }
 
-/**
- * How far each part of a layout was spread for display on a build
- * (`Part.arranged`), zeros for a part that was not moved: what an alignment
- * made on that build records as its `frame`. Null when the build has no part
- * in that layout, or there is no build.
- */
-export function frameOf(scene: Scene | undefined, layout: string): Record<string, Vec3> | null {
-  const parts = scene?.parts.filter((part) => part.layout === layout) ?? []
-  return parts.length > 0 ? Object.fromEntries(parts.map((part): [string, Vec3] => [part.name, part.arranged ? [...part.arranged] : [0, 0, 0]])) : null
-}
-
-/** Whether two alignments have the same pairs of points: the same scan ends and model ends, in order. */
-function samePairs(a: ScanAlignment, b: ScanAlignment): boolean {
-  const ends = (alignment: ScanAlignment): unknown => (alignment.pairs ?? []).map((pair) => [pair.scan, pair.model])
-  return (a.pairs?.length ?? 0) > 0 && isDeepStrictEqual(ends(a), ends(b))
-}
-
-/** An alignment as it is kept for an undo: without what was before it. */
-function withoutBefore(alignment: ScanAlignment): Omit<ScanAlignment, 'before'> {
-  const { before: _dropped, ...rest } = structuredClone(alignment)
-  return rest
-}
-
 /** Whether `path` is `folder` or under it. */
 function isWithin(folder: string, path: string): boolean {
   const from = relative(folder, path)
@@ -880,18 +761,6 @@ async function sourceOf(dir: string, given: unknown): Promise<string> {
 const real = (path: string): Promise<string> => realpath(path).catch(() => path)
 
 /** Where a scan is in its file; an id that is not there is an error that names the ones that are. */
-/** Said of a mask that is not on the disk: the region it was of has no triangles. Any other failure to read one is the disk's, and says nothing of the region. */
-export class MaskGone extends Error {}
-
-/** What a mask is called, less `.mask`: a mark's number, and after it was painted again, which painting (`M7`, `M7.2`). */
-const MASK_STEM = /^M[1-9]\d{0,14}(\.[1-9]\d{0,8})?$/
-
-/** Where the mask of a region of a scan is. Throws for what is no mask's name: nothing else names a file there. */
-function maskPath(dir: string, scan: string, stem: string): string {
-  if (typeof stem !== 'string' || !MASK_STEM.test(stem)) throw new RangeError(`${stem} is no mark: a region's file is named by its mark`)
-  return join(scanFolder(dir, scan), `${stem}.mask`)
-}
-
 function indexOf(file: ScansFile, id: string): number {
   const at = file.scans.findIndex((s) => s.id === id)
   if (at < 0) throw new Error(`no scan ${id}; scans: ${file.scans.map((s) => s.id).join(', ') || 'none'}`)
