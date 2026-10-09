@@ -386,6 +386,31 @@ def test_measure_over_the_protocol_for_the_object_asked(fresh, ws):
     }
 
 
+def test_scan_clash_over_the_protocol_for_the_object_asked(fresh, ws, tmp_path):
+    import scanfix
+
+    from torno_kernel import scanfile
+
+    vertices, triangles = scanfix.grid(20)
+    scanfile.write_bin(tmp_path / "S1.bin", vertices + [0, 0, 1], triangles)
+    scan = {"id": "S1", "path": str(tmp_path / "S1.bin"), "transform": {"t": [0, 0, 0], "q": [0, 0, 0, 1], "s": 1}}
+    reply, _ = fresh.build(ws / "hollow", "hollow.py")
+    assert reply["ok"], reply
+    build_bracket(fresh, ws)
+    # The sheet lies in the tub's floor, 2 mm thick from z = 0: each of its 400 vertices is 1 mm deep.
+    floor = fresh.query(ws / "hollow", "scan_clash", {"layout": "assembly", "part": "tub", "scan": scan})
+    assert floor["ok"] is True, floor
+    assert floor["result"]["inside"]["count"] == 400 and floor["result"]["exact"] is False
+    assert floor["result"]["deepest"]["depth"] == pytest.approx(1, abs=1e-9)
+    # The bracket built last; each object is asked of its own worker.
+    base = fresh.query(ws / "bracket", "scan_clash", {"layout": "assembly", "part": "base", "scan": scan})
+    assert base["result"]["part"] == "base" and base["result"]["inside"]["count"] == 400
+    # A scan that cannot be read is that query's failure: the worker goes on answering.
+    gone = fresh.query(ws / "hollow", "scan_clash", {"layout": "assembly", "part": "tub", "scan": {**scan, "path": str(tmp_path / "gone.bin")}})
+    assert gone["ok"] is False and gone["error"]["kind"] == "bad_request"
+    assert fresh.query(ws / "hollow", "describe", {"ref": "assembly:tub"})["ok"] is True
+
+
 def test_section_over_the_protocol_for_the_object_asked(fresh, ws):
     plate, bracket = ws / "measures", ws / "bracket"
     reply, _ = fresh.build(plate, "measures.py")

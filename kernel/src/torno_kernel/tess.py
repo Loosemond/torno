@@ -77,6 +77,15 @@ def mesh_of(shape: Any) -> tuple[np.ndarray, np.ndarray]:
     return _posed(vertices, [float(x) for x in loc[0]], [float(x) for x in loc[1]]), triangles
 
 
+def mesh_faces(shape: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """As ``mesh_of``, with how many of the triangles each face has, in the order of the faces."""
+    [(_, _, mesh, loc, _, _)] = _tessellate({"part": shape})
+    vertices = np.asarray(mesh["vertices"]).reshape(-1, 3)
+    triangles = np.asarray(mesh["triangles"]).reshape(-1, 3)
+    per_face = np.asarray(mesh["triangles_per_face"], dtype=np.int64).reshape(-1)
+    return _posed(vertices, [float(x) for x in loc[0]], [float(x) for x in loc[1]]), triangles, per_face
+
+
 def deflection(shape: Any) -> float:
     """How far, in mm, the mesh a part is drawn with may be from its faces.
 

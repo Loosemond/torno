@@ -50,6 +50,10 @@ def run(
         return section.section(shapes, args)
     if name == "check":
         return checks.check(shapes, args, kept)
+    if name in ("scan_clash", "scan_deviation", "scan_section"):
+        from . import scanclash
+
+        return scanclash.run(name, shapes, args, kept)
     if name == "describe":
         ref = args.get("ref")
         if not isinstance(ref, str):
@@ -64,7 +68,8 @@ def run(
         return {"anchors": nearest(shapes, layout, anchors, kept)}
     raise QueryError(
         "bad_request",
-        f"unknown query {name!r}; the queries are describe, nearest, measure, section and check",
+        f"unknown query {name!r}; the queries are describe, nearest, measure, section, check, "
+        "scan_clash, scan_deviation and scan_section",
     )
 
 
