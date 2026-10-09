@@ -4,13 +4,14 @@ import type { Mark, Quat } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanTransform, ScanView } from '../../shared/scans'
 import type { Camera, SectionPlane, ViewName } from '../../shared/view'
-import { type AlignPoint, drawAlignPoints } from './alignPoints'
-import { type BrushRing, drawBrushRing } from './brushRing'
+import type { AlignPoint } from './alignPoints'
+import type { BrushRing } from './brushRing'
+import { CameraMove, standingAt } from './cameraMoves'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
-import { markPoints } from './marks/markObjects'
-import { mmPerPx, type Placed } from './marks/labels'
+import { mmPerPx } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
-import { chipSize, drawLabels, overlayFonts, type LabelStyle } from './overlay'
+import { overlayFonts, type LabelStyle } from './overlay'
+import { OverlayPass } from './overlayPass'
 import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder, pointerRay } from './picking'
@@ -62,7 +63,6 @@ const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#222
 const SETTLE_MS = 150
 /** How near the handle of the section's plane the pointer must be to take hold of it, in pixels. */
 export const SECTION_HANDLE_REACH_PX = 12
-const MOVE_MS = 240
 /** What `fit` and the named views frame when no part is shown. */
 const EMPTY_BOX = { min: [-50, -50, 0], max: [50, 50, 50] }
 
@@ -102,7 +102,7 @@ export class Viewport {
   private settleTimer: ReturnType<typeof setTimeout> | undefined
   private readonly settledListeners: ((c: Camera) => void)[] = []
   private readonly drawnListeners = new Set<() => void>()
-  private move: { from: Camera; to: Camera; start: number } | null = null
+  private readonly move = new CameraMove()
   private disposed = false
 
   private readonly highlights = new Highlights()
@@ -121,13 +121,11 @@ export class Viewport {
   private onCut = false
   /** The scan the gizmo holds while it is moved by hand, and the points of an alignment being made. */
   private readonly scanEdit = new ScanEdit(this.scans)
-  private alignPoints: AlignPoint[] = []
-  private brush: BrushRing | null = null
   private readonly marks = new MarkLayer(markColours(LIGHT_THEME), this.scans)
   /** The marks of the object as last given, resolved ones too: `focusMark` goes to any of them. */
   private allMarks: Mark[] = []
-  /** Over the canvas, for the labels of the marks: drawn anew with every frame, never through React. */
-  private readonly labelCanvas: HTMLCanvasElement | null
+  /** Over the canvas: the labels of the marks, and what a tool shows of itself. Drawn anew with every frame, never through React. */
+  private readonly overlay: OverlayPass
   /** The gizmo on the shape being edited. */
   private readonly gizmo: ShapeGizmo
   private readonly pointer: PointerRouter
@@ -157,11 +155,7 @@ export class Viewport {
     this.ground.frustumCulled = false
     this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor)
 
-    this.labelCanvas = canvas.parentElement ? document.createElement('canvas') : null
-    if (this.labelCanvas) {
-      this.labelCanvas.className = 'mark-labels'
-      canvas.after(this.labelCanvas)
-    }
+    this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices() })
     // A label drawn before its face has loaded is in the fallback face: draw again once it is there.
     void overlayFonts().then(() => this.invalidate())
 
@@ -202,7 +196,7 @@ export class Viewport {
       syncMatrices: () => this.syncMatrices(),
       view: () => this.getCamera(),
       setView: (c) => {
-        this.move = null
+        this.move.drop()
         this.applyCamera(c)
       }
     })
@@ -337,13 +331,13 @@ export class Viewport {
 
   /** The Region tool's brush as a ring on the scan, in `--user-mark` and in no picture; null for none. */
   showBrush(ring: BrushRing | null): void {
-    this.brush = ring
+    this.overlay.brush = ring
     this.invalidate()
   }
 
   /** Numbered dots for the ends of the pairs being made and the points of a floor: in `--accent`, in no picture. */
   showAlignPoints(points: AlignPoint[]): void {
-    this.alignPoints = points
+    this.overlay.alignPoints = points
     this.invalidate()
   }
 
@@ -405,41 +399,13 @@ export class Viewport {
   }
 
   /** Where the label of a mark of the layout shown is on the canvas, in client pixels, and whether it is in view; null for a mark that is not drawn. */
-  markLabel(id: string): { x: number; y: number; visible: boolean } | null {
-    const rect = this.canvas.getBoundingClientRect()
-    const label = this.placedLabel(id)
-    return label ? { x: rect.left + label.box.x + label.box.w / 2, y: rect.top + label.box.y + label.box.h / 2, visible: label.visible } : null
+  markLabel(id: string): ReturnType<OverlayPass['markLabel']> {
+    return this.overlay.markLabel(id)
   }
 
-  /** The label of a mark of the layout shown as it is placed on the canvas, in the canvas's own pixels. */
-  private placedLabel(id: string): Placed | null {
-    const rect = this.canvas.getBoundingClientRect()
-    this.syncMatrices()
-    const size = { width: rect.width, height: rect.height }
-    const ctx = this.labelCanvas?.getContext('2d')
-    if (!ctx || size.width === 0 || size.height === 0) return null
-    return this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1)).find((l) => l.id === id) ?? null
-  }
-
-  /**
-   * What a mark of the layout shown covers on the canvas, in client pixels:
-   * its points and the chip of its number. `at` is where it is anchored.
-   * Null for a mark that is not drawn. For whatever is put beside a mark.
-   */
-  markBox(id: string): { left: number; top: number; right: number; bottom: number; at: [number, number]; visible: boolean } | null {
-    const mark = this.marks.markOf(this.layout, id)
-    const label = mark && this.placedLabel(id)
-    if (!mark || !label) return null
-    const rect = this.canvas.getBoundingClientRect()
-    const at = this.project(this.marks.anchorOf(mark).point)
-    const xs = [at[0], rect.left + label.box.x, rect.left + label.box.x + label.box.w]
-    const ys = [at[1], rect.top + label.box.y, rect.top + label.box.y + label.box.h]
-    for (const point of markPoints(mark)) {
-      const [x, y] = this.project(point)
-      xs.push(x)
-      ys.push(y)
-    }
-    return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys), at, visible: label.visible }
+  /** What a mark of the layout shown covers on the canvas, in client pixels, and where it is anchored; null for a mark that is not drawn. */
+  markBox(id: string): ReturnType<OverlayPass['markBox']> {
+    return this.overlay.markBox(id)
   }
 
   /**
@@ -515,10 +481,10 @@ export class Viewport {
     const to = typeof v === 'string' ? this.namedCamera(v, this.visibleBox(), this.aspect, this.camera === this.orthographic) : v
     const from = this.getCamera()
     if (animate && from.ortho === to.ortho) {
-      this.move = { from, to, start: performance.now() }
+      this.move.begin(from, to, performance.now())
       this.invalidate()
     } else {
-      this.move = null
+      this.move.drop()
       this.applyCamera(to)
     }
   }
@@ -527,7 +493,7 @@ export class Viewport {
   setOrtho(ortho: boolean): void {
     const c = this.getCamera()
     if (c.ortho === ortho) return
-    this.move = null
+    this.move.drop()
     if (ortho) {
       this.applyCamera({ ...c, ortho: true })
     } else {
@@ -541,7 +507,7 @@ export class Viewport {
   fit(): void {
     const c = this.getCamera()
     const dir = c.target.map((t, i) => t - c.position[i])
-    this.move = null
+    this.move.drop()
     this.applyCamera(fitCamera(this.visibleBox(), dir, c.up, this.aspect, this.fov, c.ortho))
   }
 
@@ -771,10 +737,7 @@ export class Viewport {
     if (width === 0 || height === 0) return
     this.renderer.setPixelRatio(window.devicePixelRatio)
     this.renderer.setSize(width, height, false)
-    if (this.labelCanvas) {
-      this.labelCanvas.width = Math.round(width * window.devicePixelRatio)
-      this.labelCanvas.height = Math.round(height * window.devicePixelRatio)
-    }
+    this.overlay.resize(width, height)
     this.aspect = width / height
     // Resizing clears the canvas: draw now rather than show a blank frame.
     this.draw()
@@ -798,7 +761,7 @@ export class Viewport {
     this.entries.clear()
     this.highlights.dispose()
     this.marks.dispose()
-    this.labelCanvas?.remove()
+    this.overlay.dispose()
     this.ground.geometry.dispose()
     this.ground.material.dispose()
     this.pictures.dispose()
@@ -982,16 +945,7 @@ export class Viewport {
 
   private applyCamera(c: Camera): void {
     const camera = c.ortho ? this.orthographic : this.perspective
-    const target = new THREE.Vector3().fromArray(c.target)
-    const position = new THREE.Vector3().fromArray(c.position)
-    const offset = position.clone().sub(target)
-    const dist = offset.length() || 1
-    // The orbit keeps Z up, which says nothing about a camera looking straight
-    // along Z. Lean it by a hair, so that `up` ends up at the top of the screen.
-    if (Math.abs(offset.z) > dist * (1 - 1e-10)) {
-      const lean = new THREE.Vector3(c.up[0], c.up[1], 0)
-      if (lean.lengthSq() > 0) position.addScaledVector(lean.normalize(), -Math.sign(offset.z) * dist * 1e-5)
-    }
+    const { position, target } = standingAt(c)
     camera.position.copy(position)
     camera.zoom = c.zoom
     this.fov = c.fov
@@ -1004,7 +958,7 @@ export class Viewport {
   }
 
   private readonly onControlStart = (): void => {
-    this.move = null // the user takes over from a camera move
+    this.move.drop() // the user takes over from a camera move
   }
 
   private readonly onCameraChange = (): void => {
@@ -1016,37 +970,6 @@ export class Viewport {
       const camera = this.getCamera()
       for (const cb of this.settledListeners) cb(camera)
     }, SETTLE_MS)
-  }
-
-  /** One step of an animated camera move; clears `move` once it has arrived. */
-  private stepMove(now: number): void {
-    const move = this.move
-    if (!move) return
-    const t = Math.min((now - move.start) / MOVE_MS, 1)
-    if (t >= 1) {
-      this.move = null
-      this.applyCamera(move.to)
-      return
-    }
-    const k = t * t * (3 - 2 * t)
-    const { from, to } = move
-    const vec = (a: Vec3) => new THREE.Vector3().fromArray(a)
-    const target = vec(from.target).lerp(vec(to.target), k)
-    const a = vec(from.position).sub(vec(from.target))
-    const b = vec(to.position).sub(vec(to.target))
-    const [la, lb] = [a.length(), b.length()]
-    // Swing the camera round the target rather than cutting through the part.
-    const turn = new THREE.Quaternion().setFromUnitVectors(a.clone().normalize(), b.clone().normalize())
-    const offset = a
-      .normalize()
-      .applyQuaternion(new THREE.Quaternion().slerp(turn, k))
-      .multiplyScalar(la * (lb / la) ** k)
-    this.applyCamera({
-      ...to,
-      position: target.clone().add(offset).toArray(),
-      target: target.toArray(),
-      zoom: from.zoom * (to.zoom / from.zoom) ** k
-    })
   }
 
   private aimKeyLight(camera: THREE.Camera, target: THREE.Vector3): void {
@@ -1082,9 +1005,10 @@ export class Viewport {
     if (this.frame || this.disposed) return
     this.frame = requestAnimationFrame((now) => {
       this.frame = 0
-      this.stepMove(now)
+      const next = this.move.step(now)
+      if (next) this.applyCamera(next)
       this.draw()
-      if (this.move) this.invalidate()
+      if (this.move.under) this.invalidate()
     })
   }
 
@@ -1107,20 +1031,8 @@ export class Viewport {
     this.section.sizeHandle((at) => mmPerPx(this.camera, at, size.height))
     this.section.outline()
     this.renderer.render(this.scene, this.camera)
-    this.drawLabels(size)
+    this.overlay.draw(size)
     for (const cb of this.drawnListeners) cb()
-  }
-
-  /** The labels of the marks, on the canvas that lies over the 3D one. */
-  private drawLabels(size: { width: number; height: number }): void {
-    const ctx = this.labelCanvas?.getContext('2d')
-    if (!this.labelCanvas || !ctx || size.width === 0 || size.height === 0) return
-    ctx.setTransform(this.labelCanvas.width / size.width, 0, 0, this.labelCanvas.height / size.height, 0, 0)
-    ctx.clearRect(0, 0, size.width, size.height)
-    const labels = this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1))
-    drawLabels(ctx, labels, this.labelStyle(), 1, this.marks.activeId)
-    drawAlignPoints(ctx, this.alignPoints, this.camera, size, { accent: this.theme.accent, paper: this.theme.panel })
-    drawBrushRing(ctx, this.brush, this.camera, size, { mark: this.theme.user, paper: this.theme.panel })
   }
 }
 
