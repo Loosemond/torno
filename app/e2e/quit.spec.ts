@@ -110,3 +110,31 @@ test('a note still being typed when the window closes is kept: nothing ended it,
   await expect.poll(kept, { timeout: 10_000 }).toBe('thicker here')
   rmSync(root, { recursive: true, force: true })
 })
+
+test('a layer hidden just before the window closes is in .torno/scene.json: the save was still waiting', async () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-quit-scene-'))
+  cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
+  const app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: root } })
+  const sceneFile = (): { layers?: Record<string, { visible?: boolean }> } => readOr(() => JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scene.json'), 'utf8')), {})
+  try {
+    const page = await app.firstWindow()
+    await page.waitForSelector('[data-region="left"]')
+    await page.getByRole('button', { name: 'bracket', exact: true }).click()
+    await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
+    // Past the save that opening the object may have asked for.
+    await page.waitForTimeout(1000)
+
+    await page.locator('[data-layer="post"]').hover()
+    await page.getByRole('button', { name: 'Show post' }).click()
+    // Saved half a second after the last change: not yet.
+    expect(sceneFile().layers?.post?.visible).toBeUndefined()
+    const exited = new Promise<void>((done) => app.process().once('exit', () => done()))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()).catch(() => {})
+    await exited
+  } finally {
+    await app.close().catch(() => {})
+  }
+  expect(sceneFile().layers?.post?.visible).toBe(false)
+  rmSync(root, { recursive: true, force: true })
+})

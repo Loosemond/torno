@@ -15,7 +15,7 @@ export const SYSTEM_PROMPT = [
   'After a ref comes a descriptor in brackets, such as (plane, normal +Z, z = 20, 1180 mm²): the kind of surface or curve, where it lies and its area or length. mcp__torno__describe gives the exact geometry of a ref.',
   'Face and edge numbers change when the model is rebuilt: take refs from the latest marks, scene or describe, never from memory.',
   'A mark that says its surface moved or its part is gone may no longer point at what the user meant: check it before acting on it.',
-  'A mark line that begins with (changed) is of a mark you were given before whose note or shape the user has since changed, one tagged "reopened by the user" is of a mark that was resolved and that they did not accept as done, and [not checked against rN] means torno has not checked the mark against build rN, so its ref and descriptor may be of an older build.',
+  'A mark line that begins with (changed) is of a mark you were given before that the user has since changed or moved, one tagged "reopened by the user" is of a mark that was resolved and that they did not accept as done, and [not checked against rN] means torno has not checked the mark against build rN, so its ref and descriptor may be of an older build.',
   'The line "Selected:" names what the user has selected in the viewport, and under "Marks still open" are marks given in an earlier conversation, listed again because this one has not seen them.',
   'When you have acted on a mark and checked the result, call mcp__torno__resolve_mark with a line on what you did.',
   'Before a change that would be costly to get wrong, call mcp__torno__highlight to show the user the faces or edges you mean and ask "this one?".',

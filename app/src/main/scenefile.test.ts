@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadSceneFile, saveSceneFile, type SceneFile } from './scenefile'
+import { loadSceneFile, saveSceneFile, sceneFilesSettled, type SceneFile } from './scenefile'
 
 let dir: string
 
@@ -28,6 +28,19 @@ describe('scene file', () => {
     await saveSceneFile(dir, { layout: 'print', layers: { post: { visible: false } } })
     await saveSceneFile(dir, { layers: {} })
     expect(await loadSceneFile(dir)).toEqual({ layers: {} })
+  })
+
+  it('says what is still being written, for whoever must not leave before it is on the disk', async () => {
+    expect(sceneFilesSettled()).toBeNull()
+    // Asked and not waited for, as by a window that is closing.
+    void saveSceneFile(dir, { layers: { post: { visible: false } } })
+    void saveSceneFile(join(dir, 'file-not-folder', '\0'), { layers: {} }).catch(() => {})
+    const settled = sceneFilesSettled()
+    expect(settled).not.toBeNull()
+    expect(readdirSync(dir)).toEqual([])
+    await settled
+    expect(await loadSceneFile(dir)).toEqual({ layers: { post: { visible: false } } })
+    expect(sceneFilesSettled()).toBeNull()
   })
 
   it('a missing file gives defaults', async () => {

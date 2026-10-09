@@ -14,6 +14,8 @@ import { mountMcp } from './mcp/server'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { SYSTEM_PROMPT } from './prompt'
+import { quitGate } from './quit'
+import { sceneFilesSettled } from './scenefile'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
@@ -262,22 +264,27 @@ void app.whenReady().then(async () => {
 // The kernel also exits by itself when this process, and so its stdin, goes away.
 // Sessions are hung up on, and the quit waits until they have gone: one that
 // ignores the hangup is killed two seconds later. With none left, the second
-// quit goes through. So does it wait for what is still being written of the
-// marks: the note being typed when the window was closed arrives just before
-// this, and is not on the disk yet. Two seconds at most for that too.
+// quit goes through.
+//
+// The first quit also waits for what is still being written of the marks and
+// of the scene files: the note being typed and the layers just changed are
+// handed over by the window as it closes, just before this, and are not on
+// the disk yet. Both together are given `WRITES_WAIT_MS`, once (`quitGate`):
+// the quit that follows is not held for them again, so a write that never
+// ends cannot keep the app open.
+const WRITES_WAIT_MS = 2000
+const writesBeforeQuit = quitGate(WRITES_WAIT_MS)
+
 app.on('will-quit', (event) => {
   void closeWorkspace()
-  const writing = marks.settled()
   const waits: Promise<unknown>[] = []
-  if (writing) waits.push(Promise.race([writing, new Promise((done) => setTimeout(done, MARKS_WRITE_WAIT_MS))]))
+  const written = writesBeforeQuit([marks.settled(), sceneFilesSettled()])
+  if (written) waits.push(written)
   if (sessions && sessions.size > 0) waits.push(sessions.stopAll())
   if (waits.length === 0) return
   event.preventDefault()
   void Promise.allSettled(waits).finally(() => app.quit())
 })
-
-/** The longest a quit waits for the marks to be written. */
-const MARKS_WRITE_WAIT_MS = 2000
 
 // Closing the window ends the app on every platform: sessions do not outlive it.
 app.on('window-all-closed', () => app.quit())

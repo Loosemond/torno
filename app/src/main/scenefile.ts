@@ -20,9 +20,29 @@ export async function loadSceneFile(dir: string): Promise<SceneFile> {
   }
 }
 
+/** The saves that are not on the disk yet. */
+const saving = new Set<Promise<void>>()
+
 /** Writes `<dir>/.torno/scene.json`, creating the folder. Readers see the old file or the new one, never half of one. */
 export function saveSceneFile(dir: string, f: SceneFile): Promise<void> {
-  return writeFileAtomic(join(dir, FOLDER, NAME), `${JSON.stringify(clean(f), null, 2)}\n`)
+  const save = writeFileAtomic(join(dir, FOLDER, NAME), `${JSON.stringify(clean(f), null, 2)}\n`)
+  saving.add(save)
+  const over = (): void => void saving.delete(save)
+  save.then(over, over)
+  return save
+}
+
+/**
+ * Null when no scene file is being written; else a promise that resolves
+ * once every save asked for so far is done, written or failed. For whoever
+ * must not go before it is on the disk: the app, when it quits.
+ */
+export function sceneFilesSettled(): Promise<void> | null {
+  if (saving.size === 0) return null
+  const wait = async (): Promise<void> => {
+    while (saving.size > 0) await Promise.allSettled([...saving])
+  }
+  return wait()
 }
 
 /** Keeps what a scene file may hold, whatever it was given. */
