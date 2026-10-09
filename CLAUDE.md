@@ -131,9 +131,16 @@ While iterating run the focused test; run all four suites before a commit.
     is not under its end on r12`), never measured by that number nor from the
     face under it. Whether an edge is under a point is one rule
     (`marks/tolerance.ts` `edgeIsUnder`), for judging an end and for
-    measuring through it. So a dimension between two edges of a plate that
-    gets thinner is not measurable: between its faces it is measured again. Besides that, only a lost part (`orphaned`) or a refusal by
-    the kernel makes it `not measurable`; `refused` keeps the reason.
+    measuring through it: the edge of that number is within
+    `EDGE_TOLERANCE_MM` (0.5 mm) of the point, or the nearest point of the
+    part is on that very edge and within the part's tolerance (`tolerance`:
+    `max(0.5 mm, 0.5 % of the bbox diagonal)`). So a dimension between two
+    edges of a plate that gets thinner by more than that, or whose edges are
+    renumbered, is not measurable, while one whose edge moved less is
+    measured through it; between its faces it is always measured again.
+    Faces are what to click for a check that must hold across edits. Besides
+    that, only a lost part (`orphaned`) or a refusal by the kernel makes it
+    `not measurable`; `refused` keeps the reason.
   - A measurement is of the build its refs are of: `measureDimension` is
     given that revision and rejects when the last build is another, before or
     after the kernel is asked. `MarkStore.reanchor` drops `measuredRevision`
@@ -178,9 +185,12 @@ While iterating run the focused test; run all four suites before a commit.
   every mark alike: no active mark, no selection, no hover, no gizmo. A mark
   on a part that is not drawn is not drawn either, on screen or in a picture.
 - Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `X`
-  section, `M`
-  measure (`T` there: the wall under the pointer); `G`, `R`, `T` for the gizmo
-  of the active shape. A tool is a `Tool`
+  section, `M` measure (`T` there: the wall under the pointer, which the tool
+  knows only from a pointer move made while it is in hand); `G`, `R`, `T` for
+  the gizmo of the active shape. The Measure tool is `tools/measureTool.ts`;
+  what its clicks measure is chosen in the strip `MeasureChoice` of
+  `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
+  `ui/DimensionFields.tsx`. A tool is a `Tool`
   (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
@@ -207,6 +217,34 @@ While iterating run the focused test; run all four suites before a commit.
   `ui/SectionBar.tsx`. The plane moves in the viewport during a drag and is
   kept in the store once, on release, to the millionth of a millimetre.
 - Numbers shown or told of a section go through `shared/format.ts`.
+
+## Exactness
+
+- Lengths are millimetres, angles degrees, areas mm², volumes mm³, masses
+  grams. Numbers shown go through `shared/format.ts` (four significant
+  digits at most); numbers stored and returned as data are in full.
+- Every number told to the agent is the kernel's, from the B-rep. The mesh
+  drives only the estimate read out at the pointer while a measurement is
+  pending (`≈`), which the kernel's value replaces.
+- Areas and volumes are measured in one place, `kernel/src/torno_kernel/extent.py`.
+  A volume is integrated by Gauss-Kronrod to 1e-9 of itself and given as
+  exact. An area is exact of planes, cylinders, cones, spheres and tori, and
+  of a curve extruded straight whose length settles; of any other face three
+  integrals are taken and it is exact only when they agree to 1e-6,
+  otherwise `exact: false` (`areaExact` in `describe` and `section`) with the
+  digits that can be relied on. A bbox is exact only of planes and cylinders
+  with straight and circular edges (`measure.py` `_boxed_exactly`).
+- This costs time on freeform parts, at every build (each part's volume is in
+  the scene) and in `describe`, `volume`, `mass` and `area`: on the owner's
+  `micra-intake` lid (2,635 faces, lofts), with the machine loaded,
+  `describe` of the part took 10 s and its volume 4 s, against 0.5 s and
+  0.07 s for the tub (358 faces, one spline face). A query has 30 s.
+- `measure`'s `moved`, on a thickness, is how far the given point was from
+  the face it was laid on; it says nothing of the value's precision.
+- A `print` layout that was spread (`arrange.py`) has its parts where torno
+  put them: what is measured between two parts there is of that arrangement,
+  not of the model. Fit is checked in a layout that places the parts as
+  assembled.
 
 ## Kernel invariants
 

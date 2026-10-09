@@ -6,16 +6,20 @@ Torno builds the model every time its file is saved, shows the parts in a 3D
 viewport beside the terminal, and gives the agent tools to see what you see.
 You point at the part to say what you mean: a pin, an arrow, a stroke or a
 rough shape, each with a note, which the agent gets with your next prompt.
+You measure it, and a measurement you give an expected value is checked on
+every build and told to the agent until it holds.
 
 Torno is not a modeller. It has no sketcher, no feature tree and no way to edit
 a solid by hand. The model is the Python file; torno shows it.
 
 The name is Portuguese for lathe.
 
-This is Milestones 1 and 2. The loop: open a workspace, rebuild on save, look
-at the parts, talk to one agent session per object. And talk: point at the
-parts and leave marks, which travel to the agent and which it can read, answer
-and resolve. What comes after is listed under [Next](#next). The design is in
+This is Milestones 1 to 3. The loop: open a workspace, rebuild on save, look
+at the parts, talk to one agent session per object. Talk: point at the parts
+and leave marks, which travel to the agent and which it can read, answer and
+resolve. Read: measure the parts, pin dimensions that are measured again on
+every build, cut them by a plane, and give the agent the same as tools. What
+comes after is listed under [Next](#next). The design is in
 [docs/superpowers/specs/2026-10-08-torno-design.md](docs/superpowers/specs/2026-10-08-torno-design.md).
 
 ## Requirements
@@ -93,6 +97,10 @@ ends torno; `Ctrl+Q`, `Ctrl+W`, `F11` and the zoom shortcuts do not exist.
 - **Bottom:** the build status: building with the seconds elapsed, built with
   the time it took and the revision, or failed. A failed build keeps the last
   good parts on screen, and its status opens the error with the traceback.
+  Beside it, how many dimensions that are not resolved fail on that build
+  (`1 dimension fails`), sent or not, and how many have no value on it (`1
+  dimension not measured`: not measured yet, or not measurable); a click goes
+  to the first.
 
 Saving a file in the object's folder (dotfiles, `out/`, `cache/`, `.torno/` and
 `__pycache__/` are ignored, as are `build/`, `dist/`, `node_modules/`, `.venv/`
@@ -120,6 +128,7 @@ The tools, each with its key:
 | `D` | Draw | Press and draw. On a locked view (an orthographic front, back, left, right, top or bottom, not turned since; a padlock shows on its button) the stroke is a profile in millimetres on the plane that faces you. On any other view it lies on the surface. Alt-drag turns the camera with this tool in hand. |
 | `S` | Shape | Click places a box, cylinder, sphere or plane, to add, remove, keep out or refer to. A gizmo moves it (`G`), turns it (`R`) or sizes it (`T`), and its row has the exact numbers. |
 | `X` | Section | Cuts the parts by a plane, to look inside. A bar at the bottom of the viewport sets it. |
+| `M` | Measure | Two clicks leave the distance or the angle between two faces or edges; a double click on something round its diameter or radius; `T` the thickness of the wall under the pointer. Each is a dimension, with a number like any mark. |
 
 **Section.** With `X` a bar appears at the bottom of the viewport: X, Y and Z
 put a plane across that axis through the middle of the parts, "From face" puts
@@ -134,6 +143,65 @@ it; a drag anywhere else turns the camera as ever. The arrow keys move it by
 pick, and the pointer says so; a mark on what was cut away stays, drawn
 faint. The bar stays while there is a section, whichever tool is in hand. The
 pictures the agent takes are cut the same way.
+
+**Measure.** With `M` a strip appears in the bottom corner of the viewport:
+what two clicks measure (Distance or Angle), what a double click on a hole, a
+cylinder or a circular edge measures (Diameter or Radius), and the key `T`,
+which has no button: with the pointer on a face it measures the wall there,
+from that point along the inward normal to where the part ends. Move the
+pointer onto the face after taking up the tool: `T` acts on what the pointer
+was last moved over. With Shift a click is a bare point, tied to no face.
+While the second click is pending the pointer reads out an estimate from the
+mesh, marked `≈`. What is kept is never that: torno asks the kernel, which
+measures on the exact geometry and says how (`6 mm between planes`, `axis to
+axis`, `point to plane`, `minimum`). A distance between two parallel flat
+faces is the distance between their planes, between two cylinders or circles
+with parallel axes the distance between the axes, and of anything else the
+least distance. When the kernel refuses (an angle between a flat face and a
+cylinder), nothing is kept and its reason is read out at the pointer for four
+seconds. `Esc` drops a first click; the tool stays in hand.
+
+**Dimensions.** What the Measure tool leaves is a dimension: a mark (`M4`)
+with a value, drawn on the part with its number and value, and listed with
+the marks. Its row, once clicked, shows the value in full, how it was taken,
+and two fields: **Expected** and **Tolerance**, in mm or degrees. With an
+expected value the dimension is a check: it passes when the value is within
+the tolerance of it (0.05 mm, or 0.1° for an angle, when you give none) and
+fails otherwise, and the row says `Passes` or `Fails: 2 under`. A failing
+one is ringed on the part and in the agent's pictures.
+
+- Like any mark, a dimension is a **draft** until a prompt has carried it to
+  the agent. From then until it is resolved its row says **pinned**: it is
+  one of the checks the agent is told about (see
+  [What the agent gets](#what-the-agent-gets)). Changing what is expected or
+  the tolerance makes it a draft again, sent as `(changed)`.
+- After every build, every dimension that is not resolved is measured again
+  on the new geometry, once its ends have been checked against it like any
+  mark's. Until that has happened its row shows the old value greyed and says
+  `not measured on r12: this is what it was on r11`; it has no verdict
+  meanwhile, and the agent is told `not measured on r12 (was 6 mm on r11)`.
+  In a new run of torno every dimension is measured at the first build.
+- An end the build moved away from is measured from the face that is under
+  it now, and the dimension says `measured from what is under its ends now`
+  (to the agent: `[moved since it was placed: check it]`).
+- A dimension is **not measurable** when the part of an end is gone, when
+  the kernel refuses it on the new geometry (the hole is no longer round),
+  or when an end that was put on an **edge** is no longer on that edge. It
+  then has no value and no verdict, and the row and the agent are told why:
+  `the edge plate/E7 it was on is not under its end on r12`.
+- Ends on faces and ends on edges behave differently when the part changes
+  size. A face is found again under the point, so a thickness measured
+  between the top and the bottom face follows the plate as it gets thinner.
+  An edge is the edge of that number: its end still counts as on it while
+  the edge is within 0.5 mm of the point, or while the nearest point of the
+  part is on that very edge and within the part's tolerance,
+  `max(0.5 mm, 0.5 % of the diagonal of its bounding box)`. On a part
+  360 mm across that is 1.8 mm, so a small change is measured through; beyond
+  it, or when the edges are renumbered, the dimension is not measurable and
+  has to be measured again. For a check that must hold across edits, click
+  faces, not edges.
+- A dimension is not put somewhere else as a pin is: delete it and measure
+  again.
 
 `Esc` drops what is being dragged, then puts the tool down for Select. In a
 note, `Enter` saves and `Esc` leaves it for later. A note is also kept when
@@ -217,13 +285,16 @@ does not read or change your Claude Code settings; Claude Code still applies
 them.
 
 - **`mcp__torno__scene`**: the build status and error, the layouts, every part
-  with its size, bounding box, volume and whether it is visible, and your
-  camera. It notes when the parts of the print layout were spread along X.
+  with its size, bounding box, volume and whether it is visible, your camera
+  and your section, if you have one. It notes when the parts of the print
+  layout were spread along X.
 - **`mcp__torno__look`**: a picture from the renderer you are looking at. With
-  no arguments it is exactly your view. It also takes a named view (`iso`,
-  `front`, `back`, `left`, `right`, `top`, `bottom`), a camera, a layout, a
-  list of parts, and a size (long edge, 1280 by default, 2000 at most). The
-  caption names the revision that was drawn, and says when it is stale.
+  no arguments it is exactly your view, cut by your section if you have one.
+  It also takes a named view (`iso`, `front`, `back`, `left`, `right`, `top`,
+  `bottom`), a camera, a layout, a list of parts, a size (long edge, 1280 by
+  default, 2000 at most) and a `section`: `'current'` (yours, the default),
+  `null` for the parts whole, or a plane of the agent's own. The caption
+  names the revision that was drawn and the cut, and says when it is stale.
 - **`mcp__torno__marks`**, **`mcp__torno__describe`**: your marks and the
   agent's as data, and the exact geometry of a part, a face or an edge
   (`lid`, `lid/F12`, `lid/E3`). Both say which revision they answer from, and
@@ -231,12 +302,20 @@ them.
 - **`mcp__torno__highlight`**, **`mcp__torno__show`**: the agent tints faces
   or edges in your viewport with a note, to ask "this one?", until you click
   or a minute passes; or changes your camera, layout and visible parts to show
-  you something. What `show` changes is for now: the layers and layout you
-  chose stay what `.torno/scene.json` keeps. While you hold a button in the
-  viewport, `show` is refused and the agent is told to try again.
+  you something. `show` also takes a `section`: a plane to cut your view by,
+  or `null` to take your section away. What `show` changes is for now: the
+  layers, the layout and the section you chose stay what `.torno/scene.json`
+  keeps. While you hold a button in the viewport, `show` is refused and the
+  agent is told to try again.
 - **`mcp__torno__add_mark`**, **`mcp__torno__resolve_mark`**: the agent leaves
   marks of its own, in green, and resolves yours with a line on what it did,
-  which you then confirm or reopen.
+  which you then confirm or reopen. With `kind: 'dimension'` (`measure`, `a`,
+  for a distance or an angle `b`, and optionally `expected` and `tolerance`)
+  it leaves a dimension, measured at once and on every build like yours.
+- **`mcp__torno__measure`**, **`mcp__torno__section`**,
+  **`mcp__torno__check`**: exact numbers from the geometry, so the agent
+  need not work a size out from the code or write a script. See
+  [Measuring tools](#measuring-tools).
 - **A few lines with every prompt**, added by a `UserPromptSubmit` hook:
   `[torno] bracket · build ok · r3 (1.2 s) · layout assembly · parts: base, post.`
   For a failed build it carries the error. For an object that is not the one
@@ -253,6 +332,115 @@ them.
   `(changed) M3 …`. After `/clear`, the first prompt of the new conversation
   lists your open marks once more, since it has seen none of them.
 
+  A dimension that is still a draft is told with the marks, with its value
+  and verdict:
+  `M1 distance 6 mm between planes, plate/F2 to plate/F4 (expected 8 ± 0.05: FAIL, 2 under)`.
+  Once sent it is pinned, and from then on every prompt carries a block for
+  the pinned dimensions the last build does not meet: one line for each that
+  fails, is not measurable or was not measured on that build, then how many
+  pass.
+
+  ```
+  Dimensions:
+  M1 distance 6 mm between planes, plate/F2 to plate/F4 (expected 8 ± 0.05: FAIL, 2 under)
+  1 pinned dimension passes
+  Open marks: M2
+  ```
+
+  A line stays until its dimension passes or is resolved. A pinned dimension
+  with no expected value has a line only while it has no value. Among those
+  that pass, the ones whose end the build moved are named
+  (`1 pinned dimension passes (1 measured from what is under its ends now: M9)`).
+
+### Measuring tools
+
+Lengths are millimetres, angles degrees, areas mm², volumes mm³ and masses
+grams; Z is up. The three tools answer from the last build that worked and
+say which revision that is, and that it is stale while a newer build runs or
+has failed. Each reply is JSON with a `reading`: the answer in one line, such
+as `6 mm between planes, plate/F2 to plate/F4`. A question the kernel has not
+answered within 30 s is an error that says so.
+
+**`measure`** takes `kind`, `a`, for a distance or an angle `b`, for a mass
+`density`, and `layout`. An end is a ref (`lid/F12`, `lid/E3`, or a whole
+part where the kind takes one), the number of a mark (`M3`: what it is on,
+only if the last build's check confirmed it), `{point: [x, y, z]}`, or
+`{ref, point}` for the feature the ref names, taken at that point.
+
+| `kind` | Of | Reply |
+|---|---|---|
+| `distance` | `a` and `b` | `value` in mm, the two `points` it is between, and `how`: `between planes` (two parallel flat faces), `axis to axis` (two cylinders or circles with parallel axes), `point to plane`, between two points, else `minimum` |
+| `angle` | `a` and `b` | degrees: between the outward normals of two flat faces (0 to 180), or between two straight edges, or a straight edge and a flat face (0 to 90) |
+| `radius`, `diameter` | a cylindrical, spherical or toroidal face, or a circular edge | mm |
+| `thickness` | a face of a solid, at a point of it (`{ref, point}`; the centre of the face when no point is given) | mm, from the point along the inward normal to where the part ends. The point must be on the face, give or take what a pick on the mesh is out by; it is laid on the face, and `moved` says how far in mm |
+| `bbox` | a part, a face or an edge | `min`, `max`, `size` |
+| `area` | a part or a face | mm² |
+| `volume` | a part that is a solid | mm³ |
+| `mass` | a part that is a solid | grams, with the `density` used (g/cm³; 1.24, PLA, when none is given, and the reply says so) and the `volume` |
+
+**`section`** takes `plane`, and optionally `parts`, `layout` and `size`. A
+plane is `{origin, normal}`, or `{axis: 'x' | 'y' | 'z', at}` for the plane
+across that axis at that coordinate, or `'current'` for your own section.
+The reply has, for each part, the outlines the plane cuts of it as closed
+loops of `[u, v]` points in mm along the plane's own axes (given as `x` and
+`y`), each loop's `area` (negative round a hole), the part's `area`, how many
+loops are `open`, and the extent of the whole cut. The outlines come from
+the exact geometry, as polylines within 0.05 mm of it. With several parts
+each loop is thinned to at most 200 points and says so (`thinned`, with the
+`deflection` it then has); name one part to get up to 2,000 points a loop.
+With it comes a 2D drawing of the cut on a millimetre grid, each part in its
+colour, with what is up in the world up on the page; it is also saved under
+`.torno/views/`. To see the cut in 3D the agent calls `look` with a
+`section`.
+
+**`check`** takes `kind`, `a`, for two parts `b`, and `layout`; `a` and `b`
+are names of whole parts.
+
+| `kind` | Reply |
+|---|---|
+| `overlap` | the `volume` two solid parts share, in mm³, and the box it lies in; 0 and no box when they share none |
+| `clearance` | the least `distance` between two parts in mm and the `points` it is between. It is 0 when they touch, and when they overlap, which `overlapping: true` then says; of a part that is no solid the distance is told and `overlapping` is `null` |
+| `mesh` | whether the mesh the part is drawn and exported with is closed (`watertight`), its `triangles`, the number of `openEdges` and where up to 20 of them are |
+
+**Exact and approximate.** Every number these tools give is measured by the
+kernel on the model's own B-rep, never on the mesh on screen. A reply says
+`exact: true` when the value is exact; otherwise the reading starts with `≈`
+and says `approximate`, and `how` says why:
+
+- Distances, angles, radii, diameters and thicknesses are exact.
+- A volume is integrated adaptively until it has converged to one part in
+  10⁹, and is given as exact.
+- An area is exact for planes, cylinders, cones, spheres and tori, and for a
+  curve extruded straight whose length is settled. Of any other face
+  (a spline surface, a loft) three integrals are taken, and the area is
+  exact only when they agree to one part in 10⁶; when they do not it is
+  approximate, and `how` says to how many digits they agree. The area of a
+  part is exact only when the area of every face is.
+- A bounding box is exact when all the faces of what is boxed are planes or
+  cylinders and all its edges lines or circles; of anything freeform it is
+  approximate.
+- The areas of a section say for themselves (`areaExact`).
+- `moved`, on a thickness, is not an error bar: it is how far the point that
+  was given lay from the face before it was laid on it. A pick from the mesh
+  is a few thousandths of a millimetre off a curved face.
+
+**What it costs.** Since volumes and areas are integrated until they
+converge, a part with many freeform faces takes seconds where a prismatic
+one takes milliseconds. On a 2,600-face part with lofted surfaces, on a
+loaded machine: `describe` of the whole part 10 s, its `volume` or `mass`
+4 s, a `section` through it 2 s, `check mesh` 1 s, while every measurement
+on a face took under 0.1 s. The volume of every part is also worked out
+during each build.
+
+**Parts that fit together.** `overlap`, `clearance`, and a distance or an
+angle between two parts are of the parts where the layout has them. Fit can
+therefore only be checked in a layout that places the parts as assembled
+(`assembly(p)` in the model). In a `print` layout that torno spread along X
+the parts are where torno put them for display, not where the model has
+them: an object with only a print layout can be measured part by part
+(thickness, diameter, bbox, volume, mass, mesh, a distance within one part),
+but not checked for fit until it has an assembly.
+
 The session's status follows the hooks Claude Code posts to torno:
 `UserPromptSubmit`, `PreToolUse` and `PostToolUse` mean working, `Stop` idle,
 `Notification` and `PermissionRequest` needs input.
@@ -267,9 +455,9 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 | File | What |
 |---|---|
 | `.torno/scene.json` | the layout, the layer visibility and the section (`section`: a plane's `origin` and `normal`) you last chose |
-| `.torno/marks.json` | the marks of the object: yours and the agent's, with their notes, anchors and status |
+| `.torno/marks.json` | the marks of the object: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured |
 | `.torno/session.json` | the id of the conversation to resume |
-| `.torno/views/<n>.png` | the pictures the agent asked for, the latest 20 |
+| `.torno/views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 |
 | `.torno/state.md` | the build, the parts and the open marks as text, for an agent without torno's tools. Its first line says when it was written: nothing keeps it current once torno has quit |
 
 Add `.torno/` to the workspace's `.gitignore` if you do not want these in git.
@@ -307,6 +495,5 @@ such as `CLAUDE_CODE_USE_BEDROCK`, are passed on.
 
 ## Next
 
-3. **Read.** Measure, pinned dimensions, section cuts; `measure`, `section`, `check` for overlap, clearance and mesh.
 4. **Scan.** Import a scan, align it, overlay it, check clearance against it.
 5. **Show.** Explode, named views, HTML export, adapters for other agent CLIs.
