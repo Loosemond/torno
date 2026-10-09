@@ -7,7 +7,7 @@ import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { LookResult, ViewState } from '../shared/view'
 import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
-import { Builds, watchFolder } from './builds'
+import { Builds, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveLook } from './look'
@@ -23,7 +23,7 @@ import { scanWorkspace } from './workspace'
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply,
 //           session:write, session:resize
 //   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts),
-//           session:data, session:status
+//           session:data, session:status, workspace:requested (sent by src/main/index.ts)
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the last scan
@@ -53,21 +53,18 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   const kernel = startKernel({ workspaceRoot: info.root, hasProject: info.hasProject, kernelDir: kernelDir() })
   const builds: Builds = new Builds({
     kernel,
-    // Which file is an object's model can change with its folder's contents
-    // (a second candidate removed, a first one added), so a change there is a
-    // reason to choose again before building. The choice is compared with what
-    // `builds` holds, not with `ws.info`: another folder's change may have
-    // scanned, and replaced that, in the meantime.
+    timeout: buildTimeout(process.env),
+    // Which file is an object's model can change with its folder's contents (a
+    // first candidate added, the model renamed), so a change there is a reason
+    // to choose again before building. The choice is `builds.choice`: an open
+    // object keeps its model while that file exists.
     watch: (dir, onChange) =>
-      watchFolder(dir, () => {
-        void scanWorkspace(ws.info.root)
-          .catch(() => null)
-          .then((scanned) => {
-            if (current !== ws) return
-            if (scanned) ws.info = scanned
-            const obj = ws.info.objects.find((o) => o.dir === dir)
-            if (!obj || !builds.update(obj)) onChange()
-          })
+      watchFolder(dir, (paths) => {
+        void rescan(ws).then(() => {
+          if (current !== ws) return
+          const obj = ws.info.objects.find((o) => o.dir === dir)
+          if (!obj || !builds.update(obj)) onChange(paths)
+        })
       })
   })
   const ws: OpenWorkspace = { info, kernel, builds, opened: new Set(), shown: null }
@@ -77,6 +74,16 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   )
   current = ws
   return info
+}
+
+/**
+ * Scan an open workspace again. Objects that are open keep the model they are
+ * built from (`Builds.choice`), so the list says what is on screen. A scan
+ * that fails leaves what was known.
+ */
+async function rescan(ws: OpenWorkspace): Promise<void> {
+  const scanned = await scanWorkspace(ws.info.root).catch(() => null)
+  if (scanned && current === ws) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
 }
 
 export async function closeWorkspace(): Promise<void> {
@@ -119,8 +126,17 @@ export function lastScene(id: string): { revision: number; scene: Scene } | unde
  * `onWorkspaceChosen` is told the root of every workspace the person opens
  * from the window, so that it can be opened again at the next start.
  * `sessions` backs the session pane; without it there are no sessions.
+ * `pickFolder` answers "Open folder" in place of the dialog, which tests must
+ * never open.
  */
-export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void; sessions?: Sessions } = {}): void {
+export function registerIpc(
+  opts: {
+    onWorkspaceChosen?: (root: string) => void
+    sessions?: Sessions
+    /** Stands in for the folder dialog: the folder to open, or null for none. */
+    pickFolder?: () => Promise<string | null>
+  } = {}
+): void {
   sessions = opts.sessions ?? null
   sessions?.on('data', (m) => broadcast('session:data', m))
   sessions?.on('status', (m) => broadcast('session:status', m))
@@ -137,6 +153,10 @@ export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void; 
   ipcMain.handle('workspace:current', () => current?.info ?? null)
 
   ipcMain.handle('workspace:pick', async (event) => {
+    if (opts.pickFolder) {
+      const folder = await opts.pickFolder()
+      return folder === null ? null : chosen(await openWorkspace(folder))
+    }
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = { title: 'Open folder', properties: ['openDirectory', 'createDirectory'] }
     // Where objects usually live, suggested until a workspace has been chosen.
@@ -159,11 +179,12 @@ export function registerIpc(opts: { onWorkspaceChosen?: (root: string) => void; 
     const ws = requireWorkspace()
     // From here on the window shows this object, whatever comes of building it.
     ws.shown = id
+    ws.builds.show(id)
     // Scanned afresh: the agent may have created the folder a moment ago.
     const scanned = await scanWorkspace(ws.info.root)
     // The workspace may have been closed or replaced during the scan; its kernel is then gone.
     if (current !== ws) throw new Error(`the workspace ${ws.info.root} was closed`)
-    ws.info = scanned
+    ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
     const obj = ws.info.objects.find((o) => o.id === id)
     if (!obj) throw new Error(`no object named ${id} in ${ws.info.root}`)
     const state = ws.builds.open(obj)

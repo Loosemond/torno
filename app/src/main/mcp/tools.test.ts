@@ -28,7 +28,15 @@ const SCENE: Scene = {
 const CAMERA: Camera = { position: [100.123456, -80, 60], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const VIEW: ViewState = { objectId: 'bracket', layout: 'assembly', camera: CAMERA, visible: ['assembly:base'] }
 const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 0.8123, stale: false }
-const PICTURE: LookResult = { png: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), width: 1280, height: 960, caption: 'view iso · layout assembly · parts base, post · orthographic · 1280×960' }
+const PICTURE: LookResult = {
+  png: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]),
+  width: 1280,
+  height: 960,
+  caption: 'view iso · layout assembly · parts base, post · orthographic · 1280×960',
+  objectId: 'bracket',
+  revision: 3,
+  stale: false
+}
 
 interface Fake extends ToolDeps {
   looks: Array<{ objectId: string; req: LookRequest }>
@@ -48,7 +56,7 @@ function fake(over: Partial<ToolDeps> & { state?: BuildState | null; noScene?: b
     openObjectId: () => 'bracket',
     look: async (objectId, req) => {
       looks.push({ objectId, req })
-      return PICTURE
+      return { ...PICTURE, revision: (over.state ?? OK).revision, stale: (over.state ?? OK).stale }
     },
     saveImage: async (objectId, png) => {
       saved.push({ objectId, png })
@@ -118,6 +126,22 @@ describe('scene', () => {
     expect(scene.build.revision).toBe(3)
   })
 
+  it('says which parts of the print layout were spread along X, and by how much', () => {
+    const spread: Scene = {
+      ...SCENE,
+      parts: [...SCENE.parts.slice(0, 3), part('print', 'post', [30, -10, 0], [38, 10, 8], { arranged: [34.004, 0, 0] })]
+    }
+    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }) }), 'bracket')))
+    expect(scene.parts.map((p: { arranged?: number[] }) => p.arranged)).toEqual([undefined, undefined, undefined, [34, 0, 0]])
+    expect(scene.note).toBe('The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.')
+
+    // Said together with the other note, when there is one.
+    const elsewhere = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }), openObjectId: () => 'helmet-stand' }), 'bracket')))
+    expect(elsewhere.note).toBe(
+      'bracket is not the object open in the torno window (open: helmet-stand), so what is visible and the camera are not known. The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
+    )
+  })
+
   it('is an error for an object the workspace does not have', () => {
     const result = sceneTool(fake(), 'nothing')
     expect(result.isError).toBe(true)
@@ -178,11 +202,48 @@ describe('look', () => {
     ])
   })
 
-  it('says the parts are stale when the latest build is not the one shown', async () => {
+  it('refuses a camera whose position is its target', async () => {
+    const deps = fake()
+    const result = await lookTool(deps, 'bracket', { view: { position: [10, 20, 30], target: [10, 20, 30] } })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe('position and target are the same')
+    expect(deps.looks).toEqual([])
+  })
+
+  it('says the parts are stale when the window drew them stale, and why', async () => {
     const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'no' } }
     expect(textOf(await lookTool(fake({ state: failed }), 'bracket', {}))).toContain('\nrevision r3, stale: the latest build failed, so these are still the parts of r3\n')
     const building: BuildState = { objectId: 'bracket', status: 'building', revision: 3, startedAt: 1, stale: true }
     expect(textOf(await lookTool(fake({ state: building }), 'bracket', {}))).toContain('\nrevision r3, stale: a build is running, so these are still the parts of r3\n')
+  })
+
+  it('captions the picture with the revision the window drew, not the one built while the picture was made', async () => {
+    // The build of r4 lands between the request and the reply: the picture is still of r3.
+    let state: BuildState = { objectId: 'bracket', status: 'building', revision: 3, startedAt: 1, stale: true }
+    const deps = fake({
+      build: () => state,
+      scene: () => ({ revision: state.revision, scene: SCENE }),
+      look: async () => {
+        const drawn = { ...PICTURE, revision: 3, stale: true }
+        state = { objectId: 'bracket', status: 'ok', revision: 4, seconds: 1, stale: false }
+        return drawn
+      }
+    })
+    const result = await lookTool(deps, 'bracket', {})
+    expect(result.isError).toBeUndefined()
+    expect(textOf(result)).toBe(`${PICTURE.caption}\nrevision r3, stale: r4 was built while this picture was made; look again to see it\nsaved as /ws/bracket/.torno/views/1.png`)
+  })
+
+  it('says so when a picture drawn fresh has been overtaken by a newer build', async () => {
+    let revision = 3
+    const deps = fake({
+      scene: () => ({ revision, scene: SCENE }),
+      look: async () => {
+        revision = 4
+        return PICTURE
+      }
+    })
+    expect(textOf(await lookTool(deps, 'bracket', {}))).toContain('\nrevision r3, stale: r4 was built while this picture was made; look again to see it\n')
   })
 
   it('still returns the picture when it cannot be saved', async () => {
@@ -221,15 +282,9 @@ describe('look', () => {
     )
   })
 
-  it('is an error when another object was opened while the picture was made', async () => {
-    let open = 'bracket'
-    const deps = fake({
-      openObjectId: () => open,
-      look: async () => {
-        open = 'helmet-stand'
-        return PICTURE
-      }
-    })
+  it('is an error when the picture the window made is of another object', async () => {
+    // Main still takes bracket for the open object; the window had already moved on.
+    const deps = fake({ look: async () => ({ ...PICTURE, objectId: 'helmet-stand' }) })
     const result = await lookTool(deps, 'bracket', {})
     expect(result.isError).toBe(true)
     expect(textOf(result)).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')

@@ -1,4 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { BuildError } from '../../shared/build'
 import type { Scene } from '../../shared/scene'
 import { encodeFrame, FrameDecoder } from './frames'
@@ -183,7 +185,13 @@ class Kernel implements KernelClient {
   }
 
   private receive(header: any, blob: Buffer): void {
-    if (header === null || typeof header !== 'object') return
+    if (header === null || typeof header !== 'object') {
+      // It cannot be said whose reply this was, and its request would wait for
+      // ever: whatever is pending is failed. The kernel itself carries on.
+      this.keepStderr('kernel: a frame that is not JSON\n')
+      this.failPending('crash', 'the kernel sent a reply that could not be read; rebuild to carry on')
+      return
+    }
     if (header.event === 'ready') {
       this.readyResolve({ versions: header.versions ?? {} })
       return
@@ -252,9 +260,54 @@ function failure(kind: string, message: string): BuildResult {
 
 export type RunningKernel = KernelClient & { readonly pid: number | undefined }
 
-/** Start the kernel for a workspace. It is restarted once if it exits unexpectedly. */
+/**
+ * What stands in for the kernel of a workspace it cannot be started in. Every
+ * build fails with the reason, as a crash; nothing is run, and nothing restarts.
+ */
+class NoKernel implements KernelClient {
+  readonly ready: Promise<{ versions: Record<string, string> }>
+  readonly pid = undefined
+
+  constructor(private readonly reason: string) {
+    this.ready = Promise.reject(new KernelError('crash', reason))
+    this.ready.catch(() => {}) // the builds say it too; not every caller awaits `ready`
+  }
+
+  build(): Promise<BuildResult> {
+    return Promise.resolve(failure('crash', this.reason))
+  }
+  query<T>(): Promise<T> {
+    return Promise.reject(new KernelError('crash', this.reason))
+  }
+  cancel(): void {}
+  dispose(): Promise<void> {
+    return Promise.resolve()
+  }
+  onExit(): void {}
+  stderrTail(): string {
+    return ''
+  }
+}
+
+/**
+ * Why no kernel can be started for a workspace, or null when one can. A
+ * workspace with a `pyproject.toml` and no `.venv` gets none: `uv run --no-sync
+ * --project <root>` would create the environment there, and torno never writes
+ * into a workspace.
+ */
+export function cannotStart(opts: { workspaceRoot: string; hasProject: boolean }): string | null {
+  if (!opts.hasProject || existsSync(join(opts.workspaceRoot, '.venv'))) return null
+  return `This workspace has a pyproject.toml but no .venv. Run \`uv sync\` in ${opts.workspaceRoot} once, then reopen it.`
+}
+
+/**
+ * Start the kernel for a workspace. It is restarted once if it exits
+ * unexpectedly. Where it cannot be started (`cannotStart`), every build fails
+ * saying why.
+ */
 export function startKernel(opts: { workspaceRoot: string; hasProject: boolean; kernelDir: string }): RunningKernel {
-  return new Kernel(kernelCommand(opts), opts.workspaceRoot)
+  const reason = cannotStart(opts)
+  return reason === null ? new Kernel(kernelCommand(opts), opts.workspaceRoot) : new NoKernel(reason)
 }
 
 /** As `startKernel`, with the command given: tests run a stand-in for the kernel. */

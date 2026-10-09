@@ -8,5 +8,6 @@ export const SYSTEM_PROMPT = [
   'After every edit, always check the build status with scene, and look at the result before saying it is done.',
   'A failed build leaves the previous parts on screen, marked stale.',
   'Coordinates are millimetres, Z up.',
-  'Do not write to the .torno/ folder: it is torno’s own.'
+  'Do not write to the .torno/ folder: it is torno’s own.',
+  'Scratch scripts belong outside the object folder or in a tools/ subfolder of it, so that the folder keeps one model file.'
 ].join(' ')

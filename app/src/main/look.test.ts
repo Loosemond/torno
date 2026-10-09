@@ -12,7 +12,7 @@ function fakeWindow(destroyed = false) {
   return { win, sent }
 }
 
-const PICTURE: LookResult = { png: new Uint8Array([1, 2, 3]), width: 4, height: 3, caption: 'view iso' }
+const PICTURE: LookResult = { png: new Uint8Array([1, 2, 3]), width: 4, height: 3, caption: 'view iso', objectId: 'bracket', revision: 1, stale: false }
 
 afterEach(() => {
   vi.useRealTimers()

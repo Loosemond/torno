@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
 import type { BuildError, BuildState } from '../shared/build'
@@ -6,15 +7,23 @@ import type { ObjectInfo } from '../shared/workspace'
 import type { KernelClient } from './kernel/client'
 
 const DEBOUNCE_MS = 300
-const IGNORED_FOLDERS = new Set(['out', '.torno', '__pycache__'])
+// torno's own folder, and where models and tools keep what they make: exports,
+// caches, environments. A model may write there while it builds.
+const IGNORED_FOLDERS = new Set(['out', '.torno', '__pycache__', 'cache', 'build', 'dist', 'node_modules', '.venv', '.git'])
+
+/** Told the files that changed in a burst, as absolute paths. */
+export type OnChange = (paths: string[]) => void
 
 /**
  * Watch a folder and call `onChange` once per burst of changes, 300 ms after
- * the last one. Ignores `out/`, `.torno/`, `__pycache__/` and dotfiles. The
- * folder need not exist yet. Returns a function that stops the watch.
+ * the last one, with the paths that changed. Ignores dotfiles and the folders
+ * named `out`, `.torno`, `__pycache__`, `cache`, `build`, `dist`,
+ * `node_modules`, `.venv` and `.git`, at any depth. The folder need not exist
+ * yet. Returns a function that stops the watch.
  */
-export function watchFolder(dir: string, onChange: () => void): () => void {
+export function watchFolder(dir: string, onChange: OnChange): () => void {
   let timer: NodeJS.Timeout | undefined
+  let changed = new Set<string>()
   const watcher = chokidarWatch(dir, {
     ignoreInitial: true,
     ignored: (path) =>
@@ -22,9 +31,14 @@ export function watchFolder(dir: string, onChange: () => void): () => void {
         .split(sep)
         .some((part) => IGNORED_FOLDERS.has(part) || (part.startsWith('.') && part !== '..'))
   })
-  watcher.on('all', () => {
+  watcher.on('all', (_event, path) => {
+    changed.add(path)
     clearTimeout(timer)
-    timer = setTimeout(onChange, DEBOUNCE_MS)
+    timer = setTimeout(() => {
+      const paths = [...changed]
+      changed = new Set()
+      onChange(paths)
+    }, DEBOUNCE_MS)
   })
   // A watch that fails (the folder became unreadable) just reports nothing more.
   watcher.on('error', () => {})
@@ -32,6 +46,18 @@ export function watchFolder(dir: string, onChange: () => void): () => void {
     clearTimeout(timer)
     void watcher.close()
   }
+}
+
+/**
+ * The build timeout the person asked for in TORNO_BUILD_TIMEOUT, in seconds.
+ * Undefined when it is unset or not a positive number: the kernel's default
+ * then holds.
+ */
+export function buildTimeout(env: Record<string, string | undefined>): number | undefined {
+  const text = env.TORNO_BUILD_TIMEOUT?.trim()
+  if (!text) return undefined
+  const seconds = Number(text)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
 }
 
 type SceneMessage = { objectId: string; revision: number; scene: Scene; blob: Buffer }
@@ -43,6 +69,8 @@ interface Entry {
   lastGood?: LastGood
   attempt: number // counts builds started; a result for an older attempt is dropped
   startedAt: number
+  /** Something other than Python changed while it was building: build once more when that build ends. */
+  changedMeanwhile: boolean
   unwatch: Array<() => void>
 }
 
@@ -51,28 +79,44 @@ interface Entry {
  * its folder, or the workspace's `common/`, changes.
  *
  * The kernel runs one build at a time: starting one cancels the one running.
- * For the same object that is what a save mid-build wants. A build displaced by
- * another object's is started again once the kernel is free.
+ * For the same object that is what a save of its Python mid-build wants. Any
+ * other file changing mid-build may be the model's own doing (a cache, an
+ * export), so that build is left to finish and one more follows it. A build
+ * displaced by another object's is started again once the kernel is free, the
+ * object shown in the window first.
  */
 export class Builds {
   private readonly kernel: KernelClient
-  private readonly watch: (dir: string, onChange: () => void) => () => void
+  private readonly watch: (dir: string, onChange: OnChange) => () => void
   private readonly now: () => number
+  private readonly exists: (path: string) => boolean
+  private readonly timeout: number | undefined
   private readonly entries = new Map<string, Entry>()
   private readonly buildListeners: Array<(s: BuildState) => void> = []
   private readonly sceneListeners: Array<(m: SceneMessage) => void> = []
   private running: string | null = null // the object the kernel is building
   private readonly displaced = new Set<string>()
+  private shown: string | null = null
 
   constructor(deps: {
     kernel: KernelClient
-    watch: (dir: string, onChange: () => void) => () => void
+    watch: (dir: string, onChange: OnChange) => () => void
     now?: () => number
+    exists?: (path: string) => boolean
+    /** Seconds a build may take; the kernel's default when left out. */
+    timeout?: number
   }) {
     this.kernel = deps.kernel
     this.watch = deps.watch
     this.now = deps.now ?? Date.now
+    this.exists = deps.exists ?? existsSync
+    this.timeout = deps.timeout
     this.kernel.onExit(() => this.kernelStopped())
+  }
+
+  /** The object the window shows from now on: of those waiting for the kernel, it is built first. */
+  show(objectId: string | null): void {
+    this.shown = objectId
   }
 
   /**
@@ -90,26 +134,52 @@ export class Builds {
         state: { objectId: obj.id, status: 'idle', revision: 0, stale: false },
         attempt: 0,
         startedAt: 0,
+        changedMeanwhile: false,
         unwatch: []
       }
       this.entries.set(obj.id, entry)
-      const rebuild = () => this.rebuild(obj.id)
-      entry.unwatch.push(this.watch(obj.dir, rebuild), this.watch(join(dirname(obj.dir), 'common'), rebuild))
+      const changed: OnChange = (paths) => this.changed(obj.id, paths)
+      entry.unwatch.push(this.watch(obj.dir, changed), this.watch(join(dirname(obj.dir), 'common'), changed))
     }
     this.start(entry)
     return entry.state
   }
 
   /**
-   * Take a fresh scan of an open object. If its model was chosen differently
-   * from the one held here, build with the new choice and return true.
+   * An object as it is built here, given what a fresh scan says of it. While
+   * the model file held for an open object still exists, it stays the model,
+   * whatever else has appeared in the folder: a scratch script beside it does
+   * not make the object ambiguous. Otherwise the scan's choice stands.
    */
-  update(obj: ObjectInfo): boolean {
-    const entry = this.entries.get(obj.id)
+  choice(scanned: ObjectInfo): ObjectInfo {
+    const held = this.entries.get(scanned.id)?.obj
+    if (!held || held.model === null || held.model === scanned.model) return scanned
+    return this.exists(join(held.dir, held.model)) ? held : scanned
+  }
+
+  /**
+   * Take a fresh scan of an open object. If its model is now another than the
+   * one held here (see `choice`), build with the new one and return true.
+   */
+  update(scanned: ObjectInfo): boolean {
+    const entry = this.entries.get(scanned.id)
+    const obj = this.choice(scanned)
     if (!entry || (entry.obj.model === obj.model && entry.obj.problem === obj.problem)) return false
     entry.obj = obj
     this.start(entry)
     return true
+  }
+
+  /**
+   * Files of an open object, or of `common/`, changed. A build under way is
+   * started again only for Python; anything else waits for it to end.
+   */
+  changed(objectId: string, paths: string[] = []): void {
+    const entry = this.entries.get(objectId)
+    if (!entry) return
+    const building = entry.state.status === 'building'
+    if (building && paths.length > 0 && !paths.some((path) => path.endsWith('.py'))) entry.changedMeanwhile = true
+    else this.start(entry)
   }
 
   rebuild(objectId: string): void {
@@ -148,6 +218,7 @@ export class Builds {
     const attempt = ++entry.attempt
     const revision = entry.state.revision
     this.displaced.delete(id)
+    entry.changedMeanwhile = false // this build sees whatever changed
 
     if (obj.model === null) {
       const message = obj.problem ?? `no model file in ${obj.dir}`
@@ -159,7 +230,8 @@ export class Builds {
     entry.startedAt = this.now()
     this.set(entry, { objectId: id, status: 'building', revision, startedAt: entry.startedAt, stale: revision > 0 })
     this.running = id
-    void this.kernel.build(obj.dir, obj.model).then((result) => {
+    const opts = this.timeout === undefined ? undefined : { timeout: this.timeout }
+    void this.kernel.build(obj.dir, obj.model, opts).then((result) => {
       const current = this.entries.get(id) === entry && entry.attempt === attempt
       if (current && this.running === id) this.running = null
       if (current) {
@@ -168,9 +240,12 @@ export class Builds {
         // shut down, or refused): a failure. Starting it again from here could
         // loop without ever yielding, since such a reply need not be a round trip.
         const displaced = !result.ok && result.error.kind === 'cancelled' && this.running !== null
+        const again = entry.changedMeanwhile
         if (result.ok) this.succeeded(entry, result.scene, result.blob)
         else if (displaced) this.displaced.add(id)
         else this.failed(entry, result.error)
+        // A listener may have closed the object, or started it again, by now.
+        if (again && !displaced && this.entries.get(id) === entry && entry.attempt === attempt) this.start(entry)
       }
       // Otherwise a newer build of this object replaced this one, or the object
       // was closed: whatever the result says, it is not shown.
@@ -207,7 +282,9 @@ export class Builds {
 
   private startDisplaced(): void {
     if (this.running !== null) return
-    for (const id of this.displaced) {
+    const waiting = [...this.displaced]
+    if (this.shown !== null && this.displaced.has(this.shown)) waiting.unshift(this.shown)
+    for (const id of waiting) {
       this.displaced.delete(id)
       const entry = this.entries.get(id)
       if (entry) {

@@ -217,6 +217,42 @@ describe('a session', () => {
     }
   })
 
+  it('kills what the agent started along with it', async () => {
+    process.env.FAKE_AGENT_STUBBORN = '1'
+    try {
+      const { sessionId } = sessions.start(object('bracket'), {})
+      await expect.poll(() => said(sessionId)).toContain('READY')
+      sessions.write(sessionId, 'child\r')
+      await expect.poll(() => said(sessionId)).toMatch(/child: \d+/)
+      const child = Number(/child: (\d+)/.exec(said(sessionId))![1])
+      const pid = sessions.current('bracket')!.pid
+      expect(alive(child)).toBe(true)
+      await sessions.stopAll()
+      expect(alive(pid)).toBe(false)
+      // Its exit is not waited for: it is in the same process group, and goes with it.
+      await expect.poll(() => alive(child)).toBe(false)
+    } finally {
+      delete process.env.FAKE_AGENT_STUBBORN
+    }
+  })
+
+  it('no longer puts a conversation on file once it has been hung up on', async () => {
+    process.env.FAKE_AGENT_STUBBORN = '1'
+    try {
+      const { sessionId } = sessions.start(object('hungup'), {})
+      await expect.poll(() => said(sessionId)).toContain('READY')
+      const gone = sessions.stop(sessionId)
+      // The agent has two seconds left, and posts a hook in them.
+      sessions.write(sessionId, 'hook\r')
+      await expect.poll(() => said(sessionId)).toContain('context: ')
+      await gone
+      expect(existsSync(join(root, 'hungup', '.torno', 'session.json'))).toBe(false)
+      expect(sessions.resumable(object('hungup'))).toBe(false)
+    } finally {
+      delete process.env.FAKE_AGENT_STUBBORN
+    }
+  })
+
   it('gives the agent torno\'s environment without what is torno\'s own or another Claude Code\'s', async () => {
     const mine: Record<string, string> = {
       TORNO_TEST: '1',
@@ -225,6 +261,7 @@ describe('a session', () => {
       TORNO_WORKSPACE: '/x',
       TORNO_DEBUG: '1',
       TORNO_SHOTS: '/x',
+      TORNO_BUILD_TIMEOUT: '900',
       // What a Claude Code session exports to what it starts.
       CLAUDECODE: '1',
       CLAUDE_CODE_CHILD_SESSION: '1',

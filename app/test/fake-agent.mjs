@@ -9,8 +9,11 @@
 //   - on the line `env`, prints the names of its HOME, PATH, TORNO*, CLAUDE*
 //     and ANTHROPIC* variables, sorted, as JSON;
 //   - on the line `palette`, prints the sixteen ANSI colours;
+//   - on the line `child`, starts a process of its own that ignores SIGHUP, as
+//     a tool the agent runs might, and prints `child: <pid>`;
 //   - on the line `exit`, exits.
 // With FAKE_AGENT_STUBBORN=1 it ignores SIGHUP, like a process that has hung.
+import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 
 const argv = process.argv.slice(2)
@@ -50,6 +53,9 @@ lines.on('line', (line) => {
   else if (word === 'size') console.log(`size: ${process.stdout.columns}x${process.stdout.rows}`)
   else if (word === 'env') console.log(`env: ${JSON.stringify(Object.keys(process.env).filter((name) => /^(HOME$|PATH$|TORNO|CLAUDE|ANTHROPIC)/.test(name)).sort())}`)
   else if (word === 'palette') palette()
-  else if (word === 'exit') process.exit(0)
+  else if (word === 'child') {
+    const child = spawn(process.execPath, ['-e', "process.on('SIGHUP', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' })
+    console.log(`child: ${child.pid}`)
+  } else if (word === 'exit') process.exit(0)
 })
 lines.on('close', () => process.exit(0))

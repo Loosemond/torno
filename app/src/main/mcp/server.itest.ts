@@ -27,7 +27,7 @@ const deps: ToolDeps = {
     looks.push({ objectId, req })
     // Held back when a test wants two requests under way at once.
     if (req.view === 'top') await new Promise<void>((resolve) => (release = resolve))
-    return { png: PNG, width: 4, height: 3, caption: `view ${String(req.view)}` }
+    return { png: PNG, width: 4, height: 3, caption: `view ${String(req.view)}`, objectId, revision: 2, stale: false }
   },
   saveImage: async () => '/ws/bracket/.torno/views/1.png'
 }

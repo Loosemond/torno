@@ -12,7 +12,7 @@ describe('scanWorkspace on the fixture workspace', () => {
     expect(info.root).toBe(FIXTURES)
     expect(info.hasProject).toBe(false)
     expect(info.objects.map((o) => o.id)).toEqual(
-      ['bracket', 'broken', 'chatty', 'crash', 'exits', 'noscene', 'plain', 'slow', 'two']
+      ['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'noscene', 'plain', 'slow', 'two']
     )
   })
 
@@ -53,6 +53,37 @@ describe('scanWorkspace', () => {
     expect(info.objects[0].model).toBe('gear.py')
     expect(info.objects[1].model).toBeNull()
     expect(info.objects[1].problem).toBe(`no model file in ${join(root, 'onlytests')}`)
+  })
+
+  it('prefers the candidate named after the folder, with - and _ alike', async () => {
+    object('helmet-stand', ['helmet_stand.py', 'scratch.py', 'measure.py'])
+    object('speaker_stand', ['speaker-stand.py', 'notes.py'])
+    object('Lamp', ['lamp.py', 'Lamp.py'])
+    const { objects } = await scanWorkspace(root)
+    const of = (id: string) => objects.find((o) => o.id === id)
+    expect(of('helmet-stand')).toEqual({ id: 'helmet-stand', name: 'helmet-stand', dir: join(root, 'helmet-stand'), model: 'helmet_stand.py' })
+    expect(of('speaker_stand')?.model).toBe('speaker-stand.py')
+    // Case is not folded: exactly one file is named as the folder is.
+    expect(of('Lamp')?.model).toBe('Lamp.py')
+  })
+
+  it('reports several candidates only when none, or more than one, is named after the folder', async () => {
+    object('clip', ['a.py', 'b.py'])
+    object('two-names', ['two-names.py', 'two_names.py', 'other.py'])
+    const { objects } = await scanWorkspace(root)
+    expect(objects.find((o) => o.id === 'clip')).toMatchObject({ model: null, problem: `more than one model file in ${join(root, 'clip')}: a.py, b.py` })
+    expect(objects.find((o) => o.id === 'two-names')).toMatchObject({
+      model: null,
+      problem: `more than one model file in ${join(root, 'two-names')}: other.py, two-names.py, two_names.py`
+    })
+  })
+
+  it('never takes __init__.py or a dotfile for a model', async () => {
+    object('pkg', ['__init__.py', '.draft.py', 'pkg_part.py'])
+    object('initonly', ['__init__.py', '.hidden.py'])
+    const { objects } = await scanWorkspace(root)
+    expect(objects.find((o) => o.id === 'pkg')?.model).toBe('pkg_part.py')
+    expect(objects.find((o) => o.id === 'initonly')).toBeUndefined()
   })
 
   it('rejects a root that is not a folder', async () => {

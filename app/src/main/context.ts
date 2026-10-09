@@ -17,6 +17,8 @@ export interface ContextDeps {
   scene(objectId: string): { revision: number; scene: Scene } | undefined
   /** What the window shows of the object, when it is the one open there. */
   view(objectId: string): ViewState | undefined
+  /** The object the window shows. */
+  openObjectId(): string | null
   now?(): number
 }
 
@@ -26,32 +28,48 @@ export interface ContextDeps {
  * object that is not in the workspace.
  */
 export function contextFor(deps: ContextDeps, objectId: string): string {
+  // Every part below is fitted to the limit by what it can spare; this cut
+  // holds for what none of them foresaw, such as a very long name.
+  return cutEnd(describe(deps, objectId), CONTEXT_LIMIT)
+}
+
+function describe(deps: ContextDeps, objectId: string): string {
   const obj = deps.object(objectId)
   if (!obj) return ''
-  const head = `[torno] ${obj.name}`
+  // The window shows one object; of another, nothing is on screen: no layout, and no parts "showing".
+  const open = deps.openObjectId() === objectId
+  const head = open ? `[torno] ${obj.name}` : `[torno] ${obj.name} · not open in the torno window`
+  const onScreen = open ? 'showing' : 'last built'
   const build = deps.build(objectId)
   if (!build || build.status === 'idle') return `${head} · not built yet.`
 
   if (build.status === 'building') {
-    const seconds = Math.max(0, Math.floor(((deps.now?.() ?? Date.now()) - (build.startedAt ?? 0)) / 1000))
-    const shown = build.revision > 0 ? `showing r${build.revision}` : 'nothing built yet'
-    return `${head} · building (${seconds} s so far) · ${shown}.`
+    const running =
+      build.startedAt === undefined ? '' : ` (${Math.max(0, Math.floor(((deps.now?.() ?? Date.now()) - build.startedAt) / 1000))} s so far)`
+    const shown = build.revision > 0 ? `${onScreen} r${build.revision}` : 'nothing built yet'
+    return `${head} · building${running} · ${shown}.`
   }
 
   if (build.status === 'failed') {
-    const shown = build.revision > 0 ? `showing r${build.revision} (stale)` : 'nothing built yet'
+    const shown = build.revision > 0 ? `${onScreen} r${build.revision}${open ? ' (stale)' : ''}` : 'nothing built yet'
     const first = `${head} · BUILD FAILED · ${shown}.`
     const message = cutEnd(build.error?.message ?? 'no reason was given', MESSAGE_LIMIT)
     const traceback = lastLines(build.error?.traceback ?? '', TRACEBACK_LINES)
-    if (!traceback) return `${first}\n${message}`
+    const room = CONTEXT_LIMIT - first.length - message.length - 2
+    if (!traceback || room < 2) return `${first}\n${message}`
     // What is cut is the start of the traceback: its end says what went wrong.
-    return `${first}\n${message}\n${cutStart(traceback, CONTEXT_LIMIT - first.length - message.length - 2)}`
+    return `${first}\n${message}\n${cutStart(traceback, room)}`
   }
 
   const duration = build.seconds === undefined ? '' : ` (${build.seconds.toFixed(1)} s)`
   const start = `${head} · build ok · r${build.revision}${duration}`
   const scene = deps.scene(objectId)?.scene
   if (!scene) return `${start}. ${TOOLS}`
+  if (!open) {
+    const lead = `${start} · parts: `
+    const names = [...new Set(scene.parts.map((p) => p.name))]
+    return `${lead}${fitted(names, '', CONTEXT_LIMIT - lead.length - TOOLS.length - 2)}. ${TOOLS}`
+  }
   const view = deps.view(objectId)
   const layout = view && scene.layouts.includes(view.layout) ? view.layout : (scene.layouts[0] ?? '')
   const parts = scene.parts.filter((p) => p.layout === layout)
@@ -59,8 +77,13 @@ export function contextFor(deps: ContextDeps, objectId: string): string {
   const lead = `${start} · layout ${layout} · parts: `
   const names = parts.map((p) => p.name)
   const room = CONTEXT_LIMIT - lead.length - TOOLS.length - 2
-  const full = names.join(', ') + (hidden.length > 0 ? ` (hidden: ${hidden.join(', ')})` : '')
-  return `${lead}${full.length <= room ? full : someOf(names, room)}. ${TOOLS}`
+  return `${lead}${fitted(names, hidden.length > 0 ? ` (hidden: ${hidden.join(', ')})` : '', room)}. ${TOOLS}`
+}
+
+/** The names and what follows them, or as many of the names as fit in `room` characters. */
+function fitted(names: string[], after: string, room: number): string {
+  const full = names.join(', ') + after
+  return full.length <= room ? full : someOf(names, room)
 }
 
 /** As many of the names as fit in `room` characters, and how many were left out. */

@@ -37,6 +37,14 @@ function handle(request) {
     send({ id, event: 'build.started', pid: process.pid })
     if (request.model === 'die.py') process.exit(3)
     if (request.model === 'hang.py') return
+    if (request.model === 'nan.py') {
+      // What Python's json writes for float('nan') unless told not to: not JSON.
+      const json = Buffer.from(`{"id":${id},"ok":true,"scene":{"seconds":NaN}}`)
+      const prefix = Buffer.alloc(8)
+      prefix.writeUInt32BE(json.length, 0)
+      process.stdout.write(Buffer.concat([prefix, json]))
+      return
+    }
     building = null
     if (request.model === 'bad.py') fail(id, 'exception', 'boom')
     else {

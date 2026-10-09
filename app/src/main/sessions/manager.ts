@@ -169,7 +169,7 @@ export class Sessions {
     if (!s) return Promise.resolve()
     if (!s.killTimer) {
       signal(s.pty, 'SIGHUP')
-      s.killTimer = setTimeout(() => signal(s.pty, 'SIGKILL'), KILL_AFTER_MS)
+      s.killTimer = setTimeout(() => killGroup(s.pty.pid), KILL_AFTER_MS)
     }
     return s.exited
   }
@@ -217,7 +217,9 @@ export class Sessions {
     // that was asked something. Claude Code names a conversation in every hook, also in
     // the SessionEnd of one nothing was asked in, and that one it cannot resume.
     const conversation = fields.session_id
-    if (CONVERSATION_EVENTS.has(event) && typeof conversation === 'string' && UUID.test(conversation)) {
+    // Not for a session that has been hung up on: its object may have a new
+    // session by now, whose conversation is the one to resume.
+    if (!session.killTimer && CONVERSATION_EVENTS.has(event) && typeof conversation === 'string' && UUID.test(conversation)) {
       session.conversationId = conversation
       try {
         storeConversation(session.object.dir, conversation)
@@ -249,8 +251,24 @@ function signal(child: pty.IPty, name: string): void {
   }
 }
 
+/**
+ * Kill an agent that ignored the hangup, and with it whatever it started: a
+ * PTY's child leads a process group of its own. The process alone, if the
+ * group is no longer there.
+ */
+function killGroup(pid: number): void {
+  for (const target of [-pid, pid]) {
+    try {
+      process.kill(target, 'SIGKILL')
+      return
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ESRCH') return
+    }
+  }
+}
+
 /** torno's own switches (src/main/index.ts, e2e/): they mean nothing to the agent, or mislead what it starts. */
-const OWN_VARIABLES = new Set(['TORNO_TEST', 'TORNO_AGENT_CMD', 'TORNO_CONFIG', 'TORNO_WORKSPACE', 'TORNO_DEBUG', 'TORNO_SHOTS'])
+const OWN_VARIABLES = new Set(['TORNO_TEST', 'TORNO_AGENT_CMD', 'TORNO_CONFIG', 'TORNO_WORKSPACE', 'TORNO_DEBUG', 'TORNO_SHOTS', 'TORNO_BUILD_TIMEOUT'])
 
 /**
  * What a Claude Code session exports to the processes it starts. Only these:

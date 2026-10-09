@@ -10,6 +10,7 @@ export interface TornoBridge {
     pick(): Promise<WorkspaceInfo | null>            // folder dialog
     open(root: string): Promise<WorkspaceInfo>
     versions(): Promise<Record<string, string>>     // of the kernel, once it is ready: build123d, python
+    onRequested(cb: (root: string) => void): () => void  // a second launch of torno was given this folder to open
   }
   object: {
     open(id: string): Promise<BuildState>            // starts watching and building

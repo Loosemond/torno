@@ -17,6 +17,7 @@ import { Sessions } from './sessions/manager'
 //   TORNO_WORKSPACE=<path>  workspace to open at start, instead of the one remembered
 //   TORNO_CONFIG=<path>     config file to use instead of ~/.config/torno/config.json
 //   TORNO_AGENT_CMD=<cmd>   command to run for a session instead of `claude`, split on spaces
+//   TORNO_BUILD_TIMEOUT=<s> seconds a build may take before it is stopped (default 600; read in src/main/ipc.ts)
 //   TORNO_DEBUG=1           print the workspace opened at start, where the MCP server is, and the command
 //                           line and the hooks of every session
 const isTest = process.env.TORNO_TEST === '1'
@@ -27,6 +28,12 @@ const isDebug = process.env.TORNO_DEBUG === '1'
 // every mouse move in a test takes a second. Without the frame-rate limit it
 // keeps drawing at 60 Hz. Never set for a visible window.
 if (isTest) app.commandLine.appendSwitch('disable-frame-rate-limit')
+
+// One torno at a time: two would each run an agent in the same folders and
+// write the same .torno/ files. A second launch hands the first the folder it
+// was given, if any, and exits. Not under test: test runs launch side by side.
+const isFirst = isTest || app.requestSingleInstanceLock({ workspace: process.env.TORNO_WORKSPACE ?? null })
+if (!isFirst) app.quit()
 
 // The workspace last opened from the window is remembered in
 // ~/.config/torno/config.json and opened again at the next start. A test run
@@ -107,7 +114,7 @@ const toolDeps: ToolDeps = {
   view: (id) => (openObjectId() === id ? latestView(id) : undefined),
   openObjectId,
   look(_objectId, req) {
-    // The tool has made sure that the object asked for is the one the window shows.
+    // The window draws the object it shows, and its answer says which that was.
     const win = BrowserWindow.getAllWindows()[0]
     return win ? requestLook(win, req) : Promise.reject(new Error('the torno window is closed'))
   },
@@ -117,7 +124,27 @@ const toolDeps: ToolDeps = {
   }
 }
 
+/**
+ * What a test needs of main that it cannot reach through the window. `pickFolder`
+ * is what "Open folder" is answered with under test, where no dialog may be
+ * shown; `picks` counts how often it was asked.
+ */
+const testHooks = { requestLook, latestView, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0 }
+
+/** Another torno was started: come to the front, and offer the folder it was given. */
+app.on('second-instance', (_event, _argv, _cwd, data) => {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  const root = (data as { workspace?: unknown } | null)?.workspace
+  // Through the window, which asks first if a session there is in the middle of something.
+  if (typeof root === 'string' && root) win.webContents.send('workspace:requested', root)
+})
+
 void app.whenReady().then(async () => {
+  if (!isFirst) return
   // What the agent's CLI talks to: its hooks, and the MCP server through which it sees what the window shows.
   const http = await startHttp()
   const mcpUrlFor = (id: string): string => http.url(`/mcp/${encodeURIComponent(id)}`)
@@ -130,9 +157,19 @@ void app.whenReady().then(async () => {
     mcpUrlFor,
     debug: isDebug
   })
-  registerIpc({ onWorkspaceChosen: (root) => void rememberWorkspace(root), sessions })
-  // What a test needs of main that it cannot reach through the window.
-  if (isTest) Object.assign(globalThis, { __tornoMain: { requestLook, latestView, mcpUrlFor } })
+  registerIpc({
+    onWorkspaceChosen: (root) => void rememberWorkspace(root),
+    sessions,
+    // A folder dialog is a window on the person's desktop: under test there is none.
+    pickFolder: isTest
+      ? async () => {
+          testHooks.picks += 1
+          return testHooks.pickFolder
+        }
+      : undefined
+  })
+  testHooks.mcpUrlFor = mcpUrlFor
+  if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
   if (isDebug) console.error(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`)
   const named = process.env.TORNO_WORKSPACE
   const root = named ?? (await rememberedWorkspace())

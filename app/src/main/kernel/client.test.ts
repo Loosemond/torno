@@ -1,7 +1,8 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { kernelCommand, KernelError, type RunningKernel, startKernelCommand } from './client'
+import { cannotStart, kernelCommand, KernelError, type RunningKernel, startKernel, startKernelCommand } from './client'
 
 // These run the client against fake-kernel.mjs. client.itest.ts runs it against the real kernel.
 const FAKE = join(__dirname, 'fake-kernel.mjs')
@@ -34,7 +35,55 @@ describe('kernelCommand', () => {
   })
 })
 
+describe('a workspace with a pyproject.toml and no .venv', () => {
+  // `uv run --no-sync --project <root>` would make <root>/.venv, and a workspace is never written to.
+  let root: string
+  const message = () => `This workspace has a pyproject.toml but no .venv. Run \`uv sync\` in ${root} once, then reopen it.`
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+  function workspace(withVenv: boolean): string {
+    root = mkdtempSync(join(tmpdir(), 'torno-ws-'))
+    writeFileSync(join(root, 'pyproject.toml'), '[project]\nname = "ws"\nversion = "0"\n')
+    if (withVenv) mkdirSync(join(root, '.venv'))
+    return root
+  }
+
+  it('starts no kernel: every build fails as a crash that says what to do, and nothing is created', async () => {
+    kernel = startKernel({ workspaceRoot: workspace(false), hasProject: true, kernelDir: '/repo/kernel' })
+    let exits = 0
+    kernel.onExit(() => (exits += 1))
+    expect(kernel.pid).toBeUndefined()
+    for (let i = 0; i < 3; i += 1) {
+      expect(await kernel.build(join(root, 'a'), 'a.py')).toEqual({ ok: false, error: { kind: 'crash', message: message() } })
+    }
+    await expect(kernel.ready).rejects.toMatchObject({ kind: 'crash', message: message() })
+    await expect(kernel.query('describe', {})).rejects.toMatchObject({ kind: 'crash', message: message() })
+    kernel.cancel()
+    expect(kernel.stderrTail()).toBe('')
+    expect(kernel.pid).toBeUndefined()
+    expect(exits).toBe(0)
+    await kernel.dispose()
+    expect(readdirSync(root)).toEqual(['pyproject.toml'])
+  })
+
+  it('is the only case in which the kernel is not started', () => {
+    expect(cannotStart({ workspaceRoot: workspace(false), hasProject: true })).toBe(message())
+    expect(cannotStart({ workspaceRoot: root, hasProject: false })).toBeNull()
+    mkdirSync(join(root, '.venv'))
+    expect(cannotStart({ workspaceRoot: root, hasProject: true })).toBeNull()
+  })
+})
+
 describe('kernel client', () => {
+  it('fails the running build when the kernel sends a frame that cannot be read', async () => {
+    const k = start()
+    const result = await k.build('/ws/a', 'nan.py')
+    expect(result).toEqual({ ok: false, error: { kind: 'crash', message: 'the kernel sent a reply that could not be read; rebuild to carry on' } })
+    expect(k.stderrTail()).toContain('kernel: a frame that is not JSON')
+    // The kernel itself is still there.
+    expect(await k.build('/ws/a', 'a.py')).toMatchObject({ ok: true })
+  })
+
   it('resolves a build with its scene and a blob of its own, after onStarted', async () => {
     const k = start()
     let started = 0

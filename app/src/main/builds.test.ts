@@ -1,12 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { BuildError, BuildState } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { Builds, watchFolder } from './builds'
-import type { KernelClient } from './kernel/client'
+import { Builds, buildTimeout, watchFolder } from './builds'
+import { type KernelClient, startKernel } from './kernel/client'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
 
@@ -17,18 +17,19 @@ function sceneOf(model: string, seconds = 0.5): Scene {
 /** A kernel whose builds finish when the test says so. Like the real one, a new build cancels the one running. */
 class FakeKernel implements KernelClient {
   ready = Promise.resolve({ versions: {} })
-  calls: Array<{ dir: string; model: string; settle: (r: BuildResult) => void; settled: boolean }> = []
+  calls: Array<{ dir: string; model: string; timeout?: number; settle: (r: BuildResult) => void; settled: boolean }> = []
   cancels = 0
   tail = ''
   private exitCbs: Array<(code: number | null) => void> = []
 
-  build(dir: string, model: string, opts?: { onStarted?: () => void }): Promise<BuildResult> {
+  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: () => void }): Promise<BuildResult> {
     const running = this.calls.at(-1)
     if (running && !running.settled) running.settle({ ok: false, error: { kind: 'cancelled', message: 'replaced' } })
     return new Promise((resolve) => {
       const call = {
         dir,
         model,
+        timeout: opts?.timeout,
         settled: false,
         settle: (r: BuildResult) => {
           call.settled = true
@@ -73,17 +74,20 @@ const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
 const bracket: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 const gear: ObjectInfo = { id: 'gear', name: 'gear', dir: '/ws/gear', model: 'gear.py' }
 
-function setup() {
+const widget: ObjectInfo = { id: 'widget', name: 'widget', dir: '/ws/widget', model: 'widget.py' }
+
+function setup(over: { timeout?: number; exists?: (path: string) => boolean } = {}) {
   const kernel = new FakeKernel()
-  const watched = new Map<string, () => void>()
+  const watched = new Map<string, (paths?: string[]) => void>()
   let clock = 1000
   const builds = new Builds({
     kernel,
     watch: (dir, onChange) => {
-      watched.set(dir, onChange)
+      watched.set(dir, (paths = []) => onChange(paths))
       return () => watched.delete(dir)
     },
-    now: () => clock
+    now: () => clock,
+    ...over
   })
   const states: BuildState[] = []
   const scenes: Array<{ objectId: string; revision: number; scene: Scene; blob: Buffer }> = []
@@ -345,6 +349,183 @@ describe('Builds', () => {
     expect(builds.state('gear')).toMatchObject({ status: 'failed', revision: 0, stale: false, error })
     expect(builds.scene('bracket')?.revision).toBe(1)
   })
+  describe('a change while the object is building', () => {
+    it('restarts the build when a .py file changed', async () => {
+      const { kernel, builds, watched } = setup()
+      builds.open(bracket)
+      watched.get('/ws/bracket')!(['/ws/bracket/notes.txt', '/ws/bracket/bracket.py'])
+      await flush()
+      expect(kernel.calls).toHaveLength(2)
+      expect(kernel.calls[0].settled).toBe(true) // cancelled by the second
+      watched.get('/ws/common')!(['/ws/common/screws.py'])
+      expect(kernel.calls).toHaveLength(3)
+    })
+
+    it('lets the build finish when anything else changed, then builds once more', async () => {
+      const { kernel, builds, watched, scenes } = setup()
+      builds.open(bracket)
+      // What a model writes while it builds: a cache, an export.
+      watched.get('/ws/bracket')!(['/ws/bracket/mesh.brep.4242.tmp'])
+      watched.get('/ws/bracket')!(['/ws/bracket/mesh.brep', '/ws/bracket/part.step'])
+      await flush()
+      expect(kernel.calls).toHaveLength(1)
+      expect(kernel.calls[0].settled).toBe(false)
+      expect(builds.state('bracket')?.status).toBe('building')
+
+      kernel.succeed(0)
+      await flush()
+      // The build's own result is shown, and one more build follows it.
+      expect(scenes.map((m) => m.revision)).toEqual([1])
+      expect(kernel.calls).toHaveLength(2)
+      expect(builds.state('bracket')).toMatchObject({ status: 'building', revision: 1, stale: true })
+
+      kernel.succeed(1)
+      await flush()
+      expect(kernel.calls).toHaveLength(2)
+      expect(builds.state('bracket')).toMatchObject({ status: 'ok', revision: 2 })
+    })
+
+    it('builds once more after a build that failed, too', async () => {
+      const { kernel, builds, watched } = setup()
+      builds.open(bracket)
+      watched.get('/ws/bracket')!(['/ws/bracket/data.csv'])
+      kernel.fail(0, { kind: 'exception', message: 'data.csv is half written' })
+      await flush()
+      expect(kernel.calls).toHaveLength(2)
+      kernel.succeed(1)
+      await flush()
+      expect(kernel.calls).toHaveLength(2)
+      expect(builds.state('bracket')).toMatchObject({ status: 'ok', revision: 1 })
+    })
+
+    it('forgets what it remembered when a .py change restarts the build anyway', async () => {
+      const { kernel, builds, watched } = setup()
+      builds.open(bracket)
+      watched.get('/ws/bracket')!(['/ws/bracket/data.csv'])
+      watched.get('/ws/bracket')!(['/ws/bracket/bracket.py'])
+      await flush()
+      kernel.succeed(1)
+      await flush()
+      expect(kernel.calls).toHaveLength(2)
+      expect(builds.state('bracket')?.status).toBe('ok')
+    })
+
+    it('rebuilds at once for any change when the object is not building', async () => {
+      const { kernel, builds, watched } = setup()
+      builds.open(bracket)
+      kernel.succeed(0)
+      await flush()
+      watched.get('/ws/bracket')!(['/ws/bracket/data.csv'])
+      expect(kernel.calls).toHaveLength(2)
+    })
+  })
+
+  describe('the model of an open object', () => {
+    const scratch: ObjectInfo = { ...bracket, model: null, problem: 'more than one model file in /ws/bracket: bracket.py, scratch.py' }
+
+    it('stays the one it builds while that file exists, whatever else appears in the folder', async () => {
+      const { kernel, builds } = setup({ exists: (path) => path === '/ws/bracket/bracket.py' })
+      builds.open(bracket)
+      kernel.succeed(0)
+      await flush()
+      // The agent wrote a scratch script beside the model: a fresh scan cannot choose.
+      expect(builds.choice(scratch)).toEqual(bracket)
+      expect(builds.update(scratch)).toBe(false)
+      expect(builds.open(scratch)).toMatchObject({ status: 'ok', revision: 1 })
+      expect(kernel.calls).toHaveLength(1)
+      // A save still builds the model it holds.
+      builds.rebuild('bracket')
+      expect(kernel.calls.at(-1)).toMatchObject({ dir: '/ws/bracket', model: 'bracket.py' })
+      expect(builds.state('bracket')?.status).toBe('building')
+    })
+
+    it('is chosen afresh once the file it built is gone', () => {
+      const { kernel, builds } = setup({ exists: () => false })
+      builds.open(bracket)
+      const renamed: ObjectInfo = { ...bracket, model: 'holder.py' }
+      expect(builds.choice(renamed)).toEqual(renamed)
+      expect(builds.update(renamed)).toBe(true)
+      expect(kernel.calls.at(-1)).toMatchObject({ model: 'holder.py' })
+    })
+
+    it('is whatever the scan says for an object that had none', () => {
+      const { builds } = setup({ exists: () => true })
+      builds.open(scratch)
+      expect(builds.choice(bracket)).toEqual(bracket)
+      expect(builds.update(bracket)).toBe(true)
+      // An object that is not open is none of its business.
+      expect(builds.choice(gear)).toEqual(gear)
+    })
+  })
+
+  it('builds the object shown in the window first when several wait for the kernel', async () => {
+    const { kernel, builds } = setup()
+    builds.show('bracket')
+    builds.open(bracket)
+    builds.show('gear')
+    builds.open(gear) // displaces bracket
+    builds.show('widget')
+    builds.open(widget) // displaces gear
+    await flush()
+    // The person goes back to gear while widget builds: bracket and gear both wait.
+    builds.show('gear')
+    kernel.succeed(2)
+    await flush()
+    expect(kernel.calls.map((c) => c.model)).toEqual(['bracket.py', 'gear.py', 'widget.py', 'gear.py'])
+    kernel.succeed(3)
+    await flush()
+    expect(kernel.calls.map((c) => c.model)).toEqual(['bracket.py', 'gear.py', 'widget.py', 'gear.py', 'bracket.py'])
+  })
+
+  it('passes the build timeout it was given to the kernel, and none when it was given none', () => {
+    const timed = setup({ timeout: 1200 })
+    timed.builds.open(bracket)
+    expect(timed.kernel.calls[0].timeout).toBe(1200)
+    const plain = setup()
+    plain.builds.open(bracket)
+    expect(plain.kernel.calls[0].timeout).toBeUndefined()
+  })
+
+  it('fails an object of a workspace with a pyproject.toml and no .venv, and creates nothing there', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'torno-novenv-'))
+    try {
+      writeFileSync(join(root, 'pyproject.toml'), '[project]\nname = "ws"\nversion = "0"\n')
+      mkdirSync(join(root, 'part'))
+      writeFileSync(join(root, 'part', 'part.py'), 'x = 1\n')
+      const kernel = startKernel({ workspaceRoot: root, hasProject: true, kernelDir: '/nonexistent/kernel' })
+      const builds = new Builds({ kernel, watch: () => () => {} })
+      builds.open({ id: 'part', name: 'part', dir: join(root, 'part'), model: 'part.py' })
+      await flush()
+      expect(builds.state('part')).toMatchObject({
+        status: 'failed',
+        revision: 0,
+        error: { kind: 'crash', message: `This workspace has a pyproject.toml but no .venv. Run \`uv sync\` in ${root} once, then reopen it.` }
+      })
+      // Asked again, it answers the same: there is no kernel to restart.
+      builds.rebuild('part')
+      await flush()
+      expect(builds.state('part')).toMatchObject({ status: 'failed', error: { kind: 'crash' } })
+      expect(kernel.pid).toBeUndefined()
+      await kernel.dispose()
+      expect(readdirSync(root).sort()).toEqual(['part', 'pyproject.toml'])
+      expect(readdirSync(join(root, 'part'))).toEqual(['part.py'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('buildTimeout', () => {
+  it('reads TORNO_BUILD_TIMEOUT as seconds', () => {
+    expect(buildTimeout({ TORNO_BUILD_TIMEOUT: '1200' })).toBe(1200)
+    expect(buildTimeout({ TORNO_BUILD_TIMEOUT: '90.5' })).toBe(90.5)
+  })
+
+  it('leaves the kernel its default when the variable is unset or makes no sense', () => {
+    for (const value of [undefined, '', 'soon', '0', '-5', 'Infinity', 'NaN']) {
+      expect(buildTimeout({ TORNO_BUILD_TIMEOUT: value })).toBeUndefined()
+    }
+  })
 })
 
 describe('watchFolder', () => {
@@ -365,11 +546,11 @@ describe('watchFolder', () => {
 
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-  async function watching(path: string): Promise<{ changes: () => number }> {
-    let count = 0
-    stop = watchFolder(path, () => (count += 1))
+  async function watching(path: string): Promise<{ changes: () => number; paths: () => string[][] }> {
+    const bursts: string[][] = []
+    stop = watchFolder(path, (paths) => bursts.push(paths))
     await sleep(150) // let the watcher settle on what is already there
-    return { changes: () => count }
+    return { changes: () => bursts.length, paths: () => bursts }
   }
 
   it('reports a burst of saves once, after the debounce', async () => {
@@ -382,6 +563,29 @@ describe('watchFolder', () => {
     expect(changes()).toBe(0) // still inside the 300 ms after the last change
     await sleep(400)
     expect(changes()).toBe(1)
+  })
+
+  it('says which files changed in the burst', async () => {
+    const { paths } = await watching(join(dir, 'obj'))
+    writeFileSync(join(dir, 'obj', 'model.py'), 'x = 2\n')
+    writeFileSync(join(dir, 'obj', 'model.py'), 'x = 3\n')
+    writeFileSync(join(dir, 'obj', 'notes.txt'), 'hello')
+    await sleep(600)
+    expect(paths().map((burst) => [...burst].sort())).toEqual([[join(dir, 'obj', 'model.py'), join(dir, 'obj', 'notes.txt')]])
+  })
+
+  it('ignores what a model or a tool keeps in cache/, build/, dist/, node_modules/, .venv/ and .git/', async () => {
+    for (const folder of ['cache', 'build', 'dist', 'node_modules', '.venv', '.git']) mkdirSync(join(dir, 'obj', folder))
+    const { changes } = await watching(join(dir, 'obj'))
+    // As micra-spoiler does while it builds: written under a temporary name, then renamed.
+    const temp = join(dir, 'obj', 'cache', `hatch.brep.${process.pid}.tmp`)
+    writeFileSync(temp, 'a'.repeat(1 << 16))
+    renameSync(temp, join(dir, 'obj', 'cache', 'hatch.brep'))
+    mkdirSync(join(dir, 'obj', 'cache', 'deep'))
+    writeFileSync(join(dir, 'obj', 'cache', 'deep', 'x.bin'), 'b')
+    for (const folder of ['build', 'dist', 'node_modules', '.venv', '.git']) writeFileSync(join(dir, 'obj', folder, 'file'), 'c')
+    await sleep(600)
+    expect(changes()).toBe(0)
   })
 
   it('ignores out/, .torno/, __pycache__/ and dotfiles', async () => {

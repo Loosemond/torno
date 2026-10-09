@@ -15,7 +15,8 @@ const bridge: TornoBridge = {
     current: () => ipcRenderer.invoke('workspace:current'),
     pick: () => ipcRenderer.invoke('workspace:pick'),
     open: (root) => ipcRenderer.invoke('workspace:open', root),
-    versions: () => ipcRenderer.invoke('workspace:versions')
+    versions: () => ipcRenderer.invoke('workspace:versions'),
+    onRequested: (cb) => subscribe('workspace:requested', cb)
   },
   object: {
     open: (id) => ipcRenderer.invoke('object:open', id),

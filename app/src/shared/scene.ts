@@ -22,6 +22,8 @@ export interface Part {
   valid: boolean
   hash: string
   mesh: PartMesh
+  /** The translation the kernel applied to set an overlapping print layout side by side; absent when it applied none. `loc`, `bbox` and the mesh include it. */
+  arranged?: [number, number, number]
 }
 export interface Scene { model: string; layouts: string[]; parts: Part[]; seconds: number; output: string }
 

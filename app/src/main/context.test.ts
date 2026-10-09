@@ -21,9 +21,10 @@ const SCENE: Scene = {
 
 const CAMERA = { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 } as ViewState['camera']
 
-function deps(over: { build?: BuildState; scene?: Scene; revision?: number; view?: ViewState; now?: number }): ContextDeps {
+function deps(over: { build?: BuildState; scene?: Scene; revision?: number; view?: ViewState; now?: number; open?: string | null; name?: string }): ContextDeps {
   return {
-    object: (id) => (id === 'bracket' ? BRACKET : undefined),
+    object: (id) => (id === 'bracket' ? { ...BRACKET, name: over.name ?? BRACKET.name } : undefined),
+    openObjectId: () => (over.open === undefined ? 'bracket' : over.open),
     build: () => over.build,
     scene: () => (over.scene ? { revision: over.revision ?? over.build?.revision ?? 1, scene: over.scene } : undefined),
     view: () => over.view,
@@ -102,6 +103,52 @@ describe('contextFor', () => {
     const text = contextFor(deps({ build, scene: { ...SCENE, layouts: ['main'], parts } }), 'bracket')
     expect(text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
     expect(text).toMatch(/part_number_0, .* and \d+ more\. Tools: mcp__torno__scene, mcp__torno__look\.$/)
+  })
+
+  it('leaves the duration out when it is not known when the build started', () => {
+    const build: BuildState = { objectId: 'bracket', status: 'building', revision: 11, stale: true }
+    expect(contextFor(deps({ build, scene: SCENE, now: 1_760_000_000_000 }), 'bracket')).toBe('[torno] bracket · building · showing r11.')
+  })
+
+  describe('for an object that is not the one open in the window', () => {
+    it('says so, and names its parts without a layout: none is on screen', () => {
+      const build: BuildState = { objectId: 'bracket', status: 'ok', revision: 12, seconds: 0.8, stale: false }
+      for (const open of ['gear', null]) {
+        expect(contextFor(deps({ build, scene: SCENE, open }), 'bracket')).toBe(
+          '[torno] bracket · not open in the torno window · build ok · r12 (0.8 s) · parts: base, post. Tools: mcp__torno__scene, mcp__torno__look.'
+        )
+      }
+    })
+
+    it('does not say that its parts are showing', () => {
+      const building: BuildState = { objectId: 'bracket', status: 'building', revision: 11, startedAt: 10_000, stale: true }
+      expect(contextFor(deps({ build: building, now: 14_200, open: 'gear' }), 'bracket')).toBe(
+        '[torno] bracket · not open in the torno window · building (4 s so far) · last built r11.'
+      )
+      const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 11, stale: true, error: { kind: 'exception', message: 'no' } }
+      expect(contextFor(deps({ build: failed, open: 'gear' }), 'bracket')).toBe('[torno] bracket · not open in the torno window · BUILD FAILED · last built r11.\nno')
+      expect(contextFor(deps({ open: 'gear' }), 'bracket')).toBe('[torno] bracket · not open in the torno window · not built yet.')
+    })
+  })
+
+  it('never exceeds the limit, whatever the object is called', () => {
+    const name = 'n'.repeat(4000)
+    const traceback = Array.from({ length: 12 }, (_, i) => `frame ${i + 1} ${'x'.repeat(300)}`).join('\n')
+    const states: BuildState[] = [
+      { objectId: 'bracket', status: 'idle', revision: 0, stale: false },
+      { objectId: 'bracket', status: 'building', revision: 1, startedAt: 0, stale: true },
+      { objectId: 'bracket', status: 'failed', revision: 1, stale: true, error: { kind: 'exception', message: 'm'.repeat(900), traceback } },
+      { objectId: 'bracket', status: 'failed', revision: 1, stale: true, error: { kind: 'exception', message: 'no' } },
+      { objectId: 'bracket', status: 'ok', revision: 1, seconds: 1, stale: false }
+    ]
+    for (const build of states) {
+      for (const scene of [SCENE, undefined]) {
+        const text = contextFor(deps({ build, scene, name }), 'bracket')
+        expect(text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+        expect(text.startsWith('[torno] nnn')).toBe(true)
+        expect(text.endsWith('…')).toBe(true)
+      }
+    }
   })
 
   it('says an object has not been built, and nothing about one it does not know', () => {

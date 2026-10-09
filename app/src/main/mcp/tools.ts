@@ -15,7 +15,10 @@ export interface ToolDeps {
   view(objectId: string): ViewState | undefined
   /** The object the window shows now: the only one it can make a picture of. */
   openObjectId(): string | null
-  /** A picture from the window, which must be showing that object. Rejects with a text for the agent. */
+  /**
+   * A picture from the window, which says which object and revision it drew:
+   * it may not be the one asked for. Rejects with a text for the agent.
+   */
   look(objectId: string, req: LookRequest): Promise<LookResult>
   /** Writes `.torno/views/<n>.png`, keeps the newest 20, returns the path. */
   saveImage(objectId: string, png: Uint8Array): Promise<string>
@@ -35,6 +38,9 @@ export const DEFAULT_SIZE = 1280
 const TRACEBACK_LINES = 30
 // The field of view of the viewport's own camera: DEFAULT_FOV in src/renderer/viewport/views.ts.
 const FOV = 35
+
+const SPREAD_NOTE =
+  'The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
 
 const VIEW_NAMES = ['iso', 'front', 'back', 'left', 'right', 'top', 'bottom'] as const
 const vec3 = z.tuple([z.number(), z.number(), z.number()])
@@ -85,7 +91,7 @@ function failure(text: string): ToolResult {
   return { content: [{ type: 'text', text }], isError: true }
 }
 
-const notOpen = (deps: ToolDeps, obj: ObjectInfo): string => `${obj.name} is not the object open in the torno window (open: ${deps.openObjectId() ?? 'none'})`
+const notOpen = (obj: ObjectInfo, open: string | null): string => `${obj.name} is not the object open in the torno window (open: ${open ?? 'none'})`
 
 /**
  * The last successful build of an object, or the error to answer with: the
@@ -118,6 +124,9 @@ export function sceneTool(deps: ToolDeps, objectId: string): ToolResult {
     message: build.error.message,
     ...(build.error.traceback ? { traceback: lastLines(build.error.traceback, TRACEBACK_LINES) } : {})
   }
+  const notes: string[] = []
+  if (!open) notes.push(`${notOpen(obj, deps.openObjectId())}, so what is visible and the camera are not known.`)
+  if (scene.parts.some((p) => p.arranged)) notes.push(SPREAD_NOTE)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -140,12 +149,13 @@ export function sceneTool(deps: ToolDeps, objectId: string): ToolResult {
       volume: round(p.volume),
       faces: p.faceCount,
       edges: p.edgeCount,
-      valid: p.valid
+      valid: p.valid,
+      ...(p.arranged ? { arranged: p.arranged.map(round) } : {})
     })),
     camera: view
       ? { ...view.camera, position: view.camera.position.map(round), target: view.camera.target.map(round), up: view.camera.up.map(round) }
       : null,
-    ...(open ? {} : { note: `${notOpen(deps, obj)}, so what is visible and the camera are not known.` })
+    ...(notes.length > 0 ? { note: notes.join(' ') } : {})
   }
   return { content: [{ type: 'text', text: JSON.stringify(result) }] }
 }
@@ -156,10 +166,12 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   const { obj } = found
   // The window draws whatever object it has open, and a request does not say
   // which is meant: asked for another, it would answer with the wrong one.
-  const elsewhere = () => failure(`${notOpen(deps, obj)}. Ask the user to open it.`)
-  if (deps.openObjectId() !== objectId) return elsewhere()
+  const elsewhere = (open: string | null) => failure(`${notOpen(obj, open)}. Ask the user to open it.`)
+  if (deps.openObjectId() !== objectId) return elsewhere(deps.openObjectId())
 
-  const request: LookRequest = { view: camera(args.view), size: clampSize(args.size) }
+  const view = camera(args.view)
+  if (view === null) return failure('position and target are the same')
+  const request: LookRequest = { view, size: clampSize(args.size) }
   if (args.layout !== undefined) request.layout = args.layout
   if (args.parts !== undefined) request.parts = args.parts
 
@@ -169,13 +181,11 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   } catch (e) {
     return failure(e instanceof Error ? e.message : String(e))
   }
-  if (deps.openObjectId() !== objectId) return elsewhere()
+  // The picture says what it is of: the window may have moved on, or a build
+  // may have ended, between the request and the answer, and what main knows
+  // now is not what was drawn.
+  if (picture.objectId !== objectId) return elsewhere(picture.objectId)
 
-  // As it is now: a build may have ended while the picture was made.
-  const build = deps.build(objectId) ?? found.build
-  const revision = deps.scene(objectId)?.revision ?? found.revision
-  const why = build.status === 'building' ? 'a build is running' : 'the latest build failed'
-  const stale = build.stale ? `, stale: ${why}, so these are still the parts of r${revision}` : ''
   let saved: string
   try {
     saved = `saved as ${await deps.saveImage(objectId, picture.png)}`
@@ -185,15 +195,27 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   return {
     content: [
       { type: 'image', data: Buffer.from(picture.png).toString('base64'), mimeType: 'image/png' },
-      { type: 'text', text: `${picture.caption}\nrevision r${revision}${stale}\n${saved}` }
+      { type: 'text', text: `${picture.caption}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
     ]
   }
 }
 
-function camera(view: LookArgs['view']): NonNullable<LookRequest['view']> {
+/** What to say after the revision of a picture whose parts are not the latest build's. '' when they are. */
+function staleNote(deps: ToolDeps, objectId: string, picture: LookResult): string {
+  const latest = deps.scene(objectId)?.revision ?? picture.revision
+  if (latest > picture.revision) return `, stale: r${latest} was built while this picture was made; look again to see it`
+  if (!picture.stale) return ''
+  const status = deps.build(objectId)?.status
+  const why = status === 'building' ? 'a build is running' : status === 'failed' ? 'the latest build failed' : 'a newer build was started'
+  return `, stale: ${why}, so these are still the parts of r${picture.revision}`
+}
+
+/** The camera to ask the window for, or null for one that looks nowhere: its position is its target. */
+function camera(view: LookArgs['view']): NonNullable<LookRequest['view']> | null {
   if (view === undefined) return 'current'
   if (typeof view === 'string') return view
   const along = view.position.map((p, i) => view.target[i] - p)
+  if (along.every((d) => d === 0)) return null
   // Looking straight up or down, Z cannot be up: Y is.
   const vertical = along[0] === 0 && along[1] === 0
   const made: Camera = { position: view.position, target: view.target, up: view.up ?? (vertical ? [0, 1, 0] : [0, 0, 1]), ortho: view.ortho ?? false, fov: FOV, zoom: 1 }
