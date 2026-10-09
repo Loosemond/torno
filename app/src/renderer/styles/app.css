@@ -1270,6 +1270,15 @@ button {
   white-space: nowrap;
 }
 
+/* The last build moved the mark off its surface, or dropped its part: the same colours as in its row. */
+.note-detail[data-state='drifted'] {
+  color: var(--warn);
+}
+
+.note-detail[data-state='orphaned'] {
+  color: var(--fail);
+}
+
 .note-field {
   display: block;
   width: 100%;

@@ -4,6 +4,7 @@ import type { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { describe, expect, it } from 'vitest'
 import type { ArrowMark, Mark, PickMark, PinMark, ShapeMark, StrokeMark, Vec3 } from '../../../shared/marks'
 import { labelText, mmPerPx, place, project, type Label } from './labels'
+import { MarkLayer } from './MarkLayer'
 import { BEHIND, DOT_PX, LEADER_PX, build, dispose, markPoints, rescale, setActive, strokePoints } from './markObjects'
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
@@ -291,5 +292,27 @@ describe('labels.place', () => {
     const [hidden, shown] = place([label('M1', 300, 300, { visible: false }), label('M2', 300, 300)], chip, SIZE)
     expect(hidden.visible).toBe(false)
     expect(shown.box).toEqual(place([label('M2', 300, 300)], chip, SIZE)[0].box)
+  })
+})
+
+describe('what a layout’s picks tint', () => {
+  const edge = (id: string, ref: string, over: Partial<PickMark> = {}): PickMark => ({ ...BASE, id, kind: 'pick', target: 'edge', anchor: { point: [5, 0, 2.5], part: 'plate', ref }, ...over })
+
+  it('is the face, edge or part each pick is on, by who made the mark', () => {
+    const layer = new MarkLayer(COLOURS)
+    layer.setMarks([pick, edge('M7', 'plate/E1'), edge('M8', 'plate', { author: 'agent', target: 'part' }), pin])
+    expect(layer.pickRefs('assembly')).toEqual({ user: ['base/F5', 'plate/E1'], agent: ['plate'] })
+    layer.dispose()
+  })
+
+  it('is nothing for a pick that drifted or lost its part: its ref is the one it was placed on, which may name other geometry now', () => {
+    const layer = new MarkLayer(COLOURS)
+    layer.setMarks([edge('M7', 'plate/E1', { anchorState: 'drifted' }), edge('M8', 'post/E2', { anchorState: 'orphaned', author: 'agent' }), edge('M9', 'plate/E4')])
+    expect(layer.pickRefs('assembly')).toEqual({ user: ['plate/E4'], agent: [] })
+    // They are still drawn, at their points, with their labels.
+    layer.show('assembly')
+    expect(layer.markOf('assembly', 'M7')).toBeDefined()
+    expect(layer.markOf('assembly', 'M8')).toBeDefined()
+    layer.dispose()
   })
 })

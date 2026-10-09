@@ -133,10 +133,15 @@ export class MarkLayer {
     return place(project(this.marksOf(layout), camera, size, unit), chip, size, unit)
   }
 
-  /** The faces, edges and parts a layout's pick marks are on, by who made the mark. */
+  /**
+   * The faces, edges and parts a layout's pick marks are on, by who made the
+   * mark: what is tinted for them. A pick that drifted or lost its part gives
+   * none: it keeps the ref it was placed on, which in the build on show may
+   * name other geometry, or none. It is still drawn at its point, with its label.
+   */
   pickRefs(layout: string): { user: string[]; agent: string[] } {
     const refs = { user: [] as string[], agent: [] as string[] }
-    for (const mark of this.marksOf(layout)) if (mark.kind === 'pick' && mark.anchor.ref) refs[mark.author].push(mark.anchor.ref)
+    for (const mark of this.marksOf(layout)) if (mark.kind === 'pick' && mark.anchorState === 'ok' && mark.anchor.ref) refs[mark.author].push(mark.anchor.ref)
     return refs
   }
 

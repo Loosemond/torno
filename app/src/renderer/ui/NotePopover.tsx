@@ -1,29 +1,39 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { Mark } from '../../shared/marks'
+import type { AnchorState, Mark } from '../../shared/marks'
 import { actions, useStore } from '../state/store'
 import { labelText } from '../viewport/marks/labels'
 import type { Viewport } from '../viewport/Viewport'
-import { MAX_NOTE } from './MarkRow'
+import { ANCHOR_BADGE, MAX_NOTE } from './MarkRow'
 import { placeBeside } from './notePlacement'
 
 /** What the note may not cover: the tools at the left edge, the view bar at the top, and a margin elsewhere. */
 const KEEP_CLEAR = { left: 60, top: 54, right: 12, bottom: 12 }
 
-/** What a mark is on, in a few words of the monospace face: its ref and the kernel's line, an arrow's length, or the plane and the size of a profile. */
-function subject(mark: Mark): { ref: string; detail: string } {
+/**
+ * What a mark is on, in a few words: its ref and the kernel's line about it,
+ * an arrow's length, or the plane and the size of a profile. A mark the last
+ * build moved off its surface, or left without its part, keeps the ref it was
+ * placed on, while the kernel's line is of what is under its point now: the
+ * two do not agree, so the line is left out and the note says what happened.
+ */
+export function subject(mark: Mark): { ref: string; detail: string; state: AnchorState } {
+  const state = mark.anchorState
+  const anchor = mark.kind === 'arrow' ? mark.from : mark.anchor
+  const moved = state === 'ok' ? '' : ANCHOR_BADGE[state]
+  const from = anchor?.ref ? `from ${anchor.ref}` : ''
+  const said = (...parts: string[]): string => parts.filter(Boolean).join(', ')
   if (mark.kind === 'arrow') {
     const length = Math.hypot(mark.to[0] - mark.from.point[0], mark.to[1] - mark.from.point[1], mark.to[2] - mark.from.point[2])
-    return { ref: `${length.toFixed(1)} mm`, detail: mark.from.ref ? `from ${mark.from.ref}` : '' }
+    return { ref: `${length.toFixed(1)} mm`, detail: said(from, moved), state }
   }
   if (mark.kind === 'stroke' && mark.space === 'plane' && mark.plane) {
     // A profile: the plane it is on, and how large it is there.
     const us = (mark.points2d ?? []).map((p) => p[0])
     const vs = (mark.points2d ?? []).map((p) => p[1])
     const size = us.length > 0 ? `${(Math.max(...us) - Math.min(...us)).toFixed(1)} × ${(Math.max(...vs) - Math.min(...vs)).toFixed(1)} mm` : ''
-    return { ref: mark.plane.label, detail: [size, mark.anchor.ref ? `from ${mark.anchor.ref}` : ''].filter(Boolean).join(', ') }
+    return { ref: mark.plane.label, detail: said(size, from, moved), state }
   }
-  const anchor = mark.anchor
-  return { ref: anchor?.ref ?? anchor?.part ?? '', detail: anchor?.descriptor ?? '' }
+  return { ref: anchor?.ref ?? anchor?.part ?? '', detail: moved || (anchor?.descriptor ?? ''), state }
 }
 
 /**
@@ -124,7 +134,7 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
         </button>
       </div>
       {on.detail !== '' && (
-        <p className="note-detail num" title={on.detail}>
+        <p className="note-detail num" data-state={on.state === 'ok' ? undefined : on.state} title={on.detail}>
           {on.detail}
         </p>
       )}

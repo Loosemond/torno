@@ -15,7 +15,7 @@ const ANCHOR_NOTE = {
   orphaned: 'The part it was on is gone'
 } as const
 /** What the row says of a mark the last build left off its surface, or without its part. */
-const ANCHOR_BADGE = { drifted: 'moved: check it', orphaned: 'its part is gone' } as const
+export const ANCHOR_BADGE = { drifted: 'moved: check it', orphaned: 'its part is gone' } as const
 
 /**
  * One mark in the panel: its number, what kind it is, its note (click to
