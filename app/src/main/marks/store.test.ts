@@ -211,6 +211,29 @@ describe('sending marks', () => {
     expect(saves).not.toHaveBeenCalled()
     expect(changes).toEqual([])
   })
+
+  it('given ids, sends those drafts only, in one write', async () => {
+    await store.add('bracket', pin('one'))
+    await store.add('bracket', pin('two'))
+    await store.add('bracket', pin('three'))
+    await store.update('bracket', 'M3', { status: 'resolved' })
+    saves.mockClear()
+    changes = []
+
+    // M3 is no draft and M9 no mark: neither is an error, since the list may have changed since it was read.
+    expect(ids(await store.markSent('bracket', ['M1', 'M3', 'M9']))).toEqual(['M1'])
+    expect((await store.list('bracket')).map((m) => m.status)).toEqual(['sent', 'draft', 'resolved'])
+    expect(saves).toHaveBeenCalledTimes(1)
+    expect(changes).toHaveLength(1)
+    expect(await store.markSent('bracket', [])).toEqual([])
+    expect(saves).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps a mark of the agent's as sent from the start: there is nothing to tell it", async () => {
+    const added = await store.add('bracket', { ...pin('this face?'), author: 'agent' }, 'sent')
+    expect(added).toMatchObject({ id: 'M1', author: 'agent', status: 'sent' })
+    expect(onDisk('bracket').marks[0].status).toBe('sent')
+  })
 })
 
 describe('re-anchoring after a build', () => {

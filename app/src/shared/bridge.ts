@@ -3,7 +3,7 @@ import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark } from './marks'
 import type { Scene } from './scene'
 import type { SceneFile } from './scenefile'
-import type { LookRequest, LookResult, ShowRequest, ViewState } from './view'
+import type { HighlightRequest, HighlightResult, LookRequest, LookResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
 
 export interface TornoBridge {
@@ -26,8 +26,11 @@ export interface TornoBridge {
     report(v: ViewState): void
     onLook(cb: (m: { id: number; request: LookRequest }) => void): () => void
     lookReply(id: number, result: LookResult | { error: string }): void
-    onShow(cb: (m: ShowRequest) => void): () => void
-    onHighlight(cb: (m: { objectId: string; layout: string; refs: string[]; note?: string }) => void): () => void
+    /** The agent asks to change what the person sees, or to point something out: each is answered with what was done, or why not. */
+    onShow(cb: (m: { id: number; request: ShowRequest }) => void): () => void
+    showReply(id: number, result: ShowResult | { error: string }): void
+    onHighlight(cb: (m: { id: number; request: HighlightRequest }) => void): () => void
+    highlightReply(id: number, result: HighlightResult | { error: string }): void
   }
   /** The marks of an object, kept by main in <object>/.torno/marks.json. Calls reject with a plain message. */
   marks: {

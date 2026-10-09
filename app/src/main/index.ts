@@ -1,11 +1,13 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme } from 'electron'
+import type { Described } from '../shared/geometry'
 import { writeFileAtomic } from './atomic'
 import { startHttp } from './http'
 import { contextFor } from './context'
-import { buildState, closeWorkspace, findObject, lastScene, openObjectId, openWorkspace, registerIpc } from './ipc'
-import { latestView, requestLook } from './look'
+import { buildState, closeWorkspace, findObject, lastScene, openObjectId, openWorkspace, queryObject, registerIpc } from './ipc'
+import { latestView, requestHighlight, requestLook, requestShow } from './look'
+import type { NearestAnchor } from './marks/reanchor'
 import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
 import type { ToolDeps } from './mcp/tools'
@@ -13,6 +15,7 @@ import { saveView } from './mcp/views'
 import { SYSTEM_PROMPT } from './prompt'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
+import { StateFiles } from './statefile'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
@@ -107,6 +110,12 @@ let sessions: Sessions | null = null
 /** The marks of the objects of the open workspace, whose folders are those of the last scan. */
 const marks = new MarkStore({ dirOf: (id) => findObject(id)?.dir })
 
+/** The window, which is what the agent's tools ask for pictures and ask to show things. */
+function theWindow(): Promise<BrowserWindow> {
+  const win = BrowserWindow.getAllWindows()[0]
+  return win ? Promise.resolve(win) : Promise.reject(new Error('the torno window is closed'))
+}
+
 /** What the MCP tools and the text attached to a prompt are made from: the open workspace and the window. */
 const toolDeps: ToolDeps = {
   object: findObject,
@@ -117,14 +126,33 @@ const toolDeps: ToolDeps = {
   openObjectId,
   look(_objectId, req) {
     // The window draws the object it shows, and its answer says which that was.
-    const win = BrowserWindow.getAllWindows()[0]
-    return win ? requestLook(win, req) : Promise.reject(new Error('the torno window is closed'))
+    return theWindow().then((win) => requestLook(win, req))
   },
   saveImage(objectId, png) {
     const obj = findObject(objectId)
     return obj ? saveView(obj.dir, png) : Promise.reject(new Error(`unknown object: ${objectId}`))
+  },
+  marks: (objectId) => marks.list(objectId),
+  // A mark made through the tools is the agent's, and it knows of it: there is nothing to send it.
+  addMark: (objectId, mark) => marks.add(objectId, { ...mark, author: 'agent' }, 'sent'),
+  updateMark: (objectId, id, patch) => marks.update(objectId, id, patch),
+  describe: (objectId, layout, ref) => queryObject<Described>(objectId, 'describe', { ref: `${layout}:${ref}` }),
+  async nearest(objectId, layout, anchors) {
+    const reply = await queryObject<{ anchors?: NearestAnchor[] }>(objectId, 'nearest', { layout, anchors })
+    if (!Array.isArray(reply?.anchors) || reply.anchors.length !== anchors.length) throw new Error('the kernel did not answer for each point')
+    return reply.anchors
+  },
+  show(_objectId, req) {
+    return theWindow().then((win) => requestShow(win, req))
+  },
+  highlight(objectId, layout, refs, note) {
+    return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
   }
 }
+
+/** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
+const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId) })
+marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 
 /**
  * What a test needs of main that it cannot reach through the window. `pickFolder`
@@ -156,7 +184,10 @@ void app.whenReady().then(async () => {
   sessions = new Sessions({
     http,
     adapter: claudeAdapter(process.env.TORNO_AGENT_CMD),
-    contextFor: (id) => contextFor(toolDeps, id),
+    // The marks of an object that cannot be read are not a reason to tell the agent nothing of its build.
+    contextFor: async (id) => contextFor(toolDeps, id, await marks.list(id).catch(() => [])),
+    // The agent has the prompt, and with it the drafts that were listed: they are sent.
+    onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
     systemPrompt: SYSTEM_PROMPT,
     mcpUrlFor,
     debug: isDebug
@@ -165,6 +196,7 @@ void app.whenReady().then(async () => {
     onWorkspaceChosen: (root) => void rememberWorkspace(root),
     sessions,
     marks,
+    onBuild: (state) => stateFiles.changed(state.objectId),
     // A folder dialog is a window on the person's desktop: under test there is none.
     pickFolder: isTest
       ? async () => {

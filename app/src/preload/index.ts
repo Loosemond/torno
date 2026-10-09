@@ -20,10 +20,6 @@ async function invokePlain<T>(channel: string, ...args: unknown[]): Promise<T> {
   }
 }
 
-// Declared here and backed by the task that uses them: view.onShow and
-// view.onHighlight do nothing yet.
-const notYet = (): (() => void) => () => {}
-
 const bridge: TornoBridge = {
   workspace: {
     current: () => ipcRenderer.invoke('workspace:current'),
@@ -44,8 +40,10 @@ const bridge: TornoBridge = {
     report: (v) => ipcRenderer.send('view:report', v),
     onLook: (cb) => subscribe('view:look', cb),
     lookReply: (id, result) => ipcRenderer.send('view:lookReply', id, result),
-    onShow: notYet,
-    onHighlight: notYet
+    onShow: (cb) => subscribe('view:show', cb),
+    showReply: (id, result) => ipcRenderer.send('view:showReply', id, result),
+    onHighlight: (cb) => subscribe('view:highlight', cb),
+    highlightReply: (id, result) => ipcRenderer.send('view:highlightReply', id, result)
   },
   marks: {
     list: (objectId) => invokePlain('marks:list', objectId),

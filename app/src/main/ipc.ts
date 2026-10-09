@@ -7,12 +7,12 @@ import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark } from '../shared/marks'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
-import type { LookResult, ViewState } from '../shared/view'
+import type { ViewState } from '../shared/view'
 import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
-import { type KernelClient, startKernel } from './kernel/client'
+import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
-import { forgetViews, reportView, resolveLook } from './look'
+import { forgetViews, reportView, resolveRequest } from './look'
 import { coalesced, followMarks, reanchorAll } from './marks/reanchor'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
@@ -26,9 +26,9 @@ import { scanWorkspace } from './workspace'
 //           session:current, session:start, session:stop,
 //           marks:list, marks:add, marks:update, marks:remove, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe
-//   from the renderer: object:saveSceneFile, view:report, view:lookReply,
+//   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           session:write, session:resize, session:insert
-//   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts),
+//   to the renderer: object:build, object:scene, view:look, view:show, view:highlight (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
 //           marks:changed, marks:problem
 
@@ -49,6 +49,9 @@ let sessions: Sessions | null = null
 
 /** The marks of the objects of the open workspace, once `registerIpc` has been given them. */
 let marks: MarkStore | null = null
+
+/** Told where the build of an object stands, each time that changes, once `registerIpc` has been given it. */
+let onBuild: ((state: BuildState) => void) | null = null
 
 function broadcast(channel: string, message: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -80,7 +83,10 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
       })
   })
   const ws: OpenWorkspace = { info, kernel, builds, opened: new Set(), shown: null }
-  builds.on('build', (state) => broadcast('object:build', state))
+  builds.on('build', (state) => {
+    broadcast('object:build', state)
+    onBuild?.(state)
+  })
   builds.on('scene', ({ objectId, revision, scene, blob }) =>
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
   )
@@ -155,10 +161,20 @@ export function lastScene(id: string): { revision: number; scene: Scene } | unde
 }
 
 /**
+ * Ask the kernel about the last successful build of an open object (`Builds.query`): the object is
+ * built again when the kernel no longer holds it. Rejects with a KernelError, also when no workspace is open.
+ */
+export function queryObject<T = unknown>(id: string, name: string, args: object): Promise<T> {
+  if (!current) return Promise.reject(new KernelError('no_build', 'no workspace is open'))
+  return current.builds.query<T>(id, name, args)
+}
+
+/**
  * `onWorkspaceChosen` is told the root of every workspace the person opens
  * from the window, so that it can be opened again at the next start.
  * `sessions` backs the session pane; without it there are no sessions.
  * `marks` backs the marks of the objects; without it there are none.
+ * `onBuild` is told where the build of an object stands, each time that changes.
  * `pickFolder` answers "Open folder" in place of the dialog, which tests must
  * never open.
  */
@@ -167,6 +183,7 @@ export function registerIpc(
     onWorkspaceChosen?: (root: string) => void
     sessions?: Sessions
     marks?: MarkStore
+    onBuild?: (state: BuildState) => void
     /** Stands in for the folder dialog: the folder to open, or null for none. */
     pickFolder?: () => Promise<string | null>
   } = {}
@@ -179,6 +196,7 @@ export function registerIpc(
     return sessions
   }
 
+  onBuild = opts.onBuild ?? null
   marks = opts.marks ?? null
   marks?.on('changed', (m) => broadcast('marks:changed', m))
   marks?.on('problem', (m) => broadcast('marks:problem', m))
@@ -312,5 +330,8 @@ export function registerIpc(
     if (findObject(view?.objectId)) reportView(view)
   })
 
-  ipcMain.on('view:lookReply', (_event, id: number, result: LookResult | { error: string }) => resolveLook(id, result))
+  // What the renderer says it did for a request of main's (src/main/look.ts), each on the channel of its kind.
+  for (const channel of ['view:lookReply', 'view:showReply', 'view:highlightReply']) {
+    ipcMain.on(channel, (_event, id: number, result: object | { error: string }) => resolveRequest(id, result))
+  }
 }

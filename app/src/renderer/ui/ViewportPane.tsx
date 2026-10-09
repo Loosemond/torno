@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Scene } from '../../shared/scene'
 import type { LookRequest, LookResult } from '../../shared/view'
+import { connectAgent } from '../state/agent'
 import { describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
 import { setTool, toolStore, type ToolName } from '../state/tools'
@@ -12,6 +13,7 @@ import { selectTool } from '../tools/selectTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
 import { Readout } from '../viewport/highlight'
 import { Viewport } from '../viewport/Viewport'
+import { AgentLine } from './AgentLine'
 import { NotePopover } from './NotePopover'
 import { Selection } from './Selection'
 import { ToolPalette } from './ToolPalette'
@@ -161,6 +163,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     report()
   })
 
+  // What the agent asks of the window besides pictures: to show something, and to point something out.
+  const offAgent = connectAgent(viewport)
+
   const offLook = window.torno.view.onLook(({ id, request }) => {
     look(viewport, request).then(
       (result) => window.torno.view.lookReply(id, result),
@@ -197,6 +202,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offScene()
     offStore()
     offLook()
+    offAgent()
     delete window.__tornoTest
   }
 }
@@ -257,6 +263,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
           <ViewBar viewport={viewport} />
           <ToolPalette />
           <Selection viewport={viewport} />
+          <AgentLine />
           <NotePopover viewport={viewport} />
         </>
       )}

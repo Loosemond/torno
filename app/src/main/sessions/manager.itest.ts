@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { type HttpRouter, startHttp } from '../http'
@@ -17,6 +17,9 @@ let root: string
 let http: HttpRouter
 let sessions: Sessions
 let context = (id: string) => `context for ${id}`
+/** By object: the marks its next prompt would tell of. What was delivered is taken out, as the store would. */
+let drafts = new Map<string, string[]>()
+let delivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
 let output = new Map<string, string>()
 let statuses = new Map<string, SessionStatus[]>()
 
@@ -30,7 +33,11 @@ function make(command = `node ${FAKE}`): Sessions {
   const made = new Sessions({
     http,
     adapter: claudeAdapter(command),
-    contextFor: (id) => context(id),
+    contextFor: (id) => ({ text: context(id), sentMarkIds: drafts.get(id) ?? [] }),
+    onDelivered: (objectId, sentMarkIds) => {
+      delivered.push({ objectId, sentMarkIds })
+      drafts.delete(objectId)
+    },
     systemPrompt: '',
     mcpUrlFor: (id) => http.url(`/mcp/${id}`)
   })
@@ -64,6 +71,8 @@ afterEach(async () => {
   output = new Map()
   statuses = new Map()
   context = (id) => `context for ${id}`
+  drafts = new Map()
+  delivered = []
 })
 
 afterAll(async () => {
@@ -144,6 +153,72 @@ describe('a session', () => {
     await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('needs_input')
     sessions.write(sessionId, 'hook Stop\r')
     await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('idle')
+  })
+
+  it("consumes the drafts of the prompt's own object, once, and of no other", async () => {
+    drafts = new Map([
+      ['bracket', ['M1', 'M2']],
+      ['cover', ['M1']]
+    ])
+    const a = sessions.start(object('bracket'), {})
+    const b = sessions.start(object('cover'), {})
+    await expect.poll(() => said(a.sessionId)).toContain('READY')
+    await expect.poll(() => said(b.sessionId)).toContain('READY')
+
+    sessions.write(a.sessionId, 'hook\r')
+    await expect.poll(() => said(a.sessionId)).toContain('context: context for bracket')
+    await expect.poll(() => delivered).toEqual([{ objectId: 'bracket', sentMarkIds: ['M1', 'M2'] }])
+    // The drafts of the other object are still its own to send.
+    expect(drafts.get('cover')).toEqual(['M1'])
+
+    // A second prompt in a row has nothing left to send.
+    sessions.write(a.sessionId, 'hook\r')
+    await expect.poll(() => said(a.sessionId).match(/context: context for bracket/g)?.length).toBe(2)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(delivered).toHaveLength(1)
+
+    sessions.write(b.sessionId, 'hook\r')
+    await expect.poll(() => delivered.at(-1)).toEqual({ objectId: 'cover', sentMarkIds: ['M1'] })
+    expect(delivered).toHaveLength(2)
+  })
+
+  it('consumes nothing on any hook but that of a prompt', async () => {
+    drafts = new Map([['bracket', ['M1']]])
+    let asked = 0
+    context = (id) => {
+      asked += 1
+      return `context for ${id}`
+    }
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    for (const event of ['Stop', 'Notification', 'PermissionRequest', 'SessionEnd']) {
+      sessions.write(sessionId, `hook ${event}\r`)
+      await expect.poll(() => said(sessionId)).toContain(`${event}: ok`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    // Not even asked for: there is no prompt to go with.
+    expect(asked).toBe(0)
+    expect(delivered).toEqual([])
+    expect(drafts.get('bracket')).toEqual(['M1'])
+  })
+
+  it('consumes nothing when there is no text to carry the marks, or the context cannot be had', async () => {
+    drafts = new Map([['bracket', ['M1']]])
+    context = () => ''
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    sessions.write(sessionId, 'hook\r')
+    await expect.poll(() => said(sessionId)).toContain('context: (none)')
+    context = () => {
+      throw new Error('the marks file cannot be read')
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    sessions.write(sessionId, 'hook\r')
+    await expect.poll(() => said(sessionId).match(/context: \(none\)/g)?.length).toBe(2)
+    expect(logged).toHaveBeenCalledWith('no context for the prompt in bracket: the marks file cannot be read')
+    logged.mockRestore()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(delivered).toEqual([])
   })
 
   it('answers a prompt with nothing when there is no context', async () => {

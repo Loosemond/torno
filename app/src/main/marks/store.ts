@@ -72,9 +72,13 @@ export class MarkStore {
     })
   }
 
-  add(objectId: string, mark: NewMark): Promise<Mark> {
+  /**
+   * Keeps a new mark, as a draft: what the agent is yet to be told. One the
+   * agent made itself is added as `sent`, since there is nothing to tell.
+   */
+  add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft'): Promise<Mark> {
     return this.change(objectId, (file) => {
-      const added = sanitiseMark({ ...mark, id: `M${file.next}`, status: 'draft', anchorState: 'ok', createdAt: this.now().toISOString() })
+      const added = sanitiseMark({ ...mark, id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
       if (!added) throw new Error('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
       file.next += 1
       file.marks.push(added)
@@ -129,10 +133,14 @@ export class MarkStore {
     }).then(() => {})
   }
 
-  /** Turns every draft of the object into sent; returns the marks that changed. */
-  markSent(objectId: string): Promise<Mark[]> {
+  /**
+   * Turns the drafts of the object into sent, in one write: all of them, or
+   * those of `ids` only. Returns the marks that changed. An id that is not
+   * there, or not a draft any more, is passed over.
+   */
+  markSent(objectId: string, ids?: readonly string[]): Promise<Mark[]> {
     return this.change(objectId, (file) => {
-      const drafts = file.marks.filter((m) => m.status === 'draft')
+      const drafts = file.marks.filter((m) => m.status === 'draft' && (ids === undefined || ids.includes(m.id)))
       for (const mark of drafts) mark.status = 'sent'
       return drafts.length > 0 ? drafts : UNCHANGED
     }).then((sent) => (sent === UNCHANGED ? [] : sent))

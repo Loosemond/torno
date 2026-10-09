@@ -355,6 +355,22 @@ describe('reanchorAll', () => {
       expect((await byId()).M1.anchorState).toBe('drifted')
     })
 
+    it('is on its edge within half a millimetre whatever the size of the part: a chamfer on a 400 mm plate is 1 mm wide', async () => {
+      scene = sceneOf(['assembly:base', 'assembly:post'], { 'assembly:base': [300, 400, 0] }) // the surface may be 2.5 mm away
+      await store.add('bracket', pick('edge', EDGE))
+      // The other edge of a small chamfer: parallel, alike, and well within what the surface is allowed.
+      answer = withEdge({ edgeFound: true, edgeDistance: 1.5, edgeDescriptor: 'line, 400 mm' })
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'drifted', anchor: { ref: 'base/E5', descriptor: 'face base/F1' } })
+      answer = withEdge({ edgeFound: true, edgeDistance: 0.5, edgeDescriptor: 'line, 400 mm' })
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: { ref: 'base/E5', descriptor: 'line, 400 mm' } })
+      // The surface keeps the tolerance of the part: 2 mm off it, on the edge, is not drifted.
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part }) => ({ ...found(part, `${part}/F1`, 2), edgeFound: true, edgeDistance: 0.3, edgeDescriptor: 'line, 400 mm' })) })
+      await run()
+      expect((await byId()).M1.anchorState).toBe('ok')
+    })
+
     it('of an edge the build no longer has is drifted, and is ok again when a build has it back', async () => {
       await store.add('bracket', pick('edge', EDGE))
       answer = withEdge({ edgeFound: false })

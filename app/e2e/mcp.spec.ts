@@ -1,10 +1,13 @@
-import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { describeMark } from '../src/main/marks/describe'
 import type { TornoState } from '../src/renderer/state/store'
+import type { PinMark } from '../src/shared/marks'
+import type { Camera } from '../src/shared/view'
 
 // What the agent is given, through the real path: the SDK's MCP client in this
 // process against the app's own server, answered by the window's renderer. The
@@ -92,12 +95,22 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['look', 'scene'])
-  for (const name of ['scene', 'look']) {
-    const result = await call(bracket, name)
-    expect(result.isError).toBe(true)
-    expect(result.text).toBe('no build yet: bracket has not been opened in the torno window')
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'describe', 'highlight', 'look', 'marks', 'resolve_mark', 'scene', 'show'])
+  const asked: Array<[string, Record<string, unknown>]> = [
+    ['scene', {}],
+    ['look', {}],
+    ['describe', { ref: 'base' }],
+    ['highlight', { refs: ['base'] }],
+    ['show', { view: 'top' }],
+    ['add_mark', { kind: 'pin', note: '', ref: 'base' }]
+  ]
+  for (const [name, args] of asked) {
+    const result = await call(bracket, name, args)
+    expect(result.isError, name).toBe(true)
+    expect(result.text, name).toBe('no build yet: bracket has not been opened in the torno window')
   }
+  // The marks are the object's, built or not: there are none yet.
+  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '[]' })
   const nothing = await call(await connect('no such object'), 'scene')
   expect(nothing).toMatchObject({ isError: true, text: 'unknown object: no such object' })
 })
@@ -196,14 +209,221 @@ test('the agent is told of torno in its system prompt, and of the build with eve
   await page.keyboard.type('hook')
   await page.keyboard.press('Enter')
   await expect.poll(async () => (await terminal()).replace(/\s+/g, ' ')).toMatch(
-    /context: \[torno\] bracket · build ok · r1 \(\d+\.\d s\) · layout assembly · parts: base, post \(hidden: post\)\. Tools: mcp__torno__scene, mcp__torno__look\./
+    /context: \[torno\] bracket · build ok · r1 \(\d+\.\d s\) · layout assembly · parts: base, post \(hidden: post\)\./
   )
+  for (const tool of ['marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark']) expect(prompt).toContain(`mcp__torno__${tool}`)
+})
+
+// ---- Marks and the window, from the agent's side ----
+
+const camera = (): Promise<Camera> => page.evaluate(() => window.__tornoTest!.camera())
+const canvas = () => page.locator('.viewport-canvas canvas').first()
+const ON_BASE: [number, number, number] = [14, 9, 2.5] // on the top of the base, clear of the post
+/** What the terminal shows without its line breaks, which fall where the pane is wide. */
+const said = async (): Promise<string> => (await terminal()).replace(/\s+/g, '')
+const times = (text: string, part: string): number => text.split(part.replace(/\s+/g, '')).length - 1
+const stateFile = () => join(root, 'bracket', '.torno', 'state.md')
+
+async function prompt(): Promise<void> {
+  await page.locator('.session-term textarea').focus()
+  await page.keyboard.type('hook')
+  await page.keyboard.press('Enter')
+}
+
+let pin: PinMark
+
+test("show changes the user's layers and camera, and says what they see then", async () => {
+  // The post was hidden by hand above: the agent brings it back.
+  const parts = await call(bracket, 'show', { parts: ['base', 'post'] })
+  expect(parts).toMatchObject({ isError: false, text: "view current · layout assembly · parts base, post · perspective\nrevision r1\nThe user's viewport now shows this." })
+  expect((await state()).layers.post.visible).toBe(true)
+  await expect(page.locator('[data-layer="post"]').getByRole('button', { name: 'Show post' })).toHaveAttribute('aria-pressed', 'true')
+
+  const before = await camera()
+  const top = await call(bracket, 'show', { view: 'top' })
+  expect(top.text).toBe("view top · layout assembly · parts base, post · perspective\nrevision r1\nThe user's viewport now shows this.")
+  // The camera travels there: straight above what it looks at.
+  await expect
+    .poll(async () => {
+      const c = await camera()
+      return c.position[2] > c.target[2] && Math.hypot(c.position[0] - c.target[0], c.position[1] - c.target[1]) < 0.01 * (c.position[2] - c.target[2])
+    })
+    .toBe(true)
+  expect(await camera()).not.toEqual(before)
+  // What main is told the user sees follows.
+  await expect.poll(async () => JSON.parse((await call(bracket, 'scene')).text).camera.position[2]).toBeGreaterThan(20)
+
+  const unknown = await call(bracket, 'show', { parts: ['lid'] })
+  expect(unknown).toMatchObject({ isError: true, text: "unknown part 'lid'; parts in layout assembly: base, post" })
+  expect(await call(bracket, 'show', { layout: 'exploded' })).toMatchObject({ isError: true, text: "no layout 'exploded'; layouts: assembly, print" })
+  expect((await state()).layers.post.visible).toBe(true)
+})
+
+test('a pin the user places with the pointer is in marks, with the face it is on', async () => {
+  // By its button: the keys are the terminal's while it has the focus.
+  await page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name: 'Pin', exact: true }).click()
+  const [fx, fy] = await page.evaluate((at) => window.__tornoTest!.project(at), ON_BASE)
+  const box = (await canvas().boundingBox())!
+  await page.mouse.move(box.x + fx * box.width, box.y + fy * box.height)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(page.locator('.note-card textarea')).toBeFocused()
+  await page.keyboard.type('make this corner thicker')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.note-card')).toHaveCount(0)
+  await page.keyboard.press('Escape') // back to Select
+  await expect.poll(async () => (await state()).marks[0]?.note).toBe('make this corner thicker')
+
+  const marks: PinMark[] = JSON.parse((await call(bracket, 'marks')).text)
+  expect(marks).toHaveLength(1)
+  pin = marks[0]
+  expect(pin).toMatchObject({ id: 'M1', kind: 'pin', author: 'user', status: 'draft', anchorState: 'ok', layout: 'assembly', note: 'make this corner thicker' })
+  expect(pin.anchor).toMatchObject({ part: 'base', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
+  expect(pin.anchor.ref).toMatch(/^base\/F\d+$/)
+  expect(JSON.parse((await call(bracket, 'marks', { status: 'draft' })).text)).toHaveLength(1)
+  expect((await call(bracket, 'marks', { status: 'sent' })).text).toBe('[]')
+
+  // The same face, asked of the kernel, and the mark by its number.
+  const face = JSON.parse((await call(bracket, 'describe', { ref: pin.anchor.ref! })).text)
+  expect(face).toMatchObject({ layout: 'assembly', kind: 'face', ref: `assembly:${pin.anchor.ref}`, type: 'plane', area: 1200, normal: [0, 0, 1], descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
+  expect(JSON.parse((await call(bracket, 'describe', { ref: 'M1' })).text)).toEqual(pin)
+  expect(await call(bracket, 'describe', { ref: 'base/F99' })).toMatchObject({ isError: true, text: 'base has 6 faces, F0 to F5: there is no F99' })
+  expect(await call(bracket, 'describe', { ref: 'M7' })).toMatchObject({ isError: true, text: 'no mark M7; marks: M1' })
+})
+
+test('the next prompt carries the pin as one line, and turns it sent', async () => {
+  const line = describeMark(pin)
+  expect(line).toMatch(/^M1 pin on base\/F\d \(plane, normal \+Z, z = 2\.5, 1200 mm²\) at \(1\d(\.\d+)?, \d(\.\d+)?, 2\.5\): "make this corner thicker"$/)
+  // A hook that is not a prompt takes nothing with it.
+  await page.locator('.session-term textarea').focus()
+  await page.keyboard.type('hook Stop')
+  await page.keyboard.press('Enter')
+  await expect.poll(said).toContain('Stop:ok')
+  expect((await state()).marks[0].status).toBe('draft')
+
+  await prompt()
+  await expect.poll(said).toContain(`Marks from the user (drawn in look pictures with these numbers): ${line}`.replace(/\s+/g, ''))
+  await expect.poll(async () => (await state()).marks[0].status).toBe('sent')
+  await expect(page.locator('.mark-row[data-mark="M1"] .mark-status')).toHaveText('sent')
+})
+
+test("add_mark places the agent's own marks, by ref and by point, which the user sees in green", async () => {
+  const byRef = await call(bracket, 'add_mark', { kind: 'pin', note: '<i>this</i> face?', ref: pin.anchor.ref })
+  expect(byRef.isError).toBe(false)
+  expect(byRef.text).toBe(`placed in layout assembly: (yours) M2 pin on ${pin.anchor.ref} (plane, normal +Z, z = 2.5, 1200 mm²) at (0, 0, 2.5): "<i>this</i> face?"`)
+
+  const row = page.locator('.mark-row[data-mark="M2"]')
+  await expect(row).toHaveAttribute('data-author', 'agent')
+  // --agent-mark, outlined: the user's own are filled with --user-mark.
+  await expect(row.locator('.mark-chip')).toHaveCSS('border-top-color', 'rgb(43, 138, 92)')
+  await expect(row.locator('.mark-chip')).toHaveCSS('color', 'rgb(43, 138, 92)')
+  await expect(row.locator('.mark-chip')).toHaveAttribute('title', /The agent's mark/)
+  // What the agent wrote is text, whatever it looks like.
+  await expect(row.locator('.mark-note')).toHaveText('<i>this</i> face?')
+  await expect(row.locator('.mark-note i')).toHaveCount(0)
+  const agents = (await state()).marks[1] as PinMark
+  expect(agents).toMatchObject({ id: 'M2', kind: 'pin', author: 'agent', status: 'sent', anchorState: 'ok', revision: 1 })
+  expect(agents.anchor).toMatchObject({ point: [0, 0, 2.5], part: 'base', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
+
+  // By a point alone: the kernel says which part it is on.
+  const byPoint = await call(bracket, 'add_mark', { kind: 'arrow', note: 'taller', point: [0, 0, 22.5], by: [0, 0, 10] })
+  expect(byPoint.text).toMatch(/^placed in layout assembly: \(yours\) M3 arrow from post\/F\d \(plane, normal \+Z, z = 22\.5, 50\.27 mm²\) at \(0, 0, 22\.5\) by \(0, 0, 10\), 10 mm: "taller"$/)
+  const inAir = await call(bracket, 'add_mark', { kind: 'shape', note: 'keep clear', shape: 'box', size: [10, 10, 4], position: [30, 30, 30], intent: 'keep-out' })
+  expect(inAir.text).toBe('placed in layout assembly: (yours) M4 box 10 × 10 × 4 mm at (30, 30, 30), intent keep-out: "keep clear"')
+  await expect.poll(async () => (await state()).marks.map((m) => `${m.id} ${m.author} ${m.kind}`)).toEqual(['M1 user pin', 'M2 agent pin', 'M3 agent arrow', 'M4 agent shape'])
+
+  expect(await call(bracket, 'add_mark', { kind: 'pin', note: '', ref: 'lid/F1' })).toMatchObject({ isError: true, text: "no part 'lid' in layout assembly (parts: base, post)" })
+  expect(await call(bracket, 'add_mark', { kind: 'pin', note: '', ref: 'base', point: [0, 0, 90] })).toMatchObject({ isError: true, text: expect.stringMatching(/^the point \(0, 0, 90\) is 87\.5 mm from the surface of base: /) })
+  expect((await state()).marks).toHaveLength(4)
+})
+
+test('a second prompt does not repeat the pin, and tells the agent none of its own marks', async () => {
+  const before = await said()
+  expect(times(before, 'Marks from the user')).toBe(1)
+  await prompt()
+  await expect.poll(async () => times(await said(), 'Open marks: M1, M2, M3, M4')).toBe(1)
+  const after = await said()
+  expect(times(after, 'Marks from the user')).toBe(1)
+  expect(times(after, describeMark(pin))).toBe(1)
+  expect((await state()).marks.map((m) => m.status)).toEqual(['sent', 'sent', 'sent', 'sent'])
+})
+
+test('highlight shows the user what the agent means, until they click', async () => {
+  const line = page.locator('.agent-line')
+  await expect(line).toHaveCount(0)
+  const result = await call(bracket, 'highlight', { refs: [pin.anchor.ref!, 'post', 'M1'], note: '<b>this one?</b>' })
+  expect(result).toMatchObject({
+    isError: false,
+    text: `highlighted ${pin.anchor.ref}, post in layout assembly for the user, with the note "<b>this one?</b>", until they click in the viewport or 60 s pass.`
+  })
+  await expect(line).toBeVisible()
+  await expect(line.locator('[data-ref]')).toHaveText([pin.anchor.ref!, 'post'])
+  await expect(line.locator('[data-ref]').first()).toHaveCSS('border-top-color', 'rgb(43, 138, 92)')
+  await expect(line.locator('.agent-note')).toHaveText('<b>this one?</b>')
+  await expect(line.locator('.agent-note b')).toHaveCount(0)
+
+  // A press anywhere in the viewport puts it away.
+  const box = (await canvas().boundingBox())!
+  await page.mouse.click(box.x + box.width - 12, box.y + box.height - 60)
+  await expect(line).toHaveCount(0)
+
+  // So does its own control.
+  await call(bracket, 'highlight', { refs: ['base/E0'] })
+  await expect(line.locator('[data-ref]')).toHaveText(['base/E0'])
+  await expect(line.locator('.agent-note')).toHaveCount(0)
+  await line.getByRole('button', { name: 'Dismiss what the agent points at' }).click()
+  await expect(line).toHaveCount(0)
+
+  const wrong = await call(bracket, 'highlight', { refs: ['base/F1', 'lid', 'post/E9'] })
+  expect(wrong).toMatchObject({ isError: true, text: "nothing was highlighted: no part 'lid' in layout assembly (parts: base, post); post has 3 edges, E0 to E2: there is no E9" })
+  const elsewhere = await call(bracket, 'highlight', { refs: ['base'], layout: 'print' })
+  expect(elsewhere).toMatchObject({ isError: true, text: 'layout print is not the one on screen (assembly): call show with that layout first, which changes what the user sees' })
+  await expect(line).toHaveCount(0)
+})
+
+test('resolve_mark moves a mark under Resolved, with what the agent did', async () => {
+  const result = await call(bracket, 'resolve_mark', { id: 'M1', note: 'made the corner 2 mm thicker' })
+  expect(result).toMatchObject({ isError: false, text: `resolved: ${describeMark(pin)}\nnote: made the corner 2 mm thicker` })
+  const marks = page.getByRole('region', { name: 'Marks' })
+  await expect(marks.locator('.mark-rows').first().locator('[data-mark]')).toHaveCount(3)
+  await expect(marks.locator('.mark-rows').first().locator('[data-mark="M1"]')).toHaveCount(0)
+  await marks.getByRole('button', { name: /Resolved/ }).click()
+  const resolved = marks.getByRole('list', { name: 'Resolved marks' }).locator('[data-mark="M1"]')
+  await expect(resolved).toHaveAttribute('data-status', 'resolved')
+  await expect(resolved.locator('.mark-note')).toHaveAttribute('title', 'make this corner thicker\nResolved: made the corner 2 mm thicker')
+  expect((await call(bracket, 'marks', { status: 'open' })).text).not.toContain('"M1"')
+
+  expect(await call(bracket, 'resolve_mark', { id: 'M9' })).toMatchObject({ isError: true, text: 'no mark M9; marks: M1, M2, M3, M4' })
+})
+
+test('state.md says the same to an agent without the tools, and writing it starts no build', async () => {
+  await expect.poll(() => (existsSync(stateFile()) ? readFileSync(stateFile(), 'utf8') : ''), { timeout: 10_000 }).toContain('- (yours) M4 box')
+  const text = readFileSync(stateFile(), 'utf8')
+  expect(text).toContain('# bracket\n')
+  expect(text).toContain('## Build\n\nBuild ok, r1.\n')
+  expect(text).toContain('- assembly: base 40 × 30 × 5 mm, post 8 × 8 × 20 mm\n')
+  expect(text).toContain(`In layout assembly:\n\n- (yours) M2 pin on ${pin.anchor.ref} (plane, normal +Z, z = 2.5, 1200 mm²) at (0, 0, 2.5): "<i>this</i> face?"\n- (yours) M3 arrow from post/F`)
+  // Resolved: no longer something to act on.
+  expect(text).not.toContain('M1 pin')
+  // Longer than the watcher waits before it builds, and than the file waits to be written again.
+  await page.waitForTimeout(1500)
+  expect(readFileSync(stateFile(), 'utf8')).toBe(text)
+  expect((await state()).build).toMatchObject({ status: 'ok', revision: 1 })
+  expect(readdirSync(join(root, 'bracket', '.torno')).filter((name) => name.includes('.tmp'))).toEqual([])
 })
 
 test('for an object that is not the one open, look refuses and scene says what it cannot know', async () => {
   await openObject('plain')
   const look = await call(bracket, 'look', { view: 'iso' })
   expect(look).toMatchObject({ isError: true, text: 'bracket is not the object open in the torno window (open: plain). Ask the user to open it.' })
+  // Nor is the user shown anything of an object they are not looking at.
+  for (const [name, args] of [['show', { view: 'top' }], ['highlight', { refs: ['base'] }]] as const) {
+    expect(await call(bracket, name, args)).toMatchObject({ isError: true, text: 'bracket is not the object open in the torno window (open: plain). Ask the user to open it.' })
+  }
+  await expect(page.locator('.agent-line')).toHaveCount(0)
+  // Its marks and its geometry are still there to ask about.
+  expect(JSON.parse((await call(bracket, 'marks', { status: 'open' })).text)).toHaveLength(3)
+  expect(JSON.parse((await call(bracket, 'describe', { ref: 'post' })).text)).toMatchObject({ layout: 'assembly', kind: 'part' })
   const scene = JSON.parse((await call(bracket, 'scene')).text)
   expect(scene).toMatchObject({ object: 'bracket', build: { status: 'ok', revision: 1 }, layout: null, camera: null })
   expect(scene.note).toContain('not the object open in the torno window (open: plain)')

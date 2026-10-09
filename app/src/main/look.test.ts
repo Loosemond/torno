@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LookResult, ViewState } from '../shared/view'
-import { forgetViews, latestView, reportView, requestLook, resolveLook } from './look'
+import { forgetViews, latestView, reportView, requestHighlight, requestLook, requestShow, resolveRequest } from './look'
 
 function fakeWindow(destroyed = false) {
   const sent: Array<{ channel: string; message: { id: number; request: unknown } }> = []
@@ -26,14 +26,14 @@ describe('requestLook', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0].channel).toBe('view:look')
     expect(sent[0].message.request).toEqual({ view: 'iso' })
-    resolveLook(sent[0].message.id, PICTURE)
+    resolveRequest(sent[0].message.id, PICTURE)
     await expect(result).resolves.toEqual(PICTURE)
   })
 
   it("rejects with the renderer's error text", async () => {
     const { win, sent } = fakeWindow()
     const result = requestLook(win, { parts: ['x'] })
-    resolveLook(sent[0].message.id, { error: "unknown part 'x'; parts in layout assembly: base, post" })
+    resolveRequest(sent[0].message.id, { error: "unknown part 'x'; parts in layout assembly: base, post" })
     await expect(result).rejects.toThrow("unknown part 'x'; parts in layout assembly: base, post")
   })
 
@@ -42,8 +42,8 @@ describe('requestLook', () => {
     const first = requestLook(win, { view: 'front' })
     const second = requestLook(win, { view: 'top' })
     expect(sent[0].message.id).not.toBe(sent[1].message.id)
-    resolveLook(sent[1].message.id, { ...PICTURE, caption: 'view top' })
-    resolveLook(sent[0].message.id, { ...PICTURE, caption: 'view front' })
+    resolveRequest(sent[1].message.id, { ...PICTURE, caption: 'view top' })
+    resolveRequest(sent[0].message.id, { ...PICTURE, caption: 'view front' })
     expect((await first).caption).toBe('view front')
     expect((await second).caption).toBe('view top')
   })
@@ -55,7 +55,7 @@ describe('requestLook', () => {
     const failed = expect(result).rejects.toThrow('the torno window did not answer within 10 s')
     await vi.advanceTimersByTimeAsync(10000)
     await failed
-    expect(() => resolveLook(sent[0].message.id, PICTURE)).not.toThrow()
+    expect(() => resolveRequest(sent[0].message.id, PICTURE)).not.toThrow()
   })
 
   it('rejects at once when the window is gone', async () => {
@@ -65,7 +65,31 @@ describe('requestLook', () => {
   })
 
   it('ignores a reply nobody is waiting for', () => {
-    expect(() => resolveLook(987654, PICTURE)).not.toThrow()
+    expect(() => resolveRequest(987654, PICTURE)).not.toThrow()
+  })
+})
+
+describe('requestShow and requestHighlight', () => {
+  it('ask the window on their own channels and resolve with what it says it did', async () => {
+    const { win, sent } = fakeWindow()
+    const shown = requestShow(win, { objectId: 'bracket', view: 'top' })
+    const pointed = requestHighlight(win, { objectId: 'bracket', layout: 'assembly', refs: ['base/F1'], note: 'this one?' })
+    expect(sent.map((m) => m.channel)).toEqual(['view:show', 'view:highlight'])
+    expect(sent[0].message.request).toEqual({ objectId: 'bracket', view: 'top' })
+    expect(sent[1].message.request).toEqual({ objectId: 'bracket', layout: 'assembly', refs: ['base/F1'], note: 'this one?' })
+    resolveRequest(sent[1].message.id, { objectId: 'bracket', layout: 'assembly', refs: ['base/F1'], revision: 2 })
+    resolveRequest(sent[0].message.id, { error: "unknown part 'lid'; parts in layout assembly: base, post" })
+    await expect(pointed).resolves.toEqual({ objectId: 'bracket', layout: 'assembly', refs: ['base/F1'], revision: 2 })
+    await expect(shown).rejects.toThrow("unknown part 'lid'; parts in layout assembly: base, post")
+  })
+
+  it('reject when the window is closed, or does not answer', async () => {
+    await expect(requestShow(fakeWindow(true).win, { objectId: 'bracket' })).rejects.toThrow('the torno window is closed')
+    vi.useFakeTimers()
+    const result = requestHighlight(fakeWindow().win, { objectId: 'bracket', layout: 'assembly', refs: [] })
+    const failed = expect(result).rejects.toThrow('the torno window did not answer within 10 s')
+    await vi.advanceTimersByTimeAsync(10000)
+    await failed
   })
 })
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
-import type { Mark, MarksFile } from '../src/shared/marks'
+import type { Mark, MarksFile, PinMark } from '../src/shared/marks'
 
 // Marks from the window to the file and back: the bridge, the store in main
 // that owns <object>/.torno/marks.json, and the renderer's copy of the list.
@@ -107,10 +107,11 @@ test('a pin added through the bridge is M1, in the window and in .torno/marks.js
 
   // The window is told, not asked: its list follows main's. Main has checked the new mark against
   // the build there is, so it names the face that is at its point, and says what that is.
-  const checked = { ...added, anchor: { ...added.anchor, ref: expect.stringMatching(/^base\/F\d$/), descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } }
+  const checked = { ...added, anchor: { ...(added as PinMark).anchor, ref: expect.stringMatching(/^base\/F\d$/), descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } }
   await expect.poll(async () => (await state()).marks).toEqual([checked])
   expect(marksOnDisk()).toEqual({ next: 2, marks: (await state()).marks })
-  expect(readdirSync(join(root, 'bracket', '.torno'))).toEqual(['marks.json'])
+  // Beside it only the state file, which follows the build and the marks by a second.
+  expect(readdirSync(join(root, 'bracket', '.torno')).filter((name) => name !== 'state.md')).toEqual(['marks.json'])
 })
 
 test('a change made through the bridge reaches the window and the file', async () => {
@@ -170,7 +171,8 @@ test('the mark is still there after the window is reloaded', async () => {
 
 test('nothing else in the object folder changed', async () => {
   expect(bracketFiles()).toEqual(before)
-  expect(readdirSync(join(root, 'bracket', '.torno'))).toEqual(['marks.json'])
+  // Beside it only the state file, which follows the build and the marks by a second.
+  expect(readdirSync(join(root, 'bracket', '.torno')).filter((name) => name !== 'state.md')).toEqual(['marks.json'])
   // The marks file did not set off a build: the bracket is still at its first.
   expect((await state()).build).toMatchObject({ status: 'ok', revision: 1, stale: false })
 })

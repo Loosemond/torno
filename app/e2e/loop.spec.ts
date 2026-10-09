@@ -365,8 +365,10 @@ test('an object with two candidate models says what was looked for, and nothing 
   expect(await layerNames()).toEqual([])
   expect(await page.evaluate(() => window.__tornoTest!.look({ view: 'iso' }).catch((e: Error) => e.message))).toBe('no build yet')
   expect(await mainLook({ view: 'iso' })).toEqual({ error: 'no build yet' })
-  // Nothing was written into the object's folder.
-  expect(existsSync(join(root, 'two', '.torno'))).toBe(false)
+  // Nothing was written into the object's folder but the state file, which says why there is no build.
+  const kept = join(root, 'two', '.torno')
+  await expect.poll(() => (existsSync(kept) ? readdirSync(kept) : [])).toEqual(['state.md'])
+  expect(readFileSync(join(kept, 'state.md'), 'utf8')).toMatch(/## Build\n\nBUILD FAILED\. Nothing has been built yet\.\n\n```\nmore than one model file in .*two: a\.py, b\.py/)
 
   // An object with a model but no scene: the kernel's reason, the same way.
   await page.getByRole('button', { name: 'noscene', exact: true }).click()
@@ -380,8 +382,11 @@ test('an object with two candidate models says what was looked for, and nothing 
 })
 
 test('the workspace is written nowhere but under .torno/', async () => {
-  const added = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => !existsSync(join(fixtures, path)) || path.includes('__pycache__'))
-  expect(added.sort()).toEqual(['bracket/.torno', 'bracket/.torno/scene.json'])
+  const added = () => readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => !existsSync(join(fixtures, path)) || path.includes('__pycache__'))
+  // Every object that was opened has its state file, built or not; it follows the last build by a second.
+  await expect
+    .poll(() => added().sort())
+    .toEqual(['bracket/.torno', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'noscene/.torno', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/state.md'])
 })
 
 test.describe('the workspace is remembered', () => {

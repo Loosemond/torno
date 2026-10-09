@@ -5,6 +5,7 @@ import { delimiter, join } from 'node:path'
 import * as pty from 'node-pty'
 import type { SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
+import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import type { AgentAdapter } from './adapter'
 import { HOOK_EVENTS, reduceStatus } from './status'
@@ -58,8 +59,18 @@ export class Sessions {
     private readonly deps: {
       http: HttpRouter
       adapter: AgentAdapter
-      /** What the agent should know with the next prompt in that object; '' for nothing. */
-      contextFor: (objectId: string) => string
+      /**
+       * What the agent should know with the next prompt in that object ('' for
+       * nothing), and the marks that text tells of for the first time. Asking
+       * changes nothing: `onDelivered` says when the agent has been given it.
+       */
+      contextFor: (objectId: string) => PromptContext | Promise<PromptContext>
+      /**
+       * The answer to a prompt's hook has left for the agent of that object,
+       * and these marks were in it. Only ever for a UserPromptSubmit of a
+       * session that is still the one of its object.
+       */
+      onDelivered?: (objectId: string, sentMarkIds: string[]) => void
       systemPrompt: string
       mcpUrlFor: (objectId: string) => string
       /** Print the command line of every session started, and every hook it posts. */
@@ -248,9 +259,25 @@ export class Sessions {
     // says so. Until then the session is still the one of its object.
     if (event !== 'SessionEnd') this.advance(session, event)
 
-    const context = event === 'UserPromptSubmit' ? this.deps.contextFor(session.object.id) : ''
-    if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${context ? `, answered with: ${context}` : ''}`)
-    sendJson(res, 200, context ? { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } } : {})
+    if (event !== 'UserPromptSubmit') {
+      if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}`)
+      return sendJson(res, 200, {})
+    }
+    const objectId = session.object.id
+    let context: PromptContext
+    try {
+      context = await this.deps.contextFor(objectId)
+    } catch (e) {
+      // The prompt goes ahead without it rather than wait for the hook to time out.
+      console.error(`no context for the prompt in ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
+      context = { text: '', sentMarkIds: [] }
+    }
+    const { text, sentMarkIds } = context
+    if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${text ? `, answered with: ${text}` : ''}`)
+    // Marks are sent once the answer that names them has been handed over whole: not when the agent hung
+    // up first, and not to a session that has been hung up on, whose prompt nobody will answer.
+    if (text && sentMarkIds.length > 0 && !session.killTimer) res.once('finish', () => this.deps.onDelivered?.(objectId, sentMarkIds))
+    sendJson(res, 200, text ? { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } } : {})
   }
 }
 

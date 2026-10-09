@@ -135,10 +135,23 @@ them.
   `front`, `back`, `left`, `right`, `top`, `bottom`), a camera, a layout, a
   list of parts, and a size (long edge, 1280 by default, 2000 at most). The
   caption names the revision that was drawn, and says when it is stale.
-- **A line with every prompt**, added by a `UserPromptSubmit` hook:
-  `[torno] bracket · build ok · r3 (1.2 s) · layout assembly · parts: base, post. Tools: mcp__torno__scene, mcp__torno__look.`
+- **`mcp__torno__marks`**, **`mcp__torno__describe`**: your marks and the
+  agent's as data, and the exact geometry of a part, a face or an edge
+  (`lid`, `lid/F12`, `lid/E3`).
+- **`mcp__torno__highlight`**, **`mcp__torno__show`**: the agent tints faces
+  or edges in your viewport with a note, to ask "this one?", until you click
+  or a minute passes; or changes your camera, layout and visible parts to show
+  you something.
+- **`mcp__torno__add_mark`**, **`mcp__torno__resolve_mark`**: the agent leaves
+  marks of its own, in green, and resolves yours with a line on what it did.
+- **A few lines with every prompt**, added by a `UserPromptSubmit` hook:
+  `[torno] bracket · build ok · r3 (1.2 s) · layout assembly · parts: base, post.`
   For a failed build it carries the error. For an object that is not the one
-  open in the window it says so, and names no layout.
+  open in the window it says so, and names no layout. Then each mark you left
+  since the last prompt, a line each, such as
+  `M3 pin on lid/F12 (plane, normal +Z, z = 20, 1180 mm²) at (12, 40.5, 20): "this edge is ugly"`,
+  and the numbers of the marks still open. A mark is told this way once: it
+  then shows as sent.
 
 The first time Claude Code runs in a folder it asks whether you trust the
 folder. That question is Claude Code's own, and it is answered in the terminal.
@@ -152,6 +165,7 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 | `.torno/scene.json` | the layout and layer visibility you last chose |
 | `.torno/session.json` | the id of the conversation to resume |
 | `.torno/views/<n>.png` | the pictures the agent asked for, the latest 20 |
+| `.torno/state.md` | the build, the parts and the open marks as text, for an agent without torno's tools |
 
 Add `.torno/` to the workspace's `.gitignore` if you do not want these in git.
 

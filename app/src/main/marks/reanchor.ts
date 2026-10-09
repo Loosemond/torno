@@ -22,12 +22,19 @@ export type NearestAnchor =
 type EdgeOfAnchor = { edgeFound?: undefined } | { edgeFound: false } | { edgeFound: true; edgeDistance: number; edgeDescriptor: string | null }
 
 /** An anchor as `nearest` is asked about it. */
-type AskedAnchor = { part: string; point: Vec3; edge?: string }
+export type AskedAnchor = { part: string; point: Vec3; edge?: string }
 
 export type Judged = { anchor: Anchor; state: AnchorState }
 
 const LEAST_TOLERANCE_MM = 0.5
 const TOLERANCE_OF_DIAGONAL = 0.005
+/**
+ * How far from an edge a point may be and still be on it, in mm, whatever the
+ * size of the part: edges lie closer to one another than surfaces do (the two
+ * of a 1 mm chamfer), and a tolerance that grew with the part would take one
+ * for the other.
+ */
+export const EDGE_TOLERANCE_MM = 0.5
 const WORST_FIRST: AnchorState[] = ['orphaned', 'drifted', 'ok']
 
 /**
@@ -149,7 +156,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
           // edge now, or of one somewhere else): the mark is then said to have drifted, and a build
           // that puts the edge back under the point finds the mark on it again. The descriptor is
           // then of the face under the point: it never describes an edge the mark is not on.
-          const onEdge = said.edgeFound === true && said.edgeDistance <= toleranceOf(layout, part)
+          const onEdge = said.edgeFound === true && said.edgeDistance <= EDGE_TOLERANCE_MM
           const what = onEdge ? said.edgeDescriptor : onFace.anchor.descriptor
           const { descriptor: _old, ...rest } = old
           judged.set(old, { anchor: { ...rest, ...(typeof what === 'string' ? { descriptor: what } : {}) }, state: onEdge ? onFace.state : 'drifted' })
