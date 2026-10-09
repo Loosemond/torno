@@ -4,6 +4,7 @@ import type { BuildState } from '../../shared/build'
 import type { Described } from '../../shared/geometry'
 import { type DimensionStanding, standingOf } from '../../shared/dimension'
 import type { DimensionMark, Mark, MarkPatch, MeasureKind, NewMark, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
+import { letGoText } from '../../shared/build'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
 import {
@@ -127,10 +128,18 @@ export const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for th
 const loose = <T extends z.ZodType>(shape: T) => z.union([shape, z.unknown()])
 const scanText = 'The number of a scan (S1), as listed by scans. Default: the only scan of the object.'
 // Loose: a key a camera does not take reaches the tool, which refuses it by name (`cameraKeys`).
-const cameraInput = z.looseObject({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional() })
-const CAMERA_KEYS = ['position', 'target', 'up', 'ortho']
-/** Why a view given as a camera holds a key a camera does not take, or null. */
-const cameraKeys = (view: unknown): string | null => unknownKeys(view, CAMERA_KEYS, 'view, as a camera,')
+// A camera is what `scene` and a mark give as one, whole: the agent reads the view, shows something, and puts the view back.
+const cameraInput = z.looseObject({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional(), fov: z.number().optional(), zoom: z.number().optional() })
+const CAMERA_KEYS = ['position', 'target', 'up', 'ortho', 'fov', 'zoom']
+/** Why a view given as a camera holds a key a camera does not take, or a lens or a zoom that is none; or null. */
+const cameraKeys = (view: unknown): string | null => {
+  const wrong = unknownKeys(view, CAMERA_KEYS, 'view, as a camera,')
+  if (wrong !== null || typeof view !== 'object' || view === null) return wrong
+  const { fov, zoom } = view as { fov?: number; zoom?: number }
+  if (zoom !== undefined && !(Number.isFinite(zoom) && zoom > 0)) return 'view, as a camera, takes a zoom above 0 (1 is not zoomed), as scene gives it'
+  if (fov !== undefined && !(Number.isFinite(fov) && fov >= 1 && fov <= 120)) return 'view, as a camera, takes a fov between 1 and 120 degrees, as scene gives it'
+  return null
+}
 const PLANE_KEYS = ['axis', 'at', 'origin', 'normal']
 
 /**
@@ -148,7 +157,7 @@ const lookInput = {
     .union([z.enum(['current', ...VIEW_NAMES]), cameraInput])
     .optional()
     .describe(
-      "'current' (the default) is the user's own camera. iso, front, back, left, right, top and bottom are orthographic views fitted to the parts. Or a camera: {position, target, up?, ortho?} in mm, Z up."
+      "'current' (the default) is the user's own camera. iso, front, back, left, right, top and bottom are orthographic views fitted to the parts. Or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up."
     ),
   layout: z.string().optional().describe('The layout to draw, as listed by scene. Default: the one on screen.'),
   parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to draw. Default: the parts the user has switched on.'),
@@ -170,7 +179,7 @@ const lookInput = {
 export type PlaneArg = SectionPlane | AxisPlane
 
 export interface LookArgs {
-  view?: 'current' | (typeof VIEW_NAMES)[number] | { position: Vec3; target: Vec3; up?: Vec3; ortho?: boolean }
+  view?: 'current' | (typeof VIEW_NAMES)[number] | { position: Vec3; target: Vec3; up?: Vec3; ortho?: boolean; fov?: number; zoom?: number }
   layout?: string
   parts?: string[]
   size?: number
@@ -208,7 +217,7 @@ const showInput = {
   view: z
     .union([z.enum(VIEW_NAMES), cameraInput])
     .optional()
-    .describe('iso, front, back, left, right, top or bottom, fitted to the parts shown; or a camera: {position, target, up?, ortho?} in mm, Z up. Default: the camera stays.'),
+    .describe('iso, front, back, left, right, top or bottom, fitted to the parts shown; or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up. Default: the camera stays.'),
   layout: z.string().optional().describe('The layout to switch to, as listed by scene. Default: the one on screen stays.'),
   parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to leave switched on; every other part of the layout is hidden. Default: no part is switched.'),
   section: planeInput
@@ -246,7 +255,7 @@ const addMarkInput = {
   rotation: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional().describe('For a shape: a quaternion [x, y, z, w]. Default: not turned.'),
   intent: z.enum(INTENTS).optional().describe('For a shape: material to add, material to remove, a volume to keep out of, or only a reference.'),
   measure: z.enum(MEASURES).optional().describe('For a dimension: what is measured. distance and angle are between a and b; radius, diameter and thickness are of a alone.'),
-  a: endInput.optional().describe(`For a dimension: its first end. ${endText} A wall's thickness is measured at a point of a face: {ref, point}.`),
+  a: endInput.optional().describe(`For a dimension: its first end. ${endText} A wall's thickness is measured at a point of a face: {ref, point}. Never a point of a scan or a region: a dimension is of the model, checked on every build.`),
   b: endInput.optional().describe('For a dimension of a distance or an angle: its other end, given as a is.'),
   expected: z.number().optional().describe('For a dimension: what it should measure, in mm or degrees. The dimension then passes or fails on every build.'),
   tolerance: z.number().optional().describe('For a dimension: how far from expected it may be, zero or more. Default 0.05 mm, 0.1° for an angle.'),
@@ -327,7 +336,7 @@ export interface HighlightArgs {
   layout?: string
 }
 export interface ShowArgs {
-  view?: (typeof VIEW_NAMES)[number] | { position: Vec3; target: Vec3; up?: Vec3; ortho?: boolean }
+  view?: (typeof VIEW_NAMES)[number] | { position: Vec3; target: Vec3; up?: Vec3; ortho?: boolean; fov?: number; zoom?: number }
   layout?: string
   parts?: string[]
   section?: PlaneArg | null
@@ -514,6 +523,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   }
   const notes: string[] = []
   if (!open) notes.push(`${notOpen(obj, deps.openObjectId())}, so what is visible, the camera and the section are not known.`)
+  const letGo = letGoText(build)
+  if (letGo) notes.push(letGo)
   if (scene.parts.some((p) => p.arranged)) notes.push(SPREAD_NOTE)
   const scanLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
   if (scans && scans.length > 0) notes.push(`Whether a scan is aligned is said for layout ${scanLayout}: call scans for how each is aligned.`)
@@ -525,6 +536,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
       revision: build.revision,
       ...(build.seconds === undefined ? {} : { seconds: round(build.seconds) }),
       stale: build.stale,
+      ...(build.letGo ? { letGo: build.letGo } : {}),
       ...(error ? { error } : {})
     },
     layout: view?.layout ?? null,
@@ -639,7 +651,7 @@ function camera(view: LookArgs['view']): NonNullable<LookRequest['view']> | null
   if (along.every((d) => d === 0)) return null
   // Looking straight up or down, Z cannot be up: Y is.
   const vertical = along[0] === 0 && along[1] === 0
-  const made: Camera = { position: view.position, target: view.target, up: view.up ?? (vertical ? [0, 1, 0] : [0, 0, 1]), ortho: view.ortho ?? false, fov: FOV, zoom: 1 }
+  const made: Camera = { position: view.position, target: view.target, up: view.up ?? (vertical ? [0, 1, 0] : [0, 0, 1]), ortho: view.ortho ?? false, fov: view.fov ?? FOV, zoom: view.zoom ?? 1 }
   return made
 }
 

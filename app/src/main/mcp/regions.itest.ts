@@ -195,6 +195,20 @@ describe('a painted region, through the MCP server and the real kernel', () => {
     expect(measured.data.reading).toMatch(/^S1 was placed by hand: no fit says how well\. ≈ 37 mm .*the centroid of region M1 \(S1\) at \(-5, -5, 1\) to lid\./)
   })
 
+  it('is no end of a dimension, and neither is a point of a scan: a dimension is of the model', async () => {
+    const said = 'a dimension is checked on every build against the model: an end on a scan cannot be one'
+    const ofRegion = await call('add_mark', { kind: 'dimension', measure: 'distance', a: 'M1', b: { point: [0, 0, 10] }, expected: 10, note: 'clearance' })
+    expect(ofRegion.isError).toBe(true)
+    expect(ofRegion.text).toContain(said)
+    expect(ofRegion.text).toContain('a is the centroid of region M1 (S1)')
+    expect(ofRegion.text).toContain('use measure')
+    const ofPoint = await call('add_mark', { kind: 'dimension', measure: 'distance', a: 'tub/F0', b: { scan: 'S1', point: [0, 0, 1] }, note: 'clearance' })
+    expect(ofPoint.isError).toBe(true)
+    expect(ofPoint.text).toContain(said)
+    expect(ofPoint.text).toContain('b is a point of S1')
+    expect((await call('marks')).data.marks).toHaveLength(1)
+  })
+
   it('is what its mask now says: painted again, the same number leaves out other points', async () => {
     const before = (await call('scan_clash', { part: 'tub', ignore: ['M1'] })).data.points.ignored
     const larger = await brush([-5, -5, 1], 6)

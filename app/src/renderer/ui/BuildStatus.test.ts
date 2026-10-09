@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DimensionMark, Mark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
+import { letGoText } from '../../shared/build'
 import { store } from '../state/store'
 import { dimensionCount, goToRow } from './BuildStatus'
 import { createElement } from 'react'
@@ -97,5 +98,14 @@ describe('what the status line and the row say of dimensions', () => {
     expect(OFF_EDGE_ADVICE).toBe(' — measure it again, or between faces')
     expect(whyNotMeasurable(dim('M1', { value: undefined, refused: 'base/F9 is a plane face: it has no diameter' }))).toBe('base/F9 is a plane face: it has no diameter')
     expect(whyNotMeasurable(dim('M1', { value: undefined }))).toBe('the kernel could not measure it on this build')
+  })
+})
+
+describe('a build the kernel let go to make room', () => {
+  it('is said in the status line for as long as nothing answers of the object', () => {
+    expect(letGoText({ status: 'building', letGo: 'memory' })).toBe('The last build was let go to make room (memory): tools answer when this one lands.')
+    expect(letGoText({ status: 'failed', letGo: 'memory' })).toBe('The last build was let go to make room (memory) and this one failed: tools answer once the model builds again.')
+    expect(letGoText({ status: 'building' })).toBeNull()
+    expect(letGoText({ status: 'ok' })).toBeNull()
   })
 })

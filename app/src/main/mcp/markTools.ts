@@ -512,6 +512,14 @@ async function dimensionFor(
 
   const ends = await endsOf(deps, objectId, scene, revision, layout, [['a', args.a], ...(args.b === undefined ? [] : ([['b', args.b]] as Array<['b', EndArg]>))])
   if ('content' in ends) return ends
+  // A dimension is kept as exact and measured again on every build. A point of a scan is neither: it is
+  // where an alignment had it that day, and kept as a bare point it would be told without a word of the scan.
+  const onScan = ends.findIndex((end) => end.scan !== undefined)
+  if (onScan >= 0) {
+    const end = ends[onScan]
+    const what = end.text.startsWith('the centroid') ? end.text.replace(/ at \(.*$/, '') : `a point of ${end.scan!.id}`
+    return failure(`a dimension is checked on every build against the model: an end on a scan cannot be one (${onScan === 0 ? 'a' : 'b'} is ${what}) — use measure, which answers once and says it is approximate`)
+  }
   // Said before anything is asked; `addDimension` refuses it too, for whoever places one.
   const apart = measure === 'distance' ? spreadApart(scene, layout, ends[0].part?.name, ends[1]?.part?.name, 'the distance between') : null
   if (apart !== null) return failure(apart)

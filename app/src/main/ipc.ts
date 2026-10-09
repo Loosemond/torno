@@ -19,7 +19,7 @@ import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
 import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, tendRegions } from './marks/regions'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
-import { type AlignCheckDeps, checkAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
+import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { type ScanStore, frameOf } from './scans/store'
 import { loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
@@ -134,7 +134,8 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   // check at a time per object; a build that succeeds during one is checked after it, and what was
   // found for the build before is dropped. A check that could not say of every mark, or measure
   // every dimension, is tried again after a while (`retrying`).
-  const reanchor = retrying((objectId) => {
+  // Only a check someone asked for (a mark placed or reopened) may have the object built again to be answered.
+  const reanchor = retrying((objectId, restore) => {
     const store = marks
     if (!store) return Promise.resolve(true)
     const counted = checks.get(objectId) ?? { started: 0, finished: 0 }
@@ -143,7 +144,7 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
     return checkMarks(
       {
         marks: store,
-        query: (id, name, args) => builds.query(id, name, args),
+        query: (id, name, args) => builds.query(id, name, args, { restore }),
         // None once the workspace is left: nothing is asked or written for it any more.
         scene: (id) => (current === ws ? builds.scene(id) : undefined)
       },
@@ -154,20 +155,17 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   ws.reanchor = reanchor
   // And every alignment of its scans: whether the model is still under the points it was tied to, and whether
   // torno spreads the layout's parts as it did then. Found and said, never moved or fitted again.
-  // A check that could not say is tried again after a while, three times (`retrying`); what it leaves unsaid is
+  // A check that could not say is tried again after a while, three times (`retrying`), without ever having the
+  // object built again; what it leaves unsaid is
   // not silence: an alignment with no check of the last build says "not checked against rN" wherever it is
   // reported (`standingOf`), and is checked again at the next build, or when the scans are next asked for.
   const nearest: AlignCheckDeps['nearest'] = async (id, layout, anchors: AskedAnchor[]) => nearestReply(await builds.query(id, 'nearest', { layout, anchors }), anchors)
   ws.nearest = nearest
-  const alignChecks = retrying(
-    (objectId) => {
-      const store = scans
-      if (!store) return Promise.resolve(true)
-      return checkAlignments({ scans: store, scene: (id) => (current === ws ? builds.scene(id) : undefined), nearest }, objectId)
-    },
-    undefined,
-    'check the alignments of the scans of'
-  )
+  // A check by itself (after a build, every 30 s, when the scans are listed) never has the object built again:
+  // a kernel that let the build go says so, that is said of the alignment, and the next build is waited for.
+  const alignChecks: Retrying = scans
+    ? checkingAlignments({ scans, scene: (id) => (current === ws ? builds.scene(id) : undefined), query: (id, name, args, opts) => builds.query(id, name, args, opts) })
+    : Object.assign(() => {}, { cancel() {} })
   builds.on('scene', ({ objectId }) => alignChecks(objectId))
   ws.alignChecks = alignChecks
   // Three quick retries are not the end of it: for as long as an alignment of an open object was not checked
@@ -305,7 +303,7 @@ export function registerIpc(
   marks?.on('changed', (m) => broadcast('marks:changed', m))
   marks?.on('problem', (m) => broadcast('marks:problem', m))
   // A mark added, or reopened, has not been checked against the build there is: no build is on its way to do it.
-  if (marks) followMarks(marks, (objectId) => current?.reanchor?.(objectId))
+  if (marks) followMarks(marks, (objectId, restore) => current?.reanchor?.(objectId, restore))
   const requireMarks = (): MarkStore => {
     if (!marks) throw new Error('marks are not available')
     return marks
@@ -456,7 +454,8 @@ export function registerIpc(
   /** Has the alignments of an object's scans checked against its last build once something was done to them. */
   const checked = <T>(objectId: string, kept: Promise<T>): Promise<T> =>
     kept.then((info) => {
-      current?.alignChecks?.(objectId)
+      // The person did this: the object may be built again for the check.
+      current?.alignChecks?.(objectId, true)
       return info
     })
   // As for the marks: the renderer names the object, and the store finds its folder.

@@ -60,6 +60,9 @@ export function buildTimeout(env: Record<string, string | undefined>): number | 
   return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
 }
 
+/** What a query that never restores is answered when the kernel holds no build of the object any more. */
+export const NOT_HELD = 'the kernel no longer holds this build'
+
 type SceneMessage = { objectId: string; revision: number; scene: Scene; blob: Buffer }
 type LastGood = { revision: number; scene: Scene; blob: Buffer }
 
@@ -78,6 +81,13 @@ interface Entry {
    */
   restoring: boolean
   unwatch: Array<() => void>
+  /**
+   * What the last build of these sources failed with: until a source changes, or the person asks for a
+   * build, building them again would fail alike, and no query starts one (see `query`).
+   */
+  failure?: BuildError
+  /** The kernel let this object's last build go to make room when a build of it started, and none has landed since. */
+  letGo: boolean
   /** Queries waiting for the next build to end, because the kernel no longer holds the last one (see `query`). */
   rebuilt?: { promise: Promise<void>; resolve: () => void; reject: (e: KernelError) => void }
 }
@@ -145,6 +155,7 @@ export class Builds {
         startedAt: 0,
         changedMeanwhile: false,
         restoring: false,
+        letGo: false,
         unwatch: []
       }
       this.entries.set(obj.id, entry)
@@ -177,6 +188,7 @@ export class Builds {
     if (!entry || (entry.obj.model === obj.model && entry.obj.problem === obj.problem)) return false
     entry.obj = obj
     entry.restoring = false
+    entry.failure = undefined
     this.start(entry)
     return true
   }
@@ -201,6 +213,7 @@ export class Builds {
   /** Build because the sources may have changed: what is on screen is stale until it ends. */
   private startChanged(entry: Entry): void {
     entry.restoring = false
+    entry.failure = undefined
     this.start(entry)
   }
 
@@ -229,13 +242,20 @@ export class Builds {
    * successfully yet (or is not open), or whatever kind the kernel answers with.
    *
    * The kernel keeps the builds of a few objects only, and none across a
-   * restart. When it no longer holds this one, the object is built again and
-   * the kernel asked once more; if that build fails, the rejection is its
-   * error. The build takes its turn: it never stops one that is running, and
-   * queries that wait at the same time share it. The sources are the ones the
-   * parts on screen were built from, so that build does not make them stale.
+   * restart, and lets one go to make room for the next (memory). When it no
+   * longer holds this one, the object is built again and the kernel asked once
+   * more; if that build fails, the rejection is its error. The build takes its
+   * turn: it never stops one that is running, and queries that wait at the
+   * same time share it. The sources are the ones the parts on screen were
+   * built from, so that build does not make them stale.
+   *
+   * No build is started for sources that have just failed to build: until one
+   * changes, or the person asks for a build, the rejection says that there is
+   * no build to answer from, with that failure. And none at all with
+   * `restore: false`, for whoever asks unasked (a check on a timer): the
+   * rejection is then the kernel's `no_build`.
    */
-  async query<T = unknown>(objectId: string, name: string, args: object): Promise<T> {
+  async query<T = unknown>(objectId: string, name: string, args: object, opts?: { restore?: boolean }): Promise<T> {
     const entry = this.entries.get(objectId)
     if (!entry?.lastGood) {
       const message = `${objectId} has not been built successfully yet, so there is nothing to ask about`
@@ -246,6 +266,12 @@ export class Builds {
     } catch (e) {
       const gone = e instanceof KernelError && e.kind === 'no_build'
       if (!gone || this.entries.get(objectId) !== entry) throw e
+    }
+    if (opts?.restore === false) throw new KernelError('no_build', NOT_HELD)
+    // A build of it that is running or waiting may be of sources that changed since: that one is waited for.
+    const failure = entry.state.status === 'failed' && !this.displaced.has(objectId) ? entry.failure : undefined
+    if (failure) {
+      throw new KernelError(failure.kind, `there is no build of ${objectId} to answer from: the kernel let the last one go, and the model does not build now (${failure.message}). It is built again when a source changes.`)
     }
     await this.builtAgain(entry)
     return this.kernel.query<T>(entry.obj.dir, name, args)
@@ -311,7 +337,14 @@ export class Builds {
     entry.startedAt = this.now()
     this.set(entry, { objectId: id, status: 'building', revision, startedAt: entry.startedAt, stale })
     this.running = id
-    const opts = this.timeout === undefined ? undefined : { timeout: this.timeout }
+    // The kernel says which builds it let go to make room for this one: when this object's own is among
+    // them, nothing answers of it until this build lands, and the status says so.
+    const onStarted = (started: { retired: string[] }): void => {
+      if (this.entries.get(id) !== entry || entry.attempt !== attempt || entry.letGo || !started.retired.includes(obj.dir)) return
+      entry.letGo = true
+      if (entry.state.status === 'building') this.set(entry, { ...entry.state })
+    }
+    const opts = { ...(this.timeout === undefined ? {} : { timeout: this.timeout }), onStarted }
     void this.kernel.build(obj.dir, obj.model, opts).then((result) => {
       const current = this.entries.get(id) === entry && entry.attempt === attempt
       if (current && this.running === id) this.running = null
@@ -343,6 +376,8 @@ export class Builds {
     const id = entry.obj.id
     const revision = entry.state.revision + 1
     entry.lastGood = { revision, scene, blob }
+    entry.failure = undefined
+    entry.letGo = false
     this.set(entry, { objectId: id, status: 'ok', revision, seconds: scene.seconds, stale: false })
     for (const cb of this.sceneListeners) cb({ objectId: id, revision, scene, blob })
   }
@@ -350,10 +385,13 @@ export class Builds {
   private failed(entry: Entry, error: BuildError): void {
     const revision = entry.state.revision
     const seconds = (this.now() - entry.startedAt) / 1000
+    entry.failure = error
     this.set(entry, { objectId: entry.obj.id, status: 'failed', revision, seconds, error, stale: revision > 0 })
   }
 
-  private set(entry: Entry, state: BuildState): void {
+  private set(entry: Entry, given: BuildState): void {
+    const { letGo: _was, ...rest } = given
+    const state: BuildState = entry.letGo ? { ...rest, letGo: 'memory' } : rest
     entry.state = state
     if (state.status === 'ok') this.settleRebuilt(entry)
     else if (state.status === 'failed') this.settleRebuilt(entry, new KernelError(state.error?.kind ?? 'exception', state.error?.message ?? 'the build failed'))

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { letGoText } from '../../shared/build'
 import { unmetDimensions } from '../../shared/dimension'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
@@ -89,6 +90,7 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
             )}
             {build.status === 'idle' && <span>Not built yet</span>}
           </span>
+          {letGoText(build) && <span className="status-letgo" data-part="let-go">{letGoText(build)}</span>}
           {build.revision > 0 && (
             <span data-part="revision">
               {build.stale && 'showing '}

@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Part } from '../../shared/scene'
 import type { ScanAlignment } from '../../shared/scans'
 import type { NearestAnchor } from '../marks/reanchor'
-import { RECHECK_EVERY_MS, anchoredPoints, checkAlignments, heldNow, judgeAlignment, keepChecking, tiedToMoved, uncheckedOn } from './alignCheck'
+import { NOT_HELD } from '../builds'
+import { KernelError } from '../kernel/client'
+import { RECHECK_EVERY_MS, anchoredPoints, checkAlignments, checkingAlignments, heldNow, judgeAlignment, keepChecking, tiedToMoved, uncheckedOn } from './alignCheck'
 
 const part = (name: string, arranged?: [number, number, number]): Part =>
   ({ key: `print:${name}`, name, layout: 'print', bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, ...(arranged ? { arranged } : {}) }) as Part
@@ -156,6 +158,41 @@ describe('and besides', () => {
     const scans = { list: async () => [{ id: 'S1', alignments: { print: ALIGNED } }] as never, checked: async () => {}, uncheckedFor: async (...args: unknown[]) => void failed.push(args) }
     expect(await checkAlignments({ scans, scene: () => scene, nearest: async () => Promise.reject(new Error('the kernel exited')) }, 'box')).toBe(false)
     expect(failed).toEqual([['box', 'S1', 'print', { revision: 12, reason: 'the kernel exited' }]])
+  })
+
+  // Final fix wave (I1): a check never has the object built again by itself.
+  it('says that the kernel no longer holds the build, and is not to be tried again: the next build has its own check', async () => {
+    const failed: unknown[] = []
+    const scene = { revision: 12, scene: { model: 'm.py', layouts: ['print'], parts: [part('tray')], seconds: 0, output: '' } }
+    const scans = { list: async () => [{ id: 'S1', alignments: { print: ALIGNED } }] as never, checked: async () => {}, uncheckedFor: async (...args: unknown[]) => void failed.push(args) }
+    expect(await checkAlignments({ scans, scene: () => scene, nearest: async () => Promise.reject(new KernelError('no_build', NOT_HELD)) }, 'box')).toBe(true)
+    expect(failed).toEqual([['box', 'S1', 'print', { revision: 12, reason: 'the kernel no longer holds this build: it is checked when the model is next built' }]])
+  })
+
+  it('asks the kernel without restoring a build, but for the check an act of the person asked for', async () => {
+    vi.useFakeTimers()
+    try {
+      const asked: Array<{ name: string; restore: boolean | undefined }> = []
+      const scene = { revision: 12, scene: { model: 'm.py', layouts: ['print'], parts: [part('tray')], seconds: 0, output: '' } }
+      const scans = { list: async () => [{ id: 'S1', alignments: { print: ALIGNED } }] as never, checked: async () => {}, uncheckedFor: async () => {} }
+      const check = checkingAlignments({
+        scans,
+        scene: () => scene,
+        query: async (_id, name, _args, opts) => {
+          asked.push({ name, restore: opts?.restore })
+          throw new Error('the kernel exited')
+        }
+      }, () => {})
+      check('box')
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(asked).toEqual(Array(4).fill({ name: 'nearest', restore: false }))
+      check('box', true)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(asked.slice(4).map((one) => one.restore)).toEqual([true, false, false, false])
+      check.cancel()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('asks again every 30 s for the objects there are, until it is stopped', () => {

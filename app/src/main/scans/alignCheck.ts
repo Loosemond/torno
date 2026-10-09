@@ -1,8 +1,9 @@
 import type { Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import { type AlignmentCheck, type ScanAlignment, type ScanInfo, standingOf } from '../../shared/scans'
-import { isBusy } from '../kernel/client'
-import { type AskedAnchor, type NearestAnchor, answered } from '../marks/reanchor'
+import { NOT_HELD } from '../builds'
+import { KernelError, isBusy } from '../kernel/client'
+import { type AskedAnchor, type NearestAnchor, type Retrying, answered, nearestReply, retrying } from '../marks/reanchor'
 import { tolerance } from '../marks/tolerance'
 import type { ScanStore } from './store'
 
@@ -131,7 +132,8 @@ export interface AlignCheckDeps {
  * build has, one `nearest` query for the model points it is tied to (none when it is tied to none), and what
  * `judgeAlignment` makes of it is kept (`ScanStore.checked`). False when the kernel could not be asked of some,
  * or could say nothing of a point, `'busy'` when that was because it is busy: to be tried again (`retrying`),
- * and nothing is kept of those meanwhile. When a newer build lands while it runs, what was found is dropped:
+ * and nothing is kept of those meanwhile. Not to be tried again when the kernel no longer holds the build
+ * (`no_build`): that is said of the alignment, until the next build. When a newer build lands while it runs, what was found is dropped:
  * that build has its own check.
  */
 export async function checkAlignments(deps: AlignCheckDeps, objectId: string): Promise<boolean | 'busy'> {
@@ -156,6 +158,12 @@ export async function checkAlignments(deps: AlignCheckDeps, objectId: string): P
           nearest = await deps.nearest(objectId, layout, points)
         } catch (e) {
           if (superseded()) return true
+          // The kernel let the build go (to make room, or its worker died): no asking again brings it back, and
+          // none is made. It is said, and the next build has its own check.
+          if (e instanceof KernelError && e.kind === 'no_build') {
+            await deps.scans.uncheckedFor?.(objectId, scan.id, layout, { revision, reason: `${NOT_HELD}: it is checked when the model is next built` }).catch(() => {})
+            continue
+          }
           went = isBusy(e) ? 'busy' : went === 'busy' ? 'busy' : false
           // Not silence: the scan says that it could not be checked, and why, until a check says something.
           await deps.scans.uncheckedFor?.(objectId, scan.id, layout, { revision, reason: e instanceof Error ? e.message : String(e) }).catch(() => {})
@@ -174,4 +182,22 @@ export async function checkAlignments(deps: AlignCheckDeps, objectId: string): P
     }
   }
   return went
+}
+
+/**
+ * The check of an object's alignments as main runs it (`retrying`): after every build, every 30 s and whenever
+ * the scans are listed while one is unchecked, and after what the person does to an alignment. Only the last
+ * may have the object built again to be answered (`restore`): asked unasked, a kernel that no longer holds the
+ * build says so and is left alone.
+ */
+export function checkingAlignments(
+  deps: Pick<AlignCheckDeps, 'scans' | 'scene'> & { query(objectId: string, name: 'nearest', args: object, opts: { restore: boolean }): Promise<unknown> },
+  log?: (message: string) => void
+): Retrying {
+  return retrying(
+    (objectId, restore) =>
+      checkAlignments({ scans: deps.scans, scene: deps.scene, nearest: async (id, layout, anchors) => nearestReply(await deps.query(id, 'nearest', { layout, anchors }, { restore }), anchors) }, objectId),
+    log,
+    'check the alignments of the scans of'
+  )
 }

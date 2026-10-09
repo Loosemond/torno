@@ -1457,6 +1457,21 @@ describe('retrying', () => {
     return { state, check }
   }
 
+  it('restores only for the run that was asked to: no run it starts by itself may have the object built again', async () => {
+    const restores: boolean[] = []
+    const check = retrying(async (_id, restore) => {
+      restores.push(restore)
+      return false
+    })
+    check('a', true)
+    await vi.advanceTimersByTimeAsync(120_000)
+    // Asked by the person, then the three retries.
+    expect(restores).toEqual([true, false, false, false])
+    check('a')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(restores.slice(4)).toEqual([false])
+  })
+
   it('checks again 2 s, 10 s and 30 s after a check that failed, and then leaves it', async () => {
     expect(RETRY_AFTER_MS).toEqual([2000, 10_000, 30_000])
     const { state, check } = checker()

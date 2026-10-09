@@ -192,6 +192,16 @@ describe('the tool descriptions', () => {
 })
 
 describe('scene', () => {
+  // Final fix wave (I11's seam): the kernel let the build go to make room, and the agent is told what to expect.
+  it('says when the kernel let the last build go to make room, and when tools will answer again', () => {
+    const building = JSON.parse(textOf(sceneTool(fake({ state: { ...OK, status: 'building', stale: true, letGo: 'memory' } }), 'bracket')))
+    expect(building.build.letGo).toBe('memory')
+    expect(building.note).toContain('The last build was let go to make room (memory): tools answer when this one lands.')
+    const failed = JSON.parse(textOf(sceneTool(fake({ state: { ...OK, status: 'failed', stale: true, letGo: 'memory', error: { kind: 'exception', message: 'no' } } }), 'bracket')))
+    expect(failed.note).toContain('The last build was let go to make room (memory) and this one failed: tools answer once the model builds again.')
+    expect(JSON.parse(textOf(sceneTool(fake(), 'bracket'))).build).not.toHaveProperty('letGo')
+  })
+
   it('is one text block of JSON: the build, the layouts, the parts and the camera', () => {
     const result = sceneTool(fake(), 'bracket')
     expect(result.isError).toBeUndefined()

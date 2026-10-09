@@ -8,4 +8,14 @@ export interface BuildState {
   seconds?: number            // duration of the last finished build
   error?: BuildError          // when failed
   stale: boolean              // true when the parts on screen are older than the latest attempt
+  /** The kernel let the last build of this object go to make room for the one running (memory): nothing answers of it until a build lands. */
+  letGo?: 'memory'
+}
+
+/** What is said, in the status line and to the agent, while the kernel holds no build of an object because it let the last one go to make room; null otherwise. */
+export function letGoText(state: Pick<BuildState, 'status' | 'letGo'>): string | null {
+  if (state.letGo !== 'memory') return null
+  if (state.status === 'building') return 'The last build was let go to make room (memory): tools answer when this one lands.'
+  if (state.status === 'failed') return 'The last build was let go to make room (memory) and this one failed: tools answer once the model builds again.'
+  return null
 }

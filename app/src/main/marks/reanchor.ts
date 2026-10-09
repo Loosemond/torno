@@ -461,18 +461,25 @@ export const RETRY_BUSY_MS = 30_000
  * dimension unmeasured until the next build. Asking anew, as for a newer
  * build or a mark just added, drops what was waiting and starts the count again.
  *
+ * `check` is told whether it may have the object built again to be answered
+ * (`Builds.query`): only in the run that was asked for with `restore`, as by
+ * an act of the person. No run started here, on a timer, ever may: a kernel
+ * that lost the build would be made to build it again for ever.
+ *
  * `cancel` ends it, as when the workspace it checks for is closed: what was
  * waiting is dropped, and nothing is checked from then on, asked or not.
  */
-export function retrying(check: (objectId: string) => Promise<Checked>, log: (message: string) => void = console.error, what = RE_ANCHOR): Retrying {
+export function retrying(check: (objectId: string, restore: boolean) => Promise<Checked>, log: (message: string) => void = console.error, what = RE_ANCHOR): Retrying {
   /** By object: how many times it has been tried again, and the wait for the next. */
   const waiting = new Map<string, { tried: number; timer?: NodeJS.Timeout }>()
+  /** The objects whose next run was asked for by someone who may have the object built again. */
+  const restoring = new Set<string>()
   let cancelled = false
   const run = coalesced(async (objectId) => {
     if (cancelled) return
     let went: Checked = false
     try {
-      went = await check(objectId)
+      went = await check(objectId, restoring.delete(objectId))
     } finally {
       const state = waiting.get(objectId) ?? { tried: 0 }
       clearTimeout(state.timer)
@@ -489,8 +496,9 @@ export function retrying(check: (objectId: string) => Promise<Checked>, log: (me
       }
     }
   }, log, what)
-  const ask = (objectId: string): void => {
+  const ask = (objectId: string, restore = false): void => {
     if (cancelled) return
+    if (restore) restoring.add(objectId)
     clearTimeout(waiting.get(objectId)?.timer)
     waiting.delete(objectId)
     run(objectId)
@@ -499,12 +507,13 @@ export function retrying(check: (objectId: string) => Promise<Checked>, log: (me
     cancelled = true
     for (const state of waiting.values()) clearTimeout(state.timer)
     waiting.clear()
+    restoring.clear()
   }
   return Object.assign(ask, { cancel })
 }
 
 /** Asks for the marks of an object to be checked (`retrying`); `cancel` ends that for good. */
-export type Retrying = ((objectId: string) => void) & { cancel(): void }
+export type Retrying = ((objectId: string, restore?: boolean) => void) & { cancel(): void }
 
 /** What a run that rejects is said to have failed at, unless whoever asks says otherwise. */
 const RE_ANCHOR = 're-anchor the marks of'
@@ -547,6 +556,7 @@ export function coalesced(run: (objectId: string) => Promise<void>, log: (messag
  * no build since it was resolved has been asked about. What the check itself
  * writes is neither, so it does not call for another.
  */
-export function followMarks(store: Pick<MarkStore, 'on'>, reanchor: (objectId: string) => void): void {
-  store.on('unchecked', ({ objectId }) => reanchor(objectId))
+export function followMarks(store: Pick<MarkStore, 'on'>, reanchor: (objectId: string, restore?: boolean) => void): void {
+  // Someone placed or reopened a mark: the object may be built again to say what it is on.
+  store.on('unchecked', ({ objectId }) => reanchor(objectId, true))
 }

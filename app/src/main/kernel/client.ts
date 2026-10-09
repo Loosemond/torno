@@ -38,8 +38,8 @@ export function isBusy(e: unknown): boolean {
 export interface KernelClient {
   /** The first start. Rejects if the kernel stops for good before it is ever ready. */
   ready: Promise<{ versions: Record<string, string> }>
-  /** Starting a build cancels the one running, which then resolves with kind `cancelled`. Never rejects. */
-  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: () => void }): Promise<BuildResult>
+  /** Starting a build cancels the one running, which then resolves with kind `cancelled`. Never rejects. `onStarted` is told the folders whose builds the kernel let go to make room for it. */
+  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult>
   /**
    * Ask about the last successful build of the object in the folder `dir`. The
    * kernel keeps one per folder, for a few folders. Rejects with
@@ -76,7 +76,7 @@ export function scanCommand(opts: { workspaceRoot: string; hasProject: boolean; 
 }
 
 type Pending =
-  | { type: 'build'; resolve: (r: BuildResult) => void; onStarted?: () => void }
+  | { type: 'build'; resolve: (r: BuildResult) => void; onStarted?: (started: { retired: string[] }) => void }
   | { type: 'query'; resolve: (result: unknown) => void; reject: (e: KernelError) => void }
 
 class Kernel implements KernelClient {
@@ -106,7 +106,7 @@ class Kernel implements KernelClient {
     this.spawn()
   }
 
-  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: () => void }): Promise<BuildResult> {
+  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
     if (this.disposed) return Promise.resolve(failure('cancelled', 'the kernel was shut down'))
     if (this.stopped) {
       this.stopped = false
@@ -234,7 +234,8 @@ class Kernel implements KernelClient {
       return
     }
     if (header.event === 'build.started') {
-      if (request.type === 'build') request.onStarted?.()
+      // `retired`: the folders whose live builds the kernel let go to make room for this one (memory).
+      if (request.type === 'build') request.onStarted?.({ retired: Array.isArray(header.retired) ? header.retired.filter((dir: unknown): dir is string => typeof dir === 'string') : [] })
       return
     }
     this.pending.delete(header.id)

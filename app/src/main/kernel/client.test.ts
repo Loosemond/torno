@@ -96,6 +96,14 @@ describe('kernel client', () => {
     expect(result.blob.byteLength).toBe(5)
   })
 
+  it('tells onStarted the folders whose builds the kernel let go to make room, and none when it names none', async () => {
+    const k = start()
+    const told: string[][] = []
+    await k.build('/ws/a', 'a.py', { onStarted: (started) => told.push(started.retired) })
+    await k.build('/ws/a', 'tight.py', { onStarted: (started) => told.push(started.retired) })
+    expect(told).toEqual([[], ['/ws/a', '/ws/other']])
+  })
+
   it('runs the kernel in the workspace root', async () => {
     const result = await start().build('/ws/a', 'a.py')
     expect(result.ok && result.scene.output).toBe(tmpdir())

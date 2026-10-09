@@ -22,7 +22,9 @@ class FakeKernel implements KernelClient {
   tail = ''
   private exitCbs: Array<(code: number | null) => void> = []
 
-  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: () => void }): Promise<BuildResult> {
+  /** The folders whose builds the kernel lets go to make room as the next build starts. */
+  retiring: string[] = []
+  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
     const running = this.calls.at(-1)
     if (running && !running.settled) running.settle({ ok: false, error: { kind: 'cancelled', message: 'replaced' } })
     return new Promise((resolve) => {
@@ -37,7 +39,7 @@ class FakeKernel implements KernelClient {
         }
       }
       this.calls.push(call)
-      opts?.onStarted?.()
+      opts?.onStarted?.({ retired: this.retiring })
     })
   }
   succeed(index: number, seconds = 0.5): void {
@@ -200,8 +202,8 @@ describe('Builds.query', () => {
     expect(builds.state('bracket')).toMatchObject({ status: 'building', stale: true })
   })
 
-  it('leaves stale parts stale while it builds again for a query: the last build failed, and they are not of the model as it is', async () => {
-    const { kernel, builds, states } = setup()
+  it('does not build again for a query after a build that failed: the sources are the ones that failed, and it says there is no build to answer from', async () => {
+    const { kernel, builds, watched } = setup()
     builds.open(bracket)
     kernel.succeed(0)
     await flush()
@@ -209,13 +211,73 @@ describe('Builds.query', () => {
     kernel.fail(1, { kind: 'exception', message: 'no' })
     await flush()
     expect(builds.state('bracket')).toMatchObject({ status: 'failed', revision: 1, stale: true })
+    // With its worker alive the last good build still answers; let go (to make room), there is none.
+    await expect(builds.query('bracket', 'describe', {})).resolves.toMatchObject({ dir: '/ws/bracket' })
     kernel.retired.add('/ws/bracket')
-    const answer = builds.query('bracket', 'describe', {}).catch((e) => e)
+    for (let i = 0; i < 3; i++) {
+      const error = (await builds.query('bracket', 'describe', {}).catch((e) => e)) as KernelError
+      expect(error).toBeInstanceOf(KernelError)
+      expect(error).toMatchObject({ kind: 'exception' })
+      expect(error.message).toBe('there is no build of bracket to answer from: the kernel let the last one go, and the model does not build now (no). It is built again when a source changes.')
+    }
+    expect(kernel.calls).toHaveLength(2)
+    expect(builds.state('bracket')).toMatchObject({ status: 'failed', revision: 1, stale: true })
+    // A source changes: the failure is no longer what is known of the model.
+    watched.get('/ws/bracket')!(['/ws/bracket/bracket.py'])
+    const answer = builds.query('bracket', 'describe', {})
     await flush()
-    expect(builds.state('bracket')).toMatchObject({ status: 'building', revision: 1, stale: true })
-    kernel.fail(2, { kind: 'exception', message: 'no' })
-    await answer
-    expect(states.slice(-2).map((s) => [s.status, s.stale])).toEqual([['building', true], ['failed', true]])
+    expect(kernel.calls).toHaveLength(3)
+    kernel.succeed(2)
+    await expect(answer).resolves.toMatchObject({ dir: '/ws/bracket' })
+  })
+
+  it('never restores for a query that says not to: the kernel is asked once and its no_build is the answer', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    await expect(builds.query('bracket', 'nearest', {}, { restore: false })).resolves.toMatchObject({ name: 'nearest' })
+    kernel.retired.add('/ws/bracket')
+    const error = await builds.query('bracket', 'nearest', {}, { restore: false }).catch((e) => e)
+    expect(error).toMatchObject({ kind: 'no_build', message: 'the kernel no longer holds this build' })
+    await flush()
+    expect(kernel.calls).toHaveLength(1)
+    expect(builds.state('bracket')).toMatchObject({ status: 'ok' })
+  })
+
+  it('says in the build status that the kernel let the last build go to make room, until a build lands', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    kernel.retiring = ['/ws/bracket', '/ws/gear']
+    builds.rebuild('bracket')
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', letGo: 'memory' })
+    // A tool asked meanwhile waits for that build.
+    kernel.retired.add('/ws/bracket')
+    const answer = builds.query('bracket', 'describe', {})
+    await flush()
+    expect(kernel.calls).toHaveLength(2)
+    kernel.fail(1, { kind: 'exception', message: 'no' })
+    await expect(answer).rejects.toMatchObject({ kind: 'exception', message: 'no' })
+    expect(builds.state('bracket')).toMatchObject({ status: 'failed', letGo: 'memory' })
+    kernel.retiring = []
+    builds.rebuild('bracket')
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', letGo: 'memory' })
+    kernel.succeed(2)
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'ok' })
+    expect(builds.state('bracket')!.letGo).toBeUndefined()
+  })
+
+  it('says nothing of memory when the kernel let go only the builds of other objects', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    kernel.retiring = ['/ws/gear']
+    builds.rebuild('bracket')
+    expect(builds.state('bracket')!.letGo).toBeUndefined()
   })
 
   it('calls them stale once the sources change during that build', async () => {
@@ -282,12 +344,17 @@ describe('Builds.query', () => {
     expect(error).toBeInstanceOf(KernelError)
     expect(error).toMatchObject({ kind: 'exception', message: 'NameError: name x is not defined' })
     expect(kernel.queries).toHaveLength(1) // not asked again
-    // The next query tries afresh.
-    const again = builds.query('bracket', 'describe', {})
+    // The next query does not build it once more: nothing has changed since it failed.
+    const again = (await builds.query('bracket', 'describe', {}).catch((e) => e)) as KernelError
     await flush()
-    expect(kernel.calls).toHaveLength(3)
+    expect(kernel.calls).toHaveLength(2)
+    expect(again).toMatchObject({ kind: 'exception' })
+    expect(again.message).toContain('NameError: name x is not defined')
+    // Until the person asks for a build.
+    builds.rebuild('bracket')
     kernel.succeed(2)
-    await expect(again).resolves.toMatchObject({ dir: '/ws/bracket' })
+    await flush()
+    await expect(builds.query('bracket', 'describe', {})).resolves.toMatchObject({ dir: '/ws/bracket' })
   })
 
   it('rejects with what the kernel says if the worker is gone again after the build', async () => {

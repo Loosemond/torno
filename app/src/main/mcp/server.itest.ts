@@ -3,7 +3,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Mark, NewMark } from '../../shared/marks'
 import type { Part } from '../../shared/scene'
-import type { LookRequest } from '../../shared/view'
+import type { LookRequest, ShowRequest, ViewState } from '../../shared/view'
 import { type HttpRouter, startHttp } from '../http'
 import { mountMcp } from './server'
 import type { ToolDeps } from './tools'
@@ -41,6 +41,9 @@ const KERNEL: Record<string, object> = {
 
 let http: HttpRouter
 let looks: Array<{ objectId: string; req: LookRequest }> = []
+let shows: ShowRequest[] = []
+/** What the window last reported of the object, when a test has it report something. */
+let view: ViewState | undefined
 let release: (() => void) | null = null
 const clients: Client[] = []
 
@@ -48,7 +51,7 @@ const deps: ToolDeps = {
   object: (id) => (id === 'bracket' ? { id, name: id, dir: '/ws/bracket', model: 'bracket.py' } : undefined),
   build: (id) => (id === 'bracket' ? { objectId: id, status: 'ok', revision: 2, seconds: 0.5, stale: false } : undefined),
   scene: (id) => (id === 'bracket' ? { revision: 2, scene: { model: 'bracket.py', layouts: ['main'], parts: [BASE], seconds: 0.5, output: '' } } : undefined),
-  view: () => undefined,
+  view: () => view,
   openObjectId: () => 'bracket',
   look: async (objectId, req) => {
     looks.push({ objectId, req })
@@ -68,7 +71,7 @@ const deps: ToolDeps = {
   },
   describe: async (_objectId, layout, ref) => ({ kind: 'face', ref: `${layout}:${ref}`, type: 'plane', area: 1200, center: [20, 15, 5], normal: [0, 0, 1], radius: null, descriptor: 'plane, normal +Z, z = 5, 1200 mm²' }),
   nearest: async (_objectId, _layout, anchors) => anchors.map(({ part, point }) => ({ part, found: true, point, normal: [0, 0, 1], ref: `${part}/F5`, distance: 0, descriptor: null })),
-  show: async (objectId, req) => ({ caption: `view ${String(req.view)} · layout main`, objectId, revision: 2, stale: false }),
+  show: async (objectId, req) => (shows.push(req), { caption: `view ${String(req.view)} · layout main`, objectId, revision: 2, stale: false }),
   highlight: async (objectId, layout, refs) => ({ objectId, layout, refs, revision: 2 }),
   query: async <T,>(_objectId: string, name: string): Promise<T> => KERNEL[name] as T,
   sectionDrawing: async () => ({ png: PNG, width: 4, height: 3, colours: 'window', vDown: false }),
@@ -94,6 +97,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   looks = []
+  shows = []
+  view = undefined
   added = []
   release = null
   await Promise.all(clients.splice(0).map((client) => client.close()))
@@ -293,10 +298,44 @@ describe('the MCP server', () => {
     expect(await said('section', { plane: { axis: 'z', at: 2, offset: 1 } })).toBe('the plane takes no "offset". An unknown key is not ignored: nothing was done. It takes: axis, at, origin, normal.')
     expect(await said('look', { section: { origin: [0, 0, 1], normal: [0, 0, 1], flip: true } })).toContain('the plane takes no "flip"')
     expect(await said('show', { section: { axis: 'z', att: 3 } })).toContain('the plane takes no "att": did you mean at?')
-    expect(await said('look', { view: { position: [0, 0, 100], target: [0, 0, 0], orthographic: true } })).toBe('view, as a camera, takes no "orthographic". An unknown key is not ignored: nothing was done. It takes: position, target, up, ortho.')
-    expect(await said('show', { view: { position: [0, 0, 100], target: [0, 0, 0], fov: 20 } })).toContain('view, as a camera, takes no "fov"')
+    expect(await said('look', { view: { position: [0, 0, 100], target: [0, 0, 0], orthographic: true } })).toBe('view, as a camera, takes no "orthographic". An unknown key is not ignored: nothing was done. It takes: position, target, up, ortho, fov, zoom.')
+    expect(await said('show', { view: { position: [0, 0, 100], target: [0, 0, 0], fieldOfView: 20 } })).toContain('view, as a camera, takes no "fieldOfView"')
     expect(await said('look', { scanColour: { part: 'base', within: 5 } })).toBe('scanColour takes no "within". An unknown key is not ignored: nothing was done. It takes: part, scan, range.')
     expect(looks).toEqual([])
+  })
+
+  // Final fix wave (I6): what one tool says, another takes. The agent reads the view, shows something, and puts the view back.
+  it('takes back everything scene and marks return, in the tool that takes it: the camera whole, the section, the layout, the parts', async () => {
+    view = { objectId: 'bracket', layout: 'main', camera: { position: [120.5, -80, 60], target: [0, 0, 2.5], up: [0, 0, 1], ortho: true, fov: 28, zoom: 2.5 }, visible: ['main:base'], section: { origin: [0, 0, 2], normal: [0, 0, 1] } }
+    const client = await connect('bracket')
+    const call = async (name: string, args: object) => {
+      const result = await client.callTool({ name, arguments: args as Record<string, unknown> })
+      expect(result.isError, `${name}: ${(result.content as Content).find((block) => block.type === 'text')?.text}`).toBeFalsy()
+      return (result.content as Content).find((block) => block.type === 'text')!.text!
+    }
+    const scene = JSON.parse(await call('scene', {}))
+    expect(scene.camera).toMatchObject({ ortho: true, fov: 28, zoom: 2.5 })
+    const given = { view: scene.camera, layout: scene.layout, parts: scene.parts.map((part: { name: string }) => part.name), section: scene.section }
+    await call('look', given)
+    await call('show', given)
+    const whole = { position: [120.5, -80, 60], target: [0, 0, 2.5], up: [0, 0, 1], ortho: true, fov: 28, zoom: 2.5 }
+    expect(looks[0].req).toMatchObject({ view: whole, layout: 'main', parts: ['base'], section: { origin: [0, 0, 2], normal: [0, 0, 1] } })
+    expect(shows[0]).toMatchObject({ view: whole, layout: 'main', parts: ['base'], section: { origin: [0, 0, 2], normal: [0, 0, 1] } })
+    await call('section', { plane: scene.section, layout: scene.layout, parts: given.parts })
+    // And the view a mark was placed from.
+    const marks = JSON.parse(await call('marks', {}))
+    await call('look', { view: marks.marks[0].camera, layout: marks.marks[0].layout })
+    await call('show', { view: marks.marks[0].camera })
+    expect(looks[1].req.view).toEqual(PIN.camera)
+    expect(shows[1].view).toEqual(PIN.camera)
+    // A camera with neither is as before: the usual lens, not zoomed. One that makes no sense is refused.
+    await call('look', { view: { position: [0, 0, 100], target: [0, 0, 0] } })
+    expect(looks[2].req.view).toMatchObject({ fov: 35, zoom: 1 })
+    for (const bad of [{ zoom: 0 }, { zoom: -1 }, { fov: 0 }, { fov: 180 }]) {
+      const refused = await client.callTool({ name: 'look', arguments: { view: { position: [0, 0, 100], target: [0, 0, 0], ...bad } } })
+      expect(refused.isError, JSON.stringify(bad)).toBe(true)
+      expect((refused.content as Content)[0].text).toMatch(/^view, as a camera, takes (a zoom above 0|a fov between 1 and 120 degrees)/)
+    }
   })
 
   it('refuses arguments that are not what look takes', async () => {

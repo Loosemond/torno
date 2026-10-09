@@ -34,7 +34,8 @@ function handle(request) {
   if (op === 'build') {
     if (building !== null) fail(building, 'cancelled', 'replaced by a newer build')
     building = id
-    send({ id, event: 'build.started', pid: process.pid })
+    // As the kernel does when memory is short: it names the folders whose live builds it let go.
+    send({ id, event: 'build.started', pid: process.pid, ...(request.model === 'tight.py' ? { retired: [request.dir, '/ws/other', 7] } : {}) })
     if (request.model === 'die.py') process.exit(3)
     if (request.model === 'hang.py') return
     if (request.model === 'nan.py') {
