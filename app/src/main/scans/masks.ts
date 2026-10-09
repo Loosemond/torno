@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { bytesFor } from '../../shared/regions'
 import { maskFile } from '../../shared/scans'
 import { writeFileAtomic } from '../atomic'
-import { ownFolders, scanFolder } from './meshfiles'
+import { linkedFolder, ownFolders, scanFolder } from './meshfiles'
 
 // A region's mask on the disk: `<object>/.torno/scans/<scan>/<stem>.mask`, a bit a triangle of the scan's mesh.
 // The path is made here, from the object's folder, the scan's id and the stem: never given. `ScanStore` calls
@@ -47,9 +47,22 @@ export async function readMaskFile(dir: string, scan: string, stem: string): Pro
   }
 }
 
-/** Deletes the mask of a region: that file only. One that is not there is nothing to delete. */
+/** Deletes the mask of a region: that file only. One that is not there is nothing to delete. Rejects, and deletes nothing, through a link (`linkRefusal`). */
 export async function removeMaskFile(dir: string, scan: string, stem: string): Promise<void> {
-  await rm(maskPath(dir, scan, stem), { force: true })
+  const path = maskPath(dir, scan, stem)
+  const refusal = await linkRefusal(dir, scan)
+  if (refusal !== null) throw new Error(refusal)
+  await rm(path, { force: true })
+}
+
+/**
+ * Why nothing is deleted under an object's scans folder, or in the folder of one scan: `.torno`, `.torno/scans`
+ * or that scan's folder is a link, and what is behind it is not torno's to delete. Null when none is. Writes are
+ * refused for the same (`ownFolders`).
+ */
+export async function linkRefusal(dir: string, scan?: string): Promise<string | null> {
+  const folder = await linkedFolder(dir, scan)
+  return folder === null ? null : `${folder} is a link: torno deletes nothing through it`
 }
 
 /** The masks there are in a scan's folder, each by its stem: for whoever clears away those no mark names. */

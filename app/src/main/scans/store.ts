@@ -5,7 +5,7 @@ import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, ty
 import { aligned, checked, held, undone } from './alignments'
 import { loadScansFile, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
-import { maskPath, maskStems, readMaskFile, removeMaskFile, writeMaskFile } from './masks'
+import { linkRefusal, maskPath, maskStems, readMaskFile, removeMaskFile, writeMaskFile } from './masks'
 import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, ownFolders, removeMesh, scanFolder, sweep } from './meshfiles'
 
 interface ScanEvents {
@@ -399,7 +399,7 @@ export class ScanStore {
     }).then((scan) => this.infoOf(place.dir, scan))
   }
 
-  /** Forgets the scan and deletes its folder under `.torno/scans/`: its mesh, and whatever was kept beside it. Its source is not touched. */
+  /** Forgets the scan and deletes its folder under `.torno/scans/`: its mesh, and whatever was kept beside it. Its source is not touched. Refused, with the scan kept, where that folder is reached through a link. */
   remove(objectId: string, id: string): Promise<void> {
     return this.of(objectId, (place) => this.removing(place, id))
   }
@@ -407,8 +407,12 @@ export class ScanStore {
   private removing(place: Place, id: string): Promise<void> {
     return this.change(
       place,
-      (file) => {
-        const [scan] = file.scans.splice(indexOf(file, id), 1)
+      async (file) => {
+        const at = indexOf(file, id)
+        // Before anything is changed: a scan whose folder cannot be deleted is still the object's.
+        const refusal = await linkRefusal(place.dir, file.scans[at].id)
+        if (refusal !== null) throw new Error(refusal)
+        const [scan] = file.scans.splice(at, 1)
         this.checks.get(place.dir)?.delete(scan.id)
         return scan
       },

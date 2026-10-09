@@ -70,11 +70,18 @@ export async function nextFolderId(dir: string): Promise<number> {
  * somewhere else. One that is not there yet is no link. Rejects with what is linked.
  */
 export async function ownFolders(dir: string, id?: string): Promise<void> {
+  const folder = await linkedFolder(dir, id)
+  if (folder !== null) throw new Error(`${folder} is a link: torno writes only inside the object's own folder, and wrote nothing`)
+}
+
+/** The first of torno's own folders of an object that is a link: `.torno`, `.torno/scans`, and a scan's folder when one is named. Null when none is. */
+export async function linkedFolder(dir: string, id?: string): Promise<string | null> {
   const folders = [join(dir, '.torno'), join(dir, '.torno', 'scans'), ...(id === undefined ? [] : [scanFolder(dir, id)])]
   for (const folder of folders) {
     const found = await lstat(folder).catch(() => null)
-    if (found?.isSymbolicLink()) throw new Error(`${folder} is a link: torno writes only inside the object's own folder, and wrote nothing`)
+    if (found?.isSymbolicLink()) return folder
   }
+  return null
 }
 
 export async function ignoreMeshes(dir: string): Promise<void> {
@@ -107,11 +114,12 @@ export async function removeMesh(folder: string, name: string): Promise<void> {
  * left alone. A folder with no scan and no sign of an import is left too:
  * it is what remains of a scans file that was lost. Only real folders and
  * real files are looked at: nothing is deleted through a link, nor a link
- * itself.
+ * itself, and nothing at all where `.torno` or `.torno/scans` is one.
  */
 export async function sweep(dir: string, scans: readonly Scan[], busy: ReadonlySet<string>): Promise<void> {
   const known = new Map(scans.map((scan) => [scan.id, meshName(scan)]))
   const remove = (path: string): Promise<void> => rm(path, { recursive: true, force: true }).catch(() => {})
+  if ((await linkedFolder(dir)) !== null) return
   for (const entry of await entries(join(dir, '.torno', 'scans'))) {
     const id = entry.name
     if (!entry.isDirectory() || !SCAN_ID.test(id) || busy.has(id)) continue

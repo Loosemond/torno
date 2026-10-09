@@ -1121,6 +1121,43 @@ describe('the masks of regions', () => {
     expect(readdirSync(elsewhere)).toEqual([])
   })
 
+  // Milestone 5 (M9): nor is anything deleted through one.
+  it('deletes nothing through a linked scans folder', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const elsewhere = join(root, 'elsewhere')
+    mkdirSync(elsewhere)
+    writeFileSync(join(elsewhere, 'M7.mask'), 'x')
+    rmSync(folder(), { recursive: true })
+    symlinkSync(elsewhere, folder())
+    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${folder()} is a link: torno deletes nothing through it`)
+    await expect(scans.remove('bracket', 'S1')).rejects.toThrow('is a link')
+    expect(readFileSync(join(elsewhere, 'M7.mask'), 'utf8')).toBe('x')
+    // It is refused before anything is changed: the scan is still the object's, and the link is as it was.
+    expect((await scans.list('bracket')).map((scan) => scan.id)).toEqual(['S1'])
+    expect(readdirSync(folder())).toEqual(['M7.mask'])
+  })
+
+  it('deletes nothing through a link in the place of .torno/scans: not a mask, not a scan, not what an import left', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const all = join(dir, '.torno', 'scans')
+    const elsewhere = join(root, 'elsewhere')
+    renameSync(all, elsewhere)
+    writeFileSync(join(elsewhere, 'S1', 'M7.mask'), 'x')
+    // What a sweep would clear away: the folder of an import that never ended.
+    mkdirSync(join(elsewhere, 'S9'))
+    writeFileSync(join(elsewhere, 'S9', 'importing'), 'left over')
+    symlinkSync(elsewhere, all)
+    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${all} is a link: torno deletes nothing through it`)
+    await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${all} is a link`)
+    // A store that reads the folder afresh sweeps it: not through the link.
+    await store().list('bracket')
+    expect(readdirSync(elsewhere).sort()).toEqual(['.gitignore', 'S1', 'S9'])
+    expect(readdirSync(join(elsewhere, 'S1')).sort()).toEqual(['M7.mask', 'mesh.bin'])
+    expect(readdirSync(join(elsewhere, 'S9'))).toEqual(['importing'])
+  })
+
   // Final fix wave (S4): what scans.json says reaches the agent, and is bounded when it is read.
   it('reads no alignment under a layout name that is no name, and no scan whose source is no path on one line', async () => {
     const scans = store()
