@@ -29,8 +29,8 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
-//           session:write, session:resize, session:insert
-//   to the renderer: object:build, object:scene, view:look, view:show, view:highlight (sent by src/main/look.ts),
+//           view:drawSectionReply, session:write, session:resize, session:insert
+//   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
 //           marks:changed, marks:problem
 
@@ -395,7 +395,7 @@ export function registerIpc(
   })
 
   // What the renderer says it did for a request of main's (src/main/look.ts), each on the channel of its kind.
-  for (const channel of ['view:lookReply', 'view:showReply', 'view:highlightReply']) {
+  for (const channel of ['view:lookReply', 'view:showReply', 'view:highlightReply', 'view:drawSectionReply']) {
     ipcMain.on(channel, (_event, id: number, result: object | { error: string }) => resolveRequest(id, result))
   }
 }

@@ -7,7 +7,8 @@ import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
 import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, placedMark, queryObject, registerIpc } from './ipc'
-import { latestView, requestHighlight, requestLook, requestShow } from './look'
+import { latestView, requestHighlight, requestLook, requestSectionDrawing, requestShow } from './look'
+import { addDimension } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
 import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
@@ -156,7 +157,11 @@ const toolDeps: ToolDeps = {
   },
   marks: (objectId) => marks.list(objectId),
   // A mark made through the tools is the agent's, and it knows of it: there is nothing to send it.
-  addMark: (objectId, mark) => marks.add(objectId, placedMark({ ...mark, author: 'agent' }, objectId), 'sent'),
+  // A dimension is measured as it is kept, as one the person makes is (`addDimension`).
+  addMark(objectId, mark) {
+    const placed = placedMark({ ...mark, author: 'agent' }, objectId)
+    return placed.kind === 'dimension' ? addDimension({ marks, query: queryObject, scene: lastScene }, objectId, placed, 'sent') : marks.add(objectId, placed, 'sent')
+  },
   // Whoever changes a mark through the tools is the agent.
   updateMark: (objectId, id, patch) => marks.update(objectId, id, patch, 'agent'),
   describe: (objectId, layout, ref) => queryObject<Described>(objectId, 'describe', { ref: `${layout}:${ref}` }),
@@ -170,6 +175,10 @@ const toolDeps: ToolDeps = {
   },
   highlight(objectId, layout, refs, note) {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
+  },
+  query: queryObject,
+  sectionDrawing(req) {
+    return theWindow().then((win) => requestSectionDrawing(win, req))
   }
 }
 

@@ -149,6 +149,9 @@ function fake(over: Partial<ToolDeps> & { state?: BuildState | null; noScene?: b
       saved.push({ objectId, png })
       return `/ws/${objectId}/.torno/views/${saved.length}.png`
     },
+    // The kernel's own queries and the drawing of a section are the read tools': see readTools.test.ts.
+    query: async () => Promise.reject(new Error('the kernel was not expected to be asked')),
+    sectionDrawing: async () => Promise.reject(new Error('no drawing was expected to be asked for')),
     ...world(),
     ...over
   }
@@ -162,7 +165,7 @@ const textOf = (result: { content: Array<{ type: string; text?: string }> }): st
 
 describe('the tool descriptions', () => {
   it('say in two or three sentences each what the tool returns and when to use it', () => {
-    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark'])
+    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark', 'measure', 'section', 'check'])
     for (const tool of Object.values(TOOLS)) {
       expect(tool.description).toMatch(/^Returns /)
       const sentences = tool.description.match(/[.?!]"?(\s|$)/g)!.length
@@ -201,7 +204,8 @@ describe('scene', () => {
         { name: 'base', layout: 'print', visible: true, size: [40, 30, 5], bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, faces: 6, edges: 12, valid: true },
         { name: 'post', layout: 'print', visible: false, size: [8, 20, 8], bbox: { min: [56, -10, 0], max: [64, 10, 8] }, volume: 6000, faces: 6, edges: 12, valid: true }
       ],
-      camera: { position: [100.12, -80, 60], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
+      camera: { position: [100.12, -80, 60], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
+      section: null
     })
   })
 
@@ -223,7 +227,7 @@ describe('scene', () => {
     const scene = JSON.parse(textOf(sceneTool(fake({ openObjectId: () => 'helmet-stand' }), 'bracket')))
     expect(scene.camera).toBeNull()
     expect(scene.layout).toBeNull()
-    expect(scene.note).toBe('bracket is not the object open in the torno window (open: helmet-stand), so what is visible and the camera are not known.')
+    expect(scene.note).toBe('bracket is not the object open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known.')
     expect(scene.parts.map((p: { name: string }) => p.name)).toEqual(['base', 'post', 'base', 'post'])
     for (const p of scene.parts) expect(p).not.toHaveProperty('visible')
     expect(scene.build.revision).toBe(3)
@@ -241,7 +245,7 @@ describe('scene', () => {
     // Said together with the other note, when there is one.
     const elsewhere = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }), openObjectId: () => 'helmet-stand' }), 'bracket')))
     expect(elsewhere.note).toBe(
-      'bracket is not the object open in the torno window (open: helmet-stand), so what is visible and the camera are not known. The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
+      'bracket is not the object open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known. The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
     )
   })
 
@@ -683,7 +687,7 @@ describe('show', () => {
   })
 
   it.each([
-    [{}, 'nothing to show: give a view, a layout or parts'],
+    [{}, 'nothing to show: give a view, a layout, parts or a section'],
     [{ layout: 'exploded' }, "no layout 'exploded'; layouts: assembly, print"],
     [{ parts: [] }, 'parts is empty: name the parts to leave switched on'],
     [{ view: { position: [1, 1, 1], target: [1, 1, 1] } }, 'position and target are the same']

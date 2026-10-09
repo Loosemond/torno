@@ -28,6 +28,17 @@ const PIN: Mark = {
 }
 let added: NewMark[] = []
 
+/** What the kernel says of the plate, to each of the queries the read tools make. */
+const KERNEL: Record<string, object> = {
+  measure: { kind: 'distance', value: 5, unit: 'mm', how: 'between planes', points: [[0, 0, 0], [0, 0, 5]], exact: true },
+  section: {
+    plane: { origin: [0, 0, 2], normal: [0, 0, 1], x: [1, 0, 0], y: [0, 1, 0] },
+    parts: [{ part: 'base', loops: [{ points: [[0, 0], [40, 0], [40, 30], [0, 30]], closed: true, area: 1200, areaExact: true, deflection: 0.05 }], area: 1200, areaExact: true, open: 0, how: 'cross-section of the solid' }],
+    bounds: { min: [0, 0], max: [40, 30] }
+  },
+  check: { watertight: true, openEdges: 0, where: [], triangles: 12 }
+}
+
 let http: HttpRouter
 let looks: Array<{ objectId: string; req: LookRequest }> = []
 let release: (() => void) | null = null
@@ -58,7 +69,9 @@ const deps: ToolDeps = {
   describe: async (_objectId, layout, ref) => ({ kind: 'face', ref: `${layout}:${ref}`, type: 'plane', area: 1200, center: [20, 15, 5], normal: [0, 0, 1], radius: null, descriptor: 'plane, normal +Z, z = 5, 1200 mm²' }),
   nearest: async (_objectId, _layout, anchors) => anchors.map(({ part, point }) => ({ part, found: true, point, normal: [0, 0, 1], ref: `${part}/F5`, distance: 0, descriptor: null })),
   show: async (objectId, req) => ({ caption: `view ${String(req.view)} · layout main`, objectId, revision: 2, stale: false }),
-  highlight: async (objectId, layout, refs) => ({ objectId, layout, refs, revision: 2 })
+  highlight: async (objectId, layout, refs) => ({ objectId, layout, refs, revision: 2 }),
+  query: async <T,>(_objectId: string, name: string): Promise<T> => KERNEL[name] as T,
+  sectionDrawing: async () => ({ png: PNG, width: 4, height: 3, colours: 'window' })
 }
 
 async function connect(objectId: string): Promise<Client> {
@@ -84,7 +97,7 @@ afterEach(async () => {
 
 afterAll(() => http.close())
 
-const ALL = ['add_mark', 'describe', 'highlight', 'look', 'marks', 'resolve_mark', 'scene', 'show']
+const ALL = ['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scene', 'section', 'show']
 /** The least each tool can be called with. */
 const MINIMAL: Record<string, Record<string, unknown>> = {
   scene: {},
@@ -94,7 +107,10 @@ const MINIMAL: Record<string, Record<string, unknown>> = {
   highlight: { refs: ['base'] },
   show: { view: 'top' },
   add_mark: { kind: 'pin', note: '', ref: 'base' },
-  resolve_mark: { id: 'M1' }
+  resolve_mark: { id: 'M1' },
+  measure: { kind: 'distance', a: 'base/F5', b: 'base/F0' },
+  section: { plane: { axis: 'z', at: 2 } },
+  check: { kind: 'mesh', a: 'base' }
 }
 
 describe('the MCP server', () => {
@@ -104,7 +120,7 @@ describe('the MCP server', () => {
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual(ALL)
     const inputs = (name: string) => tools.find((t) => t.name === name)!.inputSchema
-    expect(Object.keys(inputs('add_mark').properties ?? {}).sort()).toEqual(['by', 'intent', 'kind', 'layout', 'note', 'point', 'position', 'ref', 'rotation', 'shape', 'size', 'to'])
+    expect(Object.keys(inputs('add_mark').properties ?? {}).sort()).toEqual(['a', 'b', 'by', 'expected', 'intent', 'kind', 'layout', 'measure', 'note', 'point', 'position', 'ref', 'rotation', 'shape', 'size', 'to', 'tolerance'])
     expect(inputs('add_mark').required).toEqual(['kind', 'note'])
     expect(inputs('resolve_mark').required).toEqual(['id'])
     expect(inputs('highlight').required).toEqual(['refs'])
@@ -113,7 +129,7 @@ describe('the MCP server', () => {
     expect(inputs('marks').required ?? []).toEqual([])
     for (const tool of tools) expect(tool.description).toMatch(/^Returns /)
     const look = tools.find((t) => t.name === 'look')!
-    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['layout', 'marks', 'parts', 'size', 'view'])
+    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['layout', 'marks', 'parts', 'section', 'size', 'view'])
     expect(look.inputSchema.required ?? []).toEqual([])
   })
 

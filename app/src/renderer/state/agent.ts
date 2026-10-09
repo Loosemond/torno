@@ -1,7 +1,20 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import { type HighlightRequest, type HighlightResult, type LookRequest, type LookResult, type ShowRequest, type ShowResult, NOT_A_PLANE, sectionOf } from '../../shared/view'
+import {
+  type HighlightRequest,
+  type HighlightResult,
+  type LookRequest,
+  type LookResult,
+  type SectionDrawingRequest,
+  type SectionDrawingResult,
+  type ShowRequest,
+  type ShowResult,
+  NOT_A_PLANE,
+  sectionOf
+} from '../../shared/view'
+import { colorFor, colorsByName } from '../viewport/palette'
 import { describeSection } from '../viewport/section'
+import { sectionPng } from '../viewport/sectionDrawing'
 import type { Viewport } from '../viewport/Viewport'
 import { actions, partsInLayout, store } from './store'
 
@@ -194,15 +207,44 @@ export function picture(req: LookRequest): Promise<LookResult> {
 }
 
 /**
- * Answer every request of main's for a picture. Joined once, by the app, for
- * as long as the window lives: whatever the window shows, main is answered.
- * Returns what undoes the joining.
+ * A drawing of what the kernel says a plane cuts, for the agent. It is made
+ * of the outlines main sends, so the window need not show that object, nor
+ * have a 3D view. Each part is in the colour it has in the 3D view: the one
+ * the person gave it when the object is the one open (`window`), and
+ * otherwise the one it has until they give it another, by its place among
+ * the names of the build's parts (`palette`).
+ */
+export async function sectionDrawing(req: SectionDrawingRequest): Promise<SectionDrawingResult> {
+  const s = store.getState()
+  const open = s.objectId === req.objectId
+  const byName = colorsByName(req.names)
+  const colourOf = (part: string): string => (open ? s.layers[part]?.color : undefined) ?? byName.get(part) ?? colorFor(part, -1)
+  const drawn = await sectionPng(req.section, req.layout, colourOf, req.size)
+  if (!drawn) throw new Error('the plane cuts nothing')
+  return { ...drawn, colours: open ? 'window' : 'palette' }
+}
+
+/**
+ * Answer every request of main's for a picture, and for a drawing of a
+ * section. Joined once, by the app, for as long as the window lives: whatever
+ * the window shows, main is answered. Returns what undoes the joining.
  */
 export function connectLook(): () => void {
-  return window.torno.view.onLook(({ id, request }) => {
+  const said = (e: unknown): { error: string } => ({ error: e instanceof Error ? e.message : String(e) })
+  const offLook = window.torno.view.onLook(({ id, request }) => {
     picture(request).then(
       (result) => window.torno.view.lookReply(id, result),
-      (e: unknown) => window.torno.view.lookReply(id, { error: e instanceof Error ? e.message : String(e) })
+      (e: unknown) => window.torno.view.lookReply(id, said(e))
     )
   })
+  const offDrawing = window.torno.view.onDrawSection(({ id, request }) => {
+    sectionDrawing(request).then(
+      (result) => window.torno.view.drawSectionReply(id, result),
+      (e: unknown) => window.torno.view.drawSectionReply(id, said(e))
+    )
+  })
+  return () => {
+    offLook()
+    offDrawing()
+  }
 }

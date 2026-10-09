@@ -117,7 +117,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'describe', 'highlight', 'look', 'marks', 'resolve_mark', 'scene', 'show'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scene', 'section', 'show'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -555,4 +555,244 @@ test('add_mark by a face whose centre is not on it puts the pin on the face unde
   expect(placed.text.split('\n')[0]).toBe(`placed in layout main: ${describeMark(kept)}`)
   const [listed] = (JSON.parse((await call(pocket, 'marks')).text) as { marks: Array<{ line: string }> }).marks
   expect(listed.line).toBe(describeMark(kept))
+})
+
+/** The colour of one pixel of a PNG, at fractions of its width and height, and its size. */
+function pixelAt(base64: string, fx: number, fy: number): Promise<{ width: number; height: number; rgb: [number, number, number] }> {
+  return page.evaluate(
+    async ({ data, fx, fy }) => {
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const [r, g, b] = ctx.getImageData(Math.round(fx * bitmap.width), Math.round(fy * bitmap.height), 1, 1).data
+      return { width: bitmap.width, height: bitmap.height, rgb: [r, g, b] as [number, number, number] }
+    },
+    { data: base64, fx, fy }
+  )
+}
+
+interface Loop { points: [number, number][]; closed: boolean; area: number }
+interface CutJson {
+  layout: string
+  revision: number
+  plane: { origin: number[]; normal: number[]; x: number[]; y: number[]; axis?: string; at?: number }
+  parts: Array<{ part: string; area: number; areaExact: boolean; open: number; how: string; loops: Loop[] }>
+  bounds: { min: [number, number]; max: [number, number] }
+  extent: [number, number]
+  reading: string
+  image: string
+}
+
+let measures: Client
+/** The faces of the measures plate, by what the kernel says of each. */
+let plateFaces: Array<{ ref: string; descriptor: string }>
+
+test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
+  await openObject('measures')
+  measures = await connect('measures')
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scene', 'section', 'show'])
+  const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
+  plateFaces = []
+  for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })
+  const top = plateFaces.find((f) => /^plane, normal \+Z, z = 3,/.test(f.descriptor))!
+  const bottom = plateFaces.find((f) => /^plane, normal -Z, z = -3,/.test(f.descriptor))!
+  const holes = plateFaces.filter((f) => /^cylinder, radius 4\b/.test(f.descriptor))
+  expect(holes).toHaveLength(2)
+
+  // The wall of the plate, from a point of its top that is over no hole and no pocket.
+  const wall = await call(measures, 'measure', { kind: 'thickness', a: { ref: top.ref, point: [-15, -10, 3] } })
+  expect(wall.isError, wall.text).toBe(false)
+  expect(JSON.parse(wall.text)).toMatchObject({ layout: 'assembly', revision: 1, kind: 'thickness', value: 6, unit: 'mm', how: 'wall, along the normal', exact: true, reading: `6 mm wall, along the normal, ${top.ref} at (-15, -10, 3)` })
+
+  const planes = JSON.parse((await call(measures, 'measure', { kind: 'distance', a: top.ref, b: bottom.ref })).text)
+  expect(planes).toMatchObject({ value: 6, how: 'between planes', exact: true, reading: `6 mm between planes, ${top.ref} to ${bottom.ref}` })
+  const axes = JSON.parse((await call(measures, 'measure', { kind: 'distance', a: holes[0].ref, b: holes[1].ref })).text)
+  expect(axes).toMatchObject({ value: 20, how: 'axis to axis' })
+  expect(JSON.parse((await call(measures, 'measure', { kind: 'diameter', a: holes[0].ref })).text)).toMatchObject({ value: 8, reading: `⌀ 8 mm, ${holes[0].ref}` })
+  const above = JSON.parse((await call(measures, 'measure', { kind: 'distance', a: { point: [0, 0, 10] }, b: top.ref })).text)
+  expect(above).toMatchObject({ value: 7, reading: `7 mm point to plane, (0, 0, 10) to ${top.ref}` })
+  const mass = JSON.parse((await call(measures, 'measure', { kind: 'mass', a: 'plate' })).text)
+  expect(mass.reading).toMatch(/^mass [\d.]+ g, PLA 1\.24 g\/cm³ \(default\), plate \(volume \d+ mm³\)$/)
+  expect(mass.value).toBeCloseTo((mass.volume * 1.24) / 1000, 6)
+
+  // What cannot be measured is said in the kernel's words, the refs as the agent writes them.
+  const flat = await call(measures, 'measure', { kind: 'radius', a: top.ref })
+  expect(flat.isError).toBe(true)
+  expect(flat.text).toContain(top.ref)
+  expect(flat.text).not.toContain('assembly:')
+  const none = await call(measures, 'measure', { kind: 'radius', a: 'plate/F99' })
+  expect(none).toMatchObject({ isError: true, text: `plate has ${whole.faceCount} faces, F0 to F${whole.faceCount - 1}: there is no F99` })
+})
+
+test('section answers with a drawing of the outlines the kernel cut, and with the outlines', async () => {
+  // Under the floor of the pocket: the plate and its two holes.
+  const cut = await call(measures, 'section', { plane: { axis: 'z', at: -2 } })
+  expect(cut.isError, cut.text).toBe(false)
+  const [image] = cut.content
+  expect(image).toMatchObject({ type: 'image', mimeType: 'image/png' })
+  const json = JSON.parse(cut.text) as CutJson
+  expect(json).toMatchObject({ layout: 'assembly', revision: 1, plane: { origin: [0, 0, -2], normal: [0, 0, 1], x: [1, 0, 0], y: [0, 1, 0], axis: 'z', at: -2 }, bounds: { min: [-20, -15], max: [20, 15] }, extent: [40, 30] })
+  expect(json.parts).toHaveLength(1)
+  const [plate] = json.parts
+  expect(plate).toMatchObject({ part: 'plate', open: 0, areaExact: true, how: 'cross-section of the solid' })
+  expect(plate.loops).toHaveLength(3)
+  expect(plate.loops.every((loop) => loop.closed)).toBe(true)
+  // The plate less two holes of radius 4, to the kernel's precision, not the polygon's.
+  expect(plate.area).toBeCloseTo(1200 - 2 * Math.PI * 16, 6)
+  expect(plate.loops.map((loop) => Math.sign(loop.area))).toEqual([1, -1, -1])
+  expect(json.reading).toBe('plane normal +Z at z = -2 · layout assembly: plate 1099 mm² in 3 loops; the cut is 40 × 30 mm')
+  expect(json.image).toMatch(/^1280×\d+, the parts in the colours the user sees them in, saved as .+\/measures\/\.torno\/views\/\d+\.png$/)
+
+  // The drawing: 1280 on its long edge, the plate in its colour, and the sheet showing through both holes.
+  const size = await pixelAt(image.data!, 0.5, 0.5)
+  expect(Math.max(size.width, size.height)).toBe(1280)
+  const fractions = await findOnSheet(image.data!)
+  // The plate's colour is the first of the palette (#7B93B4); the sheet is --surface (#F1EFEA).
+  expect(fractions.plate).toBeGreaterThan(0.2)
+  for (const hole of fractions.holes) expect(hole).toEqual([0xf1, 0xef, 0xea])
+  expect(fractions.solid).toEqual([0x7b, 0x93, 0xb4])
+
+  // One part alone is given in full, and a plane that misses the part cuts nothing, with no drawing.
+  const missed = await call(measures, 'section', { plane: { axis: 'z', at: 50 }, parts: ['plate'] })
+  expect(missed.content).toHaveLength(1)
+  expect(JSON.parse(missed.text)).toMatchObject({ bounds: null, image: 'not drawn: there is nothing to draw', reading: 'plane normal +Z at z = 50 · layout assembly: the plane cuts none of these parts' })
+  const none = await call(measures, 'section', { plane: 'current' })
+  expect(none).toMatchObject({ isError: true, text: 'the user has no section on screen: give a plane, as {origin, normal} or {axis, at}' })
+})
+
+/**
+ * What a drawing of the plate cut across Z shows: the share of it in the
+ * plate's colour, the colour inside each hole (off the lines of the grid,
+ * which show through it), and the colour of a point of the plate between them. The plot is found from the pixels: the box
+ * of everything in the plate's colour is the plate, 40 × 30 mm.
+ */
+function findOnSheet(base64: string): Promise<{ plate: number; holes: number[][]; solid: number[] }> {
+  return page.evaluate(async (data) => {
+    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const { width, height } = bitmap
+    const pixels = ctx.getImageData(0, 0, width, height).data
+    const isPlate = (i: number): boolean => pixels[i] === 0x7b && pixels[i + 1] === 0x93 && pixels[i + 2] === 0xb4
+    let [x0, y0, x1, y1, count] = [width, height, 0, 0, 0]
+    // Below the legend, whose swatch is in the same colour.
+    for (let y = Math.round(height * 0.15); y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (!isPlate((y * width + x) * 4)) continue
+        count += 1
+        x0 = Math.min(x0, x)
+        x1 = Math.max(x1, x)
+        y0 = Math.min(y0, y)
+        y1 = Math.max(y1, y)
+      }
+    }
+    // u from -20 to 20 runs right, v from -15 to 15 runs up.
+    const at = (u: number, v: number): number[] => {
+      const x = Math.round(x0 + ((u + 20) / 40) * (x1 - x0))
+      const y = Math.round(y1 - ((v + 15) / 30) * (y1 - y0))
+      return [...pixels.slice((y * width + x) * 4, (y * width + x) * 4 + 3)]
+    }
+    return { plate: count / (width * height), holes: [at(-11.2, 6.3), at(8.8, 6.3)], solid: at(0, 5.6) }
+  }, base64)
+}
+
+test('check says how far apart two parts are, what they share, and whether a mesh is closed', async () => {
+  // In the assembly the post stands on the base; laid out for printing it lies beside it, its axis 40 mm from the
+  // base's edge and 1.5 mm above it: the round side is that far less its radius of 4.
+  const touching = JSON.parse((await call(bracket, 'check', { kind: 'clearance', a: 'base', b: 'post', layout: 'assembly' })).text)
+  expect(touching).toMatchObject({ layout: 'assembly', kind: 'clearance', distance: 0, overlapping: false, reading: 'clearance 0 mm between base and post: the parts touch' })
+  const apart = JSON.parse((await call(bracket, 'check', { kind: 'clearance', a: 'base', b: 'post', layout: 'print' })).text)
+  expect(apart.distance).toBeCloseTo(Math.hypot(40, 1.5) - 4, 6)
+  expect(apart).toMatchObject({ overlapping: false, how: 'minimum', reading: 'clearance 36.03 mm between base and post' })
+  expect(apart.points).toHaveLength(2)
+  expect(JSON.parse((await call(bracket, 'check', { kind: 'overlap', a: 'base', b: 'post', layout: 'assembly' })).text)).toMatchObject({ bbox: null, reading: 'no overlap between base and post' })
+  const mesh = JSON.parse((await call(bracket, 'check', { kind: 'mesh', a: 'post', layout: 'assembly' })).text)
+  expect(mesh).toMatchObject({ watertight: true, openEdges: 0, where: [] })
+  expect(mesh.reading).toBe(`mesh of post: closed, ${mesh.triangles.toLocaleString('en-US')} triangles`)
+  const face = await call(bracket, 'check', { kind: 'mesh', a: 'post/F0', layout: 'assembly' })
+  expect(face).toMatchObject({ isError: true, text: 'check mesh is of whole parts, and post/F0 is a face: give post' })
+})
+
+test("add_mark with a dimension leaves a check of the agent's that the user sees with its verdict, measured by the kernel", async () => {
+  const hole = plateFaces.find((f) => /^cylinder, radius 4\b/.test(f.descriptor))!
+  const top = plateFaces.find((f) => /^plane, normal \+Z, z = 3,/.test(f.descriptor))!
+  const bottom = plateFaces.find((f) => /^plane, normal -Z, z = -3,/.test(f.descriptor))!
+  const unchecked = await checks('measures')
+  const placed = await call(measures, 'add_mark', { kind: 'dimension', note: 'for an M8 bolt', measure: 'diameter', a: hole.ref, expected: 8.4, tolerance: 0.1 })
+  expect(placed.isError, placed.text).toBe(false)
+  expect(placed.text).toBe(`placed in layout assembly: (yours) M1 diameter 8 mm, ${hole.ref} (expected 8.4 ± 0.1: FAIL, 0.4 under): "for an M8 bolt"\nrevision r1`)
+  const thick = await call(measures, 'add_mark', { kind: 'dimension', note: '', measure: 'distance', a: { ref: top.ref, point: [-15, -10, 3] }, b: { ref: bottom.ref, point: [-15, -10, -3] }, expected: 6 })
+  expect(thick.text).toBe(`placed in layout assembly: (yours) M2 distance 6 mm between planes, ${top.ref} to ${bottom.ref} (expected 6 ± 0.05: pass)\nrevision r1`)
+
+  // The check every new mark sets off leaves both as they were said to be: on what was named, with their values.
+  await checked('measures', unchecked)
+  await expect.poll(async () => (await state()).marks.map((m) => [m.id, m.checkedRevision])).toEqual([['M1', 1], ['M2', 1]])
+  const marks = (await state()).marks
+  expect(marks[0]).toMatchObject({ id: 'M1', kind: 'dimension', author: 'agent', status: 'sent', anchorState: 'ok', measure: 'diameter', value: 8, expected: 8.4, tolerance: 0.1, verdict: 'fail', measuredRevision: 1, a: { ref: hole.ref } })
+  expect(marks[1]).toMatchObject({ id: 'M2', author: 'agent', status: 'sent', anchorState: 'ok', value: 6, verdict: 'pass', a: { ref: top.ref }, b: { ref: bottom.ref } })
+  const row = page.locator('.mark-row[data-mark="M1"]')
+  await expect(row).toHaveAttribute('data-author', 'agent')
+  await expect(row.locator('.mark-value')).toHaveAttribute('data-verdict', 'fail')
+  await expect(page.locator('.mark-row[data-mark="M2"] .mark-value')).toHaveAttribute('data-verdict', 'pass')
+
+  // A mark stands for what it is on, for measure too.
+  const through = JSON.parse((await call(measures, 'measure', { kind: 'radius', a: 'M1' })).text)
+  expect(through).toMatchObject({ value: 4, reading: `R 4 mm, ${hole.ref} (M1)` })
+
+  // What the kernel cannot measure is not kept.
+  const flat = await call(measures, 'add_mark', { kind: 'dimension', note: '', measure: 'radius', a: { ref: top.ref, point: [-15, -10, 3] } })
+  expect(flat.isError).toBe(true)
+  expect(flat.text).toContain(top.ref)
+  expect((await state()).marks).toHaveLength(2)
+})
+
+test("show with a section cuts the user's view, look draws it or another, and scene says which it is", async () => {
+  expect(JSON.parse((await call(measures, 'scene')).text).section).toBeNull()
+  const whole = await drawn((await call(measures, 'look', { view: 'front', marks: false })).content[0].data!)
+  const shown = await call(measures, 'show', { section: { axis: 'y', at: 0 } })
+  expect(shown.isError, shown.text).toBe(false)
+  expect(shown.text).toContain('cut at y = 0, +Y side removed')
+  expect((await state()).section).toEqual({ origin: [0, 0, 0], normal: [0, 1, 0] })
+  await expect.poll(async () => JSON.parse((await call(measures, 'scene')).text).section).toEqual({ origin: [0, 0, 0], normal: [0, 1, 0], axis: 'y', at: 0 })
+  // For now only: the file that keeps the user's view has no section in it.
+  const kept = join(root, 'measures', '.torno', 'scene.json')
+  await page.waitForTimeout(700)
+  expect(existsSync(kept) ? JSON.parse(readFileSync(kept, 'utf8')).section ?? null : null).toBeNull()
+
+  // A section tool call with 'current' is now of that plane.
+  const theirs = JSON.parse((await call(measures, 'section', { plane: 'current' })).text) as CutJson
+  expect(theirs.plane).toMatchObject({ axis: 'y', at: 0 })
+
+  // look: as the user sees it by default; cut by a plane of its own; or whole.
+  const current = await call(measures, 'look', { view: 'top', marks: false })
+  expect(current.text).toContain('cut at y = 0, +Y side removed')
+  const own = await call(measures, 'look', { view: 'front', marks: false, section: { axis: 'x', at: 0 } })
+  expect(own.text).toContain('cut at x = 0, +X side removed')
+  const half = await drawn(own.content[0].data!)
+  expect(half.drawn).toBeLessThan(whole.drawn * 0.7)
+  expect(half.drawn).toBeGreaterThan(whole.drawn * 0.3)
+  const uncut = await call(measures, 'look', { view: 'front', marks: false, section: null })
+  expect(uncut.text).not.toContain('cut at')
+  expect((await drawn(uncut.content[0].data!)).drawn).toBeCloseTo(whole.drawn, 2)
+
+  expect((await call(measures, 'show', { section: null })).isError).toBe(false)
+  expect((await state()).section).toBeNull()
+})
+
+// Set TORNO_SHOTS=<dir> to write the drawings the agent is given of a section there: the measures plate
+// cut across Z through its pocket (section-drawing-plate.png) and the hollow box cut through its cavity
+// (section-drawing-hollow.png).
+test('design shots of the section drawing', async () => {
+  const dir = process.env.TORNO_SHOTS
+  test.skip(!dir, 'TORNO_SHOTS is not set')
+  mkdirSync(dir!, { recursive: true })
+  const plate = await call(measures, 'section', { plane: { axis: 'z', at: 0 } })
+  writeFileSync(join(dir!, 'section-drawing-plate.png'), Buffer.from(plate.content[0].data!, 'base64'))
+  await openObject('hollow')
+  const hollow = await call(await connect('hollow'), 'section', { plane: { axis: 'y', at: 0 } })
+  writeFileSync(join(dir!, 'section-drawing-hollow.png'), Buffer.from(hollow.content[0].data!, 'base64'))
 })

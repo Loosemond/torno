@@ -147,13 +147,30 @@ While iterating run the focused test; run all four suites before a commit.
     (`src/main/context.ts`). A draft dimension is
     told with the drafts. The status line counts every unresolved dimension
     that fails, sent or not.
-- The MCP tools (`src/main/mcp/tools.ts`, and those that place and resolve
-  marks in `mcp/markTools.ts`): `scene`, `look`, `marks`, `describe`,
-  `highlight`, `show`, `add_mark`, `resolve_mark`. `show` changes
+- The MCP tools (`src/main/mcp/tools.ts`, which holds every input schema and
+  description; those that place and resolve marks in `mcp/markTools.ts`; those
+  that read the part in `mcp/readTools.ts`): `scene`, `look`, `marks`,
+  `describe`, `highlight`, `show`, `add_mark`, `resolve_mark`, `measure`,
+  `section`, `check`. `show` changes
   the view for now and is never saved to `scene.json`; it is refused while a
-  button is held in the viewport. `marks`, `describe` and `add_mark` say which
+  button is held in the viewport. `marks`, `describe`, `add_mark`, `measure`,
+  `section` and `check` say which
   revision they answer from, and that it is stale while a newer build runs or
   has failed.
+  - `measure`, `section` and `check` answer with the kernel's reply and a
+    `reading` of it in a line. Refs and marks are checked against the scene in
+    main before the kernel is asked (`endsOf`: a mark stands for what it is on
+    only when the last build's check confirmed it), and nothing is said to be
+    exact that the kernel does not say is: `≈` and `approximate` otherwise.
+  - The picture `section` returns is a 2D drawing of the kernel's outlines
+    (`src/renderer/viewport/sectionDrawing.ts`), made by the window on a
+    canvas of its own whichever object it shows, on the light sheet whatever
+    the theme, with what is up in the world up on it. Its JSON holds each loop
+    in at most 200 points unless one part is asked for.
+  - A plane is `{origin, normal}` or `{axis, at}` (`planeOf` in
+    `shared/view.ts`): the latter has its normal along +axis.
+  - `add_mark` with `kind: 'dimension'` goes through `addDimension`, as the
+    Measure tool's do, kept `sent`.
 - `<object>/.torno/state.md` says the same as the tools, as text
   (`src/main/statefile.ts`); its first line is when it was written.
 - User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and

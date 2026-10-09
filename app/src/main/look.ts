@@ -1,9 +1,23 @@
 import type { BrowserWindow } from 'electron'
-import { type HighlightRequest, type HighlightResult, type LookRequest, type LookResult, type SelectionReport, type ShowRequest, type ShowResult, type ViewState, MAX_SELECTION_REPORTED, sectionOf } from '../shared/view'
+import {
+  type HighlightRequest,
+  type HighlightResult,
+  type LookRequest,
+  type LookResult,
+  type SectionDrawingRequest,
+  type SectionDrawingResult,
+  type SelectionReport,
+  type ShowRequest,
+  type ShowResult,
+  type ViewState,
+  MAX_SELECTION_REPORTED,
+  sectionOf
+} from '../shared/view'
 
 // What the agent asks of the window is done by the renderer, which owns the
 // viewport: a picture of it (`view:look`), a change of what it shows
-// (`view:show`), something pointed out in it (`view:highlight`). Main asks
+// (`view:show`), something pointed out in it (`view:highlight`), and a 2D
+// drawing of outlines the kernel cut (`view:drawSection`). Main asks
 // over the channel and is answered over `<channel>Reply` (src/main/ipc.ts
 // passes each answer to `resolveRequest`).
 
@@ -67,6 +81,14 @@ export function requestShow(win: BrowserWindow, req: ShowRequest, timeoutMs = 10
 /** Ask a window to point out refs to the person. Rejects with the renderer's error text. */
 export function requestHighlight(win: BrowserWindow, req: HighlightRequest, timeoutMs = 10000): Promise<HighlightResult> {
   return request(win, 'view:highlight', req, timeoutMs)
+}
+
+/**
+ * Ask a window to draw what the kernel says a plane cuts: a drawing on a 2D canvas, of the outlines given, not a
+ * picture of its viewport, so it is made whatever the window shows. Rejects with the renderer's error text.
+ */
+export function requestSectionDrawing(win: BrowserWindow, req: SectionDrawingRequest, timeoutMs = 10000): Promise<SectionDrawingResult> {
+  return request(win, 'view:drawSection', req, timeoutMs)
 }
 
 /** The renderer's answer to request `id`. One that is late, repeated or malformed is dropped. */

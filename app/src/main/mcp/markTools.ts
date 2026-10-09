@@ -1,5 +1,5 @@
 import type { Described } from '../../shared/geometry'
-import { type Anchor, type Mark, type NewMark, type Quat, markAnchors } from '../../shared/marks'
+import { type Anchor, type Mark, type NewMark, type Quat, isUnchecked, markAnchors } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, HighlightResult } from '../../shared/view'
 import { describeMark, number, vector } from '../marks/describe'
@@ -14,6 +14,7 @@ import {
   FOV,
   INTENTS,
   MARK_ID,
+  MEASURES,
   SHAPES,
   behind,
   built,
@@ -57,6 +58,66 @@ export function checkRef(scene: Scene, layout: string, ref: string): CheckedRef 
   const [letter, plural, count] = sub[2] === 'F' ? ['F', 'faces', part.faceCount] : ['E', 'edges', part.edgeCount]
   if (Number(sub[3]) >= count) return `${part.name} has ${count} ${plural}${count > 0 ? `, ${letter}0 to ${letter}${count - 1}` : ''}: there is no ${letter}${sub[3]}`
   return { part, target: sub[2] === 'F' ? 'face' : 'edge' }
+}
+
+/** An end of a measurement as the agent names one: a ref, the number of a mark, a point, or a ref with a point. */
+export type EndArg = string | { ref?: string; point?: Vec3 }
+
+/** An end of a measurement as it is asked of the kernel, and what a reading calls it: `base/F5`, `base/F5 (M3)`, `(10, 5, -1)`. */
+export interface End {
+  ref?: string
+  point?: Vec3
+  text: string
+}
+
+/**
+ * What the ends of a measurement name in a layout of a build, each checked
+ * against that build before the kernel is asked, or the error to answer with.
+ * A mark stands for what it is on (its first anchor: the ref, at the point),
+ * and only when that is known to be of this build: one the build moved, one
+ * whose part is gone, one not yet checked against it and one that is
+ * resolved, which is no longer checked, are refused, since their refs may
+ * name other geometry now.
+ */
+export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, revision: number, layout: string, asked: Array<['a' | 'b', EndArg]>): Promise<End[] | ToolResult> {
+  const ends: End[] = []
+  let marks: Mark[] | undefined
+  for (const [name, arg] of asked) {
+    if (typeof arg === 'string' && MARK_ID.test(arg)) {
+      if (!marks) {
+        const read = await marksOf(deps, objectId)
+        if ('content' in read) return read
+        marks = read
+      }
+      const mark = marks.find((m) => m.id === arg)
+      if (!mark) return noMark(arg, marks)
+      if (mark.layout !== layout) return failure(`${arg} is in layout ${mark.layout}, not ${layout}`)
+      if (mark.anchorState === 'orphaned') return failure(`the part ${arg} was placed on is gone: give a ref`)
+      // A dimension whose edge is no longer under its end says why it is not measured: nothing is measured through it either.
+      if (mark.anchorState !== 'ok' && mark.kind === 'dimension' && mark.refused) return failure(`${arg} is not measurable (${mark.refused}): give a ref`)
+      if (mark.anchorState !== 'ok') return failure(`${arg} has moved since it was placed: give a ref`)
+      if (mark.status === 'resolved') return failure(`${arg} is resolved, and is no longer checked against the builds: give a ref`)
+      if (isUnchecked(mark, revision)) return failure(`${arg} has not been checked against r${revision} yet, so what it is on is not known: give a ref, or ask again in a moment`)
+      const on = markAnchors(mark)[0]
+      if (!on) return failure(`${arg} is not on a part, a face or an edge: give a ref or a point`)
+      if (on.ref === undefined) {
+        ends.push({ point: on.point, text: `${vector(on.point)} (${arg})` })
+        continue
+      }
+      const checked = checkRef(scene, layout, on.ref)
+      if (typeof checked === 'string') return failure(`${arg} is on ${on.ref}, but ${checked}`)
+      ends.push({ ref: on.ref, point: on.point, text: `${on.ref} (${arg})` })
+      continue
+    }
+    const { ref, point } = typeof arg === 'string' ? { ref: arg, point: undefined } : arg
+    if (ref === undefined && point === undefined) return failure(`${name} names nothing: give a ref, the number of a mark, {point: [x, y, z]} or {ref, point}`)
+    if (ref !== undefined) {
+      const checked = checkRef(scene, layout, ref)
+      if (typeof checked === 'string') return failure(checked)
+    }
+    ends.push({ ...(ref === undefined ? {} : { ref }), ...(point ? { point } : {}), text: ref ?? vector(point!) })
+  }
+  return ends
 }
 
 export async function highlightTool(deps: ToolDeps, objectId: string, args: HighlightArgs): Promise<ToolResult> {
@@ -125,7 +186,7 @@ export async function highlightTool(deps: ToolDeps, objectId: string, args: High
  * is what the agent should know of how that went, in the words of the `kind`
  * of mark it is for.
  */
-async function anchorFor(
+export async function anchorFor(
   deps: ToolDeps,
   objectId: string,
   scene: Scene,
@@ -276,7 +337,11 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
 
   let mark: NewMark
   let said: string | undefined
-  if (args.kind === 'shape') {
+  if (args.kind === 'dimension') {
+    const made = await dimensionFor(deps, objectId, scene, revision, layout, args)
+    if ('content' in made) return made
+    mark = { ...base, ...made }
+  } else if (args.kind === 'shape') {
     const missing = (['shape', 'size', 'position', 'intent'] as const).filter((key) => args[key] === undefined)
     if (missing.length > 0) return failure(`a shape needs ${missing.join(', ')}: shape is one of ${SHAPES.join(', ')}; intent one of ${INTENTS.join(', ')}; size and position are [x, y, z] in mm`)
     const [x, y, z] = args.size!
@@ -332,7 +397,65 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
   // Placed on the last build that worked, which the agent may take for the model as it has just edited it.
   const why = behind(deps, objectId)
   const stale = why ? `, stale: ${why}, so the mark was placed on the parts of r${revision}; it is checked against the next build that works` : ''
-  return { content: [{ type: 'text', text: `placed in layout ${layout}: ${describeMark(added)}${said ? `\n${said}` : ''}\nrevision r${revision}${stale}` }] }
+  // A dimension says its value as that of a build: the one it was placed and measured on, whose ends were found a moment ago.
+  const line = added.kind === 'dimension' ? describeMark({ ...added, checkedRevision: revision }, { revision }) : describeMark(added)
+  return { content: [{ type: 'text', text: `placed in layout ${layout}: ${line}${said ? `\n${said}` : ''}\nrevision r${revision}${stale}` }] }
+}
+
+/**
+ * What a dimension of the agent's is made of: its kind of measurement and its
+ * ends, each tied to the geometry as a pin is, since that is how every build
+ * finds them again. An end is of what was named: a face or an edge, at the
+ * point given or at its middle, or a bare point. One whose point is on
+ * another face is refused, where a pin would be put on that face: the kernel
+ * would measure from something the agent did not name. A whole part is no
+ * end of a dimension: the next build would take it for the face under its
+ * point.
+ */
+async function dimensionFor(
+  deps: ToolDeps,
+  objectId: string,
+  scene: Scene,
+  revision: number,
+  layout: string,
+  args: AddMarkArgs
+): Promise<Pick<Extract<NewMark, { kind: 'dimension' }>, 'kind' | 'measure' | 'a' | 'b' | 'expected' | 'tolerance' | 'camera'> | ToolResult> {
+  const { measure, expected, tolerance } = args
+  if (measure === undefined || args.a === undefined) return failure(`a dimension needs measure, one of ${MEASURES.join(', ')}, and a, what it is of`)
+  const between = measure === 'distance' || measure === 'angle'
+  if (between && args.b === undefined) return failure(`a dimension of ${measure === 'angle' ? 'an angle' : 'a distance'} needs b, its other end`)
+  if (!between && args.b !== undefined) return failure(`a dimension of a ${measure} is of a alone: leave b out`)
+  // As the store asks of a change to them.
+  if (expected !== undefined && !Number.isFinite(expected)) return failure('expected is a number')
+  if (tolerance !== undefined && !(Number.isFinite(tolerance) && tolerance >= 0)) return failure('tolerance is a number, zero or more')
+
+  const ends = await endsOf(deps, objectId, scene, revision, layout, [['a', args.a], ...(args.b === undefined ? [] : ([['b', args.b]] as Array<['b', EndArg]>))])
+  if ('content' in ends) return ends
+  const anchors: Anchor[] = []
+  for (const end of ends) {
+    if (end.ref === undefined) {
+      anchors.push({ point: end.point! })
+      continue
+    }
+    const tied = await anchorFor(deps, objectId, scene, layout, end.ref, end.point, 'pin')
+    if ('content' in tied) return tied
+    if (tied.target === 'part') return failure(`a dimension is between faces, edges and points, and ${end.ref} is a whole part: name a face or an edge of it, or use measure`)
+    if (tied.anchor.ref !== end.ref) {
+      const at = end.point ? `the point ${vector(end.point)}` : `the ${tied.target === 'edge' ? 'middle' : 'centre'} of ${end.ref}`
+      return failure(`${at} is on ${tied.anchor.ref ?? 'no part'}, not on ${end.ref}: give a point on it, as {ref: "${end.ref}", point: [x, y, z]}`)
+    }
+    anchors.push(tied.anchor)
+  }
+  const [a, b] = anchors
+  return {
+    kind: 'dimension',
+    measure,
+    a,
+    ...(b ? { b } : {}),
+    ...(expected === undefined ? {} : { expected }),
+    ...(tolerance === undefined ? {} : { tolerance }),
+    camera: markCamera(scene, layout, a.point, a.normal)
+  }
 }
 
 export async function resolveMarkTool(deps: ToolDeps, objectId: string, args: ResolveMarkArgs): Promise<ToolResult> {

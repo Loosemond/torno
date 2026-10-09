@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Part, Scene } from '../../shared/scene'
-import type { Camera, HighlightRequest, LookRequest, LookResult, ShowRequest } from '../../shared/view'
+import type { Camera, HighlightRequest, LookRequest, LookResult, SectionDrawingRequest, ShowRequest } from '../../shared/view'
 import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, setPictures } from './agent'
 import { actions, sceneFileOf, store } from './store'
 
@@ -11,6 +11,7 @@ const CAMERA: Camera = { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], 
 let onShow: (m: { id: number; request: ShowRequest }) => void
 let onHighlight: (m: { id: number; request: HighlightRequest }) => void
 let onLook: (m: { id: number; request: LookRequest }) => void
+let onDrawSection: (m: { id: number; request: SectionDrawingRequest }) => void
 let replies: Array<{ id: number; result: unknown }>
 let tinted: string[][]
 let views: unknown[]
@@ -36,6 +37,8 @@ beforeEach(() => {
         onShow: (cb: typeof onShow) => ((onShow = cb), off),
         onHighlight: (cb: typeof onHighlight) => ((onHighlight = cb), off),
         onLook: (cb: typeof onLook) => ((onLook = cb), off),
+        onDrawSection: (cb: typeof onDrawSection) => ((onDrawSection = cb), off),
+        drawSectionReply: (id: number, result: unknown) => replies.push({ id, result }),
         lookReply: (id: number, result: unknown) => replies.push({ id, result }),
         showReply: (id: number, result: unknown) => replies.push({ id, result }),
         highlightReply: (id: number, result: unknown) => replies.push({ id, result })
@@ -255,6 +258,13 @@ describe('look, joined by the app', () => {
     onLook({ id: 5, request: {} })
     await settle()
     expect(replies).toEqual([4, 5].map((id) => ({ id, result: { error: 'no object open in the torno window' } })))
+  })
+
+  it('answers a request for the drawing of a section, whatever the window shows: here, that the plane cut nothing', async () => {
+    const section = { plane: { origin: [0, 0, 9], normal: [0, 0, 1], x: [1, 0, 0], y: [0, 1, 0] }, parts: [], bounds: null } satisfies SectionDrawingRequest['section']
+    onDrawSection({ id: 8, request: { objectId: 'another', layout: 'assembly', section, names: [], size: 1280 } })
+    await settle()
+    expect(replies).toEqual([{ id: 8, result: { error: 'the plane cuts nothing' } }])
   })
 
   it('says so when there is no viewport to draw it, and passes on why a picture could not be made', async () => {

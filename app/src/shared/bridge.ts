@@ -3,7 +3,7 @@ import type { Described, MeasureArgs, Measured } from './geometry'
 import type { Mark, MarkPatch, NewMark, Replacement } from './marks'
 import type { Scene } from './scene'
 import type { SceneFile } from './scenefile'
-import type { HighlightRequest, HighlightResult, LookRequest, LookResult, ShowRequest, ShowResult, ViewState } from './view'
+import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
 
 export interface TornoBridge {
@@ -31,6 +31,9 @@ export interface TornoBridge {
     showReply(id: number, result: ShowResult | { error: string }): void
     onHighlight(cb: (m: { id: number; request: HighlightRequest }) => void): () => void
     highlightReply(id: number, result: HighlightResult | { error: string }): void
+    /** The agent asked for what a plane cuts: main has the outlines from the kernel, and the window draws them. */
+    onDrawSection(cb: (m: { id: number; request: SectionDrawingRequest }) => void): () => void
+    drawSectionReply(id: number, result: SectionDrawingResult | { error: string }): void
   }
   /** The marks of an object, kept by main in <object>/.torno/marks.json. Calls reject with a plain message. */
   marks: {
