@@ -4,7 +4,7 @@ import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnch
 import { count, number } from '../../shared/format'
 import { actions, store, useStore } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
-import { editRegion } from '../tools/regionTool'
+import { editRegion } from '../tools/regionPainting'
 import { labelText } from '../viewport/marks/labels'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { ShapeFields } from './ShapeFields'

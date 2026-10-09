@@ -15,7 +15,8 @@ import type { ScanHit } from '../viewport/scans'
 import type { ViewportPointer } from '../viewport/Viewport'
 import { toolStore } from '../state/tools'
 import * as scanPaint from '../viewport/scanPaint'
-import { CLEARED, GROWING, IN_HAND, KEEPING, NOT_INDEXED, NOTHING_PAINTED, NO_SCAN, boxPlanes, clearRegion, connectRegion, editRegion, forgetPaintings, growRegion, keepRegion, regionTool, undoStroke, waiting } from './regionTool'
+import { CLEARED, GROWING, IN_HAND, KEEPING, NOT_INDEXED, NOTHING_PAINTED, NO_SCAN, clearRegion, editRegion, forgetPaintings, growRegion, keepRegion, undoStroke, waiting } from './regionPainting'
+import { boxPlanes, connectRegion, regionTool } from './regionTool'
 import { type ToolContext, routePointer } from './Tool'
 
 // The Region tool, with a viewport that has a real tree over a sheet of 30 × 30 vertices a millimetre apart

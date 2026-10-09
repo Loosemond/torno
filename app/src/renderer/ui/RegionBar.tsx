@@ -6,8 +6,8 @@ import { scanInHand, useAlign } from '../state/align'
 import { BOX_NOTE, THROUGH_NOTE, type RegionMode, nextLine, radiusOf, regionStore, useRegion, usualRadius } from '../state/region'
 import { useStore } from '../state/store'
 import { useTool } from '../state/tools'
-import { clearRegion, growRegion, keepRegion, undoStroke } from '../tools/regionTool'
-import { Field } from './AlignBar'
+import { clearRegion, growRegion, keepRegion, undoStroke } from '../tools/regionPainting'
+import { Field } from './Field'
 
 const MODES: { mode: RegionMode; label: string; title: string }[] = [
   { mode: 'brush', label: 'Brush', title: 'Drag over the scan to paint it where the pointer sees it. The brush is a ball round that point: beside a part it also takes scan the part hides, so hide the part or use a small brush there. Ctrl-drag takes paint off' },
