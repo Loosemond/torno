@@ -82,6 +82,11 @@ const cleared = new Map<string, Painting>()
 let drawn: { of: Painting; on: Painter; paint: { touched(): void } | null } | null = null
 /** Main has been asked to keep it. */
 let sending = false
+/** "Grow to flat" is under way. */
+let growing = false
+export const GROWING = 'Growing…'
+/** Once the window has drawn what was just said: before work that holds it. At once where there is no window to draw. */
+const drawnOnce = (): Promise<void> => new Promise((resolve) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => setTimeout(resolve, 0)) : resolve()))
 /** Where the pointer last was, for what is said from a key or a button. */
 let lastClient: [number, number] = [0, 0]
 /** The viewport that draws: the window's (`connectRegion`), or the one the last pointer event came from. */
@@ -180,19 +185,28 @@ function brushRadius(scan: string, viewport: Painter): number {
 }
 
 /** Grows what is painted over what lies flat with it: "Grow to flat". One step, taken back as one. Says when it stopped at the most it adds at once. */
-export function growRegion(): void {
+export async function growRegion(): Promise<void> {
   const mine = current()
   if (!mine || mine.set.count === 0) return void regionStore.setState({ notice: NOTHING_PAINTED })
   const found = painter?.scanTree?.(mine.scan)
-  if (!found || !painter) return
+  if (!found || !painter || growing) return
+  // On a large patch of a large scan this holds the window for a moment: it says so first, and is drawn saying it.
+  growing = true
+  regionStore.setState({ notice: GROWING, refused: null })
+  await drawnOnce()
+  growing = false
+  if (current() !== mine || painter === null) return void regionStore.setState({ notice: null })
   const scale = found.built.group.scale.x
-  const before = mine.set.bits.slice()
-  const grown = growFlat(found.tree, found.built.mesh.geometry, mine.set, { flat: GROW.flat / scale, degrees: GROW.degrees, reach: (GROW.reach * brushRadius(mine.scan, painter)) / scale, most: GROW.most })
   const step: Step = { added: [], removed: [] }
-  mine.set.forEach((t) => {
-    if ((before[t >> 3] & (1 << (t & 7))) !== 0) return
-    step.added.push(t)
-    mine.area += areaOf(found.built.mesh.geometry, t)
+  const grown = growFlat(found.tree, found.built.mesh.geometry, mine.set, {
+    flat: GROW.flat / scale,
+    degrees: GROW.degrees,
+    reach: (GROW.reach * brushRadius(mine.scan, painter)) / scale,
+    most: GROW.most,
+    each: (t) => {
+      step.added.push(t)
+      mine.area += areaOf(found.built.mesh.geometry, t)
+    }
   })
   if (step.added.length > 0) mine.steps.push(step)
   drawn?.paint?.touched()
@@ -545,7 +559,12 @@ export function connectRegion(viewport: Pick<Viewport, 'getCamera' | 'paintScan'
   }
   publish()
   const offStore = store.subscribe((s, prev) => {
-    if (s.scans === prev.scans && s.objectId === prev.objectId && s.scansKnown === prev.scansKnown) return
+    // Another workspace: what was painted was of the one that was left, whose objects may be named alike.
+    if (s.workspace?.root !== prev.workspace?.root) {
+      paintings.clear()
+      cleared.clear()
+    }
+    if (s.scans === prev.scans && s.objectId === prev.objectId && s.scansKnown === prev.scansKnown && s.workspace?.root === prev.workspace?.root) return
     // Another object, or its scans changed: the painting of the one on show is the one in hand, if it has one.
     if (s.objectId !== prev.objectId) regionStore.setState({ notice: null, refused: null })
     publish()
@@ -575,5 +594,6 @@ export function forgetPaintings(): void {
   paintings.clear()
   cleared.clear()
   sending = false
+  growing = false
   painter = null
 }

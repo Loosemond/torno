@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto'
 import type { Dirent } from 'node:fs'
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile, lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Scan } from '../../shared/scans'
 
@@ -64,7 +64,21 @@ export async function nextFolderId(dir: string): Promise<number> {
 }
 
 /** Has the meshes left out of what git is given: a mesh is tens of megabytes, and can be made again from its source. What else is in .torno/ is safe to commit. */
+/**
+ * Refuses to write through a link: `.torno`, `.torno/scans` and a scan's folder there are torno's own folders
+ * in the object's folder, and a link in their place (a cloned repository may hold one) would have torno write
+ * somewhere else. One that is not there yet is no link. Rejects with what is linked.
+ */
+export async function ownFolders(dir: string, id?: string): Promise<void> {
+  const folders = [join(dir, '.torno'), join(dir, '.torno', 'scans'), ...(id === undefined ? [] : [scanFolder(dir, id)])]
+  for (const folder of folders) {
+    const found = await lstat(folder).catch(() => null)
+    if (found?.isSymbolicLink()) throw new Error(`${folder} is a link: torno writes only inside the object's own folder, and wrote nothing`)
+  }
+}
+
 export async function ignoreMeshes(dir: string): Promise<void> {
+  await ownFolders(dir)
   await mkdir(join(dir, '.torno', 'scans'), { recursive: true })
   await writeFile(join(dir, '.torno', 'scans', '.gitignore'), 'mesh*.bin\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
     if (e.code !== 'EEXIST') throw e

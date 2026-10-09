@@ -54,7 +54,7 @@ export class ScanTints {
   /** While a picture is made, whether it draws the marks: the regions are tinted with them. Null on screen, where they always are. */
   show(pictured: { regions: boolean } | null = null): void {
     this.pictured = pictured
-    for (const { of, mesh } of this.kept.values()) mesh.visible = this.shows(of)
+    for (const { mesh } of this.kept.values()) mesh.visible = this.shows()
     if (this.painting) this.painting.mesh.visible = pictured === null
   }
 
@@ -76,7 +76,7 @@ export class ScanTints {
       if (now && now.bits === drawn.of.bits && now.scan === drawn.of.scan && this.builtOf(now.scan) === drawn.built) {
         drawn.of = now
         drawn.mesh.material.color.set(this.colours[now.author])
-        drawn.mesh.visible = this.shows(now)
+        drawn.mesh.visible = this.shows()
         continue
       }
       this.drop(drawn.mesh)
@@ -89,7 +89,7 @@ export class ScanTints {
       const index = tintIndex(new TriangleSet(built.triangles, region.bits), built.mesh.geometry.index!.array)
       const mesh = this.tint(built, new THREE.BufferAttribute(index, 1), this.colours[region.author], REGION_OPACITY)
       mesh.geometry.setDrawRange(0, index.length)
-      mesh.visible = this.shows(region)
+      mesh.visible = this.shows()
       this.kept.set(region.id, { of: region, built, mesh })
     }
     // The set in hand is drawn on the mesh its scan has: let go of, it is not drawn; come (back), it is, whenever
@@ -154,7 +154,7 @@ export class ScanTints {
     this.kept.clear()
   }
 
-  private shows(_region: KeptRegion): boolean {
+  private shows(): boolean {
     return this.pictured?.regions !== false
   }
 

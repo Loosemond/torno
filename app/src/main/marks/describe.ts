@@ -175,6 +175,8 @@ function region(mark: RegionMark, opts: { layout?: string; scans?: readonly Scan
   const layout = toldIn(mark, opts)
   const size = (area: number): string => `${counted(mark.triangles)} triangle${mark.triangles === 1 ? '' : 's'}, ≈ ${number(area)} mm²`
   const placed = placeOf(mark, layout, opts.scans)
+  // The scans could not be read: that is not "not aligned".
+  if (!placed && opts.scans === undefined) return `${head} (its scan could not be read just now, so where it stands is not told): ${size(mark.area)}, ${ownSize(mark.local.box, false)}, ${isFlat(mark.local.box) ? 'flat' : 'not flat'}`
   if (!placed) return `${head} (not aligned in ${layout}, so it has no place in the model’s frame): ${size(mark.area)}, ${ownSize(mark.local.box, false)}, ${isFlat(mark.local.box) ? 'flat' : 'not flat'}`
   const { there } = placed
   const within = scanSizes(there.bbox.max.map((c, axis) => c - there.bbox.min[axis]))

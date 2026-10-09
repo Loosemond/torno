@@ -669,12 +669,21 @@ describe('scans', () => {
     // One the last build was not checked against says so (R-check).
     const unchecked = scan('S1', { print: BY_PAIRS }, { checks: {} })
     expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [unchecked] }).text).toContain('Scans: S1 S1.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm) (not checked against r4).')
+    // Final fix wave (T1): a later scan's doubt is never among "and 1 more", and a long name does not cut it off.
+    const named = scan('S1', { print: BY_PAIRS }, { name: `${'garage '.repeat(60)}.glb` })
+    const second = { ...stale, id: 'S2', name: 'S2.glb' }
+    const two = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [named, second] }).text.split('\n').find((l) => l.startsWith('Scans:'))!
+    expect(two.length).toBeLessThanOrEqual(600)
+    expect(two).toMatch(/; S2 \(in doubt\)\.$/)
+    expect(two).not.toContain('more')
+    const notChecked = { ...unchecked, id: 'S3', name: 'S3.glb' }
+    const three = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [named, second, notChecked, scan('S4', { print: BY_PAIRS })] }).text.split('\n').find((l) => l.startsWith('Scans:'))!
+    expect(three).toMatch(/; S2 \(in doubt\); S3 \(not checked\) and 1 more\.$/)
     const many = Array.from({ length: 30 }, (_, n) => scan(`S${n + 1}`))
     const line = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [], { scans: many }).text.split('\n').find((l) => l.startsWith('Scans:'))!
-    expect(line.length).toBeLessThanOrEqual(300)
-    expect(line).toMatch(/ and \d+ more\.$/)
+    expect(line.length).toBeLessThanOrEqual(600)
     const long = scan('S1', { print: BY_PAIRS }, { name: 'x'.repeat(400) })
-    expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [], { scans: [long] }).text.split('\n')[1].length).toBeLessThanOrEqual(300)
+    expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [], { scans: [long] }).text.split('\n')[1].length).toBeLessThanOrEqual(600)
   })
 
   it('counts the line in what the marks have room for', () => {

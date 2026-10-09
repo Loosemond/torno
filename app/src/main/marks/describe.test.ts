@@ -311,7 +311,7 @@ describe('a region of a scan', () => {
   it('tells a region where its scan is aligned, each number as about that, and says when that is nowhere', () => {
     expect(describeMark(REGION, { scans: [scan('S1', { print: at([100, 0, 5]) })] })).toBe('M7 region on scan S1: 4,812 triangles, ≈ 31000 mm², centre ≈ (85, -15, 5), ≈ 10 × 10 × 1 mm, within a box of ≈ 10 × 10 × 1 mm, flat about a plane with normal ≈ (0, 0, 1): "wiring loom"')
     expect(describeMark(REGION, { scans: [scan('S1')] })).toBe('M7 region on scan S1 (not aligned in print, so it has no place in the model’s frame): 4,812 triangles, ≈ 31000 mm², ≈ 10 × 10 × 1 mm, flat: "wiring loom"')
-    expect(describeMark(REGION)).toBe('M7 region on scan S1 (not aligned in print, so it has no place in the model’s frame): 4,812 triangles, ≈ 31000 mm², ≈ 10 × 10 × 1 mm, flat: "wiring loom"')
+    expect(describeMark(REGION)).toBe('M7 region on scan S1 (its scan could not be read just now, so where it stands is not told): 4,812 triangles, ≈ 31000 mm², ≈ 10 × 10 × 1 mm, flat: "wiring loom"')
     // Nothing has checked a region against a build, and nothing needs to. (Its scan's alignment is another matter: here it was checked against r12 and holds.)
     expect(describeMark(REGION, { revision: 12, scans: [scan('S1', { print: at([100, 0, 5]) }, held('print'))] })).not.toContain('not checked')
   })
@@ -364,6 +364,6 @@ describe('a region of a scan', () => {
     const data = markData(orphaned, 12, [scan('S1', { print: at([100, 0, 5]) })]) as Record<string, unknown>
     for (const key of ['triangles', 'area', 'centroid', 'bbox', 'size', 'local', 'mesh', 'mask']) expect(data).not.toHaveProperty(key)
     expect(data).toMatchObject({ id: 'M7', anchorState: 'orphaned', lost: 'the mesh of its scan is no longer the one it was painted on: the user paints it again' })
-    expect(describeMark({ ...REGION, author: 'agent', status: 'resolved' }, { tag: 'changed' })).toMatch(/^\(yours, changed\) M7 region on scan S1 \(not aligned in print/)
+    expect(describeMark({ ...REGION, author: 'agent', status: 'resolved' }, { tag: 'changed' })).toMatch(/^\(yours, changed\) M7 region on scan S1 \(its scan could not be read just now/)
   })
 })

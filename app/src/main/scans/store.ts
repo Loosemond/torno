@@ -12,7 +12,7 @@ import { writeFileAtomic } from '../atomic'
 import { anchoredPoints } from './alignCheck'
 import { loadScansFile, sanitiseAlignment, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
-import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, removeMesh, scanFolder, sweep } from './meshfiles'
+import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, ownFolders, removeMesh, scanFolder, sweep } from './meshfiles'
 
 interface ScanEvents {
   /** The scans of an object changed, or what was found of them: the whole list, as it now is. */
@@ -166,6 +166,7 @@ export class ScanStore {
     let committed = false
     try {
       await ignoreMeshes(dir)
+      await ownFolders(dir, id)
       // A folder of that name is another scan's, whatever the file says: it is not written in, and not deleted below.
       await mkdir(folder)
       made = true
@@ -260,6 +261,7 @@ export class ScanStore {
     let committed = false
     try {
       await ignoreMeshes(dir)
+      await ownFolders(dir, id)
       await copyFile(join(folder, old), join(folder, fresh))
       if (epoch !== this.epoch) throw new Error(LEFT)
       const reply = await importer.convert(join(folder, fresh), from, to)
@@ -332,6 +334,7 @@ export class ScanStore {
     let committed = false
     try {
       await ignoreMeshes(dir)
+      await ownFolders(dir, id)
       // The scan's own folder, there or not: its id is in the file.
       await mkdir(folder, { recursive: true })
       const mesh = (fresh = await freshMeshName(folder, this.deps.meshNumber))
@@ -453,6 +456,8 @@ export class ScanStore {
       const kept = reckoned({ ...candidate, ...(fitRms === undefined ? {} : { fitRms }) })
       // Moved by hand with the model's points where they were: what the person confirmed of those is still so.
       if (was?.confirmed && byHand && isDeepStrictEqual(anchoredPoints(was), anchoredPoints(kept))) kept.confirmed = structuredClone(was.confirmed)
+      // Moved by hand with the pairs it had: it is still the alignment that was made before the scan was read again from a changed source, and still says so.
+      if (was?.sourceChanged && byHand && samePairs(was, candidate)) kept.sourceChanged = true
       if (kept.scaled && accepted.scaled !== true) throw new Error(`this alignment changes the size of the scan (× ${number(kept.transform.s)}): it is kept only when that scale was chosen`)
       if (kept.rough !== undefined && accepted.rough !== true) throw new Error(`this alignment is rough (${kept.rough}): it is kept only once that is accepted`)
       kept.before = was ? withoutBefore(was) : null
@@ -606,6 +611,7 @@ export class ScanStore {
       this.turn(place, async (file, dir) => {
         const scan = file.scans[indexOf(file, id)]
         const path = maskPath(dir, scan.id, stem)
+        await ownFolders(dir, scan.id)
         const { triangles } = scan.imported
         const mark = stem.split('.')[0]
         if (!(bits instanceof Uint8Array) || bits.length !== bytesFor(triangles)) throw new Error(`${mark} has ${bits?.length ?? 0} bytes of triangles, and ${scan.id} has ${triangles} triangles: ${bytesFor(triangles)} bytes`)

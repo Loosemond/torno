@@ -1195,10 +1195,14 @@ describe('scans in scene, look and show', () => {
     expect(textOf(await lookTool(gone, 'bracket', { scans: ['S2'] }))).not.toContain('not drawn')
   })
 
-  it('scene names the scans, each with whether it is aligned in the layout it answers for, and where to ask how', () => {
+  it('scene names the scans, each with whether it is aligned in the layout it answers for, and where to ask how', async () => {
     const scene = JSON.parse(textOf(sceneTool(scanned(), 'bracket', [], SCANS)))
-    expect(scene.scans).toEqual([{ id: 'S1', name: 'S1.glb', triangles: 722, aligned: true }, { id: 'S2', name: 'S2.glb', triangles: 722, aligned: false }])
-    expect(scene.note).toBe('Whether a scan is aligned is said for layout assembly: call scans for how each is aligned.')
+    // Final fix wave (T2): how the alignment stands, in a word, not a bare yes: one placed by hand and never checked is not "aligned: true".
+    expect(scene.scans).toEqual([{ id: 'S1', name: 'S1.glb', triangles: 722, alignment: 'not checked', basis: 'hand' }, { id: 'S2', name: 'S2.glb', triangles: 722, alignment: 'not aligned' }])
+    expect(scene.note).toBe('How each scan is aligned is said for layout assembly, in a word (aligned, rough, in doubt, not checked, not aligned): call scans for the whole of it.')
+    // Final fix wave (T5): a layout the build has not is refused, not answered in another.
+    expect(await said(marksTool(scanned(), 'bracket', { layout: 'asembly' }))).toBe("no layout 'asembly'; layouts: assembly, print")
+    expect(await said(describeTool(scanned(), 'bracket', { ref: 'M1', layout: 'asembly' }))).toBe("no layout 'asembly'; layouts: assembly, print")
     const none = JSON.parse(textOf(sceneTool(scanned(), 'bracket', [], [])))
     expect(none.scans).toBeUndefined()
     expect(none.note).toBeUndefined()

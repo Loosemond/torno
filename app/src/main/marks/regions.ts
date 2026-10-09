@@ -194,7 +194,11 @@ export async function tendRegions(deps: RegionDeps, objectId: string): Promise<v
   for (const scan of scans) {
     const named = new Set(regions.filter((region) => region.scan === scan.id).map(maskStem))
     for (const stem of await deps.scans.masks(objectId, scan.id).catch(() => [] as string[])) {
-      if (!named.has(stem) && !writing.has(`${objectId} ${scan.id} ${stem}`)) await deps.scans.removeMask(objectId, scan.id, stem).catch(() => {})
+      if (named.has(stem) || writing.has(`${objectId} ${scan.id} ${stem}`)) continue
+      // A region may have been kept since the marks were read: they are read again before anything of it is deleted.
+      const now = await deps.marks.list(objectId).catch(() => null)
+      if (!now || now.some((mark) => mark.kind === 'region' && mark.scan === scan.id && maskStem(mark) === stem)) continue
+      await deps.scans.removeMask(objectId, scan.id, stem).catch(() => {})
     }
   }
 }

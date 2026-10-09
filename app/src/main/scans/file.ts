@@ -142,7 +142,8 @@ export function sanitiseScan(value: unknown): Scan | null {
   const alignments: Array<[string, ScanAlignment]> = []
   for (const [layout, raw] of Object.entries(isRecord(value.alignments) ? value.alignments : {})) {
     const alignment = sanitiseAlignment(raw)
-    if (layout !== '' && alignment) alignments.push([layout, alignment])
+    // A layout is a name of the model's: one line, and no longer than any tool would say whole.
+    if (isName(layout, MAX_LAYOUT_NAME) && alignment) alignments.push([layout, alignment])
   }
   // By `fromEntries`: a layout may have any name, and is a key of its own whatever it is.
   return { id: value.id, name: scanName(value.name) || value.id, source, imported, alignments: Object.fromEntries(alignments) }
@@ -153,7 +154,15 @@ export function scanName(name: string): string {
   return name.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ').trim().slice(0, MAX_SCAN_NAME).trim()
 }
 
+/** The longest name of a layout an alignment is kept for, and the longest path of a source. */
+export const MAX_LAYOUT_NAME = 200
+export const MAX_SOURCE_PATH = 4096
+/** One line of at most so many characters: what is read from a file reaches the agent, and is not taken on trust. */
+const isName = (text: string, most: number): boolean => text !== '' && text.length <= most && !/[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(text)
+
 function sourceOf(value: unknown): ScanSource | null {
+  // A path on one line, of a length a path has. (One that is not whole is kept, and refused when it is to be read again.)
+  if (isRecord(value) && typeof value.path === 'string' && !isName(value.path, MAX_SOURCE_PATH)) return null
   if (!isRecord(value) || typeof value.path !== 'string' || value.path === '' || !isCount(value.bytes) || !isNumber(value.mtimeMs) || typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256)) return null
   return { path: value.path, bytes: value.bytes, mtimeMs: value.mtimeMs, sha256: value.sha256 }
 }

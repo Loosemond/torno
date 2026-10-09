@@ -122,15 +122,15 @@ export function gatherBox(tree: MeshBVH, _geometry: THREE.BufferGeometry, planes
 /**
  * Grows a set over what is flat with it: triangles within `reach` of one already in it, no further than
  * `flat` from the set's best-fit plane and turned no more than `degrees` from it, either way round. At most
- * `most` are added; returns how many were. The plane is that of the set as it was given, and does not follow
- * what is added.
+ * `most` are added; returns how many were, and `each` is told of every one as it is. The plane is that of the
+ * set as it was given, and does not follow what is added.
  *
  * It looks round one triangle of every cell of a grid a quarter of `reach` wide that the set comes to hold, not
  * round every triangle: what is within 0.57 of `reach` of any triangle in the set is always looked at, and
  * what is within `reach` of one usually. That is what keeps a large patch to a moment.
  */
-export function growFlat(tree: MeshBVH, geometry: THREE.BufferGeometry, set: TriangleSet, opts: { flat?: number; degrees?: number; reach?: number; most?: number } = {}): number {
-  const { flat = 2, degrees = 15, reach = 3, most = 200_000 } = opts
+export function growFlat(tree: MeshBVH, geometry: THREE.BufferGeometry, set: TriangleSet, opts: { flat?: number; degrees?: number; reach?: number; most?: number; each?: (triangle: number) => void } = {}): number {
+  const { flat = 2, degrees = 15, reach = 3, most = 200_000, each } = opts
   const position = geometry.getAttribute('position').array as Float32Array
   const index = geometry.index!.array
   const stats = regionStats({ vertices: position, triangles: index as Uint32Array }, set.bits)
@@ -144,7 +144,13 @@ export function growFlat(tree: MeshBVH, geometry: THREE.BufferGeometry, set: Tri
     return into.set((position[a] + position[b] + position[c]) / 3, (position[a + 1] + position[b + 1] + position[c + 1]) / 3, (position[a + 2] + position[b + 2] + position[c + 2]) / 3)
   }
   const cell = reach / 4
-  const looked = new Set<string>()
+  // A cell by one number while it is within 65,536 cells of the origin each way, which every scan torno reads is: no text is made for each of a hundred thousand triangles.
+  const looked = new Set<number | string>()
+  const SPAN = 131072
+  const cellOf = (x: number, y: number, z: number): number | string => {
+    const [i, j, k] = [Math.floor(x / cell) + SPAN / 2, Math.floor(y / cell) + SPAN / 2, Math.floor(z / cell) + SPAN / 2]
+    return i >= 0 && i < SPAN && j >= 0 && j < SPAN && k >= 0 && k < SPAN ? (i * SPAN + j) * SPAN + k : `${i},${j},${k}`
+  }
   const queue: number[] = []
   set.forEach((t) => queue.push(t))
   const at = new THREE.Vector3()
@@ -152,7 +158,7 @@ export function growFlat(tree: MeshBVH, geometry: THREE.BufferGeometry, set: Tri
   let added = 0
   for (let n = 0; n < queue.length && added < most; n++) {
     centroid(queue[n], at)
-    const key = `${Math.floor(at.x / cell)},${Math.floor(at.y / cell)},${Math.floor(at.z / cell)}`
+    const key = cellOf(at.x, at.y, at.z)
     if (looked.has(key)) continue
     looked.add(key)
     round.set(at, reach)
@@ -165,6 +171,7 @@ export function growFlat(tree: MeshBVH, geometry: THREE.BufferGeometry, set: Tri
         if (Math.abs(triangle.getNormal(normal).dot(along)) < least) return false
         set.add(t)
         queue.push(t)
+        each?.(t)
         added += 1
         return added >= most
       }

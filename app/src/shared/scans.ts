@@ -125,6 +125,8 @@ export interface ScanView { visible?: boolean; opacity?: number; colour?: 'own' 
 export interface ScanMesh { vertices: Float32Array; colours: Uint8Array | null; triangles: Uint32Array; bbox: { min: Vec3; max: Vec3 } }
 
 // The layout of a `mesh.bin` and of a `.mask`: `kernel/src/torno_kernel/scanfile.py` writes and reads the same.
+/** No coordinate of a scan is past this, in mm: a thousand kilometres. */
+const MAX_SCAN_COORDINATE = 1e9
 const MESH_MAGIC = 'TORNOSCN'
 const MASK_MAGIC = 'TORNOMSK'
 const VERSION = 1
@@ -151,7 +153,10 @@ export function parseScanMesh(blob: ArrayBuffer): ScanMesh {
   for (let n = 0; n < triangles.length; n++) if (triangles[n] > highest) highest = triangles[n]
   if (highest >= v) throw new RangeError(`a triangle names vertex ${highest}, and there are ${v}`)
   const corner = (at: number): Vec3 => [header.getFloat32(at, true), header.getFloat32(at + 4, true), header.getFloat32(at + 8, true)]
-  return { vertices, colours, triangles, bbox: { min: corner(24), max: corner(36) } }
+  // The box is taken on the file's word (no pass over the vertices): it must at least be one, of a size a scan can have.
+  const bbox = { min: corner(24), max: corner(36) }
+  if (![...bbox.min, ...bbox.max].every((c) => Number.isFinite(c) && Math.abs(c) <= MAX_SCAN_COORDINATE) || bbox.min.some((c, axis) => c > bbox.max[axis])) throw new RangeError('the scan is damaged: its header gives no box')
+  return { vertices, colours, triangles, bbox }
 }
 
 /** The bytes of a `.mask` for a bitset over `triangles` triangles. Throws a RangeError for a bitset of another length. */
@@ -274,11 +279,6 @@ export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unche
     ...(alignment.confirmed && (stale === null || waiting) ? [`confirmed by the user${alignment.confirmed.revision === undefined ? '' : ` on r${alignment.confirmed.revision}`}`] : [])
   ]
   return { aligned: true, basis: basisText(alignment), rough: alignment.rough ?? null, stale, unchecked, waiting, failed: failure !== undefined, note: notes.length > 0 ? notes.join('; ') : null }
-}
-
-/** Why the alignment of a scan in a layout may no longer hold (`standingOf`); null when it holds as far as is known, or the scan is not aligned there. */
-export function doubtOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unchecked'>, layout: string, revision?: number): string | null {
-  return standingOf(scan, layout, revision).stale
 }
 
 /**

@@ -859,8 +859,8 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
   const listed = JSON.parse((await call(hollow, 'scans')).text)
   expect(listed.scans).toMatchObject([{ id: 'S1', name: 'sheet.stl', triangles: 722, mesh: 'ok', source: { state: 'present' }, alignment: { state: 'not aligned' }, alignedIn: [] }])
   expect(listed.reading).toMatch(/^S1 sheet\.stl: 722 triangles, 19 × 19 × 0 mm, from mm, Z up \(assumed\), not aligned in assembly, /)
-  expect(JSON.parse((await call(hollow, 'scene')).text)).toMatchObject({ scans: [{ id: 'S1', name: 'sheet.stl', triangles: 722, aligned: false }], note: 'Whether a scan is aligned is said for layout assembly: call scans for how each is aligned.' })
-  const NOT_ALIGNED = 'S1 is not aligned in layout assembly (it is aligned in no layout), so nothing is checked against it there: the user aligns it with the Align tool'
+  expect(JSON.parse((await call(hollow, 'scene')).text)).toMatchObject({ scans: [{ id: 'S1', name: 'sheet.stl', triangles: 722, alignment: 'not aligned' }], note: 'How each scan is aligned is said for layout assembly, in a word (aligned, rough, in doubt, not checked, not aligned): call scans for the whole of it.' })
+  const NOT_ALIGNED = 'S1 is not aligned in layout assembly (it is aligned in no layout), so nothing is checked against it there: the user aligns it in assembly with the Align tool (an alignment is of one layout)'
   for (const [name, args] of [['scan_clash', { part: 'tub' }], ['scan_deviation', { part: 'tub' }], ['measure', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'lid' }], ['section', { plane: { axis: 'x', at: 0.25 }, scan: 'S1' }], ['look', { scanColour: { part: 'tub' } }]] as const) {
     expect(await call(hollow, name, args), name).toMatchObject({ isError: true, text: NOT_ALIGNED })
   }
@@ -912,14 +912,18 @@ test('look draws the scans or leaves them out, and colours one by its distance t
   // From below, with the tub left out: the sheet is seen in front of the lid, and every point of it is in the tub's floor.
   const inside = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'tub' } })
   expect(inside.isError).toBe(false)
-  expect(inside.text).toContain(` · scans S1 (${BASIS}) · scan S1 coloured at the scan's points by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A) · `)
+  expect(inside.text).toContain(` · scans S1 (${BASIS}) · scan S1 coloured by the distance of its points to tub: 0 to 20 mm, inside the part marked and drawn over it (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A; the colours are of the scan's points, shaded, and approximate; beyond 20 mm the scan is seen through) · `)
   expect(near((await pixelAt(inside.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.inside)).toBe(true)
-  // Against the lid it is 37 mm away: beyond 20 mm it has the far colour, and within 74 mm it is half way along the ramp.
+  // Against the lid it is 37 mm away. Final fix wave (F4): the colours are shaded, so a pixel is about its swatch, not on it;
+  // beyond 20 mm the scan is seen through (the lid behind it shows), and within 74 mm it is half way along the ramp: more purple than beyond it.
   const beyond = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'lid' } })
-  expect(near((await pixelAt(beyond.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.far)).toBe(true)
+  const far = (await pixelAt(beyond.content[0].data!, 0.5, 0.5)).rgb
+  expect(near(far, DEVIATION.inside)).toBe(false)
   const half = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'lid', range: 74 } })
   expect(half.text).toContain('0 to 74 mm')
-  expect(near((await pixelAt(half.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.near.map((c, i) => Math.round((c + DEVIATION.far[i]) / 2)))).toBe(true)
+  const ramp = (await pixelAt(half.content[0].data!, 0.5, 0.5)).rgb
+  // The ramp's own hue: less green against red and blue than the grey beyond it.
+  expect(ramp[1] - (ramp[0] + ramp[2]) / 2).toBeLessThan(far[1] - (far[0] + far[2]) / 2 - 8)
   // The scan is as it was on screen afterwards: in its own look, and where it stood.
   const after = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'] })
   expect(after.text).not.toContain('coloured')

@@ -1,13 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Reimported, ScanInfo } from '../../shared/scans'
 import { actions, store } from '../state/store'
-import { droppedScan, importScan, reimportScan, scanDropped } from './scanDrop'
-
-it('takes the first dropped file that is a scan, whatever the case of its ending', () => {
-  expect(droppedScan([{ name: 'notes.txt' }, { name: 'Micra.GLB' }, { name: 'b.stl' }])).toBe(1)
-  expect(droppedScan([{ name: 'part.3mf' }, { name: 'stl' }])).toBe(-1)
-  expect(droppedScan([])).toBe(-1)
-})
+import { importScan, reimportScan, scanDropped } from './scanDrop'
 
 // Fix round 1 (I3): what comes of a drop is worked out in one place, and what is refused is for the panel to say.
 describe('what comes of a drop on the view', () => {

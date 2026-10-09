@@ -119,6 +119,8 @@ export class Viewport {
   )
   /** Whether the last `pick` ended on the cut face of a solid. */
   private onCut = false
+  /** The scan that hid a part from the last pick. */
+  private behindScan: string | null = null
   /** The scan the gizmo holds while it is moved by hand, and the points of an alignment being made. */
   private readonly scanEdit = new ScanEdit(this.scans)
   private readonly marks = new MarkLayer(markColours(LIGHT_THEME), this.scans)
@@ -193,6 +195,7 @@ export class Viewport {
       canvasPoint: (x, y) => this.canvasPoint(x, y),
       pick: (x, y) => this.pick(x, y),
       pickedCut: () => this.onCut,
+      pickedBehindScan: () => this.behindScan,
       syncMatrices: () => this.syncMatrices(),
       view: () => this.getCamera(),
       setView: (c) => {
@@ -578,7 +581,10 @@ export class Viewport {
     const picked = pickUnder(parts, this.camera, at.ndc, at.size, { ...opts, cut: keeps && { keeps } })
     const ray = rayOf(pointerRay(this.camera, at.ndc))
     const reach = picked.hit?.distance ?? (picked.cut && keeps ? ray.distanceToPlane(keeps) : null)
-    const hidden = reach !== null && !opts?.partsOnly && this.scans.blocks(ray, keeps, reach, (p) => mmPerPx(this.camera, new THREE.Vector3().fromArray(p), at.size.height))
+    const blocker = reach !== null && !opts?.partsOnly ? this.scans.blocker(ray, keeps, reach, (p) => mmPerPx(this.camera, new THREE.Vector3().fromArray(p), at.size.height)) : null
+    const hidden = blocker !== null
+    // A part is there, and a scan drawn solid is in front of it: said at the pointer, or nothing would say why the part cannot be picked.
+    this.behindScan = picked.hit ? blocker : null
     this.onCut = picked.cut && !hidden
     return hidden ? null : picked.hit
   }

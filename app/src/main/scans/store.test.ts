@@ -387,6 +387,11 @@ describe('ScanStore', () => {
     // It is in the file: it is still said after torno was closed.
     expect(file().scans[0].alignments.print.sourceChanged).toBe(true)
     expect((await store().list('bracket'))[0].alignments.assembly.sourceChanged).toBe(true)
+    // Final fix wave (S2): moved by hand with the pairs it had, it is the same alignment, of the same doubt.
+    const pairsOf = again.scan.alignments.assembly
+    const nudged = await later.align('bracket', 'S1', 'assembly', { ...pairsOf, transform: { ...pairsOf.transform, t: [9, 9, 9] }, steps: [...pairsOf.steps, 'nudge'] }, { rough: true, scaled: true })
+    expect(nudged.alignments.assembly.sourceChanged).toBe(true)
+    expect(file().scans[0].alignments.assembly.sourceChanged).toBe(true)
     // Aligned again in one layout, said to hold in the other.
     expect((await later.align('bracket', 'S1', 'assembly', FITTED)).alignments.assembly).not.toHaveProperty('sourceChanged')
     const held = await later.alignmentHolds('bracket', 'S1', 'print', { revision: 5, frame: { base: [0, 0, 0] }, held: [] })
@@ -1073,6 +1078,47 @@ describe('the masks of regions', () => {
     for (const t of triangles) made[t >> 3] |= 1 << (t & 7)
     return made
   }
+
+  // Final fix wave (S3): a link in the place of one of torno's own folders is not written through.
+  it('writes nothing through a link in the place of .torno/scans or of a scan\'s folder', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const elsewhere = join(root, 'elsewhere')
+    mkdirSync(elsewhere)
+    renameSync(folder(), join(root, 'S1-kept'))
+    symlinkSync(elsewhere, folder())
+    await expect(scans.writeMask('bracket', 'S1', 'M7', bits(0))).rejects.toThrow(`${folder()} is a link: torno writes only inside the object's own folder, and wrote nothing`)
+    await expect(scans.reimport('bracket', 'S1')).rejects.toThrow('is a link')
+    await expect(scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })).rejects.toThrow()
+    expect(readdirSync(elsewhere)).toEqual([])
+    // And the folder of all the scans.
+    const other = join(root, 'other')
+    mkdirSync(join(other, '.torno'), { recursive: true })
+    symlinkSync(elsewhere, join(other, '.torno', 'scans'))
+    const linked = new ScanStore({ dirOf: () => other, importer: () => importer })
+    await expect(linked.import('other', source)).rejects.toThrow('is a link')
+    expect(readdirSync(elsewhere)).toEqual([])
+  })
+
+  // Final fix wave (S4): what scans.json says reaches the agent, and is bounded when it is read.
+  it('reads no alignment under a layout name that is no name, and no scan whose source is no path on one line', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
+    const kept = file()
+    const alignment = kept.scans[0].alignments.assembly
+    kept.scans[0].alignments = { assembly: alignment, ['x'.repeat(201)]: alignment, 'two\nlines': alignment }
+    writeFileSync(join(dir, '.torno', 'scans.json'), JSON.stringify(kept))
+    scans.forget()
+    expect(Object.keys((await scans.list('bracket'))[0].alignments)).toEqual(['assembly'])
+    for (const path of [`/dl/${'x'.repeat(5000)}.stl`, '/dl/two\nlines.stl']) {
+      kept.scans[0].source.path = path
+      writeFileSync(join(dir, '.torno', 'scans.json'), JSON.stringify(kept))
+      scans.forget()
+      const listed = await scans.list('bracket').catch(() => [])
+      expect(listed.map((scan) => scan.source.path)).not.toContain(path)
+    }
+  })
 
   it('writes a region as <scan>/<mark>.mask, the header and a bit a triangle, and reads it back', async () => {
     const scans = store()

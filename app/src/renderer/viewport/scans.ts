@@ -249,8 +249,13 @@ export class ScanLayer {
    * by more than it is drawn pushed back (`drawnBehind`). `mmPerPixel` is what a pixel is at a point of the object.
    */
   blocks(ray: THREE.Ray, keeps: THREE.Plane | null, reach: number, mmPerPixel: (at: Vec3) => number): boolean {
+    return this.blocker(ray, keeps, reach, mmPerPixel) !== null
+  }
+
+  /** The scan that `blocks`, by its id; null when none does. */
+  blocker(ray: THREE.Ray, keeps: THREE.Plane | null, reach: number, mmPerPixel: (at: Vec3) => number): string | null {
     const hit = this.pick(ray, keeps, reach, true)
-    return hit !== null && hit.distance < reach - drawnBehind(hit.normal, ray.direction.toArray(), mmPerPixel(hit.point))
+    return hit !== null && hit.distance < reach - drawnBehind(hit.normal, ray.direction.toArray(), mmPerPixel(hit.point)) ? hit.scan : null
   }
 
   /** Draws a scan somewhere else for now (a fit not yet applied, a drag); null draws it where main has it. Never in a picture. */

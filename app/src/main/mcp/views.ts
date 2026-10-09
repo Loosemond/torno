@@ -10,6 +10,7 @@ const saves = new Map<string, Promise<unknown>>()
 /**
  * Keeps a picture the agent was given as `<dir>/.torno/views/<n>.png`, numbered
  * on from the last, and removes all but the newest 20. Returns the file's path.
+ * The folder ignores itself for git (a `.gitignore` of `*`, written once and never again: the person may change it).
  */
 export function saveView(dir: string, png: Uint8Array): Promise<string> {
   const folder = join(dir, '.torno', 'views')
@@ -17,6 +18,10 @@ export function saveView(dir: string, png: Uint8Array): Promise<string> {
     .catch(() => {})
     .then(async () => {
       await mkdir(folder, { recursive: true })
+      // A picture may show the real world (a scan of a car, with its number plate): none is committed with `.torno/` unless the person says so.
+      await writeFile(join(folder, '.gitignore'), '*\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
+        if (e.code !== 'EEXIST') throw e
+      })
       const numbers = (await readdir(folder))
         .map((name) => NUMBERED.exec(name))
         .filter((match) => match !== null)

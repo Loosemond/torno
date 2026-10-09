@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -7,6 +7,7 @@ import { saveView } from './views'
 let dir: string
 const numbers = () =>
   readdirSync(join(dir, '.torno', 'views'))
+    .filter((name) => name.endsWith('.png'))
     .map((name) => Number(name.replace('.png', '')))
     .sort((a, b) => a - b)
 
@@ -20,7 +21,12 @@ describe('saveView', () => {
     expect(await saveView(dir, new Uint8Array([1, 2, 3]))).toBe(join(dir, '.torno', 'views', '1.png'))
     expect(await saveView(dir, new Uint8Array([4]))).toBe(join(dir, '.torno', 'views', '2.png'))
     expect([...readFileSync(join(dir, '.torno', 'views', '1.png'))]).toEqual([1, 2, 3])
-    expect(readdirSync(join(dir, '.torno', 'views'))).toEqual(['1.png', '2.png'])
+    expect(readdirSync(join(dir, '.torno', 'views'))).toEqual(['.gitignore', '1.png', '2.png'])
+    // Final fix wave: pictures may show the real world, and are not committed with .torno/ unasked. What the person makes of the file stays.
+    expect(readFileSync(join(dir, '.torno', 'views', '.gitignore'), 'utf8')).toBe('*\n')
+    writeFileSync(join(dir, '.torno', 'views', '.gitignore'), '# mine\n')
+    await saveView(dir, new Uint8Array([5]))
+    expect(readFileSync(join(dir, '.torno', 'views', '.gitignore'), 'utf8')).toBe('# mine\n')
   })
 
   it('keeps the newest 20', async () => {

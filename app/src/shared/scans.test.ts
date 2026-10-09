@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { box, meshBin } from '../test/scanFixtures'
-import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, basisOf, basisText, doubtOf, importText, standingOf, maskBits, maskFile, parseScanMesh, staleText } from './scans'
+import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, basisOf, basisText, importText, standingOf, maskBits, maskFile, parseScanMesh, staleText } from './scans'
 
 describe('parseScanMesh', () => {
   it('gives views of the vertices, the colours and the triangles of a mesh.bin', () => {
@@ -24,6 +24,12 @@ describe('parseScanMesh', () => {
     const wild = good.slice(0)
     new Uint32Array(wild, 64 + 96, 1)[0] = 8
     expect(() => parseScanMesh(wild)).toThrow(/a triangle names vertex 8, and there are 8/)
+    // Final fix wave: the box in the header is what the scan is framed, clipped and reached by. One that is no box is not believed.
+    for (const [at, value] of [[24, Number.NaN], [36, Number.POSITIVE_INFINITY], [24, 1e30]] as const) {
+      const boxed = good.slice(0)
+      new DataView(boxed).setFloat32(at, value, true)
+      expect(() => parseScanMesh(boxed)).toThrow(/its header gives no box/)
+    }
   })
 })
 
@@ -70,8 +76,8 @@ describe('what is said of a scan', () => {
     expect(staleText({ revision: 4, of: 0, off: 0, worst: 0, moved: ['lid'] }, { sourceChanged: true })).toBe('the scan was imported again from a source that had changed since it was aligned, and torno has moved lid for display since it was aligned: check the alignment')
     expect(staleText(undefined, {})).toBeNull()
     const scan = { alignments: { print: { ...aligned, sourceChanged: true as const } }, checks: {} }
-    expect(doubtOf(scan, 'print')).toBe('the scan was imported again from a source that had changed since it was aligned: check the alignment')
-    expect(doubtOf(scan, 'assembly')).toBeNull()
+    expect(standingOf(scan, 'print').stale).toBe('the scan was imported again from a source that had changed since it was aligned: check the alignment')
+    expect(standingOf(scan, 'assembly').stale).toBeNull()
   })
 
   it('says when the model has moved under an alignment', () => {
@@ -158,8 +164,8 @@ describe('how an alignment stands against a build', () => {
   it('holds only when it was checked against the last build: without that it says so, as an unchecked mark does', () => {
     expect(standingOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 12)).toEqual({ aligned: true, basis: '3 pairs, RMS 0 mm', rough: null, stale: null, unchecked: false, waiting: false, failed: false, note: null })
     // The check there is, is of the build before: nothing is known of this one.
-    expect(doubtOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 13)).toBe('it was not checked against r13')
-    expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print', 13)).toBe('it was not checked against r13')
+    expect(standingOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 13).stale).toBe('it was not checked against r13')
+    expect(standingOf({ alignments: { print: fitted }, checks: {} }, 'print', 13).stale).toBe('it was not checked against r13')
     expect(standingOf({ alignments: { print: fitted }, checks: {} }, 'print', 13)).toMatchObject({ stale: 'it was not checked against r13', unchecked: true, waiting: true, failed: false })
     // Fix round 2 (D, m1): once a check has failed it says why, and of which build; and whether not being checked is all there is to say is a field, not the shape of a sentence.
     const failed = { alignments: { print: fitted }, checks: {}, unchecked: { print: { revision: 13, reason: 'the kernel exited' } } }
@@ -168,10 +174,10 @@ describe('how an alignment stands against a build', () => {
     expect(standingOf(failed, 'print', 14)).toMatchObject({ stale: 'it was not checked against r14', failed: false })
     expect(standingOf({ alignments: { print: { ...fitted, sourceChanged: true } }, checks: {} }, 'print', 13)).toMatchObject({ unchecked: true, waiting: false })
     // With another reason beside it.
-    expect(doubtOf({ alignments: { print: { ...fitted, sourceChanged: true } }, checks: {} }, 'print', 13)).toBe('the scan was imported again from a source that had changed since it was aligned, and it was not checked against r13: check the alignment')
+    expect(standingOf({ alignments: { print: { ...fitted, sourceChanged: true } }, checks: {} }, 'print', 13).stale).toBe('the scan was imported again from a source that had changed since it was aligned, and it was not checked against r13: check the alignment')
     // Before any build, and for whoever knows of none, nothing is said of a check.
-    expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print')).toBeNull()
-    expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print', 0)).toBeNull()
+    expect(standingOf({ alignments: { print: fitted }, checks: {} }, 'print').stale).toBeNull()
+    expect(standingOf({ alignments: { print: fitted }, checks: {} }, 'print', 0).stale).toBeNull()
     expect(standingOf({ alignments: {}, checks: {} }, 'print', 12)).toEqual({ aligned: false, basis: null, rough: null, stale: null, unchecked: false, waiting: false, failed: false, note: null })
   })
 

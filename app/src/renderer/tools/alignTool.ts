@@ -401,7 +401,11 @@ export function connectAlign(viewport: Pick<Viewport, 'previewScan' | 'showAlign
     const state = alignStore.getState()
     const had = scanInHand(state.scan, prev.scans)
     const has = scanInHand(state.scan, s.scans)
-    if (s.objectId !== prev.objectId) setAlignScan(null)
+    // Another object: nothing in hand is of it, whichever scan was or was not named, and no build of it "changed" what was picked.
+    if (s.objectId !== prev.objectId) {
+      setAlignScan(null)
+      dropDraft()
+    }
     // The scan that was named is gone: what was picked on it goes with it, and is not the next scan's.
     else if (state.scan !== null && !has) setAlignScan(null)
     // Another scan in hand, or another mesh of the same one (converted, read again): its points are elsewhere.

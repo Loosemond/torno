@@ -126,6 +126,13 @@ export function routePointer(tool: Tool, e: ViewportPointer, ctx: ToolContext): 
   tool.onPointer(e, ctx)
   // After the tool, which has just put away whatever it said of nothing.
   if (e.cut && tool.id !== 'section') ctx.readout.say(e.client, CUT_FACE)
+  // A tool that points at parts, over a part a solid scan hides: not the tools that point at the scan itself.
+  else if (e.behindScan && !e.buttons && tool.id !== 'align' && tool.id !== 'region') ctx.readout.say(e.client, hiddenByScan(e.behindScan))
+}
+
+/** Said at the pointer where a part is behind a scan drawn solid: what is seen is what is picked, and the part is not seen. */
+export function hiddenByScan(scan: string): string {
+  return `${scan} hides the parts here: thin it on its row to point through it`
 }
 
 /**

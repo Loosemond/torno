@@ -374,7 +374,7 @@ export interface ResolveMarkArgs {
 export const TOOLS = {
   scene: {
     description:
-      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with whether it is aligned in that layout (call scans for how). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
+      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
   },
   look: {
     description:
@@ -531,7 +531,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   if (letGo) notes.push(letGo)
   if (scene.parts.some((p) => p.arranged)) notes.push(SPREAD_NOTE)
   const scanLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
-  if (scans && scans.length > 0) notes.push(`Whether a scan is aligned is said for layout ${scanLayout}: call scans for how each is aligned.`)
+  if (scans && scans.length > 0) notes.push(`How each scan is aligned is said for layout ${scanLayout}, in a word (aligned, rough, in doubt, not checked, not aligned): call scans for the whole of it.`)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -565,10 +565,17 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     section: view?.section ? sectionData(view.section) : null,
     // Of the last build that worked (`build.revision`): call marks for which, and why.
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
-    ...(scans && scans.length > 0 ? { scans: scans.map((scan) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles, aligned: scanLayout !== undefined && alignmentSaid(scan, scanLayout, revision).alignment !== null })) } : {}),
+    // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
+    ...(scans && scans.length > 0 ? { scans: scans.map((scan) => scanStanding(scan, scanLayout, revision)) } : {}),
     ...(notes.length > 0 ? { note: notes.join(' ') } : {})
   }
   return { content: [{ type: 'text', text: JSON.stringify(result) }] }
+}
+
+/** A scan as `scene` names it: with how its alignment in a layout stands, in a word, and what that rests on. */
+function scanStanding(scan: ScanInfo, layout: string | undefined, revision: number): object {
+  const said = layout === undefined ? null : alignmentSaid(scan, layout, revision)
+  return { id: scan.id, name: scan.name, triangles: scan.imported.triangles, alignment: said?.state ?? 'not aligned', ...(said?.data.basis ? { basis: said.data.basis } : {}), ...(scan.meshState === 'ok' ? {} : { mesh: scan.meshState }) }
 }
 
 /** A section as the agent is told it: its point and its normal, and, when it is across an axis, also in the short form it may give one in. */
@@ -724,6 +731,14 @@ export const noMark = (id: string, marks: Mark[]): ToolResult => failure(`no mar
 const withLine = (mark: Mark, revision?: number, scans?: readonly ScanInfo[], layout?: string): object => ({ ...markData(mark, revision, scans, layout), line: describeMark(mark, { revision, ...(layout ? { layout } : {}), ...(scans ? { scans } : {}) }) })
 
 /** The layout a region is told in by a tool: the one asked for, else the one on screen, else the build's first; none before a build, or for a layout the build has not (the region is then told in its own). */
+/** The refusal for a layout that was asked for and that the build has not: it is not answered in another. Null otherwise, and before anything is built. */
+function noSuchLayout(deps: ToolDeps, objectId: string, asked: string | undefined): ToolResult | null {
+  const scene = deps.scene(objectId)?.scene
+  if (asked === undefined || !scene) return null
+  const layout = layoutFor(deps, objectId, scene, asked)
+  return typeof layout === 'string' ? null : layout
+}
+
 function regionLayout(deps: ToolDeps, objectId: string, asked: string | undefined): string | undefined {
   const scene = deps.scene(objectId)?.scene
   const layout = scene ? layoutFor(deps, objectId, scene, asked) : undefined
@@ -762,6 +777,8 @@ export async function marksTool(deps: ToolDeps, objectId: string, args: MarksArg
   const build = ofBuild(deps, objectId)
   const listed = marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted))
   const scans = await scansFor(deps, objectId, listed)
+  const wrong = noSuchLayout(deps, objectId, args.layout)
+  if (wrong) return wrong
   const layout = regionLayout(deps, objectId, args.layout)
   return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined, scans, layout)) })
 }
@@ -783,6 +800,8 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
     if ('content' in marks) return marks
     const mark = marks.find((m) => m.id === args.ref)
     const build = ofBuild(deps, objectId)
+    const wrong = noSuchLayout(deps, objectId, args.layout)
+    if (wrong) return wrong
     return mark ? json({ ...build, mark: withLine(mark, build.revision ?? undefined, await scansFor(deps, objectId, [mark]), regionLayout(deps, objectId, args.layout)) }) : noMark(args.ref, marks)
   }
   const found = built(deps, objectId)

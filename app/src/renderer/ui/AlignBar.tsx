@@ -426,6 +426,16 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
           defaultValue={pair.model ? number(pair.model[i]) : ''}
           onFocus={(e) => e.currentTarget.select()}
           onKeyDown={(e) => {
+            // Escape gives up what was typed in the three fields: they show the end as it is kept again.
+            if (e.key === 'Escape') {
+              const inputs = [...(row.current?.querySelectorAll<HTMLInputElement>('input') ?? [])]
+              if (inputs.every((input) => input.value === input.defaultValue)) return
+              e.preventDefault()
+              e.stopPropagation()
+              for (const input of inputs) input.value = input.defaultValue
+              e.currentTarget.select()
+              return
+            }
             if (e.key !== 'Enter') return
             e.preventDefault()
             e.stopPropagation()

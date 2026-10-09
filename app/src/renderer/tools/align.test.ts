@@ -215,6 +215,18 @@ describe('the align tool, by pairs', () => {
     expect(dots.at(-1)).toEqual([])
   })
 
+  // Final fix wave (R5): what was picked is of the object it was picked in.
+  it('puts down what is in hand when another object is opened, with no word of a build', () => {
+    const { viewport } = fake()
+    const off = connectAlign(viewport)
+    alignStore.setState({ scan: null, pairs: [{ scan: [0, 0, 0], model: [5, 0, 1] }] })
+    store.setState({ objectId: 'gear', scans: [], revision: 1 })
+    expect(alignStore.getState().pairs).toEqual([])
+    store.setState({ revision: 2 })
+    expect(alignStore.getState().notice).toBeNull()
+    off()
+  })
+
   it('Escape steps back one pick at a time, takes the preview away with the third pair, and is not the tool’s once nothing is in hand', () => {
     const tool = alignTool()
     const { ctx, viewport, previews } = fake()

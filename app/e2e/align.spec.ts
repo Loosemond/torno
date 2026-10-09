@@ -321,7 +321,7 @@ test('Escape steps back one pick, and only then puts the tool down; two pairs ar
   expect(await alignment('assembly')).toEqual(before)
   await bar().getByRole('button', { name: 'Keep as rough' }).click()
   await expect(row('S1').locator('.chip[data-state="rough"]')).toHaveText('rough alignment')
-  await expect(row('S1').locator('.scan-said[data-state="rough"]')).toContainText('it has 2 pairs of points')
+  await expect(row('S1').locator('.scan-said[data-state="rough"]')).toContainText('It has 2 pairs of points')
   const rough = await alignment('assembly')
   expect(rough.steps).toEqual(['pairs'])
   expect(rough.pairs).toHaveLength(2)
@@ -451,7 +451,7 @@ test('a build that takes the model from under a point raises a doubt; "Still rig
   await expect.poll(async () => (await state()).scans[0].checks.print?.off, { timeout: 60_000 }).toBe(1)
   const built = (await state()).revision
   await expect(row('S1').locator('.chip[data-state="stale"]')).toHaveText('check alignment')
-  await expect(row('S1').locator('.scan-said[data-state="stale"]')).toContainText(new RegExp(`the model is no longer under 1 of its 1 points \\(worst 3(\\.\\d+)? mm off\\) on r${built}: check the alignment`))
+  await expect(row('S1').locator('.scan-said[data-state="stale"]')).toContainText(new RegExp(`The model is no longer under 1 of its 1 points \\(worst 3(\\.\\d+)? mm off\\) on r${built}: check the alignment`))
   await expect(bar().locator('[data-part="stale"]')).toContainText('The model is no longer under 1 of its 1 points')
 
   // The person looks and says it is still right: main asks the kernel where the point is now, and holds later builds against that.

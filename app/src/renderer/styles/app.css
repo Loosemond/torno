@@ -2841,8 +2841,3 @@ button {
   border-radius: 50%;
   background: var(--user-mark);
 }
-
-.regionbar-editing {
-  padding: 0 6px;
-  color: var(--muted);
-}

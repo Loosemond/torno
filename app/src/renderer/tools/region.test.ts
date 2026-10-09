@@ -6,7 +6,7 @@ import { popcount } from '../../shared/regions'
 import type { ScanInfo } from '../../shared/scans'
 import type { Camera } from '../../shared/view'
 import { alignStore } from '../state/align'
-import { regionStore } from '../state/region'
+import { USUAL_MOST, regionStore, usualRadius } from '../state/region'
 import { actions, store } from '../state/store'
 import { grid } from '../../test/scanFixtures'
 import type { BrushRing } from '../viewport/brushRing'
@@ -14,7 +14,8 @@ import type { TriangleSet } from '../viewport/scanPaint'
 import type { ScanHit } from '../viewport/scans'
 import type { ViewportPointer } from '../viewport/Viewport'
 import { toolStore } from '../state/tools'
-import { CLEARED, IN_HAND, KEEPING, NOT_INDEXED, NOTHING_PAINTED, NO_SCAN, boxPlanes, clearRegion, connectRegion, editRegion, forgetPaintings, growRegion, keepRegion, regionTool, undoStroke, waiting } from './regionTool'
+import * as scanPaint from '../viewport/scanPaint'
+import { CLEARED, GROWING, IN_HAND, KEEPING, NOT_INDEXED, NOTHING_PAINTED, NO_SCAN, boxPlanes, clearRegion, connectRegion, editRegion, forgetPaintings, growRegion, keepRegion, regionTool, undoStroke, waiting } from './regionTool'
 import { type ToolContext, routePointer } from './Tool'
 
 // The Region tool, with a viewport that has a real tree over a sheet of 30 × 30 vertices a millimetre apart
@@ -274,13 +275,13 @@ describe('a box', () => {
 })
 
 describe('grow to flat', () => {
-  it('spreads what is painted over what lies flat with it, as one step that can be taken back', () => {
+  it('spreads what is painted over what lies flat with it, as one step that can be taken back', async () => {
     const { ctx, painted } = fake()
     const tool = regionTool()
     tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
     tool.onPointer(pointer('up', [0, 0]), ctx)
     const dab = painted.set!.count
-    growRegion()
+    await growRegion()
     // The whole sheet is flat.
     expect(painted.set!.count).toBe(1682)
     expect(regionStore.getState().count).toBe(1682)
@@ -559,17 +560,42 @@ describe('fix round 1, the smaller things', () => {
     expect(painted.set!.count).toBeGreaterThan(10)
   })
 
-  it('says when growing stopped at the most it adds at once (M2)', () => {
+  // Final fix wave (R9, F14): it says that it is growing before it does, what came of it after, and when it stopped at the most.
+  it('says that it is growing, then what came of it; and when it stopped at the most it adds at once (M2)', async () => {
     const { ctx, painted } = fake()
     const tool = regionTool()
     tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
     tool.onPointer(pointer('up', [0, 0]), ctx)
-    growRegion()
+    const growing = growRegion()
+    expect(regionStore.getState().notice).toBe(GROWING)
+    expect(GROWING).toBe('Growing…')
+    await growing
     // The whole sheet is under the cap: nothing to say.
     expect(regionStore.getState().notice).toBeNull()
-    growRegion()
+    await growRegion()
     expect(regionStore.getState().notice).toBe('Nothing flat with it is within reach')
     expect(painted.set!.count).toBe(1682)
+    // At the most it adds at once, it says so, and that it can go on.
+    undoStroke()
+    const dab = painted.set!.count
+    const spy = vi.spyOn(scanPaint, 'growFlat').mockImplementation((_tree, _geometry, set, opts) => {
+      const most = 5
+      let added = 0
+      for (let t = 0; t < 1682 && added < most; t++) {
+        if (set.add(t)) {
+          opts?.each?.(t)
+          added += 1
+        }
+      }
+      expect(opts?.most).toBe(200_000)
+      return opts!.most!
+    })
+    await growRegion()
+    spy.mockRestore()
+    expect(regionStore.getState().notice).toBe('Grew by 200,000 triangles, the most at once: grow again to go on')
+    expect(painted.set!.count).toBe(dab + 5)
+    undoStroke()
+    expect(painted.set!.count).toBe(dab)
   })
 
   it('takes no press while main is keeping: what was sent is what is kept (M3)', async () => {
@@ -589,7 +615,8 @@ describe('fix round 1, the smaller things', () => {
     expect(popcount(asked[0].region.bits)).toBe(count)
   })
 
-  it('takes with a box only what faces the eye, unless "through" is chosen', () => {
+  // Final fix wave (R9): of one sheet "through" takes no more; that it takes both sides of two is `gatherBox`'s test.
+  it('takes with a box the side of the scan that is seen, also where it shows its back, and passes "through" on', () => {
     // The sheet seen from below: its triangles face away.
     const { ctx, painted } = fake()
     const tool = regionTool()
@@ -603,9 +630,12 @@ describe('fix round 1, the smaller things', () => {
     expect(seen).toBeGreaterThan(10)
     regionStore.setState({ through: true })
     clearRegion()
+    const spy = vi.spyOn(scanPaint, 'gatherBox')
     tool.onPointer(below('down', [0, -2], { buttons: 1, shift: true }), under)
     tool.onPointer(below('up', [3, 2]), under)
     expect(painted.set!.count).toBe(seen)
+    expect(spy.mock.calls.at(-1)![5]).toMatchObject({ through: true, away: true })
+    spy.mockRestore()
   })
 })
 
@@ -689,6 +719,30 @@ describe('painting a kept region again', () => {
     expect(asked).toBe(0)
     expect(painted.set).toBe(set)
     expect(regionStore.getState().notice).toBe(IN_HAND)
+  })
+})
+
+// Final fix wave (F15, R4).
+describe('the brush when no radius is chosen, and what is painted when the workspace is left', () => {
+  it('is a thirtieth of the scan and never more than 25 mm: on a scan the size of a car it is not a hand wide', () => {
+    expect(usualRadius(scanInfo('S1'))).toBeCloseTo(Math.hypot(29, 29) * 0.03, 9)
+    const car = scanInfo('S1', { imported: { ...scanInfo('S1').imported, bbox: { min: [-1259, -1175, 0], max: [1259, 1176, 1494] } } })
+    expect(usualRadius(car)).toBe(25)
+    expect(USUAL_MOST).toBe(25)
+  })
+
+  it('goes with the workspace: an object of the same name in the next one has no painting waiting', () => {
+    const { ctx, painted } = fake()
+    const off = connectRegion(ctx.viewport as never)
+    const tool = regionTool()
+    stroke(tool, ctx)
+    expect(regionStore.getState().count).toBeGreaterThan(0)
+    store.setState({ workspace: { root: '/other', objects: [], hasProject: false } as never, objectId: null, scans: [] })
+    store.setState({ objectId: 'bracket', scans: [scanInfo('S1')] })
+    expect(regionStore.getState().count).toBe(0)
+    expect(painted.scan).toBeNull()
+    off()
+    store.setState({ workspace: null })
   })
 })
 

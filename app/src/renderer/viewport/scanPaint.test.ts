@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { MeshBVH } from 'three-mesh-bvh'
 import { describe, expect, it } from 'vitest'
-import { grid } from '../../test/scanFixtures'
+import { grid, moved } from '../../test/scanFixtures'
 import { PaintedIndex, TriangleSet, gatherBox, gatherSphere, growFlat, tintIndex } from './scanPaint'
 
 function meshOf(made: { vertices: number[]; triangles: number[] }): { geometry: THREE.BufferGeometry; tree: MeshBVH; centroid(t: number): THREE.Vector3 } {
@@ -86,11 +86,25 @@ describe('growFlat', () => {
     const set = new TriangleSet(1682)
     gatherSphere(stepped.tree, stepped.geometry, new THREE.Vector3(-10, 0, 0), 1.5, UP, (t) => set.add(t))
     const before = set.count
-    const added = growFlat(stepped.tree, stepped.geometry, set, { flat: 2, degrees: 15, reach: 2 })
+    // Final fix wave (F14): what it adds is told as it goes, so that nobody has to look for it afterwards.
+    const told: number[] = []
+    const had = new Set<number>()
+    set.forEach((t) => had.add(t))
+    const added = growFlat(stepped.tree, stepped.geometry, set, { flat: 2, degrees: 15, reach: 2, each: (t) => told.push(t) })
     expect(added).toBe(set.count - before)
+    expect(told).toHaveLength(added)
+    expect(new Set(told).size).toBe(added)
+    expect(told.every((t) => set.has(t) && !had.has(t))).toBe(true)
     // The low part is the 20 columns of vertices from -14.5 to 4.5: 19 cells by 29, two triangles each.
     expect(set.count).toBe(19 * 29 * 2)
     for (let t = 0; t < 1682; t++) if (set.has(t)) expect(stepped.centroid(t).z).toBeLessThan(0.01)
+  })
+
+  it('grows the same far from the origin, where a cell has no number of its own', () => {
+    const far = meshOf(moved(grid(30), 0, [40000, 0, 0]))
+    const set = new TriangleSet(1682)
+    set.add(0)
+    expect(growFlat(far.tree, far.geometry, set, { reach: 2 })).toBe(1681)
   })
 
   it('adds no more than it is allowed', () => {

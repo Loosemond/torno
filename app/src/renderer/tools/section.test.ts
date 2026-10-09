@@ -6,7 +6,7 @@ import { actions, store } from '../state/store'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
 import { NOT_CONFIRMED, NOT_FLAT, PICK_A_FACE, alongNormal, sectionStore, sectionTool, setFromFace } from './sectionTool'
-import { CUT_FACE, routePointer, type ToolContext } from './Tool'
+import { CUT_FACE, hiddenByScan, routePointer, type ToolContext } from './Tool'
 
 const BOX = { min: [-20, -15, -2.5] as Vec3, max: [20, 15, 22.5] as Vec3 }
 const Z: SectionPlane = { origin: [0, 0, 10], normal: [0, 0, 1] }
@@ -331,6 +331,18 @@ describe('the cut face under the pointer', () => {
     routePointer(tool, pointer('move', 0, 0, { cut: true, buttons: 0 }), ctx)
     expect(told).toEqual([null])
     expect(said).toEqual([CUT_FACE])
+  })
+
+  // Final fix wave (F15): a part behind a scan drawn solid cannot be picked, and the pointer says why.
+  it('says at the pointer that a solid scan hides the parts there, to a tool that points at parts and to none that points at the scan', () => {
+    const { ctx, said } = fake()
+    const behind = { ...pointer('move', 0, 0, { buttons: 0 }), behindScan: 'S1' }
+    routePointer({ id: 'pin', cursor: '', onPointer: () => {}, cancel: () => {} }, behind, ctx)
+    expect(said).toEqual(['S1 hides the parts here: thin it on its row to point through it'])
+    expect(hiddenByScan('S1')).toBe(said[0])
+    routePointer({ id: 'region', cursor: 'crosshair', onPointer: () => {}, cancel: () => {} }, behind, ctx)
+    routePointer({ id: 'align', cursor: 'crosshair', onPointer: () => {}, cancel: () => {} }, behind, ctx)
+    expect(said).toHaveLength(1)
   })
 
   it('is not said to the tool that moves the plane', () => {

@@ -10,7 +10,7 @@ import { clearRegion, growRegion, keepRegion, undoStroke } from '../tools/region
 import { Field } from './AlignBar'
 
 const MODES: { mode: RegionMode; label: string; title: string }[] = [
-  { mode: 'brush', label: 'Brush', title: 'Drag over the scan to paint it where it is seen. Ctrl-drag takes paint off' },
+  { mode: 'brush', label: 'Brush', title: 'Drag over the scan to paint it where the pointer sees it. The brush is a ball round that point: beside a part it also takes scan the part hides, so hide the part or use a small brush there. Ctrl-drag takes paint off' },
   { mode: 'box', label: 'Box', title: `Drag a box on the screen. ${BOX_NOTE}. Shift-drag does the same while the brush is chosen` }
 ]
 
@@ -68,7 +68,7 @@ export function RegionBar() {
           Erase
         </button>
         <span className="regionbar-rule" aria-hidden="true" />
-        <button type="button" className="bar-button" disabled={!painted || sending} title="Spreads what is painted over what lies flat with it: within 2 mm of its plane, turned no more than 15° from it" onClick={growRegion}>
+        <button type="button" className="bar-button" disabled={!painted || sending} title="Spreads what is painted over what lies flat with it: within 2 mm of its plane, turned no more than 15° from it" onClick={() => void growRegion()}>
           Grow to flat
         </button>
         <button type="button" className="bar-button" disabled={!canUndo || sending} aria-keyshortcuts="Z" title="Takes back the last stroke, or brings back what Clear put down (Z)" onClick={undoStroke}>

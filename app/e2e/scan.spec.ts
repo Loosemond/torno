@@ -303,7 +303,8 @@ test('a scan drawn solid in front of a part takes the pick, and one that is seen
   await page.keyboard.press('v')
   await page.mouse.move(x + 3, y)
   await page.mouse.move(x, y)
-  await expect(readout).toBeHidden()
+  // Final fix wave (F15): nothing is picked there, and the pointer says why.
+  await expect(readout).toHaveText('S2 hides the parts here: thin it on its row to point through it')
   // Drawn thin, the part shows through it, and is what is pointed at: the pointer names it, and a click selects it.
   await row('S2').getByRole('slider', { name: 'Opacity of S2' }).fill('0.4')
   await expect.poll(async () => (await scans())[0].opacity).toBe(0.4)

@@ -51,9 +51,12 @@ export function radiusOf(typed: number | null): number | null {
 
 /** The brush's radius when none is chosen: this share of the scan's diagonal, as the scan stands (`scale`: what a fit made of its size). */
 export const BRUSH_OF_DIAGONAL = 0.03
+/** The largest the brush is when none is chosen, mm. A larger one is typed, or made with `]`. */
+export const USUAL_MOST = 25
 export function usualRadius(scan: Pick<ScanInfo, 'imported'>, scale = 1): number {
   const { min, max } = scan.imported.bbox
-  return Math.min(Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * scale * BRUSH_OF_DIAGONAL, RADIUS.least), RADIUS.most)
+  // No larger than `USUAL_MOST`: on a scan the size of a car a thirtieth of it is a brush of a hand's width and more, which paints the tray under the part beside it.
+  return Math.min(Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * scale * BRUSH_OF_DIAGONAL, RADIUS.least), USUAL_MOST)
 }
 
 /** Said of a box wherever one can be dragged: it does not look at what hides what. */
