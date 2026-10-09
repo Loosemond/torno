@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { shownDimension } from '../../../shared/dimension'
 import { type Mark, type ShapeMark, type Vec3, markAnchors } from '../../../shared/marks'
 import type { SectionPlane } from '../../../shared/view'
 import { mmPerPx, place, project, type Chip, type Placed, type Size } from './labels'
@@ -101,6 +102,8 @@ export class MarkLayer {
       let entry = this.entries.get(mark.id)
       if (entry && entry.drawnAs === drawnAs) {
         entry.mark = mark
+        // The build on show may be another than the one its value is of, though nothing of how it is drawn changed.
+        this.dim(entry)
         continue
       }
       if (entry) this.drop(entry)
@@ -125,11 +128,16 @@ export class MarkLayer {
     this.draw(mark, drawnAsOf(mark))
   }
 
+  /** A mark is drawn dimmed when a section has taken away what it is on, and a dimension while the line it draws is of another build's value. */
+  private dim(entry: { mark: Mark; object: THREE.Object3D }): void {
+    setDimmed(entry.object, cutAway(entry.mark, this.section) || staleValue(entry.mark, this.revision))
+  }
+
   private draw(mark: Mark, drawnAs: string): void {
     const entry = { mark, drawnAs, object: build(mark, this.colours, 1) }
     entry.object.visible = this.shows(mark)
     setActive(entry.object, mark.id === this.active)
-    setDimmed(entry.object, cutAway(mark, this.section))
+    this.dim(entry)
     this.entries.set(mark.id, entry)
     this.group.add(entry.object)
   }
@@ -157,7 +165,7 @@ export class MarkLayer {
    */
   setSection(section: SectionPlane | null): void {
     this.section = section
-    for (const entry of this.entries.values()) setDimmed(entry.object, cutAway(entry.mark, section))
+    for (const entry of this.entries.values()) this.dim(entry)
   }
 
   /** The mark being worked on, or null. */
@@ -248,6 +256,16 @@ const CUT_BEYOND_MM = 1e-3
  * its two ends, and is in that half only when both of them are (as
  * `onHidden` has it of parts that are switched off).
  */
+/**
+ * Whether a dimension is drawn from a value that is not of the build
+ * `revision`: the points its line or its arc runs between are where the
+ * kernel took the value on another build, as its chip says (`shownDimension`).
+ * It is then drawn dimmed. One with no such points draws no value.
+ */
+export function staleValue(mark: Mark, revision: number | undefined): boolean {
+  return mark.kind === 'dimension' && mark.points !== undefined && shownDimension(mark, revision).value === undefined
+}
+
 export function cutAway(mark: Mark, section: SectionPlane | null): boolean {
   if (!section) return false
   const anchors = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)

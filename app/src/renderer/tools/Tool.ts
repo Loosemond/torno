@@ -25,7 +25,7 @@ export interface Tool {
 }
 
 /** What a tool may do to the viewport. */
-export type ToolViewport = Pick<Viewport, 'setHover' | 'setNavigation' | 'setDraft' | 'lockedView' | 'pick' | 'bounds'> & Partial<Pick<Viewport, 'getSection' | 'setSection' | 'sectionBox' | 'onSectionHandle' | 'canvas'>>
+export type ToolViewport = Pick<Viewport, 'setHover' | 'setNavigation' | 'setDraft' | 'lockedView' | 'pick' | 'bounds'> & Partial<Pick<Viewport, 'getSection' | 'setSection' | 'sectionBox' | 'onSectionHandle' | 'canvas' | 'pointerAt'>>
 
 /**
  * What a tool works with, as it is when the event arrives: the object on show,
@@ -50,6 +50,8 @@ export interface ToolContext {
   commit(mark: NewMark): Promise<Mark>
   /** Opens the note of a mark just made, for the person to write it. */
   openNote(mark: Mark): void
+  /** Whether torno moved a part of the layout shown to set it beside the others for display (`Part.arranged`): what lies between it and another part is then not the model's. */
+  moved?(part: string): boolean
   /** The mark of the layout shown that the next click on a part puts there, by its number; null or absent for none. */
   replacing?: string | null
   /** Has main put a mark somewhere else: the same mark, tied where it was clicked. Rejects when main refuses, having said so. */

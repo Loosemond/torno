@@ -60,6 +60,19 @@ export function sectionOffset(plane: SectionPlane, box: Box): number {
   return plane.normal.reduce((sum, c, i) => sum + c * (plane.origin[i] - centre[i]), 0) + 0
 }
 
+/**
+ * The offset a typed text asks for, in millimetres (a comma is a point), or
+ * null when it is no number or the plane is there already. It is held
+ * against the offset the plane has, to the millionth of a millimetre a plane
+ * is kept to, and not against how that is written: at 120, the four digits
+ * shown, a typed 120.04 is another place.
+ */
+export function typedOffset(text: string, offset: number): number | null {
+  const typed = text.trim().replace(',', '.')
+  const mm = typed === '' ? Number.NaN : Number(typed)
+  return Number.isFinite(mm) && Math.abs(mm - offset) > 1e-6 ? mm : null
+}
+
 /** The plane at an offset (see `sectionOffset`), which is kept within the box. One that is no number leaves the plane where it is. */
 export function atOffset(plane: SectionPlane, box: Box, mm: number): SectionPlane {
   if (!Number.isFinite(mm)) return plane

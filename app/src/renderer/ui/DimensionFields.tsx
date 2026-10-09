@@ -1,22 +1,28 @@
 import { useState } from 'react'
-import { defaultTolerance, isOffEdge, lastValue, measuredValue, offBy, standingOf, unmeasuredText, valueText } from '../../shared/dimension'
+import { NOT_MEASURABLE, type ShownDimension, defaultTolerance, exactText, isOffEdge, offBy, shownDimension, standingOf, unitOf } from '../../shared/dimension'
+import { namedPieces } from '../../shared/format'
 import type { DimensionMark, MarkPatch } from '../../shared/marks'
 
-/** What the row says of a dimension the kernel cannot measure on the build on show. */
-export const NOT_MEASURABLE = 'not measurable'
+export { NOT_MEASURABLE }
+
+/** A dimension's value as its row shows it on the build `revision`: the one rule for it is `shownDimension`. */
+export function shownValue(mark: DimensionMark, revision: number): ShownDimension {
+  return shownDimension(mark, revision)
+}
 
 /**
- * A dimension's value as its row shows it on the build `revision`: the value
- * measured on that build; the last it had, when it has not been measured on
- * that build (`stale`: shown greyed, and never as the value of this build);
- * or, in words, that it has none.
+ * What the row says of a dimension that is held to a value: `pass` or `fail`
+ * (with how far off, and which way) of a value of the build on show, and
+ * `none` when there is no such value to compare, or nothing has judged it. A
+ * verdict that is not there is never read as a failure.
  */
-export function shownValue(mark: DimensionMark, revision: number): { text: string; stale?: true; none?: true } {
-  const value = measuredValue(mark, revision)
-  if (value !== undefined) return { text: valueText(mark.measure, value) }
-  if (standingOf(mark, revision) === 'unmeasurable') return { text: NOT_MEASURABLE, none: true }
-  const last = lastValue(mark)
-  return last === undefined ? { text: unmeasuredText(revision), none: true } : { text: valueText(mark.measure, last), stale: true }
+export function verdictShown(mark: DimensionMark, revision: number): { verdict: 'pass' } | { verdict: 'fail'; off: string } | { verdict: 'none'; why: string } | null {
+  if (mark.expected === undefined) return null
+  const { value, verdict } = shownDimension(mark, revision)
+  if (value === undefined) return { verdict: 'none', why: mark.status === 'resolved' ? 'Not checked: resolved, it is no longer measured' : 'Not checked: there is no value of this build to compare' }
+  if (verdict === 'pass') return { verdict }
+  if (verdict === 'fail') return { verdict, off: offBy(value, mark.expected) }
+  return { verdict: 'none', why: 'Not checked yet' }
 }
 
 /** `r12`, in the face of numbers. */
@@ -38,17 +44,22 @@ export function whyNotMeasurable(mark: DimensionMark): string {
 
 /** Why a dimension has no value of the build on show, in a few words. */
 function WhyNone({ mark, revision }: { mark: DimensionMark; revision: number }) {
+  const shown = shownDimension(mark, revision)
+  if (mark.status === 'resolved') return <Words text={shown.note ?? 'resolved: it is no longer measured'} />
   if (mark.anchorState === 'orphaned') return <>the part an end of it was on is gone</>
-  if (standingOf(mark, revision) !== 'unmeasured') return <>{whyNotMeasurable(mark)}</>
-  if (lastValue(mark) === undefined) return <>it is measured after every build</>
+  if (standingOf(mark, revision) !== 'unmeasured') return <Words text={whyNotMeasurable(mark)} />
+  if (!shown.stale) return <>it is measured after every build</>
   return (
     <>
-      not measured{revision > 0 && <> on <Rev revision={revision} /></>}: this is what it was{mark.measuredRevision !== undefined && <> on <Rev revision={mark.measuredRevision} /></>}
+      not measured{revision > 0 && <> on <Rev revision={revision} /></>}: this is what it was{shown.of !== undefined && <> on <Rev revision={shown.of} /></>}
     </>
   )
 }
 
-const unitOf = (mark: DimensionMark): string => (mark.measure === 'angle' ? '°' : 'mm')
+/** A sentence with the revisions and refs in it set in the face of numbers, as they are everywhere (`namedPieces`). */
+export function Words({ text }: { text: string }) {
+  return <>{namedPieces(text).map((piece, i) => (i % 2 === 1 ? <span key={i} className="num">{piece}</span> : piece))}</>
+}
 
 /**
  * The numbers of a dimension, in its row of the marks panel while it is the
@@ -61,15 +72,16 @@ const unitOf = (mark: DimensionMark): string => (mark.measure === 'angle' ? '°'
  * is not held against what is expected.
  */
 export function DimensionFields({ mark, revision, change }: { mark: DimensionMark; revision: number; change: (patch: MarkPatch) => Promise<unknown> }) {
-  const value = measuredValue(mark, revision)
-  const shown = shownValue(mark, revision)
-  const unit = unitOf(mark)
+  const shown = shownDimension(mark, revision)
+  const { value } = shown
+  const unit = unitOf(mark.measure)
+  const judged = verdictShown(mark, revision)
   const send = (patch: MarkPatch): void => void change(patch).catch(() => {})
   return (
     <div className="dimension-fields" onClick={(e) => e.stopPropagation()}>
       <p className="dimension-read">
-        <span className="dimension-value num" data-none={shown.none ? '' : undefined} data-stale={shown.stale ? '' : undefined} title={value === undefined ? undefined : `${value} ${unit}, as measured`}>
-          {shown.text}
+        <span className="dimension-value num" data-none={shown.none ? '' : undefined} data-stale={shown.stale ? '' : undefined} title={value === undefined ? undefined : `${exactText(mark.measure, value)}, as measured`}>
+          {shown.none ? <Words text={shown.text} /> : shown.text}
         </span>
         {value !== undefined && (mark.how || mark.anchorState === 'drifted') && (
           <span className="dimension-how">{[mark.how, mark.anchorState === 'drifted' ? 'measured from what is under its ends now' : ''].filter(Boolean).join(', ')}</span>
@@ -89,11 +101,11 @@ export function DimensionFields({ mark, revision, change }: { mark: DimensionMar
         <OptionalNumber name="Tolerance" sign="±" value={mark.tolerance} placeholder={String(defaultTolerance(mark.measure))} least={0} commit={(tolerance) => send({ tolerance })} />
       </fieldset>
 
-      {mark.expected !== undefined && (
-        <p className="dimension-verdict" data-verdict={value === undefined ? 'none' : mark.verdict} role="status">
-          {value === undefined ? (
-            'Not checked: there is no value of this build to compare'
-          ) : mark.verdict === 'pass' ? (
+      {judged && (
+        <p className="dimension-verdict" data-verdict={judged.verdict} role="status">
+          {judged.verdict === 'none' ? (
+            judged.why
+          ) : judged.verdict === 'pass' ? (
             <>
               <VerdictIcon pass />
               Passes
@@ -101,7 +113,7 @@ export function DimensionFields({ mark, revision, change }: { mark: DimensionMar
           ) : (
             <>
               <VerdictIcon />
-              Fails: <span className="num">{offBy(value, mark.expected)}</span>
+              Fails: <span className="num">{judged.off}</span>
             </>
           )}
         </p>

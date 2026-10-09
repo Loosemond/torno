@@ -52,7 +52,7 @@ export interface PointerHost {
   readonly canvas: HTMLCanvasElement
   /** The orbit: whether the pointer moves the camera. */
   readonly orbit: { enabled: boolean }
-  readonly gizmo: Pick<ShapeGizmo, 'dragging' | 'takes' | 'setEnabled'>
+  readonly gizmo: Pick<ShapeGizmo, 'dragging' | 'takes' | 'setEnabled' | 'endDrag'>
   /** The camera drawn with. */
   camera(): THREE.Camera
   /** A point of the window as the camera sees it: -1 to 1 across the canvas, y up. Null while the canvas has no size. */
@@ -88,13 +88,16 @@ export class PointerRouter {
   /** The pointer whose button is down, and whether the canvas has captured it for a tool's drag. */
   private pointerId: number | null = null
   private captured = false
-  /** Where the pointer last was, for what is told of it when no event of its own says. */
+  /** Where the pointer last was, for what is told of it when no event of its own says; and whether it is over the canvas, as far as its events say. */
   private last: [number, number] = [0, 0]
+  private over = false
 
   /** Construct it after the orbit and the gizmo: their listeners on the canvas then run first, and the gizmo has said whether the pointer is on it. */
   constructor(private readonly host: PointerHost) {
     for (const type of POINTER_EVENTS) host.canvas.addEventListener(type, this.onPointerEvent)
     host.canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    // A capture the browser takes away (the pointer is gone, another element took it): no release follows.
+    host.canvas.addEventListener('lostpointercapture', this.onLostCapture)
     // A button let go beside the canvas, or the window left mid-drag: the canvas is told of neither.
     window.addEventListener('pointerup', this.onReleasedAnywhere)
     window.addEventListener('blur', this.onReleasedAnywhere)
@@ -118,6 +121,11 @@ export class PointerRouter {
     if (!enabled || !this.held) this.host.orbit.enabled = enabled
   }
 
+  /** Where the pointer is over the canvas, in client pixels; null when it has left, or was never there. */
+  get at(): [number, number] | null {
+    return this.over ? [this.last[0], this.last[1]] : null
+  }
+
   /** Whether a button is down in the viewport, on the canvas or on the gizmo. */
   get busy(): boolean {
     return this.held || this.host.gizmo.dragging
@@ -133,6 +141,7 @@ export class PointerRouter {
     this.listener = null
     for (const type of POINTER_EVENTS) this.host.canvas.removeEventListener(type, this.onPointerEvent)
     this.host.canvas.removeEventListener('wheel', this.onWheel)
+    this.host.canvas.removeEventListener('lostpointercapture', this.onLostCapture)
     window.removeEventListener('pointerup', this.onReleasedAnywhere)
     window.removeEventListener('blur', this.onReleasedAnywhere)
   }
@@ -142,6 +151,7 @@ export class PointerRouter {
     const kind = e.type === 'pointermove' ? 'move' : e.type === 'pointerdown' ? 'down' : e.type === 'pointerup' ? 'up' : 'cancel'
     const press = this.press
     this.last = [e.clientX, e.clientY]
+    this.over = kind !== 'cancel'
     if (kind === 'down') this.pointerId = e.pointerId ?? null
     else if (kind !== 'move') this.release()
     if (kind === 'down') this.press = e.button === 0 ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null
@@ -172,15 +182,42 @@ export class PointerRouter {
   }
 
   private readonly onReleasedAnywhere = (e: Event): void => {
-    const cutShort = e.type === 'blur' && this.held
+    const cutShort = e.type === 'blur' && (this.held || this.host.gizmo.dragging)
     if (e.type === 'blur' || (e as PointerEvent).buttons === 0) this.held = false
-    if (!cutShort) return
-    // The window was left in the middle of a drag: its release will not be told, so the tool is told the drag is over.
+    // The window was left in the middle of a drag: its release will not be told.
+    if (cutShort) this.cutShort()
+  }
+
+  /**
+   * The canvas lost the pointer it had captured for a tool's drag, and not by
+   * the router letting it go (`release`, after which it holds none): the
+   * release of the button will not arrive here.
+   */
+  private readonly onLostCapture = (e: Event): void => {
+    if (!this.captured || (e as PointerEvent).pointerId !== this.pointerId) return
+    // Gone already: there is nothing to let go.
+    this.captured = false
+    this.held = false
+    this.cutShort()
+  }
+
+  /**
+   * A drag whose release will not be told is over: of the gizmo, which would
+   * keep its shape on the pointer until the next press, and of a tool, which
+   * is told so once (a stroke, an arrow, the handle of the section). The
+   * camera is the pointer's again as navigation was last asked; a tool that
+   * switched it off for its drag switches it back on being told.
+   */
+  private cutShort(): void {
     this.release()
     this.press = null
+    this.host.gizmo.endDrag()
     if (!this.host.gizmo.dragging) this.host.orbit.enabled = this.navigation
+    // A tool whose pointer was the gizmo's has been told that it went.
+    const tell = !this.gizmoHasPointer
+    this.gizmoHasPointer = false
     const at = this.host.canvasPoint(this.last[0], this.last[1])
-    if (this.listener && at) this.listener({ type: 'cancel', hit: null, ray: pointerRay(this.host.camera(), at.ndc), client: this.last, buttons: 0, shift: false, alt: false })
+    if (tell && this.listener && at) this.listener({ type: 'cancel', hit: null, ray: pointerRay(this.host.camera(), at.ndc), client: this.last, buttons: 0, shift: false, alt: false })
   }
 
   private capture(): void {

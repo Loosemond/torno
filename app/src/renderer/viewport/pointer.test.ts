@@ -46,10 +46,10 @@ function fire(target: EventTarget, type: string, init: Partial<Record<'button' |
 }
 
 /** A router on a canvas of its own, with what it told its listener and what it asked of the viewport. */
-function router(): { pointer: PointerRouter; canvas: EventTarget; orbit: { enabled: boolean }; gizmo: { dragging: boolean; onIt: boolean; enabled: boolean }; told: () => string[]; picks: () => number; views: Camera[] } {
+function router(): { pointer: PointerRouter; canvas: EventTarget; orbit: { enabled: boolean }; gizmo: { dragging: boolean; onIt: boolean; enabled: boolean; ended: number }; told: () => string[]; picks: () => number; views: Camera[] } {
   const canvas = new EventTarget()
   const orbit = { enabled: true }
-  const gizmo = { dragging: false, onIt: false, enabled: true }
+  const gizmo = { dragging: false, onIt: false, enabled: true, ended: 0 }
   const events: ViewportPointer[] = []
   const views: Camera[] = []
   let picks = 0
@@ -62,6 +62,13 @@ function router(): { pointer: PointerRouter; canvas: EventTarget; orbit: { enabl
         return gizmo.dragging
       },
       takes: () => gizmo.onIt,
+      // As the gizmo does: its drag is over, and it says so to the router.
+      endDrag: () => {
+        if (!gizmo.dragging) return
+        gizmo.dragging = false
+        gizmo.ended += 1
+        pointer.gizmoDragging(false)
+      },
       setEnabled: (enabled) => {
         gizmo.enabled = enabled
       }
@@ -76,7 +83,7 @@ function router(): { pointer: PointerRouter; canvas: EventTarget; orbit: { enabl
     view: () => VIEW,
     setView: (c) => views.push(c)
   }
-  const pointer = new PointerRouter(host)
+  const pointer: PointerRouter = new PointerRouter(host)
   pointer.listen((e) => events.push(e))
   return { pointer, canvas, orbit, gizmo, told: () => events.splice(0).map((e) => `${e.type}${e.hit ? ` ${e.hit.ref}` : ''}`), picks: () => picks, views }
 }
@@ -254,6 +261,56 @@ describe('a drag that is a tool\'s', () => {
     fire(canvas, 'pointerdown', { buttons: 1, pointerId: 8 })
     fire(canvas, 'pointerup', { pointerId: 8 })
     expect(asked).toEqual(['capture 7', 'release 7'])
+  })
+
+  it('a capture the browser takes away ends the drag as leaving the window does: told once, the camera the pointer’s again as navigation says', () => {
+    const { pointer, canvas, orbit, told, asked } = capturing()
+    fire(canvas, 'pointerdown', { buttons: 1, pointerId: 7, clientX: 5, clientY: 6 })
+    pointer.setNavigation(false)
+    expect(asked).toEqual(['capture 7'])
+    told()
+    fire(canvas, 'lostpointercapture', { pointerId: 7 })
+    expect(told()).toEqual(['cancel'])
+    expect(pointer.busy).toBe(false)
+    // The tool gives the camera back on the cancel: it is the pointer's at once, the button no longer being held.
+    pointer.setNavigation(true)
+    expect(orbit.enabled).toBe(true)
+    // Nothing is asked of a capture that is gone, and a second loss says nothing.
+    expect(asked).toEqual(['capture 7'])
+    fire(canvas, 'lostpointercapture', { pointerId: 7 })
+    fire(window, 'blur')
+    expect(told()).toEqual([])
+
+    // The loss that follows every release by the router itself is no drag cut short.
+    fire(canvas, 'pointerdown', { buttons: 1, pointerId: 8 })
+    pointer.setNavigation(false)
+    fire(canvas, 'pointerup', { pointerId: 8 })
+    told()
+    fire(canvas, 'lostpointercapture', { pointerId: 8 })
+    expect(told()).toEqual([])
+    // Nor is the loss of a pointer it never captured.
+    pointer.setNavigation(true)
+    fire(canvas, 'pointerdown', { buttons: 1, pointerId: 9 })
+    told()
+    fire(canvas, 'lostpointercapture', { pointerId: 9 })
+    expect(told()).toEqual([])
+    expect(pointer.busy).toBe(true)
+  })
+
+  it('ends a drag of the gizmo when the window is left: the shape does not stay on the pointer, and the camera is the pointer’s again', () => {
+    const { pointer, canvas, orbit, gizmo } = capturing()
+    gizmo.onIt = true
+    fire(canvas, 'pointerdown', { buttons: 1, pointerId: 3 })
+    gizmo.dragging = true
+    pointer.gizmoDragging(true)
+    expect(orbit.enabled).toBe(false)
+    fire(window, 'blur')
+    expect(gizmo).toMatchObject({ dragging: false, ended: 1 })
+    expect(orbit.enabled).toBe(true)
+    expect(pointer.busy).toBe(false)
+    // Left again with nothing held: nothing more is ended.
+    fire(window, 'blur')
+    expect(gizmo.ended).toBe(1)
   })
 
   it('is told to the tool as cut short when the window is left with the button held', () => {

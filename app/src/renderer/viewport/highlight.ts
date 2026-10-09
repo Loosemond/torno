@@ -1,3 +1,4 @@
+import { namedPieces } from '../../shared/format'
 import * as THREE from 'three'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
@@ -256,10 +257,22 @@ export class Readout {
     this.write(this.ref.textContent ?? '', detail)
   }
 
-  /** Shows a sentence at the pointer instead of a ref. */
+  /** Shows a sentence at the pointer instead of a ref: in the face of the UI, but for the builds and refs it names (`namedPieces`). */
   say(client: [number, number], message: string): void {
     this.element.dataset.says = 'sentence'
     this.write('', message)
+    const pieces = namedPieces(message)
+    if (pieces.length > 1) {
+      this.detail.replaceChildren(
+        ...pieces.map((piece, i) => {
+          if (i % 2 === 0) return document.createTextNode(piece)
+          const named = document.createElement('span')
+          named.className = 'num'
+          named.textContent = piece
+          return named
+        })
+      )
+    }
     this.place(client)
   }
 

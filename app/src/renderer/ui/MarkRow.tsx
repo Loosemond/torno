@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { measuredValue, unmeasuredText, verdictOn } from '../../shared/dimension'
+import { exactText, shownDimension } from '../../shared/dimension'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
 import { actions, store } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { labelText } from '../viewport/marks/labels'
-import { DimensionFields, VerdictIcon, shownValue } from './DimensionFields'
+import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { ShapeFields } from './ShapeFields'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
 
@@ -260,22 +260,20 @@ export function MarkRow({
 }
 
 /**
- * A dimension's value beside its number, as of the build on show: with a tick
- * or a cross when something is expected of it. A value of another build is
- * greyed, has no verdict, and says which build it is not of.
+ * A dimension's value beside its number, as of the build on show
+ * (`shownDimension`): with a tick or a cross when something is expected of
+ * it. A value of another build is greyed, has no tick or cross, and says
+ * which build it is of: what an open dimension was, or what a resolved one,
+ * which is no longer measured, was last measured as.
  */
-function DimensionValue({ mark, revision }: { mark: Extract<Mark, { kind: 'dimension' }>; revision: number }) {
-  const value = measuredValue(mark, revision)
-  const verdict = verdictOn(mark, revision)
-  const shown = shownValue(mark, revision)
-  const title = shown.stale
-    ? `${unmeasuredText(revision)}: this is what it was${mark.measuredRevision === undefined ? '' : ` on r${mark.measuredRevision}`}`
-    : value === undefined
-      ? undefined
-      : [`${value} ${mark.measure === 'angle' ? '°' : 'mm'}`, mark.how, verdict === 'pass' ? 'as expected' : verdict === 'fail' ? 'not what was expected' : ''].filter(Boolean).join(', ')
+export function DimensionValue({ mark, revision }: { mark: Extract<Mark, { kind: 'dimension' }>; revision: number }) {
+  const shown = shownDimension(mark, revision)
+  const { value, verdict } = shown
+  const title =
+    value === undefined ? shown.note : [exactText(mark.measure, value), mark.how, verdict === 'pass' ? 'as expected' : verdict === 'fail' ? 'not what was expected' : ''].filter(Boolean).join(', ')
   return (
     <span className="mark-value num" data-none={shown.none ? '' : undefined} data-stale={shown.stale ? '' : undefined} data-verdict={verdict} title={title}>
-      {shown.text}
+      {shown.none ? <Words text={shown.text} /> : shown.text}
       {verdict && <VerdictIcon pass={verdict === 'pass'} />}
     </span>
   )

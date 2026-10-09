@@ -1,4 +1,4 @@
-import { measuredValue, unmeasuredText, valueText } from '../../shared/dimension'
+import { isSpreadRefusal, measuredValue, notMeasuredText, valueText } from '../../shared/dimension'
 import type { Described } from '../../shared/geometry'
 import type { Anchor, MeasureKind, Vec3 } from '../../shared/marks'
 import { toolStore } from '../state/tools'
@@ -8,6 +8,14 @@ import { DESCRIBE_WITHIN_MS, REPEAT_MS, REPEAT_PX, anchorFromHit, dot, sub, with
 
 /** How long the kernel's reason for refusing a measurement stays at the pointer. */
 export const REFUSAL_MS = 4000
+/**
+ * Said at the pointer of a distance between two parts torno set apart for
+ * display, in place of an estimate and in place of main's refusal, which is
+ * a paragraph (the agent is given that in full). On an object that has only
+ * a print layout this is the answer to every such measurement: it stays
+ * until the next click or Escape.
+ */
+export const SPREAD_LINE = 'Parts are spread for printing here: no distance between them. Add assembly(p) to check fit.'
 /** How long the pointer rests on a face or an edge before the kernel is asked what it is. */
 const DESCRIBE_AFTER_MS = 150
 /** The value just measured stays at the pointer until the pointer has moved this far from where it was read out. */
@@ -34,10 +42,10 @@ export function isRound(described: Described | null): boolean {
  * (an angle to an edge, which has no normal).
  */
 export function estimate(measure: 'distance' | 'angle', a: Pick<Hit, 'point' | 'normal'>, b: Pick<Hit, 'point' | 'normal'>): string | null {
-  if (measure === 'distance') return `≈ ${Math.hypot(...sub(b.point, a.point)).toFixed(1)} mm`
+  if (measure === 'distance') return `≈ ${valueText('distance', Math.hypot(...sub(b.point, a.point)))}`
   if (!a.normal || !b.normal) return null
   const cosine = dot(a.normal, b.normal) / (Math.hypot(...a.normal) * Math.hypot(...b.normal))
-  return Number.isFinite(cosine) ? `≈ ${Math.round((Math.acos(Math.min(1, Math.max(-1, cosine))) * 180) / Math.PI)}°` : null
+  return Number.isFinite(cosine) ? `≈ ${valueText('angle', (Math.acos(Math.min(1, Math.max(-1, cosine))) * 180) / Math.PI)}` : null
 }
 
 /**
@@ -54,7 +62,10 @@ export function estimate(measure: 'distance' | 'angle', a: Pick<Hit, 'point' | '
  * the kernel's: main measures it as it keeps the mark, and it is read out in
  * place of the estimate. When the kernel refuses the measurement (no angle
  * between a plane and a cylinder), nothing is kept and its reason is read out
- * for `REFUSAL_MS`. Escape drops the first end; the tool stays in hand.
+ * for `REFUSAL_MS`. A distance between two parts torno spread for display is
+ * no distance of the model's: `SPREAD_LINE` is read out in place of the
+ * estimate, and stays after the click until the next one or Escape. Escape
+ * drops the first end; the tool stays in hand.
  */
 export function measureTool(): Tool {
   /** The first end, once clicked: where and when, and whether it has a radius (asked of the kernel at the click). */
@@ -63,8 +74,11 @@ export function measureTool(): Tool {
   let hover: { hit: Hit; client: [number, number] } | null = null
   /** Counts the dimensions committed: the one still waiting on main owns the draft drawn meanwhile. */
   let committing = 0
-  /** What is read out and must not be written over by the hover: the kernel's reason until its time is up, or the value just measured until the pointer moves on. */
-  let held: { until: number; timer?: ReturnType<typeof setTimeout>; client: [number, number]; within: number } | null = null
+  /**
+   * What is read out and must not be written over by the hover: the kernel's reason until its time is up, the value
+   * just measured until the pointer moves on, or (`sticky`) that the parts are spread, until the next click or Escape.
+   */
+  let held: { until: number; timer?: ReturnType<typeof setTimeout>; client: [number, number]; within: number; sticky?: true } | null = null
   let rest: ReturnType<typeof setTimeout> | undefined
 
   const release = (): void => {
@@ -74,7 +88,7 @@ export function measureTool(): Tool {
   /** Whether the readout is still held, for a pointer now at `client`. */
   const holding = (client: [number, number]): boolean => {
     if (!held) return false
-    if (performance.now() < held.until || Math.hypot(client[0] - held.client[0], client[1] - held.client[1]) <= held.within) return true
+    if (held.sticky || performance.now() < held.until || Math.hypot(client[0] - held.client[0], client[1] - held.client[1]) <= held.within) return true
     release()
     return false
   }
@@ -99,18 +113,24 @@ export function measureTool(): Tool {
       held = { until: 0, client: hover?.client ?? client, within: RESULT_PX }
       // One the kernel could not be asked about yet is kept without a value, and says so.
       const value = measuredValue(mark, revision)
-      ctx.readout.show(held.client, mark.id, value === undefined ? unmeasuredText(revision) : [valueText(mark.measure, value), mark.how ?? ''].filter(Boolean).join(' '))
+      ctx.readout.show(held.client, mark.id, value === undefined ? notMeasuredText(mark, revision) : [valueText(mark.measure, value), mark.how ?? ''].filter(Boolean).join(' '))
     } catch (e) {
       if (mine !== committing) return
       // Main did not keep it, and why is the kernel's to say: no angle between these two, no radius of that.
       release()
       const at = hover?.client ?? client
+      const reason = e instanceof Error ? e.message : String(e)
+      if (isSpreadRefusal(reason)) {
+        held = { until: 0, client: at, within: 0, sticky: true }
+        ctx.readout.say(at, SPREAD_LINE)
+        return
+      }
       held = { until: performance.now() + REFUSAL_MS, client: at, within: 0 }
       held.timer = setTimeout(() => {
         held = null
         ctx.readout.hide()
       }, REFUSAL_MS)
-      ctx.readout.say(at, e instanceof Error ? e.message : String(e))
+      ctx.readout.say(at, reason)
     } finally {
       // Its draft, unless a first end was clicked meanwhile, whose own is drawn now.
       if (mine === committing && !first) ctx.viewport.setDraft(null)
@@ -122,8 +142,13 @@ export function measureTool(): Tool {
     ctx.viewport.setDraft(null)
   }
 
+  /** Whether a distance from the first end to `hit` would be between two parts of which torno moved one for display. */
+  const spreadApart = (from: End, hit: Hit, ctx: ToolContext): boolean => from.hit.part !== hit.part && (ctx.moved?.(from.hit.part) === true || ctx.moved?.(hit.part) === true)
+
   const click = (e: ViewportPointer, hit: Hit, ctx: ToolContext): void => {
     const now = performance.now()
+    // A click puts away what was said of the one before.
+    if (held?.sticky) release()
     if (!first) {
       const bare = e.shift
       // A bare point has no radius. Of anything else the kernel says what it is: asked now, so a double click need not wait.
@@ -158,7 +183,9 @@ export function measureTool(): Tool {
     if (holding(e.client)) return
     if (first) {
       const { between } = toolStore.getState()
-      ctx.readout.show(e.client, estimate(between, first.hit, hit) ?? between, hit.ref)
+      // No estimate of what is no distance of the model's: said up front, before the click that main would refuse.
+      if (between === 'distance' && spreadApart(first, hit, ctx)) ctx.readout.say(e.client, SPREAD_LINE)
+      else ctx.readout.show(e.client, estimate(between, first.hit, hit) ?? between, hit.ref)
       return
     }
     // Nothing under way: what the first end would be on, and what the kernel says it is, once the pointer rests.
@@ -193,16 +220,28 @@ export function measureTool(): Tool {
     onKey(e: KeyboardEvent, ctx: ToolContext) {
       if (ctx.stale !== null) return false
       if (e.key === 'Escape') {
-        if (!first) return false
+        const said = held?.sticky === true
+        if (said) {
+          release()
+          ctx.readout.hide()
+        }
+        if (!first) return said
         drop(ctx)
         return true
       }
-      if (e.key.toUpperCase() !== 'T' || !hover || hover.hit.kind !== 'face') return false
+      if (e.key.toUpperCase() !== 'T') return false
+      // The wall under the pointer as of now. What the last move was on may not be there any more (the wheel
+      // zooms without a move), and a tool just taken has been told of no move at all: the viewport knows where
+      // the pointer is, and is asked what is under it.
+      const at = ctx.viewport.pointerAt ? ctx.viewport.pointerAt() : (hover?.client ?? null)
+      const hit = at && ctx.viewport.pick(at[0], at[1])
+      if (!at || !hit || hit.kind !== 'face') return false
       // A key held down repeats: one wall, one dimension.
       if (e.repeat) return true
-      // The wall under the pointer: whatever end was pending is dropped for it.
+      // Whatever end was pending is dropped for it.
       first = null
-      void commit('thickness', { hit: hover.hit, bare: false }, null, hover.client, ctx)
+      hover = { hit, client: at }
+      void commit('thickness', { hit, bare: false }, null, at, ctx)
       return true
     },
     cancel(ctx: ToolContext) {

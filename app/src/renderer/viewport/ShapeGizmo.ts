@@ -107,6 +107,15 @@ export class ShapeGizmo {
     return this.controls.dragging
   }
 
+  /**
+   * Ends a drag whose release will not arrive (the window was left with the
+   * button held): the shape stays as it was dragged to, as on a release, and
+   * no longer follows the pointer. Nothing when no drag is under way.
+   */
+  endDrag(): void {
+    if (this.controls.dragging) this.controls.pointerUp(null)
+  }
+
   /** The shape to be on and what dragging does, or null for no shape. Call `place` after. */
   edit(id: string | null, mode: GizmoMode, onChange: (shape: Partial<ShapeTransform>) => void): void {
     this.editing = id === null ? null : { id, mode, onChange }

@@ -3,7 +3,7 @@ import type { Line2 } from 'three/addons/lines/Line2.js'
 import { describe, expect, it } from 'vitest'
 import type { DimensionMark, Vec3 } from '../../../shared/marks'
 import { labelValue, place, project } from './labels'
-import { MarkLayer, onHidden } from './MarkLayer'
+import { MarkLayer, onHidden, staleValue } from './MarkLayer'
 import { ARC_PX, DIMENSION_BEHIND, LEADER_PX, TICK_PX, build, labelAnchor, markPoints, rescale } from './markObjects'
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
@@ -161,8 +161,9 @@ describe('the label of a dimension', () => {
     expect(labelValue(failing, 1)).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
     // It says which build it is of: faint alone is easily missed in a picture.
     expect(labelValue(failing, 2)).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
-    // Of a run before this one, or with no build at all.
-    expect(labelValue({ ...failing, measuredRevision: undefined }, 2)).toEqual({ text: '⌀ 8 mm (earlier)', stale: true })
+    // What its file holds from a run before this one is of no build that can be named: it has no value until it is measured.
+    expect(labelValue({ ...failing, measuredRevision: undefined }, 2)).toEqual({ text: '—' })
+    // With no build at all.
     expect(labelValue(failing, 0)).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
     expect(labelValue(failing, undefined)).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
     expect(labelValue(diameter({ value: undefined, measuredRevision: undefined }), 2)).toEqual({ text: '—' })
@@ -177,6 +178,35 @@ describe('the label of a dimension', () => {
     // Told of the marks alone, it keeps the build it knew.
     marks.setMarks([{ ...failing, measuredRevision: 2 }])
     expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
+  })
+
+  it('is drawn dimmed, its line and its arc, while its value is not of the build drawn: as its chip says', () => {
+    const full = (marks: MarkLayer, id: string): { full: number; depth: Set<THREE.DepthModes> } => {
+      let count = 0
+      const depth = new Set<THREE.DepthModes>()
+      marks.group.children.find((object) => object.name === id)!.traverse((object) => {
+        const material = (object as THREE.Mesh).material as THREE.Material | undefined
+        if (!material) return
+        if (material.depthFunc === THREE.LessEqualDepth) count += object.visible ? 1 : 0
+        else depth.add(material.depthFunc)
+      })
+      return { full: count, depth }
+    }
+    expect([staleValue(distance(), 1), staleValue(distance(), 2), staleValue(distance({ value: undefined, points: undefined }), 2)]).toEqual([false, true, false])
+    const marks = new MarkLayer(COLOURS)
+    marks.setMarks([distance(), angle()], 1)
+    marks.show('assembly')
+    for (const id of ['M1', 'M3']) expect(full(marks, id).full).toBeGreaterThan(0)
+    // The build after: nothing has measured them on it yet.
+    marks.setMarks([distance(), angle()], 2)
+    for (const id of ['M1', 'M3']) expect(full(marks, id)).toEqual({ full: 0, depth: new Set([THREE.AlwaysDepth]) })
+    // Measured on it, they are drawn as they were; a section that takes one away still dims it.
+    marks.setMarks([distance({ measuredRevision: 2 }), angle({ measuredRevision: 2 })], 2)
+    for (const id of ['M1', 'M3']) expect(full(marks, id).full).toBeGreaterThan(0)
+    marks.setSection({ origin: [0, 0, -10], normal: [0, 0, 1] })
+    expect(full(marks, 'M1').full).toBe(0)
+    marks.setSection(null)
+    expect(full(marks, 'M1').full).toBeGreaterThan(0)
   })
 
   it('is hidden with its parts only when the part of each end is switched off', () => {

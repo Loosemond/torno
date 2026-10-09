@@ -250,8 +250,12 @@ export function labelAnchor(mark: Mark): { point: Vec3; leader?: Vec3; reach?: n
  * meet is an arc about where they meet (`vertex`), from a direction in the
  * first face to one in the second, or in the second carried on past the
  * first, whichever makes the angle that was measured. A dimension with no
- * such points, or whose ends the last build moved, is a leader from its first
- * end: it has no value to draw a line for.
+ * such points is a leader from its first end: it has no value to draw a line
+ * for. So is one whose ends the last build moved: it is measured, between
+ * what is under its ends now, and its chip gives that value, but a line
+ * between those points would not run from where the person put its ends.
+ * One whose value is of another build than the one drawn keeps its line,
+ * drawn dimmed (`staleValue` in MarkLayer.ts).
  */
 type DimensionGeometry =
   | { as: 'leader' }

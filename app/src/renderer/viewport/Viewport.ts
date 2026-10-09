@@ -616,6 +616,15 @@ export class Viewport {
   }
 
   /**
+   * Where the pointer is over the canvas, in client pixels, or null when it
+   * is not over it: for a tool that acts on a key and must know what is
+   * under the pointer now (`pick`), whatever the last move it was told of.
+   */
+  pointerAt(): [number, number] | null {
+    return this.pointer.at
+  }
+
+  /**
    * Whether the person has a button down in the viewport: turning the camera,
    * dragging an arrow, a stroke or a handle of the gizmo. What would change
    * the view under them waits.

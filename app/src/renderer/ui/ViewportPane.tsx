@@ -142,6 +142,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       descriptor: (ref) => descriptorOf(objectId, revision, layout, ref),
       describe: (ref) => describeWhole(objectId, revision, layout, ref),
       commit: (mark) => commitMark(objectId, mark),
+      moved: (part) => s.scene?.parts.some((p) => p.layout === layout && p.name === part && p.arranged !== undefined) === true,
       openNote: (mark) => actions.openNote({ objectId, layout: mark.layout, id: mark.id }),
       replacing: replacingIn(s),
       replace: (id, placed) => replaceMark(objectId, id, placed),

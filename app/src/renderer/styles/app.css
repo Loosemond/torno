@@ -1546,10 +1546,17 @@ button {
   color: var(--muted);
 }
 
-/* A sentence rather than a ref and its numbers. */
+/* A sentence rather than a ref and its numbers: in the face of the UI, but for the builds and refs it names. */
 .pick-readout[data-says='sentence'] .pick-readout-detail {
   font-family: var(--font-ui);
   color: var(--ink);
+}
+
+.pick-readout[data-says='sentence'] .pick-readout-detail .num,
+.mark-value[data-none] .num,
+.dimension-value[data-none] .num,
+.dimension-how .num {
+  font-family: var(--font-mono);
 }
 
 /* A sentence may be a long one (why the kernel would not measure something): it runs on, where a ref is cut. */

@@ -4,7 +4,7 @@ import { useAgentHighlight } from '../state/agent'
 import { actions, useStore } from '../state/store'
 import { setTool, useTool } from '../state/tools'
 import { NUDGE_FINE_MM, NUDGE_MM, setFromFace, useFromFace } from '../tools/sectionTool'
-import { atOffset, axisOf, flipped, planeOnAxis, sectionExtent, sectionOffset, type Axis } from '../viewport/section'
+import { atOffset, axisOf, flipped, planeOnAxis, sectionExtent, sectionOffset, typedOffset, type Axis } from '../viewport/section'
 import type { Viewport } from '../viewport/Viewport'
 
 const AXES: Axis[] = ['x', 'y', 'z']
@@ -84,9 +84,8 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
   const typed = (): void => {
     const input = field.current
     if (!input || !section) return
-    const text = input.value.trim().replace(',', '.')
-    const mm = text === '' ? Number.NaN : Number(text)
-    if (Number.isFinite(mm) && number(mm) !== number(offset)) actions.setSection(atOffset(section, box, mm))
+    const mm = typedOffset(input.value, offset)
+    if (mm !== null) actions.setSection(atOffset(section, box, mm))
     else input.value = number(offset)
   }
   // Above the selection and what the agent points at, which have the bottom edge.

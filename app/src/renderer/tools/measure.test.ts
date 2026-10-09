@@ -5,7 +5,7 @@ import type { Camera } from '../../shared/view'
 import { setBetween, setRound, toolStore } from '../state/tools'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { REFUSAL_MS, measureTool } from './measureTool'
+import { REFUSAL_MS, SPREAD_LINE, measureTool } from './measureTool'
 import { routePointer, type ToolContext } from './Tool'
 
 const CAMERA: Camera = { position: [0, -100, 0], target: [0, 0, 0], up: [0, 0, 1], ortho: true, fov: 35, zoom: 1 }
@@ -22,6 +22,8 @@ const rim = (point: Vec3 = [-6, 5, 3]): Hit => ({ ...top(point), kind: 'edge', i
 
 /** A pointer event at a client pixel, on what is given. */
 function pointer(type: ViewportPointer['type'], client: [number, number], hit: Hit | null = null, opts: { shift?: boolean; buttons?: number } = {}): ViewportPointer {
+  world.under = hit
+  world.at = client
   return { type, hit, ray: { origin: [client[0], -100, -client[1]], direction: [0, 1, 0] }, client, buttons: opts.buttons ?? 0, shift: opts.shift ?? false, alt: false }
 }
 
@@ -42,7 +44,8 @@ function fake(over: Partial<ToolContext> = {}) {
     thickness: { value: 6, how: 'wall, along the normal' }
   }
   const ctx: ToolContext = {
-    viewport: { setHover: (hit) => void hovered.push(hit?.ref ?? null), setNavigation: () => {}, setDraft: (d) => void drafts.push(d), lockedView: () => null, pick: () => null, bounds: () => ({ min: [-20, -15, -3], max: [20, 15, 3] }) },
+    // What the viewport finds under a point as of now is what the last pointer event was on, unless a test says the view moved since (`under`).
+    viewport: { setHover: (hit) => void hovered.push(hit?.ref ?? null), setNavigation: () => {}, setDraft: (d) => void drafts.push(d), lockedView: () => null, pick: () => world.under, pointerAt: () => world.at, bounds: () => ({ min: [-20, -15, -3], max: [20, 15, 3] }) },
     readout: { show: (_at, ref, detail) => void said.push(`${ref} | ${detail ?? ''}`), describe: () => {}, say: (_at, message) => void said.push(message), hide: () => void said.push('(hidden)') },
     objectId: 'measures',
     layout: 'assembly',
@@ -63,12 +66,17 @@ function fake(over: Partial<ToolContext> = {}) {
   return { ctx, committed, noted, drafts, said, hovered }
 }
 
+/** What is under the pointer as the viewport knows it, and where the pointer is: kept as the events say. */
+const world: { under: Hit | null; at: [number, number] | null } = { under: null, at: null }
+
 /** Lets the promises a tool left behind run out. */
 const settled = async (): Promise<void> => {
   for (let i = 0; i < 20; i++) await Promise.resolve()
 }
 
 beforeEach(() => {
+  world.under = null
+  world.at = null
   setBetween('distance')
   setRound('diameter')
 })
@@ -246,7 +254,7 @@ describe('the measure tool', () => {
     tool.onPointer(pointer('move', [50, 120], bottom([5, 7, -3])), ctx)
     expect(drafts.at(-1)).toEqual({ kind: 'dimension', from: [5, 3, 3], to: [5, 7, -3] })
     // √(4² + 6²)
-    expect(said.at(-1)).toBe('≈ 7.2 mm | plate/F0')
+    expect(said.at(-1)).toBe('≈ 7.211 mm | plate/F0')
     setBetween('angle')
     tool.onPointer(pointer('move', [50, 121], bottom([5, 7, -3])), ctx)
     expect(said.at(-1)).toBe('≈ 180° | plate/F0')
@@ -280,7 +288,7 @@ describe('the measure tool', () => {
     tool.onPointer(pointer('click', [50, 50], top()), ctx)
     tool.onPointer(pointer('click', [50, 120], bottom()), ctx)
     await settled()
-    expect(said.at(-1)).toBe('M1 | not measured on r7')
+    expect(said.at(-1)).toBe('M1 | not measured yet')
   })
 
   it('when the kernel refuses the measurement there is no dimension, and its reason is read out for four seconds', async () => {
@@ -301,6 +309,68 @@ describe('the measure tool', () => {
     expect(said.at(-1)).toBe('(hidden)')
     tool.onPointer(pointer('move', [301, 300], top()), ctx)
     expect(said.at(-1)).toBe('plate/F5 | ')
+  })
+
+  it('T measures the wall under the pointer as of now: straight after the tool is taken, with no pointer move, and after a zoom moved the part under it', async () => {
+    const tool = measureTool()
+    const { ctx, committed } = fake()
+    // The tool was taken with M while the pointer rested over the top: it has been told of no move.
+    world.under = top([8, 4, 3])
+    world.at = [80, 40]
+    expect(tool.onKey!(key('t'), ctx)).toBe(true)
+    await settled()
+    expect(committed).toMatchObject([{ measure: 'thickness', a: { point: [8, 4, 3], ref: 'plate/F5' } }])
+    // A move over the top, then the wheel brings the side of the hole under the pointer: no move tells the tool.
+    tool.onPointer(pointer('move', [80, 40], top([8, 4, 3])), ctx)
+    world.under = hole([-6, 5, 1])
+    expect(tool.onKey!(key('t'), ctx)).toBe(true)
+    await settled()
+    expect(committed[1]).toMatchObject({ measure: 'thickness', a: { point: [-6, 5, 1], ref: 'plate/F9' } })
+    // Zoomed until nothing is under it, or with the pointer off the canvas, there is no wall.
+    world.under = null
+    expect(tool.onKey!(key('t'), ctx)).toBe(false)
+    world.under = top()
+    world.at = null
+    expect(tool.onKey!(key('t'), ctx)).toBe(false)
+    expect(committed).toHaveLength(2)
+  })
+
+  it('between two parts torno spread for printing, says so in a line in place of the estimate, and after the click until the next click or Escape', async () => {
+    vi.useFakeTimers()
+    const tool = measureTool()
+    const long = "In layout print torno spread these parts apart for display (they overlapped as the model placed them), so the distance between plate and lid there is torno's, not the model's. Ask in a layout that places the parts as assembled (layouts: assembly), or check each part by itself."
+    const { ctx, said, committed } = fake({ moved: (part) => part === 'lid', commit: () => Promise.reject(new Error(long)) })
+    const onLid = (): Hit => ({ ...top([60, 3, 3]), partKey: 'print:lid', part: 'lid', ref: 'lid/F5' })
+    tool.onPointer(pointer('click', [50, 50], top()), ctx)
+    // No estimate of a distance that is torno's.
+    tool.onPointer(pointer('move', [300, 50], onLid()), ctx)
+    expect(said.at(-1)).toBe(SPREAD_LINE)
+    expect(SPREAD_LINE).toBe('Parts are spread for printing here: no distance between them. Add assembly(p) to check fit.')
+    // On the same part, and of an angle, the estimate is read out as ever.
+    tool.onPointer(pointer('move', [60, 120], bottom()), ctx)
+    expect(said.at(-1)).toBe('≈ 6 mm | plate/F0')
+    setBetween('angle')
+    tool.onPointer(pointer('move', [300, 50], onLid()), ctx)
+    expect(said.at(-1)).toBe('≈ 0° | lid/F5')
+    setBetween('distance')
+    // Clicked all the same, main refuses in full: the line is said, and stays past the four seconds of any other refusal.
+    tool.onPointer(pointer('click', [300, 50], onLid()), ctx)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(said.at(-1)).toBe(SPREAD_LINE)
+    await vi.advanceTimersByTimeAsync(REFUSAL_MS * 5)
+    tool.onPointer(pointer('move', [310, 60], onLid()), ctx)
+    expect(said.at(-1)).toBe(SPREAD_LINE)
+    // Escape puts it away, and so does the next click.
+    expect(tool.onKey!(key('Escape'), ctx)).toBe(true)
+    expect(said.at(-1)).toBe('(hidden)')
+    tool.onPointer(pointer('click', [50, 50], top()), ctx)
+    tool.onPointer(pointer('click', [300, 50], onLid()), ctx)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(said.at(-1)).toBe(SPREAD_LINE)
+    tool.onPointer(pointer('click', [50, 50], top()), ctx)
+    tool.onPointer(pointer('move', [60, 120], bottom()), ctx)
+    expect(said.at(-1)).toBe('≈ 6 mm | plate/F0')
+    expect(committed).toEqual([])
   })
 
   it('is given nothing while the parts on screen are stale, and T does nothing then', async () => {

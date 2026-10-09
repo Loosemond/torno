@@ -373,6 +373,14 @@ test('the slider moves the plane across the parts, and keeps it when it is let g
   expect(await section()).toEqual({ origin: [0, 0, 4.9], normal: [0, 0, 1] })
   await page.keyboard.press('Shift+ArrowLeft')
   await expect(offset()).toHaveValue('-5.2')
+  // The slider is no field to type in: with it still in focus, as after a drag, the keys of the tools are the tools'.
+  await slider.focus()
+  const inHand = (name: string) => page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name, exact: true })
+  await page.keyboard.press('m')
+  await expect(inHand('Measure')).toHaveAttribute('aria-pressed', 'true')
+  await slider.focus()
+  await page.keyboard.press('x')
+  await expect(inHand('Section')).toHaveAttribute('aria-pressed', 'true')
   await cutAt('Z', -6)
 })
 

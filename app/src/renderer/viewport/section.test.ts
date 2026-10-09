@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
 import { sectionOf, snappedSection } from '../../shared/view'
 import { buildPart } from './partMesh'
-import { SectionCut, atOffset, axisOf, capColour, cutOutline, describeSection, keepsNothing, nearSegmentOnScreen, flipped, movedAlongNormal, planeFromFace, planeOnAxis, planeRect, sectionExtent, sectionOffset } from './section'
+import { SectionCut, atOffset, axisOf, capColour, cutOutline, describeSection, keepsNothing, nearSegmentOnScreen, flipped, movedAlongNormal, planeFromFace, planeOnAxis, planeRect, sectionExtent, sectionOffset, typedOffset } from './section'
 
 const BOX = { min: [-20, -15, -2.5], max: [20, 15, 22.5] }
 
@@ -70,6 +70,14 @@ describe('the offset the bar shows', () => {
 
   it('is the signed distance of the plane from the centre of the box, along the normal', () => {
     expect(sectionOffset(planeOnAxis('z', BOX), BOX)).toBe(0)
+    // A typed offset is held against the number the plane has, not against how that is written in four digits.
+    expect(typedOffset('120.04', 120)).toBe(120.04)
+    expect(typedOffset('120,04', 120)).toBe(120.04)
+    expect(typedOffset(' -6 ', 4)).toBe(-6)
+    // What is there already, to the millionth the plane is kept to, changes nothing; nor does what is no number.
+    expect(typedOffset('120', 120.0000004)).toBeNull()
+    expect(typedOffset('4', 4)).toBeNull()
+    for (const text of ['', 'six', '1e999', 'NaN']) expect(typedOffset(text, 4)).toBeNull()
     expect(sectionOffset({ origin: [7, 7, 12.5], normal: [0, 0, 1] }, BOX)).toBe(2.5)
     expect(sectionOffset({ origin: [7, 7, 12.5], normal: [0, 0, -1] }, BOX)).toBe(-2.5)
   })

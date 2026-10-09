@@ -3,7 +3,10 @@ import type { DimensionMark, Mark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { store } from '../state/store'
 import { dimensionCount, goToRow } from './BuildStatus'
-import { OFF_EDGE_ADVICE, shownValue, whyNotMeasurable } from './DimensionFields'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { OFF_EDGE_ADVICE, shownValue, verdictShown, whyNotMeasurable } from './DimensionFields'
+import { DimensionValue } from './MarkRow'
 
 const CAMERA = { position: [100, -100, 80], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const dim = (id: string, over: object = {}): DimensionMark =>
@@ -52,10 +55,40 @@ describe('what the status line and the row say of dimensions', () => {
   })
 
   it('shows a value of the build on show, and one of another build as what it was', () => {
-    expect(shownValue(dim('M1'), 3)).toEqual({ text: '⌀ 8 mm' })
-    expect(shownValue(dim('M1'), 4)).toEqual({ text: '⌀ 8 mm', stale: true })
-    expect(shownValue(dim('M1', { value: undefined, measuredRevision: undefined }), 4)).toEqual({ text: 'not measured on r4', none: true })
+    expect(shownValue(dim('M1'), 3)).toEqual({ text: '⌀ 8 mm', value: 8, verdict: 'fail' })
+    expect(shownValue(dim('M1'), 4)).toMatchObject({ text: '⌀ 8 mm', stale: true })
+    expect(shownValue(dim('M1', { value: undefined, measuredRevision: undefined }), 4)).toEqual({ text: 'not measured yet', none: true })
     expect(shownValue(dim('M1', { anchorState: 'orphaned' }), 3)).toEqual({ text: 'not measurable', none: true })
+  })
+
+  it('the row of a resolved dimension shows what it was last measured as: greyed, with the build, and no tick', () => {
+    // M2 ⌀ 8 passed on r5 and was resolved; r6 made the hole 9, and nothing measures it any more.
+    const resolved = dim('M2', { status: 'resolved', resolvedBy: 'agent', expected: 8, verdict: 'pass', measuredRevision: 5 })
+    const row = (mark: DimensionMark, revision: number): string => renderToStaticMarkup(createElement(DimensionValue, { mark, revision }))
+    const stale = row(resolved, 6)
+    expect(stale).toContain('data-stale=""')
+    expect(stale).toContain('title="as measured on r5: resolved, it is no longer measured"')
+    expect(stale).not.toContain('data-verdict')
+    expect(stale).not.toContain('verdict-icon')
+    expect(stale).toContain('⌀ 8 mm')
+    // An open one measured on the build on show has its tick, and its value in full with the unit as everywhere.
+    const open = row(dim('M1', { expected: 8, verdict: 'pass', value: 8.00000001 }), 3)
+    expect(open).toContain('data-verdict="pass"')
+    expect(open).toContain('verdict-icon')
+    expect(open).toContain('title="8.00000001 mm, cylinder, as expected"')
+    expect(row(dim('M1', { measure: 'angle', value: 45, how: 'between planes', expected: undefined, verdict: undefined }), 3)).toContain('title="45°, between planes"')
+    // In words, the build is set in the face of numbers.
+    expect(row(dim('M1', { value: undefined, measuredRevision: 2 }), 4)).toContain('not measured on <span class="num">r4</span>')
+    // In the fields under it, nothing is held against what is expected.
+    expect(verdictShown(resolved, 6)).toEqual({ verdict: 'none', why: 'Not checked: resolved, it is no longer measured' })
+  })
+
+  it('a verdict that is not there is not read as a failure', () => {
+    expect(verdictShown(dim('M1', { expected: 8, verdict: undefined }), 3)).toEqual({ verdict: 'none', why: 'Not checked yet' })
+    expect(verdictShown(dim('M1', { expected: 8, verdict: 'pass' }), 3)).toEqual({ verdict: 'pass' })
+    expect(verdictShown(dim('M1', { expected: 9, verdict: 'fail' }), 3)).toEqual({ verdict: 'fail', off: '1 under' })
+    expect(verdictShown(dim('M1', { expected: 9, verdict: 'fail' }), 4)).toEqual({ verdict: 'none', why: 'Not checked: there is no value of this build to compare' })
+    expect(verdictShown(dim('M1', { expected: undefined }), 3)).toBeNull()
   })
 
   it('of an end that is off its edge says what can be done; of any other refusal only the kernel’s reason', () => {
