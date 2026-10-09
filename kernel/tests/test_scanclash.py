@@ -144,7 +144,8 @@ def test_a_sheet_through_a_box_has_its_points_inside_counted_and_the_deepest_tak
     assert re.fullmatch(r"a/F\d", said["deepest"]["under"]) and said["deepest"]["at"][2] == 0
     assert said["nearest"]["distance"] == pytest.approx(0.5, abs=1e-9)
     assert max(abs(c) for c in said["nearest"]["at"]) == 10.5 and max(abs(c) for c in said["nearest"]["on"]) == pytest.approx(10)
-    assert said["sampling"] == {"every": 1, "cell": 5.0, "surface": 1.0, "deflection": 0.1, "retaken": said["sampling"]["retaken"], "retakesFailed": 0, "partial": False, "seconds": said["sampling"]["seconds"]}
+    assert said["sampling"] == {"every": 1, "cell": 5.0, "surface": 1.0, "deflection": 0.1, "measured": 900, "retaken": said["sampling"]["retaken"], "retakesFailed": 0, "partial": False, "loading": said["sampling"]["loading"], "seconds": said["sampling"]["seconds"]}
+    assert 0 <= said["sampling"]["loading"] <= said["sampling"]["seconds"]
     assert 1 <= said["sampling"]["retaken"] <= scanclash.MAX_RETAKEN
     # Where the sheet goes through the box: round its four sides, in one ring.
     # Of its 1,682 triangles, the 21 × 21 cells whose boxes meet the box's: no other can go through it.
@@ -427,10 +428,82 @@ def test_a_scan_lying_on_a_face_touches_it_whichever_face_it_is(tmp_path):
     for z in (5, -5):
         said = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, sheet, transform={"t": [0, 0, z], "q": [0, 0, 0, 1], "s": 1}))
         assert said["points"]["touching"] == 441 and said["inside"]["count"] == 0 and said["inside"]["crossing"] == 0 and said["deepest"] is None
-        assert said["nearest"]["distance"] == pytest.approx(0, abs=1e-9)
+        # None of it is outside: a point that touches is not the nearest one outside.
+        assert said["nearest"] is None
     # Through the middle, with its rim on the four sides: the rim touches, the rest is inside.
     middle = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, sheet))
     assert middle["points"]["touching"] == 80 and middle["inside"]["count"] == 361 and middle["inside"]["crossing"] == 0
+
+
+def test_the_nearest_point_outside_is_never_one_that_touches(tmp_path):
+    # On the top face, and wider than it: 400 points touch, and those round them are outside, half a millimetre off at the least.
+    said = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, transform={"t": [0, 0, 5], "q": [0, 0, 0, 1], "s": 1}))
+    assert said["points"]["touching"] == 400 and said["inside"]["count"] == 0
+    assert said["nearest"]["distance"] == pytest.approx(0.5, abs=1e-9) and max(abs(c) for c in said["nearest"]["at"][:2]) == 10.5
+
+
+class Ticking:
+    """A clock for ``scanclash`` that only the test moves."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.now = 100.0
+        monkeypatch.setattr(scanclash, "time", self)
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+def test_a_clash_measures_its_points_in_batches_under_the_clock_and_keeps_time_for_crossings_and_depths(tmp_path, monkeypatch):
+    clock = Ticking(monkeypatch)
+    measure, asked = scanclash._Sampled.nearest, []
+
+    def slow(self, points, *args, **kwargs):
+        # Each time points are measured to a mesh costs 2.4 s.
+        asked.append(len(points))
+        clock.now += 2.4
+        return measure(self, points, *args, **kwargs)
+
+    monkeypatch.setattr(scanclash._Sampled, "nearest", slow)
+    monkeypatch.setattr(scanclash, "NEAR_BATCH", 100)
+    said = ask(box_part(), "scan_clash", scan=scan_of(tmp_path))
+    # Measured until 6 of the 10 s were spent: three batches, of the points inside first.
+    # (The fourth time is of the places where edges of the scan meet the part's mesh.)
+    assert asked[:3] == [100, 100, 100] and len(asked) == 4
+    assert said["sampling"]["partial"] is True and said["sampling"]["measured"] == 300
+    assert said["points"]["checked"] == 900 and said["inside"]["count"] == 400
+    # The triangles were still tried, since their share of the time is their own.
+    assert said["crossings"]["triangles"] == {"candidates": 882, "checked": 882, "every": 1} and said["inside"]["crossing"] == 158
+    # And the deepest of those measured was taken on the solid; of those outside none was measured.
+    assert said["deepest"]["depth"] == pytest.approx(5, abs=1e-9) and said["sampling"]["retaken"] >= 1
+    assert said["nearest"] is None
+    assert "the time ran out after 900 vertices, of which 300 were measured to the part's mesh (the deepest and the nearest are of those, and one on the surface may be counted inside), 882 triangles" in said["how"]
+    assert said["sampling"]["seconds"] == pytest.approx(9.6)
+
+
+@pytest.mark.parametrize("name", ["scan_clash", "scan_deviation"])
+def test_the_clock_starts_when_what_is_worked_out_once_of_the_part_is_there(tmp_path, monkeypatch, name):
+    clock = Ticking(monkeypatch)
+    stand, took = scanclash._surface, [8.0]
+
+    def cold(*args):
+        clock.now += took[0]
+        return stand(*args)
+
+    monkeypatch.setattr(scanclash, "_surface", cold)
+    said = ask(box_part(), name, scan=scan_of(tmp_path))
+    assert said["sampling"]["partial"] is False and said["sampling"]["loading"] == 8 and said["sampling"]["seconds"] == 8
+    assert "ask again" not in said["how"]
+
+    # What takes longer than the whole query may leaves it no time: it is said, and that it is kept.
+    assert scanclash.WHOLE == 20.0
+    took[0] = 25.0
+    tick = clock.monotonic
+    monkeypatch.setattr(clock, "monotonic", lambda: setattr(clock, "now", clock.now + 0.001) or tick())
+    said = ask(box_part(), name, scan=scan_of(tmp_path))
+    assert said["sampling"]["partial"] is True and said["sampling"]["loading"] == pytest.approx(25, abs=0.01)
+    assert "the time ran out" in said["how"]
+    assert said["how"].endswith("what is worked out once of the part and of the scan took 25 s of the query's time and is kept: ask again")
+    assert said["points"]["checked"] == 0 if name == "scan_clash" else said["samples"] == 0
 
 
 def test_how_far_a_point_is_from_a_mesh_is_to_its_triangles_not_to_the_points_that_stand_for_it():
@@ -528,8 +601,9 @@ def test_a_mesh_that_is_not_one_is_refused_and_never_indexed(tmp_path):
 # scan_section, again
 
 
-def cut(tmp_path, plane, mesh=SHEET, **more) -> dict:
-    return queries.run(box_part(), "scan_section", {"layout": "assembly", "plane": plane, "scan": scan_of(tmp_path, mesh), **more}, {})
+def cut(tmp_path, plane, mesh=SHEET, points=None, **more) -> dict:
+    asked = {} if points is None else {"points": points}
+    return queries.run(box_part(), "scan_section", {"layout": "assembly", "plane": plane, "scan": scan_of(tmp_path, mesh, **more), **asked}, {})
 
 
 def test_a_normal_of_any_length_is_a_direction_and_one_of_none_is_refused(tmp_path):
@@ -573,19 +647,61 @@ def test_a_scan_whose_triangles_share_no_vertex_is_cut_in_whole_lines_all_the_sa
 def test_no_more_points_are_told_of_a_section_than_fit_and_it_says_how_many_there_were(tmp_path, monkeypatch):
     whole = cut(tmp_path, {"origin": [0.25, 0, 0], "normal": [1, 0, 0]})
     assert (whole["pointsFound"], whole["pointsTold"], whole["thinned"], whole["omitted"]) == (59, 59, False, 0)
-    monkeypatch.setattr(scanclash, "MAX_OUTLINE_POINTS", 20)
-    said = cut(tmp_path, {"origin": [0.25, 0, 0], "normal": [1, 0, 0]})
+    said = cut(tmp_path, {"origin": [0.25, 0, 0], "normal": [1, 0, 0]}, points=20)
     [line] = said["polylines"]
     assert (said["pointsFound"], said["pointsTold"], said["thinned"], said["omitted"]) == (59, len(line["points"]), True, 0)
     assert 2 <= len(line["points"]) <= 20 and line["points"][0] == whole["polylines"][0]["points"][0] and line["points"][-1] == whole["polylines"][0]["points"][-1]
     assert said["bounds"] == whole["bounds"]
     # Two lines, the longer told with more of the points; one too many for what is left is left out and counted.
     two = (np.vstack([SHEET[0], scanfix.grid(8)[0] + [0, 0, 20]]), np.vstack([SHEET[1], scanfix.grid(8)[1] + 900]))
-    said = cut(tmp_path, {"origin": [0.25, 0, 0], "normal": [1, 0, 0]}, two)
+    said = cut(tmp_path, {"origin": [0.25, 0, 0], "normal": [1, 0, 0]}, two, points=20)
     assert said["pointsFound"] == 59 + 15 and said["thinned"] is True and said["pointsTold"] <= 20
     assert [len(line["points"]) for line in said["polylines"]] == sorted((len(line["points"]) for line in said["polylines"]), reverse=True)
-    monkeypatch.setattr(scanclash, "MAX_OUTLINE_POINTS", 3)
-    assert cut(tmp_path, {"origin": [0.25, 0, 0], "normal": [1, 0, 0]}, two)["omitted"] == 1
+    assert cut(tmp_path, {"origin": [0.25, 0, 0], "normal": [1, 0, 0]}, two, points=3)["omitted"] == 1
+
+
+def test_a_section_tells_two_thousand_points_unless_asked_for_another_number_up_to_four(tmp_path):
+    assert (scanclash.OUTLINE_POINTS, scanclash.MAX_OUTLINE_POINTS) == (2_000, 4_000)
+    # A strip two vertices wide and 2,500 long: the line along it has 4,999 points.
+    vertices = np.array([[x, float(y), 0.0] for y in range(2500) for x in (-1.0, 1.0)])
+    a = np.arange(2499) * 2
+    mesh = (vertices, np.concatenate([np.stack([a, a + 1, a + 3], axis=1), np.stack([a, a + 3, a + 2], axis=1)]))
+    plane = {"origin": [0.25, 0, 0], "normal": [1, 0, 0]}
+    said = cut(tmp_path, plane, mesh)
+    assert (said["pointsFound"], said["pointsTold"], said["thinned"]) == (4999, 2000, True)
+    assert cut(tmp_path, plane, mesh, points=4000)["pointsTold"] == 4000
+    assert cut(tmp_path, plane, mesh, points=150)["pointsTold"] == 150
+    for points in (4001, 1, 0, -5, 2.5, "many", True, [20]):
+        with pytest.raises(queries.QueryError) as e:
+            cut(tmp_path, plane, points=points)
+        assert (e.value.kind, e.value.message) == ("bad_request", "points, the most a section tells of a scan, is a whole number from 2 to 4000")
+
+
+def test_a_section_tells_a_scan_to_a_tenth_of_a_millimetre(tmp_path):
+    # A sheet tilted about X and moved by no round number: nothing of the cut is on a tenth.
+    turned = {"t": [0.0123, 0.0456, 0.0789], "q": [math.sin(0.1), 0, 0, math.cos(0.1)], "s": 1}
+    said = queries.run(box_part(), "scan_section", {"layout": "assembly", "plane": {"origin": [0.2531, 0, 0], "normal": [1, 0, 0]}, "scan": scan_of(tmp_path, transform=turned)}, {})
+    [line] = said["polylines"]
+    assert said["resolution"] == 0.1 and len(line["points"]) == 59
+    assert all(c == round(c, 1) for point in line["points"] for c in point) and len({tuple(point) for point in line["points"]}) == 59
+    # The first point: y = -14.5 turned by 0.2 rad about X, and moved.
+    assert line["points"][0] in ([round(-14.5 * math.cos(0.2) + 0.0456, 1), round(-14.5 * math.sin(0.2) + 0.0789, 1)], [round(14.5 * math.cos(0.2) + 0.0456, 1), round(14.5 * math.sin(0.2) + 0.0789, 1)])
+    assert all(c == round(c, 1) for corner in said["bounds"].values() for c in corner)
+    # The plane itself is told in full.
+    assert said["plane"]["origin"] == [0.2531, 0, 0]
+
+
+def test_a_region_left_out_of_a_section_is_not_cut(tmp_path):
+    vertices, triangles = SHEET
+    plane = {"origin": [0.25, 0, 0], "normal": [1, 0, 0]}
+    # The triangles with a corner below the middle: the line is cut from the middle up only.
+    low = (vertices[triangles][:, :, 1] < 0).any(axis=1)
+    scanfile.write_mask(tmp_path / "M7.mask", low)
+    whole = cut(tmp_path, plane)
+    without = cut(tmp_path, plane, ignore=[str(tmp_path / "M7.mask")])
+    only = cut(tmp_path, plane, only=str(tmp_path / "M7.mask"))
+    assert (whole["segments"], without["segments"], only["segments"]) == (58, 28, 30)
+    assert without["bounds"] == {"min": [0.5, 0], "max": [14.5, 0]} and only["bounds"] == {"min": [-14.5, 0], "max": [0.5, 0]}
 
 
 def test_a_triangle_smaller_than_the_spacing_is_stood_for_by_its_middle_alone():

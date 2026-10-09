@@ -30,12 +30,20 @@ MAX_CLUSTERS = 8
 CELL = 5.0
 # How far apart, mm, the points are that stand for a mesh when the triangles nearest to a point are looked for.
 SURFACE = 1.0
-# Seconds a query gives itself, of the 30 the supervisor allows: what is left undone is said. The scan's vertices
-# are tested until the first share of it is spent and its triangles until the second; the rest is for the B-rep.
+# Seconds a query gives itself, of the 30 the supervisor allows: what is left undone is said. They are counted
+# from when what is worked out once of the part and of the scan is there (``_clock``), and are fewer when that
+# took so long that the whole would pass WHOLE. The scan's vertices are told inside from outside until the first
+# share of it is spent, measured to the part's mesh until the second, and its triangles tried until the third;
+# the rest is for the B-rep.
 BUDGET = 10.0
-POINTS_SHARE = 0.6
-EDGES_SHARE = 0.8
+WHOLE = 20.0
+POINTS_SHARE = 0.4
+NEAR_SHARE = 0.6
+EDGES_SHARE = 0.85
 BATCH = 50_000
+# The scan's vertices are measured to the part's mesh this many at a time, and the clock looked at between: deep
+# inside a thick solid, 50,000 take five seconds.
+NEAR_BATCH = 5_000
 # The scan's triangles are tried this many at a time, and the clock looked at between: where every edge is at the
 # part's surface, as many take seconds.
 EDGE_BATCH = 5_000
@@ -64,8 +72,11 @@ MAX_PART_SAMPLES = 8_000_000
 MAX_SCAN_SAMPLES = 2_000_000
 # A scan's edge is met with a part's mesh in pieces this many times as long as the points that stand for the mesh are apart.
 PIECE = 4.0
-# No more points than this are told of the polylines of a scan in a plane.
+# No more points than this are told of the polylines of a scan in a plane, unless another number is asked for,
+# which is no more than the second. They are told to this, mm: no scan says more of where it is.
+OUTLINE_POINTS = 2_000
 MAX_OUTLINE_POINTS = 4_000
+OUTLINE_RESOLUTION = 0.1
 # Ends of segments this near each other, mm, are one point of a polyline.
 WELD = 1e-4
 
@@ -787,7 +798,7 @@ def _scan(args: dict[str, Any], kept: dict[Any, Any]) -> _Scan:
     except (AttributeError, TypeError, KeyError, ValueError, OSError):
         which = None
     if which is None or kept.get("scan", (None, None))[0] != which:
-        # One scan at a time is kept: Micra's points and triangles are 40 MB.
+        # One scan at a time is kept: the points and triangles of one of 1.2 million triangles are 60 MB here.
         kept.pop("scan", None)
         kept["scan"] = (which, _Scan(said))
     return kept["scan"][1]
@@ -836,11 +847,30 @@ def _nth(n: int) -> str:
     return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
 
 
+def _clock(entered: float) -> tuple[float, float, float]:
+    """When a query's time begins, how many seconds of it there are, and how many went before it.
+
+    It begins now, when what is worked out once of the part and of the scan
+    and kept is there: asked again, a query has no such wait. There are
+    ``BUDGET`` seconds, or what is left of ``WHOLE`` since the query came in.
+    """
+    started = time.monotonic()
+    loading = started - entered
+    return started, min(BUDGET, max(WHOLE - loading, 0.0)), loading
+
+
+def _waited(loading: float, budget: float) -> str:
+    """What a query out of time says besides, when it had less time because of what it worked out first."""
+    if budget >= BUDGET or BUDGET <= 0:
+        return ""
+    return f"; what is worked out once of the part and of the scan took {loading:.3g} s of the query's time and is kept: ask again"
+
+
 # scan_clash
 
 
 def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) -> dict[str, Any]:
-    started = time.monotonic()
+    entered = time.monotonic()
     layout, part, shape, key = _part(shapes, args)
     if not topo.solids(shape):
         raise QueryError("bad_request", f"{part} is not a solid: nothing is inside it; scan_deviation says how far it is from the scan")
@@ -853,33 +883,50 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
     near = near[scan.counts[near]]
     every = max(1, -(-len(near) // MAX_CANDIDATES))
     checked = near[::every]
+    # What is worked out once of the part, before the clock starts.
     grids = kept.setdefault(("scan grids", key), {})
+    if 2 not in grids:
+        grids[2] = _grid(vertices, triangles, 2)
+    surface = _surface(vertices, triangles, key, kept)
+    if ("scan edges", key) not in kept:
+        kept["scan edges", key] = _edges(vertices, triangles)
+    of_part = kept["scan edges", key]
+    brep = _brep(shape, part, key, kept)
+    started, budget, loading = _clock(entered)
+
     within = np.zeros(len(checked), dtype=bool)
     done = 0
-    while done < len(checked) and time.monotonic() - started <= POINTS_SHARE * BUDGET:
+    while done < len(checked) and time.monotonic() - started <= POINTS_SHARE * budget:
         within[done : done + BATCH] = inside(scan.points[checked[done : done + BATCH]], vertices, triangles, grids)
         done = min(done + BATCH, len(checked))
     late = done < len(checked)
     checked, within = checked[:done], within[:done]
     points = scan.points[checked]
-    surface = _surface(vertices, triangles, key, kept)
-    # True where it matters that it is: of a point that may be on the surface. The rest only ranks the points to take on the B-rep.
-    distance = surface.nearest(points, sure=surface.reach, deadline=started + EDGES_SHARE * BUDGET)[0]
+    # How far each is from the part's mesh. True where it matters that it is: of a point that may be on the
+    # surface. The rest only ranks the points to take on the B-rep. Those inside first, and in an order that is
+    # none: what there was time for is then of all over the part.
+    distance, measured = np.full(len(points), np.inf), np.zeros(len(points), dtype=bool)
+    order = np.random.default_rng(0).permutation(len(points))
+    order = np.concatenate([order[within[order]], order[~within[order]]])
+    reached = 0
+    while reached < len(order) and time.monotonic() - started <= NEAR_SHARE * budget:
+        rows = order[reached : reached + NEAR_BATCH]
+        distance[rows] = surface.nearest(points[rows], sure=surface.reach, deadline=started + NEAR_SHARE * budget)[0]
+        measured[rows] = True
+        reached += len(rows)
+    late = late or reached < len(order)
     # A point on the mesh is on neither side of it: which side its ray said is chance.
-    touching = distance <= TOUCH
+    touching = measured & (distance <= TOUCH)
     within &= ~touching
 
     # The scan's triangles that go through the part's surface, whether or not a vertex of theirs is inside it:
     # those an edge of which goes through the part's mesh, and those an edge of the part's mesh goes through.
-    if ("scan edges", key) not in kept:
-        kept["scan edges", key] = _edges(vertices, triangles)
-    of_part = kept["scan edges", key]
     meeting = scan.meeting(low, high)
     step = max(1, -(-len(meeting) // MAX_CANDIDATES))
     tried = meeting[::step]
     crossed = [np.zeros((0, 3))]
     tested = 0
-    while tested < len(tried) and time.monotonic() - started <= EDGES_SHARE * BUDGET:
+    while tested < len(tried) and time.monotonic() - started <= EDGES_SHARE * budget:
         corners = scan.triangles[tried[tested : tested + EDGE_BATCH]]
         through, where = _through(scan.points, corners, vertices, triangles, surface, grids)
         poked, there = _poked(*of_part, scan.points, corners, (low, high))
@@ -892,7 +939,6 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
     groups = int(group.max()) + 1 if len(crossed) else 0
     crossings = [{"count": int((group == number).sum()), "centre": _xyz(crossed[group == number].mean(axis=0)), "bbox": _box(crossed[group == number])} for number in range(min(groups, MAX_CLUSTERS))]
 
-    brep = _brep(shape, part, key, kept)
     taken: dict[int, Any] = {}
     failed = 0
 
@@ -903,7 +949,7 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
             return taken[n]
         if len(taken) >= MAX_RETAKEN:
             return None
-        if time.monotonic() - started > BUDGET:
+        if time.monotonic() - started > budget:
             late = True
             return None
         try:
@@ -922,16 +968,19 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
                 best = (n, found)
         return None if best is None else {"at": _xyz(points[best[0]]), "on": best[1]["point"], "face": best[1]["ref"], "distance": best[1]["distance"]}
 
-    inner, outer = np.flatnonzero(within), np.flatnonzero(~within)
+    # The nearest outside is of those known to be outside: not one that touches, nor one that was not measured.
+    inner, outer = np.flatnonzero(within), np.flatnonzero(~within & ~touching & measured)
     label = clusters(points[inner])
     count = int(label.max()) + 1 if len(inner) else 0
     # What the whole answer says first, while there is time: then each cluster's own.
-    deepest = taken_again(inner[np.argsort(-distance[inner])[:3]], True)
+    ranked = inner[measured[inner]]
+    deepest = taken_again(ranked[np.argsort(-distance[ranked])[:3]], True)
     nearest = taken_again(outer[np.argsort(distance[outer])[:3]], False)
     told = []
     for number in range(min(count, MAX_CLUSTERS)):
         members = inner[label == number]
-        deep = taken_again(members[np.argsort(-distance[members])[:2]], True)
+        ranked = members[measured[members]]
+        deep = taken_again(ranked[np.argsort(-distance[ranked])[:2]], True)
         told.append(
             {
                 "count": len(members),
@@ -954,7 +1003,8 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
     if failed:
         how.append(f"{failed} of the points it would have been told of could not be taken on the B-rep")
     if late:
-        how.append(f"the time ran out after {done:,} vertices, {tested:,} triangles and {len(taken)} points on the B-rep")
+        unmeasured = f", of which {reached:,} were measured to the part's mesh (the deepest and the nearest are of those, and one on the surface may be counted inside)" if reached < done else ""
+        how.append(f"the time ran out after {done:,} vertices{unmeasured}, {tested:,} triangles and {len(taken)} points on the B-rep" + _waited(loading, budget))
     return {
         "part": part,
         "scan": scan.id,
@@ -968,10 +1018,12 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
             "cell": CELL,
             "surface": surface.spacing,
             "deflection": kept.get(("deflection", key), tess.DEVIATION),
+            "measured": reached,
             "retaken": len(taken),
             "retakesFailed": failed,
             "partial": late,
-            "seconds": round(time.monotonic() - started, 2),
+            "loading": round(loading, 2),
+            "seconds": round(time.monotonic() - entered, 2),
         },
         "how": "; ".join(how),
         "exact": False,
@@ -1000,7 +1052,7 @@ def _few(count: int, wanted: int) -> np.ndarray:
 
 
 def deviation(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) -> dict[str, Any]:
-    started = time.monotonic()
+    entered = time.monotonic()
     layout, part, shape, key = _part(shapes, args)
     source = args.get("from", "part")
     if source not in ("part", "scan"):
@@ -1045,8 +1097,10 @@ def deviation(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]
     asked = len(points)
     shuffled = np.random.default_rng(0).permutation(asked)
     found, done = [], 0
-    while done < asked and time.monotonic() - started <= BUDGET:
-        found.append(mesh.nearest(points[shuffled[done : done + DEVIATION_BATCH]], within, deadline=started + BUDGET))
+    started, budget, loading = _clock(entered)
+    sampling["loading"] = round(loading, 2)
+    while done < asked and time.monotonic() - started <= budget:
+        found.append(mesh.nearest(points[shuffled[done : done + DEVIATION_BATCH]], within, deadline=started + budget))
         done = min(done + DEVIATION_BATCH, asked)
     # Those there was time for, in the order they had before.
     back = np.argsort(shuffled[:done])
@@ -1064,18 +1118,18 @@ def deviation(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]
     sampling["partial"] = done < asked
     how = f"from {len(points):,} {what}" + (f" ({wanted:,} were asked: {fewer})" if asked < wanted else "") + f" to {to}"
     if done == 0 and asked:
-        sampling["seconds"] = round(time.monotonic() - started, 2)
+        sampling["seconds"] = round(time.monotonic() - entered, 2)
         said = {"part": part, "faces": faces, "scan": scan.id, "from": source, "samples": 0, "compared": 0, "beyond": 0}
-        return {**said, "distance": None, "signed": None, "worst": None, "sampling": {**sampling, "unsure": 0}, "how": f"{how}; the time ran out before any of {asked:,} was measured", "exact": False}
+        return {**said, "distance": None, "signed": None, "worst": None, "sampling": {**sampling, "unsure": 0}, "how": f"{how}; the time ran out before any of {asked:,} was measured" + _waited(loading, budget), "exact": False}
     if done < asked:
-        how += f"; the time ran out after {done:,} of {asked:,}"
+        how += f"; the time ran out after {done:,} of {asked:,}" + _waited(loading, budget)
     compared = np.isfinite(distance)
     sampling["unsure"] = int((unsure & compared).sum())
     if sampling["unsure"]:
         how += f"; {sampling['unsure']:,} of them may be told up to {mesh.reach:g} mm too far: not every triangle that near could be tried"
     said: dict[str, Any] = {"part": part, "faces": faces, "scan": scan.id, "from": source, "samples": len(points), "compared": int(compared.sum()), "beyond": int((~compared).sum())}
     if not compared.any():
-        sampling["seconds"] = round(time.monotonic() - started, 2)
+        sampling["seconds"] = round(time.monotonic() - entered, 2)
         return {**said, "distance": None, "signed": None, "worst": None, "sampling": sampling, "how": f"{how}; nothing of the scan is within {within:g} mm", "exact": False}
     signed = None
     if solid:
@@ -1094,7 +1148,7 @@ def deviation(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]
         except QueryError:
             sampling["retakesFailed"] = 1
             how += "; the furthest point could not be taken on the B-rep: its distance is to the part's mesh"
-    sampling["seconds"] = round(time.monotonic() - started, 2)
+    sampling["seconds"] = round(time.monotonic() - entered, 2)
     return {**said, "distance": _stats(distance[compared]), "signed": signed, "worst": told, "sampling": sampling, "how": how, "exact": False}
 
 
@@ -1154,15 +1208,21 @@ def _chains(nodes: np.ndarray, ends: np.ndarray) -> list[tuple[float, bool, np.n
     return lines
 
 
+def _tenths(point: Any) -> list[float]:
+    """Numbers as they are written to a tenth: 0.3, not 0.30000000000000004, and no -0."""
+    return [round(float(c), 1) + 0.0 for c in point]
+
+
 def outline(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) -> dict[str, Any]:
     """Where a plane cuts a scan: polylines in the plane's own axes, as ``section`` gives a part's loops.
 
     Two segments are joined where their ends are in the same place, to a
     ten-thousandth of a millimetre: a scan with colours has several vertices
     in one place, wherever two patches of its texture meet. No more than
-    ``MAX_OUTLINE_POINTS`` points are told in all: of more, each polyline
-    keeps its share by its length, the longest first, and what does not fit
-    is left out and counted.
+    ``args.points`` points are told in all (``OUTLINE_POINTS`` when it names
+    none): of more, each polyline keeps its share by its length, the longest
+    first, and what does not fit is left out and counted. They are told to a
+    tenth of a millimetre. A region left out (``scan.ignore``) is not cut.
     """
     from .section import _Frame
 
@@ -1171,6 +1231,9 @@ def outline(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) 
         raise QueryError("bad_request", "scan_section needs args.layout, a string")
     need_layout(shapes, layout)
     origin, normal = _plane(args)
+    most = args.get("points", OUTLINE_POINTS)
+    if not isinstance(most, int) or isinstance(most, bool) or not 2 <= most <= MAX_OUTLINE_POINTS:
+        raise QueryError("bad_request", f"points, the most a section tells of a scan, is a whole number from 2 to {MAX_OUTLINE_POINTS}")
     scan = _scan(args, kept)
     frame = _Frame(origin, normal)
     height = (scan.points - frame.origin) @ frame.normal
@@ -1196,28 +1259,29 @@ def outline(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) 
     lines.sort(key=lambda line: -line[0])
     found = sum(len(points) for _, _, points in lines)
     whole = sum(length for length, _, _ in lines)
-    told, room = [], MAX_OUTLINE_POINTS
+    told, room = [], most
     for length, closed, points in lines:
         keep = len(points)
-        if found > MAX_OUTLINE_POINTS:
-            keep = min(keep, max(3 if closed else 2, int(MAX_OUTLINE_POINTS * length / whole) if whole > 0 else 0))
+        if found > most:
+            keep = min(keep, max(3 if closed else 2, int(most * length / whole) if whole > 0 else 0))
         if keep > room:
             break
         if keep < len(points):
             # Evenly along it; an open one keeps both its ends.
             points = points[np.unique((np.arange(keep) * len(points) // keep) if closed else np.linspace(0, len(points) - 1, keep).round().astype(np.int64))]
         room -= len(points)
-        told.append((closed, points))
+        told.append((closed, np.round(points / OUTLINE_RESOLUTION) * OUTLINE_RESOLUTION))
     every = np.concatenate([points for _, points in told]) if told else None
     return {
         "scan": scan.id,
         "plane": {"origin": _xyz(frame.origin), "normal": _xyz(frame.normal), "x": _xyz(frame.x), "y": _xyz(frame.y)},
-        "polylines": [{"points": [[float(u) + 0.0, float(v) + 0.0] for u, v in points], "closed": closed} for closed, points in told],
+        "polylines": [{"points": [_tenths(point) for point in points], "closed": closed} for closed, points in told],
+        "resolution": OUTLINE_RESOLUTION,
         "omitted": len(lines) - len(told),
         "segments": int(real.sum()),
         "pointsFound": found,
         "pointsTold": 0 if every is None else len(every),
         "thinned": every is not None and len(every) < found or (every is None and found > 0),
-        "bounds": None if every is None else {"min": [float(c) for c in every.min(axis=0)], "max": [float(c) for c in every.max(axis=0)]},
+        "bounds": None if every is None else {"min": _tenths(every.min(axis=0)), "max": _tenths(every.max(axis=0))},
         "exact": False,
     }
