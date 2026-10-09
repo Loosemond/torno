@@ -118,6 +118,19 @@ describe('a session', () => {
     await expect.poll(() => said(sessionId)).toContain('context: (none)')
   })
 
+  it('offers nothing to resume when the agent left without a prompt', async () => {
+    // Claude Code posts SessionEnd, with the id it was started with, even when nothing was asked:
+    // it keeps no such conversation, and `--resume` of it fails.
+    const { sessionId } = sessions.start(object('lid'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    for (const event of ['Notification', 'SessionEnd']) {
+      sessions.write(sessionId, `hook ${event}\r`)
+      await expect.poll(() => said(sessionId)).toContain(`${event}: ok`)
+    }
+    expect(existsSync(join(root, 'lid', '.torno'))).toBe(false)
+    expect(sessions.resumable(object('lid'))).toBe(false)
+  })
+
   it('follows the conversation when the agent starts another, and resumes that one', async () => {
     const other = '7c1f0c0e-3a54-4f0b-8a3e-5d2b9f6a1c11'
     const first = sessions.start(object('lid'), {})

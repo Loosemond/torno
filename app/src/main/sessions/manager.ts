@@ -13,6 +13,8 @@ const FOLDER = '.torno'
 const FILE = 'session.json'
 const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
+/** The hooks that say a conversation has a prompt in it: it exists for the agent, and can be resumed. */
+const CONVERSATION_EVENTS = new Set(['UserPromptSubmit', 'Stop'])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface Session {
@@ -58,7 +60,7 @@ export class Sessions {
       contextFor: (objectId: string) => string
       systemPrompt: string
       mcpUrlFor: (objectId: string) => string
-      /** Print the command line of every session started. */
+      /** Print the command line of every session started, and every hook it posts. */
       debug?: boolean
     }
   ) {
@@ -211,9 +213,11 @@ export class Sessions {
     }
     const fields = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {}
 
-    // The agent starts another conversation on /clear; the one to resume is the latest.
+    // The agent starts another conversation on /clear; the one to resume is the latest
+    // that was asked something. Claude Code names a conversation in every hook, also in
+    // the SessionEnd of one nothing was asked in, and that one it cannot resume.
     const conversation = fields.session_id
-    if (typeof conversation === 'string' && UUID.test(conversation)) {
+    if (CONVERSATION_EVENTS.has(event) && typeof conversation === 'string' && UUID.test(conversation)) {
       session.conversationId = conversation
       try {
         storeConversation(session.object.dir, conversation)
@@ -228,6 +232,7 @@ export class Sessions {
     if (event !== 'SessionEnd') this.advance(session, event)
 
     const context = event === 'UserPromptSubmit' ? this.deps.contextFor(session.object.id) : ''
+    if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${context ? `, answered with: ${context}` : ''}`)
     sendJson(res, 200, context ? { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } } : {})
   }
 }
@@ -291,8 +296,8 @@ function findCommand(command: string, path = ''): string | null {
 
 /**
  * `<object>/.torno/session.json` holds the conversation to resume. It is
- * written when the agent first names the conversation in a hook, so one that
- * was opened and never used is not offered again.
+ * written when the agent first names the conversation in the hook of a prompt,
+ * so one that was opened and never used is not offered again.
  */
 function storedConversation(dir: string): string | null {
   try {

@@ -17,7 +17,7 @@ import { Sessions } from './sessions/manager'
 //   TORNO_WORKSPACE=<path>  workspace to open at start, instead of the one remembered
 //   TORNO_CONFIG=<path>     config file to use instead of ~/.config/torno/config.json
 //   TORNO_AGENT_CMD=<cmd>   command to run for a session instead of `claude`, split on spaces
-//   TORNO_DEBUG=1           print where the MCP server is, and the command line of every session
+//   TORNO_DEBUG=1           print where the MCP server is, the command line of every session and its hooks
 const isTest = process.env.TORNO_TEST === '1'
 const isDebug = process.env.TORNO_DEBUG === '1'
 
