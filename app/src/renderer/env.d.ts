@@ -20,8 +20,10 @@ declare global {
       timePicks(count?: number, opts?: { edges?: boolean }): { count: number; hits: number; meanMs: number; worstMs: number }
       /** What drawing the view as it is costs, over `count` frames: the mean and the worst, in milliseconds. */
       timeFrames(count?: number): { count: number; meanMs: number; worstMs: number }
-      /** Where a point of the object frame falls on the canvas, as such fractions. */
-      project(point: [number, number, number]): [number, number]
+      /** Where a point of the object frame is drawn on the canvas, as such fractions; with `part`, where it is drawn as a point of that part, which may be drawn apart from where it is (explode). */
+      project(point: [number, number, number], part?: string): [number, number]
+      /** Whether the viewport draws the parts apart now, or is on its way there or back. */
+      exploded(): boolean
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
       /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */

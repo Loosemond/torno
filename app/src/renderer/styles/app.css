@@ -1514,9 +1514,16 @@ button {
 .viewbar {
   position: absolute;
   top: var(--space-3);
-  left: 50%;
-  transform: translateX(-50%);
+  /* In the middle, and never wider than the view: what does not fit in one row goes to the next (the explode group first). */
+  left: var(--space-3);
+  right: var(--space-3);
+  width: fit-content;
+  margin-inline: auto;
+  /* Its menus are stacked within it: over its own second row, and no further up than the bar itself. */
+  isolation: isolate;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 2px;
   padding: 3px;
@@ -1614,6 +1621,7 @@ button {
 
 .menu {
   position: absolute;
+  z-index: 1;
   top: calc(100% + 7px);
   left: 0;
   display: grid;
@@ -2841,4 +2849,93 @@ button {
   height: 6px;
   border-radius: 50%;
   background: var(--user-mark);
+}
+
+/* ---- Explode: in the view bar, the section bar's sibling. How far apart the parts are drawn, for display only ---- */
+
+.explode {
+  align-items: center;
+  /* Set off from the views by room, not by a rule: a rule would be left at the end of the row when this wraps. */
+  padding-left: var(--space-2);
+}
+
+.explode-label {
+  padding: 0 0 0 7px;
+  color: var(--muted);
+}
+
+/* Apart: the word says so in the colour of what is on, as a pressed button of the bar does. */
+.explode[data-apart] .explode-label {
+  color: var(--accent);
+}
+
+/* The section's rule, with its mark at the left end: there the parts are as assembled. */
+.explode-slider {
+  flex: 0 0 96px;
+  min-width: 96px;
+  margin: 0 var(--space-1) 0 var(--space-2);
+  background:
+    linear-gradient(var(--muted), var(--muted)) left center / 1px 7px no-repeat,
+    linear-gradient(var(--hairline), var(--hairline)) center / 100% 1px no-repeat;
+}
+
+.explode-amount {
+  min-width: 5ch;
+  padding-right: 2px;
+  text-align: right;
+  font-size: var(--text-small);
+}
+
+.explode-amount[data-disabled] {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+/* Along what, and how far: two rows, each named, and a line that says what explode is not. */
+.explode-more {
+  left: auto;
+  right: 0;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 2px var(--space-2);
+  min-width: 0;
+  padding: 6px;
+}
+
+.explode-more-label {
+  padding-left: 3px;
+  color: var(--muted);
+}
+
+.explode-hint {
+  grid-column: 1 / -1;
+  max-width: 34ch;
+  margin: 4px 3px 1px;
+  color: var(--muted);
+  white-space: normal;
+  text-wrap: pretty;
+}
+
+/* Under the bar while the parts are apart: what is on screen is not where they are, and how to put them back. */
+.explode-note {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 9px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* What E could not do, for a moment. */
+.explode-note[data-refused] {
+  color: var(--ink);
+}
+
+/* A line a mark's row says of how the mark is drawn now, not of the mark. */
+.row-note {
+  color: var(--muted);
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ViewName } from '../../shared/view'
 import { actions, store, useStore } from '../state/store'
 import type { Viewport } from '../viewport/Viewport'
+import { ExplodeControl, toggleExplode } from './ExplodeControl'
 import { TYPING } from './typing'
 
 const MAIN_VIEWS: { view: ViewName; label: string; key: string }[] = [
@@ -21,7 +22,7 @@ function setOrtho(viewport: Viewport, ortho: boolean): void {
   actions.setOrtho(ortho)
 }
 
-/** The palette floating at the top of the viewport: layout, standard views, projection, fit. */
+/** The palette floating at the top of the viewport: layout, standard views, projection, fit, explode. */
 export function ViewBar({ viewport }: { viewport: Viewport }) {
   const layouts = useStore((s) => s.scene?.layouts ?? NONE)
   const layout = useStore((s) => s.layout)
@@ -38,6 +39,8 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       if (named) viewport.setView(named.view, true)
       else if (e.key === 'f' || e.key === 'F') viewport.fit()
       else if (e.key === 'o' || e.key === 'O') setOrtho(viewport, !store.getState().ortho)
+      // After the tool in hand, which was offered the key first (the viewport pane listens before this bar does).
+      else if (e.key === 'e' || e.key === 'E') toggleExplode()
       else return
       e.preventDefault()
     }
@@ -149,6 +152,9 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       <button type="button" className="bar-button" title="Fit the parts in view (F)" onClick={() => viewport.fit()}>
         Fit
       </button>
+
+      {/* No rule before it: where the bar is wider than the view, this group goes to a row of its own. */}
+      <ExplodeControl viewport={viewport} />
     </div>
   )
 }

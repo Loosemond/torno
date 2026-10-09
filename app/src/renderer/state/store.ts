@@ -2,6 +2,7 @@ import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
+import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, isExploded, sameExplode } from '../../shared/explode'
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanView } from '../../shared/scans'
@@ -47,6 +48,12 @@ export interface TornoState {
    * never while the plane moves.
    */
   section: SectionPlane | null
+  /**
+   * How the parts of each layout are drawn apart, by layout name, as it is on screen: what the person chose, or
+   * what the agent shows for now (`shownByAgent.explode`). Display only: nothing kept or told is of a part as it
+   * is drawn apart. What is drawn of it is `explodeNow`: nothing while there is a section.
+   */
+  explode: Record<string, ExplodeState>
   /** The marks of the open object, as main last told them. */
   marks: Mark[]
   /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
@@ -104,9 +111,11 @@ export interface TornoState {
    * `scans` holds, by scan id, how the person looked at each scan the agent
    * shows otherwise (undefined for one they had never changed). What they set
    * of such a scan by hand afterwards is theirs, field by field: the fields
-   * they did not touch stay as they had them.
+   * they did not touch stay as they had them. `explode` holds, by layout, how
+   * the person had the parts of each layout the agent draws apart otherwise
+   * (`theirs`: null for a layout they had never drawn apart).
    */
-  shownByAgent: { layout?: string; visible: Record<string, boolean | undefined>; section?: { theirs: SectionPlane | null }; scans?: Record<string, ScanView | undefined> } | null
+  shownByAgent: { layout?: string; visible: Record<string, boolean | undefined>; section?: { theirs: SectionPlane | null }; scans?: Record<string, ScanView | undefined>; explode?: Record<string, { theirs: ExplodeState | null }> } | null
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
   sessions: Record<string, SessionView>
 }
@@ -116,7 +125,7 @@ const NOTHING_PICKED: Record<string, PickedAt> = {}
 const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -152,7 +161,10 @@ export const actions = {
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */
   openObject(objectId: string, file: SceneFile): void {
-    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), scanViews: file.scans ?? {} })
+    const section = sectionOf(file.section)
+    // A section is never drawn exploded: of a file that holds both, the section stays and the parts are together.
+    const explode = section ? together(file.explode ?? {}) : (file.explode ?? {})
+    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section, explode, scanViews: file.scans ?? {} })
   },
 
   applyBuild(build: BuildState): void {
@@ -208,13 +220,45 @@ export const actions = {
    * Cut the parts by a plane, or by none, by hand: when a drag of the plane is
    * let go, a field is left, a button is pressed. It is the person's own
    * choice, whatever the agent had shown, and is what the scene file keeps.
+   * A section is never drawn exploded: with a plane the parts come together,
+   * in every layout (the plane is the object's), and only how far apart they
+   * were is forgotten.
    */
   setSection(plane: SectionPlane | null): void {
     const s = store.getState()
     const section = plane && snappedSection(plane)
     if (samePlane(section, s.section) && !s.shownByAgent?.section) return
-    const { section: _theirsAgain, ...shownByAgent } = s.shownByAgent ?? { visible: {} }
-    store.setState({ section, edits: s.edits + 1, shownByAgent: s.shownByAgent && shownByAgent })
+    const { section: _theirsAgain, explode: agents, ...rest } = s.shownByAgent ?? { visible: {} }
+    // Together is their own choice too, whatever the agent had drawn apart.
+    const shownByAgent = section || !agents ? rest : { ...rest, explode: agents }
+    store.setState({ section, explode: section ? together(s.explode) : s.explode, edits: s.edits + 1, shownByAgent: s.shownByAgent && (nothingShown(shownByAgent) ? null : shownByAgent) })
+  },
+
+  /**
+   * Draw the parts of the layout shown apart, or otherwise apart, by hand:
+   * what is left out of `change` keeps its value. It is the person's own
+   * choice, whatever the agent had shown, and is what the scene file keeps.
+   * Returns why not, as a sentence (there is a section: one is never drawn
+   * exploded), or null.
+   */
+  setExplode(change: Partial<ExplodeState>): string | null {
+    const s = store.getState()
+    const { layout } = s
+    if (!layout) return null
+    const had = s.explode[layout] ?? NO_EXPLODE
+    const next = explodeOf({ ...had, ...change }) ?? had
+    if (s.section !== null && next.amount > 0) return SECTION_FIRST
+    const agents = s.shownByAgent?.explode
+    if (sameExplode(next, had) && !(agents && layout in agents)) return null
+    let shownByAgent = s.shownByAgent
+    if (shownByAgent && agents && layout in agents) {
+      const { [layout]: _theirsAgain, ...others } = agents
+      const { explode: _all, ...rest } = shownByAgent
+      const left = Object.keys(others).length > 0 ? { ...rest, explode: others } : rest
+      shownByAgent = nothingShown(left) ? null : left
+    }
+    store.setState({ explode: { ...s.explode, [layout]: next }, edits: s.edits + 1, shownByAgent })
+    return null
   },
 
   /**
@@ -224,8 +268,11 @@ export const actions = {
    * chosen is remembered (`shownByAgent`) and is what the scene file goes on
    * saying; this counts as no edit of theirs. With `scans`, each scan named
    * is looked at that way too (what is left out of one keeps its value).
+   * With `explode`, the parts of that layout are drawn apart so, or together
+   * for null. A section is never drawn exploded: where the parts are cut
+   * once this is done, those of every layout are together.
    */
-  showForAgent(layout: string, visible: Record<string, boolean>, section?: SectionPlane | null, scans?: Record<string, ScanView>): void {
+  showForAgent(layout: string, visible: Record<string, boolean>, section?: SectionPlane | null, scans?: Record<string, ScanView>, explode?: ExplodeState | null): void {
     const s = store.getState()
     if (!s.scene?.layouts.includes(layout)) return
     const theirs = { ...s.shownByAgent, visible: { ...s.shownByAgent?.visible } }
@@ -265,8 +312,30 @@ export const actions = {
     }
     if (Object.keys(had).length > 0) theirs.scans = had
     else delete theirs.scans
-    const none = theirs.layout === undefined && Object.keys(theirs.visible).length === 0 && !theirs.section && !theirs.scans
-    store.setState({ ...next, layers, scanViews, shownByAgent: none ? null : theirs })
+    let explodes = s.explode
+    const apart: Record<string, { theirs: ExplodeState | null }> = { ...theirs.explode }
+    /** Draws a layout's parts apart so, or together for null, remembering how the person had them. */
+    const drawApart = (name: string, to: ExplodeState | null): void => {
+      const was = explodes[name]
+      const now = to ?? (was ? { ...was, amount: 0 } : undefined)
+      if (drawnAlike(now, was)) return
+      const { [name]: _replaced, ...others } = explodes
+      if (!(name in apart)) apart[name] = { theirs: was ?? null }
+      else if (drawnAlike(now, apart[name].theirs)) {
+        // Back to what they had: as they had it, to the letter, and nothing is left to remember of it.
+        const back = apart[name].theirs
+        explodes = back ? { ...others, [name]: back } : others
+        delete apart[name]
+        return
+      }
+      explodes = now ? { ...others, [name]: now } : others
+    }
+    if (explode !== undefined) drawApart(layout, explode && explodeOf(explode))
+    // Never apart and cut: the cut is what was asked for, or what is on screen and was not taken away.
+    if ((section !== undefined ? section : s.section) !== null) for (const name of Object.keys(explodes)) drawApart(name, null)
+    if (Object.keys(apart).length > 0) theirs.explode = apart
+    else delete theirs.explode
+    store.setState({ ...next, layers, scanViews, explode: explodes, shownByAgent: nothingShown(theirs) ? null : theirs })
   },
 
   /** The marks of an object, as loaded or as changed. Those of an object that is not the open one are not kept. */
@@ -454,6 +523,18 @@ export function partsInLayout(s: TornoState, layout = s.layout): Part[] {
   return s.scene ? s.scene.parts.filter((p) => p.layout === layout) : []
 }
 
+/**
+ * How the parts of a layout (the one shown, when none is named) are drawn apart now, or null when they are not:
+ * nothing is while there is a section, which is never drawn exploded, nor of a layout with fewer than two parts,
+ * whatever is kept of it. For display only: no position, ref or number that is kept or told is of a part as it is
+ * drawn apart.
+ */
+export function explodeNow(s: Pick<TornoState, 'explode' | 'section' | 'layout' | 'scene'>, layout = s.layout): ExplodeState | null {
+  const explode = s.explode[layout]
+  if (s.section !== null || !isExploded(explode)) return null
+  return (s.scene?.parts.filter((p) => p.layout === layout).length ?? 0) >= 2 ? explode : null
+}
+
 /** Keys of the parts of a layout that are switched on. */
 export function visibleKeys(s: TornoState, layout = s.layout): string[] {
   return partsInLayout(s, layout)
@@ -463,8 +544,8 @@ export function visibleKeys(s: TornoState, layout = s.layout): string[] {
 
 /**
  * What `<object>/.torno/scene.json` should hold for the open object: the
- * layout, the layers, the section and how each scan is looked at, as the
- * person chose them. Where the
+ * layout, the layers, the section, how the parts of each layout are drawn
+ * apart and how each scan is looked at, as the person chose them. Where the
  * agent's `show` has something else on screen, it is the person's choice that
  * is kept.
  */
@@ -483,7 +564,30 @@ export function sceneFileOf(s: TornoState): SceneFile {
     if (theirs === undefined) delete scans[id]
     else scans[id] = theirs
   }
-  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(scans).length > 0 ? { scans } : {}) }
+  const explode = { ...s.explode }
+  for (const [name, { theirs }] of Object.entries(s.shownByAgent?.explode ?? {})) {
+    if (theirs === null) delete explode[name]
+    else explode[name] = theirs
+  }
+  // What says nothing but what is so anyway is left out.
+  for (const [name, one] of Object.entries(explode)) if (sameExplode(one, NO_EXPLODE)) delete explode[name]
+  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(scans).length > 0 ? { scans } : {}), ...(Object.keys(explode).length > 0 ? { explode } : {}) }
+}
+
+/** Every layout's parts together: only how far apart they were drawn is forgotten, not along what or how far that reaches. */
+function together(explode: Record<string, ExplodeState>): Record<string, ExplodeState> {
+  if (!Object.values(explode).some(isExploded)) return explode
+  return Object.fromEntries(Object.entries(explode).map(([name, one]) => [name, one.amount > 0 ? { ...one, amount: 0 } : one]))
+}
+
+/** Whether two explodes draw the parts the same: both together, whatever else they say, or the same apart. */
+function drawnAlike(a: ExplodeState | null | undefined, b: ExplodeState | null | undefined): boolean {
+  return (!isExploded(a) && !isExploded(b)) || sameExplode(a, b)
+}
+
+/** Whether nothing is left of what the agent shows otherwise than the person chose. */
+function nothingShown(shown: NonNullable<TornoState['shownByAgent']>): boolean {
+  return shown.layout === undefined && Object.keys(shown.visible).length === 0 && !shown.section && !shown.scans && !shown.explode
 }
 
 /** Whether two ways of looking at a scan draw it the same: what is left out has its default (on, solid, in its own colours). */
@@ -497,7 +601,7 @@ function withoutScans(shown: TornoState['shownByAgent'], gone: (id: string) => b
   const { scans, ...rest } = shown
   const kept = Object.fromEntries(Object.entries(scans).filter(([id]) => !gone(id)))
   if (Object.keys(kept).length > 0) return { ...rest, scans: kept }
-  return rest.layout === undefined && Object.keys(rest.visible).length === 0 && !rest.section ? null : rest
+  return nothingShown(rest) ? null : rest
 }
 
 /** Whether two sections are the same: both none, or the same plane to the last digit. */

@@ -222,7 +222,8 @@ describe('scene', () => {
         { name: 'post', layout: 'print', visible: false, size: [8, 20, 8], bbox: { min: [56, -10, 0], max: [64, 10, 8] }, volume: 6000, faces: 6, edges: 12, valid: true }
       ],
       camera: { position: [100.12, -80, 60], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
-      section: null
+      section: null,
+      explode: null
     })
   })
 
@@ -320,8 +321,8 @@ describe('look', () => {
     await lookTool(deps, 'bracket', {})
     await lookTool(deps, 'bracket', { view: 'top', layout: 'print', parts: ['post'], size: 800 })
     expect(deps.looks).toEqual([
-      { objectId: 'bracket', req: { view: 'current', size: 1280 } },
-      { objectId: 'bracket', req: { view: 'top', layout: 'print', parts: ['post'], size: 800 } }
+      { objectId: 'bracket', req: { view: 'current', size: 1280, explode: 'current' } },
+      { objectId: 'bracket', req: { view: 'top', layout: 'print', parts: ['post'], size: 800, explode: 'current' } }
     ])
   })
 
@@ -330,8 +331,8 @@ describe('look', () => {
     await lookTool(deps, 'bracket', { marks: false })
     await lookTool(deps, 'bracket', { marks: true })
     expect(deps.looks.map((l) => l.req)).toEqual([
-      { view: 'current', size: 1280, marks: false },
-      { view: 'current', size: 1280, marks: true }
+      { view: 'current', size: 1280, marks: false, explode: 'current' },
+      { view: 'current', size: 1280, marks: true, explode: 'current' }
     ])
     expect(TOOLS.look.inputSchema.marks.description).toBe("Draw the user's and your marks with their numbers. Default true.")
     expect(TOOLS.look.inputSchema.marks.safeParse(undefined).success).toBe(true)
@@ -733,7 +734,7 @@ describe('show', () => {
   })
 
   it.each([
-    [{}, 'nothing to show: give a view, a layout, parts, a section or scans'],
+    [{}, 'nothing to show: give a view, a layout, parts, a section, an explode or scans'],
     [{ layout: 'exploded' }, "no layout 'exploded'; layouts: assembly, print"],
     [{ parts: [] }, 'parts is empty: name the parts to leave switched on'],
     [{ view: { position: [1, 1, 1], target: [1, 1, 1] } }, 'position and target are the same']
@@ -1215,7 +1216,7 @@ describe('scans in scene, look and show', () => {
     await lookTool(deps, 'bracket', { scans: false })
     await lookTool(deps, 'bracket', { scans: true })
     await lookTool(deps, 'bracket', { scans: ['S1', 'S1'] })
-    expect(deps.looks.map((look) => look.req)).toEqual([{ view: 'current', size: 1280, scans: false }, { view: 'current', size: 1280 }, { view: 'current', size: 1280, scans: ['S1'] }])
+    expect(deps.looks.map((look) => look.req)).toEqual([{ view: 'current', size: 1280, scans: false, explode: 'current' }, { view: 'current', size: 1280, explode: 'current' }, { view: 'current', size: 1280, scans: ['S1'], explode: 'current' }])
     expect(await said(lookTool(deps, 'bracket', { scans: ['S9'] }))).toBe('no scan S9; scans: S1, S2')
     expect(await said(lookTool(deps, 'bracket', { scans: 'S1' as never }))).toBe('scans is true for the scans on the user\'s screen, false for none, or a list of their numbers: {"scans": ["S1"]}')
     expect(await said(lookTool(fake(), 'bracket', { scans: ['S1'] }))).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
@@ -1250,7 +1251,88 @@ describe('scans in scene, look and show', () => {
     expect(await said(showTool(deps, 'bracket', { scanOpacity: '0.5' as never }))).toBe(OPACITY)
     expect(await said(showTool(deps, 'bracket', { scans: ['S7'] }))).toBe('no scan S7; scans: S1, S2')
     expect(await said(showTool(deps, 'bracket', { scans: 'S1' as never }))).toBe('scans is a list of the numbers of the scans to leave switched on, [] to hide them all: {"scans": ["S1"]}')
-    expect(await said(showTool(deps, 'bracket', {}))).toBe('nothing to show: give a view, a layout, parts, a section or scans')
+    expect(await said(showTool(deps, 'bracket', {}))).toBe('nothing to show: give a view, a layout, parts, a section, an explode or scans')
     expect(deps.w.shows).toHaveLength(3)
+  })
+})
+
+describe('explode', () => {
+  const NOT_BOTH = 'a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)'
+  const exploded = (over: Partial<ViewState> = {}): Fake => fake({ view: () => ({ ...VIEW, ...over }) })
+
+  it('asks for an exploded picture, refuses one with a section, and tells positions as before', async () => {
+    const d = fake()
+    await lookTool(d, 'bracket', { explode: 0.5 })
+    expect(d.looks.at(-1)!.req).toMatchObject({ explode: { amount: 0.5, scale: 1, axis: 'centre' } })
+    await lookTool(d, 'bracket', {})
+    expect(d.looks.at(-1)!.req.explode).toBe('current')
+    await lookTool(d, 'bracket', { explode: 0 })
+    expect(d.looks.at(-1)!.req.explode).toBeNull()
+    await lookTool(d, 'bracket', { explode: null })
+    expect(d.looks.at(-1)!.req.explode).toBeNull()
+    await lookTool(d, 'bracket', { explode: { amount: 1, axis: 'z', scale: 2 } })
+    expect(d.looks.at(-1)!.req.explode).toEqual({ amount: 1, scale: 2, axis: 'z' })
+    const asked = d.looks.length
+    const both = await lookTool(d, 'bracket', { explode: 0.5, section: { axis: 'z', at: 3 } })
+    expect(both.isError).toBe(true)
+    expect(textOf(both)).toBe(NOT_BOTH)
+    expect(textOf(await lookTool(d, 'bracket', { explode: 'half' as never }))).toContain('explode is a number from 0 to 1')
+    expect(d.looks).toHaveLength(asked)
+  })
+
+  it('refuses an exploded picture while the user has a section, unless the picture is asked whole', async () => {
+    const cut = exploded({ section: { origin: [0, 0, 3], normal: [0, 0, 1] } })
+    expect(textOf(await lookTool(cut, 'bracket', { explode: 0.5 }))).toBe(NOT_BOTH)
+    expect(textOf(await lookTool(cut, 'bracket', { explode: 0.5, section: 'current' }))).toBe(NOT_BOTH)
+    expect(cut.looks).toEqual([])
+    expect((await lookTool(cut, 'bracket', { explode: 0.5, section: null })).isError).toBeUndefined()
+    // Drawn together, a section is drawn as ever.
+    expect((await lookTool(cut, 'bracket', { explode: 0 })).isError).toBeUndefined()
+    expect((await lookTool(cut, 'bracket', { explode: null, section: { axis: 'z', at: 3 } })).isError).toBeUndefined()
+    expect(cut.looks).toHaveLength(3)
+  })
+
+  it('reports an exploded view in scene, with the note, and every part where it is built', () => {
+    const explodedScene = JSON.parse(textOf(sceneTool(exploded({ explode: { amount: 0.4, scale: 1, axis: 'z' } }), 'bracket')))
+    const assembled = JSON.parse(textOf(sceneTool(fake(), 'bracket')))
+    expect(explodedScene.explode).toEqual({ amount: 0.4, scale: 1, axis: 'z' })
+    expect(explodedScene.note).toBe("The user's view is exploded 40 % along z: the parts are drawn apart for display: every position, ref and number told is of the parts as assembled.")
+    expect(explodedScene.parts).toEqual(assembled.parts)
+    expect(explodedScene.camera).toEqual(assembled.camera)
+    expect(assembled.explode).toBeNull()
+    expect(assembled.note).toBeUndefined()
+    // An explode of nothing is none.
+    expect(JSON.parse(textOf(sceneTool(exploded({ explode: { amount: 0, scale: 2, axis: 'z' } }), 'bracket'))).explode).toBeNull()
+  })
+
+  it('show sets an explode for now, puts the parts together for null and 0, and refuses one with a section', async () => {
+    const d = fake()
+    expect((await showTool(d, 'bracket', { explode: 0.5 })).isError).toBeUndefined()
+    expect((await showTool(d, 'bracket', { explode: { amount: 1, axis: 'x' } })).isError).toBeUndefined()
+    expect((await showTool(d, 'bracket', { explode: null })).isError).toBeUndefined()
+    expect((await showTool(d, 'bracket', { explode: 0 })).isError).toBeUndefined()
+    expect((await showTool(d, 'bracket', { explode: 0.5, section: null })).isError).toBeUndefined()
+    expect(d.w.shows).toEqual([
+      { objectId: 'bracket', explode: { amount: 0.5, scale: 1, axis: 'centre' } },
+      { objectId: 'bracket', explode: { amount: 1, scale: 1, axis: 'x' } },
+      { objectId: 'bracket', explode: null },
+      { objectId: 'bracket', explode: null },
+      { objectId: 'bracket', section: null, explode: { amount: 0.5, scale: 1, axis: 'centre' } }
+    ])
+    expect(textOf(await showTool(d, 'bracket', { explode: 0.5, section: { axis: 'z', at: 3 } }))).toBe(NOT_BOTH)
+    expect(textOf(await showTool(d, 'bracket', { explode: [1] as never }))).toContain('explode is a number from 0 to 1')
+    expect(textOf(await showTool(d, 'bracket', {}))).toBe('nothing to show: give a view, a layout, parts, a section, an explode or scans')
+    const cut = exploded({ section: { origin: [0, 0, 3], normal: [0, 0, 1] } })
+    expect(textOf(await showTool(cut, 'bracket', { explode: 0.5 }))).toBe(NOT_BOTH)
+    expect((await showTool(cut, 'bracket', { explode: 0.5, section: null })).isError).toBeUndefined()
+    expect((await showTool(cut, 'bracket', { explode: 0 })).isError).toBeUndefined()
+    expect(d.w.shows).toHaveLength(5)
+  })
+
+  it('names explode in the schemas of look and show, so that the wrapper lets it through', () => {
+    for (const tool of [TOOLS.look, TOOLS.show]) {
+      expect(Object.keys(tool.inputSchema)).toContain('explode')
+      expect(tool.inputSchema.explode.description).toContain('For display only: positions, refs and measurements are always of the parts as assembled.')
+    }
   })
 })

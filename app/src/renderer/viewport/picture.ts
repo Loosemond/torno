@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, SCANS_STAY, explodeText, isExploded } from '../../shared/explode'
 import type { Part } from '../../shared/scene'
 import { number } from '../../shared/format'
 import type { Camera, ScanColouring, SectionPlane, ViewName } from '../../shared/view'
@@ -27,6 +28,8 @@ export interface ImageRequest {
   scanColour?: ScanColouring
   /** What a named view is fitted to: the parts drawn (and when left out), or the scans drawn with them. */
   frame?: 'parts' | 'all'
+  /** How far apart the parts are drawn: `'current'`, and when left out, as on screen when the layout is the one on screen (together otherwise); null together; or an explode of the picture's own. Never with a section. */
+  explode?: ExplodeState | 'current' | null
 }
 
 export interface Picture {
@@ -37,6 +40,8 @@ export interface Picture {
   /** The layout drawn, and the scans drawn in it, by id. */
   layout: string
   scans: string[]
+  /** The parts are drawn apart in it, and its caption says so: nothing in it is where it is. */
+  exploded: boolean
 }
 
 /** Long edge of a picture for the agent, in pixels. */
@@ -58,7 +63,7 @@ export interface PicturePart {
 export interface PictureHost {
   readonly renderer: THREE.WebGLRenderer
   readonly scene: THREE.Scene
-  readonly marks: Pick<MarkLayer, 'activeId' | 'setActive' | 'show' | 'showDraft' | 'extend' | 'update' | 'labels'>
+  readonly marks: Pick<MarkLayer, 'activeId' | 'setActive' | 'show' | 'showDraft' | 'extend' | 'update' | 'labels' | 'split'>
   readonly highlights: Pick<Highlights, 'setVisible'>
   readonly scans: Pick<ScanLayer, 'showOnly' | 'shown' | 'box' | 'boxIn' | 'built' | 'colourFor'>
   /** The viewport has been disposed of. */
@@ -94,6 +99,36 @@ export interface PictureHost {
   showMarks(): void
   /** The colours of the labels, and a quieter ink for notes. */
   colours(): LabelStyle & { muted: string }
+  /** How the parts of the layout on screen are drawn apart, or null. */
+  explode(): ExplodeState | null
+  /** Draws that layout's parts apart so (together for null), at once; returns what puts the screen back. */
+  explodeFor(explode: ExplodeState | null, layout: string): () => void
+}
+
+/**
+ * How far apart a picture draws its parts, or null for together. As on screen unless it says how: of the layout
+ * on screen by the explode there (`current`), of another layout together. A section is never drawn exploded (the
+ * plane cuts the parts where they are, not where they would be drawn): asked for both, the picture is refused;
+ * apart only because the screen is, a cut the picture was asked for is drawn of the parts together.
+ */
+export function pictureExplode(asked: ImageRequest['explode'], of: { layout: string; onScreen: string; current: ExplodeState | null; section: SectionPlane | null; /** How many parts the layout has. */ parts: number }): ExplodeState | null {
+  const own = asked !== undefined && asked !== 'current'
+  const explode = own ? asked : of.layout === of.onScreen ? of.current : null
+  // One part has nothing to be drawn apart from.
+  if (!isExploded(explode) || of.parts < 2) return null
+  if (of.section && own) throw new Error(NOT_EXPLODED_AND_CUT)
+  return of.section ? null : explode
+}
+
+/**
+ * What a caption says of a picture whose parts are drawn apart: how, and that nothing in it is where it is
+ * (`EXPLODED_NOTE`); that the scans drawn with them have not moved; and which marks are left out because they
+ * run between parts that are drawn apart from each other. '' for a picture of the parts together.
+ */
+export function explodedNote(explode: ExplodeState | null, scans: boolean, split: readonly string[] = []): string {
+  if (!isExploded(explode)) return ''
+  const left = split.length === 0 ? '' : ` · ${split.join(', ')} ${split.length === 1 ? 'is' : 'are'} not drawn: ${split.length === 1 ? 'it runs' : 'they run'} between parts drawn apart`
+  return ` · ${explodeText(explode)} (${EXPLODED_NOTE})${scans ? ` · ${SCANS_STAY}` : ''}${left}`
 }
 
 /** The pixels of a picture whose long edge was asked to be `size`: within 64 and 2000, 1280 when not said. */
@@ -299,6 +334,27 @@ export class PictureMaker {
     const scanBoxes = (scans ?? []).map((id) => ({ id, box: host.scans.boxIn([id], req.layout) })).filter((one): one is { id: string; box: THREE.Box3 } => one.box !== null)
     const everything = req.frame === 'all' && scanBoxes.length > 0 ? scanBoxes.reduce((all, one) => all.union(one.box), new THREE.Box3()) : null
 
+    const section = req.section === undefined || req.section === 'current' ? host.section() : req.section
+    const explode = pictureExplode(req.explode, { layout: req.layout, onScreen: host.layout(), current: host.explode(), section, parts: [...host.parts()].filter((p) => p.part.layout === req.layout).length })
+    // From here on the parts are where the picture draws them, until `together` puts the screen back: nothing
+    // in between waits, so no frame on screen sees it.
+    const together = host.explodeFor(explode, req.layout)
+    try {
+      return this.drawn(req, { aspect, width, height, shown, scans, scanBoxes, everything, section, explode })
+    } finally {
+      together()
+    }
+  }
+
+  /** The picture itself, with the parts already drawn apart as it has them. Everything up to the encoding of the PNG is synchronous. */
+  private drawn(
+    req: ImageRequest,
+    of: { aspect: number; width: number; height: number; shown: PicturePart[]; scans: string[] | null; scanBoxes: Array<{ id: string; box: THREE.Box3 }>; everything: THREE.Box3 | null; section: SectionPlane | null; explode: ExplodeState | null }
+  ): Promise<Picture> {
+    const host = this.host
+    const { aspect, width, height, shown, scans, scanBoxes, everything, section, explode } = of
+    const wanted = new Set(req.visibleKeys)
+    const colouring = req.scanColour
     let view: Camera
     let viewName: string
     if (req.view === 'current') {
@@ -332,7 +388,6 @@ export class PictureMaker {
         }
       }
     }
-    const section = req.section === undefined || req.section === 'current' ? host.section() : req.section
     // A mark on a part the picture leaves out is left out with it.
     const notDrawn = host.hiddenParts(req.layout, wanted)
     const unit = overlayUnit(width, height)
@@ -379,16 +434,21 @@ export class PictureMaker {
       const labels = host.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP), left)
       drawLabels(ctx, labels, colours, unit * PICTURE_CHIP)
     }
-    const blob = await picture.convertToBlob({ type: 'image/png' })
-    const png = new Uint8Array(await blob.arrayBuffer())
+    // Read now, while the parts are as the picture has them: the marks it left out because their ends are drawn apart.
+    const split = withMarks ? host.marks.split(req.layout, notDrawn) : []
 
     const names = shown.map((p) => p.part.name).join(', ') || 'none'
     const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
     const cutNote = section ? ` · ${describeSection(section)}` : ''
     // A scan is the surroundings: a view fitted to the parts shows a corner of it. That is said, with what takes all of it in.
     const beyond = scanBoxes.filter((one) => drawn.some((scan) => scan.id === one.id) && reachesBeyond(camera, one.box)).map((one) => one.id)
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${beyondNote(beyond, typeof req.view === 'string' && req.view !== 'current' && req.frame !== 'all')}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote} · ${projection} · ${width}×${height}`
-    return { png, width, height, caption, layout: req.layout, scans: drawn.map((scan) => scan.id) }
+    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${beyondNote(beyond, typeof req.view === 'string' && req.view !== 'current' && req.frame !== 'all')}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote}${explodedNote(explode, drawn.length > 0, split)} · ${projection} · ${width}×${height}`
+    const layout = req.layout
+    const encoded = async (): Promise<Picture> => {
+      const blob = await picture.convertToBlob({ type: 'image/png' })
+      return { png: new Uint8Array(await blob.arrayBuffer()), width, height, caption, layout, scans: drawn.map((scan) => scan.id), exploded: explode !== null }
+    }
+    return encoded()
   }
 
   dispose(): void {

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import type { Mark, PickMark, PinMark, ShapeMark, Vec3 } from '../../../shared/marks'
-import { MarkLayer } from './MarkLayer'
+import type { DimensionMark, Mark, PickMark, PinMark, ShapeMark, Vec3 } from '../../../shared/marks'
+import { MarkLayer, markOffset } from './MarkLayer'
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
@@ -123,5 +123,74 @@ describe('a region of a scan', () => {
     expect(none.labels('assembly', camera, { width: 800, height: 600 }, 1, chip)).toEqual([])
     marks.setMarks([{ ...region, anchorState: 'orphaned' } as Mark])
     expect(marks.labels('assembly', camera, { width: 800, height: 600 }, 1, chip)).toEqual([])
+  })
+})
+
+describe('marks while the parts are drawn apart', () => {
+  it('moves a mark with its part, leaves one on no part, and does not draw one whose ends moved apart', () => {
+    const pin = { kind: 'pin', anchor: { point: [0, 0, 12], part: 'lid' } } as unknown as Mark
+    const free = { kind: 'shape', position: [5, 5, 5] } as unknown as Mark
+    const across = { kind: 'dimension', a: { point: [0, 0, 10], part: 'tray' }, b: { point: [0, 0, 12], part: 'lid' } } as unknown as Mark
+    const within = { kind: 'dimension', a: { point: [0, 0, 10], part: 'lid' }, b: { point: [0, 0, 12], part: 'lid' } } as unknown as Mark
+    const offsets = { lid: [0, 0, 15] as [number, number, number], tray: [0, 0, -13] as [number, number, number] }
+    expect(markOffset(pin, offsets)).toEqual([0, 0, 15])
+    expect(markOffset(free, offsets)).toEqual([0, 0, 0])
+    expect(markOffset(within, offsets)).toEqual([0, 0, 15])
+    expect(markOffset(across, offsets)).toBe('split')
+    expect(markOffset(across, {})).toEqual([0, 0, 0])
+    // One end on a part that moved and one on none: they moved differently too.
+    expect(markOffset({ kind: 'dimension', a: { point: [0, 0, 10] }, b: { point: [0, 0, 12], part: 'lid' } } as unknown as Mark, offsets)).toBe('split')
+    // An arrow goes with what it starts on.
+    expect(markOffset({ kind: 'arrow', from: { point: [0, 0, 12], part: 'lid' }, to: [0, 0, 30] } as unknown as Mark, offsets)).toEqual([0, 0, 15])
+  })
+
+  const across: DimensionMark = { ...BASE, id: 'M5', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 2.5], part: 'base', ref: 'base/F4' }, b: { point: [0, 0, 12], part: 'post', ref: 'post/F0' }, value: 9.5, points: [[0, 0, 2.5], [0, 0, 12]] }
+  const APART = { base: [0, 0, -30] as Vec3, post: [0, 0, 40] as Vec3 }
+
+  it('draws each mark where its part is drawn, and its label there; back where it is when the parts are together', () => {
+    const { marks } = layer()
+    const camera = new THREE.PerspectiveCamera(35, 4 / 3, 1, 1000)
+    camera.position.set(100, -100, 80)
+    camera.lookAt(0, 0, 10)
+    camera.updateMatrixWorld()
+    const chip = (text: string) => ({ w: 8 * text.length, h: 16 })
+    const at = (id: string) => marks.group.children.find((object) => object.name === id)!.position.toArray()
+    const label = (id: string) => marks.labels('assembly', camera, { width: 800, height: 600 }, 1, chip).find((one) => one.id === id)!
+    const before = { M1: label('M1'), M3: label('M3') }
+    marks.setOffsets(APART)
+    expect([at('M1'), at('M2'), at('M3')]).toEqual([[0, 0, -30], [0, 0, 40], [0, 0, 0]])
+    // Its label hangs where it is drawn: lower on the screen for a part drawn lower; the shape in space has not moved.
+    expect(label('M1').y).toBeGreaterThan(before.M1.y + 20)
+    expect([label('M3').x, label('M3').y]).toEqual([before.M3.x, before.M3.y])
+    expect(marks.anchorOf(onBase).point).toEqual([1, 2, -27.5])
+    expect(marks.offsetOf(onPost)).toEqual([0, 0, 40])
+    // What a sphere round the marks must hold is where they are drawn.
+    const far = marks.extend(new THREE.Sphere(new THREE.Vector3(), 1), 'assembly')
+    expect(far.containsPoint(new THREE.Vector3(4, 0, 52))).toBe(true)
+    // A mark made while they are apart is drawn apart too.
+    marks.setMarks([...MARKS, { ...onPost, id: 'M6' }])
+    expect(at('M6')).toEqual([0, 0, 40])
+    marks.setOffsets({})
+    expect([at('M1'), at('M2'), at('M6')]).toEqual([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
+    expect(label('M1').y).toBe(before.M1.y)
+  })
+
+  it('does not draw a dimension between two parts that moved differently, nor its label, and draws it again when they are together', () => {
+    const { marks, drawn, labelled } = layer()
+    marks.setMarks([...MARKS, across], 1)
+    marks.show('assembly')
+    expect(drawn()).toContain('M5')
+    marks.setOffsets(APART)
+    expect(drawn()).not.toContain('M5')
+    expect(labelled()).toEqual(['M1', 'M2', 'M3'])
+    expect(marks.markOf('assembly', 'M5')).toBeUndefined()
+    expect(marks.split('assembly')).toEqual(['M5'])
+    // Both moved alike: it is drawn, moved with them.
+    marks.setOffsets({ base: [10, 0, 0], post: [10, 0, 0] })
+    expect(drawn()).toContain('M5')
+    expect(marks.split('assembly')).toEqual([])
+    marks.setOffsets({})
+    expect(drawn()).toContain('M5')
+    expect(labelled()).toEqual(['M1', 'M2', 'M3', 'M5'])
   })
 })

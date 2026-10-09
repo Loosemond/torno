@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { EXPLODED_TOOLS } from '../../shared/explode'
 import { describe, descriptorOf } from '../state/descriptors'
-import { actions, runningSession, store, useStore } from '../state/store'
+import { actions, explodeNow, runningSession, store, useStore } from '../state/store'
 import { useTool } from '../state/tools'
 import { noteSelection } from '../tools/pickMarks'
 import { staleMessage } from '../tools/Tool'
@@ -29,6 +30,8 @@ export function Selection({ viewport }: { viewport: Viewport }) {
   const selecting = useTool() === 'select'
   // Why no note can be left: the parts on screen are older than the model, and the refs would name other geometry.
   const stale = useStore((s) => (s.build?.stale ? staleMessage(s.build.status) : null))
+  // Why no note can be left: the parts are drawn apart, and no mark is placed in a view whose parts are not where they are.
+  const exploded = useStore((s) => (explodeNow(s) ? EXPLODED_TOOLS : null))
   // While the marks of a selection are being made, so that they are made once.
   const [noting, setNoting] = useState(false)
   // The descriptors live in a cache outside React; this counts the ones that arrived, to draw them.
@@ -86,8 +89,8 @@ export function Selection({ viewport }: { viewport: Viewport }) {
       <button
         type="button"
         className="bar-button"
-        disabled={noting || stale !== null}
-        title={stale ?? (selection.length === 1 ? 'Leave a note on it for the agent' : 'Leave a note on each for the agent')}
+        disabled={noting || stale !== null || exploded !== null}
+        title={stale ?? exploded ?? (selection.length === 1 ? 'Leave a note on it for the agent' : 'Leave a note on each for the agent')}
         onClick={() => {
           setNoting(true)
           void noteSelection(viewport.getCamera()).finally(() => setNoting(false))

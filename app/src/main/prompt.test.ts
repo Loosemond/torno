@@ -53,8 +53,12 @@ describe('the system prompt', () => {
   })
 
   it('stays short', () => {
-    // Raised from 6,100 in the final fix wave, for the way out of the refusal for a moved part and that a dimension is of the model.
-    expect(SYSTEM_PROMPT.length).toBeLessThan(6250)
+    // Raised from 6,250 in Milestone 5 (D12), for explode and the saved views.
+    expect(SYSTEM_PROMPT.length).toBeLessThan(6800)
+  })
+
+  it('says that explode is for display, right after what show is for', () => {
+    expect(SYSTEM_PROMPT).toContain('To see for yourself, use look. look and show take explode (0 to 1) to draw the parts apart for display; a picture says when it is exploded, and no position, ref or number is ever of an exploded part. Measure before you state a size')
   })
 
   // Final fix wave (I8, T9, C1).

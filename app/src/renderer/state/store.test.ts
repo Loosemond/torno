@@ -3,7 +3,7 @@ import type { BuildState } from '../../shared/build'
 import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo } from '../../shared/scans'
-import { actions, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
+import { actions, explodeNow, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
 
 const BUF = { offset: 0, length: 0 }
 const MESH = { vertices: BUF, normals: BUF, triangles: BUF, edges: BUF, trianglesPerFace: BUF, segmentsPerEdge: BUF, faceTypes: BUF, edgeTypes: BUF }
@@ -724,5 +724,147 @@ describe('the scans', () => {
     // No stage: the process is over.
     actions.setImporting({ objectId: 'bracket', name: 'Micra.glb', stage: null })
     expect(store.getState().importing).toBeNull()
+  })
+})
+
+describe('explode', () => {
+  const open = (): void => void actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+  const CUT = { origin: [0, 0, 3] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }
+
+  it('explodes the layout shown by hand, keeps it per layout, and saves it', () => {
+    open()
+    const edits = store.getState().edits
+    expect(actions.setExplode({ amount: 0.4 })).toBeNull()
+    actions.setExplode({ axis: 'z' })
+    expect(store.getState().edits).toBe(edits + 2)
+    expect(store.getState().explode).toEqual({ assembly: { amount: 0.4, scale: 1, axis: 'z' } })
+    expect(explodeNow(store.getState())).toEqual({ amount: 0.4, scale: 1, axis: 'z' })
+    expect(sceneFileOf(store.getState()).explode).toEqual({ assembly: { amount: 0.4, scale: 1, axis: 'z' } })
+    actions.setLayout('print')
+    expect(explodeNow(store.getState())).toBeNull()
+    expect(explodeNow(store.getState(), 'assembly')).toEqual({ amount: 0.4, scale: 1, axis: 'z' })
+    actions.setExplode({ amount: 0 })
+    expect(sceneFileOf(store.getState()).explode).toEqual({ assembly: { amount: 0.4, scale: 1, axis: 'z' } })
+    // What changes nothing is no edit.
+    const before = store.getState()
+    actions.setExplode({ amount: 0 })
+    expect(store.getState()).toBe(before)
+  })
+
+  it('draws nothing apart of a layout with one part, whatever is kept of it: there is nothing to draw apart', () => {
+    actions.openObject('bracket', { layers: {}, explode: { assembly: { amount: 0.5, scale: 1, axis: 'z' }, print: { amount: 0.5, scale: 1, axis: 'z' } } })
+    // Before anything is built there are no parts at all.
+    expect(explodeNow(store.getState(), 'assembly')).toBeNull()
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: scene({ assembly: ['base'], print: ['base', 'post'] }) })
+    expect(explodeNow(store.getState())).toBeNull()
+    expect(explodeNow(store.getState(), 'print')).toEqual({ amount: 0.5, scale: 1, axis: 'z' })
+    // What is kept is theirs all the same, for when the layout has two parts again.
+    expect(sceneFileOf(store.getState()).explode).toEqual({ assembly: { amount: 0.5, scale: 1, axis: 'z' }, print: { amount: 0.5, scale: 1, axis: 'z' } })
+  })
+
+  it('keeps an explode within its ranges, whatever it is given', () => {
+    open()
+    actions.setExplode({ amount: 7, scale: 99 })
+    expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 4, axis: 'centre' })
+    actions.setExplode({ amount: Number.NaN })
+    expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 4, axis: 'centre' })
+  })
+
+  it('never has a section and an explode at once', () => {
+    open()
+    actions.setSection(CUT)
+    expect(actions.setExplode({ amount: 0.5 })).toBe('Take the section away to draw the parts apart')
+    expect(explodeNow(store.getState())).toBeNull()
+    expect(store.getState().explode).toEqual({})
+    // How it would be drawn apart may be chosen meanwhile: nothing is apart for it.
+    expect(actions.setExplode({ axis: 'z' })).toBeNull()
+    expect(explodeNow(store.getState())).toBeNull()
+    actions.setExplode({ axis: 'centre' })
+    actions.setSection(null)
+    actions.setExplode({ amount: 0.5 })
+    actions.setSection(CUT)
+    expect(explodeNow(store.getState())).toBeNull()
+    // What it was drawn apart by is remembered for when the cut is gone: only the amount went.
+    expect(store.getState().explode.assembly).toMatchObject({ amount: 0, scale: 1, axis: 'centre' })
+  })
+
+  it('puts the parts of every layout together for a cut: the plane is of the object, and no layout is left apart behind it', () => {
+    open()
+    actions.setExplode({ amount: 0.5, axis: 'x' })
+    actions.setLayout('print')
+    actions.setSection(CUT)
+    actions.setLayout('assembly')
+    expect(explodeNow(store.getState())).toBeNull()
+    actions.setSection(null)
+    expect(explodeNow(store.getState())).toBeNull()
+    expect(store.getState().explode.assembly).toEqual({ amount: 0, scale: 1, axis: 'x' })
+  })
+
+  it('draws nothing apart of a file that holds a section and an explode: the section stays', () => {
+    actions.openObject('bracket', { layers: {}, section: CUT, explode: { assembly: { amount: 0.5, scale: 2, axis: 'z' } } })
+    open()
+    expect(store.getState().section).toEqual(CUT)
+    expect(explodeNow(store.getState())).toBeNull()
+    actions.setSection(null)
+    expect(explodeNow(store.getState())).toBeNull()
+  })
+
+  it('is as the scene file left it when an object is opened, and gone with the object', () => {
+    actions.openObject('bracket', { layers: {}, explode: { assembly: { amount: 0.5, scale: 2, axis: 'z' } } })
+    open()
+    expect(explodeNow(store.getState())).toEqual({ amount: 0.5, scale: 2, axis: 'z' })
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().explode).toEqual({})
+  })
+
+  it("shows an explode for the agent without making it the person's", () => {
+    open()
+    const edits = store.getState().edits
+    actions.showForAgent('assembly', {}, undefined, undefined, { amount: 1, scale: 1, axis: 'x' })
+    expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 1, axis: 'x' })
+    expect(store.getState().edits).toBe(edits)
+    expect(sceneFileOf(store.getState()).explode).toBeUndefined()
+    // Their own choice afterwards is theirs.
+    actions.setExplode({ amount: 0.2 })
+    expect(store.getState().shownByAgent).toBeNull()
+    expect(sceneFileOf(store.getState()).explode).toEqual({ assembly: { amount: 0.2, scale: 1, axis: 'x' } })
+  })
+
+  it("keeps the person's own explode in the file while the agent shows another, or none, and forgets it when theirs is back", () => {
+    open()
+    actions.setExplode({ amount: 0.4, axis: 'z' })
+    const theirs = { amount: 0.4, scale: 1, axis: 'z' }
+    actions.showForAgent('assembly', {}, undefined, undefined, null)
+    expect(explodeNow(store.getState())).toBeNull()
+    expect(sceneFileOf(store.getState()).explode).toEqual({ assembly: theirs })
+    actions.showForAgent('assembly', {}, undefined, undefined, { amount: 1, scale: 2, axis: 'x' })
+    expect(sceneFileOf(store.getState()).explode).toEqual({ assembly: theirs })
+    // In another layout too, each remembered by its own.
+    actions.showForAgent('print', {}, undefined, undefined, { amount: 1, scale: 1, axis: 'y' })
+    expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 1, axis: 'y' })
+    expect(sceneFileOf(store.getState())).toMatchObject({ layout: 'assembly', explode: { assembly: theirs } })
+    actions.showForAgent('print', {}, undefined, undefined, null)
+    actions.showForAgent('assembly', {}, undefined, undefined, { ...theirs } as never)
+    expect(store.getState().shownByAgent).toBeNull()
+    expect(store.getState().explode.assembly).toEqual(theirs)
+  })
+
+  it('puts the parts together, for now, when the agent cuts them, and takes the cut away when it draws them apart', () => {
+    open()
+    actions.setExplode({ amount: 0.4 })
+    actions.showForAgent('assembly', {}, CUT)
+    expect(store.getState().section).toEqual(CUT)
+    expect(explodeNow(store.getState())).toBeNull()
+    // Theirs is what the file goes on saying: apart, and not cut.
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, explode: { assembly: { amount: 0.4, scale: 1, axis: 'centre' } } })
+    // Apart with the cut taken away in the same call.
+    actions.showForAgent('assembly', {}, null, undefined, { amount: 1, scale: 1, axis: 'z' })
+    expect(store.getState().section).toBeNull()
+    expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 1, axis: 'z' })
+    // Asked apart while cut, with nothing said of the cut: nothing is drawn apart (main refuses it before it comes to this).
+    actions.showForAgent('assembly', {}, CUT)
+    actions.showForAgent('assembly', {}, undefined, undefined, { amount: 1, scale: 1, axis: 'z' })
+    expect(store.getState().section).toEqual(CUT)
+    expect(explodeNow(store.getState())).toBeNull()
   })
 })

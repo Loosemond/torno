@@ -90,10 +90,12 @@ export function mmPerPx(camera: THREE.Camera, point: THREE.Vector3, heightPx: nu
  * is drawn with, its matrices up to date; `size` is the view in pixels; `unit`
  * is how many of those a nominal pixel is (see `rescale`); `revision` is the
  * build drawn, which a dimension's value is of or is not (`labelValue`).
- * `regionAt` says where the middle of a region of a scan is in that view.
+ * `regionAt` says where the middle of a region of a scan is in that view, and
+ * `movedBy` how far from where it is a mark is drawn (with its part, while
+ * the parts are drawn apart).
  * Pure: the same for the screen and for a picture.
  */
-export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 1, revision?: number, regionAt?: (mark: RegionMark) => Vec3 | null): Label[] {
+export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 1, revision?: number, regionAt?: (mark: RegionMark) => Vec3 | null, movedBy?: (mark: Mark) => Vec3): Label[] {
   const toPx = (p: THREE.Vector3): { x: number; y: number; visible: boolean } => {
     const inFront = p.clone().applyMatrix4(camera.matrixWorldInverse).z < 0 || (camera as THREE.OrthographicCamera).isOrthographicCamera === true
     const v = p.clone().project(camera)
@@ -103,6 +105,7 @@ export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 
   return marks.map((mark) => {
     const anchor = labelAnchor(mark, regionAt)
     const point = new THREE.Vector3().fromArray(anchor.point)
+    if (movedBy) point.add(new THREE.Vector3().fromArray(movedBy(mark)))
     const base: Pick<Label, 'id' | 'text' | 'author' | 'value'> = { id: mark.id, text: labelText(mark), author: mark.author }
     if (mark.kind === 'dimension') base.value = labelValue(mark, revision)
     const foot = toPx(point)

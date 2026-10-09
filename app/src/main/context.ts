@@ -1,5 +1,6 @@
 import type { BuildState } from '../shared/build'
 import { standingOf, unmetDimensions } from '../shared/dimension'
+import { explodeText, isExploded } from '../shared/explode'
 import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
 import type { ScanInfo } from '../shared/scans'
 import type { Scene } from '../shared/scene'
@@ -321,7 +322,9 @@ function status(deps: ContextDeps, objectId: string, limit: number): string {
   const layout = layoutShown(view, scene)
   const parts = scene.parts.filter((p) => p.layout === layout)
   const hidden = view ? parts.filter((p) => !view.visible.includes(p.key)).map((p) => p.name) : []
-  const lead = `${start} · layout ${layout} · parts: `
+  // Drawn apart for display: said with the layout, so that nothing seen of it is taken for where the parts are.
+  const apart = view && view.layout === layout && isExploded(view.explode) ? `, ${explodeText(view.explode)} (display only)` : ''
+  const lead = `${start} · layout ${layout}${apart} · parts: `
   const names = parts.map((p) => p.name)
   const room = limit - lead.length - 1
   return `${lead}${fitted(names, hidden.length > 0 ? ` (hidden: ${hidden.join(', ')})` : '', room)}.`

@@ -49,6 +49,8 @@ export class MarkLayer {
   /** The build on show, which the values of the dimensions are of or not. */
   private revision = 0
   private draft: { is: Draft; object: THREE.Object3D } | null = null
+  /** How far each part of the layout shown is drawn from where it is, by part name (explode): a mark on one is drawn that far from where it is. */
+  private offsets: Readonly<Record<string, Vec3>> = NO_OFFSETS
 
   /**
    * `scans` says of a scan where it stands in a layout and whether it is drawn on screen: a region is a mark on
@@ -71,9 +73,44 @@ export class MarkLayer {
   /** Whether a mark is of a layout: its own, and a region of every one, since it is of its scan wherever that stands. */
   private readonly of = (mark: Mark, layout: string | null): boolean => (mark.kind === 'region' ? layout !== null : mark.layout === layout)
 
-  /** Where a mark's label hangs, as this layer draws it (`labelAnchor`). */
+  /** Where a mark's label hangs, as this layer draws it (`labelAnchor`): moved with its part while the parts are drawn apart. On the screen only: a mark is where its anchor says. */
   anchorOf(mark: Mark): ReturnType<typeof labelAnchor> {
-    return labelAnchor(mark, this.regionIn(this.layout ?? mark.layout))
+    const anchor = labelAnchor(mark, this.regionIn(this.layout ?? mark.layout))
+    const by = this.offsetOf(mark)
+    return by === STILL ? anchor : { ...anchor, point: [anchor.point[0] + by[0], anchor.point[1] + by[1], anchor.point[2] + by[2]] }
+  }
+
+  /**
+   * How far each part of the layout shown is drawn from where it is, by part name; `{}` for none (explode). Every
+   * mark on a part is drawn that far from where it is, with its label, and one whose ends are on parts that moved
+   * differently is not drawn (`markOffset`). For display only: no mark is changed.
+   */
+  setOffsets(offsets: Readonly<Record<string, Vec3>>): void {
+    this.offsets = Object.keys(offsets).length === 0 ? NO_OFFSETS : offsets
+    for (const entry of this.entries.values()) this.put(entry)
+  }
+
+  /** How far a mark is drawn from where it is; nothing for one that is not drawn at all (its ends moved apart). */
+  offsetOf(mark: Mark): Vec3 {
+    if (this.offsets === NO_OFFSETS) return STILL
+    const by = markOffset(mark, this.offsets)
+    return by === 'split' ? STILL : by
+  }
+
+  /** The marks of a layout that are not drawn because their ends are on parts drawn apart from each other, by number. */
+  split(layout: string, hidden?: ReadonlySet<string>): string[] {
+    if (this.offsets === NO_OFFSETS) return []
+    return [...this.entries.values()].map((e) => e.mark).filter((m) => this.of(m, layout) && !onHidden(m, hidden ?? this.hidden) && this.apart(m)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1))).map((m) => m.id)
+  }
+
+  private apart(mark: Mark): boolean {
+    return this.offsets !== NO_OFFSETS && markOffset(mark, this.offsets) === 'split'
+  }
+
+  /** Puts a mark's objects where it is drawn, and says whether it is. */
+  private put(entry: Entry): void {
+    entry.object.position.fromArray(this.offsetOf(entry.mark))
+    entry.object.visible = this.shows(entry.mark)
   }
 
   /** The colours changed, as with the colour scheme: everything is made again. */
@@ -125,6 +162,8 @@ export class MarkLayer {
       let entry = this.entries.get(mark.id)
       if (entry && entry.drawnAs === drawnAs) {
         entry.mark = mark
+        // A note or a status changed, not where it is; but which part it is on decides how it is drawn apart.
+        this.put(entry)
         // The build on show may be another than the one its value is of, though nothing of how it is drawn changed.
         this.dim(entry)
         continue
@@ -160,7 +199,7 @@ export class MarkLayer {
 
   private draw(mark: Mark, drawnAs: string): void {
     const entry = { mark, drawnAs, object: build(mark, this.colours, 1) }
-    entry.object.visible = this.shows(mark)
+    this.put(entry)
     setActive(entry.object, mark.id === this.active)
     this.dim(entry)
     this.entries.set(mark.id, entry)
@@ -180,7 +219,7 @@ export class MarkLayer {
   }
 
   private shows(mark: Mark, layout: string | null = this.layout, hidden: ReadonlySet<string> = this.hidden): boolean {
-    return this.of(mark, layout) && !onHidden(mark, hidden)
+    return this.of(mark, layout) && !onHidden(mark, hidden) && !this.apart(mark)
   }
 
   /**
@@ -221,7 +260,13 @@ export class MarkLayer {
   /** Sizes what is measured in pixels for a view: `camera` with its matrices up to date, `size` in pixels, `unit` pixels to a nominal one. */
   update(camera: THREE.Camera, size: Size, unit = 1): void {
     const scale = (at: THREE.Vector3): number => mmPerPx(camera, at, size.height)
-    for (const entry of this.entries.values()) if (entry.object.visible) rescale(entry.object, scale, unit, camera)
+    const drawnAt = new THREE.Vector3()
+    for (const entry of this.entries.values()) {
+      if (!entry.object.visible) continue
+      // Sized for where it is drawn, which is not where it is while its part is drawn apart.
+      const moved = entry.object.position
+      rescale(entry.object, moved.lengthSq() === 0 ? scale : (at) => scale(drawnAt.copy(at).add(moved)), unit, camera)
+    }
     if (this.draft?.object.visible) rescale(this.draft.object, scale, unit, camera)
   }
 
@@ -231,7 +276,7 @@ export class MarkLayer {
    * as `show` was last told, or `hidden` for a view that draws other parts.
    */
   labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: Chip, hidden?: ReadonlySet<string>): Placed[] {
-    return place(project(this.marksOf(layout, hidden), camera, size, unit, this.revision, this.regionIn(layout)), chip, size, unit)
+    return place(project(this.marksOf(layout, hidden), camera, size, unit, this.revision, this.regionIn(layout), (mark) => this.offsetOf(mark)), chip, size, unit)
   }
 
   /**
@@ -249,7 +294,10 @@ export class MarkLayer {
   /** Grows a sphere to hold everything drawn of a layout's marks, and the draft. */
   extend(sphere: THREE.Sphere, layout: string): THREE.Sphere {
     const point = new THREE.Vector3()
-    for (const mark of this.marksOf(layout)) for (const p of markPoints(mark)) sphere.expandByPoint(point.fromArray(p))
+    for (const mark of this.marksOf(layout)) {
+      const by = this.offsetOf(mark)
+      for (const p of markPoints(mark)) sphere.expandByPoint(point.set(p[0] + by[0], p[1] + by[1], p[2] + by[2]))
+    }
     if (this.draft) for (const p of markPoints(asMark(this.draft.is))) sphere.expandByPoint(point.fromArray(p))
     return sphere
   }
@@ -257,7 +305,7 @@ export class MarkLayer {
   /** A mark of a layout, among those drawn: not one on a part that is switched off. */
   markOf(layout: string, id: string): Mark | undefined {
     const mark = this.entries.get(id)?.mark
-    return mark && this.of(mark, layout) && !onHidden(mark, this.hidden) && !this.regionHidden(mark, layout, undefined) ? mark : undefined
+    return mark && this.of(mark, layout) && !onHidden(mark, this.hidden) && !this.apart(mark) && !this.regionHidden(mark, layout, undefined) ? mark : undefined
   }
 
   dispose(): void {
@@ -267,7 +315,7 @@ export class MarkLayer {
 
   /** The marks of a layout that are drawn, in the order of their numbers, so that a label keeps its place as others come and go after it. */
   private marksOf(layout: string, hidden?: ReadonlySet<string>): Mark[] {
-    return [...this.entries.values()].map((e) => e.mark).filter((m) => this.of(m, layout) && !onHidden(m, hidden ?? this.hidden) && !this.regionHidden(m, layout, hidden)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
+    return [...this.entries.values()].map((e) => e.mark).filter((m) => this.of(m, layout) && !onHidden(m, hidden ?? this.hidden) && !this.apart(m) && !this.regionHidden(m, layout, hidden)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
   }
 
   private clear(): void {
@@ -282,6 +330,22 @@ export class MarkLayer {
 }
 
 const NO_PARTS: ReadonlySet<string> = new Set()
+const NO_OFFSETS: Readonly<Record<string, Vec3>> = {}
+/** Drawn where it is. */
+const STILL: Vec3 = [0, 0, 0]
+
+/**
+ * How a mark is drawn while parts are drawn apart: moved by this much, or not drawn (`'split'`: its ends are on
+ * parts that moved differently). A mark goes with the part its anchor ties it to (an arrow with what it starts on);
+ * a dimension has two ends, and is one thing only while both go the same way. A mark on no part, and a region of a
+ * scan, do not move: nor does a scan.
+ */
+export function markOffset(mark: Mark, offsets: Readonly<Record<string, Vec3>>): Vec3 | 'split' {
+  const anchors = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)
+  const moved = anchors.map((anchor) => (anchor.part !== undefined && offsets[anchor.part]) || STILL)
+  if (moved.length === 0) return STILL
+  return moved.every((m) => m.every((c, i) => Math.abs(c - moved[0][i]) < 1e-9)) ? moved[0] : 'split'
+}
 
 /** Further than this beyond the plane, in millimetres, is in the half taken away: what lies in the plane is kept. */
 const CUT_BEYOND_MM = 1e-3

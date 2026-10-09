@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
-import { asPictured, colouringNote, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState, beyondNote, reachesBeyond } from './picture'
+import { asPictured, colouringNote, explodedNote, pictureExplode, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState, beyondNote, reachesBeyond } from './picture'
 
 describe('the size of a picture', () => {
   it('is 1280 on its long edge when none is asked for, or what is asked for is no number', () => {
@@ -130,7 +130,8 @@ function viewport(far: THREE.Box3 | null = null): { host: PictureHost; log: stri
         return sphere
       },
       update: () => {},
-      labels: () => []
+      labels: () => [],
+      split: () => []
     },
     scans: {
       showOnly: (ids, layout) => {
@@ -166,6 +167,11 @@ function viewport(far: THREE.Box3 | null = null): { host: PictureHost; log: stri
     groundExtent: () => ground,
     tintPicks: (layout) => log.push(`tint ${layout}`),
     showMarks: () => log.push('marks as on screen'),
+    explode: () => null,
+    explodeFor: (explode, layout) => {
+      log.push(`apart ${explode ? explode.amount : 'not'} in ${layout}`)
+      return () => log.push('apart as on screen')
+    },
     colours: () => ({ user: '#cf3f2c', agent: '#2b8a5c', paper: '#faf9f6', surface: '#f1efea', ink: '#22252a', muted: '#6c7178' })
   }
   return { host, log, parts, visible: () => parts.map((p) => p.built.group.visible), ground }
@@ -270,5 +276,48 @@ describe('what the scene is while a picture of it is drawn', () => {
     expect(() => asPictured(host, { layout: 'assembly', shown: [parts[1]], withMarks: false, scans: ['S9'], section: null, notDrawn: new Set(), width: 64, height: 48 }, () => log.push('draw'))).toThrow('no scan S9; scans: S1')
     expect(log).not.toContain('draw')
     expect(visible()).toEqual([true, false, false])
+  })
+})
+
+describe('a picture whose parts are drawn apart', () => {
+  const Z = { amount: 1, scale: 1, axis: 'z' } as const
+  const HALF = { amount: 0.5, scale: 1, axis: 'centre' } as const
+  const CUT = { origin: [0, 0, 3] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }
+  const on = (over: Partial<Parameters<typeof pictureExplode>[1]> = {}): Parameters<typeof pictureExplode>[1] => ({ layout: 'assembly', onScreen: 'assembly', current: null, section: null, parts: 2, ...over })
+
+  it('says so in its caption, with the sentence that nothing in it is where it is', () => {
+    expect(explodedNote(Z, false)).toBe(' · exploded 100 % along z (the parts are drawn apart for display: every position, ref and number told is of the parts as assembled)')
+    expect(explodedNote(HALF, false)).toBe(' · exploded 50 % from the centre (the parts are drawn apart for display: every position, ref and number told is of the parts as assembled)')
+    expect(explodedNote(null, true)).toBe('')
+    expect(explodedNote({ amount: 0, scale: 2, axis: 'z' }, true, ['M5'])).toBe('')
+  })
+
+  it('says that the scans drawn with them have not moved, and which marks it leaves out', () => {
+    expect(explodedNote(Z, true)).toMatch(/as assembled\) · scans are where they are$/)
+    expect(explodedNote(Z, false, ['M5'])).toMatch(/as assembled\) · M5 is not drawn: it runs between parts drawn apart$/)
+    expect(explodedNote(Z, true, ['M5', 'M7'])).toMatch(/ · scans are where they are · M5, M7 are not drawn: they run between parts drawn apart$/)
+  })
+
+  it('is drawn as on screen unless it says how: of the layout on screen, by the explode there; of another, together', () => {
+    expect(pictureExplode(undefined, on({ current: Z }))).toEqual(Z)
+    expect(pictureExplode('current', on({ current: Z }))).toEqual(Z)
+    expect(pictureExplode('current', on({ current: Z, layout: 'print' }))).toBeNull()
+    expect(pictureExplode(undefined, on())).toBeNull()
+    expect(pictureExplode(null, on({ current: Z }))).toBeNull()
+    expect(pictureExplode(HALF, on({ current: Z }))).toEqual(HALF)
+    expect(pictureExplode(HALF, on({ layout: 'print' }))).toEqual(HALF)
+    // An explode of nothing, and one of no parts, draw nothing apart.
+    expect(pictureExplode({ amount: 0, scale: 2, axis: 'z' }, on())).toBeNull()
+    expect(pictureExplode(HALF, on({ parts: 0 }))).toBeNull()
+    expect(pictureExplode(HALF, on({ parts: 1 }))).toBeNull()
+    expect(pictureExplode('current', on({ current: Z, parts: 1 }))).toBeNull()
+  })
+
+  it('is never cut: asked for both it is refused, and a cut of the picture\'s own is drawn of the parts together', () => {
+    expect(() => pictureExplode(HALF, on({ section: CUT }))).toThrow('a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)')
+    // Apart only because the screen is: the cut is what was asked for.
+    expect(pictureExplode('current', on({ current: Z, section: CUT }))).toBeNull()
+    expect(pictureExplode(undefined, on({ current: Z, section: CUT }))).toBeNull()
+    expect(pictureExplode(null, on({ section: CUT }))).toBeNull()
   })
 })

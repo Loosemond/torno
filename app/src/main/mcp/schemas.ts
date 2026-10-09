@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { ExplodeState } from '../../shared/explode'
 import type { MeasureKind, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
 import type { AxisPlane, SectionPlane } from '../../shared/view'
 import { unknownKeys } from './keys'
@@ -36,6 +37,9 @@ export const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for th
  * that the input is invalid.
  */
 export const loose = <T extends z.ZodType>(shape: T) => z.union([shape, z.unknown()])
+/** How far apart the parts are drawn, as the agent may say it: a number, or the whole of it. Loose: what is neither reaches the tool, which says what one is (`explodeHelp`). */
+const explodeInput = loose(z.union([z.number(), z.strictObject({ amount: z.number(), scale: z.number().optional(), axis: z.enum(['centre', 'x', 'y', 'z']).optional() })]))
+export const explodeHelp = 'a number from 0 to 1 (how far apart the parts are drawn, away from the centre of the layout), or {"amount": 0.5, "axis": "z", "scale": 2} to set them apart along x, y or z and further. For display only: positions, refs and measurements are always of the parts as assembled.'
 const scanText = 'The number of a scan (S1), as listed by scans. Default: the only scan of the object.'
 // Loose: a key a camera does not take reaches the tool, which refuses it by name (`cameraKeys`).
 // A camera is what `scene` and a mark give as one, whole: the agent reads the view, shows something, and puts the view back.
@@ -66,7 +70,11 @@ const lookInput = {
     .describe('{"part": "tub"}, with scan and range when needed: colours one scan by its distance to a part, from 0 to range mm (default 20), shaded, seen through beyond the range so that the part stays in sight, with scan points inside the part marked and drawn over it: a picture for the eye, made from the meshes on screen; the numbers are scan_deviation\'s. The caption gives the colours.'),
   frame: loose(z.enum(['parts', 'all']))
     .optional()
-    .describe('What a named view (iso, top, …) is fitted to: parts (the default), the parts drawn; all, the scans drawn with them. A scan is the surroundings and the parts lie somewhere inside it: the caption says when a scan drawn reaches beyond the picture.')
+    .describe('What a named view (iso, top, …) is fitted to: parts (the default), the parts drawn; all, the scans drawn with them. A scan is the surroundings and the parts lie somewhere inside it: the caption says when a scan drawn reaches beyond the picture.'),
+  explode: explodeInput
+    .nullable()
+    .optional()
+    .describe(`How far apart the parts are drawn in the picture: ${explodeHelp} The caption says when a picture is exploded. null or 0 draws them together. Default: as on the user's screen. Not with a section.`)
 }
 
 export type PlaneArg = SectionPlane | AxisPlane
@@ -81,7 +89,11 @@ export interface LookArgs {
   scans?: boolean | string[]
   scanColour?: { part: string; scan?: string; range?: number }
   frame?: 'parts' | 'all'
+  explode?: ExplodeArg | null
 }
+
+/** An explode as the agent gives one: the amount alone, or with an axis and a scale. */
+export type ExplodeArg = number | (Pick<ExplodeState, 'amount'> & Partial<ExplodeState>)
 
 type Vec3 = [number, number, number]
 
@@ -119,7 +131,11 @@ const showInput = {
     .optional()
     .describe(`A cut to put on the user's screen: ${planeHelp}; what lies on the side the normal points to is not drawn: with {axis, at}, what is at a greater x, y or z than at is removed. null takes their section away. Default: it stays as it is.`),
   scans: loose(z.array(z.string())).optional().describe('The numbers of the scans to leave switched on, ["S1"]; every other scan is hidden, and [] hides them all. For now only: it is not what the user\'s saved view keeps. Default: no scan is switched.'),
-  scanOpacity: loose(z.number()).optional().describe('How see-through the scans left on are drawn, 0.05 to 1. For now only. Default: as they are.')
+  scanOpacity: loose(z.number()).optional().describe('How see-through the scans left on are drawn, 0.05 to 1. For now only. Default: as they are.'),
+  explode: explodeInput
+    .nullable()
+    .optional()
+    .describe(`How far apart the parts are drawn on the user's screen, for now only: ${explodeHelp} null or 0 puts them together. Default: as they are. Not with a section: pass section null with it when their view is cut.`)
 }
 
 export const SHAPES = ['box', 'cylinder', 'sphere', 'plane'] as const
@@ -236,6 +252,7 @@ export interface ShowArgs {
   section?: PlaneArg | null
   scans?: string[]
   scanOpacity?: number
+  explode?: ExplodeArg | null
 }
 export interface AddMarkArgs {
   kind: 'pin' | 'pick' | 'arrow' | 'shape' | 'dimension'
@@ -264,7 +281,7 @@ export interface ResolveMarkArgs {
 export const TOOLS = {
   scene: {
     description:
-      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
+      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
   },
   look: {
     description:
@@ -288,7 +305,7 @@ export const TOOLS = {
   },
   show: {
     description:
-      "Returns a caption of what the user's viewport shows after it was changed to the view, layout, parts, section or scans you gave. It moves the user's own camera, hides the parts and the scans you leave out and cuts their view, so use it only to show them something, and say that you did; to see for yourself, call look.",
+      "Returns a caption of what the user's viewport shows after it was changed to the view, layout, parts, section, explode or scans you gave. It moves the user's own camera, hides the parts and the scans you leave out and cuts their view or draws its parts apart, so use it only to show them something, and say that you did; to see for yourself, call look.",
     inputSchema: showInput
   },
   add_mark: {

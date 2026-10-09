@@ -1,0 +1,107 @@
+import { number } from './format'
+import type { Vec3 } from './marks'
+
+// Explode: the parts of one layout drawn apart, for display only. Nothing here is geometry: a part is where the
+// build placed it, and what is worked out below is only how far from there the viewport draws it. No position,
+// ref or number that is kept or told is ever of a part as it is drawn apart.
+
+/** How the parts of one layout are drawn apart. View state: never geometry. */
+export interface ExplodeState {
+  /** 0 (as assembled) to 1. */
+  amount: number
+  /** Times the layout's own reach, 0.25 to 4. 1 when left out of a file. */
+  scale: number
+  /** Away from the centre of the layout's box, or apart along an axis of the object frame. */
+  axis: 'centre' | 'x' | 'y' | 'z'
+}
+export const NO_EXPLODE: ExplodeState = { amount: 0, scale: 1, axis: 'centre' }
+export const MIN_EXPLODE_SCALE = 0.25
+export const MAX_EXPLODE_SCALE = 4
+/** Said with every picture and caption that draws parts apart. */
+export const EXPLODED_NOTE = 'the parts are drawn apart for display: every position, ref and number told is of the parts as assembled'
+/** Said at the pointer by every tool but Select while the layout shown is exploded. */
+export const EXPLODED_TOOLS = 'The parts are drawn apart: put them together (E, or the slider at 0) to mark, measure or cut'
+/** Said to the person who asks for the parts apart while they are cut: a section is never drawn exploded. */
+export const SECTION_FIRST = 'Take the section away to draw the parts apart'
+/** Said to the agent that asks for both: a section is never drawn exploded. */
+export const NOT_EXPLODED_AND_CUT = 'a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)'
+/** Said after the scans of a caption that draws parts apart: a scan is never moved, so it is no longer where the parts are drawn. */
+export const SCANS_STAY = 'scans are where they are'
+const AXES = ['x', 'y', 'z'] as const
+
+/** Whether anything is drawn apart. */
+export function isExploded(explode: ExplodeState | null | undefined): explode is ExplodeState {
+  return explode !== null && explode !== undefined && explode.amount > 0
+}
+
+/** An explode out of whatever was given (a file, a request): `amount` clamped to 0..1, `scale` to its range (1 for none), `axis` one of the four (`centre` for none). Null for what is no object or has no finite amount. */
+export function explodeOf(value: unknown): ExplodeState | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const said = value as { amount?: unknown; scale?: unknown; axis?: unknown }
+  if (typeof said.amount !== 'number' || !Number.isFinite(said.amount)) return null
+  const scale = typeof said.scale === 'number' && Number.isFinite(said.scale) ? said.scale : 1
+  const axis = said.axis === 'x' || said.axis === 'y' || said.axis === 'z' ? said.axis : 'centre'
+  return { amount: Math.min(Math.max(said.amount, 0), 1), scale: Math.min(Math.max(scale, MIN_EXPLODE_SCALE), MAX_EXPLODE_SCALE), axis }
+}
+
+/** What the agent may give: a number is the amount. */
+export function explodeArg(value: unknown): ExplodeState | null {
+  return typeof value === 'number' ? explodeOf({ amount: value }) : explodeOf(value)
+}
+
+export interface ExplodePart { name: string; bbox: { min: Vec3; max: Vec3 } }
+
+/**
+ * By part name, how far each part of a layout is drawn from where it is. Empty when nothing is exploded or the
+ * layout has fewer than two parts. Never a part of another layout: give it the parts of one.
+ *
+ * From the centre, a part goes along the line from the centre of the layout's box to the centre of its own, by
+ * `(R + d) × amount × scale`: `R` half the diagonal of the layout's box, `d` how far the part's centre is from the
+ * layout's. Along an axis the parts are ranked by their centres on it and set `2R × amount × scale` apart.
+ */
+export function explodeOffsets(parts: readonly ExplodePart[], explode: ExplodeState | null | undefined): Record<string, Vec3> {
+  if (!isExploded(explode) || parts.length < 2) return {}
+  const min: Vec3 = [Infinity, Infinity, Infinity]
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity]
+  for (const { bbox } of parts) for (let i = 0; i < 3; i++) {
+    min[i] = Math.min(min[i], bbox.min[i])
+    max[i] = Math.max(max[i], bbox.max[i])
+  }
+  const centre = min.map((lo, i) => (lo + max[i]) / 2)
+  // Never nothing: a layout with no size is exploded as if it reached half a millimetre.
+  const reach = Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, 0.5)
+  const by = explode.amount * explode.scale
+  const centres = parts.map(({ bbox }) => bbox.min.map((lo, i) => (lo + bbox.max[i]) / 2))
+  const offsets: Record<string, Vec3> = {}
+  if (explode.axis === 'centre') {
+    parts.forEach((part, n) => {
+      const d = centres[n].map((c, i) => c - centre[i])
+      const far = Math.hypot(d[0], d[1], d[2])
+      // A part at the centre has no way to go: it stays, and the others leave it.
+      const k = far > reach * 1e-6 ? ((reach + far) * by) / far : 0
+      offsets[part.name] = [d[0] * k + 0, d[1] * k + 0, d[2] * k + 0]
+    })
+    return offsets
+  }
+  const i = AXES.indexOf(explode.axis)
+  // By where each centre is along the axis; the scene's order where two are level (the sort is stable).
+  const order = parts.map((_, n) => n).sort((a, b) => centres[a][i] - centres[b][i])
+  order.forEach((n, rank) => {
+    const moved: Vec3 = [0, 0, 0]
+    moved[i] = (rank - (parts.length - 1) / 2) * 2 * reach * by + 0
+    offsets[parts[n].name] = moved
+  })
+  return offsets
+}
+
+/** `exploded 40 % from the centre`, `exploded 100 % along z, ×2`. */
+export function explodeText(explode: ExplodeState): string {
+  const how = explode.axis === 'centre' ? 'from the centre' : `along ${explode.axis}`
+  return `exploded ${number(explode.amount * 100)} % ${how}${explode.scale === 1 ? '' : `, ×${number(explode.scale)}`}`
+}
+
+/** Whether two explodes draw the parts the same. */
+export function sameExplode(a: ExplodeState | null | undefined, b: ExplodeState | null | undefined): boolean {
+  if (!a || !b) return !a && !b
+  return a.amount === b.amount && a.scale === b.scale && a.axis === b.axis
+}

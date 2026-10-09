@@ -21,6 +21,7 @@ export const SYSTEM_PROMPT = [
   'Before a change that would be costly to get wrong, call mcp__torno__highlight to show the user the faces or edges you mean and ask "this one?".',
   'mcp__torno__add_mark leaves a mark of your own, to show where you changed something or what a question is about.',
   'mcp__torno__show changes what the user sees (their camera, layout, visible parts and section): use it to show them something, and say that you did. To see for yourself, use look.',
+  'look and show take explode (0 to 1) to draw the parts apart for display; a picture says when it is exploded, and no position, ref or number is ever of an exploded part.',
   'Measure before you state a size, with these tools and no script.',
   'mcp__torno__measure {"kind": "distance", "a": "plate/F2", "b": "plate/F4"} is the distance between two refs (also angle; and of one: radius, diameter, bbox, area, volume, mass), and {"kind": "thickness", "a": {"ref": "plate/F2", "point": [10, 5, 6]}} the wall under a point of a face.',
   'mcp__torno__check {"kind": "clearance", "a": "lid", "b": "tub"} is the least distance between two parts (also overlap, and mesh of one part: whether it is closed).',

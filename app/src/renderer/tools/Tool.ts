@@ -42,6 +42,12 @@ export interface ToolContext {
   camera: Camera
   /** Why nothing can be pointed at, as a sentence, while the parts on screen are older than the model; null otherwise. */
   stale: string | null
+  /**
+   * Why nothing is marked, measured or cut, as a sentence (`EXPLODED_TOOLS`), while the parts of the layout shown
+   * are drawn apart; null or absent otherwise. What is on screen is then not where the parts are: Select still
+   * picks (a pick answers with the point of the part as built), and every other tool is handed nothing.
+   */
+  exploded?: string | null
   /** The kernel's line about a ref of the layout shown, if it has already given it for this build. */
   descriptor(ref: string): string | undefined
   /** What the kernel says of a ref of the layout shown; null when it cannot say. */
@@ -115,12 +121,21 @@ export function clickGuard(): { begin(client: [number, number]): (() => void) | 
  * and the pointer is told why. A scan is no part of a build: it is painted
  * on whatever the build is doing. On the cut face of a section the tool is told
  * of nothing there, like beside the parts, and the pointer is told what it is on.
+ *
+ * While the parts are drawn apart (`ctx.exploded`) only Select is handed anything: nothing is marked, measured,
+ * cut, aligned or painted in a view whose parts are not where they are. The pointer says why, and how to put them
+ * together, over a part and at every press (the Align and Region tools press on a scan, which is no part).
  */
 export function routePointer(tool: Tool, e: ViewportPointer, ctx: ToolContext): void {
   // Not the Region tool: what it paints is a scan's, which no build makes or changes.
   if (ctx.stale !== null && tool.id !== 'region') {
     if (e.hit) ctx.readout.say(e.client, ctx.stale)
     else ctx.readout.hide()
+    return
+  }
+  if (ctx.exploded && tool.id !== 'select') {
+    if (e.hit || e.type === 'down' || e.type === 'click') ctx.readout.say(e.client, ctx.exploded)
+    else if (e.type === 'move') ctx.readout.hide()
     return
   }
   tool.onPointer(e, ctx)

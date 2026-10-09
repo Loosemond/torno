@@ -1,3 +1,4 @@
+import type { ExplodeState } from './explode'
 import { number } from './format'
 import type { Sectioned, SectionedPart } from './geometry'
 
@@ -24,6 +25,8 @@ export interface ViewState {
   section?: SectionPlane | null /* the cut on screen; null or absent for none */
   /** The scans of the object as the window has them: whether each is switched on, how thin it is drawn (1 for solid), and whether its mesh has come: one that has not is not drawn, switched on or not. */
   scans?: Array<{ id: string; visible: boolean; opacity: number; loaded: boolean }>
+  /** How the parts of the layout shown are drawn apart, when they are: for display only. Nothing else of a view is of the parts as drawn apart. */
+  explode?: ExplodeState
 }
 export interface LookRequest {
   view?: 'current' | ViewName | Camera
@@ -39,6 +42,8 @@ export interface LookRequest {
   scanColour?: ScanColouring
   /** What a named view is fitted to: the parts drawn (and when absent), or everything drawn, the scans with them. */
   frame?: 'parts' | 'all'
+  /** How far apart the parts are drawn: `'current'` (and when absent) as on screen, null together, or an explode of the picture's own. Never with a section. */
+  explode?: ExplodeState | 'current' | null
 }
 /**
  * Colours one scan by its distance to a part of the layout, for a picture: from `--deviation-near` at 0 to
@@ -47,7 +52,7 @@ export interface LookRequest {
  */
 export interface ScanColouring { scan: string; part: string; range: number }
 /** A picture, and what the window drew to make it: the object it had open, that object's revision, and whether its parts were stale. */
-export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean; /** The layout drawn, and the scans drawn in it, by id. */ layout?: string; scans?: string[] }
+export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean; /** The layout drawn, and the scans drawn in it, by id. */ layout?: string; scans?: string[]; /** The parts are drawn apart in it. */ exploded?: boolean }
 /** What the agent asks the window to show: an object, and of it a view, a layout, some parts (by name). */
 export interface ShowRequest {
   objectId: string
@@ -59,9 +64,11 @@ export interface ShowRequest {
   scans?: string[]
   /** How see-through the scans left on are drawn, `MIN_SCAN_OPACITY` to 1. Absent leaves it. */
   scanOpacity?: number
+  /** How far apart the parts are drawn, for now; null puts them together; absent leaves it. Never with a section. */
+  explode?: ExplodeState | null
 }
 /** What the window did for a `ShowRequest`: what it now shows, as the caption of a picture would say it, and of which object and build. */
-export interface ShowResult { caption: string; objectId: string; revision: number; stale: boolean; /** The layout now shown, and the scans drawn in it, by id. */ layout?: string; scans?: string[] }
+export interface ShowResult { caption: string; objectId: string; revision: number; stale: boolean; /** The layout now shown, and the scans drawn in it, by id. */ layout?: string; scans?: string[]; /** Its parts are now drawn apart. */ exploded?: boolean }
 /** What the agent asks the window to point out to the person: refs of the layout shown, tinted in the agent's colour, with a note. */
 export interface HighlightRequest { objectId: string; layout: string; refs: string[]; note?: string }
 /** What the window pointed out, and of which object and build. */

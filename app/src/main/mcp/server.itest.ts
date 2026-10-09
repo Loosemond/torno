@@ -141,7 +141,7 @@ describe('the MCP server', () => {
     expect(inputs('marks').required ?? []).toEqual([])
     for (const tool of tools) expect(tool.description).toMatch(/^Returns /)
     const look = tools.find((t) => t.name === 'look')!
-    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['frame', 'layout', 'marks', 'parts', 'scanColour', 'scans', 'section', 'size', 'view'])
+    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['explode', 'frame', 'layout', 'marks', 'parts', 'scanColour', 'scans', 'section', 'size', 'view'])
     expect(look.inputSchema.required ?? []).toEqual([])
   })
 
@@ -157,7 +157,9 @@ describe('the MCP server', () => {
       expect(of(name).description, name).toMatch(/^Returns JSON and a reading /)
       for (const [arg, schema] of Object.entries(of(name).inputSchema.properties ?? {})) expect((schema as { description?: string }).description, `${name}.${arg}`).toBeTruthy()
     }
-    expect(Object.keys(of('show').inputSchema.properties ?? {}).sort()).toEqual(['layout', 'parts', 'scanOpacity', 'scans', 'section', 'view'])
+    expect(Object.keys(of('show').inputSchema.properties ?? {}).sort()).toEqual(['explode', 'layout', 'parts', 'scanOpacity', 'scans', 'section', 'view'])
+    // Explode is told as what it is, in both: for display only.
+    for (const name of ['look', 'show']) expect((of(name).inputSchema.properties!.explode as { description: string }).description, name).toContain('For display only: positions, refs and measurements are always of the parts as assembled.')
     expect(Object.keys(of('section').inputSchema.properties ?? {}).sort()).toEqual(['deflection', 'layout', 'parts', 'plane', 'scan', 'size'])
   })
 
@@ -182,6 +184,13 @@ describe('the MCP server', () => {
     expect(await said('look', { scanColour: 'base' })).toMatch(/^scanColour is \{"part": "tub"\}/)
     expect(await said('show', { scans: 'S1' })).toBe('scans is a list of the numbers of the scans to leave switched on, [] to hide them all: {"scans": ["S1"]}')
     expect(await said('show', { scanOpacity: 'half' })).toMatch(/^scanOpacity is a number from 0.05 to 1/)
+    // Through the real schema: what is no explode reaches the tool, which says what one is; and null is taken, not refused.
+    expect(await said('look', { explode: 'half' })).toMatch(/^explode is a number from 0 to 1 \(how far apart the parts are drawn/)
+    expect(await said('show', { explode: [0.5] })).toMatch(/^explode is a number from 0 to 1/)
+    expect(await said('look', { explode: 0.5, section: { axis: 'z', at: 2 } })).toBe('a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)')
+    expect((await client.callTool({ name: 'look', arguments: { explode: null } })).isError).toBeFalsy()
+    expect((await client.callTool({ name: 'look', arguments: { explode: { amount: 1, axis: 'z', scale: 2 } } })).isError).toBeFalsy()
+    expect(looks.slice(-2).map((look) => look.req.explode)).toEqual([null, { amount: 1, scale: 2, axis: 'z' }])
     expect(await said('section', { plane: { axis: 'z', at: 2 }, scan: 1 })).toBe('scan is the number of a scan, as listed by scans: {"scan": "S1"}')
     // A well-formed call of an object with no scans is answered in words too.
     expect(await said('scan_clash', { part: 'base' })).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
@@ -203,7 +212,7 @@ describe('the MCP server', () => {
     expect(image).toMatchObject({ type: 'image', mimeType: 'image/png' })
     expect(new Uint8Array(Buffer.from(image.data!, 'base64'))).toEqual(PNG)
     expect(text.text).toBe('view iso\nrevision r2\nsaved as /ws/bracket/.torno/views/1.png')
-    expect(looks).toEqual([{ objectId: 'bracket', req: { view: 'iso', size: 2000 } }])
+    expect(looks).toEqual([{ objectId: 'bracket', req: { view: 'iso', size: 2000, explode: 'current' } }])
   })
 
   it("answers the tools that read and write marks, point things out and change the user's view", async () => {

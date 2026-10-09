@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from './atomic'
+import { type ExplodeState, NO_EXPLODE, explodeOf, sameExplode } from '../shared/explode'
 import { MIN_SCAN_OPACITY, type ScanView } from '../shared/scans'
 import type { LayerSettings, SceneFile } from '../shared/scenefile'
 import { sectionOf } from '../shared/view'
@@ -57,6 +58,8 @@ function clean(value: unknown): SceneFile {
   if (section) file.section = section
   const scans = scanViews(value.scans)
   if (scans) file.scans = scans
+  const explode = explodes(value.explode)
+  if (explode) file.explode = explode
   if (!isRecord(value.layers)) return file
   for (const [name, raw] of Object.entries(value.layers)) {
     if (!isRecord(raw)) continue
@@ -82,6 +85,20 @@ function scanViews(value: unknown): Record<string, ScanView> | undefined {
     if (Object.keys(view).length > 0) scans[id] = view
   }
   return Object.keys(scans).length > 0 ? scans : undefined
+}
+
+/** The longest name of a layout an explode is kept under. */
+const MAX_LAYOUT_NAME = 100
+
+/** How each layout is drawn apart, by layout name; undefined when nothing is said of any. One that says what is so anyway (`NO_EXPLODE`) is left out. */
+function explodes(value: unknown): Record<string, ExplodeState> | undefined {
+  if (!isRecord(value)) return undefined
+  const kept: Record<string, ExplodeState> = {}
+  for (const [layout, raw] of Object.entries(value)) {
+    const explode = layout.length <= MAX_LAYOUT_NAME ? explodeOf(raw) : null
+    if (explode && !sameExplode(explode, NO_EXPLODE)) kept[layout] = explode
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

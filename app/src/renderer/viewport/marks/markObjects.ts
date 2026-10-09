@@ -520,7 +520,8 @@ export function rescale(object: THREE.Object3D, mmPerPx: (at: THREE.Vector3) => 
   const sizing = object.userData.sizing as Sizing | undefined
   if (!sizing) return
   for (const { object: group, at } of sizing.constant) group.scale.setScalar(mmPerPx(at) * unit)
-  for (const { object: tick, along } of sizing.ticks) tick.quaternion.setFromUnitVectors(X_AXIS, acrossLine(along, tick.position, camera))
+  // Where the mark is drawn, which is off where it is while its part is drawn apart.
+  for (const { object: tick, along } of sizing.ticks) tick.quaternion.setFromUnitVectors(X_AXIS, acrossLine(along, DRAWN_AT.copy(tick.position).add(object.position), camera))
   const wider = sizing.active ? ACTIVE_WIDTH : 1
   for (const { material, width } of sizing.lines) material.linewidth = width * wider * unit
   for (const { material, dash, gap, at } of sizing.dashes) {
@@ -532,6 +533,7 @@ export function rescale(object: THREE.Object3D, mmPerPx: (at: THREE.Vector3) => 
 }
 
 const X_AXIS = new THREE.Vector3(1, 0, 0)
+const DRAWN_AT = new THREE.Vector3()
 
 /** The direction square to a line and to the way a camera looks at a point of it; any square to the line when it is seen end on, or there is no camera. */
 function acrossLine(along: THREE.Vector3, at: THREE.Vector3, camera: THREE.Camera | undefined): THREE.Vector3 {

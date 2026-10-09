@@ -232,7 +232,8 @@ While iterating run the focused test; run all four suites before a commit.
   section, `M` measure (`T` there: the wall under the pointer as of the key,
   picked anew where `Viewport.pointerAt` says the pointer is), `L` align a
   scan (`G`, `R` there for its handles, `Tab` in Pairs for which end is asked first), `B` region of a scan (`[`, `]`, `E`,
-  `Z` there); `G`, `R`, `T` for the gizmo of the active shape. A slider is no field to type in
+  `Z` there); `G`, `R`, `T` for the gizmo of the active shape; `E` draws the parts apart or
+  together (explode, below: offered to the tool in hand first, so the Region tool's `E` stays its own). A slider is no field to type in
   (`ui/typing.ts`): the keys work with one in focus. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
@@ -263,6 +264,75 @@ While iterating run the focused test; run all four suites before a commit.
   `ui/SectionBar.tsx`. The plane moves in the viewport during a drag and is
   kept in the store once, on release, to the millionth of a millimetre.
 - Numbers shown or told of a section go through `shared/format.ts`.
+- A section and an explode are never on together (Explode, below): cutting
+  puts the parts of every layout together.
+
+## Explode
+
+Explode is view state per layout (`ExplodeState` in `shared/explode.ts`:
+`amount` 0 to 1, a distance `scale` 0.25 to 4, an `axis`: from the centre, or
+along x, y or z), kept in `scene.json` (`explode`, by layout name), never
+geometry, never in a mark or a measurement. `explodeOffsets` says how far each
+part of a layout is drawn from where it is: from the centre by
+`(R + d) × amount × scale` along the line from the centre of the layout's box
+to the centre of the part's (`R` half the diagonal of the layout's box, `d`
+the part's distance from that centre); along an axis the parts are ranked by
+their centres on it and set `2R × amount × scale` apart. A layout with fewer
+than two parts is never exploded.
+
+- **Exploded is display only.** `Part.loc`, `Part.bbox`, every anchor, every
+  `points` of a dimension and everything the kernel is asked are of the parts
+  as built. `Viewport.setExplode` moves each part's group (`placePart`, the
+  one place a group is put; `viewport/explode.ts` holds the offsets as drawn
+  and as they will be once a move has ended, `PartsApart`), and nothing else:
+  the scans and the grid stay. The slider moves the parts as it is dragged
+  and the store keeps the amount once, on release (`actions.setExplode`);
+  `E` and the agent's `show` go there over 220 ms, a step a frame, with no
+  state in React.
+- **A pick is of the part as built.** `Viewport.pick` takes the display
+  offset of the part hit away from the point (`asBuilt`). Selecting,
+  hovering, "Insert" and the readout at the pointer work exploded.
+  `Viewport.project(point, part)` says where a point of a part is drawn;
+  `bounds()` and `sectionBox()` are of the parts as built, while `fit` and the
+  named views frame them where they are drawn.
+- **Nothing is marked, moved or measured from the window while the layout
+  shown is exploded.** Pin, Arrow, Draw, Shape, Measure, Section, Align and
+  Region are handed no pointer event and no key (`routePointer`,
+  `ToolContext.exploded`), and the pointer says `EXPLODED_TOOLS`; what a tool
+  had under way is dropped once when the parts go apart. "Note" on the
+  selection, "Re-place" and a region's "Edit" are disabled with the same
+  words, the gizmo holds nothing (a shape's or a scan's), and the points of
+  an alignment and the brush ring are not drawn.
+- **Marks are drawn moved with their part** (`markOffset`,
+  `MarkLayer.setOffsets`): the mark's objects and its label, never the mark.
+  A dimension whose two ends are on parts that moved differently (`'split'`)
+  is not drawn while exploded, its row says `not drawn while the parts are
+  apart`, and its value in the row is the kernel's, of the parts as built. A
+  mark on no part, and a region, do not move.
+- **A section is never drawn exploded (D2).** `explodeNow(state, layout)` is
+  the one rule for what is drawn apart: nothing while there is a section.
+  `actions.setExplode` answers `Take the section away to draw the parts
+  apart`; `actions.setSection` with a plane sets every layout's `amount` to 0
+  (the plane is the object's); `look` and `show` refuse the two together
+  (`NOT_EXPLODED_AND_CUT`), in main and again in the window. A picture that
+  is cut by a plane of its own while the screen is exploded is drawn of the
+  parts together. Scans are not moved: a caption that draws both says
+  `scans are where they are`, and so does the line under the view bar.
+- **The agent.** `look` takes `explode` (a number, or `{amount, axis,
+  scale}`; absent is as on screen for the layout on screen, `null` or `0`
+  together); `show` sets it for now (`shownByAgent.explode`, by layout: the
+  scene file goes on saying the person's own). `scene` reports `explode` and
+  says so in its `note`; the first line of the prompt's context says
+  `, exploded 40 % along z (display only)` after the layout. A picture drawn
+  exploded, and what `show` answers, say `exploded 40 % along z` with
+  `EXPLODED_NOTE`, and name the dimensions left out because they run between
+  parts drawn apart. Every other tool answers of the parts as built and says
+  nothing of explode. The view the window reports (`ViewState.explode`) is
+  kept by `reportView` only as what `explodeOf` makes of it.
+- The control is `ui/ExplodeControl.tsx`, in the view bar: the slider with
+  the amount beside it, the axis and the scale under "More", and a line
+  under the bar while the parts are apart. `window.__tornoTest.exploded()`
+  says whether the viewport draws them apart, or is on its way there or back.
 
 ## Scans
 
@@ -617,7 +687,7 @@ While iterating run the focused test; run all four suites before a commit.
   X in the worker, before tessellation (`arrange.py`). The shape itself is
   moved, so the mesh, the bounding box and the shape kept for queries agree;
   the part carries the translation as `arranged`. The viewport never moves a
-  part.
+  part, with one exception that is display only: explode (below).
 - **stdout is the protocol.** The kernel keeps the real stdout for frames and
   points fd 1 at stderr; a worker points fd 1 and 2 at a capture buffer and
   stdin at `/dev/null`. What a model prints comes back as `output`.

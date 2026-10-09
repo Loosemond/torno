@@ -186,6 +186,15 @@ describe('latestView', () => {
     expect(latestView('bracket')).toEqual(view('bracket', 'assembly'))
   })
 
+  it('keeps how the parts are drawn apart when that is an explode of something, within its ranges', () => {
+    reportView({ ...view('bracket', 'assembly'), explode: { amount: 7, scale: 0, axis: 'w', more: 'x' } } as unknown as ViewState)
+    expect(latestView('bracket')?.explode).toEqual({ amount: 1, scale: 0.25, axis: 'centre' })
+    for (const explode of [{ amount: 0, scale: 2, axis: 'z' }, null, 'half', 0.5, { amount: '1' }]) {
+      reportView({ ...view('bracket', 'assembly'), explode } as unknown as ViewState)
+      expect(latestView('bracket')).toEqual(view('bracket', 'assembly'))
+    }
+  })
+
   it('keeps of the scans only what is one: a number, whether it is on, how thin within what can be drawn, whether its mesh has come', () => {
     const scans = [
       { id: 'S1', visible: true, opacity: 0.6, loaded: true, transform: { t: [9, 9, 9] } },

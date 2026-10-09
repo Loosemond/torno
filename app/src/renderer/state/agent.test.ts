@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, HighlightRequest, LookRequest, LookResult, SectionDrawingRequest, ShowRequest } from '../../shared/view'
 import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, setPictures } from './agent'
-import { actions, sceneFileOf, store } from './store'
+import { actions, explodeNow, sceneFileOf, store } from './store'
 
 const part = (layout: string, name: string): Part => ({ key: `${layout}:${name}`, name, layout, faceCount: 6, edgeCount: 12 }) as Part
 const SCENE: Scene = { model: 'bracket.py', layouts: ['assembly', 'print'], parts: [part('assembly', 'base'), part('assembly', 'post'), part('print', 'base'), part('print', 'post')], seconds: 1, output: '' }
@@ -186,10 +186,72 @@ describe('show', () => {
     expect(store.getState().section).toBeNull()
   })
 
+  describe('with an explode', () => {
+    const NOTE = 'the parts are drawn apart for display: every position, ref and number told is of the parts as assembled'
+    const NOT_BOTH = 'a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)'
+    const caption = (): string => (replies.at(-1)!.result as { caption: string }).caption
+
+    it('draws the parts apart for now, says so with what that means, and leaves the scene file as the person had it', () => {
+      const edits = store.getState().edits
+      show({ explode: { amount: 0.5, scale: 1, axis: 'z' } })
+      expect(explodeNow(store.getState())).toEqual({ amount: 0.5, scale: 1, axis: 'z' })
+      expect(replies).toEqual([{ id: 9, result: { caption: `view current · layout assembly · parts base, post · exploded 50 % along z (${NOTE}) · perspective`, objectId: 'bracket', revision: 3, stale: false, layout: 'assembly', scans: [], exploded: true } }])
+      expect(store.getState().edits).toBe(edits)
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
+      // A show that says nothing of it leaves the parts apart, and goes on saying so.
+      show({ view: 'top' })
+      expect(caption()).toContain('exploded 50 % along z')
+      // Null puts them together, and nothing is said of it.
+      show({ explode: null })
+      expect(explodeNow(store.getState())).toBeNull()
+      expect(replies.at(-1)!.result).toEqual({ caption: 'view current · layout assembly · parts base, post · perspective', objectId: 'bracket', revision: 3, stale: false, layout: 'assembly', scans: [] })
+    })
+
+    it('takes of what it is given only an explode, within its ranges', () => {
+      show({ explode: { amount: 7, scale: 99, axis: 'w', more: 'x' } as never })
+      expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 4, axis: 'centre' })
+      show({ explode: { amount: 0, scale: 2, axis: 'x' } })
+      expect(explodeNow(store.getState())).toBeNull()
+    })
+
+    it('is of the layout it shows', () => {
+      show({ layout: 'print', explode: { amount: 1, scale: 1, axis: 'x' } })
+      expect(store.getState().layout).toBe('print')
+      expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 1, axis: 'x' })
+      expect(explodeNow(store.getState(), 'assembly')).toBeNull()
+      expect(caption()).toContain('layout print · parts base, post · exploded 100 % along x')
+    })
+
+    it('never draws a section exploded: with the cut it asks for, or the one on screen unless it takes that away', () => {
+      const cut = { origin: [0, 0, 3] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }
+      show({ explode: { amount: 0.5, scale: 1, axis: 'z' }, section: cut })
+      expect(replies.at(-1)!.result).toEqual({ error: NOT_BOTH })
+      expect([store.getState().section, explodeNow(store.getState())]).toEqual([null, null])
+      actions.setSection(cut)
+      show({ explode: { amount: 0.5, scale: 1, axis: 'z' } })
+      expect(replies.at(-1)!.result).toEqual({ error: NOT_BOTH })
+      expect(explodeNow(store.getState())).toBeNull()
+      show({ explode: { amount: 0.5, scale: 1, axis: 'z' }, section: null })
+      expect([store.getState().section, explodeNow(store.getState())?.amount]).toEqual([null, 0.5])
+      expect(caption()).not.toContain('cut at')
+      // A cut asked for while the parts are apart puts them together.
+      show({ section: cut })
+      expect(explodeNow(store.getState())).toBeNull()
+      expect(caption()).toBe('view current · layout assembly · parts base, post · cut at z = 3, +Z side removed · perspective')
+    })
+  })
+
   describe('with scans', () => {
     const scan = (id: string, alignments: object = {}) => ({ id, name: `${id}.stl`, imported: { triangles: 12 }, alignments, sourceState: 'present', meshState: 'ok', checks: {} }) as never
     const typed = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' }
     beforeEach(() => actions.setScans({ objectId: 'bracket', scans: [scan('S1', { assembly: typed }), scan('S2')] }))
+
+    it('says of the scans left on that they have not moved, when it draws the parts apart beside them', () => {
+      show({ scans: ['S1'], explode: { amount: 1, scale: 1, axis: 'z' } })
+      expect((replies.at(-1)!.result as { caption: string }).caption).toMatch(/ · scans S1 \(.*\) · exploded 100 % along z \(the parts are drawn apart for display: every position, ref and number told is of the parts as assembled\) · scans are where they are · perspective$/)
+      show({ scans: [] })
+      expect((replies.at(-1)!.result as { caption: string }).caption).not.toContain('scans are where they are')
+    })
 
     it('leaves on the scans named and no other, as thin as asked, says so, and leaves the scene file as the person had it', () => {
       actions.setScanView('S2', { opacity: 0.8 })

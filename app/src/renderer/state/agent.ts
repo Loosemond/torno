@@ -12,13 +12,14 @@ import {
   NOT_A_PLANE,
   sectionOf
 } from '../../shared/view'
+import { NOT_EXPLODED_AND_CUT, explodeOf, isExploded } from '../../shared/explode'
 import { type ScanView, MIN_SCAN_OPACITY, standingOf } from '../../shared/scans'
 import { colorFor, colorsByName } from '../viewport/palette'
-import { scansNote } from '../viewport/picture'
+import { explodedNote, scansNote } from '../viewport/picture'
 import { describeSection } from '../viewport/section'
 import { sectionPng } from '../viewport/sectionDrawing'
 import type { Viewport } from '../viewport/Viewport'
-import { actions, partsInLayout, store } from './store'
+import { actions, explodeNow, partsInLayout, store } from './store'
 
 /** How long what the agent points at stays pointed at, unless the person clicks first. */
 export const HIGHLIGHT_FOR_MS = 60_000
@@ -51,7 +52,7 @@ export function dismissHighlight(): void {
  * Change what the window shows of the open object as the agent asked: the
  * layout, which parts are switched on (those named, and no other of that
  * layout), the plane they are cut by (or none), which scans are switched on (those named, and no other) and how
- * thin those are drawn, the camera. Everything is checked before anything is changed, and
+ * thin those are drawn, how far apart the parts are drawn (or together), the camera. Everything is checked before anything is changed, and
  * nothing is while a button is held in the viewport. The change is for now:
  * it is not what the scene file keeps. The answer says what is shown then, as
  * the caption of a picture would.
@@ -84,9 +85,15 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
     }
   }
 
+  // Only an explode is taken of what was given; one of nothing is together.
+  const asked = req.explode === undefined || req.explode === null ? req.explode : explodeOf(req.explode)
+  const explode = asked === undefined ? undefined : isExploded(asked) ? asked : null
+  // A section is never drawn exploded: the one this asks for, or the one on screen unless this takes it away.
+  if (explode && (section !== undefined ? section : s.section)) throw new Error(NOT_EXPLODED_AND_CUT)
+
   // The viewport follows the store as this is set, so the camera below is fitted to what it leaves on.
   // For now only: what the person had chosen stays what their scene file says.
-  actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {}, section, scans)
+  actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {}, section, scans, explode)
   if (req.view !== undefined) viewport.setView(req.view, true)
 
   const after = store.getState()
@@ -102,13 +109,16 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   const shown = after.scans
     .filter((scan) => scan.meshState === 'ok' && after.scanViews[scan.id]?.visible !== false && loaded?.find((one) => one.id === scan.id)?.loaded !== false)
     .map((scan) => ({ id: scan.id, opacity: after.scanViews[scan.id]?.opacity ?? 1, ...standingOf(scan, layout, after.scene ? after.revision : 0) }))
+  // Drawn apart now, by this or as they were: said as the caption of a picture says it, with what that means of the scans.
+  const apart = explodeNow(after, layout)
   return {
-    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''} · ${ortho ? 'orthographic' : 'perspective'}`,
+    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''}${explodedNote(apart, shown.length > 0)} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,
     revision: after.revision,
     stale: after.build?.stale ?? false,
     layout,
-    scans: shown.map((scan) => scan.id)
+    scans: shown.map((scan) => scan.id),
+    ...(apart ? { exploded: true } : {})
   }
 }
 

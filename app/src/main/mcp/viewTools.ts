@@ -1,13 +1,14 @@
 import { type DimensionStanding, standingOf } from '../../shared/dimension'
 import type { DimensionMark, Mark } from '../../shared/marks'
 import { letGoText } from '../../shared/build'
+import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, explodeText, isExploded } from '../../shared/explode'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
 import { type Camera, type LookRequest, type LookResult, type SectionPlane, type ShowRequest, type ShowResult, axisForm } from '../../shared/view'
 import { alignmentSaid } from '../scans/said'
 import { unknownKeys } from './keys'
 import { NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanColourFor, scanIds } from './scanTools'
-import { type LookArgs, type ShowArgs, CAMERA_KEYS, FOV } from './schemas'
+import { type LookArgs, type ShowArgs, CAMERA_KEYS, FOV, explodeHelp } from './schemas'
 import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
 
 // The tools of the view: `scene`, which says what the object is and what the user sees of it, `look`, a picture
@@ -56,6 +57,9 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   if (scene.parts.some((p) => p.arranged)) notes.push(SPREAD_NOTE)
   const scanLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
   if (scans && scans.length > 0) notes.push(`How each scan is aligned is said for layout ${scanLayout}, in a word (aligned, rough, in doubt, not checked, not aligned): call scans for the whole of it.`)
+  // The parts are drawn apart on their screen: said, so that nothing told here is taken for where they are drawn.
+  const explode = view && isExploded(view.explode) ? view.explode : null
+  if (explode) notes.push(`The user's view is ${explodeText(explode)}: ${EXPLODED_NOTE}.`)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -87,6 +91,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
       : null,
     // The user's own cut, if they have one: what is on the side its normal points to is not drawn.
     section: view?.section ? sectionData(view.section) : null,
+    // How their screen draws the parts apart, if it does. For display only: every part above is where it was built.
+    explode,
     // Of the last build that worked (`build.revision`): call marks for which, and why.
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
@@ -142,6 +148,11 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
     if ('content' in colouring) return colouring
     request.scanColour = colouring
   }
+  // As on screen unless the picture says how far apart it draws the parts; never apart and cut.
+  const explode = explodeAsked(args.explode)
+  if (typeof explode === 'string') return failure(explode)
+  request.explode = explode === undefined ? 'current' : explode
+  if (isExploded(explode) && (args.section === undefined || args.section === 'current' ? deps.view(objectId)?.section : args.section)) return failure(NOT_EXPLODED_AND_CUT)
   if (args.frame !== undefined) {
     if (args.frame !== 'parts' && args.frame !== 'all') return failure('frame is "parts" (the default: a named view is fitted to the parts drawn) or "all" (to the scans drawn with them)')
     request.frame = args.frame
@@ -203,6 +214,19 @@ function staleNote(deps: ToolDeps, objectId: string, picture: { revision: number
   return `, stale: ${why}, so these are still the parts of r${picture.revision}`
 }
 
+/**
+ * How far apart the agent asks for the parts to be drawn: undefined when it does not say, null for together
+ * (`null`, or the number 0), an explode, or what to answer when it gave something that is none.
+ */
+function explodeAsked(given: unknown): ExplodeState | null | undefined | string {
+  if (given === undefined) return undefined
+  if (given === null || given === 0) return null
+  const explode = explodeArg(given)
+  if (explode === null) return `explode is ${explodeHelp}`
+  // An amount of nothing, with an axis or a scale: together all the same.
+  return isExploded(explode) ? explode : null
+}
+
 /** The camera to ask the window for, or null for one that looks nowhere: its position is its target. */
 export function cameraOf(view: LookArgs['view']): NonNullable<LookRequest['view']> | null {
   if (view === undefined) return 'current'
@@ -219,7 +243,7 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
   const found = onScreen(deps, objectId)
   if ('content' in found) return found
   const { obj, scene } = found
-  if (args.view === undefined && args.layout === undefined && args.parts === undefined && args.section === undefined && args.scans === undefined && args.scanOpacity === undefined) return failure('nothing to show: give a view, a layout, parts, a section or scans')
+  if (args.view === undefined && args.layout === undefined && args.parts === undefined && args.section === undefined && args.scans === undefined && args.scanOpacity === undefined && args.explode === undefined) return failure('nothing to show: give a view, a layout, parts, a section, an explode or scans')
   if (args.layout !== undefined && !scene.layouts.includes(args.layout)) return failure(`no layout '${args.layout}'; layouts: ${scene.layouts.join(', ')}`)
   if (args.parts?.length === 0) return failure('parts is empty: name the parts to leave switched on')
 
@@ -239,6 +263,11 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
     if ('content' in plane) return plane
     request.section = plane
   }
+  const explode = explodeAsked(args.explode)
+  if (typeof explode === 'string') return failure(explode)
+  if (explode !== undefined) request.explode = explode
+  // Never apart and cut: the cut this call makes, or the one on their screen unless this call takes it away.
+  if (isExploded(explode) && (args.section === undefined ? deps.view(objectId)?.section : args.section)) return failure(NOT_EXPLODED_AND_CUT)
   if (args.scans !== undefined) {
     const ids = await scanIds(deps, objectId, args.scans, NO_SHOW_SCANS)
     if ('content' in ids) return ids

@@ -8,7 +8,8 @@ import type { ViewportPointer } from '../viewport/Viewport'
 import { arrowHead, arrowTool } from './arrowTool'
 import { pickMarks } from './pickMarks'
 import { pinTool } from './pinTool'
-import { DESCRIBE_WITHIN_MS, anchorFromHit, routePointer, type ToolContext } from './Tool'
+import { EXPLODED_TOOLS } from '../../shared/explode'
+import { DESCRIBE_WITHIN_MS, anchorFromHit, routePointer, type Tool, type ToolContext } from './Tool'
 
 // From the front: the camera is on -Y and looks along +Y, so the plane that
 // faces it through the origin is XZ, and a pixel is a millimetre for these tests.
@@ -480,5 +481,59 @@ describe('pick marks from a selection', () => {
   it('keeps a clicked ref the kernel cannot describe, and leaves out one with no point at all', async () => {
     const marks = await pickMarks(['gone/F1', 'gone/F2'], { 'gone/F1': { point: [1, 2, 3], normal: [1, 0, 0] } }, () => Promise.reject(new Error('no build')), placed)
     expect(marks).toEqual([{ kind: 'pick', target: 'face', author: 'user', note: '', ...placed, anchor: { point: [1, 2, 3], normal: [1, 0, 0], part: 'gone', ref: 'gone/F1' } }])
+  })
+})
+
+describe('while the parts are drawn apart', () => {
+  const face = hitAt([14, 9, 2.5])
+  const tool = (id: string, got: string[]): Tool => ({ id, cursor: 'default', onPointer: (e) => void got.push(`${id} ${e.type}`), cancel: () => {} })
+
+  it('hands a press to no tool but Select, and says why', () => {
+    const got: string[] = []
+    const { ctx, said } = fake({ exploded: EXPLODED_TOOLS })
+    for (const id of ['pin', 'arrow', 'draw', 'shape', 'measure', 'section', 'align', 'region']) routePointer(tool(id, got), pointer('down', 14, 2.5, { hit: face }), ctx)
+    routePointer(tool('select', got), pointer('down', 14, 2.5, { hit: face }), ctx)
+    expect(got).toEqual(['select down'])
+    expect(said).toEqual(Array.from({ length: 8 }, () => EXPLODED_TOOLS))
+  })
+
+  it('says it on a move over a part and on a press anywhere, and puts it away on a move beside the parts', () => {
+    const got: string[] = []
+    const hidden: string[] = []
+    const { ctx, said } = fake({ exploded: EXPLODED_TOOLS })
+    ctx.readout = { ...ctx.readout, hide: () => void hidden.push('hide') }
+    const pin = tool('pin', got)
+    routePointer(pin, { ...pointer('move', 14, 2.5, { hit: face }), buttons: 0 }, ctx)
+    expect(said).toEqual([EXPLODED_TOOLS])
+    routePointer(pin, { ...pointer('move', 90, 90), buttons: 0 }, ctx)
+    expect([said.length, hidden]).toEqual([1, ['hide']])
+    // A press beside the parts: the Align and Region tools point at a scan, which is not a part.
+    for (const type of ['down', 'up', 'click'] as const) routePointer(tool('align', got), pointer(type, 90, 90), ctx)
+    expect(said).toEqual([EXPLODED_TOOLS, EXPLODED_TOOLS, EXPLODED_TOOLS])
+    expect(hidden).toEqual(['hide'])
+    expect(got).toEqual([])
+  })
+
+  it('places no pin: the real tool is given nothing', async () => {
+    const { ctx, committed, drafts } = fake({ exploded: EXPLODED_TOOLS })
+    routePointer(pinTool(), pointer('click', 14, 2.5, { hit: face }), ctx)
+    await settled()
+    expect(committed).toEqual([])
+    expect(drafts).toEqual([])
+  })
+
+  it('says that the parts are stale first: nothing is pointed at then, whichever way they are drawn', () => {
+    const got: string[] = []
+    const { ctx, said } = fake({ exploded: EXPLODED_TOOLS, stale: 'Rebuilding: picks wait for the new build' })
+    routePointer(tool('select', got), pointer('down', 14, 2.5, { hit: face }), ctx)
+    expect(got).toEqual([])
+    expect(said).toEqual(['Rebuilding: picks wait for the new build'])
+  })
+
+  it('hands every event on when they are together', () => {
+    const got: string[] = []
+    routePointer(tool('pin', got), pointer('down', 14, 2.5, { hit: face }), fake({ exploded: null }).ctx)
+    routePointer(tool('pin', got), pointer('down', 14, 2.5, { hit: face }), fake().ctx)
+    expect(got).toEqual(['pin down', 'pin down'])
   })
 })

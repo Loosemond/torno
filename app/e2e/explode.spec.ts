@@ -1,0 +1,315 @@
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import type { TornoState } from '../src/renderer/state/store'
+import type { Mark, Vec3 } from '../src/shared/marks'
+
+// Explode, through the window and through the agent's tools: the parts are drawn apart, and nothing that is
+// picked, kept, measured or told is of a part as it is drawn apart. The agent in the session pane is the stand-in.
+const appDir = resolve(__dirname, '..')
+const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
+const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
+/** Where a picture of the exploded parts is left for whoever wants to look at one: outside the workspace. */
+const pictures = process.env.TORNO_E2E_PICTURES
+
+test.describe.configure({ mode: 'serial' })
+
+const NOTE = 'the parts are drawn apart for display: every position, ref and number told is of the parts as assembled'
+const NOT_BOTH = 'a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)'
+const TOOLS_WAIT = 'The parts are drawn apart: put them together (E, or the slider at 0) to mark, measure or cut'
+
+let root: string
+let app: ElectronApplication
+let page: Page
+let client: Client
+
+type Content = Array<{ type: string; text?: string; data?: string }>
+
+test.beforeAll(async () => {
+  root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-explode-'))
+  cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
+  app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root } })
+  page = await app.firstWindow()
+  await page.waitForSelector('[data-region="left"]')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
+  const url = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpUrlFor(id: string): string } }).__tornoMain.mcpUrlFor(id), 'hollow')
+  client = new Client({ name: 'torno-e2e', version: '0' })
+  await client.connect(new StreamableHTTPClientTransport(new URL(url)))
+})
+
+test.afterAll(async () => {
+  await client?.close()
+  await app?.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
+const amount = async (): Promise<number> => (await state()).explode.assembly?.amount ?? 0
+const project = (point: Vec3, part?: string): Promise<[number, number]> => page.evaluate(([p, name]) => window.__tornoTest!.project(p as Vec3, name as string | undefined), [point, part] as const)
+const pickAt = ([x, y]: [number, number]) => page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), [x, y] as const)
+/** The viewport has the parts where the store says, and is not on its way there. */
+const settled = async (apart: boolean): Promise<void> => {
+  await expect.poll(() => page.evaluate(() => window.__tornoTest!.exploded())).toBe(apart)
+  // A move under way ends on a frame: the parts are at rest once two looks a moment apart see them in one place.
+  await expect
+    .poll(async () => {
+      const first = await project([0, 0, 40], 'lid')
+      await page.waitForTimeout(60)
+      const second = await project([0, 0, 40], 'lid')
+      return Math.hypot(first[0] - second[0], first[1] - second[1])
+    })
+    .toBe(0)
+}
+const slider = () => page.getByRole('slider', { name: 'Explode' })
+const readout = () => page.locator('.pick-readout')
+const canvas = async () => (await page.locator('.viewport-canvas canvas').first().boundingBox())!
+const clickAt = async ([fx, fy]: [number, number]): Promise<void> => {
+  const box = await canvas()
+  await page.mouse.click(box.x + fx * box.width, box.y + fy * box.height)
+}
+
+async function call(name: string, args: Record<string, unknown> = {}): Promise<{ isError: boolean; content: Content; text: string }> {
+  const result = await client.callTool({ name, arguments: args })
+  const content = result.content as Content
+  return { isError: result.isError === true, content, text: content.find((block) => block.type === 'text')?.text ?? '' }
+}
+const caption = (result: { text: string }): string => result.text.split('\n')[0]
+const sceneFile = (): Record<string, unknown> => JSON.parse(readFileSync(join(root, 'hollow', '.torno', 'scene.json'), 'utf8'))
+
+let lidTop: Vec3
+
+test('the parts are drawn apart, what is picked is where the part is, and nothing is marked meanwhile', async () => {
+  const lid = (await state()).scene!.parts.find((p) => p.name === 'lid')!
+  lidTop = [0, 0, lid.bbox.max[2]]
+  const before = await project(lidTop)
+  expect((await pickAt(before))?.point[2]).toBeCloseTo(lidTop[2], 3)
+
+  await slider().fill('100')
+  await expect.poll(amount).toBe(1)
+  await expect(page.locator('.explode-amount')).toHaveText('100 %')
+  await settled(true)
+  // Drawn somewhere else now: as a point of the lid it has moved on screen, and as a point of space it has not.
+  const moved = await project(lidTop, 'lid')
+  expect(Math.hypot(moved[0] - before[0], moved[1] - before[1])).toBeGreaterThan(0.05)
+  expect(await project(lidTop)).toEqual(before)
+  // Fit frames the parts where they are drawn: the lid, which went up and out of the middle, is in view, clear of the bars.
+  await page.keyboard.press('f')
+  const after = await project(lidTop, 'lid')
+  expect(after[1]).toBeGreaterThan(0.12)
+  expect(after[1]).toBeLessThan(0.9)
+  const there = await project(lidTop)
+  // Picked where it is drawn, answered where it is.
+  const hit = await pickAt(after)
+  expect(hit?.ref.startsWith('lid/F')).toBe(true)
+  expect(Math.abs(hit!.point[0])).toBeLessThan(1e-3)
+  expect(Math.abs(hit!.point[1])).toBeLessThan(1e-3)
+  expect(Math.abs(hit!.point[2] - lidTop[2])).toBeLessThan(1e-3)
+  // What the window tells main of the view says the parts are apart, and nothing in it is of a part drawn apart.
+  expect((await state()).scene!.parts.find((p) => p.name === 'lid')!.bbox).toEqual(lid.bbox)
+  await expect(page.locator('.explode-note')).toHaveText('Parts drawn apart for display. E puts them together')
+
+  // A pin is not placed: the pointer says why, and no mark is kept.
+  await page.keyboard.press('p')
+  await clickAt(after)
+  await expect(readout()).toContainText(TOOLS_WAIT)
+  await page.waitForTimeout(300)
+  expect((await state()).marks).toHaveLength(0)
+  // Nor is anything measured: by a click, or by the key that measures the wall under the pointer.
+  await page.keyboard.press('m')
+  await clickAt(after)
+  await page.keyboard.press('t')
+  await expect(readout()).toContainText(TOOLS_WAIT)
+  await page.waitForTimeout(300)
+  expect((await state()).marks).toHaveLength(0)
+
+  // Selecting works, and names the face at its own point.
+  await page.keyboard.press('v')
+  await clickAt(after)
+  await expect.poll(async () => (await state()).selection).toEqual([hit!.ref])
+  const picked = (await state()).picked[hit!.ref]
+  expect(Math.abs(picked.point[2] - lidTop[2])).toBeLessThan(1e-3)
+  // A note cannot be left on it meanwhile, and the button says why.
+  const note = page.getByRole('group', { name: 'Selection' }).getByRole('button', { name: 'Note' })
+  await expect(note).toBeDisabled()
+  await expect(note).toHaveAttribute('title', TOOLS_WAIT)
+
+  // Put together with E, the pin goes where it was aimed.
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('e')
+  await expect.poll(amount).toBe(0)
+  await settled(false)
+  await expect(page.locator('.explode-note')).toHaveCount(0)
+  await expect(note).toHaveCount(0)
+  await page.keyboard.press('p')
+  await clickAt(there)
+  await expect.poll(async () => (await state()).marks.length).toBe(1)
+  const pin = (await state()).marks[0] as Extract<Mark, { kind: 'pin' }>
+  expect(pin.anchor.part).toBe('lid')
+  expect(Math.abs(pin.anchor.point[2] - lidTop[2])).toBeLessThan(1e-3)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('v')
+})
+
+test('a mark is drawn with its part, and E goes back to how far apart the parts last were', async () => {
+  const together = (await page.evaluate(() => window.__tornoTest!.markScreen('M1')))!
+  const from = await project(lidTop)
+  await page.keyboard.press('e')
+  await expect.poll(amount).toBe(1)
+  await settled(true)
+  const to = await project(lidTop, 'lid')
+  const apart = (await page.evaluate(() => window.__tornoTest!.markScreen('M1')))!
+  // The label went where the lid went (it hangs off its point by a leader whose length in pixels is the same).
+  expect(apart.x - together.x).toBeCloseTo(to[0] - from[0], 2)
+  expect(apart.y - together.y).toBeCloseTo(to[1] - from[1], 2)
+  // The mark itself is where it was put.
+  expect(((await state()).marks[0] as Extract<Mark, { kind: 'pin' }>).anchor.point[2]).toBeCloseTo(lidTop[2], 3)
+  await page.keyboard.press('e')
+  await expect.poll(amount).toBe(0)
+  await settled(false)
+  expect((await page.evaluate(() => window.__tornoTest!.markScreen('M1')))!.y).toBeCloseTo(together.y, 3)
+})
+
+test('dragging the slider moves the parts and keeps nothing until it is let go', async () => {
+  const edits = (await state()).edits
+  await slider().evaluate((input: HTMLInputElement) => {
+    input.value = '40'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await expect(page.locator('.explode-amount')).toHaveText('40 %')
+  expect(await page.evaluate(() => window.__tornoTest!.exploded())).toBe(true)
+  expect([await amount(), (await state()).edits]).toEqual([0, edits])
+  await slider().evaluate((input: HTMLInputElement) => input.dispatchEvent(new Event('change', { bubbles: true })))
+  await expect.poll(amount).toBe(0.4)
+  expect((await state()).edits).toBe(edits + 1)
+  // Along what, and how far, under More.
+  await page.getByRole('group', { name: 'Explode' }).getByRole('button', { name: 'More' }).click()
+  await page.getByRole('group', { name: 'Direction' }).getByRole('button', { name: 'Z', exact: true }).click()
+  await page.getByRole('group', { name: 'Distance' }).getByRole('button', { name: '×2' }).click()
+  expect((await state()).explode.assembly).toEqual({ amount: 0.4, scale: 2, axis: 'z' })
+  await page.keyboard.press('Escape')
+  // Along z the lid goes straight up: as a point of the lid, its top is drawn above where it is.
+  await settled(true)
+  const [at, drawn] = [await project(lidTop), await project(lidTop, 'lid')]
+  expect(drawn[1]).toBeLessThan(at[1] - 0.02)
+  // Kept in the scene file, as the person's own.
+  await expect.poll(() => { try { return sceneFile().explode } catch { return undefined } }, { timeout: 5000 }).toEqual({ assembly: { amount: 0.4, scale: 2, axis: 'z' } })
+})
+
+test('a section puts the parts together, and they are not drawn apart while it is there', async () => {
+  await page.keyboard.press('x')
+  await page.getByRole('toolbar', { name: 'Section' }).getByRole('button', { name: 'Cut across Z' }).click()
+  await expect.poll(async () => (await state()).section?.normal).toEqual([0, 0, 1])
+  expect(await amount()).toBe(0)
+  await settled(false)
+  await expect(slider()).toBeDisabled()
+  await expect(slider()).toHaveAttribute('title', 'Take the section away to draw the parts apart')
+  await expect(page.locator('.explode-amount')).toHaveText('0 %')
+  // E says why not, and changes nothing.
+  await page.keyboard.press('v')
+  await page.keyboard.press('e')
+  await expect(page.locator('.explode-note')).toHaveText('Take the section away to draw the parts apart')
+  expect(await amount()).toBe(0)
+  // The agent is refused both, in a picture and on the screen.
+  expect((await call('look', { explode: 0.5 })).text).toBe(NOT_BOTH)
+  expect((await call('show', { explode: 0.5 })).text).toBe(NOT_BOTH)
+  expect(await page.evaluate(() => window.__tornoTest!.exploded())).toBe(false)
+  await page.getByRole('toolbar', { name: 'Section' }).getByRole('button', { name: 'Off' }).click()
+  await expect.poll(async () => (await state()).section).toBeNull()
+  // Only how far apart they were is forgotten.
+  expect((await state()).explode.assembly).toEqual({ amount: 0, scale: 2, axis: 'z' })
+  await expect(slider()).toBeEnabled()
+  await page.getByRole('group', { name: 'Explode' }).getByRole('button', { name: 'More' }).click()
+  await page.getByRole('group', { name: 'Direction' }).getByRole('button', { name: 'From centre' }).click()
+  await page.getByRole('group', { name: 'Distance' }).getByRole('button', { name: '×1' }).click()
+  await page.keyboard.press('Escape')
+  expect((await state()).explode.assembly).toEqual({ amount: 0, scale: 1, axis: 'centre' })
+})
+
+test('the agent sees an exploded picture as one, and measures the parts as they are', async () => {
+  const assembled = (await call('measure', { kind: 'bbox', a: 'lid' })).text
+  const sceneBefore = JSON.parse((await call('scene')).text)
+  expect(sceneBefore.explode).toBeNull()
+  const look = await call('look', { explode: { amount: 1, axis: 'z' }, view: 'front' })
+  expect(look.isError).toBe(false)
+  expect(caption(look)).toContain(`exploded 100 % along z (${NOTE})`)
+  if (pictures) {
+    mkdirSync(pictures, { recursive: true })
+    writeFileSync(join(pictures, 'exploded-front.png'), Buffer.from(look.content.find((block) => block.type === 'image')!.data!, 'base64'))
+    const iso = await call('look', { explode: 0.6, view: 'iso' })
+    writeFileSync(join(pictures, 'exploded-iso.png'), Buffer.from(iso.content.find((block) => block.type === 'image')!.data!, 'base64'))
+    writeFileSync(join(pictures, 'captions.txt'), `${look.text}\n\n${iso.text}\n`)
+  }
+  expect((await call('measure', { kind: 'bbox', a: 'lid' })).text).toBe(assembled)
+  // The person's view was not changed by the picture, nor are the parts left apart on their screen.
+  expect(await amount()).toBe(0)
+  expect(await page.evaluate(() => window.__tornoTest!.exploded())).toBe(false)
+  expect(caption(await call('look'))).not.toContain('exploded')
+
+  const shown = await call('show', { explode: 0.5 })
+  expect(shown.text).toContain(`exploded 50 % from the centre (${NOTE})`)
+  await settled(true)
+  const scene = JSON.parse((await call('scene')).text)
+  expect(scene.explode).toEqual({ amount: 0.5, scale: 1, axis: 'centre' })
+  expect(scene.note).toContain(`The user's view is exploded 50 % from the centre: ${NOTE}.`)
+  // Every part is told where it is built, as before.
+  expect(scene.parts).toEqual(sceneBefore.parts)
+  expect((await call('measure', { kind: 'bbox', a: 'lid' })).text).toBe(assembled)
+  // What they see is what a picture of their view shows, and says; asked together, it is drawn together.
+  expect(caption(await call('look'))).toContain(`exploded 50 % from the centre (${NOTE})`)
+  expect(caption(await call('look', { explode: null }))).not.toContain('exploded')
+  expect(caption(await call('look', { explode: 0 }))).not.toContain('exploded')
+  // A cut of the picture's own is drawn of the parts together, though the screen has them apart.
+  const cut = caption(await call('look', { section: { axis: 'z', at: 20 } }))
+  expect(cut).toContain('cut at z = 20')
+  expect(cut).not.toContain('exploded')
+  // For now only: not what their scene file keeps.
+  await page.waitForTimeout(900)
+  expect(sceneFile().explode).toBeUndefined()
+  // The agent's mark on the lid is where the ref is, not where the lid is drawn.
+  const added = await call('add_mark', { kind: 'pin', note: 'top', ref: (await pickAt(await project(lidTop, 'lid')))!.ref, point: lidTop })
+  expect(added.isError).toBe(false)
+  const marks = JSON.parse((await call('marks')).text).marks as Array<{ id: string; anchor?: { point: Vec3 } }>
+  expect(marks.at(-1)!.anchor!.point[2]).toBeCloseTo(lidTop[2], 3)
+  expect((await call('show', { explode: null })).text).not.toContain('exploded')
+  await settled(false)
+  expect(JSON.parse((await call('scene')).text).explode).toBeNull()
+})
+
+test('a dimension between two parts drawn apart is not drawn, says so on its row, and keeps its value', async () => {
+  // From the lid's top to a side of the tub: its two ends are on two parts.
+  const top = (await pickAt(await project(lidTop)))!
+  const sides = [await pickAt(await project([20, 0, 19])), await pickAt(await project([0, -20, 19])), await pickAt(await project([-20, 0, 19])), await pickAt(await project([0, 20, 19]))]
+  const side = sides.find((hit) => hit?.ref.startsWith('tub/F'))!
+  expect(side).toBeTruthy()
+  const across = await call('add_mark', { kind: 'dimension', note: 'lid to tub', measure: 'distance', a: { ref: top.ref, point: lidTop }, b: { ref: side.ref, point: side.point } })
+  expect(across.text).toContain('M')
+  expect(across.isError).toBe(false)
+  const id = /M\d+/.exec(across.text)![0]
+  await expect.poll(async () => (await state()).marks.some((mark) => mark.id === id)).toBe(true)
+  const value = ((await state()).marks.find((mark) => mark.id === id) as Extract<Mark, { kind: 'dimension' }>).value
+  expect(await page.evaluate((mark) => window.__tornoTest!.markScreen(mark), id)).not.toBeNull()
+  const row = page.locator(`.mark-row[data-mark="${id}"]`)
+  await expect(row.locator('.row-note')).toHaveCount(0)
+
+  await page.keyboard.press('e')
+  await expect.poll(amount).toBeGreaterThan(0)
+  await settled(true)
+  expect(await page.evaluate((mark) => window.__tornoTest!.markScreen(mark), id)).toBeNull()
+  await expect(row.locator('.row-note')).toHaveText('not drawn while the parts are apart')
+  // Its value is the kernel's, of the parts as built: the same as before.
+  expect(((await state()).marks.find((mark) => mark.id === id) as Extract<Mark, { kind: 'dimension' }>).value).toBe(value)
+  // And a picture of the view says which mark it leaves out.
+  expect(caption(await call('look'))).toContain(`${id} is not drawn: it runs between parts drawn apart`)
+
+  await page.keyboard.press('e')
+  await expect.poll(amount).toBe(0)
+  await settled(false)
+  expect(await page.evaluate((mark) => window.__tornoTest!.markScreen(mark), id)).not.toBeNull()
+  await expect(row.locator('.row-note')).toHaveCount(0)
+})

@@ -53,6 +53,15 @@ describe('contextFor', () => {
     )
   })
 
+  it('says that the layout on screen is drawn apart, and that this is for display only', () => {
+    const build: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 0.8, stale: false }
+    const view: ViewState = { objectId: 'bracket', layout: 'assembly', camera: CAMERA, visible: ['assembly:base', 'assembly:post'], explode: { amount: 0.4, scale: 1, axis: 'z' } }
+    expect(textFor(deps({ build, scene: SCENE, view }), 'bracket')).toBe('[torno] bracket · build ok · r3 (0.8 s) · layout assembly, exploded 40 % along z (display only) · parts: base, post.')
+    // Drawn together, nothing is said of it; nor of a layout the build no longer has, whose explode is of no layout named.
+    expect(textFor(deps({ build, scene: SCENE, view: { ...view, explode: { amount: 0, scale: 2, axis: 'z' } } }), 'bracket')).toBe('[torno] bracket · build ok · r3 (0.8 s) · layout assembly · parts: base, post.')
+    expect(textFor(deps({ build, scene: SCENE, view: { ...view, layout: 'gone' } }), 'bracket')).toBe('[torno] bracket · build ok · r3 (0.8 s) · layout assembly · parts: base, post.')
+  })
+
   it('says how long a build has been running and what is on screen meanwhile', () => {
     const build: BuildState = { objectId: 'bracket', status: 'building', revision: 11, startedAt: 10_000, stale: true }
     expect(textFor(deps({ build, scene: SCENE, now: 14_200 }), 'bracket')).toBe('[torno] bracket · building (4 s so far) · showing r11.')

@@ -13,6 +13,7 @@ import {
   MAX_SELECTION_REPORTED,
   sectionOf
 } from '../shared/view'
+import { explodeOf, isExploded } from '../shared/explode'
 import { MIN_SCAN_OPACITY } from '../shared/scans'
 
 // What the agent asks of the window is done by the renderer, which owns the
@@ -114,13 +115,15 @@ const MAX_SELECTED_DESCRIPTOR = 200
  * how many are selected in all. A total that is not a count, or is less than
  * the refs given, is taken to be as many as were given. Of a section only a
  * plane is kept, its normal a unit vector. Of the scans, what `scansOf` keeps.
+ * Of an explode, one that draws something apart, within its ranges.
  */
 export function reportView(v: ViewState): void {
-  const { selection: said, section: cut, scans: drawn, ...view } = v
+  const { selection: said, section: cut, scans: drawn, explode: apart, ...view } = v
   const selection = selectionOf(said)
   const section = sectionOf(cut)
   const scans = scansOf(drawn)
-  views.set(v.objectId, { ...view, ...(selection ? { selection } : {}), ...(section ? { section } : {}), ...(scans ? { scans } : {}) })
+  const explode = explodeOf(apart)
+  views.set(v.objectId, { ...view, ...(selection ? { selection } : {}), ...(section ? { section } : {}), ...(scans ? { scans } : {}), ...(isExploded(explode) ? { explode } : {}) })
 }
 
 /** The most scans of a view that are kept. */

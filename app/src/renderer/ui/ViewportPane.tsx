@@ -1,12 +1,13 @@
 import { MeshAsks } from './scanMeshes'
 import { useEffect, useRef, useState } from 'react'
 import { apply } from '../../shared/align'
+import { EXPLODED_TOOLS, explodeOf } from '../../shared/explode'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
 import { connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
-import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
+import { actions, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { alignTool, connectAlign } from '../tools/alignTool'
 import { arrowTool } from '../tools/arrowTool'
@@ -39,7 +40,7 @@ const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output:
  * A picture of the open object for the agent. `parts` are names in the layout
  * asked for (the one shown, by default); without them, the parts switched on.
  * They are cut as on screen unless the request says otherwise: by a plane of
- * its own, or by none. The answer names the object, the revision and whether the parts were stale,
+ * its own, or by none; and drawn apart as on screen unless it says how far, or not at all. The answer names the object, the revision and whether the parts were stale,
  * all read in the turn the picture is drawn in: a build that lands while the
  * PNG is being made does not change what the picture is said to be of.
  */
@@ -51,6 +52,8 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
     section = sectionOf(req.section)
     if (!section) throw new Error(NOT_A_PLANE)
   }
+  // As on screen unless the request says how far apart, or together: whatever it holds, only an explode is taken of it.
+  const explode = req.explode === undefined || req.explode === 'current' ? 'current' : explodeOf(req.explode)
   const picture = await viewport.renderImage(() => {
     const s = store.getState()
     if (!s.objectId || !s.scene) throw new Error('no build yet')
@@ -68,7 +71,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       }
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}) }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}) }
   })
   return { ...picture, ...drawn! }
 }
@@ -100,7 +103,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     const scans = found.map(({ id, visible, opacity, loaded }) => ({ id, visible, opacity, loaded }))
     // For the rows of the scans: which of them the far plane cuts, as of every change that is reported.
     actions.setScansClipped(found.filter((scan) => scan.clipped).map((scan) => scan.id))
-    const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s), ...(s.section ? { section: s.section } : {}), scans }
+    // How the parts are drawn apart is said, so that main can say it with whatever it tells: nothing else here is of a part as drawn apart.
+    const apart = explodeNow(s)
+    const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s), ...(s.section ? { section: s.section } : {}), scans, ...(apart ? { explode: apart } : {}) }
     // What is selected goes to the agent with the next prompt: the refs, each with the kernel's line once it has come.
     if (s.selection.length > 0) {
       const { objectId, revision, layout } = s
@@ -169,6 +174,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     applyLayers(s)
     viewport.setScene(m.scene, m.blob)
     viewport.setLayout(s.layout)
+    // Before the first view is fitted: it frames the parts where they are drawn.
+    viewport.setExplode(explodeNow(s))
     viewport.setStale(s.build?.stale ?? false)
     if (first) viewport.setView('iso')
     report()
@@ -190,6 +197,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return viewport.getCamera()
       },
       stale: s.build?.stale ? staleMessage(s.build.status) : null,
+      exploded: explodeNow(s) ? EXPLODED_TOOLS : null,
       descriptor: (ref) => descriptorOf(objectId, revision, layout, ref),
       describe: (ref) => describeWhole(objectId, revision, layout, ref),
       commit: (mark) => commitMark(objectId, mark),
@@ -229,7 +237,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const onKey = (e: KeyboardEvent) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
     if (e.target instanceof Element && e.target.closest(TYPING)) return
-    if (tool?.onKey?.(e, context())) return e.preventDefault()
+    // No tool but Select is handed a key either while the parts are drawn apart: a key measures and keeps as a press does.
+    const handed = tool && (tool.id === 'select' || explodeNow(store.getState()) === null) ? tool : undefined
+    if (handed?.onKey?.(e, context())) return e.preventDefault()
     if (e.key !== 'Escape' || toolStore.getState().tool === 'select') return
     setTool('select')
     e.preventDefault()
@@ -241,6 +251,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   viewport.setMarks(store.getState().marks, shown(store.getState()))
   viewport.setActiveMark(store.getState().activeMark)
   viewport.setSection(store.getState().section)
+  viewport.setExplode(explodeNow(store.getState()))
   // The gizmo on the active mark while it is a shape, and the keys that say what it does.
   const offShape = connectShapeEdit(viewport)
 
@@ -262,6 +273,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     }
     // What was pointed at belongs to the object, the layout and the build it was pointed at in.
     if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision || (s.build?.stale ?? false) !== (prev.build?.stale ?? false)) putDown()
+    // The parts are drawn apart from now: whatever a tool had under way was of the parts where they are, and is dropped once.
+    const apart = explodeNow(s)
+    const wasApart = explodeNow(prev)
+    if (apart !== null && wasApart === null) putDown()
     if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
       viewport.setScene(NO_SCENE, new ArrayBuffer(0))
       viewport.setStale(false)
@@ -271,7 +286,11 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.build !== prev.build) viewport.setStale((s.build?.stale ?? false) && s.scene !== null)
     if (s.layout !== prev.layout) viewport.setLayout(s.layout)
     if (s.layers !== prev.layers) applyLayers(s)
-    if (s.layout !== prev.layout || s.layers !== prev.layers || s.section !== prev.section) report()
+    // After the layout, whose parts it is of. Over a moment when it is all that changed (a key, the agent, the
+    // slider let go, which the viewport already has); at once with another layout, whose parts were never
+    // elsewhere, and with a section, which is never drawn across parts that are apart, not for a frame.
+    if (apart !== wasApart) viewport.setExplode(apart, s.layout === prev.layout && s.section === null && prev.section === null)
+    if (s.layout !== prev.layout || s.layers !== prev.layers || s.section !== prev.section || apart !== wasApart) report()
     // After the layout: a mark of another layout is gone to once that layout is shown.
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
     if (s.scanFramed !== prev.scanFramed && s.scanFramed) viewport.frameScan(s.scanFramed.id)
@@ -295,9 +314,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   setPictures((request) => look(viewport, request))
 
   if (new URLSearchParams(location.search).has('test')) {
-    const project = (point: Vec3): [number, number] => {
+    const project = (point: Vec3, part?: string): [number, number] => {
       const box = canvasBox(viewport)
-      const [x, y] = viewport.project(point)
+      const [x, y] = viewport.project(point, part)
       return [(x - box.left) / box.width, (y - box.top) / box.height]
     }
     /** What `count` calls cost at points spread over the canvas in a grid, in client pixels, and how many said yes. */
@@ -325,6 +344,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return viewport.pick(box.left + fx * box.width, box.top + fy * box.height, opts)
       },
       project,
+      exploded: () => viewport.exploded(),
       // What a pointer move costs: the same call, at points spread over the canvas in a grid.
       timePicks: (count = 200, opts) => timed(count, (x, y) => viewport.pick(x, y, opts) !== null),
       pickScanAt: (fx, fy) => {

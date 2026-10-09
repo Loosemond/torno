@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { exactText, shownDimension } from '../../shared/dimension'
+import { EXPLODED_TOOLS, explodeOffsets } from '../../shared/explode'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
 import { count, number } from '../../shared/format'
-import { actions, store, useStore } from '../state/store'
+import { actions, explodeNow, partsInLayout, store, useStore } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { editRegion } from '../tools/regionPainting'
 import { labelText } from '../viewport/marks/labels'
+import { markOffset } from '../viewport/marks/MarkLayer'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { ShapeFields } from './ShapeFields'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
@@ -35,6 +37,8 @@ const REGION_NOTE = {
 export const SCAN_HIDDEN = 'its scan is hidden'
 /** What the row says of a mark whose layout the build no longer has: it cannot be shown, and going to it does nothing. */
 export const LAYOUT_GONE = 'its layout is gone'
+/** What the row says of a dimension whose two ends are on parts that are drawn apart from each other: it is not drawn meanwhile. Its value is the kernel's, of the parts as built. */
+export const PARTS_APART = 'not drawn while the parts are apart'
 /** What the row says of a mark on a part that is switched off: it is not drawn either. */
 export const PART_HIDDEN = 'its part is hidden'
 /**
@@ -103,6 +107,14 @@ export function MarkRow({
   // a mark of the agent's: where that is, is what the agent said.
   const replaceable =
     !resolved && !elsewhere && mark.author === 'user' && mark.anchorState !== 'ok' && (mark.kind === 'pin' || mark.kind === 'pick' || mark.kind === 'arrow')
+  // Why it cannot be put somewhere else, or painted again, now: the parts are drawn apart.
+  const exploded = useStore((s) => (explodeNow(s) ? EXPLODED_TOOLS : null))
+  // Its two ends are on parts drawn apart from each other: it is not drawn until they are together.
+  const split = useStore((s) => {
+    if (mark.kind !== 'dimension' || !mark.b || resolved || mark.layout !== s.layout) return false
+    const apart = explodeNow(s)
+    return apart !== null && markOffset(mark, explodeOffsets(partsInLayout(s), apart)) === 'split'
+  })
   // The agent resolved it and the person has not said they have seen that.
   const awaiting = awaitsAcknowledgement(mark)
   // Nothing has checked it against the build on show: its ref is of an older one.
@@ -223,6 +235,11 @@ export function MarkRow({
           {mark.kind === 'region' ? SCAN_HIDDEN : PART_HIDDEN}
         </span>
       )}
+      {split && (
+        <span className="mark-layout row-note" title="Its ends are on parts that are drawn apart from each other. Its value is of the parts as assembled; put them together (E) to see it drawn">
+          {PARTS_APART}
+        </span>
+      )}
       {elsewhere && <span className="mark-layout num">{mark.layout}</span>}
       {!resolved && (
         <span className="mark-status" data-status={mark.status} title={mark.kind === 'dimension' && mark.status === 'sent' ? 'The agent has it. It stays here with its value until it is resolved' : undefined}>
@@ -236,7 +253,8 @@ export function MarkRow({
             className="icon-button"
             aria-label={`Re-place ${mark.id}`}
             aria-pressed={replacing}
-            title={replacing ? 'Click the part where it should be. Esc leaves it where it is' : 'Re-place: put it somewhere else on the part with a click'}
+            title={exploded ?? (replacing ? 'Click the part where it should be. Esc leaves it where it is' : 'Re-place: put it somewhere else on the part with a click')}
+            disabled={exploded !== null}
             onClick={() => {
               const objectId = store.getState().objectId
               if (replacing) endReplace()
@@ -250,7 +268,7 @@ export function MarkRow({
           </button>
         )}
         {mark.kind === 'region' && !resolved && mark.anchorState === 'ok' && mark.author === 'user' && (
-          <button type="button" className="icon-button" aria-label={`Edit ${mark.id}`} title="Edit: take its triangles in hand and paint it again" onClick={() => void editRegion(mark)}>
+          <button type="button" className="icon-button" aria-label={`Edit ${mark.id}`} title={exploded ?? 'Edit: take its triangles in hand and paint it again'} disabled={exploded !== null} onClick={() => void editRegion(mark)}>
             <BrushIcon />
           </button>
         )}

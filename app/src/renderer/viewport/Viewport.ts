@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { type ExplodeState, isExploded, sameExplode } from '../../shared/explode'
 import type { Mark, Quat } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanTransform, ScanView } from '../../shared/scans'
@@ -7,6 +8,7 @@ import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import type { AlignPoint } from './alignPoints'
 import type { BrushRing } from './brushRing'
 import { CameraMove, standingAt } from './cameraMoves'
+import { PartsApart, asBuilt, drawnAt, drawnBox, reachingApart } from './explode'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
 import { mmPerPx } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
@@ -106,6 +108,8 @@ export class Viewport {
   private disposed = false
 
   private readonly highlights = new Highlights()
+  /** How far each part of the layout shown is drawn from where it is (explode): the one way a part is moved here, and for display only. */
+  private apart = new PartsApart()
   /** The scans of the object on show, as last given, and what is drawn of them. */
   private scanInfos: ScanInfo[] = []
   private readonly scans = new ScanLayer(() => this.invalidate())
@@ -157,7 +161,7 @@ export class Viewport {
     this.ground.frustumCulled = false
     this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor)
 
-    this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices() })
+    this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices(), exploded: () => this.apart.any })
     // A label drawn before its face has loaded is in the fallback face: draw again once it is there.
     void overlayFonts().then(() => this.invalidate())
 
@@ -172,6 +176,8 @@ export class Viewport {
     // Before this class listens to the pointer: by then the gizmo has said whether the pointer is on it.
     this.gizmo = new ShapeGizmo(this.perspective, canvas, {
       subject: (id) => {
+        // Nothing is held, moved or turned by hand while the parts are drawn apart: what is on screen is not where they are.
+        if (this.apart.any) return null
         const mark = this.marks.markOf(this.layout, id)
         return this.scanEdit.subject(id) ?? (mark?.kind === 'shape' ? mark : null)
       },
@@ -215,14 +221,17 @@ export class Viewport {
       aspect: () => this.aspect,
       parts: () => this.entries.values(),
       currentView: () => this.getCamera(),
-      namedView: (name, parts, aspect, also) => this.namedCamera(name, withBox(boxOf(parts), also ?? null) ?? EMPTY_BOX, aspect, true),
+      // Fitted to the parts where the picture draws them.
+      namedView: (name, parts, aspect, also) => this.namedCamera(name, withBox(drawnBox(parts, this.apart.offsets()), also ?? null) ?? EMPTY_BOX, aspect, true),
       cameraFor: (view, aspect, extent) => this.pictureCamera(view, aspect, extent),
       hiddenParts: (layout, drawn) => this.hiddenParts(layout, drawn),
       hideGizmo: () => this.gizmo.hide(),
       section: () => this.section.get(),
       cutBy: (plane, layout, decor) => this.cutBy(plane, layout, decor),
-      layGround: (layout) => this.rebuildGround(layout),
-      groundExtent: () => this.groundExtent,
+      layGround: (layout) => reachingApart(this.rebuildGround(layout), this.partsOf(layout), this.apart),
+      groundExtent: () => reachingApart(this.groundExtent, this.partsOf(this.layout), this.apart),
+      explode: () => this.apart.get(),
+      explodeFor: (explode, layout) => this.explodeFor(explode, layout),
       tintPicks: (layout) => this.tintPicks(layout),
       showMarks: () => this.showMarks(),
       colours: () => ({ ...this.labelStyle(), muted: this.theme.muted })
@@ -257,7 +266,7 @@ export class Viewport {
         this.section.add(entry.built)
       }
       // `loc` is the tessellator's local → object transform; it can differ between builds of the same shape.
-      entry.built.group.position.fromArray(part.loc.t)
+      // Where the part is drawn is `placePart`'s to say, once the layout is known (`refresh`).
       entry.built.group.quaternion.fromArray(part.loc.q)
     }
     for (const [key, entry] of this.entries) {
@@ -441,6 +450,55 @@ export class Viewport {
     this.invalidate()
   }
 
+  // ---- explode ----
+
+  /**
+   * Draws the parts of the layout shown apart, or together for null: each part's group is moved by what
+   * `explodeOffsets` says of it, and the marks on it with it. For display only: the geometry, the marks and
+   * all the kernel is asked stay of the parts as built, and `pick` answers so. Scans and grid do not move.
+   * With `animate` the parts go there over a moment (a key, the agent); without, at once, as under a slider.
+   * It is of the layout shown: another layout or build is drawn apart by the same explode until this is called again.
+   */
+  setExplode(explode: ExplodeState | null, animate = false): void {
+    const to = isExploded(explode) ? explode : null
+    // Asked again for what it has, or is on its way to: a move under way goes on.
+    if (sameExplode(to, this.apart.get())) return
+    const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    this.apart.set(to, this.partsOf(this.layout), animate && !still ? performance.now() : undefined)
+    this.placeParts()
+    this.invalidate()
+  }
+
+  /** Whether the parts are drawn apart, or are on their way there or back: what is on screen is then not where they are. */
+  exploded(): boolean {
+    return this.apart.any
+  }
+
+  /** Draws a layout's parts apart otherwise for a picture, at once; returns what puts the screen back as it was, a move under way included. */
+  private explodeFor(explode: ExplodeState | null, layout: string): () => void {
+    const onScreen = this.apart
+    this.apart = new PartsApart()
+    this.apart.set(explode, this.partsOf(layout))
+    this.placeParts(layout)
+    return () => {
+      this.apart = onScreen
+      this.placeParts()
+    }
+  }
+
+  /** Puts every part, and the marks on the parts, where they are drawn; `layout` is the one whose parts are drawn apart. */
+  private placeParts(layout = this.layout): void {
+    for (const entry of this.entries.values()) this.placePart(entry, layout)
+    this.marks.setOffsets(this.apart.offsets())
+    this.extent = this.measured()
+    this.gizmo.place()
+  }
+
+  /** The one place a part's group is put: where the build has the part, and off it by how far the part is drawn apart. */
+  private placePart({ part, built }: Entry, layout = this.layout): void {
+    built.group.position.fromArray(drawnAt(part, part.layout === layout ? this.apart.offsets() : {}))
+  }
+
   /** Sets visibility, colour or opacity of one part; what is left out keeps its value. Remembered across rebuilds. */
   setLayer(key: string, s: LayerState): void {
     const was = this.layers.get(key)
@@ -543,9 +601,9 @@ export class Viewport {
     return lockedViewOf(this.getCamera())
   }
 
-  /** The box around the parts shown (failing that, around the layout), in the object frame. */
+  /** The box around the parts shown (failing that, around the layout), in the object frame: of the parts as built, however they are drawn. */
   bounds(): { min: Vec3; max: Vec3 } {
-    const { min, max } = this.visibleBox()
+    const { min, max } = boxOf(this.shownParts()) ?? this.boxOfLayout(this.layout)
     return { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] }
   }
 
@@ -567,7 +625,8 @@ export class Viewport {
    * What a point of the window is on: a face, or an edge within reach of it,
    * of the parts of the current layout that are switched on. A part that is
    * hidden is never hit; one that is see-through is hit like any other.
-   * Coordinates are the browser's client pixels; the answer is in the object frame.
+   * Coordinates are the browser's client pixels; the answer is in the object frame, and of
+   * the part as built: how far a part is drawn apart (explode) is taken away from the point.
    * What is seen is what is picked: behind a scan drawn solid nothing of the parts is hit, unless the parts
    * alone are asked for (`partsOnly`); a scan that is seen through is pointed through (`ScanLayer.blocks`).
    */
@@ -586,7 +645,8 @@ export class Viewport {
     // A part is there, and a scan drawn solid is in front of it: said at the pointer, or nothing would say why the part cannot be picked.
     this.behindScan = picked.hit ? blocker : null
     this.onCut = picked.cut && !hidden
-    return hidden ? null : picked.hit
+    // The ray met the part where it is drawn: answered where the part is.
+    return hidden ? null : asBuilt(picked.hit, this.apart.offsets())
   }
 
   /** What a point of the window is on of the scans drawn, whatever part is in front: `pick`'s twin. Nothing of a scan whose tree is not there yet, nor of what a section takes away. */
@@ -667,7 +727,7 @@ export class Viewport {
 
   /** A sphere around everything drawn in the layout shown: the parts and the grid, the marks, the plane of the section, the scans. */
   private measured(): THREE.Sphere {
-    const sphere = this.section.extend(this.marks.extend(this.groundExtent.clone(), this.layout))
+    const sphere = this.section.extend(this.marks.extend(reachingApart(this.groundExtent, this.partsOf(this.layout), this.apart).clone(), this.layout))
     // A scan of a room round a part the size of a hand: the camera reaches it, though it frames the parts.
     return reaching(sphere, this.scans.box(), this.groundExtent)
   }
@@ -676,11 +736,11 @@ export class Viewport {
     this.scans.setLook({ plain: this.theme.scan, surface: this.theme.surface, accent: this.theme.accent, marks: this.theme }, this.stale)
   }
 
-  /** Where a point of the object frame falls in the window, in client pixels. */
-  project(point: Vec3): [number, number] {
+  /** Where a point of the object frame is drawn, in client pixels; with `part`, where it is drawn as a point of that part (its display offset added). */
+  project(point: Vec3, part?: string): [number, number] {
     const rect = this.canvas.getBoundingClientRect()
     this.syncMatrices()
-    const v = new THREE.Vector3().fromArray(point).project(this.camera)
+    const v = new THREE.Vector3().fromArray(part === undefined ? point : drawnAt({ name: part, loc: { t: point } }, this.apart.offsets())).project(this.camera)
     return [rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height]
   }
 
@@ -806,6 +866,9 @@ export class Viewport {
   /** Brings every part's look and the ground in line with the current layout, layers and theme. */
   private refresh(): void {
     for (const entry of this.entries.values()) this.applyLook(entry)
+    // Other parts, or parts built anew: drawn apart by the explode there is, until whoever knows this layout's says.
+    this.apart.over(this.partsOf(this.layout))
+    this.placeParts()
     this.scans.set(this.scanInfos, this.layout) // a scan stands elsewhere in another layout, or is not aligned there
     this.groundExtent = this.rebuildGround(this.layout)
     // The parts may have moved, and the plane is laid across those of this layout.
@@ -884,9 +947,10 @@ export class Viewport {
     return [...this.entries.values()].filter((e) => e.built.group.visible).map((e) => e.part)
   }
 
-  /** What `fit` and the named views frame: the parts shown, else the whole layout. */
+  /** What `fit` and the named views frame: the parts shown, else the whole layout, where they are drawn (or are on their way to). */
   private visibleBox(): { min: number[]; max: number[] } {
-    return boxOf(this.shownParts()) ?? boxOf(this.partsOf(this.layout)) ?? EMPTY_BOX
+    const going = this.apart.target()
+    return drawnBox(this.shownParts(), going) ?? drawnBox(this.partsOf(this.layout), going) ?? EMPTY_BOX
   }
 
   private partsOf(layout: string): Part[] {
@@ -1034,8 +1098,10 @@ export class Viewport {
       this.frame = 0
       const next = this.move.step(now)
       if (next) this.applyCamera(next)
+      // The parts on their way apart or together: a step with every frame, and nothing of it through React.
+      if (this.apart.step(now)) this.placeParts()
       this.draw()
-      if (this.move.under) this.invalidate()
+      if (this.move.under || this.apart.moving) this.invalidate()
     })
   }
 

@@ -97,4 +97,16 @@ describe('scene file', () => {
       expect(await loadSceneFile(dir)).toEqual({ layers: {} })
     }
   })
+
+  it('keeps how each layout is drawn apart, within its ranges, and drops what is none', async () => {
+    await saveSceneFile(dir, { layers: {}, explode: { assembly: { amount: 0.4, axis: 'z' }, print: { amount: 0 }, bad: 'x', also: { amount: 9, scale: 9 } } } as unknown as SceneFile)
+    expect(await loadSceneFile(dir)).toEqual({ layers: {}, explode: { assembly: { amount: 0.4, scale: 1, axis: 'z' }, also: { amount: 1, scale: 4, axis: 'centre' } } })
+    // Together, but with a scale and an axis of its own: kept for when it is drawn apart again.
+    await saveSceneFile(dir, { layers: {}, explode: { assembly: { amount: 0, scale: 2, axis: 'x' }, ['l'.repeat(101)]: { amount: 1, scale: 1, axis: 'x' } } })
+    expect(await loadSceneFile(dir)).toEqual({ layers: {}, explode: { assembly: { amount: 0, scale: 2, axis: 'x' } } })
+    for (const not of [[], 'half', null, 3, { assembly: { amount: 0 } }]) {
+      writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ explode: not }))
+      expect(await loadSceneFile(dir)).toEqual({ layers: {} })
+    }
+  })
 })

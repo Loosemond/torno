@@ -815,3 +815,18 @@ describe('add_mark with a dimension', () => {
     expect(await addMarkTool(deps, 'box', { kind: 'dimension', note: '', measure: 'radius', a: 'tub/F5' })).toEqual(refused('radius is measured of a cylinder, a sphere, a torus or a circle; tub/F5 is a plane'))
   })
 })
+
+describe('while the user draws the parts apart', () => {
+  it('measure and check answer of the parts as built: nothing of the view is in a reading', async () => {
+    const exploded = { view: () => ({ ...VIEW, explode: { amount: 1, scale: 2, axis: 'z' as const } }) }
+    const bbox = { kind: 'bbox', min: [0, 0, 0], max: [1, 2, 3], size: [1, 2, 3], exact: true }
+    const clearance = { distance: 0.4, points: [[0, 0, 10], [0, 0, 10.4]], how: 'minimum', overlapping: false, exact: true }
+    expect(text(await measureTool(fake(() => bbox, exploded), 'box', { kind: 'bbox', a: 'lid' }))).toEqual(text(await measureTool(fake(() => bbox), 'box', { kind: 'bbox', a: 'lid' })))
+    expect(text(await checkTool(fake(() => clearance, exploded), 'box', { kind: 'clearance', a: 'lid', b: 'tub' }))).toEqual(text(await checkTool(fake(() => clearance), 'box', { kind: 'clearance', a: 'lid', b: 'tub' })))
+    // And the kernel is asked the same.
+    const [apart, together] = [fake(() => bbox, exploded), fake(() => bbox)]
+    await measureTool(apart, 'box', { kind: 'bbox', a: 'lid' })
+    await measureTool(together, 'box', { kind: 'bbox', a: 'lid' })
+    expect(apart.queries).toEqual(together.queries)
+  })
+})

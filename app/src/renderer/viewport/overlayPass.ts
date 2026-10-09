@@ -10,13 +10,15 @@ import { chipSize, drawLabels, type LabelStyle } from './overlay'
 /** What the overlay needs of the viewport it lies over. */
 export interface OverlayHost {
   readonly canvas: HTMLCanvasElement
-  readonly marks: Pick<MarkLayer, 'labels' | 'markOf' | 'anchorOf' | 'activeId'>
+  readonly marks: Pick<MarkLayer, 'labels' | 'markOf' | 'anchorOf' | 'offsetOf' | 'activeId'>
   camera(): THREE.Camera
   layout(): string
   style(): LabelStyle & { accent: string }
   /** Where a point of the object frame falls in the window, in client pixels. */
   project(point: Vec3): [number, number]
   syncMatrices(): void
+  /** The parts are drawn apart: what a tool shows of itself is of the parts where they are, and is not drawn meanwhile. */
+  exploded?(): boolean
 }
 
 /**
@@ -52,6 +54,8 @@ export class OverlayPass {
     ctx.setTransform(this.canvas.width / size.width, 0, 0, this.canvas.height / size.height, 0, 0)
     ctx.clearRect(0, 0, size.width, size.height)
     drawLabels(ctx, host.marks.labels(host.layout(), host.camera(), size, 1, chipSize(ctx, 1)), style, 1, host.marks.activeId)
+    // Not while the parts are drawn apart: a point picked on the model would be drawn where its part is not.
+    if (host.exploded?.()) return
     drawAlignPoints(ctx, this.alignPoints, host.camera(), size, { accent: style.accent, paper: style.paper })
     drawBrushRing(ctx, this.brush, host.camera(), size, { mark: style.user, paper: style.paper })
   }
@@ -76,8 +80,10 @@ export class OverlayPass {
     const at = host.project(host.marks.anchorOf(mark).point)
     const xs = [at[0], rect.left + label.box.x, rect.left + label.box.x + label.box.w]
     const ys = [at[1], rect.top + label.box.y, rect.top + label.box.y + label.box.h]
+    // Where it is drawn: with its part, while the parts are drawn apart (`anchorOf` says so of its anchor already).
+    const by = host.marks.offsetOf(mark)
     for (const point of markPoints(mark)) {
-      const [x, y] = host.project(point)
+      const [x, y] = host.project([point[0] + by[0], point[1] + by[1], point[2] + by[2]])
       xs.push(x)
       ys.push(y)
     }
