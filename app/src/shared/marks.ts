@@ -46,6 +46,12 @@ interface MarkBase {
   /** It has been given to the agent with a prompt at least once. Set by main; only ever true. */
   sentBefore?: boolean
   /**
+   * The person made it a draft again after it was resolved, and the agent has
+   * not been told since: its resolution was not accepted. Set by main, on a
+   * draft; only ever true, and gone once the mark is sent.
+   */
+  reopened?: boolean
+  /**
    * The revision of the last build its anchors were checked against. Set by
    * main. Absent: not checked in this run of torno. Revisions count from 1
    * each time an object is opened, so what a file says of an earlier run is
@@ -77,7 +83,7 @@ export type Mark = PinMark | PickMark | ArrowMark | StrokeMark | ShapeMark
 export type MarkKind = Mark['kind']
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 /** What main alone says of a mark: no caller supplies these. */
-export const MAIN_ONLY_KEYS = ['resolvedBy', 'acknowledged', 'sentBefore', 'checkedRevision'] as const
+export const MAIN_ONLY_KEYS = ['resolvedBy', 'acknowledged', 'sentBefore', 'reopened', 'checkedRevision'] as const
 /** What a caller supplies; main adds id, status, anchorState, createdAt, and what only it says. */
 export type NewMark = DistributiveOmit<Mark, 'id' | 'status' | 'anchorState' | 'createdAt' | (typeof MAIN_ONLY_KEYS)[number]>
 /** `acknowledged` may only be set, and only on a mark the agent resolved. */

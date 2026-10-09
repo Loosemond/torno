@@ -87,7 +87,9 @@ const MAX_SELECTED_DESCRIPTOR = 200
 /**
  * What the renderer last said the person is looking at, and has selected
  * there. The selection goes to the agent with the next prompt, so only what
- * is one is kept of it: a revision, and at most eight refs on one line each.
+ * is one is kept of it: a revision, at most eight refs on one line each, and
+ * how many are selected in all. A total that is not a count, or is less than
+ * the refs given, is taken to be as many as were given.
  */
 export function reportView(v: ViewState): void {
   const { selection: said, ...view } = v
@@ -96,16 +98,19 @@ export function reportView(v: ViewState): void {
 }
 
 function selectionOf(value: unknown): SelectionReport | null {
-  const said = value as { revision?: unknown; refs?: unknown } | null
+  const said = value as { revision?: unknown; total?: unknown; refs?: unknown } | null
   if (typeof said !== 'object' || said === null || typeof said.revision !== 'number' || !Array.isArray(said.refs)) return null
   const refs: SelectionReport['refs'] = []
+  let given = 0
   for (const one of said.refs as Array<{ ref?: unknown; descriptor?: unknown } | null>) {
-    if (refs.length === MAX_SELECTION_REPORTED) break
     if (typeof one?.ref !== 'string' || !/^[^\s]{1,200}$/.test(one.ref)) continue
+    given += 1
+    if (refs.length === MAX_SELECTION_REPORTED) continue
     const descriptor = typeof one.descriptor === 'string' ? one.descriptor.replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTED_DESCRIPTOR) : ''
     refs.push(descriptor ? { ref: one.ref, descriptor } : { ref: one.ref })
   }
-  return refs.length > 0 ? { revision: said.revision, refs } : null
+  const total = typeof said.total === 'number' && Number.isSafeInteger(said.total) && said.total >= given ? said.total : given
+  return refs.length > 0 ? { revision: said.revision, total, refs } : null
 }
 
 /** The camera, layout and visible parts of an object as last shown, if it has been shown. */

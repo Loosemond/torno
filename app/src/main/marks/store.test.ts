@@ -182,6 +182,24 @@ describe('updating a mark', () => {
   })
 })
 
+describe('what is still being written', () => {
+  it('is waited for by whoever must not leave before it is on the disk, and is nothing when nothing was asked', async () => {
+    expect(store.settled()).toBeNull()
+    await store.add('bracket', pin('here'))
+    expect(store.settled()).toBeNull()
+    // Asked and not waited for, as a note handed over by a window that is closing; then the workspace is left.
+    void store.update('bracket', 'M1', { note: 'thicker here' })
+    void store.update('two', 'M9', { note: 'no such mark' }).catch(() => {})
+    store.forget()
+    const settled = store.settled()
+    expect(settled).not.toBeNull()
+    expect(onDisk('bracket').marks[0].note).toBe('here')
+    await settled
+    expect(onDisk('bracket').marks[0].note).toBe('thicker here')
+    expect(store.settled()).toBeNull()
+  })
+})
+
 describe('changing a mark the agent has been sent', () => {
   const sentShape = async (): Promise<void> => {
     await store.add('bracket', shape())
@@ -233,13 +251,40 @@ describe('changing a mark the agent has been sent', () => {
     expect(await store.update('bracket', 'M1', { note: 'there' })).not.toHaveProperty('sentBefore')
   })
 
+  it('says of a mark that was resolved and is a draft again that the person reopened it, until it is sent', async () => {
+    await store.add('bracket', pin('here'))
+    await store.markSent('bracket')
+    await store.update('bracket', 'M1', { status: 'resolved', resolvedNote: 'made it thicker' }, 'agent')
+    const reopened = await store.update('bracket', 'M1', { status: 'draft' })
+    expect(reopened).toMatchObject({ status: 'draft', sentBefore: true, reopened: true })
+    expect(onDisk('bracket').marks[0]).toMatchObject({ status: 'draft', reopened: true })
+    // A change to its note meanwhile leaves that said.
+    expect(await store.update('bracket', 'M1', { note: 'no: thicker still' })).toMatchObject({ status: 'draft', reopened: true })
+    const [sent] = await store.markSent('bracket')
+    expect(sent).not.toHaveProperty('reopened')
+    expect(onDisk('bracket').marks[0]).not.toHaveProperty('reopened')
+    // Changed afterwards, it has changed and no more.
+    expect(await store.update('bracket', 'M1', { note: 'thicker by 3 mm' })).not.toHaveProperty('reopened')
+  })
+
+  it('says it of one the person had resolved themselves too, and of none that is resolved again before it is sent', async () => {
+    await store.add('bracket', pin('here'))
+    await store.update('bracket', 'M1', { status: 'resolved' })
+    expect(await store.update('bracket', 'M1', { status: 'draft' })).toMatchObject({ status: 'draft', reopened: true })
+    expect(await store.update('bracket', 'M1', { status: 'resolved' })).not.toHaveProperty('reopened')
+    // Nor of a draft that was never resolved.
+    await store.add('bracket', pin('there'))
+    expect(await store.update('bracket', 'M2', { status: 'draft', note: 'there, then' })).not.toHaveProperty('reopened')
+  })
+
   it('takes neither from whoever adds or patches a mark: only sending says a mark was sent', async () => {
-    const added = await store.add('bracket', { ...pin('here'), sentBefore: true, checkedRevision: 9, resolvedBy: 'agent', acknowledged: true } as never)
+    const added = await store.add('bracket', { ...pin('here'), sentBefore: true, reopened: true, checkedRevision: 9, resolvedBy: 'agent', acknowledged: true } as never)
     expect(added).not.toHaveProperty('sentBefore')
+    expect(added).not.toHaveProperty('reopened')
     expect(added).not.toHaveProperty('checkedRevision')
     expect(added).not.toHaveProperty('resolvedBy')
     expect(added).not.toHaveProperty('acknowledged')
-    expect(await store.update('bracket', 'M1', { sentBefore: true, checkedRevision: 9, resolvedBy: 'agent' } as never)).toEqual(added)
+    expect(await store.update('bracket', 'M1', { sentBefore: true, reopened: true, checkedRevision: 9, resolvedBy: 'agent' } as never)).toEqual(added)
   })
 })
 

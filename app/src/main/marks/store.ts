@@ -78,6 +78,19 @@ export class MarkStore {
     this.files.clear()
   }
 
+  /**
+   * Null when nothing asked of the marks is still under way; else a promise
+   * that resolves once all of it is done, written or failed. For whoever must
+   * not go before it is on the disk: the app, when it quits.
+   */
+  settled(): Promise<void> | null {
+    if (this.turns.size === 0) return null
+    const wait = async (): Promise<void> => {
+      while (this.turns.size > 0) await Promise.allSettled([...this.turns.values()])
+    }
+    return wait()
+  }
+
   list(objectId: string): Promise<Mark[]> {
     return this.turn(objectId, (file) => structuredClone(file.marks))
   }
@@ -121,7 +134,8 @@ export class MarkStore {
    * A mark of the person's that the agent was sent, and whose note or shape
    * is changed without the patch naming a status, is a draft again: the next
    * prompt carries it once more, as changed. A mark that is no longer
-   * resolved forgets who resolved it. `acknowledged` can only be set, and only
+   * resolved forgets who resolved it; one the person makes a draft again
+   * says that it was reopened, until it is sent. `acknowledged` can only be set, and only
    * on a mark the agent resolved.
    */
   update(objectId: string, id: string, patch: MarkPatch, by: 'user' | 'agent' = 'user'): Promise<Mark> {
@@ -143,6 +157,8 @@ export class MarkStore {
       if (asked.status === undefined && mark.status === 'sent' && mark.author === 'user' && CONTENT_KEYS.some((key) => !isDeepStrictEqual(said[key], before[key]))) {
         changed.status = 'draft'
       }
+      // Resolved, and a draft again: whoever resolved it is told that the person did not take it.
+      if (mark.status === 'resolved' && changed.status === 'draft' && by === 'user') changed.reopened = true
       if (changed.status !== 'resolved') {
         delete changed.resolvedBy
         delete changed.acknowledged
@@ -249,6 +265,7 @@ export class MarkStore {
       for (const mark of drafts) {
         mark.status = 'sent'
         mark.sentBefore = true
+        delete mark.reopened
       }
       return drafts.length > 0 ? drafts : UNCHANGED
     }).then((sent) => (sent === UNCHANGED ? [] : sent))

@@ -143,7 +143,7 @@ describe('latestView', () => {
 
   it('keeps of a selection what a selection is: at most eight refs, each with a line of text at most', () => {
     const refs = Array.from({ length: 12 }, (_, i) => ({ ref: `base/F${i}`, descriptor: i === 0 ? 'd'.repeat(500) : 'plane', more: 'x' }))
-    reportView({ ...view('bracket', 'assembly'), selection: { revision: 4, refs } } as ViewState)
+    reportView({ ...view('bracket', 'assembly'), selection: { revision: 4, refs } } as unknown as ViewState)
     const kept = latestView('bracket')?.selection
     expect(kept?.revision).toBe(4)
     expect(kept?.refs).toHaveLength(8)
@@ -155,7 +155,20 @@ describe('latestView', () => {
       expect(latestView('bracket')).toEqual(view('bracket', 'print'))
     }
     reportView({ ...view('bracket', 'print'), selection: { revision: 4, refs: [{ ref: 7 }, { ref: 'base/E2', descriptor: 9 }, null, { ref: 'x\ny' }] } } as unknown as ViewState)
-    expect(latestView('bracket')?.selection).toEqual({ revision: 4, refs: [{ ref: 'base/E2' }] })
+    expect(latestView('bracket')?.selection).toEqual({ revision: 4, total: 1, refs: [{ ref: 'base/E2' }] })
+  })
+
+  it('keeps how many are selected in all, when that is a count of at least the refs it was given', () => {
+    const refs = Array.from({ length: 12 }, (_, i) => ({ ref: `base/F${i}` }))
+    const totalOf = (total: unknown): number | undefined => {
+      reportView({ ...view('bracket', 'assembly'), selection: { revision: 4, total, refs } } as unknown as ViewState)
+      return latestView('bracket')?.selection?.total
+    }
+    expect(totalOf(23)).toBe(23)
+    // Not said, or not a count: as many as it was given refs that are refs, of which eight are kept.
+    for (const odd of [undefined, '23', 23.5, -1, 3, NaN, Infinity]) expect(totalOf(odd)).toBe(12)
+    reportView({ ...view('bracket', 'assembly'), selection: { revision: 4, total: 2, refs: [{ ref: 'base/F1' }, { ref: 7 }] } } as unknown as ViewState)
+    expect(latestView('bracket')?.selection).toEqual({ revision: 4, total: 2, refs: [{ ref: 'base/F1' }] })
   })
 
   it('is forgotten with the workspace', () => {

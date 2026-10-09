@@ -212,6 +212,13 @@ test('Reopen makes a mark the agent resolved a draft again; one the person resol
   await expect.poll(async () => (await state()).marks[1]).toMatchObject({ status: 'draft' })
   expect(onDisk('bracket')[1]).not.toHaveProperty('resolvedBy')
   await expect(row('M2')).not.toHaveAttribute('data-awaiting', '')
+  // The agent is told that what it did was not taken, not that the mark changed.
+  expect(onDisk('bracket')[1]).toMatchObject({ status: 'draft', reopened: true })
+  await prompt()
+  await expect.poll(lastContext).toContain(squeezed('(reopened by the user) M2 pin on base/F'))
+  expect(await lastContext()).not.toContain('(changed)')
+  await expect.poll(async () => (await state()).marks[1].status).toBe('sent')
+  expect(onDisk('bracket')[1]).not.toHaveProperty('reopened')
 
   await row('M2').hover()
   await row('M2').getByRole('button', { name: 'Resolve M2' }).click()

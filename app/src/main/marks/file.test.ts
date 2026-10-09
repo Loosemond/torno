@@ -201,17 +201,21 @@ describe('marks file', () => {
     const onEdge = { ...ANCHOR, ref: 'base/E5', edge: 'base/E5', between: ['base/F1', 'base/F4'], arranged: [35, 0, 0] }
     const marks = [
       pin({ anchor: onEdge, status: 'sent', sentBefore: true, checkedRevision: 12 }),
+      pin({ id: 'M4', status: 'draft', sentBefore: true, reopened: true }),
       { ...pick, id: 'M2', status: 'resolved', resolvedBy: 'agent', acknowledged: true, resolvedNote: 'done' },
       { ...arrow, id: 'M3', status: 'resolved', resolvedBy: 'user' }
     ] as Mark[]
-    await saveMarksFile(dir, { next: 4, marks })
+    await saveMarksFile(dir, { next: 5, marks })
     expect((await loadMarksFile(dir)).file.marks).toEqual(marks)
   })
 
   it('keeps of those only what they can be', () => {
-    const odd = sanitiseMark(pin({ sentBefore: 'yes', checkedRevision: '12', resolvedBy: 'agent', acknowledged: true, anchor: { ...ANCHOR, arranged: [0, 0], edge: 5, between: ['base/F1'] } }))
+    const odd = sanitiseMark(pin({ sentBefore: 'yes', reopened: 'yes', checkedRevision: '12', resolvedBy: 'agent', acknowledged: true, anchor: { ...ANCHOR, arranged: [0, 0], edge: 5, between: ['base/F1'] } }))
     // A draft is resolved by nobody; a spread is three numbers; one face is not two.
     expect(odd).toEqual(pin())
+    // Only a draft is one the person reopened and the agent has not been told of since.
+    expect(sanitiseMark(pin({ status: 'sent', reopened: true }))).toEqual(pin({ status: 'sent' }))
+    expect(sanitiseMark(pin({ status: 'resolved', reopened: true }))).toEqual(pin({ status: 'resolved' }))
     // A part that was not moved says so: that is not the same as saying nothing.
     expect(sanitiseMark(pin({ anchor: { ...ANCHOR, arranged: [0, 0, 0] } }))).toEqual(pin({ anchor: { ...ANCHOR, arranged: [0, 0, 0] } }))
     expect(sanitiseMark(pin({ status: 'resolved', resolvedBy: 'someone', acknowledged: true }))).toEqual(pin({ status: 'resolved' }))

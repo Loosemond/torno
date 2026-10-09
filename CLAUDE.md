@@ -80,16 +80,18 @@ While iterating run the focused test; run all four suites before a commit.
     and every report of it says so. Revisions count from 1 in every run, so
     the store drops what a file says of it when the file is read. A check
     that could not say of every mark is tried again after 2, 10 and 30 s
-    (`retrying`).
+    (`retrying`), until the workspace is closed.
   - A pin whose point is on an edge is on that edge (`judgePin`): its anchor
     has `edge` and, when two faces meet there, `between`.
 - Status: `draft` until a `UserPromptSubmit` hook has carried the mark to the
   agent of its own object (`src/main/context.ts`; turned `sent` only once the
   answer has left), then `resolved`. No other hook consumes drafts. A sent
   mark of the person's whose note or shape changes is a draft again
-  (`sentBefore`: told as `(changed)`).
+  (`sentBefore`: told as `(changed)`), and one the person makes a draft again
+  after it was resolved says so until it is sent (`reopened`: told as
+  `(reopened by the user)`).
 - What only main says of a mark (`MAIN_ONLY_KEYS` in `shared/marks.ts`:
-  `resolvedBy`, `acknowledged`, `sentBefore`, `checkedRevision`) is never
+  `resolvedBy`, `acknowledged`, `sentBefore`, `reopened`, `checkedRevision`) is never
   taken from the window or from a tool's arguments. A mark the agent resolved
   stays in the panel's main list until the person acknowledges it.
 - The MCP tools (`src/main/mcp/tools.ts`, and those that place and resolve

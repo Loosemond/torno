@@ -118,6 +118,16 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
   const saveRef = useRef(save)
   saveRef.current = save
 
+  // The window can go with the focus still in the card: closed, or reloaded. Nothing blurs then, and
+  // nothing is unmounted. What is typed is handed to main while the page can still say it.
+  const keepRef = useRef(keep)
+  keepRef.current = keep
+  useEffect(() => {
+    const onHide = (): void => keepRef.current()
+    window.addEventListener('pagehide', onHide)
+    return () => window.removeEventListener('pagehide', onHide)
+  }, [])
+
   // Beside the mark, and there again after every frame: it follows the camera
   // without anything of that passing through React.
   useLayoutEffect(() => {

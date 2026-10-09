@@ -636,6 +636,24 @@ describe('reanchorAll', () => {
       expect(((await byId()).M1 as PinMark).anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E9', edge: 'base/E9', between: ['base/F1', 'base/F6'], descriptor: 'line, 31 mm', arranged: [0, 0, 0] })
     })
 
+    it('is on the edge the kernel found its point on, when that is another than the one it names and both are close', async () => {
+      // The two edges of a 0.4 mm chamfer: the one it names is within the tolerance, and the point is on the other.
+      await store.add('bracket', pin({ ...ON_EDGE, edge: 'base/E5', between: ['base/F1', 'base/F4'] }))
+      answer = edge({ edgeFound: true, edgeDistance: 0.4, edgeDescriptor: 'line, 30 mm', edgeBetween: ['base/F1', 'base/F4'], support: 'edge', edgeUnder: 'base/E9', edgeUnderDescriptor: 'line, 29.2 mm', between: ['base/F4', 'base/F6'] })
+      await run()
+      const kept = (await byId()).M1 as PinMark
+      expect(kept.anchorState).toBe('ok')
+      expect(kept.anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E9', edge: 'base/E9', between: ['base/F4', 'base/F6'], descriptor: 'line, 29.2 mm', arranged: [0, 0, 0] })
+    })
+
+    it('stays on the edge it names when the kernel found its point on that one, or on a face beside it', () => {
+      const named: Anchor = { ...ON_EDGE, edge: 'base/E5' }
+      const near = { ...found('base', 'base/F1', 0), edgeFound: true as const, edgeDistance: 0.4, edgeDescriptor: 'line, 30 mm', edgeBetween: ['base/F1', 'base/F4'] }
+      const onIt = { point: [20, 3, 2.5], part: 'base', ref: 'base/E5', edge: 'base/E5', between: ['base/F1', 'base/F4'], descriptor: 'line, 30 mm' }
+      expect(judgePin(named, { ...near, support: 'edge', edgeUnder: 'base/E5', edgeUnderDescriptor: 'line, 30 mm', between: ['base/F1', 'base/F4'] }, 0.5)).toEqual({ anchor: onIt, state: 'ok' })
+      expect(judgePin(named, { ...near, support: 'face' }, 0.5)).toEqual({ anchor: onIt, state: 'ok' })
+    })
+
     it('has drifted when no edge is under it any more, and keeps the edge it was put on', async () => {
       await store.add('bracket', pin(ON_EDGE))
       answer = edge({ support: 'face', edgeFound: false })
@@ -1002,6 +1020,35 @@ describe('retrying', () => {
     check('b')
     await vi.advanceTimersByTimeAsync(2000)
     expect(runs).toEqual(['a', 'b', 'a'])
+  })
+
+  it('cancelled, as when the workspace closes, checks nothing again: not what was waiting, not after a check that was running, not when asked', async () => {
+    const { state, check } = checker()
+    check('a')
+    check('b')
+    await vi.advanceTimersByTimeAsync(5000) // each ran at 0 and 2000; the next is due at 12000
+    check.cancel()
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(state.runs).toEqual([0, 0, 2000, 2000])
+    check('a')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(state.runs).toHaveLength(4)
+
+    // One that is running when it is cancelled, and fails, is not tried again either.
+    let fail = (): void => {}
+    const runs: number[] = []
+    const slow = retrying(() => {
+      runs.push(Date.now())
+      return new Promise<boolean>((resolve) => (fail = () => resolve(false)))
+    })
+    slow('a')
+    await vi.advanceTimersByTimeAsync(0)
+    slow.cancel()
+    fail()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(runs).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('a check that throws is taken as one that failed', async () => {

@@ -75,3 +75,38 @@ test('quitting during a build leaves no kernel or worker process behind', async 
   await expect.poll(left, { timeout: 10_000 }).toEqual([])
   rmSync(root, { recursive: true, force: true })
 })
+
+test('a note still being typed when the window closes is kept: nothing ended it, and nothing blurred', async () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-quit-note-'))
+  cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
+  const app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: root } })
+  try {
+    const page = await app.firstWindow()
+    await page.waitForSelector('[data-region="left"]')
+    await page.getByRole('button', { name: 'bracket', exact: true }).click()
+    await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
+
+    // A pin on the top of the base, clear of the post.
+    await page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name: 'Pin', exact: true }).click()
+    const [fx, fy] = await page.evaluate(() => window.__tornoTest!.project([14, 9, 2.5]))
+    const box = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
+    await page.mouse.move(box.x + fx * box.width, box.y + fy * box.height)
+    await page.mouse.down()
+    await page.mouse.up()
+    await expect(page.locator('.note-card textarea')).toBeFocused()
+    await page.keyboard.type('thicker here')
+    await expect(page.locator('.note-card textarea')).toHaveValue('thicker here')
+    // Typed, and not handed to main: neither Enter, nor a press elsewhere, nor the focus leaving.
+    expect((await page.evaluate(() => window.__tornoTest!.state())).marks[0]).toMatchObject({ id: 'M1', note: '' })
+    // Closed as the person closes it: the window, and with it the app.
+    const exited = new Promise<void>((done) => app.process().once('exit', () => done()))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()).catch(() => {})
+    await exited
+  } finally {
+    await app.close().catch(() => {})
+  }
+  const kept = (): string | undefined => readOr(() => JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'marks.json'), 'utf8')).marks[0]?.note, undefined)
+  await expect.poll(kept, { timeout: 10_000 }).toBe('thicker here')
+  rmSync(root, { recursive: true, force: true })
+})

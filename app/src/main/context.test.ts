@@ -243,6 +243,14 @@ describe('contextFor', () => {
       expect(context.text).toBe([STATUS, HEAD, `${line(1)} [not checked against r3]`].join('\n'))
     })
 
+    it('says of a mark of the user\'s that they reopened that they did, rather than that it changed: a resolution was not accepted', () => {
+      const marks = [pin(1, { sentBefore: true, reopened: true }), pin(2, { reopened: true })]
+      const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
+      expect(context.text).toBe([STATUS, HEAD, `(reopened by the user) ${line(1)}`, `(reopened by the user) ${line(2)}`].join('\n'))
+      // Also in a conversation that never had it: the mark was resolved once, and that did not do.
+      expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks, { fresh: true }).text).toBe(context.text)
+    })
+
     it("lists a mark of the agent's that the user reopened, once, as its own and reopened", () => {
       const marks = [pin(1, { author: 'agent', status: 'draft' }), pin(2, { author: 'agent', status: 'sent' })]
       const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
@@ -287,6 +295,35 @@ describe('contextFor', () => {
         expect(lines.length).toBeGreaterThan(30)
         expect(context.sentMarkIds).toEqual([])
       })
+
+      it('keeps to the limit when the drafts have left no room for the marks listed again: nothing is said of those but their numbers', () => {
+        const drafts = Array.from({ length: 40 }, (_, i) => pin(i + 1, { note: 'n'.repeat(359) }))
+        const sent = Array.from({ length: 30 }, (_, i) => pin(i + 41, { status: 'sent', sentBefore: true }))
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [...drafts, ...sent], { fresh: true })
+        expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+        const lines = context.text.split('\n')
+        // The drafts that fit, and how many did not; then no head with nothing under it.
+        expect(lines).not.toContain(STILL)
+        expect(lines.at(-2)).toBe(`… and ${40 - context.sentMarkIds.length} more: call mcp__torno__marks`)
+        expect(lines.at(-1)).toMatch(/^Open marks: M41, M42, /)
+        expect(context.sentMarkIds.length).toBeGreaterThan(5)
+        // Every mark said to be sent has its whole line.
+        for (const id of context.sentMarkIds) expect(lines.some((l) => l.startsWith(`${id} pin on `) && l.endsWith('"'))).toBe(true)
+      })
+
+      it('lists as many of them as there is room for after the drafts, and counts the rest', () => {
+        const drafts = Array.from({ length: 12 }, (_, i) => pin(i + 1, { note: 'n'.repeat(359) }))
+        const sent = Array.from({ length: 30 }, (_, i) => pin(i + 41, { status: 'sent', sentBefore: true }))
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [...drafts, ...sent], { fresh: true })
+        expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+        const lines = context.text.split('\n')
+        const at = lines.indexOf(STILL)
+        expect(context.sentMarkIds).toHaveLength(12)
+        expect(at).toBe(2 + 12)
+        const again = lines.slice(at + 1, -2)
+        expect(again.length).toBeGreaterThan(0)
+        expect(lines.at(-2)).toBe(`… and ${30 - again.length} more: call mcp__torno__marks`)
+      })
     })
 
     describe('with a selection', () => {
@@ -295,7 +332,7 @@ describe('contextFor', () => {
         layout: 'assembly',
         camera: CAMERA,
         visible: ['assembly:base', 'assembly:post'],
-        selection: { revision: 3, refs: [{ ref: 'base/F5', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' }, { ref: 'base/E5', descriptor: 'line, 30 mm' }, { ref: 'post' }] },
+        selection: { revision: 3, total: 3, refs: [{ ref: 'base/F5', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' }, { ref: 'base/E5', descriptor: 'line, 30 mm' }, { ref: 'post' }] },
         ...over
       })
       const SELECTED = 'Selected: base/F5 (plane, normal +Z, z = 2.5, 1200 mm²), base/E5 (line, 30 mm), post'
@@ -307,23 +344,35 @@ describe('contextFor', () => {
 
       it('says nothing of it when the refs may not name what was selected: another build, a stale one, another layout, another object', () => {
         const none = (d: ContextDeps): void => expect(textFor(d, 'bracket')).not.toContain('Selected')
-        none(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 2, refs: [{ ref: 'base/F5' }] } }) }))
+        none(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 2, total: 1, refs: [{ ref: 'base/F5' }] } }) }))
         none(deps({ build: { ...OK, stale: true }, scene: SCENE, view: selected() }))
         none(deps({ build: { objectId: 'bracket', status: 'building', revision: 3, startedAt: 0, stale: true }, scene: SCENE, view: selected() }))
         none(deps({ build: { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'no' } }, scene: SCENE, view: selected() }))
         none(deps({ build: OK, scene: SCENE, view: selected(), open: 'gear' }))
         none(deps({ build: OK, scene: SCENE, view: selected({ layout: 'exploded' }) }))
-        none(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 3, refs: [] } }) }))
+        none(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 3, total: 0, refs: [] } }) }))
       })
 
       it('names at most eight, and stays within the limit with the marks', () => {
         const refs = Array.from({ length: 12 }, (_, i) => ({ ref: `base/F${i}`, descriptor: 'd'.repeat(300) }))
         const marks = Array.from({ length: 200 }, (_, i) => pin(i + 1, { note: `note ${i + 1} ${'n'.repeat(60)}` }))
-        const context = contextFor(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 3, refs } }) }), 'bracket', marks)
+        const context = contextFor(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 3, total: 12, refs } }) }), 'bracket', marks)
         expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
         const selectedLine = context.text.split('\n')[1]
         expect(selectedLine.match(/base\/F\d+/g)).toHaveLength(8)
-        expect(selectedLine).toContain('and 4 more')
+        expect(selectedLine).toMatch(/ and 4 more$/)
+      })
+
+      it('says how many more are selected than it was given the refs of', () => {
+        // The window reports eight refs at most, and how many are selected in all.
+        const refs = Array.from({ length: 8 }, (_, i) => ({ ref: `base/F${i}` }))
+        const view = selected({ selection: { revision: 3, total: 23, refs } })
+        expect(textFor(deps({ build: OK, scene: SCENE, view }), 'bracket').split('\n')[1]).toBe(`Selected: ${refs.map((r) => r.ref).join(', ')} and 15 more`)
+        // The count is still said when what is said of the refs has to be cut.
+        const long = Array.from({ length: 8 }, (_, i) => ({ ref: `${'p'.repeat(190)}/F${i}`, descriptor: 'd'.repeat(300) }))
+        const cut = textFor(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 3, total: 23, refs: long } }) }), 'bracket').split('\n')[1]
+        expect(cut.length).toBeLessThanOrEqual(1000)
+        expect(cut).toMatch(/… and 15 more$/)
       })
     })
 

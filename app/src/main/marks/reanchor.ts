@@ -105,9 +105,10 @@ export function edgeOfPin(anchor: Anchor): string | undefined {
 
 /**
  * The anchor of a pin as a new build leaves it: as `judge` says, and on an
- * edge when its point is on one. That is the edge it names, while its point
- * is within `EDGE_TOLERANCE_MM` of the edge of that number; else the edge the
- * kernel found the point on. The anchor then names the edge as its ref, with
+ * edge when its point is on one. That is the edge the kernel found the point
+ * on, whichever the pin names; else, when the kernel found it on a face, the
+ * edge it names, while its point is within `EDGE_TOLERANCE_MM` of the edge of
+ * that number. The anchor then names the edge as its ref, with
  * the faces that meet there when they are two, and has no normal: an edge has
  * no one normal. A pin that was on an edge and is on none now has drifted,
  * and keeps the edge it was put on, so that a build which puts the edge back
@@ -129,8 +130,10 @@ export function judgePin(anchor: Anchor, nearest: FoundAnchor | { part: string; 
     },
     state: 'ok'
   })
-  if (named !== undefined && nearest.edgeFound === true && nearest.edgeDistance <= EDGE_TOLERANCE_MM) return on(named, nearest.edgeBetween, nearest.edgeDescriptor)
+  // The edge the kernel found the point on, before the one named: two edges may both be within the
+  // tolerance (those of a narrow chamfer), and the point is on one of them.
   if (nearest.support === 'edge' && typeof nearest.edgeUnder === 'string' && onFace.state === 'ok') return on(nearest.edgeUnder, nearest.between, nearest.edgeUnderDescriptor)
+  if (named !== undefined && nearest.edgeFound === true && nearest.edgeDistance <= EDGE_TOLERANCE_MM) return on(named, nearest.edgeBetween, nearest.edgeDescriptor)
   return named === undefined ? onFace : { anchor, state: 'drifted' }
 }
 
@@ -429,11 +432,16 @@ export const RETRY_AFTER_MS = [2000, 10_000, 30_000]
  * when it could not check everything (it resolves false, or rejects): after
  * each of `RETRY_AFTER_MS`, then no more. Asking anew, as for a newer build
  * or a mark just added, drops what was waiting and starts the count again.
+ *
+ * `cancel` ends it, as when the workspace it checks for is closed: what was
+ * waiting is dropped, and nothing is checked from then on, asked or not.
  */
-export function retrying(check: (objectId: string) => Promise<boolean>, log: (message: string) => void = console.error): (objectId: string) => void {
+export function retrying(check: (objectId: string) => Promise<boolean>, log: (message: string) => void = console.error): Retrying {
   /** By object: how many times it has been tried again, and the wait for the next. */
   const waiting = new Map<string, { tried: number; timer?: NodeJS.Timeout }>()
+  let cancelled = false
   const run = coalesced(async (objectId) => {
+    if (cancelled) return
     let ok = false
     try {
       ok = await check(objectId)
@@ -441,7 +449,7 @@ export function retrying(check: (objectId: string) => Promise<boolean>, log: (me
       const state = waiting.get(objectId) ?? { tried: 0 }
       clearTimeout(state.timer)
       state.timer = undefined
-      if (ok || state.tried >= RETRY_AFTER_MS.length) waiting.delete(objectId)
+      if (ok || cancelled || state.tried >= RETRY_AFTER_MS.length) waiting.delete(objectId)
       else {
         waiting.set(objectId, state)
         state.timer = setTimeout(() => {
@@ -452,12 +460,22 @@ export function retrying(check: (objectId: string) => Promise<boolean>, log: (me
       }
     }
   }, log)
-  return (objectId) => {
+  const ask = (objectId: string): void => {
+    if (cancelled) return
     clearTimeout(waiting.get(objectId)?.timer)
     waiting.delete(objectId)
     run(objectId)
   }
+  const cancel = (): void => {
+    cancelled = true
+    for (const state of waiting.values()) clearTimeout(state.timer)
+    waiting.clear()
+  }
+  return Object.assign(ask, { cancel })
 }
+
+/** Asks for the marks of an object to be checked (`retrying`); `cancel` ends that for good. */
+export type Retrying = ((objectId: string) => void) & { cancel(): void }
 
 /**
  * `run`, one at a time per object: asked for an object while it runs for that

@@ -85,7 +85,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         const descriptor = descriptorOf(objectId, revision, layout, ref)
         return descriptor === undefined ? { ref } : { ref, descriptor }
       })
-      view.selection = { revision, refs }
+      view.selection = { revision, total: s.selection.length, refs }
     }
     window.torno.view.report(view)
   }

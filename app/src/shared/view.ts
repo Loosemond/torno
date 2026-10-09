@@ -1,7 +1,10 @@
 export type ViewName = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom'
 export interface Camera { position: [number, number, number]; target: [number, number, number]; up: [number, number, number]; ortho: boolean; fov: number; zoom: number }
-/** What the person has selected in the layout shown, as of a build: its refs name geometry of that revision only. */
-export interface SelectionReport { revision: number; refs: Array<{ ref: string; descriptor?: string }> }
+/**
+ * What the person has selected in the layout shown, as of a build: its refs name geometry of that revision only.
+ * `refs` are the first of them, `MAX_SELECTION_REPORTED` at most; `total` is how many are selected in all.
+ */
+export interface SelectionReport { revision: number; total: number; refs: Array<{ ref: string; descriptor?: string }> }
 /** The most refs of a selection that are reported. */
 export const MAX_SELECTION_REPORTED = 8
 export interface ViewState { objectId: string; layout: string; camera: Camera; visible: string[] /* part keys */; selection?: SelectionReport }

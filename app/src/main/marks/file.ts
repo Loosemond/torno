@@ -149,6 +149,7 @@ export function sanitiseMark(value: unknown): Mark | null {
     ...(value.status === 'resolved' && oneOf(value.resolvedBy, ['user', 'agent'] as const) ? { resolvedBy: value.resolvedBy } : {}),
     ...(value.status === 'resolved' && value.resolvedBy === 'agent' && value.acknowledged === true ? { acknowledged: true as const } : {}),
     ...(value.sentBefore === true ? { sentBefore: true as const } : {}),
+    ...(value.status === 'draft' && value.reopened === true ? { reopened: true as const } : {}),
     ...(isNumber(value.checkedRevision) ? { checkedRevision: value.checkedRevision } : {})
   }
   const anchor = anchorOf(value.anchor)

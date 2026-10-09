@@ -13,7 +13,7 @@ import { Builds, buildTimeout, watchFolder } from './builds'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
-import { asPlaced, asReplaced, followMarks, reanchorAll, retrying } from './marks/reanchor'
+import { type Retrying, asPlaced, asReplaced, followMarks, reanchorAll, retrying } from './marks/reanchor'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
@@ -38,7 +38,7 @@ interface OpenWorkspace {
   /** Scans overlap (a burst of changes in two folders, an object opened meanwhile): an older one never replaces a newer. */
   scan: () => () => boolean
   /** Has the marks of an object checked against its last build (see `openWorkspace`). */
-  reanchor?: (objectId: string) => void
+  reanchor?: Retrying
   kernel: KernelClient
   builds: Builds
   opened: Set<string> // ids of the objects being watched and built
@@ -146,6 +146,8 @@ export async function closeWorkspace(): Promise<void> {
   if (!ws) return
   current = null
   forgetViews()
+  // A check of its marks that failed is not tried again: its timers would outlive it.
+  ws.reanchor?.cancel()
   checks.clear()
   // The next workspace may have an object of the same name, or this folder may change while it is closed.
   marks?.forget()

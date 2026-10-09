@@ -118,7 +118,8 @@ export async function highlightTool(deps: ToolDeps, objectId: string, args: High
  * would be: the ref, the point, the normal there and what the kernel says of
  * it. Given a ref alone, the middle of that edge, or the point of the surface
  * nearest the centre of that face or part; given a point alone, the part
- * whose surface the point is on, or nothing but the point when it is on none.
+ * whose surface the point is on, or nothing but the point when it is on none
+ * (a failure when the kernel could not say of some part, and it is on no other).
  * A `pick` keeps the ref it was given and is refused when its point is not on
  * what that names; anything else is tied to the face under its point. `said`
  * is what the agent should know of how that went, in the words of the `kind`
@@ -150,7 +151,13 @@ async function anchorFor(
         least = one.distance
         best = judged.anchor
       })
-      return best ? { anchor: best } : { anchor: { point }, said: 'The point is on no part of this layout, so the mark is tied to none.' }
+      if (best) return { anchor: best }
+      // A part the kernel could say nothing of may be the one the point is on: it is not said to be on none.
+      const failed = found.find((one) => one.found && one.error !== undefined)
+      if (failed?.found && failed.error !== undefined) {
+        return failure(`the kernel could not say whether ${vector(point)} is on ${failed.part}: ${failed.error}. No mark was placed: try again, or give a ref.`)
+      }
+      return { anchor: { point }, said: 'The point is on no part of this layout, so the mark is tied to none.' }
     }
 
     const checked = checkRef(scene, layout, ref)

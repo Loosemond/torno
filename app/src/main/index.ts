@@ -262,13 +262,22 @@ void app.whenReady().then(async () => {
 // The kernel also exits by itself when this process, and so its stdin, goes away.
 // Sessions are hung up on, and the quit waits until they have gone: one that
 // ignores the hangup is killed two seconds later. With none left, the second
-// quit goes through.
+// quit goes through. So does it wait for what is still being written of the
+// marks: the note being typed when the window was closed arrives just before
+// this, and is not on the disk yet. Two seconds at most for that too.
 app.on('will-quit', (event) => {
   void closeWorkspace()
-  if (!sessions || sessions.size === 0) return
+  const writing = marks.settled()
+  const waits: Promise<unknown>[] = []
+  if (writing) waits.push(Promise.race([writing, new Promise((done) => setTimeout(done, MARKS_WRITE_WAIT_MS))]))
+  if (sessions && sessions.size > 0) waits.push(sessions.stopAll())
+  if (waits.length === 0) return
   event.preventDefault()
-  void sessions.stopAll().finally(() => app.quit())
+  void Promise.allSettled(waits).finally(() => app.quit())
 })
+
+/** The longest a quit waits for the marks to be written. */
+const MARKS_WRITE_WAIT_MS = 2000
 
 // Closing the window ends the app on every platform: sessions do not outlive it.
 app.on('window-all-closed', () => app.quit())

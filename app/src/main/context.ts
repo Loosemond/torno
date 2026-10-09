@@ -49,8 +49,9 @@ export interface PromptContext {
  * workspace.
  *
  * A draft is a mark of the person's the agent has not been given, or one it
- * was given that has changed since (`changed`), or one of its own that the
- * person reopened. In a conversation that has not seen the marks (`fresh`:
+ * was given that has changed since (`changed`), or one that the person
+ * reopened, their own or the agent's (`reopened by the user`). In a
+ * conversation that has not seen the marks (`fresh`:
  * the agent started another, as on /clear), the person's marks it was given
  * before are listed once more, since "M3" means nothing there.
  *
@@ -70,13 +71,16 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   const selected = selection(deps, objectId)
   if (selected) lines.push(selected)
   const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision)}` : ''
-  const sentMarkIds: string[] = []
   const named = layoutNamed(deps, objectId)
   let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0)
-  /** A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed. */
+  /**
+   * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
+   * Nothing at all when there is no room for the head and that count: the marks are still among the open ones.
+   */
   const list = (head: string, listed: readonly Mark[], tagOf: (mark: Mark) => string | undefined): Mark[] => {
     if (listed.length === 0) return []
     const more = (count: number): string => `… and ${count} more: call mcp__torno__marks`
+    if (used + 1 + head.length + 1 + more(listed.length).length > CONTEXT_LIMIT) return []
     // The head is said even when no mark fits under it: the line that counts them needs it.
     lines.push(head)
     used += 1 + head.length
@@ -98,13 +102,19 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
     }
     return fitting
   }
-  // One of its own is a draft only because the person reopened it. One of theirs that it has been given
-  // before is told again because it changed: it knows the number, unless this conversation is another.
-  const news = (mark: Mark): string | undefined => (mark.author === 'agent' ? 'reopened by the user' : mark.sentBefore && !opts.fresh ? 'changed' : undefined)
-  sentMarkIds.push(...list(MARKS_HEAD, drafts, news).map((m) => m.id))
+  // One of its own is a draft only because the person reopened it, and so is one of theirs that says so:
+  // it was resolved, and that did not do. Another of theirs that it has been given before is told again
+  // because it changed: it knows the number, unless this conversation is another.
+  const news = (mark: Mark): string | undefined =>
+    mark.author === 'agent' || mark.reopened ? 'reopened by the user' : mark.sentBefore && !opts.fresh ? 'changed' : undefined
+  const listedDrafts = list(MARKS_HEAD, drafts, news)
   list(STILL_OPEN_HEAD, still, () => undefined)
   if (openLine) lines.push(openLine)
-  return { text: lines.join('\n'), sentMarkIds }
+  const text = lines.join('\n')
+  if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id) }
+  // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is
+  // the end, and no mark whose line may be among it is said to have been told.
+  return { text: cutEnd(text, CONTEXT_LIMIT), sentMarkIds: [] }
 }
 
 /**
@@ -135,8 +145,11 @@ function selection(deps: ContextDeps, objectId: string): string {
   if (!build || build.status !== 'ok' || build.stale || !last || !view || !Array.isArray(refs) || refs.length === 0) return ''
   if (view.selection?.revision !== last.revision || view.layout !== layoutShown(view, last.scene)) return ''
   const names = refs.slice(0, MAX_SELECTION_REPORTED).map(({ ref, descriptor }) => (descriptor ? `${ref} (${cutEnd(descriptor, SELECTED_DESCRIPTOR_LIMIT)})` : ref))
-  const more = refs.length > names.length ? ` and ${refs.length - names.length} more` : ''
-  return cutEnd(`Selected: ${names.join(', ')}${more}`, SELECTION_LIMIT)
+  // The window gives the first refs only, and how many are selected in all.
+  const total = Math.max(refs.length, view.selection?.total ?? 0)
+  const more = total > names.length ? ` and ${total - names.length} more` : ''
+  // What is cut is what is said of the refs, never how many more there are.
+  return `${cutEnd(`Selected: ${names.join(', ')}`, SELECTION_LIMIT - more.length)}${more}`
 }
 
 /** The layout on screen of an object that is open in the window: the one asked for by the view, when the build has it. */

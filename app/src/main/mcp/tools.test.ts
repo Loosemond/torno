@@ -171,6 +171,11 @@ describe('the tool descriptions', () => {
     }
   })
 
+  it('marks says which marks have not been checked against the build as the code does: no checkedRevision, or any other than the revision', () => {
+    expect(TOOLS.marks.description).toContain('a checkedRevision that is absent or is not the revision means')
+    expect(TOOLS.marks.description).not.toContain('lower than')
+  })
+
   it('say where refs come from, that show changes what the user sees, and what highlight is for', () => {
     for (const tool of [TOOLS.describe, TOOLS.add_mark]) expect(tool.description).toContain('marks, scene and')
     expect(TOOLS.show.description).toMatch(/moves the user's own camera/)
@@ -706,6 +711,21 @@ describe('add_mark', () => {
     const result = await addMarkTool(deps, 'bracket', { kind: 'pin', note: 'up here', point: [0, 0, 80] })
     expect((deps.w.added[0] as { anchor: object }).anchor).toEqual({ point: [0, 0, 80] })
     expect(said(result)).toBe('placed in layout assembly: (yours) M5 pin at (0, 0, 80): "up here"\nThe point is on no part of this layout, so the mark is tied to none.')
+  })
+
+  it('by a point the kernel could say nothing of on some part, fails with what the kernel said: the point may be on that part', async () => {
+    const answers = (post: object): ToolDeps['nearest'] => async (_objectId, _layout, anchors) =>
+      anchors.map(({ part, point }) => (part === 'base' ? { part, found: true, error: 'the point of assembly:base nearest to the anchor is on none of its faces' } : { part, found: true, point, normal: [0, 0, 1], ref: 'post/F5', distance: 30, descriptor: 'nearest of post', ...post })) as NearestAnchor[]
+    const deps = fake({ nearest: answers({}) })
+    const result = await addMarkTool(deps, 'bracket', { kind: 'pin', note: 'up here', point: [0, 0, 80] })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe('the kernel could not say whether (0, 0, 80) is on base: the point of assembly:base nearest to the anchor is on none of its faces. No mark was placed: try again, or give a ref.')
+    expect(deps.w.added).toEqual([])
+
+    // On a part it could answer for, the point is on that part whatever was not said of the others.
+    const onPost = fake({ nearest: answers({ distance: 0.1 }) })
+    expect((await addMarkTool(onPost, 'bracket', { kind: 'pin', note: 'here', point: [0, 0, 80] })).isError).toBeUndefined()
+    expect(onPost.w.added[0]).toMatchObject({ anchor: { part: 'post', ref: 'post/F5' } })
   })
 
   it('picks an edge or a whole part by its ref', async () => {
