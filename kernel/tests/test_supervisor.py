@@ -245,7 +245,7 @@ def test_new_build_cancels_the_running_one(kernel, ws):
     assert [(f["id"], f["ok"]) for f in finals] == [(slow, False), (quick, True)]
     assert finals[0]["error"]["kind"] == "cancelled"
     assert [f for f in frames if "event" in f] == [
-        {"id": quick, "event": "build.started", "pid": frames[1]["pid"]}
+        {"id": quick, "event": "build.started", "pid": frames[1]["pid"], "retired": []}
     ]
     assert gone(slow_started["pid"])
     # Nothing else follows: exactly two final replies.
@@ -1382,3 +1382,183 @@ def test_a_reply_of_a_live_worker_that_cannot_be_passed_on_ends_that_worker_only
     [reply] = routed.sent()
     assert (reply["id"], reply["ok"], reply["error"]["kind"]) == ("q", False, "crash")
     assert sup._live == {} and gone(live.pid)
+
+
+# Room for a build: memory
+
+
+GIB = 1 << 30
+
+
+def memory(routed, monkeypatch, available, rss):
+    """Stand-ins for what the supervisor reads of memory, and for the worker it forks.
+
+    ``available`` is given the pids still running and answers in bytes, or
+    None for a /proc that cannot be read; ``rss`` is by pid. Returns the list
+    of (worker, the test's end of its socket) that were forked.
+    """
+    from torno_kernel import supervisor
+
+    sup = routed.supervisor
+    alive = lambda: [w.pid for w in sup._live.values()]  # noqa: E731
+    monkeypatch.setattr(supervisor, "_available", lambda: available(alive()))
+    monkeypatch.setattr(supervisor, "_rss", lambda pid: rss.get(pid))
+    forked = []
+
+    def fork(id, dir, model, timeout):
+        forked.append(routed.worker(dir, request_id=id))
+        return forked[-1][0]
+
+    monkeypatch.setattr(sup, "_fork", fork)
+    return forked
+
+
+SCENE = {"ok": True, "scene": {"model": "m.py", "layouts": [], "parts": []}}
+
+
+def test_a_build_with_memory_short_lets_the_folders_own_build_go_and_says_so(routed, monkeypatch):
+    sup = routed.supervisor
+    live, _ = routed.worker("/object")
+    sup._live["/object"] = live
+    # 11 GiB held by the live worker, 5 GiB free: 13 are wanted, and 16 are free without it.
+    forked = memory(routed, monkeypatch, lambda pids: (5 if live.pid in pids else 16) * GIB, {live.pid: 11 * GIB})
+    live.queries.append(("waiting", time.monotonic() + 30))
+    routed.request(id="build", op="build", dir="/object", model="m.py")
+    sup._step()
+    [(building, building_end)] = forked
+    waiting, started = routed.sent()
+    assert waiting["id"] == "waiting" and waiting["error"]["kind"] == "no_build"
+    assert started == {"id": "build", "event": "build.started", "pid": building.pid, "retired": ["/object"]}
+    assert gone(live.pid) and sup._live == {}
+
+    # Asked while the build runs: there is none, and why is said.
+    routed.request(id="during", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    [during] = routed.sent()
+    assert during["error"] == {
+        "kind": "no_build",
+        "reason": "memory",
+        "message": "the build of /object was let go to make room for the next one (memory); "
+        "it can be queried again when a build of it has succeeded",
+    }
+    assert waiting["error"] == during["error"]
+
+    # And once it lands it is answered, with no word of the old one.
+    building_end.sendall(frame(SCENE))
+    sup._step()
+    assert [(f["id"], f["ok"]) for f in routed.sent()] == [("build", True)]
+    routed.request(id="after", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    assert routed.sent() == [] and [id for id, _ in building.queries] == ["after"]
+
+
+def test_a_build_with_memory_short_lets_other_folders_go_first_the_least_recently_used_first(routed, monkeypatch):
+    sup = routed.supervisor
+    workers = {dir: routed.worker(dir)[0] for dir in ("/a", "/b", "/c")}
+    sup._live.update(workers)
+    rss = {w.pid: 3 * GIB for w in workers.values()}
+    # 1 GiB free and 3 with each worker gone: the 5 wanted for /c are there with two gone.
+    forked = memory(routed, monkeypatch, lambda pids: (10 - 3 * len(pids)) * GIB, rss)
+    # /a is asked, so /b is now the least recently used of the others.
+    routed.request(id="q", op="query", dir="/a", name="describe", args={})
+    sup._step()
+    assert list(sup._live) == ["/b", "/c", "/a"]
+    routed.request(id="build", op="build", dir="/c", model="m.py")
+    sup._step()
+    q, started = routed.sent()
+    assert (q["id"], q["error"]["kind"], q["error"]["reason"]) == ("q", "no_build", "memory")
+    assert started["retired"] == ["/b", "/a"]
+    assert sup._live == {"/c": workers["/c"]} and not gone(workers["/c"].pid)
+    assert gone(workers["/a"].pid) and gone(workers["/b"].pid)
+
+    # A failed build of /c leaves its old one answering; /b says why it has none until it is built.
+    forked[0][1].sendall(frame({"ok": False, "error": {"kind": "exception", "message": "no"}}))
+    sup._step()
+    routed.request(id="b", op="query", dir="/b", name="describe", args={})
+    routed.request(id="c", op="query", dir="/c", name="describe", args={})
+    sup._step()
+    failed, b = routed.sent()
+    assert (failed["id"], failed["ok"]) == ("build", False)
+    assert b["error"]["reason"] == "memory" and "/b" in b["error"]["message"]
+    assert [id for id, _ in workers["/c"].queries] == ["c"]
+
+
+def test_a_build_with_memory_to_spare_leaves_every_build_answering(routed, monkeypatch):
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    other, _ = routed.worker("/other")
+    sup._live.update({"/other": other, "/object": live})
+    # Just enough: the 11 GiB it holds and 2 more.
+    forked = memory(routed, monkeypatch, lambda pids: 13 * GIB, {live.pid: 11 * GIB, other.pid: GIB})
+    routed.request(id="build", op="build", dir="/object", model="m.py")
+    sup._step()
+    [started] = routed.sent()
+    assert started == {"id": "build", "event": "build.started", "pid": forked[0][0].pid, "retired": []}
+    assert sup._live == {"/other": other, "/object": live}
+    # The old one answers while the new one builds.
+    routed.request(id="during", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    live_end.sendall(frame({"id": "during", "ok": True, "result": {"n": 1}}))
+    sup._step()
+    assert routed.sent() == [{"id": "during", "ok": True, "result": {"n": 1}}]
+
+
+def test_a_small_build_is_taken_to_need_four_gib(routed, monkeypatch):
+    sup = routed.supervisor
+    other, _ = routed.worker("/other")
+    sup._live["/other"] = other
+    free = {True: 4 * GIB - 1, False: 6 * GIB}
+    memory(routed, monkeypatch, lambda pids: free[other.pid in pids], {other.pid: GIB})
+    routed.request(id="build", op="build", dir="/new", model="m.py")
+    sup._step()
+    assert routed.sent()[0]["retired"] == ["/other"]
+
+
+@pytest.mark.parametrize("unreadable", ["available", "rss"])
+def test_a_build_lets_nothing_go_when_memory_cannot_be_read(routed, monkeypatch, unreadable):
+    sup = routed.supervisor
+    live, _ = routed.worker("/object")
+    other, _ = routed.worker("/other")
+    sup._live.update({"/other": other, "/object": live})
+    available = (lambda pids: None) if unreadable == "available" else (lambda pids: GIB)
+    rss = {} if unreadable == "rss" else {live.pid: 11 * GIB, other.pid: GIB}
+    memory(routed, monkeypatch, available, rss)
+    routed.request(id="build", op="build", dir="/object", model="m.py")
+    sup._step()
+    [started] = routed.sent()
+    assert started["retired"] == []
+    assert sup._live == {"/other": other, "/object": live}
+    assert not gone(live.pid) and not gone(other.pid)
+
+
+def test_memory_is_read_from_proc_and_of_a_worker_that_cannot_be_dumped(fresh, ws):
+    from torno_kernel import supervisor
+
+    available = supervisor._available()
+    assert isinstance(available, int) and available > 0
+    assert supervisor._rss(os.getpid()) > 10 << 20
+    id = fresh.send("build", dir=str(ws / "bracket"), model="bracket.py")
+    started, _ = fresh.recv(5)
+    assert fresh.recv(20)[0]["ok"] is True
+    # The worker set PR_SET_DUMPABLE 0: its status is still anyone's to read.
+    assert 50 << 20 < supervisor._rss(started["pid"]) < 4 * GIB
+    assert started == {"id": id, "event": "build.started", "pid": started["pid"], "retired": []}
+    fresh.close()
+    assert supervisor._rss(started["pid"]) is None
+
+
+def test_memory_that_proc_does_not_say_is_none(monkeypatch, tmp_path):
+    from torno_kernel import supervisor
+
+    (tmp_path / "meminfo").write_text("MemTotal:       32000000 kB\nMemAvailable:   1234 kB\n")
+    (tmp_path / "7").mkdir()
+    (tmp_path / "7" / "status").write_text("Name:\tpython\nVmRSS:\t    2048 kB\nRssAnon:\t 1 kB\n")
+    (tmp_path / "8").mkdir()
+    (tmp_path / "8" / "status").write_text("Name:\tkthread\n")
+    monkeypatch.setattr(supervisor, "_PROC", str(tmp_path))
+    assert supervisor._available() == 1234 * 1024
+    assert (supervisor._rss(7), supervisor._rss(8), supervisor._rss(9)) == (2048 * 1024, None, None)
+    (tmp_path / "meminfo").write_text("MemTotal:       32000000 kB\nMemAvailable: many\n")
+    assert supervisor._available() is None
+    (tmp_path / "meminfo").unlink()
+    assert supervisor._available() is None

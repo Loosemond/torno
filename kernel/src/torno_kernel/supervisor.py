@@ -2,7 +2,8 @@
 
 It forks one worker per build and keeps, for each object folder, the last one
 that succeeded alive to answer queries about that object: at most MAX_LIVE of
-them, the least recently built or queried making room for another. It imports
+them, the least recently built or queried making room for another, and fewer
+when memory is short for the next build (``_make_room``). It imports
 the geometry modules so that workers inherit them, but it never calls them: one
 OCC operation here would start OCC's thread pool, and every worker forked
 afterwards would deadlock.
@@ -34,6 +35,11 @@ DEFAULT_TIMEOUT = 600.0
 MAX_TIMEOUT = 86400.0  # a day; a longer wait is also more than the event loop can sleep
 MAX_LIVE = 4  # object folders whose last good build is kept for queries
 QUERY_TIMEOUT = 30.0  # seconds a live worker has to answer a query
+# Memory a build is taken to need, in bytes: what the folder's live worker holds, ROOM_LEAST
+# when that is less or there is none, and ROOM_SPARE on top.
+ROOM_LEAST = 2 << 30
+ROOM_SPARE = 2 << 30
+_PROC = "/proc"
 OUTPUT_LINES = 200
 _OUTPUT_TAIL_BYTES = 1 << 20
 _TERM_GRACE = 0.5  # seconds a replaced worker gets to exit on SIGTERM
@@ -209,6 +215,8 @@ class Supervisor:
         self._building: _Worker | None = None
         # By object folder, the least recently built or queried first.
         self._live: dict[str, _Worker] = {}
+        # The folders whose build was let go for memory and that have had none since.
+        self._let_go: set[str] = set()
         self._running = True
 
     def run(self, versions: dict[str, str]) -> int:
@@ -318,8 +326,38 @@ class Supervisor:
             )
             return
         self._cancel_building("replaced by a newer build")
+        retired = self._make_room(dir)
         self._building = self._fork(id, dir, model, timeout)
-        self._send({"id": id, "event": "build.started", "pid": self._building.pid})
+        started = {"id": id, "event": "build.started", "pid": self._building.pid}
+        self._send({**started, "retired": retired})
+
+    def _make_room(self, dir: str) -> list[str]:
+        """Let live workers go until there is memory for a build of ``dir``. The folders let go.
+
+        The build is taken to need what the folder's live worker holds
+        (ROOM_LEAST at least) and ROOM_SPARE: a worker is forked from here and
+        shares nothing with the one before it. The other folders' workers go
+        first, the least recently used first, then the folder's own. Nothing
+        goes when memory cannot be read. Files of /proc are read, no more.
+        """
+        available = _available()
+        own = self._live.get(dir)
+        held = _rss(own.pid) if own else 0
+        if available is None or held is None:
+            return []
+        need = max(held, ROOM_LEAST) + ROOM_SPARE
+        retired: list[str] = []
+        for other in [*(d for d in self._live if d != dir), *([dir] if own else [])]:
+            if available >= need:
+                break
+            self._let_go.add(other)
+            self._retire(self._live.pop(other), "no_build", _no_room(other), reason="memory")
+            retired.append(other)
+            # Reaped: what it held is free.
+            available = _available()
+            if available is None:
+                break
+        return retired
 
     def _query(self, id: Any, request: dict[str, Any]) -> None:
         dir = request.get("dir")
@@ -332,6 +370,9 @@ class Supervisor:
             self._fail(id, "bad_request", f"the request {why}")
             return
         live = self._live.get(dir)
+        if live is None and dir in self._let_go:
+            self._fail(id, "no_build", _no_room(dir), reason="memory")
+            return
         if live is None:
             self._fail(
                 id,
@@ -449,6 +490,7 @@ class Supervisor:
         scene = {**result["scene"], "seconds": time.monotonic() - worker.started, "output": output}
         previous = self._live.pop(worker.dir, None)
         self._live[worker.dir] = worker
+        self._let_go.discard(worker.dir)
         if previous:
             self._retire(
                 previous, "cancelled", "a newer build replaced the one this query was sent to"
@@ -523,11 +565,11 @@ class Supervisor:
         for id, _ in worker.queries:
             self._fail(id, "crash", "the process holding the built parts died; rebuild to query")
 
-    def _retire(self, worker: _Worker, kind: str, reason: str) -> None:
+    def _retire(self, worker: _Worker, kind: str, message: str, **extra: str) -> None:
         """Stop a worker that is no longer live, answering its waiting queries with ``kind``."""
         self._stop(worker, signal.SIGTERM)
         for id, _ in worker.queries:
-            self._fail(id, kind, reason)
+            self._fail(id, kind, message, **extra)
 
     def _stop(self, worker: _Worker, sig: signal.Signals) -> None:
         """Signal a worker, close its socket and reap it."""
@@ -557,6 +599,39 @@ class Supervisor:
 
     def _fail(self, id: Any, kind: str, message: str, **extra: str) -> None:
         self._send({"id": id, "ok": False, "error": {"kind": kind, "message": message, **extra}})
+
+
+def _no_room(dir: str) -> str:
+    """What a query is told of a folder whose build was let go for memory."""
+    return (
+        f"the build of {dir} was let go to make room for the next one (memory); "
+        "it can be queried again when a build of it has succeeded"
+    )
+
+
+def _available() -> int | None:
+    """The memory a new process could have, in bytes: MemAvailable. None if it cannot be read."""
+    return _kilobytes(f"{_PROC}/meminfo", "MemAvailable:")
+
+
+def _rss(pid: int) -> int | None:
+    """The memory a process holds, in bytes: its VmRSS. None if it cannot be read.
+
+    Of ``status``, which anyone may read of a worker that set PR_SET_DUMPABLE
+    to 0 (``smaps_rollup`` may not be).
+    """
+    return _kilobytes(f"{_PROC}/{pid}/status", "VmRSS:")
+
+
+def _kilobytes(path: str, field: str) -> int | None:
+    try:
+        with open(path, encoding="ascii", errors="replace") as file:
+            for line in file:
+                if line.startswith(field):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
 
 
 def _kill(pid: int, sig: signal.Signals) -> None:
