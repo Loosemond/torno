@@ -67,6 +67,13 @@ def nearest(shapes: dict[str, Any], layout: str, anchors: list[Any]) -> list[dic
     face that cannot be described). Where the nearest point is on an edge or a
     corner, the face is the adjacent one of lowest index. A part the layout
     does not have is ``found: false``.
+
+    An anchor may also name an edge of its part (``"edge": "lid/E3"``), as one
+    that was put on an edge does. Its answer then says whether the part has
+    that edge (``edgeFound``) and, when it has, how far the anchor's point is
+    from it (``edgeDistance``, mm) and what it is (``edgeDescriptor``). Edges
+    are numbered anew by every build: the distance is what tells whether the
+    number still means the edge the anchor was put on.
     """
     layouts = list(dict.fromkeys(key.split(":", 1)[0] for key in shapes))
     if not any(key.startswith(f"{layout}:") for key in shapes):
@@ -74,31 +81,37 @@ def nearest(shapes: dict[str, Any], layout: str, anchors: list[Any]) -> list[dic
     wanted = [_anchor(anchor) for anchor in anchors]
     surfaces: dict[str, _Surface] = {}  # a part is asked about once per mark on it
     found = []
-    for part, point in wanted:
+    for part, point, edge in wanted:
         key = f"{layout}:{part}"
         if key not in shapes:
             found.append({"part": part, "found": False})
             continue
         if key not in surfaces:
             surfaces[key] = _Surface(shapes[key])
-        found.append({"part": part, "found": True, **surfaces[key].nearest(part, key, point)})
+        answer = {"part": part, "found": True, **surfaces[key].nearest(part, key, point)}
+        if edge is not None:
+            answer.update(surfaces[key].edge(part, key, edge, point))
+        found.append(answer)
     return found
 
 
-def _anchor(anchor: Any) -> tuple[str, list[float]]:
+def _anchor(anchor: Any) -> tuple[str, list[float], str | None]:
     part = anchor.get("part") if isinstance(anchor, dict) else None
     point = anchor.get("point") if isinstance(anchor, dict) else None
+    edge = anchor.get("edge") if isinstance(anchor, dict) else None
     if (
         not isinstance(part, str)
         or not isinstance(point, list)
         or len(point) != 3
         or not all(_is_coordinate(c) for c in point)
+        or not (edge is None or isinstance(edge, str))
     ):
         raise QueryError(
             "bad_request",
-            "each anchor of nearest needs part, a string, and point, three finite numbers",
+            "each anchor of nearest needs part, a string, and point, three finite numbers; "
+            "edge, if it names one, is a string",
         )
-    return part, [float(c) for c in point]
+    return part, [float(c) for c in point], edge
 
 
 def _is_coordinate(value: Any) -> bool:
@@ -128,6 +141,7 @@ class _Surface:
         self._around: dict[str, Any] = {}  # faces around each edge, and each vertex, once asked
         self._descriptors: dict[int, str | None] = {}
         self._extrema: Any = None  # holds the part taken apart and boxed, once asked
+        self._edges: list[Any] | None = None  # in the kernel's order, once an anchor names one
 
     def nearest(self, part: str, key: str, point: list[float]) -> dict[str, Any]:
         from build123d import Face, Vector
@@ -164,6 +178,40 @@ class _Surface:
             "ref": f"{part}/F{index}",
             "distance": float(extrema.Value()),
             "descriptor": self._descriptor(key, index),
+        }
+
+    def edge(self, part: str, key: str, ref: str, point: list[float]) -> dict[str, Any]:
+        """How far ``point`` is from the edge ``ref`` (``part/E<i>``) names, if the part has it."""
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        from OCP.gp import gp_Pnt
+
+        match = _SUBSHAPE.match(ref)
+        if not match or match["key"] != part or match["kind"] != "E":
+            return {"edgeFound": False}
+        if self._edges is None:
+            self._edges = topo.edges(self._shape)
+        index = int(match["index"])
+        if index >= len(self._edges):
+            return {"edgeFound": False}
+        edge = self._edges[index]
+        try:
+            vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*point)).Vertex()
+            extrema = BRepExtrema_DistShapeShape(vertex, edge)
+            measured = extrema.IsDone() and extrema.NbSolution() >= 1
+        except Exception:
+            measured = False
+        if not measured:
+            # An edge with no curve, such as a sphere's pole: nothing can be said to be on it.
+            return {"edgeFound": False}
+        try:
+            described = _describe_edge(f"{key}/E{index}", edge)["descriptor"]
+        except Exception:
+            described = None
+        return {
+            "edgeFound": True,
+            "edgeDistance": float(extrema.Value()),
+            "edgeDescriptor": described,
         }
 
     def _descriptor(self, key: str, index: int) -> str | None:

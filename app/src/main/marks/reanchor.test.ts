@@ -6,7 +6,7 @@ import type { Anchor, Mark, MarksFile, NewMark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import * as file from './file'
-import { type NearestAnchor, coalesced, judge, reanchorAll, tolerance } from './reanchor'
+import { type NearestAnchor, coalesced, followMarks, judge, reanchorAll, tolerance } from './reanchor'
 import { MarkStore } from './store'
 
 // The real store on a real folder, with its writes counted.
@@ -37,7 +37,7 @@ function sceneOf(keys: string[], sizes: Record<string, [number, number, number]>
   return { model: 'm.py', layouts: [...new Set(parts.map((p) => p.layout))], parts, seconds: 0, output: '' } as unknown as Scene
 }
 
-const found = (part: string, ref: string, distance: number, more: Partial<Extract<NearestAnchor, { found: true }>> = {}): NearestAnchor => ({
+const found = (part: string, ref: string, distance: number, more: { point?: [number, number, number]; normal?: [number, number, number] | null; descriptor?: string | null } = {}): NearestAnchor => ({
   part,
   found: true,
   point: [0, 0, 0],
@@ -295,7 +295,6 @@ describe('reanchorAll', () => {
 
   describe('a pick', () => {
     const EDGE: Anchor = { point: [20, 3, 2.5], part: 'base', ref: 'base/E5', descriptor: 'line, 30 mm' }
-    const edgeAt = (center: [number, number, number], length = 30) => ({ kind: 'edge', ref: 'assembly:base/E5', type: 'line', length, center, descriptor: `line, ${length} mm` })
 
     it('of a face is refreshed as a pin is', async () => {
       await store.add('bracket', pick('face', ON_TOP))
@@ -315,41 +314,81 @@ describe('reanchorAll', () => {
       })
     })
 
-    it('of an edge keeps its ref while that edge is still there, where the mark is', async () => {
-      await store.add('bracket', pick('edge', EDGE))
-      answer = (name, args) => (name === 'describe' ? edgeAt([20, 0, 2.5]) : still(args))
-      await run()
-      expect(asked[1]).toEqual({ objectId: 'bracket', name: 'describe', args: { ref: 'assembly:base/E5' } })
-      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: { point: [20, 3, 2.5], part: 'base', ref: 'base/E5', descriptor: 'line, 30 mm' } })
+    /** `nearest` with every anchor on face F1 of its part, and those that name an edge told this of it. */
+    const withEdge = (edge: object) => (_name: string, args: Record<string, unknown>) => ({
+      anchors: (args.anchors as Array<{ part: string; edge?: string }>).map(({ part, edge: named }) => ({ ...found(part, `${part}/F1`, 0), ...(named ? edge : {}) }))
     })
 
-    it('of an edge the build no longer has falls back to the face now nearest, and is drifted', async () => {
+    it('of an edge asks how far its point is from that edge, and keeps the ref while it is on it', async () => {
       await store.add('bracket', pick('edge', EDGE))
-      answer = (name, args) => {
-        if (name === 'describe') throw new KernelError('bad_ref', 'assembly:base has 4 edges, E0 to E3; there is no E5')
-        return still(args)
-      }
+      await store.add('bracket', pin(ON_TOP))
+      asked = []
+      answer = withEdge({ edgeFound: true, edgeDistance: 0.2, edgeDescriptor: 'line, 28 mm' })
       await run()
-      expect((await byId()).M1).toMatchObject({ anchorState: 'drifted', anchor: { point: [20, 3, 2.5], part: 'base', ref: 'base/F1', descriptor: 'face base/F1' } })
+      // One query: the edge goes with the anchor, and only with the anchor of a pick of an edge.
+      expect(asked).toEqual([
+        { objectId: 'bracket', name: 'nearest', args: { layout: 'assembly', anchors: [{ part: 'base', point: [20, 3, 2.5], edge: 'base/E5' }, { part: 'base', point: [5, 3, 2.5] }] } }
+      ])
+      // Nothing but the descriptor is touched: an edge has no one normal to be given.
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: { ...EDGE, descriptor: 'line, 28 mm' } })
+      expect((await byId()).M1).not.toHaveProperty('anchor.normal')
+    })
+
+    it('of an edge whose number now belongs to a like edge a few millimetres away is drifted, though the point is on the surface', async () => {
+      await store.add('bracket', pick('edge', EDGE))
+      // The same "line, 30 mm", parallel and 2 mm off: nothing but the distance tells them apart.
+      answer = withEdge({ edgeFound: true, edgeDistance: 2, edgeDescriptor: 'line, 30 mm' })
+      await run()
+      const mark = (await byId()).M1
+      expect(mark.anchorState).toBe('drifted')
+      // The ref is kept, to be found again; the descriptor says what is under the point now.
+      expect(mark).toMatchObject({ anchor: { point: [20, 3, 2.5], part: 'base', ref: 'base/E5', descriptor: 'face base/F1' } })
+      expect(mark).not.toHaveProperty('anchor.normal')
       expect(logged).toEqual([])
+
+      // Just within the tolerance, and just beyond it.
+      answer = withEdge({ edgeFound: true, edgeDistance: 0.5, edgeDescriptor: 'line, 30 mm' })
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: { ref: 'base/E5', descriptor: 'line, 30 mm' } })
+      answer = withEdge({ edgeFound: true, edgeDistance: 0.51, edgeDescriptor: 'line, 30 mm' })
+      await run()
+      expect((await byId()).M1.anchorState).toBe('drifted')
     })
 
-    it('of an edge whose number is now that of an edge somewhere else falls back as well', async () => {
+    it('of an edge the build no longer has is drifted, and is ok again when a build has it back', async () => {
       await store.add('bracket', pick('edge', EDGE))
-      // E5 is now a 30 mm edge on the other side of the plate: the mark cannot be on it.
-      answer = (name, args) => (name === 'describe' ? edgeAt([-20, 0, 2.5]) : still(args))
+      answer = withEdge({ edgeFound: false })
       await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'drifted', anchor: { point: [20, 3, 2.5], part: 'base', ref: 'base/E5', descriptor: 'face base/F1' } })
+
+      answer = withEdge({ edgeFound: true, edgeDistance: 0, edgeDescriptor: 'line, 30 mm' })
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: { ref: 'base/E5', descriptor: 'line, 30 mm' } })
+      expect(asked.every((q) => q.name === 'nearest')).toBe(true)
+    })
+
+    it('of an edge that the kernel says nothing of is not taken to be on it', async () => {
+      await store.add('bracket', pick('edge', EDGE))
+      saves.mockClear()
+      for (const edge of [{}, { edgeFound: true }, { edgeFound: true, edgeDistance: 'near' }, { edgeFound: 'yes', edgeDistance: 0 }]) {
+        answer = withEdge(edge)
+        await run()
+      }
+      expect(saves).not.toHaveBeenCalled()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: EDGE })
+      expect(logged).toHaveLength(4)
+    })
+
+    it('of an edge that never had an edge ref gets the face now nearest, and is drifted', async () => {
+      await store.add('bracket', pick('edge', { point: [20, 3, 2.5], part: 'base', ref: 'base/F2' }))
+      await run()
+      expect(anchorsOf(asked[0].args)).toEqual([{ part: 'base', point: [20, 3, 2.5] }])
       expect((await byId()).M1).toMatchObject({ anchorState: 'drifted', anchor: { ref: 'base/F1' } })
-
-      // And when the ref now names something that is no edge at all.
-      await store.add('bracket', pick('edge', EDGE))
-      answer = (name, args) => (name === 'describe' ? { kind: 'face', ref: 'assembly:base/E5', descriptor: 'plane' } : still(args))
-      await run()
-      expect((await byId()).M2).toMatchObject({ anchorState: 'drifted', anchor: { ref: 'base/F1' } })
     })
 
-    it('whose edge could not be asked about is left untouched, and that is said', async () => {
-      await store.add('bracket', pick('edge', EDGE))
+    it('of a part that could not be asked about is left untouched, and that is said', async () => {
+      const whole: Anchor = { point: [5, 3, 2.5], part: 'base', ref: 'base', descriptor: 'part, 40 × 30 × 5 mm, 6000 mm³, 6 faces' }
+      await store.add('bracket', pick('part', whole))
       await store.add('bracket', pin(ON_TOP))
       answer = (name, args) => {
         if (name === 'describe') throw new KernelError('timeout', 'the query was not answered within 30 s')
@@ -357,17 +396,96 @@ describe('reanchorAll', () => {
       }
       await run()
       const marks = await byId()
-      expect(marks.M1).toMatchObject({ anchorState: 'ok', anchor: EDGE })
+      expect(marks.M1).toMatchObject({ anchorState: 'ok', anchor: whole })
       expect(marks.M2).toMatchObject({ anchor: { ref: 'base/F1' } })
       expect(logged).toHaveLength(1)
     })
 
     it('whose part is gone is orphaned, and nothing more is asked about it', async () => {
       await store.add('bracket', pick('edge', EDGE))
+      await store.add('bracket', pick('part', { point: [5, 3, 2.5], part: 'base', ref: 'base' }))
       answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part }) => ({ part, found: false })) })
       await run()
       expect(asked.map((q) => q.name)).toEqual(['nearest'])
       expect((await byId()).M1).toMatchObject({ anchorState: 'orphaned', anchor: EDGE })
+    })
+  })
+
+  describe('followed', () => {
+    /** The check as main wires it: one at a time, and again for a mark that is added or reopened. */
+    const follow = (): void => followMarks(store, coalesced((id) => reanchorAll({ marks: store, query, scene: () => scene, log: (message) => logged.push(message) }, id)))
+    const quiet = async (): Promise<void> => {
+      // Until a few turns of the loop pass with nothing more asked or written.
+      let seen = -1
+      while (seen !== asked.length + saves.mock.calls.length) {
+        seen = asked.length + saves.mock.calls.length
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+    }
+
+    it('a resolved mark that is reopened is checked against the build there is, without another', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      await store.add('bracket', pin(ON_POST))
+      await store.update('bracket', 'M1', { status: 'resolved' })
+      await store.update('bracket', 'M2', { status: 'resolved' })
+      // Meanwhile the model was rebuilt: the top moved 3 mm, and the post is gone. Nothing asked: both are resolved.
+      await run()
+      expect(asked).toEqual([])
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part }) => (part === 'post' ? { part, found: false } : found(part, 'base/F7', 3))) })
+      follow()
+
+      await store.update('bracket', 'M1', { status: 'draft' })
+      await quiet()
+      expect((await byId()).M1).toMatchObject({ status: 'draft', anchorState: 'drifted', anchor: { ref: 'base/F7' } })
+      await store.update('bracket', 'M2', { status: 'draft' })
+      await quiet()
+      expect((await byId()).M2).toMatchObject({ status: 'draft', anchorState: 'orphaned', anchor: ON_POST })
+      // Once for each reopening, and not again for what the check itself wrote.
+      expect(asked).toHaveLength(2)
+    })
+
+    it('a mark added while a check is under way is checked by one that follows, and then it stops', async () => {
+      follow()
+      let release!: () => void
+      const held = new Promise<void>((resolve) => (release = resolve))
+      let first = true
+      answer = async (_name, args) => {
+        if (first) {
+          first = false
+          await held
+        }
+        return still(args)
+      }
+      await store.add('bracket', pin(ON_TOP))
+      await vi.waitFor(() => expect(asked).toHaveLength(1))
+      // The check has listed the marks, and is waiting for the kernel.
+      await store.add('bracket', pin(ON_POST))
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      expect(asked).toHaveLength(1)
+      release()
+      await quiet()
+
+      expect(asked.map((q) => anchorsOf(q.args).map((a) => a.part))).toEqual([['base'], ['base', 'post']])
+      const marks = await byId()
+      expect(marks.M1).toMatchObject({ anchorState: 'ok', anchor: { ref: 'base/F1' } })
+      expect(marks.M2).toMatchObject({ anchorState: 'ok', anchor: { ref: 'post/F1' } })
+      await quiet()
+      expect(asked).toHaveLength(2)
+    })
+
+    it('nothing else that is done to a mark asks the kernel anything', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      await run()
+      follow()
+      asked = []
+      await store.update('bracket', 'M1', { note: 'thicker' })
+      await store.update('bracket', 'M1', { status: 'sent' })
+      await store.markSent('bracket')
+      await store.update('bracket', 'M1', { status: 'resolved' })
+      await store.reanchor('bracket', [{ id: 'M1', anchors: [ON_POST], anchorState: 'drifted' }])
+      await store.remove('bracket', 'M1')
+      await quiet()
+      expect(asked).toEqual([])
     })
   })
 })

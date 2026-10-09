@@ -98,15 +98,18 @@ test('a pin added through the bridge is M1, in the window and in .torno/marks.js
       layout: 'assembly',
       revision: 1,
       camera: window.__tornoTest!.camera(),
-      anchor: { point: [0, 0, 20], normal: [0, 0, 1], part: 'base', ref: 'base/F4' }
+      // On the top of the base, clear of the post; the face number is a guess, as one from an older build would be.
+      anchor: { point: [14, 9, 2.5], normal: [0, 0, 1], part: 'base', ref: 'base/F999' }
     })
   )
   expect(added).toMatchObject({ id: 'M1', kind: 'pin', author: 'user', note: 'too thin here', status: 'draft', anchorState: 'ok' })
   expect(Number.isNaN(Date.parse(added.createdAt))).toBe(false)
 
-  // The window is told, not asked: its list follows main's.
-  await expect.poll(async () => (await state()).marks).toEqual([added])
-  expect(marksOnDisk()).toEqual({ next: 2, marks: [added] })
+  // The window is told, not asked: its list follows main's. Main has checked the new mark against
+  // the build there is, so it names the face that is at its point, and says what that is.
+  const checked = { ...added, anchor: { ...added.anchor, ref: expect.stringMatching(/^base\/F\d$/), descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } }
+  await expect.poll(async () => (await state()).marks).toEqual([checked])
+  expect(marksOnDisk()).toEqual({ next: 2, marks: (await state()).marks })
   expect(readdirSync(join(root, 'bracket', '.torno'))).toEqual(['marks.json'])
 })
 

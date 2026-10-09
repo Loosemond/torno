@@ -200,6 +200,11 @@ def nearest(shapes, layout, *anchors):
     return queries.run(shapes, "nearest", args)["anchors"]
 
 
+def nearest_with(shapes, layout, *anchors):
+    """``nearest`` with the anchors as they go over the wire."""
+    return queries.run(shapes, "nearest", {"layout": layout, "anchors": list(anchors)})["anchors"]
+
+
 def test_nearest_above_the_base_is_its_top_face(shapes):
     top = face_of(shapes, "assembly:base", normal=[0, 0, 1])
     [anchor] = nearest(shapes, "assembly", ("base", [5, 3, 5.5]))
@@ -324,6 +329,53 @@ def test_nearest_point_on_no_face_of_the_part_is_an_error_not_its_last_face(shap
 def test_face_at_a_coordinate_of_modelling_noise_is_at_zero():
     facts = {"type": "plane", "normal": [0, 0, 1], "center": [3, 4, -0.0000001], "area": 100}
     assert descriptor("face", facts) == "plane, normal +Z, z = 0, 100 mm²"
+
+
+def test_nearest_says_how_far_the_anchor_is_from_the_edge_it_names(shapes):
+    edge = queries.describe(shapes, "assembly:base/E3")
+    assert edge["type"] == "line"
+    x, y, z = edge["center"]
+    # Its middle is on it; a point pushed 2 mm off the plate's corner line is 2 mm from it.
+    if abs(x) == 20:
+        away = [x + math.copysign(2, x), y, z]
+    else:
+        away = [x, y + math.copysign(2, y), z]
+    on, off, plain = nearest_with(
+        shapes,
+        "assembly",
+        {"part": "base", "point": [x, y, z], "edge": "base/E3"},
+        {"part": "base", "point": away, "edge": "base/E3"},
+        {"part": "base", "point": [x, y, z]},
+    )
+    assert on["edgeFound"] is True
+    assert on["edgeDistance"] == pytest.approx(0, abs=1e-9)
+    assert on["edgeDescriptor"] == edge["descriptor"]
+    assert on["distance"] == pytest.approx(0, abs=1e-9)
+    assert off["edgeDistance"] == pytest.approx(2)
+    assert off["distance"] == pytest.approx(2)  # of the surface, as ever
+    # An anchor that names no edge is told nothing of one.
+    assert not {"edgeFound", "edgeDistance", "edgeDescriptor"} & set(plain)
+
+
+@pytest.mark.parametrize("edge", ["base/E99", "post/E0", "base/F0", "base", "E3", "", "base/E-1"])
+def test_nearest_naming_an_edge_the_part_does_not_have_says_so(shapes, edge):
+    [anchor] = nearest_with(shapes, "assembly", {"part": "base", "point": [5, 3, 5.5], "edge": edge})
+    assert anchor["found"] is True
+    assert anchor["distance"] == pytest.approx(3)
+    assert anchor["edgeFound"] is False
+    assert "edgeDistance" not in anchor
+
+
+def test_nearest_edge_of_a_missing_part_is_only_not_found(shapes):
+    assert nearest_with(shapes, "assembly", {"part": "gone", "point": [0, 0, 0], "edge": "gone/E1"}) == [
+        {"part": "gone", "found": False}
+    ]
+
+
+def test_nearest_edge_that_is_not_a_string_is_a_bad_request(shapes):
+    with pytest.raises(queries.QueryError) as e:
+        nearest_with(shapes, "assembly", {"part": "base", "point": [0, 0, 0], "edge": 3})
+    assert e.value.kind == "bad_request"
 
 
 def test_nearest_missing_part_is_not_found_and_the_others_are_answered(shapes):
@@ -457,6 +509,18 @@ def test_morph_fixture_moves_its_top_and_loses_its_post(tmp_path):
     assert moved["descriptor"] == "plane, normal +Z, z = 5.5, 1064 mm²"
     assert moved["ref"] != on_top["ref"]
     assert lost == {"part": "post", "found": False}
+
+    # An edge number belongs to another edge after the rebuild. Marks at the middle of a's E1 and
+    # E2 are on b's surface still, and millimetres from the edges that now have those numbers.
+    middles = {i: queries.describe(a, f"main:plate/E{i}")["center"] for i in (1, 2)}
+    for i, gap in ((1, 2.0), (2, 2.5)):
+        anchor = {"part": "plate", "point": middles[i], "edge": f"plate/E{i}"}
+        [before] = nearest_with(a, "main", anchor)
+        [after] = nearest_with(b, "main", anchor)
+        assert before["edgeDistance"] == pytest.approx(0, abs=1e-9)
+        assert after["distance"] == pytest.approx(0, abs=1e-9)
+        assert after["edgeFound"] is True
+        assert after["edgeDistance"] == pytest.approx(gap)
 
     (folder / "variant.txt").write_text("c")
     with pytest.raises(Exception, match="it must say a or b"):

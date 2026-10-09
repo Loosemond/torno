@@ -13,7 +13,7 @@ import { Builds, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveLook } from './look'
-import { coalesced, reanchorAll } from './marks/reanchor'
+import { coalesced, followMarks, reanchorAll } from './marks/reanchor'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
@@ -34,6 +34,8 @@ import { scanWorkspace } from './workspace'
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the last scan
+  /** Has the marks of an object checked against its last build (see `openWorkspace`). */
+  reanchor?: (objectId: string) => void
   kernel: KernelClient
   builds: Builds
   opened: Set<string> // ids of the objects being watched and built
@@ -99,6 +101,7 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
     )
   })
   builds.on('scene', ({ objectId }) => reanchor(objectId))
+  ws.reanchor = reanchor
   current = ws
   return info
 }
@@ -179,6 +182,8 @@ export function registerIpc(
   marks = opts.marks ?? null
   marks?.on('changed', (m) => broadcast('marks:changed', m))
   marks?.on('problem', (m) => broadcast('marks:problem', m))
+  // A mark added, or reopened, has not been checked against the build there is: no build is on its way to do it.
+  if (marks) followMarks(marks, (objectId) => current?.reanchor?.(objectId))
   const requireMarks = (): MarkStore => {
     if (!marks) throw new Error('marks are not available')
     return marks

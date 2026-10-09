@@ -6,6 +6,12 @@ interface MarkEvents {
   changed: { objectId: string; marks: Mark[] }
   /** Something about an object's marks file the person should know, as a sentence. Said once; `problem()` answers it afterwards. */
   problem: { objectId: string; message: string }
+  /**
+   * Marks whose anchors nothing has checked against the last build: those just
+   * added, and those reopened, which were passed over while they were resolved.
+   * Told after the `changed` of the same change.
+   */
+  unchecked: { objectId: string; ids: string[] }
 }
 
 /** What a patch may change of any mark, and of a shape only. */
@@ -32,7 +38,7 @@ export class MarkStore {
   private problems = new Map<string, string>()
   /** Counts `forget`: what was read before one is not kept after it. */
   private epoch = 0
-  private listeners: { [E in keyof MarkEvents]: Array<(m: MarkEvents[E]) => void> } = { changed: [], problem: [] }
+  private listeners: { [E in keyof MarkEvents]: Array<(m: MarkEvents[E]) => void> } = { changed: [], problem: [], unchecked: [] }
 
   constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date }) {}
 
@@ -152,6 +158,9 @@ export class MarkStore {
       if (epoch === this.epoch) {
         this.files.set(dir, file)
         this.emit('changed', { objectId, marks: structuredClone(file.marks) })
+        const was = new Map(current.marks.map((m) => [m.id, m.status]))
+        const unchecked = file.marks.filter((m) => m.status !== 'resolved' && (was.get(m.id) ?? 'resolved') === 'resolved').map((m) => m.id)
+        if (unchecked.length > 0) this.emit('unchecked', { objectId, ids: unchecked })
       }
       return structuredClone(result)
     })

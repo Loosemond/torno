@@ -87,7 +87,23 @@ function colours(selector: string, token: string): Promise<{ drawn: string; toke
   )
 }
 
+/** A pick of the person's of an edge of the plate, at the middle of that edge. */
+async function pickEdge(ref: string, note: string): Promise<Mark> {
+  const edge = await describe(ref)
+  if (edge.kind !== 'edge') throw new Error(`${ref} is not an edge`)
+  return page.evaluate(
+    ([anchor, text]) => {
+      const hooks = window.__tornoTest!
+      const { layout, revision } = hooks.state()
+      return window.torno.marks.add('morph', { kind: 'pick', target: 'edge', author: 'user', note: text, layout, revision, camera: hooks.camera(), anchor })
+    },
+    [{ point: edge.center, part: 'plate', ref }, note] as const
+  )
+}
+
 let placed: { top: Anchor; post: Anchor }
+/** What the kernel calls the two edges picked, in variant a. */
+let edges: { e1: string; e2: string }
 
 test('pins on the top of the plate and on the post are on those faces', async () => {
   await page.getByRole('button', { name: 'morph', exact: true }).click()
@@ -103,16 +119,27 @@ test('pins on the top of the plate and on the post are on those faces', async ()
   expect(post.anchor.part).toBe('post')
   expect(post.anchor.ref).toMatch(/^post\/F\d+$/)
   expect(post.anchor.point[2]).toBeCloseTo(22.5, 3)
-  placed = { top: top.anchor, post: post.anchor }
 
-  expect((await marks()).map((m) => m.anchorState)).toEqual(['ok', 'ok'])
-  await expect(page.locator('.mark-row .mark-chip')).toHaveText(['M1', 'M2'])
+  // Picks of two edges of the plate, at their middles. In variant b the edges with these numbers
+  // are others, 2 and 2.5 mm from these points, which stay on the plate's surface.
+  await pickEdge('plate/E1', 'round this edge')
+  await pickEdge('plate/E2', 'and this one')
+  edges = { e1: (await describe('plate/E1')).descriptor, e2: (await describe('plate/E2')).descriptor }
+
+  // A mark just added is checked against the build there is: it is told what it is on.
+  await expect.poll(async () => (await marks()).map((m) => m.anchor.descriptor)).toEqual(['plane, normal +Z, z = 2.5, 1200 mm²', 'plane, normal +Z, z = 22.5, 50.27 mm²', edges.e1, edges.e2])
+  const now = await marks()
+  expect(now.map((m) => m.anchorState)).toEqual(['ok', 'ok', 'ok', 'ok'])
+  expect(now.map((m) => m.anchor.ref)).toEqual([top.anchor.ref, post.anchor.ref, 'plate/E1', 'plate/E2'])
+  expect(now.map((m) => m.anchor.point)).toEqual([top.anchor.point, post.anchor.point, now[2].anchor.point, now[3].anchor.point])
+  placed = { top: now[0].anchor, post: now[1].anchor }
+  await expect(page.locator('.mark-row .mark-chip')).toHaveText(['M1', 'M2', 'M3', 'M4'])
   await expect(page.locator('.mark-anchor')).toHaveCount(0)
 })
 
 test('rebuilt thicker and without its post: the first pin has drifted onto the face now there, the second is orphaned, and both rows say so', async () => {
-  await switchTo('b', 2, ['drifted', 'orphaned'])
-  const [top, post] = await marks()
+  await switchTo('b', 2, ['drifted', 'orphaned', 'drifted', 'drifted'])
+  const [top, post, first, second] = await marks()
 
   // The pin is where the person put it, 3 mm under the top the plate now has.
   expect(top.anchor.point).toEqual(placed.top.point)
@@ -141,19 +168,34 @@ test('rebuilt thicker and without its post: the first pin has drifted onto the f
   expect(moved.token).not.toBe(gone.token)
   // Either can still be resolved from its row, and keeps its note.
   for (const id of ['M1', 'M2']) await expect(row(id).getByRole('button', { name: `Resolve ${id}` })).toHaveCount(1)
-  await expect(page.locator('.mark-row .mark-note')).toHaveText(['too thin here', 'shorten the post'])
+  await expect(page.locator('.mark-row .mark-note')).toHaveText(['too thin here', 'shorten the post', 'round this edge', 'and this one'])
 
-  expect(marksOnDisk().marks).toEqual([top, post])
+  // The edges picked: the plate still has an E1 and an E2, each near the point of its mark and
+  // one of them "line, 30 mm" like the edge that was picked. They are other edges, and the marks say so.
+  expect(await describe('plate/E1')).toMatchObject({ kind: 'edge' })
+  expect(await describe('plate/E2')).toMatchObject({ kind: 'edge' })
+  for (const [mark, ref] of [[first, 'plate/E1'], [second, 'plate/E2']] as const) {
+    expect(mark.anchorState).toBe('drifted')
+    // The ref is kept, so that the mark is found on its edge again if the model goes back; what
+    // it is described as is the face under its point, never the edge that took the number.
+    expect(mark.anchor.ref).toBe(ref)
+    expect(mark.anchor.descriptor).toMatch(/^plane, /)
+    await expect(row(mark.id).locator('.mark-anchor')).toHaveText('moved: check it')
+  }
+
+  expect(marksOnDisk().marks).toEqual([top, post, first, second])
 })
 
 test('rebuilt as it was: both pins are ok again, on the faces they were put on', async () => {
-  await switchTo('a', 3, ['ok', 'ok'])
-  const [top, post] = await marks()
+  await switchTo('a', 3, ['ok', 'ok', 'ok', 'ok'])
+  const [top, post, first, second] = await marks()
   expect(top.anchor).toMatchObject({ point: placed.top.point, part: 'plate', ref: placed.top.ref, descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
   expect(post.anchor).toMatchObject({ point: placed.post.point, part: 'post', ref: placed.post.ref, descriptor: 'plane, normal +Z, z = 22.5, 50.27 mm²' })
-  await expect(page.locator('.mark-row .mark-chip')).toHaveText(['M1', 'M2'])
+  expect(first.anchor).toMatchObject({ ref: 'plate/E1', descriptor: edges.e1 })
+  expect(second.anchor).toMatchObject({ ref: 'plate/E2', descriptor: edges.e2 })
+  await expect(page.locator('.mark-row .mark-chip')).toHaveText(['M1', 'M2', 'M3', 'M4'])
   await expect(page.locator('.mark-anchor')).toHaveCount(0)
-  expect(marksOnDisk().marks).toEqual([top, post])
+  expect(marksOnDisk().marks).toEqual([top, post, first, second])
 })
 
 test('a resolved mark is left alone by the builds that follow', async () => {
@@ -163,7 +205,20 @@ test('a resolved mark is left alone by the builds that follow', async () => {
   await expect.poll(async () => (await marks())[1].status).toBe('resolved')
   await expect(row('M2')).toHaveCount(0)
   const before = (await marks())[1]
-  await switchTo('b', 4, ['drifted', 'ok'])
+  await switchTo('b', 4, ['drifted', 'ok', 'drifted', 'drifted'])
   expect((await marks())[1]).toEqual(before)
-  await expect(page.locator('.mark-anchor')).toHaveText(['moved: check it'])
+  await expect(page.locator('.mark-anchor')).toHaveText(['moved: check it', 'moved: check it', 'moved: check it'])
+})
+
+test('reopened, it is checked against the build there is: its part is gone, and it says so without another build', async () => {
+  await page.evaluate(() => window.torno.marks.update('morph', 'M2', { status: 'draft' }))
+  await expect.poll(async () => (await marks()).map((m) => [m.status, m.anchorState])).toEqual([
+    ['draft', 'drifted'],
+    ['draft', 'orphaned'],
+    ['draft', 'drifted'],
+    ['draft', 'drifted']
+  ])
+  expect((await state()).build).toMatchObject({ status: 'ok', revision: 4 })
+  await expect(row('M2').locator('.mark-chip')).toHaveText('M2?')
+  await expect(row('M2').locator('.mark-anchor')).toHaveText('its part is gone')
 })

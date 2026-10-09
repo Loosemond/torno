@@ -210,14 +210,16 @@ test('clicking a row makes its mark the active one and goes to the view it was p
 })
 
 test('a pick mark tints its face, also when that face is selected; a ref that names nothing is drawn at its point', async () => {
-  const face = await page.evaluate((at) => {
+  // What is drawn there, which from this view is the post: the mark is of that face, at the point of it that was hit.
+  const hit = await page.evaluate((at) => {
     const [fx, fy] = window.__tornoTest!.project(at)
-    return window.__tornoTest!.pickAt(fx, fy, { edges: false })!.ref
+    return window.__tornoTest!.pickAt(fx, fy, { edges: false })!
   }, [-14, 9, 2.5] as Vec3)
+  const face = hit.ref
   const onFace = await page.evaluate((at) => window.__tornoTest!.project(at), [-17, 12, 2.5] as Vec3)
   const before = await differing(MARKED, PLAIN, { x: onFace[0], y: onFace[1] }, 0.004)
   expect(before.near).toBe(0)
-  await addMark({ kind: 'pick', target: 'face', note: 'this face', anchor: { point: [-14, 9, 2.5], normal: [0, 0, 1], part: 'base', ref: face } })
+  await addMark({ kind: 'pick', target: 'face', note: 'this face', anchor: { point: hit.point, ...(hit.normal ? { normal: hit.normal } : {}), part: hit.part, ref: face } })
   await expect(rows()).toHaveCount(3)
   // Away from the mark's point and its label, the face itself has taken the mark's colour.
   expect((await differing(MARKED, PLAIN, { x: onFace[0], y: onFace[1] }, 0.004)).near).toBeGreaterThan(20)
