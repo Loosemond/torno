@@ -265,7 +265,7 @@ describe('measure', () => {
     // A way that already says it is approximate is not followed by the word twice.
     const rough = fake(() => ({ kind: 'distance', value: 1, unit: 'mm', how: 'minimum, approximate', exact: false }), scanned(TWO_PAIRS, { checks: { assembly: { revision: 4, of: 2, off: 0, worst: 0, moved: [] } } }))
     expect(data(await measureTool(rough, 'box', { kind: 'distance', a: 'tub/F5', b: { scan: 'S1', point: [0, 0, 1] } })).reading).toBe(
-      'S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) given as a point of S1. S1 is aligned by 2 pairs (RMS 0 mm, worst 0 mm): that RMS is of the clicked points, and says nothing of how true the scan is.'
+      'S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) given as a point of S1. S1 is aligned by 2 pairs (RMS under 0.1 mm, worst under 0.1 mm): that RMS is of the clicked points, and says nothing of how true the scan is.'
     )
   })
 
@@ -485,7 +485,7 @@ describe('section', () => {
     expect(deps.queries.map((q) => [q.name, (q.args as { points?: number }).points])).toEqual([['section', undefined], ['scan_section', 1500]])
     expect(said.scan).toMatchObject({ points: told, of: 9000, thinned: true, linesOmitted: 2 })
     expect(said.reading).toBe(
-      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, told in 1,500 of the 9,000 points found, and 2 more that are not told. S1 is aligned by 4 pairs (RMS 0 mm, worst 0 mm): that RMS is of the clicked points, and says nothing of how true the scan is."
+      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, told in 1,500 of the 9,000 points found, and 2 more that are not told. S1 is aligned by 4 pairs (RMS under 0.1 mm, worst under 0.1 mm): that RMS is of the clicked points, and says nothing of how true the scan is."
     )
     expect(deps.drawings[0].scan!.polylines[0].points).toHaveLength(1497)
     expect(deps.drawings[0].section.bounds).toEqual({ min: [0, -20], max: [300, 20] })

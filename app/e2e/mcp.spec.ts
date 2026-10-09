@@ -873,9 +873,9 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
   // checked by nobody: what the check finds of one tied to no point of the model is put there by hand.
   await app.evaluate((_electron, revision) => (globalThis as any).__tornoMain.scans.checked('hollow', 'S1', 'assembly', { revision, of: 0, off: 0, worst: 0, moved: [] }), (await state()).revision)
   const clash = JSON.parse((await call(hollow, 'scan_clash', { part: 'tub' })).text)
-  expect(clash).toMatchObject({ layout: 'assembly', scan: 'S1', exact: false, alignment: { state: 'aligned', by: 'by 3 pairs (RMS 0 mm, worst 0 mm)', pairs: 3 }, inside: { count: 400, crossing: 0 }, points: { scan: 400, touching: 0 } })
+  expect(clash).toMatchObject({ layout: 'assembly', scan: 'S1', exact: false, alignment: { state: 'aligned', by: 'by 3 pairs (RMS under 0.1 mm, worst under 0.1 mm)', pairs: 3 }, inside: { count: 400, crossing: 0 }, points: { scan: 400, touching: 0 } })
   expect(clash.deepest.depth).toBeCloseTo(1, 6)
-  expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(RMS 0 mm, worst 0 mm\): that RMS is of the clicked points, and says nothing of how true the scan is \(tied to no point of the model: not checked against builds\)\.$/)
+  expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(RMS under 0\.1 mm, worst under 0\.1 mm\): that RMS is of the clicked points, and says nothing of how true the scan is \(tied to no point of the model: not checked against builds\)\.$/)
   // What was applied is said back, and a key the tool does not take is refused by name, never dropped.
   expect(clash.ignore).toEqual([])
   expect(await call(hollow, 'scan_clash', { part: 'tub', ignored: ['M7'] })).toMatchObject({ isError: true, text: 'scan_clash takes no "ignored": did you mean ignore? An unknown key is not ignored: nothing was done. It takes: part, scan, ignore, margin, layout.' })
@@ -952,7 +952,7 @@ test("show switches the scans for now, not in the user's saved view, and the pro
   const argv: string[] = JSON.parse(/READY (\[.*\])/s.exec((await terminal()).replace(/\n/g, ''))![1])
   for (const tool of ['scans', 'scan_clash', 'scan_deviation']) expect(argv[argv.indexOf('--append-system-prompt') + 1]).toContain(`mcp__torno__${tool}`)
   await prompt()
-  await expect.poll(async () => times(await said(), 'Scans: S1 sheet.stl, aligned in assembly by 3 pairs (RMS 0 mm, worst 0 mm) (tied to no point of the model: not checked against builds), hidden.')).toBe(1)
+  await expect.poll(async () => times(await said(), 'Scans: S1 sheet.stl, aligned in assembly by 3 pairs (RMS under 0.1 mm, worst under 0.1 mm) (tied to no point of the model: not checked against builds), hidden.')).toBe(1)
 })
 
 // Set TORNO_SHOTS=<dir> to write the drawings the agent is given of a section there: the measures plate

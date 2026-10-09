@@ -111,8 +111,10 @@ export interface ScanInfo extends Scan {
 
 /**
  * What came of importing a scan again from its source, into the id it has. `sourceChanged`: the file is not the one
- * that was read before (another hash). `meshChanged`: the mesh has other vertex or triangle counts. With either, what
- * was checked of its alignments is forgotten: they are to be looked at again.
+ * that was read before (another hash): each of its alignments then says so (`ScanAlignment.sourceChanged`) until it
+ * is made again or said to hold. `meshChanged`: the mesh has other vertex or triangle counts. Its name and its
+ * alignments stay, and so does what the last build's check found of them: that is of the model's points, and says
+ * nothing of the mesh.
  */
 export interface Reimported { scan: ScanInfo; sourceChanged: boolean; meshChanged: boolean }
 
@@ -222,8 +224,8 @@ export function basisOf(alignment: Pick<ScanAlignment, 'steps' | 'pairs'>): { ba
 }
 
 /** A fit of pairs that a hand moved afterwards: how well it fitted and where its pairs are now, two numbers, each named. */
-function movedFit(alignment: Pick<ScanAlignment, 'rms' | 'fitRms'>, fit: (rms: string) => string): { fitted: string; now: string } {
-  return { fitted: alignment.fitRms === undefined ? '' : ` (${fit(fitNumber(alignment.fitRms))})`, now: alignment.rms === undefined ? '' : `: the pairs are now ${fitNumber(alignment.rms)} mm apart` }
+function movedFit(alignment: Pick<ScanAlignment, 'rms' | 'fitRms'>, fit: (rms: string) => string, figure: (mm: number) => string = fitNumber): { fitted: string; now: string } {
+  return { fitted: alignment.fitRms === undefined ? '' : ` (${fit(figure(alignment.fitRms))})`, now: alignment.rms === undefined ? '' : `: the pairs are now ${figure(alignment.rms)} mm apart` }
 }
 
 /**
@@ -285,11 +287,13 @@ export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unche
  * How an alignment was made, at length: `by floor + 4 pairs (RMS 2.1 mm, worst 3.4 mm)`, `by hand (typed values)`,
  * `by floor only (plane RMS 0.8 mm): its place in that plane is as imported`; with `, then moved by hand` when
  * a fit or a floor was: `by 4 pairs (fit RMS 0.8 mm), then moved by hand: the pairs are now 20 mm apart`.
+ * `figure` writes each length, less its unit: to the thousandth for the person who clicked the points, coarser
+ * for whoever reads it beside what is taken from the scan (`alignmentSaid`).
  */
-export function alignmentText(alignment: ScanAlignment): string {
+export function alignmentText(alignment: ScanAlignment, figure: (mm: number) => string = fitNumber): string {
   const { basis, movedByHand } = basisOf(alignment)
   const pairs = alignment.pairs ?? []
-  const rms = alignment.rms === undefined ? null : `RMS ${fitNumber(alignment.rms)} mm`
+  const rms = alignment.rms === undefined ? null : `RMS ${figure(alignment.rms)} mm`
   const moved = movedByHand ? ', then moved by hand' : ''
   const word = (step: AlignStep): string => (step === 'typed' ? 'typed values' : step)
   if (basis === 'hand') return `by hand (${[...new Set(alignment.steps.filter((step) => step === 'nudge' || step === 'typed'))].map(word).join(' + ') || 'handles'})`
@@ -298,9 +302,9 @@ export function alignmentText(alignment: ScanAlignment): string {
   const many = `${count(pairs.length)} ${pairs.length === 1 ? 'pair' : 'pairs'}`
   const before = alignment.steps.slice(0, alignment.steps.lastIndexOf('pairs')).includes('floor') ? 'floor + ' : ''
   const scaled = alignment.scaled ? ', scaled' : ''
-  if (!movedByHand) return `by ${before}${many} (${[...(rms ? [rms] : []), `worst ${fitNumber(Math.max(...pairs.map((pair) => pair.residual)))} mm`].join(', ')})${scaled}`
+  if (!movedByHand) return `by ${before}${many} (${[...(rms ? [rms] : []), `worst ${figure(Math.max(...pairs.map((pair) => pair.residual)))} mm`].join(', ')})${scaled}`
   // How well it fitted, and where a hand left its pairs: two numbers, never one.
-  const { fitted, now } = movedFit(alignment, (was) => `fit RMS ${was} mm`)
+  const { fitted, now } = movedFit(alignment, (was) => `fit RMS ${was} mm`, figure)
   return `by ${before}${many}${fitted}${scaled}${moved}${now}`
 }
 

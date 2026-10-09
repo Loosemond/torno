@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { BuildError, BuildState } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { Builds, buildTimeout, watchFolder } from './builds'
+import { Builds, NotBuilding, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, KernelError, startKernel } from './kernel/client'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
@@ -220,8 +220,13 @@ describe('Builds.query', () => {
       const error = (await builds.query('bracket', 'describe', {}).catch((e) => e)) as KernelError
       expect(error).toBeInstanceOf(KernelError)
       expect(error).toMatchObject({ kind: 'exception' })
-      expect(error.message).toBe('there is no build of bracket to answer from: the kernel let the last one go, and the model does not build now (no). It is built again when a source changes.')
+      expect(error.message).toBe('there is no build of bracket to answer from: the kernel let the last one go, and the model does not build now (no). It is built again when a source changes or Rebuild is pressed.')
+      expect(error).toBeInstanceOf(NotBuilding)
     }
+    // Asked unasked (a check on a timer), it is the kernel's no_build still, and is known for what it is: the model does not build.
+    const unasked = (await builds.query('bracket', 'describe', {}, { restore: false }).catch((e) => e)) as KernelError
+    expect(unasked).toBeInstanceOf(NotBuilding)
+    expect(unasked).toMatchObject({ kind: 'no_build', message: 'the kernel no longer holds this build' })
     expect(kernel.calls).toHaveLength(2)
     expect(builds.state('bracket')).toMatchObject({ status: 'failed', revision: 1, stale: true })
     // A source changes: the failure is no longer what is known of the model.

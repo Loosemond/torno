@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Part } from '../../shared/scene'
 import type { ScanAlignment } from '../../shared/scans'
 import type { NearestAnchor } from '../marks/reanchor'
-import { NOT_HELD } from '../builds'
+import { NOT_HELD, NotBuilding } from '../builds'
 import { KernelError } from '../kernel/client'
 import { RECHECK_EVERY_MS, anchoredPoints, checkAlignments, checkingAlignments, heldNow, judgeAlignment, keepChecking, tiedToMoved, uncheckedOn } from './alignCheck'
 
@@ -167,6 +167,18 @@ describe('and besides', () => {
     const scans = { list: async () => [{ id: 'S1', alignments: { print: ALIGNED } }] as never, checked: async () => {}, uncheckedFor: async (...args: unknown[]) => void failed.push(args) }
     expect(await checkAlignments({ scans, scene: () => scene, nearest: async () => Promise.reject(new KernelError('no_build', NOT_HELD)) }, 'box')).toBe(true)
     expect(failed).toEqual([['box', 'S1', 'print', { revision: 12, reason: 'the kernel no longer holds this build: it is checked when the model is next built' }]])
+  })
+
+  // Milestone 5 (M5): the kernel let the build go and the model, as it is, does not build: that is the reason, whoever asked.
+  it('says that the model does not build now, when that is why there is no build to check against, and is not tried again', async () => {
+    const failed: unknown[] = []
+    const scene = { revision: 12, scene: { model: 'm.py', layouts: ['print'], parts: [part('tray')], seconds: 0, output: '' } }
+    const scans = { list: async () => [{ id: 'S1', alignments: { print: ALIGNED } }] as never, checked: async () => {}, uncheckedFor: async (...args: unknown[]) => void failed.push(args) }
+    for (const error of [new NotBuilding('exception', 'there is no build of box to answer from: …'), new NotBuilding('no_build', NOT_HELD)]) {
+      failed.length = 0
+      expect(await checkAlignments({ scans, scene: () => scene, nearest: async () => Promise.reject(error) }, 'box')).toBe(true)
+      expect(failed).toEqual([['box', 'S1', 'print', { revision: 12, reason: 'the model does not build now: it is checked when it builds again' }]])
+    }
   })
 
   it('asks the kernel without restoring a build, but for the check an act of the person asked for', async () => {

@@ -164,9 +164,27 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   ws.nearest = nearest
   // A check by itself (after a build, every 30 s, when the scans are listed) never has the object built again:
   // a kernel that let the build go says so, that is said of the alignment, and the next build is waited for.
-  const alignChecks: Retrying = scans
-    ? checkingAlignments({ scans, scene: (id) => (current === ws ? builds.scene(id) : undefined), query: (id, name, args, opts) => builds.query(id, name, args, opts) })
-    : Object.assign(() => {}, { cancel() {} })
+  // The scans' store is looked up at each run, as the marks' is above: a workspace opened before `registerIpc`
+  // was given the scans has its alignments checked once it has been.
+  let checking: { of: ScanStore; ask: Retrying } | null = null
+  let ended = false
+  const alignChecks: Retrying = Object.assign(
+    (objectId: string, restore?: boolean): void => {
+      const store = scans
+      if (!store || ended) return
+      if (checking?.of !== store) {
+        checking?.ask.cancel()
+        checking = { of: store, ask: checkingAlignments({ scans: store, scene: (id) => (current === ws ? builds.scene(id) : undefined), query: (id, name, args, opts) => builds.query(id, name, args, opts) }) }
+      }
+      checking.ask(objectId, restore)
+    },
+    {
+      cancel(): void {
+        ended = true
+        checking?.ask.cancel()
+      }
+    }
+  )
   builds.on('scene', ({ objectId }) => alignChecks(objectId))
   ws.alignChecks = alignChecks
   // Three quick retries are not the end of it: for as long as an alignment of an open object was not checked

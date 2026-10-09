@@ -63,6 +63,13 @@ export function buildTimeout(env: Record<string, string | undefined>): number | 
 /** What a query that never restores is answered when the kernel holds no build of the object any more. */
 export const NOT_HELD = 'the kernel no longer holds this build'
 
+/**
+ * A query that found no build to answer from because the kernel let the last one go and the model, as its
+ * sources are, does not build: nothing answers until a source changes or a build is asked for. Whoever records
+ * why something was not checked says that, and not only that the build is gone.
+ */
+export class NotBuilding extends KernelError {}
+
 type SceneMessage = { objectId: string; revision: number; scene: Scene; blob: Buffer }
 type LastGood = { revision: number; scene: Scene; blob: Buffer }
 
@@ -272,13 +279,19 @@ export class Builds {
         this.set(entry, { ...entry.state })
       }
     }
-    if (opts?.restore === false) throw new KernelError('no_build', NOT_HELD)
     // A build of it that is running or waiting may be of sources that changed since: that one is waited for.
     const failure = entry.state.status === 'failed' && !this.displaced.has(objectId) ? entry.failure : undefined
+    if (opts?.restore === false) throw failure ? new NotBuilding('no_build', NOT_HELD) : new KernelError('no_build', NOT_HELD)
     if (failure) {
-      throw new KernelError(failure.kind, `there is no build of ${objectId} to answer from: the kernel let the last one go, and the model does not build now (${failure.message}). It is built again when a source changes.`)
+      throw new NotBuilding(failure.kind, `there is no build of ${objectId} to answer from: the kernel let the last one go, and the model does not build now (${failure.message}). It is built again when a source changes or Rebuild is pressed.`)
     }
-    await this.builtAgain(entry)
+    try {
+      await this.builtAgain(entry)
+    } catch (e) {
+      // The build that was to answer failed: with the build's own error, known for what it is.
+      if (e instanceof KernelError && this.entries.get(objectId) === entry && entry.state.status === 'failed' && entry.failure) throw new NotBuilding(e.kind, e.message, e.reason)
+      throw e
+    }
     return this.kernel.query<T>(entry.obj.dir, name, args)
   }
 

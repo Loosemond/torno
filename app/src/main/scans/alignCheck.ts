@@ -1,7 +1,7 @@
 import type { Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import { type AlignmentCheck, type ScanAlignment, type ScanInfo, standingOf } from '../../shared/scans'
-import { NOT_HELD } from '../builds'
+import { NOT_HELD, NotBuilding } from '../builds'
 import { KernelError, isBusy } from '../kernel/client'
 import { type AskedAnchor, type NearestAnchor, type Retrying, answered, nearestReply, retrying } from '../marks/reanchor'
 import { tolerance } from '../marks/tolerance'
@@ -105,6 +105,8 @@ export function uncheckedOn(scans: Array<Pick<ScanInfo, 'alignments' | 'checks'>
 
 /** How often an alignment that was not checked against the last build is asked about again, for as long as it is not. */
 export const RECHECK_EVERY_MS = 30_000
+/** Why an alignment was not checked when the kernel let the build go and the model does not build as it is (`NotBuilding`). */
+export const NOT_BUILDING = 'the model does not build now: it is checked when it builds again'
 
 /**
  * Asks again, every `RECHECK_EVERY_MS`, for the check of every object of `objects()` whose scans have an
@@ -160,6 +162,11 @@ export async function checkAlignments(deps: AlignCheckDeps, objectId: string): P
           if (superseded()) return true
           // The kernel let the build go (to make room, or its worker died): no asking again brings it back, and
           // none is made. It is said, and the next build has its own check.
+          // And the model, as it is, does not build: that is why, and it is what the person can do something about.
+          if (e instanceof NotBuilding) {
+            await deps.scans.uncheckedFor?.(objectId, scan.id, layout, { revision, reason: NOT_BUILDING }).catch(() => {})
+            continue
+          }
           if (e instanceof KernelError && e.kind === 'no_build') {
             await deps.scans.uncheckedFor?.(objectId, scan.id, layout, { revision, reason: `${NOT_HELD}: it is checked when the model is next built` }).catch(() => {})
             continue
