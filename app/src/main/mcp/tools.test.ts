@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Part, Scene } from '../../shared/scene'
 import type { Described } from '../../shared/geometry'
-import type { Mark, MarkPatch, NewMark } from '../../shared/marks'
+import type { Anchor, Mark, MarkPatch, NewMark } from '../../shared/marks'
 import type { Camera, LookRequest, LookResult, ShowRequest, ViewState } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
 import type { NearestAnchor } from '../marks/reanchor'
@@ -419,8 +419,24 @@ describe('marks', () => {
     const marks = jsonOf(result)
     expect(marks.map((m: Mark) => m.id)).toEqual(['M1', 'M2', 'M3', 'M4'])
     // What modelling leaves in the last digits is not passed on.
-    expect(marks[0]).toEqual({ ...deps.w.list[0], anchor: { ...(deps.w.list[0] as { anchor: object }).anchor, point: [1, 2, 2.5] }, camera: { ...CAMERA, position: [100.1235, -80, 60] } })
+    expect(marks[0]).toEqual({
+      ...deps.w.list[0],
+      anchor: { ...(deps.w.list[0] as { anchor: object }).anchor, point: [1, 2, 2.5] },
+      camera: { ...CAMERA, position: [100.1235, -80, 60] },
+      line: 'M1 pin on base/F5 (plane, normal +Z, z = 2.5, 1200 mm²) at (1, 2, 2.5): "here"'
+    })
     expect(marks[1]).toMatchObject({ kind: 'stroke', plane: { label: 'XZ at y = 40.0' }, points2d: [[0, 0], [10, 5]] })
+  })
+
+  it('gives each mark its line, which says of one that moved only where it was placed', async () => {
+    const deps = fake()
+    deps.w.list[0] = { ...deps.w.list[0], anchorState: 'drifted' } as Mark
+    const [moved] = jsonOf(await marksTool(deps, 'bracket', {}))
+    // The ref and the descriptor are there side by side, and may be of two things: the line does not pair them.
+    expect(moved).toMatchObject({ anchorState: 'drifted', anchor: { ref: 'base/F5', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } })
+    expect(moved.line).toBe('M1 pin placed on base/F5 at (1, 2, 2.5): "here" [moved since it was placed: check it]')
+    expect(jsonOf(await describeTool(deps, 'bracket', { ref: 'M1' })).line).toBe(moved.line)
+    expect(TOOLS.marks.description).toContain('anchorState')
   })
 
   it('keeps to one status when asked, and open is all that are not resolved', async () => {
@@ -522,6 +538,18 @@ describe('highlight', () => {
     expect(textOf(await highlightTool(deps, 'bracket', { refs: ['M1'] }))).toBe('nothing was highlighted: M1 is on base/F40, but base has 6 faces, F0 to F5: there is no F40')
   })
 
+  it('does not point at where a mark was, once the mark has moved or lost its part', async () => {
+    const deps = fake()
+    deps.w.list[0] = { ...deps.w.list[0], anchorState: 'drifted' } as Mark
+    deps.w.list[1] = { ...MARK_BASE, id: 'M2', kind: 'pick', target: 'edge', anchorState: 'orphaned', anchor: { point: [0, 0, 0], part: 'base', ref: 'base/E7' } }
+    const result = await highlightTool(deps, 'bracket', { refs: ['base/F1', 'M1', 'M2'] })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe(
+      'nothing was highlighted: M1 was placed on base/F5, which has moved since: the ref may name something else now; the part M2 was placed on is gone'
+    )
+    expect(deps.w.highlights).toEqual([])
+  })
+
   it('cuts the note at 2000 characters', async () => {
     const deps = fake()
     await highlightTool(deps, 'bracket', { refs: ['base'], note: 'n'.repeat(5000) })
@@ -541,6 +569,11 @@ describe('highlight', () => {
     expect(await highlightTool(refusing, 'bracket', { refs: ['base'], layout: 'print' })).toEqual({
       isError: true,
       content: [{ type: 'text', text: 'layout print is not the one on screen (assembly): call show with that layout first' }]
+    })
+    const hidden = fake({ highlight: async () => Promise.reject(new Error('nothing was highlighted: post is hidden, so the user would see nothing of it. Call show with parts ["base","post"] first, which changes what the user sees')) })
+    expect(await highlightTool(hidden, 'bracket', { refs: ['post'] })).toEqual({
+      isError: true,
+      content: [{ type: 'text', text: 'nothing was highlighted: post is hidden, so the user would see nothing of it. Call show with parts ["base","post"] first, which changes what the user sees' }]
     })
     const moved = fake({ highlight: async (_id, layout, refs) => ({ objectId: 'helmet-stand', layout, refs, revision: 1 }) })
     expect(textOf(await highlightTool(moved, 'bracket', { refs: ['base'] }))).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')
@@ -647,12 +680,48 @@ describe('add_mark', () => {
     expect(textOf(result)).toBe('placed in layout assembly: (yours) M5 pin on base/F5 (plane, normal +Z, z = 2.5, 1200 mm²) at (3, 4, 2.5): "here"')
   })
 
-  it('says so when the centre of a face is not on it, as in the hole of a ring', async () => {
+  it('refuses a pick of a face whose centre is not on it, as in the hole of a ring: the mark kept would be of another face', async () => {
+    // The fake kernel finds every point on base/F5: the centre of base/F2 is not on base/F2. Far or near, it is refused.
+    for (const distance of [4, 0.01]) {
+      const deps = fake()
+      deps.w.distance = () => distance
+      expect(await addMarkTool(deps, 'bracket', { kind: 'pick', note: 'this rim', ref: 'base/F2' })).toEqual({
+        isError: true,
+        content: [{ type: 'text', text: 'the centre of base/F2 is not on it (a face with a hole, a ring or a short cylinder): give a point on base/F2' }]
+      })
+      expect(deps.w.added).toEqual([])
+    }
     const deps = fake()
-    deps.w.distance = () => 4
-    const result = await addMarkTool(deps, 'bracket', { kind: 'pick', note: 'this rim', ref: 'base/F2' })
-    expect(deps.w.added[0]).toMatchObject({ target: 'face', anchor: { point: [0, 0, 2.5], ref: 'base/F2' } })
-    expect(textOf(result)).toContain('\nThe centre of base/F2 is not on it: the mark is at the nearest point of the surface of base, (0, 0, 2.5), which is on base/F5. Give a point on base/F2 to put it there.')
+    expect(textOf(await addMarkTool(deps, 'bracket', { kind: 'pick', note: 'this rim', ref: 'base/F2', point: [5, 5, 2.5] }))).toBe('the point (5, 5, 2.5) is on base/F5, not base/F2: give a point on base/F2')
+    expect(deps.w.added).toEqual([])
+  })
+
+  it('puts a pin or the start of an arrow on the face that is under its point, and says which when it is not the one named', async () => {
+    for (const distance of [4, 0.01]) {
+      const deps = fake()
+      deps.w.distance = () => distance
+      const result = await addMarkTool(deps, 'bracket', { kind: 'pin', note: 'here', ref: 'base/F2' })
+      // What is kept is what the check that follows the adding would make of it: nothing is left to rewrite.
+      expect((deps.w.added[0] as { anchor: Anchor }).anchor).toEqual({ point: [0, 0, 2.5], part: 'base', ref: 'base/F5', normal: [0, 0, 1], descriptor: 'nearest of base' })
+      expect(textOf(result)).toBe(
+        'placed in layout assembly: (yours) M5 pin on base/F5 (nearest of base) at (0, 0, 2.5): "here"\nThe centre of base/F2 is not on it: the mark is placed on base/F5, the face under that point. Give a point on base/F2 to put it there.'
+      )
+    }
+    const deps = fake()
+    const arrow = await addMarkTool(deps, 'bracket', { kind: 'arrow', note: '', ref: 'base/F2', point: [5, 5, 2.5], by: [0, 0, 5] })
+    expect(deps.w.added[0]).toMatchObject({ from: { point: [5, 5, 2.5], ref: 'base/F5', descriptor: 'nearest of base' } })
+    expect(textOf(arrow)).toContain('M5 arrow from base/F5 (nearest of base) at (5, 5, 2.5)')
+    expect(textOf(arrow)).toContain('\nThe point is on base/F5, not base/F2: the mark is placed on base/F5, the face under that point.')
+  })
+
+  it('puts a pin named by a part or an edge on the face under it, as it would be found to be', async () => {
+    const deps = fake()
+    const byPart = await addMarkTool(deps, 'bracket', { kind: 'pin', note: '', ref: 'base' })
+    expect((deps.w.added[0] as { anchor: Anchor }).anchor).toEqual({ point: [0, 0, 2.5], part: 'base', ref: 'base/F5', normal: [0, 0, 1], descriptor: 'nearest of base' })
+    expect(textOf(byPart)).toBe('placed in layout assembly: (yours) M5 pin on base/F5 (nearest of base) at (0, 0, 2.5)')
+    const byEdge = await addMarkTool(deps, 'bracket', { kind: 'pin', note: '', ref: 'base/E7' })
+    expect((deps.w.added[1] as { anchor: Anchor }).anchor).toEqual({ point: [0, 15, 2.5], part: 'base', ref: 'base/F5', normal: [0, 0, 1], descriptor: 'nearest of base' })
+    expect(textOf(byEdge)).toContain('\nA pin is on a face: it is placed on base/F5, the face under the middle of base/E7. Use a pick to mark the edge itself.')
   })
 
   it('leaves a mark on an edge at the middle of the edge, which needs no asking', async () => {
@@ -680,20 +749,19 @@ describe('add_mark', () => {
       content: [{ type: 'text', text: 'the point (10, 12, 2.5) is 3.21 mm from base/E7: give a point on the edge, or leave the point out to use its middle' }]
     })
     deps.w.edgeDistance = undefined
-    expect(textOf(await addMarkTool(deps, 'bracket', { kind: 'pin', note: '', ref: 'base/E7', point: [10, 12, 2.5] }))).toBe(
+    expect(textOf(await addMarkTool(deps, 'bracket', { kind: 'pick', note: '', ref: 'base/E7', point: [10, 12, 2.5] }))).toBe(
       'the kernel did not say how far the point (10, 12, 2.5) is from base/E7: leave the point out to use the middle of the edge'
     )
     expect(deps.w.added).toHaveLength(1)
   })
 
-  it('takes a point with the ref, and ties the mark to the face the point is on', async () => {
+  it('takes a point with the ref of the face it is on', async () => {
     const deps = fake()
     const onIt = await addMarkTool(deps, 'bracket', { kind: 'pin', note: 'here', ref: 'base/F5', point: [5, 5, 2.5] })
-    expect(deps.w.added[0]).toMatchObject({ anchor: { point: [5, 5, 2.5], ref: 'base/F5', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } })
+    expect(deps.w.added[0]).toMatchObject({ anchor: { point: [5, 5, 2.5], ref: 'base/F5', normal: [0, 0, 1], descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } })
     expect(textOf(onIt)).not.toContain('\n')
-    const other = await addMarkTool(deps, 'bracket', { kind: 'pin', note: 'here', ref: 'base/F2', point: [5, 5, 2.5] })
-    expect(deps.w.added[1]).toMatchObject({ anchor: { point: [5, 5, 2.5], part: 'base', ref: 'base/F5', descriptor: 'nearest of base' } })
-    expect(textOf(other)).toContain('\nThe point is on base/F5, not base/F2: the mark is tied to base/F5.')
+    await addMarkTool(deps, 'bracket', { kind: 'pick', note: 'here', ref: 'base/F5', point: [5, 5, 2.5] })
+    expect(deps.w.added[1]).toMatchObject({ kind: 'pick', target: 'face', anchor: { point: [5, 5, 2.5], ref: 'base/F5' } })
   })
 
   it('refuses a point that is not on the part of its ref', async () => {
@@ -726,7 +794,7 @@ describe('add_mark', () => {
     expect(deps.w.added[1]).toMatchObject({ shape: 'cylinder', size: [8, 8, 20] })
     expect((deps.w.added[1] as { rotation: number[] }).rotation[3]).toBeCloseTo(Math.SQRT1_2)
     expect(deps.w.added[2]).toMatchObject({ shape: 'plane', size: [30, 20, 0] })
-    expect(textOf(result)).toBe('placed in layout assembly: (yours) M5 box 10 × 10 × 4 mm at (5, 5, 4.5), intent remove: "pocket here"')
+    expect(textOf(result)).toBe('placed in layout assembly: (yours) M5 box 10 × 10 × 4 mm centred at (5, 5, 4.5), intent remove: "pocket here"')
     // The kernel is not asked about a shape that is tied to nothing.
     expect(deps.w.described).toEqual([])
     expect(deps.w.asked).toEqual([])

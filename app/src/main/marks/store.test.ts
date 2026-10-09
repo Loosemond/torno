@@ -158,7 +158,8 @@ describe('updating a mark', () => {
     await store.add('bracket', shape())
     await store.add('bracket', pin())
     const moved = (await store.update('bracket', 'M1', { position: [5, 0, 0], size: [2, 3, 4], shape: 'cylinder', intent: 'remove', rotation: [0, 0, 1, 0] })) as ShapeMark
-    expect(moved).toMatchObject({ position: [5, 0, 0], size: [2, 3, 4], shape: 'cylinder', intent: 'remove', rotation: [0, 0, 1, 0] })
+    // A cylinder has one diameter: the size is held to what the kind has.
+    expect(moved).toMatchObject({ position: [5, 0, 0], size: [2, 2, 4], shape: 'cylinder', intent: 'remove', rotation: [0, 0, 1, 0] })
     await expect(store.update('bracket', 'M2', { position: [5, 0, 0] })).rejects.toThrow('M2 is a pin, not a shape')
   })
 

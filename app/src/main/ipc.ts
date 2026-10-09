@@ -53,6 +53,9 @@ let marks: MarkStore | null = null
 /** Told where the build of an object stands, each time that changes, once `registerIpc` has been given it. */
 let onBuild: ((state: BuildState) => void) | null = null
 
+/** Told that the workspace was left, with what was known of its objects. */
+let onWorkspaceClosed: (() => void) | null = null
+
 function broadcast(channel: string, message: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send(channel, message)
@@ -129,6 +132,7 @@ export async function closeWorkspace(): Promise<void> {
   forgetViews()
   // The next workspace may have an object of the same name, or this folder may change while it is closed.
   marks?.forget()
+  onWorkspaceClosed?.()
   // Not waited for: an agent that ignores the hangup is killed two seconds later.
   void sessions?.stopAll()
   for (const id of ws.opened) ws.builds.close(id)
@@ -184,6 +188,8 @@ export function registerIpc(
     sessions?: Sessions
     marks?: MarkStore
     onBuild?: (state: BuildState) => void
+    /** The open workspace was left: object ids mean nothing any more. */
+    onWorkspaceClosed?: () => void
     /** Stands in for the folder dialog: the folder to open, or null for none. */
     pickFolder?: () => Promise<string | null>
   } = {}
@@ -197,6 +203,7 @@ export function registerIpc(
   }
 
   onBuild = opts.onBuild ?? null
+  onWorkspaceClosed = opts.onWorkspaceClosed ?? null
   marks = opts.marks ?? null
   marks?.on('changed', (m) => broadcast('marks:changed', m))
   marks?.on('problem', (m) => broadcast('marks:problem', m))

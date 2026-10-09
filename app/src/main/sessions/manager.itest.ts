@@ -20,6 +20,9 @@ let context = (id: string) => `context for ${id}`
 /** By object: the marks its next prompt would tell of. What was delivered is taken out, as the store would. */
 let drafts = new Map<string, string[]>()
 let delivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
+/** What the context waits for before it is given, and what is told when it is asked for. */
+let gate: Promise<void> = Promise.resolve()
+let asking: (() => void) | null = null
 let output = new Map<string, string>()
 let statuses = new Map<string, SessionStatus[]>()
 
@@ -33,7 +36,11 @@ function make(command = `node ${FAKE}`): Sessions {
   const made = new Sessions({
     http,
     adapter: claudeAdapter(command),
-    contextFor: (id) => ({ text: context(id), sentMarkIds: drafts.get(id) ?? [] }),
+    contextFor: async (id) => {
+      asking?.()
+      await gate
+      return { text: context(id), sentMarkIds: drafts.get(id) ?? [] }
+    },
     onDelivered: (objectId, sentMarkIds) => {
       delivered.push({ objectId, sentMarkIds })
       drafts.delete(objectId)
@@ -73,6 +80,8 @@ afterEach(async () => {
   context = (id) => `context for ${id}`
   drafts = new Map()
   delivered = []
+  gate = Promise.resolve()
+  asking = null
 })
 
 afterAll(async () => {
@@ -180,6 +189,35 @@ describe('a session', () => {
     sessions.write(b.sessionId, 'hook\r')
     await expect.poll(() => delivered.at(-1)).toEqual({ objectId: 'cover', sentMarkIds: ['M1'] })
     expect(delivered).toHaveLength(2)
+  })
+
+  it('consumes nothing when the agent hung up before the answer was written', async () => {
+    drafts = new Map([['bracket', ['M1']]])
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    let open!: () => void
+    gate = new Promise<void>((resolve) => (open = resolve))
+    const asked = new Promise<void>((resolve) => (asking = resolve))
+    // The hook as the agent posts it, given up on while torno is still putting the answer together.
+    const gone = new AbortController()
+    const post = fetch(http.url(`/hooks/${sessionId}/UserPromptSubmit`), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: 'hello' }),
+      signal: gone.signal
+    })
+    await asked
+    gone.abort()
+    await expect(post).rejects.toThrow()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    open()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(delivered).toEqual([])
+    expect(drafts.get('bracket')).toEqual(['M1'])
+
+    // The next prompt, which is answered, takes them.
+    sessions.write(sessionId, 'hook\r')
+    await expect.poll(() => delivered).toEqual([{ objectId: 'bracket', sentMarkIds: ['M1'] }])
   })
 
   it('consumes nothing on any hook but that of a prompt', async () => {

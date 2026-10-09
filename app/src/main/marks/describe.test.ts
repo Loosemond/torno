@@ -107,17 +107,29 @@ describe('describeMark', () => {
     expect(describeMark(stroke)).toBe('M8 stroke on lid/F12 (plane, normal +Z, z = 20, 1180 mm²) from (1, 2, 20), 3 points, 10 × 5.5 × 0 mm: "crack"')
   })
 
-  it('gives a shape its size, its place and what it is meant for', () => {
+  it('gives a shape its size, where its centre is and what it is meant for', () => {
     const shape = { id: 'M7', kind: 'shape', note: 'pocket here', intent: 'remove', position: [5, 5, 4.5], rotation: [0, 0, 0, 1] }
-    expect(describeMark(mark({ ...shape, shape: 'box', size: [10, 10, 4] }))).toBe('M7 box 10 × 10 × 4 mm at (5, 5, 4.5), intent remove: "pocket here"')
-    expect(describeMark(mark({ ...shape, shape: 'cylinder', size: [8, 8, 20], note: '' }))).toBe('M7 cylinder diameter 8, height 20 mm at (5, 5, 4.5), intent remove')
-    expect(describeMark(mark({ ...shape, shape: 'sphere', size: [6, 6, 6], note: '', intent: 'keep-out' }))).toBe('M7 sphere diameter 6 mm at (5, 5, 4.5), intent keep-out')
-    expect(describeMark(mark({ ...shape, shape: 'plane', size: [30, 20, 0], note: '', intent: 'reference' }))).toBe('M7 plane 30 × 20 mm at (5, 5, 4.5), intent reference')
+    expect(describeMark(mark({ ...shape, shape: 'box', size: [10, 10, 4] }))).toBe('M7 box 10 × 10 × 4 mm centred at (5, 5, 4.5), intent remove: "pocket here"')
+    expect(describeMark(mark({ ...shape, shape: 'cylinder', size: [8, 8, 20], note: '' }))).toBe('M7 cylinder diameter 8, height 20 mm centred at (5, 5, 4.5), intent remove')
+    expect(describeMark(mark({ ...shape, shape: 'sphere', size: [6, 6, 6], note: '', intent: 'keep-out' }))).toBe('M7 sphere diameter 6 mm centred at (5, 5, 4.5), intent keep-out')
+    expect(describeMark(mark({ ...shape, shape: 'plane', size: [30, 20, 0], note: '', intent: 'reference' }))).toBe('M7 plane 30 × 20 mm centred at (5, 5, 4.5), intent reference')
   })
 
-  it('says how a shape is turned when it is', () => {
-    const turned = mark({ id: 'M7', kind: 'shape', shape: 'box', intent: 'add', size: [10, 10, 4], position: [0, 0, 0], rotation: [0, 0, 0.7071068, 0.7071068] })
-    expect(describeMark(turned)).toBe('M7 box 10 × 10 × 4 mm at (0, 0, 0), rotation quaternion xyzw (0, 0, 0.7071, 0.7071), intent add')
+  it('says how a shape is turned when it is, in degrees about X, Y and Z', () => {
+    const box = { id: 'M7', kind: 'shape', shape: 'box', intent: 'add', size: [10, 10, 4], position: [0, 0, 0] }
+    const half = (degrees: number) => [Math.sin((degrees * Math.PI) / 360), Math.cos((degrees * Math.PI) / 360)]
+    const [s15, c15] = half(15)
+    expect(describeMark(mark({ ...box, rotation: [0, 0, s15, c15] }))).toBe('M7 box 10 × 10 × 4 mm centred at (0, 0, 0), rotated (0, 0, 15)°, intent add')
+    const [s90, c90] = half(90)
+    expect(describeMark(mark({ ...box, rotation: [s90, 0, 0, c90] }))).toBe('M7 box 10 × 10 × 4 mm centred at (0, 0, 0), rotated (90, 0, 0)°, intent add')
+    expect(describeMark(mark({ ...box, rotation: [0, -s15, 0, c15] }))).toBe('M7 box 10 × 10 × 4 mm centred at (0, 0, 0), rotated (0, -15, 0)°, intent add')
+    // About X by 30, then about Z by 45, as three.js composes 'XYZ': q = qx · qz.
+    const [sx, cx] = half(30)
+    const [sz, cz] = half(45)
+    expect(describeMark(mark({ ...box, rotation: [sx * cz, -sx * sz, cx * sz, cx * cz] }))).toBe('M7 box 10 × 10 × 4 mm centred at (0, 0, 0), rotated (30, 0, 45)°, intent add')
+    // A quaternion and its negative are one rotation; none at all is not said.
+    expect(describeMark(mark({ ...box, rotation: [0, 0, -s15, -c15] }))).toContain('rotated (0, 0, 15)°')
+    expect(describeMark(mark({ ...box, rotation: [0, 0, 0, -1] }))).toBe('M7 box 10 × 10 × 4 mm centred at (0, 0, 0), intent add')
   })
 
   it('says where a mark that moved or lost its part was placed, not what is there: the ref may now name something else', () => {

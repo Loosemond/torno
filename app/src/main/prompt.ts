@@ -10,6 +10,8 @@ export const SYSTEM_PROMPT = [
   'Marks are how the user points at the part: pins, picked faces and edges, arrows, drawn strokes and placed shapes, numbered M1, M2 and so on, each with a note.',
   'New marks arrive with the prompt, a line each; the same numbers are drawn in look pictures, and mcp__torno__marks returns all of them as data.',
   'A ref names geometry in a layout: lid is a part, lid/F12 its face 12, lid/E3 its edge 3, M3 a mark.',
+  'The line of a shape gives where its centre is and, when it is turned, its rotation in degrees about its own X, then Y, then Z.',
+  'The coordinates and refs of a mark are in the frame of the layout the mark is in, which its line names when it is not the one on screen.',
   'After a ref comes a descriptor in brackets, such as (plane, normal +Z, z = 20, 1180 mm²): the kind of surface or curve, where it lies and its area or length. mcp__torno__describe gives the exact geometry of a ref.',
   'Face and edge numbers change when the model is rebuilt: take refs from the latest marks, scene or describe, never from memory.',
   'A mark that says its surface moved or its part is gone may no longer point at what the user meant: check it before acting on it.',

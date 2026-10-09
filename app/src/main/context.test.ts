@@ -247,8 +247,45 @@ describe('contextFor', () => {
       expect(context.sentMarkIds).toEqual([])
     })
 
+    it('says which layout a draft is in when it is not the one the first line names: its coordinates are in that frame', () => {
+      const marks = [pin(1), pin(2, { layout: 'print' }), pin(3, { layout: 'print', anchorState: 'drifted' })]
+      const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
+      expect(context.text).toBe(
+        [STATUS, HEAD, line(1), `${line(2)} [in layout print]`, 'M3 pin placed on base/F1 at (3, 0, 5): "note 3" [moved since it was placed: check it] [in layout print]'].join('\n')
+      )
+      // With print on screen it is the marks of the assembly that say so.
+      const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: ['print:base', 'print:post'] }
+      const onPrint = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', marks).text.split('\n')
+      expect(onPrint.slice(2)).toEqual([`${line(1)} [in layout assembly]`, line(2), 'M3 pin placed on base/F1 at (3, 0, 5): "note 3" [moved since it was placed: check it]'])
+    })
+
+    it('says the layout of every draft when the first line names none', () => {
+      const marks = [pin(1), pin(2, { layout: 'print' })]
+      const both = [`${line(1)} [in layout assembly]`, `${line(2)} [in layout print]`]
+      // Not open in the window, building, failed: no layout is named.
+      expect(contextFor(deps({ build: OK, scene: SCENE, open: 'gear' }), 'bracket', marks).text.split('\n').slice(2)).toEqual(both)
+      const building: BuildState = { objectId: 'bracket', status: 'building', revision: 3, startedAt: 0, stale: true }
+      expect(contextFor(deps({ build: building, scene: SCENE }), 'bracket', marks).text.split('\n').slice(2)).toEqual(both)
+      const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'no' } }
+      expect(contextFor(deps({ build: failed, scene: SCENE }), 'bracket', marks).text.split('\n').slice(3)).toEqual(both)
+      // An object with one layout, open in the window, has no other frame a mark could be in.
+      const one = { ...SCENE, layouts: ['assembly'], parts: SCENE.parts.slice(0, 2) }
+      expect(contextFor(deps({ build: building, scene: one }), 'bracket', [pin(1)]).text.split('\n').slice(2)).toEqual([line(1)])
+      expect(contextFor(deps({ build: building, scene: one, open: 'gear' }), 'bracket', [pin(1)]).text.split('\n').slice(2)).toEqual([`${line(1)} [in layout assembly]`])
+    })
+
+    it('counts the layout in what fits', () => {
+      const marks = Array.from({ length: 200 }, (_, i) => pin(i + 1, { layout: 'print', note: `note ${i + 1} ${'n'.repeat(60)}` }))
+      const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
+      expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+      expect(CONTEXT_LIMIT - context.text.length).toBeLessThan(200)
+      const listed = context.text.split('\n').slice(2, -1)
+      expect(listed.every((l) => l.endsWith(' [in layout print]'))).toBe(true)
+      expect(context.sentMarkIds).toHaveLength(listed.length)
+    })
+
     it('tells of the marks of an object that is not built, or not open', () => {
-      expect(contextFor(deps({}), 'bracket', [pin(1)]).text).toBe(['[torno] bracket · not built yet.', HEAD, line(1)].join('\n'))
+      expect(contextFor(deps({}), 'bracket', [pin(1)]).text).toBe(['[torno] bracket · not built yet.', HEAD, `${line(1)} [in layout assembly]`].join('\n'))
       expect(contextFor(deps({ open: 'gear' }), 'bracket', [pin(1)]).sentMarkIds).toEqual(['M1'])
       expect(contextFor(deps({}), 'nothing', [pin(1)])).toEqual({ text: '', sentMarkIds: [] })
     })

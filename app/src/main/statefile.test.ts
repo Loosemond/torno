@@ -144,6 +144,13 @@ describe('StateFiles', () => {
     expect(asked).toEqual(['marks'])
   })
 
+  it('forgotten with the workspace, writes nothing that was still waiting', async () => {
+    files.changed('bracket')
+    files.forget()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(writes).toBe(0)
+  })
+
   it('does not write what the file already says', async () => {
     await files.write('bracket')
     const before = statSync(path()).mtimeMs

@@ -100,9 +100,33 @@ function shape(mark: ShapeMark): string {
         : mark.shape === 'sphere'
           ? `sphere diameter ${number(x)} mm`
           : `plane ${sizes([x, y])} mm`
-  const [qx, qy, qz, qw] = mark.rotation
-  const turned = Math.abs(qx) < NOISE && Math.abs(qy) < NOISE && Math.abs(qz) < NOISE ? '' : `, rotation quaternion xyzw ${vector([qx, qy, qz, qw])}`
-  return `${size} at ${vector(mark.position)}${turned}, intent ${mark.intent}`
+  const angles = eulerDegrees(mark.rotation)
+  const turned = angles.every((a) => Math.abs(a) < 1e-4) ? '' : `, rotated ${vector(angles)}°`
+  // Its position is where its middle is, not a corner or its base.
+  return `${size} centred at ${vector(mark.position)}${turned}, intent ${mark.intent}`
+}
+
+/**
+ * A rotation as the angles the window shows for it: degrees about the shape's
+ * own X, then Y, then Z (three.js's Euler order 'XYZ', as `eulerOf` in
+ * src/renderer/tools/shapeTool.ts).
+ */
+export function eulerDegrees([qx, qy, qz, qw]: readonly number[]): [number, number, number] {
+  const length = Math.hypot(qx, qy, qz, qw) || 1
+  const [x, y, z, w] = [qx / length, qy / length, qz / length, qw / length]
+  // The entries of the rotation's matrix that the angles are read from.
+  const m11 = 1 - 2 * (y * y + z * z)
+  const m12 = 2 * (x * y - z * w)
+  const m13 = 2 * (x * z + y * w)
+  const m22 = 1 - 2 * (x * x + z * z)
+  const m23 = 2 * (y * z - x * w)
+  const m32 = 2 * (y * z + x * w)
+  const m33 = 1 - 2 * (x * x + y * y)
+  const about = Math.asin(Math.min(Math.max(m13, -1), 1))
+  // Turned a quarter about Y, turning about X and about Z are one: all of it is said of X.
+  const [first, last] = Math.abs(m13) < 0.9999999 ? [Math.atan2(-m23, m33), Math.atan2(-m12, m11)] : [Math.atan2(m32, m22), 0]
+  const degrees = (radians: number): number => (radians * 180) / Math.PI + 0
+  return [degrees(first), degrees(about), degrees(last)]
 }
 
 function count(points: number): string {

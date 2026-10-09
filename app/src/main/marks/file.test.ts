@@ -230,6 +230,19 @@ describe('sanitising a mark', () => {
     expect(sanitiseMark({ ...planeStroke, plane: undefined })).toBeNull()
     expect(sanitiseMark({ ...pick, target: 'vertex' })).toBeNull()
     expect(sanitiseMark({ ...shape, intent: 'paint' })).toBeNull()
+  })
+
+  it('holds the size of a shape to what its kind has, and to a tenth of a millimetre at least, whoever made it', () => {
+    const sized = (kind: string, size: number[]) => (sanitiseMark({ ...shape, shape: kind, size }) as ShapeMark).size
+    expect(sized('box', [10, 0, -4])).toEqual([10, 0.1, 0.1])
+    expect(sized('box', [0.1, 20, 30])).toEqual([0.1, 20, 30])
+    // A cylinder has one diameter and a height; a sphere one diameter; a plane no thickness.
+    expect(sized('cylinder', [8, 99, 20])).toEqual([8, 8, 20])
+    expect(sized('cylinder', [0, 5, 0])).toEqual([0.1, 0.1, 0.1])
+    expect(sized('sphere', [6, 1, 2])).toEqual([6, 6, 6])
+    expect(sized('sphere', [0.01, 6, 6])).toEqual([0.1, 0.1, 0.1])
+    expect(sized('plane', [30, 20, 7])).toEqual([30, 20, 0])
+    expect(sized('plane', [0, -3, 0])).toEqual([0.1, 0.1, 0])
     expect(sanitiseMark(pin({ status: 'drifted' }))).toBeNull()
     expect(sanitiseMark(pin({ author: 'cat' }))).toBeNull()
     expect(sanitiseMark('pin')).toBeNull()

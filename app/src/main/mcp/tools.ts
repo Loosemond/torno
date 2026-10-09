@@ -192,7 +192,7 @@ export const TOOLS = {
   },
   marks: {
     description:
-      "Returns JSON of the marks on this object, the user's and your own: each with its number (M3), kind, note, status, the ref and descriptor of what it is on, its coordinates in mm, and for a stroke its points. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out.",
+      "Returns JSON of the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, so the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
@@ -397,11 +397,18 @@ async function marksOf(deps: ToolDeps, objectId: string): Promise<Mark[] | ToolR
 
 const noMark = (id: string, marks: Mark[]): ToolResult => failure(`no mark ${id}; marks: ${marks.map((m) => m.id).join(', ') || 'none'}`)
 
+/**
+ * A mark as data, with the line that says it in words. The data of a mark
+ * that moved or lost its part still holds the ref it was placed on beside what
+ * the kernel says is under it now; the line pairs nothing that may not agree.
+ */
+const withLine = (mark: Mark): Mark & { line: string } => ({ ...mark, line: describeMark(mark) })
+
 export async function marksTool(deps: ToolDeps, objectId: string, args: MarksArgs): Promise<ToolResult> {
   const marks = await marksOf(deps, objectId)
   if ('content' in marks) return marks
   const wanted = args.status
-  return json(marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted)))
+  return json(marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted)).map(withLine))
 }
 
 /**
@@ -445,7 +452,7 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
     const marks = await marksOf(deps, objectId)
     if ('content' in marks) return marks
     const mark = marks.find((m) => m.id === args.ref)
-    return mark ? json(mark) : noMark(args.ref, marks)
+    return mark ? json(withLine(mark)) : noMark(args.ref, marks)
   }
   const found = built(deps, objectId)
   if ('content' in found) return found
@@ -490,7 +497,10 @@ export async function highlightTool(deps: ToolDeps, objectId: string, args: High
       if (!mark) wrong.push(`no mark ${ref} (marks: ${marks.map((m) => m.id).join(', ') || 'none'})`)
       else if (mark.layout !== layout) wrong.push(`${ref} is in layout ${mark.layout}, not ${layout}`)
       else if (!on) wrong.push(`${ref} is not on a part, a face or an edge`)
-      if (!mark || mark.layout !== layout || !on) continue
+      // Its ref is where it was placed, which may name other geometry now: that is not pointed at as the mark.
+      else if (mark.anchorState === 'drifted') wrong.push(`${ref} was placed on ${on}, which has moved since: the ref may name something else now`)
+      else if (mark.anchorState === 'orphaned') wrong.push(`the part ${ref} was placed on is gone`)
+      if (!mark || mark.layout !== layout || !on || mark.anchorState !== 'ok') continue
       named = on
     }
     const checked = checkRef(found.scene, layout, named)
@@ -550,9 +560,11 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
  * Where a mark of the agent's is tied to the geometry, as a re-anchored one
  * would be: the ref, the point, the normal there and what the kernel says of
  * it. Given a ref alone, the middle of that edge, or the point of the surface
- * nearest the centre of that face or part; given a point
- * alone, the part whose surface the point is on, or nothing but the point when
- * it is on none. `said` is what the agent should know of how that went.
+ * nearest the centre of that face or part; given a point alone, the part
+ * whose surface the point is on, or nothing but the point when it is on none.
+ * A `pick` keeps the ref it was given and is refused when its point is not on
+ * what that names; anything else is tied to the face under its point. `said`
+ * is what the agent should know of how that went.
  */
 async function anchorFor(
   deps: ToolDeps,
@@ -560,7 +572,8 @@ async function anchorFor(
   scene: Scene,
   layout: string,
   ref: string | undefined,
-  point: Vec3 | undefined
+  point: Vec3 | undefined,
+  pick: boolean
 ): Promise<{ anchor: Anchor; target?: CheckedRef['target']; said?: string } | ToolResult> {
   const parts = scene.parts.filter((p) => p.layout === layout)
   try {
@@ -586,36 +599,56 @@ async function anchorFor(
     // A centre the kernel measured carries the noise of measuring: -3.5e-15 is 0.
     const base: Anchor = { point: point ?? tidy(centreOf(described, part)), part: part.name, ref, descriptor: described.descriptor }
     if (described.kind === 'face' && described.normal) base.normal = described.normal
+    // The mark is checked against the build the moment it is kept (`followMarks`): what is kept here is
+    // what that check would make of it, so that the answer given now still holds afterwards.
+    const onEdge = pick && target === 'edge'
     // The middle of an edge is on the edge: there is nothing to ask.
-    if (target === 'edge' && !point) return { anchor: base, target }
-    const [near] = await deps.nearest(objectId, layout, [{ part: part.name, point: base.point, ...(target === 'edge' ? { edge: ref } : {}) }])
+    if (onEdge && !point) return { anchor: base, target }
+    const [near] = await deps.nearest(objectId, layout, [{ part: part.name, point: base.point, ...(onEdge ? { edge: ref } : {}) }])
     if (!near?.found) return { anchor: base, target }
-    const within = near.distance <= tolerance(part.bbox)
-    if (point) {
-      if (target === 'edge') {
-        // As the check that follows the adding would find it: off its edge, the mark would be said to have drifted at once.
-        if (near.edgeFound !== true) return failure(`the kernel did not say how far the point ${vector(point)} is from ${ref}: leave the point out to use the middle of the edge`)
-        if (near.edgeDistance > EDGE_TOLERANCE_MM) return failure(`the point ${vector(point)} is ${number(near.edgeDistance)} mm from ${ref}: give a point on the edge, or leave the point out to use its middle`)
-        return { anchor: base, target }
-      }
-      if (!within) return failure(`the point ${vector(point)} is ${number(near.distance)} mm from the surface of ${part.name}: give a point on it, or leave the point out to use the centre of ${ref}`)
-      // A pin or an arrow is on the face that is under its point, as it will be found to be after the next build.
-      if (target === 'face' && near.ref !== ref) {
-        const { anchor } = judge({ point, part: part.name }, near, Infinity)
-        return { anchor, target, said: `The point is on ${near.ref}, not ${ref}: the mark is tied to ${near.ref}.` }
-      }
-      if (near.normal) base.normal = near.normal
+    if (onEdge) {
+      // Off its edge, the mark would be said to have drifted at once. An edge has no one normal.
+      if (near.edgeFound !== true) return failure(`the kernel did not say how far the point ${vector(base.point)} is from ${ref}: leave the point out to use the middle of the edge`)
+      if (near.edgeDistance > EDGE_TOLERANCE_MM) return failure(`the point ${vector(base.point)} is ${number(near.edgeDistance)} mm from ${ref}: give a point on the edge, or leave the point out to use its middle`)
       return { anchor: base, target }
     }
-    // The mark is checked against the build the moment it is kept, and one whose point is off the surface
-    // is said to have drifted. The centre of a face may not be on it (a cylinder's is on its axis, a ring's
-    // in its hole), and that of a part is inside it: the mark goes to the point of the surface nearest to it.
-    const anchor: Anchor = { ...base, point: tidy(near.point) }
-    if (near.normal) anchor.normal = near.normal
-    if (target === 'face' && near.ref !== ref && !within) {
-      return { anchor, target, said: `The centre of ${ref} is not on it: the mark is at the nearest point of the surface of ${part.name}, ${vector(near.point)}, which is on ${near.ref}. Give a point on ${ref} to put it there.` }
+    if (point && near.distance > tolerance(part.bbox)) {
+      return failure(`the point ${vector(point)} is ${number(near.distance)} mm from the surface of ${part.name}: give a point on it, or leave the point out to use the centre of ${ref}`)
     }
-    return { anchor, target }
+    // The centre of a face may not be on it (a cylinder's is on its axis, a ring's in its hole), and that
+    // of a part is inside it: without a point, the mark goes to the point of the surface nearest to it.
+    const at = point ?? tidy(near.point)
+    const elsewhere = target === 'face' && near.ref !== ref
+    if (pick) {
+      // A pick is of the thing named. Of a face it follows the face under its point, so it must be on that face.
+      if (elsewhere) {
+        return failure(
+          point
+            ? `the point ${vector(point)} is on ${near.ref}, not ${ref}: give a point on ${ref}`
+            : `the centre of ${ref} is not on it (a face with a hole, a ring or a short cylinder): give a point on ${ref}`
+        )
+      }
+      const anchor: Anchor = { ...base, point: at }
+      if (near.normal) anchor.normal = near.normal
+      return { anchor, target }
+    }
+    // A pin, an arrow or a shape is on the face that is under its point, whatever was named to find the point.
+    if (near.ref === ref) {
+      const anchor: Anchor = { ...base, point: at }
+      if (near.normal) anchor.normal = near.normal
+      return { anchor, target }
+    }
+    const { anchor } = judge({ point: at, part: part.name }, near, Infinity)
+    const placed = `the mark is placed on ${near.ref}, the face under that point`
+    const said =
+      target === 'part'
+        ? undefined
+        : target === 'edge'
+          ? `A pin is on a face: it is placed on ${near.ref}, the face under ${point ? 'that point' : `the middle of ${ref}`}. Use a pick to mark the edge itself.`
+          : point
+            ? `The point is on ${near.ref}, not ${ref}: ${placed}.`
+            : `The centre of ${ref} is not on it: ${placed}. Give a point on ${ref} to put it there.`
+    return { anchor, target, ...(said ? { said } : {}) }
   } catch (e) {
     return failure(messageOf(e))
   }
@@ -669,7 +702,7 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
     if (length < 1e-9) return failure('rotation is a quaternion [x, y, z, w]: it cannot be all zeros')
     let anchor: Anchor | undefined
     if (args.ref !== undefined) {
-      const tied = await anchorFor(deps, objectId, scene, layout, args.ref, args.point)
+      const tied = await anchorFor(deps, objectId, scene, layout, args.ref, args.point, false)
       if ('content' in tied) return tied
       anchor = tied.anchor
       said = tied.said
@@ -689,7 +722,7 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
     if (args.kind === 'pick' && args.ref === undefined) return failure('a pick needs a ref: the part, face or edge it is of. For a point, place a pin')
     if (args.ref === undefined && args.point === undefined) return failure(`${args.kind === 'arrow' ? 'an arrow' : 'a pin'} needs a ref or a point${args.kind === 'arrow' ? ' to start from' : ''}`)
     if (args.kind === 'arrow' && args.to === undefined && args.by === undefined) return failure('an arrow needs to (where it ends) or by (the vector from its start), in mm')
-    const tied = await anchorFor(deps, objectId, scene, layout, args.ref, args.point)
+    const tied = await anchorFor(deps, objectId, scene, layout, args.ref, args.point, args.kind === 'pick')
     if ('content' in tied) return tied
     const { anchor } = tied
     said = tied.said

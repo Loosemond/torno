@@ -57,11 +57,13 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   const openLine = open.length > 0 ? `Open marks: ${fitted(open.map((m) => m.id), '', OPEN_LIMIT)}` : ''
   const sentMarkIds: string[] = []
   if (drafts.length > 0) {
+    const named = layoutNamed(deps, objectId)
     lines.push(MARKS_HEAD)
     const more = (count: number): string => `… and ${count} more: call mcp__torno__marks`
     let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0)
     for (const [i, mark] of drafts.entries()) {
-      const line = describeMark(mark)
+      // A mark's coordinates and refs are in the frame of its layout, which may not be the one named above.
+      const line = `${describeMark(mark)}${mark.layout === named ? '' : ` [in layout ${mark.layout}]`}`
       const after = drafts.length - i - 1
       // Room is kept for the line that says how many are left out, should the next one not fit.
       if (used + 1 + line.length + (after > 0 ? 1 + more(after).length : 0) > CONTEXT_LIMIT) {
@@ -75,6 +77,23 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   }
   if (openLine) lines.push(openLine)
   return { text: lines.join('\n'), sentMarkIds }
+}
+
+/** The layout on screen of an object that is open in the window: the one asked for by the view, when the build has it. */
+function layoutShown(view: ViewState | undefined, scene: Scene): string {
+  return view && scene.layouts.includes(view.layout) ? view.layout : (scene.layouts[0] ?? '')
+}
+
+/**
+ * The layout the agent takes a mark to be in when nothing says otherwise: the
+ * one the first line names (`status` does for a build that worked, of the
+ * object open in the window), or the only one such an object has.
+ */
+function layoutNamed(deps: ContextDeps, objectId: string): string | undefined {
+  const scene = deps.scene(objectId)?.scene
+  if (!scene || deps.openObjectId() !== objectId) return undefined
+  if (deps.build(objectId)?.status === 'ok') return layoutShown(deps.view(objectId), scene)
+  return scene.layouts.length === 1 ? scene.layouts[0] : undefined
 }
 
 /** How the build stands and what is on screen, in at most `limit` characters. */
@@ -116,7 +135,7 @@ function status(deps: ContextDeps, objectId: string, limit: number): string {
     return `${lead}${fitted(names, '', limit - lead.length - 1)}.`
   }
   const view = deps.view(objectId)
-  const layout = view && scene.layouts.includes(view.layout) ? view.layout : (scene.layouts[0] ?? '')
+  const layout = layoutShown(view, scene)
   const parts = scene.parts.filter((p) => p.layout === layout)
   const hidden = view ? parts.filter((p) => !view.visible.includes(p.key)).map((p) => p.name) : []
   const lead = `${start} · layout ${layout} · parts: `

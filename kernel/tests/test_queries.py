@@ -175,6 +175,24 @@ def test_describe_line_and_circle_edges(shapes):
     assert circles == ["circle, radius 4, 25.13 mm"] * 2
 
 
+def test_the_centre_of_an_edge_is_on_the_edge_also_of_a_circle(shapes):
+    # A mark placed on an edge by its ref alone is put at this point: it has to be on the edge.
+    count = len(topo.edges(shapes["assembly:post"]))
+    checked = 0
+    for i in range(count):
+        edge = queries.describe(shapes, f"assembly:post/E{i}")
+        if edge["type"] != "circle":
+            continue
+        (anchor,) = nearest_with(shapes, "assembly", {"part": "post", "point": edge["center"], "edge": f"post/E{i}"})
+        assert anchor["edgeFound"] is True
+        assert anchor["edgeDistance"] == pytest.approx(0, abs=1e-6)
+        # Not the middle of the circle, which is 4 mm from it.
+        x, y, _ = edge["center"]
+        assert math.hypot(x, y) == pytest.approx(4)
+        checked += 1
+    assert checked == 2
+
+
 def test_describe_keeps_the_fields_it_had(shapes):
     edge = queries.describe(shapes, "assembly:base/E1")
     assert set(edge) == {"kind", "ref", "type", "length", "center", "descriptor"}

@@ -13,12 +13,16 @@ let onHighlight: (m: { id: number; request: HighlightRequest }) => void
 let replies: Array<{ id: number; result: unknown }>
 let tinted: string[][]
 let views: unknown[]
-let press: () => void
+/** What the canvas is told of the pointer: a press at a point of the window, and its release. */
+let canvasEvents: Record<string, (e: { clientX: number; clientY: number; button: number }) => void>
+const press = (x = 100, y = 100, button = 0): void => canvasEvents.pointerdown({ clientX: x, clientY: y, button })
+const release = (x = 100, y = 100, button = 0): void => canvasEvents.pointerup({ clientX: x, clientY: y, button })
 let disconnect: () => void
 
 beforeEach(() => {
   vi.useFakeTimers()
   replies = []
+  canvasEvents = {}
   tinted = []
   views = []
   const off = vi.fn()
@@ -39,7 +43,7 @@ beforeEach(() => {
     setView: (view) => views.push(view),
     getCamera: () => CAMERA,
     setAgentHighlight: (refs) => tinted.push(refs),
-    canvas: { addEventListener: (_type: string, cb: () => void) => (press = cb), removeEventListener: () => {} } as unknown as HTMLCanvasElement
+    canvas: { addEventListener: (type: string, cb: (typeof canvasEvents)[string]) => (canvasEvents[type] = cb), removeEventListener: () => {} } as unknown as HTMLCanvasElement
   })
 })
 
@@ -79,7 +83,7 @@ describe('highlight', () => {
   })
 
   it.each([
-    ['a press anywhere in the viewport', () => press()],
+    ['a click anywhere in the viewport', () => (press(), release(101, 99))],
     ['its dismiss control', () => dismissHighlight()],
     ['another layout', () => actions.setLayout('print')],
     ['a new build', () => actions.applyScene({ objectId: 'bracket', revision: 4, scene: SCENE })],
@@ -91,6 +95,34 @@ describe('highlight', () => {
     expect(tinted.at(-1)).toEqual([])
     // Nothing is left to go off later.
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('stays while the part is turned to look at it: a drag is not a click', () => {
+    highlight()
+    press(100, 100)
+    expect(agentStore.getState().highlight).not.toBeNull()
+    release(160, 120)
+    expect(agentStore.getState().highlight).not.toBeNull()
+    // Nor is the release of a press that began elsewhere, or of another button.
+    release(160, 120)
+    press(10, 10, 2)
+    release(10, 10, 2)
+    expect(agentStore.getState().highlight).not.toBeNull()
+  })
+
+  it('tints nothing on a part that is switched off, and says how to switch it on', () => {
+    actions.setLayer('post', { visible: false })
+    highlight({ refs: ['base/F5', 'post/F1', 'post'] })
+    expect(replies).toEqual([{ id: 7, result: { error: 'nothing was highlighted: post is hidden, so the user would see nothing of it. Call show with parts ["base","post"] first, which changes what the user sees' } }])
+    expect(tinted).toEqual([])
+    expect(agentStore.getState().highlight).toBeNull()
+    actions.setLayer('base', { visible: false })
+    highlight({ refs: ['base/F5', 'post'] })
+    expect((replies[1].result as { error: string }).error).toContain('base and post are hidden, so the user would see nothing of them. Call show with parts ["base","post"] first')
+    // What is on is pointed at as ever.
+    actions.setLayer('base', { visible: true })
+    highlight({ refs: ['base/F5'] })
+    expect(tinted).toEqual([['base/F5']])
   })
 
   it('cuts a note at 2000 characters', () => {

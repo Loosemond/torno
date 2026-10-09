@@ -197,6 +197,8 @@ void app.whenReady().then(async () => {
     sessions,
     marks,
     onBuild: (state) => stateFiles.changed(state.objectId),
+    // What was waiting to be written was of objects of the workspace that is left.
+    onWorkspaceClosed: () => stateFiles.forget(),
     // A folder dialog is a window on the person's desktop: under test there is none.
     pickFolder: isTest
       ? async () => {

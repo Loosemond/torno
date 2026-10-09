@@ -6,6 +6,8 @@ import { actions, partsInLayout, store } from './store'
 
 /** How long what the agent points at stays pointed at, unless the person clicks first. */
 export const HIGHLIGHT_FOR_MS = 60_000
+/** How far the pointer may travel between press and release and still have clicked, in pixels. */
+const CLICK_WITHIN_PX = 4
 /** The longest note of the agent's that is shown. */
 const MAX_NOTE = 2000
 
@@ -89,7 +91,7 @@ function missing(ref: string, parts: ReturnType<typeof partsInLayout>): string |
 /**
  * Join the viewport to what the agent asks of the window: `show` and
  * `highlight`, each answered with what was done or why it was not. What is
- * highlighted stays until the person presses anywhere in the viewport,
+ * highlighted stays until the person clicks anywhere in the viewport,
  * dismisses it, the object, the layout or the build changes, or a minute has
  * passed. Returns what undoes the joining.
  */
@@ -112,6 +114,16 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     const parts = partsInLayout(s)
     const gone = req.refs.map((ref) => missing(ref, parts)).filter((m) => m !== null)
     if (gone.length > 0) throw new Error(`nothing was highlighted: the window shows r${s.revision}, which has ${gone.join(', ')}`)
+    // A part that is switched off is not drawn, and nothing of it would be tinted.
+    const hidden = parts.filter((p) => s.layers[p.name]?.visible === false).map((p) => p.name)
+    const unseen = hidden.filter((name) => req.refs.some((ref) => ref === name || ref.startsWith(`${name}/`)))
+    if (unseen.length > 0) {
+      const on = parts.map((p) => p.name).filter((name) => !hidden.includes(name) || unseen.includes(name))
+      const [are, them] = unseen.length === 1 ? ['is', 'it'] : ['are', 'them']
+      throw new Error(
+        `nothing was highlighted: ${unseen.join(' and ')} ${are} hidden, so the user would see nothing of ${them}. Call show with parts ${JSON.stringify(on)} first, which changes what the user sees`
+      )
+    }
     clear()
     viewport.setAgentHighlight(req.refs)
     agentStore.setState({ highlight: { refs: req.refs, note: (req.note ?? '').slice(0, MAX_NOTE) } })
@@ -136,7 +148,18 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
   const offStore = store.subscribe((s, prev) => {
     if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision) clear()
   })
-  viewport.canvas.addEventListener('pointerdown', clear)
+  // A click in the viewport puts it away; a drag does not: the person turns the part to see what is pointed at.
+  let pressed: { x: number; y: number } | null = null
+  const onDown = (e: PointerEvent): void => {
+    pressed = e.button === 0 ? { x: e.clientX, y: e.clientY } : null
+  }
+  const onUp = (e: PointerEvent): void => {
+    const from = pressed
+    pressed = null
+    if (from && e.button === 0 && Math.hypot(e.clientX - from.x, e.clientY - from.y) <= CLICK_WITHIN_PX) clear()
+  }
+  viewport.canvas.addEventListener('pointerdown', onDown)
+  viewport.canvas.addEventListener('pointerup', onUp)
 
   return () => {
     clear()
@@ -144,6 +167,7 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     offShow()
     offHighlight()
     offStore()
-    viewport.canvas.removeEventListener('pointerdown', clear)
+    viewport.canvas.removeEventListener('pointerdown', onDown)
+    viewport.canvas.removeEventListener('pointerup', onUp)
   }
 }

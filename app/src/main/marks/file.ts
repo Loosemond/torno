@@ -1,6 +1,6 @@
 import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Anchor, Mark, MarksFile, Quat, StrokeMark, Vec3 } from '../../shared/marks'
+import type { Anchor, Mark, MarksFile, Quat, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import { MAX_STROKE_POINTS } from '../../shared/marks'
 import { writeFileAtomic } from '../atomic'
@@ -166,11 +166,28 @@ export function sanitiseMark(value: unknown): Mark | null {
       if (!oneOf(value.shape, ['box', 'cylinder', 'sphere', 'plane'] as const)) return null
       if (!oneOf(value.intent, ['add', 'remove', 'keep-out', 'reference'] as const)) return null
       if (!position || !rotation || !size) return null
-      return { ...base, kind: 'shape', shape: value.shape, intent: value.intent, position, rotation, size, ...(anchor ? { anchor } : {}) }
+      return { ...base, kind: 'shape', shape: value.shape, intent: value.intent, position, rotation, size: shapeSize(value.shape, size), ...(anchor ? { anchor } : {}) }
     }
     default:
       return null
   }
+}
+
+/** The least a side, a diameter or a height of a shape can be, in mm. */
+export const MIN_SHAPE_SIZE = 0.1
+
+/**
+ * The size of a shape as its kind has it, whoever asked for it: a box three
+ * sides, a cylinder one diameter (twice) and a height, a sphere one diameter
+ * (three times), a plane a width and a height and no thickness. Nothing it
+ * has is less than a tenth of a millimetre.
+ */
+export function shapeSize(shape: ShapeKind, [x, y, z]: Vec3): Vec3 {
+  const least = (side: number): number => Math.max(side, MIN_SHAPE_SIZE)
+  if (shape === 'cylinder') return [least(x), least(x), least(z)]
+  if (shape === 'sphere') return [least(x), least(x), least(x)]
+  if (shape === 'plane') return [least(x), least(y), 0]
+  return [least(x), least(y), least(z)]
 }
 
 /** A stroke has the points of its space: 3D points on a surface, or a plane and 2D points on it. */

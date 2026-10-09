@@ -329,8 +329,18 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
   const byPoint = await call(bracket, 'add_mark', { kind: 'arrow', note: 'taller', point: [0, 0, 22.5], by: [0, 0, 10] })
   expect(byPoint.text).toMatch(/^placed in layout assembly: \(yours\) M3 arrow from post\/F\d \(plane, normal \+Z, z = 22\.5, 50\.27 mm²\) at \(0, 0, 22\.5\) by \(0, 0, 10\), 10 mm: "taller"$/)
   const inAir = await call(bracket, 'add_mark', { kind: 'shape', note: 'keep clear', shape: 'box', size: [10, 10, 4], position: [30, 30, 30], intent: 'keep-out' })
-  expect(inAir.text).toBe('placed in layout assembly: (yours) M4 box 10 × 10 × 4 mm at (30, 30, 30), intent keep-out: "keep clear"')
+  expect(inAir.text).toBe('placed in layout assembly: (yours) M4 box 10 × 10 × 4 mm centred at (30, 30, 30), intent keep-out: "keep clear"')
   await expect.poll(async () => (await state()).marks.map((m) => `${m.id} ${m.author} ${m.kind}`)).toEqual(['M1 user pin', 'M2 agent pin', 'M3 agent arrow', 'M4 agent shape'])
+
+  // Main checks each new mark against the build at once: what was answered still holds afterwards.
+  await page.waitForTimeout(500)
+  const kept = (await state()).marks
+  expect(kept.map((m) => m.anchorState)).toEqual(['ok', 'ok', 'ok', 'ok'])
+  expect(byRef.text).toBe(`placed in layout assembly: ${describeMark(kept[1])}`)
+  expect(byPoint.text).toBe(`placed in layout assembly: ${describeMark(kept[2])}`)
+  // Each mark comes with its line.
+  const listed: Array<{ id: string; line: string }> = JSON.parse((await call(bracket, 'marks')).text)
+  expect(listed.map((m) => m.line)).toEqual(kept.map(describeMark))
 
   expect(await call(bracket, 'add_mark', { kind: 'pin', note: '', ref: 'lid/F1' })).toMatchObject({ isError: true, text: "no part 'lid' in layout assembly (parts: base, post)" })
   expect(await call(bracket, 'add_mark', { kind: 'pin', note: '', ref: 'base', point: [0, 0, 90] })).toMatchObject({ isError: true, text: expect.stringMatching(/^the point \(0, 0, 90\) is 87\.5 mm from the surface of base: /) })
@@ -362,10 +372,24 @@ test('highlight shows the user what the agent means, until they click', async ()
   await expect(line.locator('.agent-note')).toHaveText('<b>this one?</b>')
   await expect(line.locator('.agent-note b')).toHaveCount(0)
 
-  // A press anywhere in the viewport puts it away.
+  // Turning the part to see it leaves it there; a click anywhere in the viewport puts it away.
   const box = (await canvas().boundingBox())!
+  const before = await camera()
+  await page.mouse.move(box.x + box.width - 12, box.y + box.height - 60)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 80, box.y + box.height - 100, { steps: 4 })
+  await page.mouse.up()
+  await expect.poll(camera).not.toEqual(before)
+  await expect(line).toBeVisible()
   await page.mouse.click(box.x + box.width - 12, box.y + box.height - 60)
   await expect(line).toHaveCount(0)
+
+  // A part that is switched off cannot be pointed at: the user would see nothing.
+  await call(bracket, 'show', { parts: ['base'] })
+  const hidden = await call(bracket, 'highlight', { refs: ['post/F1'] })
+  expect(hidden).toMatchObject({ isError: true, text: 'nothing was highlighted: post is hidden, so the user would see nothing of it. Call show with parts ["base","post"] first, which changes what the user sees' })
+  await expect(line).toHaveCount(0)
+  await call(bracket, 'show', { parts: ['base', 'post'] })
 
   // So does its own control.
   await call(bracket, 'highlight', { refs: ['base/E0'] })
@@ -397,7 +421,8 @@ test('resolve_mark moves a mark under Resolved, with what the agent did', async 
 })
 
 test('state.md says the same to an agent without the tools, and writing it starts no build', async () => {
-  await expect.poll(() => (existsSync(stateFile()) ? readFileSync(stateFile(), 'utf8') : ''), { timeout: 10_000 }).toContain('- (yours) M4 box')
+  // It follows the marks by a second: wait for the one that tells of the mark just resolved.
+  await expect.poll(() => (existsSync(stateFile()) ? readFileSync(stateFile(), 'utf8') : ''), { timeout: 10_000 }).toMatch(/In layout assembly:\n\n- \(yours\) M2 pin[^]*- \(yours\) M4 box/)
   const text = readFileSync(stateFile(), 'utf8')
   expect(text).toContain('# bracket\n')
   expect(text).toContain('## Build\n\nBuild ok, r1.\n')
