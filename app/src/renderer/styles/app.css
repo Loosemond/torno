@@ -1197,6 +1197,100 @@ button {
   background: transparent;
 }
 
+/* ---- The note of a mark: a card beside it, over the viewport ---- */
+
+.note-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 288px;
+  padding: 6px 6px 7px 9px;
+  border: var(--divider);
+  /* The pencil that made the mark, down the edge of its note. */
+  border-left: 2px solid var(--user-mark);
+  border-radius: 3px var(--radius-palette) var(--radius-palette) 3px;
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.note-card[data-author='agent'] {
+  border-left-color: var(--agent-mark);
+}
+
+.note-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 24px;
+}
+
+.note-ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What the kernel says the mark is on. */
+.note-detail {
+  margin: 1px 0 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-field {
+  display: block;
+  width: 100%;
+  min-height: calc(1lh + 10px);
+  max-height: calc(6lh + 10px);
+  margin: 6px 0 0;
+  padding: 4px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  line-height: var(--text-leading);
+  resize: none;
+  field-sizing: content;
+}
+
+.note-field::placeholder {
+  color: var(--muted);
+}
+
+.note-field:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.note-keys {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.note-keys kbd {
+  padding: 0 4px;
+  border: var(--divider);
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--ink);
+}
+
+.note-keys kbd:not(:first-child) {
+  margin-left: var(--space-2);
+}
+
 /* ---- Status line ---- */
 
 .status {

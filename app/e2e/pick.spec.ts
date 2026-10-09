@@ -95,15 +95,16 @@ const ON_BASE: Vec3 = [14, 9, 2.5] // on the top of the base, clear of the post
 const ON_POST: Vec3 = [0, 0, 22.5] // the middle of the top of the post, and above the middle of the base
 const model = () => join(root, 'bracket', 'bracket.py')
 
-test('the palette shows the five tools; only select can be chosen yet', async () => {
+test('the palette shows the five tools; draw and shape cannot be chosen yet', async () => {
   await openFromAbove()
   const tools = page.getByRole('toolbar', { name: 'Tools' }).getByRole('button')
   await expect(tools).toHaveCount(5)
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('title', 'Select (V)')
-  for (const name of ['Pin', 'Arrow', 'Draw', 'Shape']) await expect(page.getByRole('button', { name, exact: true })).toBeDisabled()
+  for (const name of ['Pin', 'Arrow']) await expect(page.getByRole('button', { name, exact: true })).toBeEnabled()
+  for (const name of ['Draw', 'Shape']) await expect(page.getByRole('button', { name, exact: true })).toBeDisabled()
   // Their keys do nothing until they can be chosen.
-  await page.keyboard.press('p')
+  await page.keyboard.press('d')
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-pressed', 'true')
 })
 

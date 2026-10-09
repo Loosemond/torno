@@ -1,7 +1,17 @@
 import * as THREE from 'three'
-import type { Mark } from '../../../shared/marks'
+import type { Mark, Vec3 } from '../../../shared/marks'
 import { mmPerPx, place, project, type Placed, type Size } from './labels'
 import { build, dispose, markPoints, rescale, setActive, type MarkColours } from './markObjects'
+
+/**
+ * A mark as it is while the pointer is still making it: a pin where it was
+ * clicked, an arrow being dragged. Drawn like the person's marks, fainter, and
+ * with no number: it is not a mark until main has kept it.
+ */
+export type Draft = { kind: 'pin'; point: Vec3; normal: Vec3 | null } | { kind: 'arrow'; from: Vec3; to: Vec3 }
+
+/** How much of a mark's colour a draft has. */
+const DRAFT_OPACITY = 0.7
 
 interface Entry {
   mark: Mark
@@ -23,6 +33,7 @@ export class MarkLayer {
   private colours: MarkColours
   private layout: string | null = null
   private active: string | null = null
+  private draft: { is: Draft; object: THREE.Object3D } | null = null
 
   constructor(colours: MarkColours) {
     this.colours = colours
@@ -34,8 +45,33 @@ export class MarkLayer {
     if (colours.user === this.colours.user && colours.agent === this.colours.agent && colours.reference === this.colours.reference) return
     this.colours = colours
     const marks = [...this.entries.values()].map((e) => e.mark)
+    const draft = this.draft?.is ?? null
     this.clear()
     this.setMarks(marks)
+    this.setDraft(draft)
+  }
+
+  /** What the pointer is making, or null for nothing. Made anew on every call: it changes with every move of a drag. */
+  setDraft(draft: Draft | null): void {
+    if (this.draft) {
+      this.group.remove(this.draft.object)
+      dispose(this.draft.object)
+      this.draft = null
+    }
+    if (!draft) return
+    const object = build(asMark(draft), this.colours, 1)
+    object.name = 'draft'
+    object.traverse((child) => {
+      const material = (child as THREE.Mesh).material as THREE.Material | undefined
+      if (material) material.opacity *= DRAFT_OPACITY
+    })
+    this.draft = { is: draft, object }
+    this.group.add(object)
+  }
+
+  /** Whether the draft is drawn: it is not in a picture for the agent. */
+  showDraft(shown: boolean): void {
+    if (this.draft) this.draft.object.visible = shown
   }
 
   /** The marks of the object, of every layout. Resolved ones are not drawn. */
@@ -88,6 +124,7 @@ export class MarkLayer {
   update(camera: THREE.Camera, size: Size, unit = 1): void {
     const scale = (at: THREE.Vector3): number => mmPerPx(camera, at, size.height)
     for (const entry of this.entries.values()) if (entry.object.visible) rescale(entry.object, scale, unit)
+    if (this.draft?.object.visible) rescale(this.draft.object, scale, unit)
   }
 
   /** The labels of a layout's marks in a view, each with a chip that covers no other. */
@@ -102,14 +139,22 @@ export class MarkLayer {
     return refs
   }
 
-  /** Grows a sphere to hold everything drawn of a layout's marks. */
+  /** Grows a sphere to hold everything drawn of a layout's marks, and the draft. */
   extend(sphere: THREE.Sphere, layout: string): THREE.Sphere {
     const point = new THREE.Vector3()
     for (const mark of this.marksOf(layout)) for (const p of markPoints(mark)) sphere.expandByPoint(point.fromArray(p))
+    if (this.draft) for (const p of markPoints(asMark(this.draft.is))) sphere.expandByPoint(point.fromArray(p))
     return sphere
   }
 
+  /** A mark of a layout, among those drawn. */
+  markOf(layout: string, id: string): Mark | undefined {
+    const mark = this.entries.get(id)?.mark
+    return mark?.layout === layout ? mark : undefined
+  }
+
   dispose(): void {
+    this.setDraft(null)
     this.clear()
   }
 
@@ -134,3 +179,13 @@ function drawnAsOf(mark: Mark): string {
   const { note: _note, status: _status, resolvedNote: _resolvedNote, createdAt: _createdAt, camera: _camera, revision: _revision, ...drawn } = mark
   return JSON.stringify(drawn)
 }
+
+/** A draft in the form the drawing code takes: the person's mark, as far as it is drawn. */
+function asMark(draft: Draft): Mark {
+  const base = { id: 'draft', author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: '', revision: 0, camera: NO_CAMERA, createdAt: '' } as const
+  return draft.kind === 'pin'
+    ? { ...base, kind: 'pin', anchor: { point: draft.point, ...(draft.normal ? { normal: draft.normal } : {}) } }
+    : { ...base, kind: 'arrow', from: { point: draft.from }, to: draft.to }
+}
+
+const NO_CAMERA = { position: [0, 0, 1], target: [0, 0, 0], up: [0, 1, 0], ortho: true, fov: 35, zoom: 1 } satisfies Mark['camera']

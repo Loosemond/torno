@@ -2,7 +2,7 @@ import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
-import type { Mark } from '../../shared/marks'
+import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
@@ -11,6 +11,12 @@ import type { WorkspaceInfo } from '../../shared/workspace'
 export interface SessionView {
   sessionId: string
   status: SessionStatus
+}
+
+/** Where a selected ref was clicked: the point, and the normal there (an edge has none). Object frame. */
+export interface PickedAt {
+  point: Vec3
+  normal: Vec3 | null
 }
 
 /**
@@ -39,6 +45,8 @@ export interface TornoState {
   marksProblem: string | null
   /** The mark being worked on: the row lit in the panel and the label ringed in the viewport. Null for none. */
   activeMark: string | null
+  /** The mark whose note is open over the viewport, for the person to write it; null for none. It is the active one. */
+  noting: string | null
   /** Counts the times the camera was asked to go to the active mark's view. */
   markFocus: number
   /**
@@ -47,6 +55,8 @@ export interface TornoState {
    * selection is emptied when the object, the layout or the revision changes.
    */
   selection: string[]
+  /** By selected ref, where it was clicked: a note left on the selection is anchored there. */
+  picked: Record<string, PickedAt>
   ortho: boolean
   /** Counts changes of layout and layers made by hand: what the scene file is saved for. */
   edits: number
@@ -55,7 +65,9 @@ export interface TornoState {
 }
 
 const NOTHING_SELECTED: string[] = []
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, activeMark: null, selection: NOTHING_SELECTED }
+const NOTHING_PICKED: Record<string, PickedAt> = {}
+const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, activeMark: null, noting: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -109,7 +121,7 @@ export const actions = {
     const names = new Set(m.scene.parts.map((p) => p.name))
     const kept = Object.entries(s.layers).filter(([name]) => names.has(name))
     const layers = kept.length === Object.keys(s.layers).length ? s.layers : Object.fromEntries(kept)
-    store.setState({ scene: m.scene, revision: m.revision, layout, layers, selection: NOTHING_SELECTED })
+    store.setState({ scene: m.scene, revision: m.revision, layout, layers, ...NO_SELECTION })
     return true
   },
 
@@ -118,7 +130,8 @@ export const actions = {
     if (layout === s.layout || !s.scene?.layouts.includes(layout)) return
     // A mark is of one layout: the active one does not follow to another.
     const activeMark = s.marks.find((m) => m.id === s.activeMark)?.layout === layout ? s.activeMark : null
-    store.setState({ layout, edits: s.edits + 1, selection: NOTHING_SELECTED, activeMark })
+    // A note is written where its mark can be seen: it closes.
+    store.setState({ layout, edits: s.edits + 1, ...NO_SELECTION, activeMark, noting: null })
   },
 
   /** Change some settings of one part; the others keep their values. */
@@ -131,14 +144,32 @@ export const actions = {
   setMarks(m: { objectId: string; marks: Mark[] }): void {
     const s = store.getState()
     if (m.objectId !== s.objectId) return
-    // A mark that is gone is no longer the active one.
-    store.setState({ marks: m.marks, activeMark: m.marks.some((mark) => mark.id === s.activeMark) ? s.activeMark : null })
+    // A mark that is gone is no longer the active one. One whose note was opened
+    // the moment main kept it may not have been told of yet: it stays until it has been.
+    const awaited = s.noting !== null && s.noting === s.activeMark && !s.marks.some((mark) => mark.id === s.noting)
+    const activeMark = awaited || m.marks.some((mark) => mark.id === s.activeMark) ? s.activeMark : null
+    store.setState({ marks: m.marks, activeMark, noting: activeMark === null ? null : s.noting })
   },
 
-  /** Make a mark of the open object the active one, or none. */
+  /** Make a mark of the open object the active one, or none. The note that was open is of another mark: it closes. */
   setActiveMark(id: string | null): void {
     const s = store.getState()
-    if (id !== s.activeMark && (id === null || s.marks.some((m) => m.id === id))) store.setState({ activeMark: id })
+    if (id !== s.activeMark && (id === null || s.marks.some((m) => m.id === id))) store.setState({ activeMark: id, noting: null })
+  },
+
+  /**
+   * Open the note of a mark over the viewport, and make the mark the active
+   * one. For a mark just made, which main may not have told of yet; one of
+   * another object or another layout than is shown opens nothing.
+   */
+  openNote(m: { objectId: string; layout: string; id: string }): void {
+    const s = store.getState()
+    if (m.objectId === s.objectId && m.layout === s.layout) store.setState({ activeMark: m.id, noting: m.id })
+  },
+
+  /** Close the note that is open; its mark stays the active one. */
+  closeNote(): void {
+    if (store.getState().noting !== null) store.setState({ noting: null })
   },
 
   /**
@@ -150,7 +181,8 @@ export const actions = {
     const mark = store.getState().marks.find((m) => m.id === id)
     if (!mark) return
     actions.setLayout(mark.layout)
-    store.setState({ activeMark: id, markFocus: store.getState().markFocus + 1 })
+    const s = store.getState()
+    store.setState({ activeMark: id, markFocus: s.markFocus + 1, noting: s.noting === id ? id : null })
   },
 
   /** Main said what was wrong with an object's marks file. It stays until it is dismissed or another object is opened. */
@@ -163,17 +195,29 @@ export const actions = {
     store.setState({ marksProblem: null })
   },
 
-  /** Select these refs and no others; none to clear. */
-  setSelection(refs: string[]): void {
-    const { selection } = store.getState()
-    if (refs.length === selection.length && refs.every((ref, i) => ref === selection[i])) return
-    store.setState({ selection: refs.length === 0 ? NOTHING_SELECTED : [...new Set(refs)] })
+  /**
+   * Select these refs and no others; none to clear. `at` says where some of
+   * them were clicked; a ref that stays selected keeps where it was clicked
+   * unless `at` says anew.
+   */
+  setSelection(refs: string[], at: Record<string, PickedAt> = NOTHING_PICKED): void {
+    const { selection, picked } = store.getState()
+    const same = refs.length === selection.length && refs.every((ref, i) => ref === selection[i])
+    if (same && Object.keys(at).length === 0) return
+    if (refs.length === 0) return store.setState(NO_SELECTION)
+    const kept: Record<string, PickedAt> = {}
+    for (const ref of refs) {
+      const where = at[ref] ?? picked[ref]
+      if (where) kept[ref] = where
+    }
+    store.setState({ selection: same ? selection : [...new Set(refs)], picked: kept })
   },
 
-  /** Add a ref to the selection, or take it out if it is there. */
-  toggleSelection(ref: string): void {
+  /** Add a ref to the selection, clicked at `at`, or take it out if it is there. */
+  toggleSelection(ref: string, at?: PickedAt): void {
     const { selection } = store.getState()
-    actions.setSelection(selection.includes(ref) ? selection.filter((r) => r !== ref) : [...selection, ref])
+    if (selection.includes(ref)) actions.setSelection(selection.filter((r) => r !== ref))
+    else actions.setSelection([...selection, ref], at ? { [ref]: at } : NOTHING_PICKED)
   },
 
   setOrtho(ortho: boolean): void {

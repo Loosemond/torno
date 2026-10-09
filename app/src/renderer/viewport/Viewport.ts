@@ -4,7 +4,9 @@ import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, ViewName } from '../../shared/view'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
-import { MarkLayer } from './marks/MarkLayer'
+import { labelAnchor, markPoints } from './marks/markObjects'
+import type { Placed } from './marks/labels'
+import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayUnit, type LabelStyle } from './overlay'
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
@@ -125,6 +127,7 @@ export class Viewport {
   private frame = 0
   private settleTimer: ReturnType<typeof setTimeout> | undefined
   private readonly settledListeners: ((c: Camera) => void)[] = []
+  private readonly drawnListeners = new Set<() => void>()
   private move: { from: Camera; to: Camera; start: number } | null = null
   private disposed = false
 
@@ -135,6 +138,9 @@ export class Viewport {
   /** Over the canvas, for the labels of the marks: drawn anew with every frame, never through React. */
   private readonly labelCanvas: HTMLCanvasElement | null
   private pointerListener: ((e: ViewportPointer) => void) | null = null
+  /** Whether the camera is the pointer's to move, as last asked, and whether a button is down on the canvas. */
+  private navigation = true
+  private held = false
   /** The left button's press, until it is released: where and when. */
   private press: { x: number; y: number; at: number } | null = null
 
@@ -259,12 +265,56 @@ export class Viewport {
   /** Where the label of a mark of the layout shown is on the canvas, in client pixels, and whether it is in view; null for a mark that is not drawn. */
   markLabel(id: string): { x: number; y: number; visible: boolean } | null {
     const rect = this.canvas.getBoundingClientRect()
+    const label = this.placedLabel(id)
+    return label ? { x: rect.left + label.box.x + label.box.w / 2, y: rect.top + label.box.y + label.box.h / 2, visible: label.visible } : null
+  }
+
+  /** The label of a mark of the layout shown as it is placed on the canvas, in the canvas's own pixels. */
+  private placedLabel(id: string): Placed | null {
+    const rect = this.canvas.getBoundingClientRect()
     this.syncMatrices()
     const size = { width: rect.width, height: rect.height }
     const ctx = this.labelCanvas?.getContext('2d')
     if (!ctx || size.width === 0 || size.height === 0) return null
-    const label = this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1)).find((l) => l.id === id)
-    return label ? { x: rect.left + label.box.x + label.box.w / 2, y: rect.top + label.box.y + label.box.h / 2, visible: label.visible } : null
+    return this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1)).find((l) => l.id === id) ?? null
+  }
+
+  /**
+   * What a mark of the layout shown covers on the canvas, in client pixels:
+   * its points and the chip of its number. `at` is where it is anchored.
+   * Null for a mark that is not drawn. For whatever is put beside a mark.
+   */
+  markBox(id: string): { left: number; top: number; right: number; bottom: number; at: [number, number]; visible: boolean } | null {
+    const mark = this.marks.markOf(this.layout, id)
+    const label = mark && this.placedLabel(id)
+    if (!mark || !label) return null
+    const rect = this.canvas.getBoundingClientRect()
+    const at = this.project(labelAnchor(mark).point)
+    const xs = [at[0], rect.left + label.box.x, rect.left + label.box.x + label.box.w]
+    const ys = [at[1], rect.top + label.box.y, rect.top + label.box.y + label.box.h]
+    for (const point of markPoints(mark)) {
+      const [x, y] = this.project(point)
+      xs.push(x)
+      ys.push(y)
+    }
+    return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys), at, visible: label.visible }
+  }
+
+  /**
+   * What the pointer is making, drawn until it is a mark: a pin where it was
+   * clicked, an arrow being dragged. Null for nothing. It goes straight to the
+   * scene: nothing of a drag passes through React or the marks.
+   */
+  setDraft(draft: Draft | null): void {
+    this.marks.setDraft(draft)
+    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.invalidate()
+  }
+
+  /** Calls back after every frame drawn: what is laid over the view (the note of a mark) follows the camera with it. Returns what stops it. */
+  onDrawn(cb: () => void): () => void {
+    this.drawnListeners.add(cb)
+    return () => this.drawnListeners.delete(cb)
   }
 
   /** Shows the parts of one layout. A layout the scene does not have is ignored. */
@@ -385,9 +435,15 @@ export class Viewport {
     this.pointerListener = cb
   }
 
-  /** Whether dragging turns, pans and zooms the camera. A tool that drags switches it off meanwhile. */
+  /**
+   * Whether dragging turns, pans and zooms the camera. A tool that drags
+   * switches it off meanwhile. Switched back on while a button is still held,
+   * it stays off until the button is let go: the rest of a drag that a tool
+   * gave up does not turn the camera.
+   */
   setNavigation(enabled: boolean): void {
-    this.controls.enabled = enabled
+    this.navigation = enabled
+    if (!enabled || !this.held) this.controls.enabled = enabled
   }
 
   /** Calls back 150 ms after the camera stops moving, however it was moved. */
@@ -457,6 +513,7 @@ export class Viewport {
       for (const entry of shown) entry.built.group.visible = true
       let extent = otherLayout ? this.rebuildGround(req.layout) : this.groundExtent
       this.marks.show(withMarks ? req.layout : null)
+      this.marks.showDraft(false) // not a mark yet
       if (withMarks) {
         extent = this.marks.extend(extent.clone(), req.layout)
         this.highlights.setVisible(true, MARK_LAYERS)
@@ -485,6 +542,7 @@ export class Viewport {
       for (const [entry, visible] of before) entry.built.group.visible = visible
       this.highlights.setVisible(true)
       this.marks.show(this.layout) // sized for the screen again by the next frame drawn
+      this.marks.showDraft(true)
       if (otherLayout) {
         this.rebuildGround(this.layout)
         if (withMarks) this.tintPicks(this.layout)
@@ -542,6 +600,7 @@ export class Viewport {
     if (this.frame) cancelAnimationFrame(this.frame)
     clearTimeout(this.settleTimer)
     this.settledListeners.length = 0
+    this.drawnListeners.clear()
     this.pointerListener = null
     for (const type of POINTER_EVENTS) this.canvas.removeEventListener(type, this.onPointerEvent)
     this.scheme?.removeEventListener('change', this.onSchemeChange)
@@ -625,6 +684,8 @@ export class Viewport {
     const press = this.press
     if (kind === 'down') this.press = e.button === 0 ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null
     else if (kind !== 'move') this.press = null
+    this.held = e.buttons !== 0
+    if (!this.held) this.controls.enabled = this.navigation
     const cb = this.pointerListener
     const at = this.canvasPoint(e.clientX, e.clientY)
     if (!cb || !at) return
@@ -853,6 +914,7 @@ export class Viewport {
     this.marks.update(this.camera, size)
     this.renderer.render(this.scene, this.camera)
     this.drawLabels(size)
+    for (const cb of this.drawnListeners) cb()
   }
 
   /** The labels of the marks, on the canvas that lies over the 3D one. */

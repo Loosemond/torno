@@ -318,6 +318,96 @@ describe('the selection', () => {
   })
 })
 
+describe('where the selection was clicked', () => {
+  beforeEach(() => actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET }))
+  const at = (x: number) => ({ point: [x, 0, 2.5] as [number, number, number], normal: [0, 0, 1] as [number, number, number] })
+
+  it('is remembered for each ref, and forgotten with it', () => {
+    actions.setSelection(['base/F5'], { 'base/F5': at(1) })
+    actions.toggleSelection('post/E2', { point: [0, 4, 9], normal: null })
+    expect(store.getState().picked).toEqual({ 'base/F5': at(1), 'post/E2': { point: [0, 4, 9], normal: null } })
+    actions.toggleSelection('base/F5', at(7)) // taken out
+    expect(store.getState().picked).toEqual({ 'post/E2': { point: [0, 4, 9], normal: null } })
+    actions.setSelection([])
+    expect(store.getState().picked).toEqual({})
+  })
+
+  it('follows the last click on a ref that stays selected', () => {
+    actions.setSelection(['base/F5'], { 'base/F5': at(1) })
+    const before = store.getState().selection
+    actions.setSelection(['base/F5'], { 'base/F5': at(2) })
+    expect(store.getState().picked).toEqual({ 'base/F5': at(2) })
+    expect(store.getState().selection).toBe(before)
+  })
+
+  it('goes with the selection: another layout, a new revision', () => {
+    actions.setSelection(['base/F5'], { 'base/F5': at(1) })
+    actions.setLayout('print')
+    expect(store.getState().picked).toEqual({})
+    actions.setSelection(['base/F5'], { 'base/F5': at(1) })
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: BRACKET })
+    expect(store.getState().picked).toEqual({})
+  })
+})
+
+describe('the note that is open', () => {
+  beforeEach(() => actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET }))
+  const pin = (id: string, layout = 'assembly'): Mark => ({
+    id, kind: 'pin', author: 'user', note: '', status: 'draft', anchorState: 'ok', layout, revision: 1,
+    camera: { position: [0, 0, 1], target: [0, 0, 0], up: [0, 1, 0], ortho: true, fov: 35, zoom: 1 }, createdAt: '', anchor: { point: [0, 0, 0] }
+  })
+  const open = (id: string, layout = 'assembly') => actions.openNote({ objectId: 'bracket', layout, id })
+
+  it('is of a mark just made, which becomes the active one, even before main has told of it', () => {
+    open('M1')
+    expect(store.getState()).toMatchObject({ noting: 'M1', activeMark: 'M1' })
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1')] })
+    expect(store.getState()).toMatchObject({ noting: 'M1', activeMark: 'M1' })
+    // A change to its note leaves it open.
+    actions.setMarks({ objectId: 'bracket', marks: [{ ...pin('M1'), note: 'thicker' }] })
+    expect(store.getState().noting).toBe('M1')
+  })
+
+  it('closes when its mark is deleted', () => {
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1'), pin('M2')] })
+    open('M2')
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1')] })
+    expect(store.getState()).toMatchObject({ noting: null, activeMark: null })
+  })
+
+  it('closes when it is closed, leaving its mark the active one', () => {
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1')] })
+    open('M1')
+    actions.closeNote()
+    expect(store.getState()).toMatchObject({ noting: null, activeMark: 'M1' })
+  })
+
+  it('closes when another mark is made the active one, another layout is shown, or another object', () => {
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1'), pin('M2'), pin('M3', 'print')] })
+    open('M1')
+    actions.setActiveMark('M2')
+    expect(store.getState().noting).toBeNull()
+    open('M1')
+    actions.focusMark('M1') // going to its own view leaves it open
+    expect(store.getState().noting).toBe('M1')
+    actions.focusMark('M2')
+    expect(store.getState().noting).toBeNull()
+    open('M1')
+    actions.setLayout('print')
+    expect(store.getState().noting).toBeNull()
+    actions.setLayout('assembly')
+    open('M1')
+    actions.openObject('gear', { layers: {} })
+    expect(store.getState().noting).toBeNull()
+  })
+
+  it('does not open for a mark of an object or a layout that is not shown', () => {
+    actions.openNote({ objectId: 'gear', layout: 'assembly', id: 'M1' })
+    open('M1', 'print')
+    expect(store.getState()).toMatchObject({ noting: null, activeMark: null })
+  })
+})
+
 describe('the running session of the open object', () => {
   it('is the one an agent still runs in', () => {
     expect(runningSession(store.getState())).toBeUndefined()

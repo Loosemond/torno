@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import type { BuildState } from '../../shared/build'
 import type { Scene } from '../../shared/scene'
 import type { LookRequest, LookResult } from '../../shared/view'
-import { describe, descriptorOf } from '../state/descriptors'
+import { describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
-import { toolStore, type ToolHandler, type ToolName } from '../state/tools'
+import { setTool, toolStore, type ToolName } from '../state/tools'
+import { arrowTool } from '../tools/arrowTool'
+import { commitMark } from '../tools/pickMarks'
+import { pinTool } from '../tools/pinTool'
+import { selectTool } from '../tools/selectTool'
+import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
 import { Readout } from '../viewport/highlight'
-import { Viewport, type ViewportPointer } from '../viewport/Viewport'
+import { Viewport } from '../viewport/Viewport'
+import { NotePopover } from './NotePopover'
 import { Selection } from './Selection'
 import { ToolPalette } from './ToolPalette'
-import { ViewBar } from './ViewBar'
+import { TYPING, ViewBar } from './ViewBar'
 
 const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output: '' }
 
@@ -44,60 +49,6 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
   return { ...picture, ...drawn! }
 }
 
-/** How long the pointer rests on a face or an edge before the kernel is asked what it is. */
-const DESCRIBE_AFTER_MS = 150
-/**
- * Said at the pointer while the parts on screen are older than the model:
- * their refs would name the wrong geometry. Which sentence depends on whether
- * a build is on its way or the last one failed and nothing is.
- */
-function staleMessage(status: BuildState['status'] | undefined): string {
-  return status === 'failed' ? 'The last build failed: picks wait for a build that works' : 'Rebuilding: picks wait for the new build'
-}
-
-/**
- * The select tool: what is under the pointer is marked and named beside it,
- * a click selects it, with Shift adds it or takes it out, and a click on
- * nothing clears the selection. Dragging turns the camera as ever.
- */
-function selectTool(viewport: Viewport, readout: Readout): ToolHandler {
-  let hovered: string | null = null
-  let rest: ReturnType<typeof setTimeout> | undefined
-  const stop = () => {
-    clearTimeout(rest)
-    hovered = null
-    viewport.setHover(null)
-    readout.hide()
-  }
-  return {
-    stop,
-    pointer(e: ViewportPointer) {
-      if (e.type === 'click') {
-        if (!e.hit) actions.setSelection([])
-        else if (e.shift) actions.toggleSelection(e.hit.ref)
-        else actions.setSelection([e.hit.ref])
-        return
-      }
-      const { hit } = e
-      const { objectId, revision, layout } = store.getState()
-      if (e.type === 'cancel' || !hit || !objectId) return stop()
-
-      const { ref } = hit
-      hovered = ref
-      viewport.setHover(hit)
-      const known = descriptorOf(objectId, revision, layout, ref)
-      readout.show(e.client, ref, known)
-      clearTimeout(rest)
-      if (known !== undefined) return
-      rest = setTimeout(() => {
-        void describe(objectId, revision, layout, ref).then((text) => {
-          if (text !== null && hovered === ref && store.getState().revision === revision) readout.describe(text)
-        })
-      }, DESCRIBE_AFTER_MS)
-    }
-  }
-}
-
 /** Join a viewport to the store and to main. Returns what undoes it. */
 function connect(viewport: Viewport, readout: Readout): () => void {
   const applyLayers = (s: TornoState) => {
@@ -125,27 +76,60 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     report()
   })
 
+  // What a tool works with, as things are now. `commit` and the kernel's
+  // answers belong to the object, layout and build of that moment.
+  const context = (): ToolContext => {
+    const s = store.getState()
+    const { layout, revision } = s
+    const objectId = s.objectId ?? ''
+    return {
+      viewport,
+      readout,
+      objectId,
+      layout,
+      revision,
+      get camera() {
+        return viewport.getCamera()
+      },
+      stale: s.build?.stale ? staleMessage(s.build.status) : null,
+      descriptor: (ref) => descriptorOf(objectId, revision, layout, ref),
+      describe: (ref) => describeWhole(objectId, revision, layout, ref),
+      commit: (mark) => commitMark(objectId, mark),
+      openNote: (mark) => actions.openNote({ objectId, layout: mark.layout, id: mark.id })
+    }
+  }
+
   // The one pointer subscription: every event goes to the tool in use, and to
-  // none while the parts are stale. Tools made by later tasks are added here.
-  const handlers: Partial<Record<ToolName, ToolHandler>> = { select: selectTool(viewport, readout) }
-  let tool = handlers[toolStore.getState().tool]
+  // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
+  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool() }
+  let tool = tools[toolStore.getState().tool]
   const putDown = () => {
-    tool?.stop()
+    tool?.cancel(context())
     readout.hide()
     viewport.setNavigation(true)
   }
-  const offTool = toolStore.subscribe((t) => {
+  const pickUp = () => {
+    tool = tools[toolStore.getState().tool]
+    viewport.canvas.style.cursor = tool?.cursor ?? ''
+  }
+  pickUp()
+  const offTool = toolStore.subscribe(() => {
     putDown()
-    tool = handlers[t.tool]
+    pickUp()
   })
   viewport.onPointer((e) => {
-    const s = store.getState()
-    if (!s.scene) return
-    if (!s.build?.stale) return tool?.pointer(e)
-    // Refs of the old build would name other faces in the new one: nothing is picked.
-    if (e.hit) readout.say(e.client, staleMessage(s.build.status))
-    else readout.hide()
+    if (tool && store.getState().scene) routePointer(tool, e, context())
   })
+  // Keys outside any field: the tool in use first, then Escape puts a mark tool down for Select.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.target instanceof Element && e.target.closest(TYPING)) return
+    if (tool?.onKey?.(e, context())) return e.preventDefault()
+    if (e.key !== 'Escape' || toolStore.getState().tool === 'select') return
+    setTool('select')
+    e.preventDefault()
+  }
+  window.addEventListener('keydown', onKey)
 
   viewport.setMarks(store.getState().marks)
   viewport.setActiveMark(store.getState().activeMark)
@@ -205,6 +189,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   }
 
   return () => {
+    putDown()
+    window.removeEventListener('keydown', onKey)
     offTool()
     offScene()
     offStore()
@@ -268,7 +254,8 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
         <>
           <ViewBar viewport={viewport} />
           <ToolPalette />
-          <Selection />
+          <Selection viewport={viewport} />
+          <NotePopover viewport={viewport} />
         </>
       )}
       {!hasScene && (

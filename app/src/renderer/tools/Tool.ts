@@ -1,0 +1,126 @@
+import type { BuildState } from '../../shared/build'
+import type { Described } from '../../shared/geometry'
+import type { Anchor, Mark, NewMark, Vec3 } from '../../shared/marks'
+import type { Camera } from '../../shared/view'
+import type { Readout } from '../viewport/highlight'
+import type { Hit } from '../viewport/picking'
+import type { Viewport, ViewportPointer } from '../viewport/Viewport'
+
+/**
+ * What the pointer does in the viewport: select, pin, arrow, and the tools
+ * that follow. The viewport pane owns the one pointer subscription and hands
+ * each event to the tool in use through `routePointer`, which hands on none
+ * while the parts on screen are stale. A tool keeps what it has under way (a
+ * drag, a hover) to itself, and nothing of a pointer move leaves the viewport.
+ */
+export interface Tool {
+  id: string
+  /** The CSS cursor over the canvas while the tool is in use. */
+  cursor: string
+  onPointer(e: ViewportPointer, ctx: ToolContext): void
+  /** A key pressed outside any field. True when the tool used it: nothing else then acts on it. */
+  onKey?(e: KeyboardEvent, ctx: ToolContext): boolean
+  /** The tool is put down, or its pointing is cut short: it drops whatever it had under way. */
+  cancel(ctx: ToolContext): void
+}
+
+/** What a tool may do to the viewport. */
+export type ToolViewport = Pick<Viewport, 'setHover' | 'setNavigation' | 'setDraft'>
+
+/**
+ * What a tool works with, as it is when the event arrives: the object on show,
+ * its layout and revision, and the camera. `commit` belongs to that object,
+ * so a mark that waited on the kernel still goes where it was placed.
+ */
+export interface ToolContext {
+  viewport: ToolViewport
+  /** The line of text at the pointer. */
+  readout: Pick<Readout, 'show' | 'describe' | 'say' | 'hide'>
+  objectId: string
+  layout: string
+  revision: number
+  camera: Camera
+  /** Why nothing can be pointed at, as a sentence, while the parts on screen are older than the model; null otherwise. */
+  stale: string | null
+  /** The kernel's line about a ref of the layout shown, if it has already given it for this build. */
+  descriptor(ref: string): string | undefined
+  /** What the kernel says of a ref of the layout shown; null when it cannot say. */
+  describe(ref: string): Promise<Described | null>
+  /** Has main keep a mark; it comes back with its number. The viewport and the panel get it from main, like any other. */
+  commit(mark: NewMark): Promise<Mark>
+  /** Opens the note of a mark just made, for the person to write it. */
+  openNote(mark: Mark): void
+}
+
+/**
+ * Said at the pointer while the parts on screen are older than the model:
+ * their refs would name the wrong geometry. Which sentence depends on whether
+ * a build is on its way or the last one failed and nothing is.
+ */
+export function staleMessage(status: BuildState['status'] | undefined): string {
+  return status === 'failed' ? 'The last build failed: picks wait for a build that works' : 'Rebuilding: picks wait for the new build'
+}
+
+/** How long the kernel has to say what a mark is on before the mark is kept without. */
+export const DESCRIBE_WITHIN_MS = 1500
+
+/** A drag shorter than this many pixels is no drag: the same reach as a click. */
+export const DRAG_PX = 4
+
+/**
+ * Hands a pointer event to a tool, unless the parts on screen are stale: their
+ * refs would name other geometry in the new build, so nothing is pointed at
+ * and the pointer is told why.
+ */
+export function routePointer(tool: Tool, e: ViewportPointer, ctx: ToolContext): void {
+  if (ctx.stale === null) return tool.onPointer(e, ctx)
+  if (e.hit) ctx.readout.say(e.client, ctx.stale)
+  else ctx.readout.hide()
+}
+
+/**
+ * Where a mark is anchored, from what the pointer was on: the point, the
+ * normal there (an edge has none), the part and the ref, and the kernel's
+ * line about that ref. A kernel that fails, or takes longer than
+ * `DESCRIBE_WITHIN_MS`, leaves the descriptor out: the mark does not wait.
+ */
+export async function anchorFromHit(hit: Pick<Hit, 'point' | 'normal' | 'part' | 'ref'>, describe: ToolContext['describe']): Promise<Anchor> {
+  const anchor: Anchor = { point: hit.point, ...(hit.normal ? { normal: hit.normal } : {}), part: hit.part, ref: hit.ref }
+  const descriptor = (await within(describe(hit.ref), DESCRIBE_WITHIN_MS))?.descriptor
+  return descriptor ? { ...anchor, descriptor } : anchor
+}
+
+/** What a promise resolves to, or null if it fails or is not there in time. */
+export function within<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      () => {
+        clearTimeout(timer)
+        resolve(null)
+      }
+    )
+  })
+}
+
+export function sub(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+export function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+export function along(from: Vec3, direction: Vec3, by: number): Vec3 {
+  return [from[0] + direction[0] * by, from[1] + direction[1] * by, from[2] + direction[2] * by]
+}
+
+/** A direction of length one; null for no direction at all. */
+export function unit(v: Vec3): Vec3 | null {
+  const length = Math.hypot(...v)
+  return length > 1e-9 ? [v[0] / length, v[1] / length, v[2] / length] : null
+}
