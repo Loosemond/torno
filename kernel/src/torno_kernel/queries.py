@@ -34,7 +34,10 @@ def run(
     the next: a worker hands in the same dict for as long as it lives, which
     is as long as its shapes are the ones asked about. ``nearest`` keeps a
     part's surface under its key; the others keep theirs under a pair
-    ``(what, key)``.
+    ``(what, key)``. What is said of a whole part and is slow to work out of
+    a large one is among them: its ``volume`` (which the build has already
+    measured, ``tess.build_scene``), its ``area``, its ``box`` and whether it
+    is ``valid``.
     """
     # These build on what is below, so they are imported once that is defined.
     from . import checks, measure, section
@@ -51,7 +54,7 @@ def run(
         ref = args.get("ref")
         if not isinstance(ref, str):
             raise QueryError("bad_request", "describe needs args.ref, a string")
-        return describe(shapes, ref)
+        return describe(shapes, ref, kept)
     if name == "nearest":
         layout, anchors = args.get("layout"), args.get("anchors")
         if not isinstance(layout, str) or not isinstance(anchors, list):
@@ -65,15 +68,17 @@ def run(
     )
 
 
-def describe(shapes: dict[str, Any], ref: str) -> dict[str, Any]:
+def describe(
+    shapes: dict[str, Any], ref: str, kept: dict[Any, Any] | None = None
+) -> dict[str, Any]:
     """Describe a part (``layout:name``), or one of its faces (``/F<i>``) or edges (``/E<i>``).
 
     Positions and directions are in the object frame. ``descriptor`` says the
-    same in one line.
+    same in one line. ``kept`` is the worker's (``run``).
     """
     key, kind, shape = resolve(shapes, ref)
     if kind == "part":
-        return _describe_part(key, shape)
+        return _describe_part(key, shape, kept)
     if kind == "face":
         return _describe_face(ref, shape)
     return _describe_edge(ref, shape)
@@ -120,6 +125,50 @@ def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
         names = [k.split(":", 1)[1] for k in shapes if k.startswith(f"{layout}:")]
         raise QueryError("bad_ref", f"no part {part!r} in {layout}; its parts are {', '.join(names)}")
     return shapes[key]
+
+
+def volume_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> float:
+    """The volume of the part ``key``, mm³: measured once for as long as ``kept`` is."""
+    return _held(kept, "volume", key, lambda: extent.volume(shape))
+
+
+def area_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> extent.Area:
+    """The area of the part ``key`` and whether it is exact: measured once for as long as ``kept`` is."""
+    return _held(kept, "area", key, lambda: extent.area(shape))
+
+
+def box_of(shape: Any, key: str | None, kept: dict[Any, Any] | None) -> tuple[list[float], list[float]]:
+    """The least and the greatest corner of the axis-aligned box of a shape.
+
+    Of the part ``key`` it is worked out once for as long as ``kept`` is: it
+    takes seconds of a part of hundreds of round faces.
+    """
+    return _held(kept, "box", key, lambda: _box(shape))
+
+
+def valid_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> bool:
+    """Whether OCC finds no defect in the part ``key``: checked once for as long as ``kept`` is."""
+    return _held(kept, "valid", key, lambda: bool(shape.is_valid))
+
+
+def _held(kept: dict[Any, Any] | None, what: str, key: str | None, work: Any) -> Any:
+    """What ``work`` makes of a part, from ``kept`` when it was made before."""
+    if kept is None or key is None:
+        return work()
+    if (what, key) not in kept:
+        kept[what, key] = work()
+    return kept[what, key]
+
+
+def _box(shape: Any) -> tuple[list[float], list[float]]:
+    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+
+    box = Bnd_Box()
+    # Of the geometry itself: not of a mesh, and not widened by the shape's tolerance.
+    BRepBndLib.AddOptimal_s(getattr(shape, "wrapped", shape), box, False, False)
+    if box.IsVoid():
+        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
+    return _xyz_of(box.CornerMin()), _xyz_of(box.CornerMax())
 
 
 def as_point(value: Any) -> list[float] | None:
@@ -425,19 +474,19 @@ def _pick(items: list[Any], index: int, key: str, plural: str, letter: str) -> A
     return items[index]
 
 
-def _describe_part(key: str, shape: Any) -> dict[str, Any]:
-    box = shape.bounding_box()
-    area = extent.area(shape)
+def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[str, Any]:
+    low, high = box_of(shape, key, kept)
+    area = area_of(shape, key, kept)
     facts = {
         "kind": "part",
         "key": key,
-        "bbox": {"min": _xyz(box.min), "max": _xyz(box.max)},
-        "volume": extent.volume(shape),
+        "bbox": {"min": list(low), "max": list(high)},
+        "volume": volume_of(shape, key, kept),
         "area": area.value,
         "areaExact": area.exact,
         "faceCount": len(topo.faces(shape)),
         "edgeCount": len(topo.edges(shape)),
-        "valid": bool(shape.is_valid),
+        "valid": valid_of(shape, key, kept),
     }
     return {**facts, "descriptor": descriptor("part", facts)}
 
@@ -495,6 +544,11 @@ def _describe_edge(ref: str, topods_edge: Any) -> dict[str, Any]:
         "center": center,
     }
     return {**facts, "descriptor": descriptor("edge", {**facts, "radius": radius})}
+
+
+def _xyz_of(point: Any) -> list[float]:
+    """A ``gp_Pnt`` as three numbers."""
+    return [float(point.X()) + 0.0, float(point.Y()) + 0.0, float(point.Z()) + 0.0]
 
 
 def _xyz(vector: Any) -> list[float]:

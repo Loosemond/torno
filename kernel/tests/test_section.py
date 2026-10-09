@@ -207,6 +207,56 @@ def test_a_loop_of_more_points_than_the_limit_is_drawn_coarser_and_its_area_is_s
     assert (len(loop["points"]), loop["deflection"]) == (12, 0.05)
 
 
+def test_an_outline_is_drawn_as_finely_as_asked_down_to_five_microns(bracket):
+    def circle(**more) -> dict:
+        [loop] = by_name(section(bracket, [0, 0, 12.5], [0, 0, 1], **more))["post"]["loops"]
+        assert all(math.hypot(u, v) == pytest.approx(4) for u, v in loop["points"])
+        return loop
+
+    def sag(loop) -> float:
+        """How far the longest chord of the circle's polygon is from the circle."""
+        points = loop["points"]
+        chord = max(math.dist(a, b) for a, b in zip(points, points[1:] + points[:1], strict=True))
+        return 4 - math.sqrt(16 - chord * chord / 4)
+
+    coarse = circle()
+    assert (coarse["deflection"], circle(deflection=0.05), circle(deflection=None)) == (0.05, coarse, coarse)
+    assert 0.005 < sag(coarse) <= 0.05
+    fine = circle(deflection=0.005)
+    assert fine["deflection"] == 0.005
+    assert sag(fine) <= 0.005
+    assert len(fine["points"]) > 2 * len(coarse["points"])
+    # The area is the circle's at either.
+    assert fine["area"] == coarse["area"] == pytest.approx(math.pi * 16, rel=1e-9)
+    # Finer than the finest is the finest, coarser than the default the default: each says which.
+    assert circle(deflection=0.0001) == fine
+    assert circle(deflection=3) == coarse
+    assert circle(deflection=0.02)["deflection"] == 0.02
+
+
+@pytest.mark.parametrize("deflection", [0, -0.01, "0.01", True, [0.01], float("nan"), float("inf"), 10**400])
+def test_a_deflection_that_is_not_a_positive_number_is_refused(bracket, deflection):
+    plane = {"origin": [0, 0, 12.5], "normal": [0, 0, 1]}
+    assert refused(bracket, {"layout": "assembly", "plane": plane, "deflection": deflection}) == (
+        "bad_request",
+        "args.deflection of section, if given, is a positive number of mm, how far the outline "
+        "drawn may stray from the true one: 0.05 when none is given, 0.005 at least",
+    )
+
+
+def test_a_loop_asked_finer_than_the_limit_allows_is_drawn_as_finely_as_it_does():
+    from build123d import Cylinder
+
+    # A circle of 20 m at 5 microns is 3,100 points: it is drawn at the finest that is
+    # under the limit, and says so.
+    shapes = {"assembly:drum": Cylinder(10000, 2)}
+    [loop] = section(shapes, [0, 0, 0], [0, 0, 1], deflection=0.005)["parts"][0]["loops"]
+    assert 1000 < len(loop["points"]) <= 2000
+    assert loop["deflection"] == 0.02
+    assert loop["area"] == pytest.approx(math.pi * 1e8, rel=1e-9)
+    assert all(math.hypot(u, v) == pytest.approx(10000) for u, v in loop["points"])
+
+
 @pytest.mark.parametrize(
     "args",
     [

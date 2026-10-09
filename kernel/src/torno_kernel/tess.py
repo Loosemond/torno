@@ -26,13 +26,16 @@ _BUFFERS = {
 
 
 def build_scene(
-    layouts: dict[str, dict[str, Any]], model: str
+    layouts: dict[str, dict[str, Any]], model: str, kept: dict[Any, Any] | None = None
 ) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
     """Tessellate every part of every layout.
 
     Returns the Scene dict (without ``seconds`` and ``output``), the blob its
     buffers point into, and the shapes by part key, in the object frame, for
-    queries.
+    queries. Into ``kept``, when one is given, goes what was worked out of
+    each part that a query would otherwise work out again (``queries.run``):
+    its ``volume``, whether it is ``valid`` and the ``deflection`` it was
+    drawn with, each under ``(what, key)``.
 
     Parts of the print layout that overlap are first moved apart along X. The
     shape itself is moved, so the mesh, the bounding box and the shape kept for
@@ -46,10 +49,14 @@ def build_scene(
         if layout == ARRANGED_LAYOUT:
             named, moves = arrange.spread(named)
         # One layout at a time, so a name may repeat across layouts.
-        for name, shape, mesh, loc, cache_id in _tessellate(named):
+        for name, shape, mesh, loc, cache_id, drawn_at in _tessellate(named):
             key = f"{layout}:{name}"
             shapes[key] = shape
             part = _part(key, name, layout, shape, mesh, loc, cache_id, blob)
+            if kept is not None:
+                kept["volume", key] = part["volume"]
+                kept["valid", key] = part["valid"]
+                kept["deflection", key] = drawn_at
             if name in moves:
                 part["arranged"] = moves[name]
             parts.append(part)
@@ -64,7 +71,7 @@ def mesh_of(shape: Any) -> tuple[np.ndarray, np.ndarray]:
     found of it is true of what is shown and exported. ocp-tessellate keeps
     the mesh of a shape it has meshed, so asking again costs little.
     """
-    [(_, _, mesh, loc, _)] = _tessellate({"part": shape})
+    [(_, _, mesh, loc, _, _)] = _tessellate({"part": shape})
     vertices = np.asarray(mesh["vertices"]).reshape(-1, 3)
     triangles = np.asarray(mesh["triangles"]).reshape(-1, 3)
     return _posed(vertices, [float(x) for x in loc[0]], [float(x) for x in loc[1]]), triangles
@@ -76,27 +83,40 @@ def deflection(shape: Any) -> float:
     Asked of ocp-tessellate itself, of the box it meshes the part by: the
     part's own, before it is posed, so a part turned in its layout is drawn
     as finely as one that is not. 0 for a part with no extent.
+
+    That box is not the same once the part carries a mesh: what a build drew
+    a part with is what ``build_scene`` kept of it, not what this says after.
     """
     from ocp_tessellate.convert import to_ocpgroup
+
+    _, instances = to_ocpgroup(shape, names=["part"])
+    return _quality(instances[0]["obj"]) if instances else 0.0
+
+
+def _quality(instance: Any) -> float:
+    """The deflection ocp-tessellate meshes one of its instances at, mm."""
     from ocp_tessellate.ocp_utils import bounding_box
     from ocp_tessellate.tessellator import compute_quality
 
-    _, instances = to_ocpgroup(shape, names=["part"])
     try:
-        box = bounding_box(instances[0]["obj"], loc=None, optimal=False)
+        box = bounding_box(instance, loc=None, optimal=False)
         return float(compute_quality(box, deviation=DEVIATION))
-    except (ValueError, IndexError):
+    except ValueError:
         # A box with a side of no length has no logarithm to round it by.
         return 0.0
 
 
-def _tessellate(named: dict[str, Any]) -> list[tuple[str, Any, dict, Any, str | None]]:
-    """Mesh one layout: (name, shape, mesh arrays, loc, cache id) per part."""
+def _tessellate(named: dict[str, Any]) -> list[tuple[str, Any, dict, Any, str | None, float]]:
+    """Mesh one layout: (name, shape, mesh arrays, loc, cache id, deflection) per part."""
     # ocp-tessellate needs OCP from the user's workspace, so it is imported only here.
     from ocp_tessellate.convert import tessellate_group, to_ocpgroup
 
     names = list(named)
     group, instances = to_ocpgroup(*named.values(), names=names)
+    # Before they are meshed, as ocp-tessellate works it out itself. A part's
+    # ref numbers its instance here: ocp-tessellate renumbers them only when it
+    # drops one whose mesh is empty, and then a part is missing and this fails below.
+    drawn_at = [_quality(instance["obj"]) for instance in instances]
     meshed, tree, mapping = tessellate_group(
         group,
         instances,
@@ -115,6 +135,7 @@ def _tessellate(named: dict[str, Any]) -> list[tuple[str, Any, dict, Any, str | 
             meshed[node["shape"]["ref"]],
             node["loc"],
             mapped.get("shape", {}).get("cache_id"),
+            drawn_at[node["shape"]["ref"]],
         )
         for name, node, mapped in zip(names, nodes, mapping["parts"], strict=True)
     ]

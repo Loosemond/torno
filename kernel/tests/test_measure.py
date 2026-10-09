@@ -647,8 +647,8 @@ def test_what_was_worked_out_of_a_part_is_kept_for_the_next_thickness(shapes):
     args = {"kind": "thickness", "a": {"ref": outside, "point": [0, -15, 1]}}
     first = queries.run(shapes, "measure", args, kept)
     held = dict(kept)
-    # What a line is cut with, and how far off the face a point may be.
-    assert set(held) == {("rays", PLATE), ("band", PLATE)}
+    # What a line is cut with, and how coarsely the part is drawn.
+    assert set(held) == {("rays", PLATE), ("deflection", PLATE)}
     assert queries.run(shapes, "measure", args, kept) == first
     assert all(kept[k] is held[k] for k in held) and len(kept) == 2
 
@@ -1028,20 +1028,126 @@ def test_a_density_too_large_for_a_float_is_refused(shapes):
     )
 
 
-def test_the_band_a_point_is_taken_in_is_never_a_quarter_of_the_thinnest_side_of_the_part():
-    from build123d import Box
+@pytest.mark.parametrize("turned", [(0, 0, 0), (45, 0, 0), (30, 40, 50)])
+def test_a_point_is_never_taken_further_off_a_face_than_a_quarter_of_the_wall_found(turned):
+    import numpy as np
+    from build123d import Box, Pos, Rot
 
-    made = {"assembly:sheet": Box(2000, 2000, 1)}
-    [top] = refs(made, "assembly:sheet", "F", "plane, normal +Z")
-    [bottom] = refs(made, "assembly:sheet", "F", "plane, normal -Z")
-    # Drawn 1.3 mm coarse, but 1 mm thick: a point on the bottom is not on the top.
-    assert refused(made, "thickness", {"ref": top, "point": [0, 0, -0.5]}) == (
+    sheet = Rot(*turned) * Box(2000, 2000, 1)
+    made = {"assembly:sheet": sheet}
+    # Drawn 1.3 mm coarse, but 1 mm thick, however it is turned: a point on one side is
+    # not on the other.
+    up = np.array(tuple((Rot(*turned) * Pos(0, 0, 1)).position))
+    [top] = [r for r in refs(made, "assembly:sheet", "F", "plane") if _at(made, r, up * 0.5)]
+    [bottom] = [r for r in refs(made, "assembly:sheet", "F", "plane") if _at(made, r, up * -0.5)]
+    assert refused(made, "thickness", {"ref": top, "point": list(up * -0.5)}) == (
         "bad_request",
         f"the point is 1 mm from {top}: give a point on the face",
     )
-    assert refused(made, "thickness", {"ref": top, "point": [0, 0, 0.2]})[0] == "bad_request"
-    near = measure(made, "thickness", {"ref": bottom, "point": [0, 0, -0.7]})
+    assert refused(made, "thickness", {"ref": top, "point": list(up * 0.2)})[0] == "bad_request"
+    near = measure(made, "thickness", {"ref": bottom, "point": list(up * -0.7)})
     assert (near["value"], near["moved"]) == (pytest.approx(1), pytest.approx(0.2))
+    # Further than the mesh is off the part, a point is refused whatever the wall.
+    thick = {"assembly:slab": Box(2000, 2000, 400)}
+    [top] = refs(thick, "assembly:slab", "F", "plane, normal +Z")
+    assert measure(thick, "thickness", {"ref": top, "point": [0, 0, 202]})["moved"] == pytest.approx(2)
+    assert refused(thick, "thickness", {"ref": top, "point": [0, 0, 203]})[0] == "bad_request"
+
+
+def _at(made, ref: str, point) -> bool:
+    """Whether the centre of the face ``ref`` names is at ``point``."""
+    return queries.describe(made, ref)["center"] == pytest.approx(list(point), abs=1e-6)
+
+
+def test_a_wall_thinner_than_the_band_is_still_measured_from_a_point_a_hair_off_it():
+    from build123d import Box
+
+    made = {"assembly:foil": Box(20, 20, 0.1)}
+    [top] = refs(made, "assembly:foil", "F", "plane, normal +Z")
+    result = measure(made, "thickness", {"ref": top, "point": [0, 0, 0.09]})
+    assert (result["value"], result["moved"]) == (pytest.approx(0.1), pytest.approx(0.04))
+
+
+def test_the_band_is_of_the_mesh_the_build_drew_not_of_one_worked_out_after_it():
+    from build123d import Torus
+
+    from torno_kernel import tess
+
+    ring = Torus(200, 30)
+    kept: dict = {}
+    build_scene({"assembly": {"ring": ring}}, "ring.py", kept)
+    # (460 + 460 + 60) / 300 × 0.1, of the box the part was meshed by: once it carries a
+    # mesh, that box is another, and the deflection worked out of it too.
+    assert kept[("deflection", "assembly:ring")] == pytest.approx(0.327, abs=0.03)
+    drawn = kept[("deflection", "assembly:ring")]
+    made = {"assembly:ring": ring}
+    off = 1.5 * drawn - 0.005
+    result = queries.run(
+        made, "measure", {"kind": "thickness", "a": {"ref": "assembly:ring/F0", "point": [230 + off, 0, 0]}}, kept
+    )
+    assert (result["value"], result["moved"]) == (pytest.approx(60), pytest.approx(off))
+    assert kept[("deflection", "assembly:ring")] == drawn
+    # Without what the build kept, the band is worked out of the part as it is now.
+    assert tess.deflection(ring) == pytest.approx(drawn, abs=0.05)
+
+
+def test_a_build_keeps_the_volume_of_each_part_and_no_query_measures_it_again(monkeypatch):
+    from torno_kernel import extent
+
+    kept: dict = {}
+    scene, _, made = build_scene(load_scene(WS / "measures", "measures.py"), "measures.py", kept)
+    [plate] = [part for part in scene["parts"] if part["key"] == PLATE]
+    assert kept[("volume", PLATE)] == plate["volume"]
+    assert kept[("valid", PLATE)] is True
+    monkeypatch.setattr(extent, "volume_and_centre", lambda *args, **more: pytest.fail("measured again"))
+    args = {"kind": "volume", "a": {"ref": PLATE}}
+    assert queries.run(made, "measure", args, kept)["value"] == plate["volume"]
+    mass = queries.run(made, "measure", {"kind": "mass", "a": {"ref": PLATE}, "density": 1}, kept)
+    assert mass["volume"] == plate["volume"]
+    assert queries.run(made, "describe", {"ref": PLATE}, kept)["volume"] == plate["volume"]
+
+
+def test_what_is_measured_of_a_whole_part_is_measured_once_for_all_its_queries(shapes, monkeypatch):
+    from torno_kernel import extent
+
+    counted = {"area": 0, "volume": 0, "box": 0}
+    area, volume, box = extent.area, extent.volume, queries._box
+
+    def counting(what, work):
+        def count(*args):
+            counted[what] += 1
+            return work(*args)
+
+        return count
+
+    monkeypatch.setattr(extent, "area", counting("area", area))
+    monkeypatch.setattr(extent, "volume", counting("volume", volume))
+    monkeypatch.setattr(queries, "_box", counting("box", box))
+    kept: dict = {}
+    asked = [
+        ("describe", {"ref": PLATE}),
+        ("measure", {"kind": "bbox", "a": {"ref": PLATE}}),
+        ("measure", {"kind": "volume", "a": {"ref": PLATE}}),
+        ("measure", {"kind": "area", "a": {"ref": PLATE}}),
+        ("measure", {"kind": "mass", "a": {"ref": PLATE}}),
+    ]
+    first = [queries.run(shapes, name, args, kept) for name, args in asked]
+    assert counted == {"area": 1, "volume": 1, "box": 1}
+    assert [queries.run(shapes, name, args, kept) for name, args in asked] == first
+    assert counted == {"area": 1, "volume": 1, "box": 1}
+    # They are one part's numbers, whichever query says them.
+    described, bbox, volume, area, mass = first
+    assert described["bbox"] == {"min": bbox["min"], "max": bbox["max"]}
+    assert (described["volume"], described["area"]) == (volume["value"], area["value"])
+    assert mass["volume"] == volume["value"]
+    # With nowhere to keep them, as before: each is worked out when asked.
+    assert [queries.run(shapes, name, args) for name, args in asked] == first
+    assert counted == {"area": 3, "volume": 4, "box": 3}
+    # A face is measured each time: it is quick, and a part has thousands.
+    face = {"kind": "area", "a": {"ref": f"{PLATE}/F0"}}
+    queries.run(shapes, "measure", face, kept)
+    queries.run(shapes, "measure", face, kept)
+    assert counted["area"] == 5
 
 
 def test_the_band_follows_the_mesh_the_part_is_drawn_with():

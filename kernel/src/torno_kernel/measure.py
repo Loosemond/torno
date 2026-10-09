@@ -13,7 +13,16 @@ import numpy as np
 
 from . import extent, tess, topo
 from .describe import number
-from .queries import QueryError, as_point, need_layout, need_solid, resolve
+from .queries import (
+    QueryError,
+    area_of,
+    as_point,
+    box_of,
+    need_layout,
+    need_solid,
+    resolve,
+    volume_of,
+)
 
 KINDS = ("distance", "angle", "radius", "diameter", "thickness", "bbox", "volume", "area", "mass")
 # The kinds that are taken between two targets.
@@ -29,6 +38,9 @@ _OWN_FACE = 1e-6
 # part's deflection.
 _ON_FACE = 0.05
 _ON_MESH = 1.5
+# Nor is it on the face when it is further from it than this part of the wall
+# measured there: it may as well be on the wall's other side.
+_OF_THE_WALL = 0.25
 # How far a ray is followed, mm.
 _REACH = 1e7
 PLA = 1.24  # g/cm³
@@ -83,7 +95,7 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
       normal to where the same part ends. The point is on the face, or as
       near it as a pick on the mesh is: within 0.05 mm, or 1.5 times the
       deflection the part is drawn with where that is more, up to a quarter
-      of the part's thinnest extent. It is laid on the face and ``moved``
+      of the wall that is found there. It is laid on the face and ``moved``
       says how far, mm; one further off is refused.
     - ``bbox`` of a part, a face or an edge, exact when all its faces are
       planes or cylinders and all its edges lines or circles; ``volume`` and
@@ -92,7 +104,8 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
       straight; of any other face it is approximate (``extent``), and ``how``
       says about how many significant digits of it are good, six at most.
 
-    ``kept`` is the worker's (``queries.run``).
+    ``kept`` is the worker's (``queries.run``): what is measured of a whole
+    part (its box, its volume, its area) is measured once.
     """
     kind = args.get("kind")
     if kind not in KINDS:
@@ -114,11 +127,11 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     elif kind == "thickness":
         result = _thickness(a, {} if kept is None else kept)
     elif kind == "bbox":
-        result = _bbox(a)
+        result = _bbox(a, kept)
     elif kind == "mass":
-        result = _mass(a, args.get("density", PLA), "density" not in args)
+        result = _mass(a, args.get("density", PLA), "density" not in args, kept)
     else:
-        result = _extent(kind, a)
+        result = _extent(kind, a, kept)
     points = result.pop("points", None)
     if points is not None:
         result["points"] = [_out(p) for p in points]
@@ -345,11 +358,13 @@ def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
         raise QueryError(
             "exception", f"no point of {target.ref} near the one given could be computed"
         )
-    if onto.Value() > _band(target, kept):
-        raise QueryError(
-            "bad_request",
-            f"the point is {number(onto.Value())} mm from {target.ref}: give a point on the face",
-        )
+    moved = float(onto.Value())
+    refusal = QueryError(
+        "bad_request", f"the point is {number(moved)} mm from {target.ref}: give a point on the face"
+    )
+    band = _band(target, kept)
+    if moved > band:
+        raise refusal
     start = onto.PointOnShape2(1)
     try:
         normal = Face(target.shape).normal_at(Vector(start.X(), start.Y(), start.Z()))
@@ -362,30 +377,34 @@ def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
     first = min(hits, key=rays.WParameter, default=None)
     if first is None:
         raise QueryError("bad_request", "no opposite wall along the normal")
+    wall = float(rays.WParameter(first))
+    # A point as far off as the mesh is coarse may be on the other side of a
+    # thin wall: one further from the face than a quarter of the wall found is
+    # not taken for a point of it, unless it is a hair off.
+    if moved > max(_ON_FACE, wall * _OF_THE_WALL):
+        raise refusal
     return {
-        "value": float(rays.WParameter(first)),
+        "value": wall,
         "unit": "mm",
         "how": "wall, along the normal",
         "points": [_gp(start), _gp(rays.Pnt(first))],
-        "moved": float(onto.Value()),
+        "moved": moved,
         "exact": True,
     }
 
 
 def _band(target: _Target, kept: dict[Any, Any]) -> float:
-    """How far off a face of the target's part a point may be given, mm.
+    """How far off a face of the target's part a point may be given at most, mm.
 
     As far as the mesh the part is drawn with is off it, and half as far
-    again; never so far as to reach the other side of the part's thinnest
-    extent (a quarter of it at most), and never less than _ON_FACE.
+    again, and never less than _ON_FACE. The deflection is the one the build
+    drew the part with, when it kept it (``tess.build_scene``): worked out
+    again of a part that now carries its mesh, it is another.
     """
-    held = ("band", target.key)
+    held = ("deflection", target.key)
     if held not in kept:
-        size = target.part.bounding_box().size
-        thinnest = min(size.X, size.Y, size.Z)
-        of_mesh = min(_ON_MESH * tess.deflection(target.part), thinnest / 4)
-        kept[held] = max(_ON_FACE, of_mesh)
-    return kept[held]
+        kept[held] = tess.deflection(target.part)
+    return max(_ON_FACE, _ON_MESH * kept[held])
 
 
 def _rays(target: _Target, kept: dict[Any, Any]) -> Any:
@@ -402,20 +421,16 @@ def _rays(target: _Target, kept: dict[Any, Any]) -> Any:
 # Bounding box, volume, area, mass
 
 
-def _bbox(target: _Target) -> dict[str, Any]:
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
-
+def _bbox(target: _Target, kept: dict[Any, Any] | None) -> dict[str, Any]:
     if target.kind == "point":
         raise QueryError("bad_request", f"bbox is measured of a part, a face or an edge; {target.what}")
-    box = Bnd_Box()
-    # Of the geometry itself: not of a mesh, and not widened by the shape's tolerance.
-    BRepBndLib.AddOptimal_s(_topods(target), box, False, False)
-    low, high = _gp(box.CornerMin()), _gp(box.CornerMax())
+    # Of a whole part it is kept: a face or an edge is boxed in no time.
+    low, high = box_of(target.shape, target.key if target.kind == "part" else None, kept)
     exact = _boxed_exactly(target)
     return {
-        "min": _out(low),
-        "max": _out(high),
-        "size": _out(high - low),
+        "min": list(low),
+        "max": list(high),
+        "size": [b - a + 0.0 for a, b in zip(low, high, strict=True)],
         "unit": "mm",
         "how": "axis-aligned box"
         if exact
@@ -445,15 +460,18 @@ def _boxed_exactly(target: _Target) -> bool:
         return False
 
 
-def _extent(kind: str, target: _Target) -> dict[str, Any]:
+def _extent(kind: str, target: _Target, kept: dict[Any, Any] | None) -> dict[str, Any]:
     if kind == "volume":
         if target.kind != "part":
             raise QueryError("bad_request", f"volume is measured of a part; {target.what}")
         need_solid(target.shape, target.key)
-        return _exactly(extent.volume(target.shape), "mm3", "of the solid")
+        return _exactly(volume_of(target.shape, target.key, kept), "mm3", "of the solid")
     if target.kind not in ("part", "face"):
         raise QueryError("bad_request", f"area is measured of a part or a face; {target.what}")
-    area = extent.area(target.shape)
+    if target.kind == "part":
+        area = area_of(target.shape, target.key, kept)
+    else:
+        area = extent.area(target.shape)
     how = "surface of the part" if target.kind == "part" else "of the face"
     if not area.exact:
         # Of a freeform face OCC has no integral that is a proof: see extent.
@@ -465,7 +483,9 @@ def _exactly(value: float, unit: str, how: str) -> dict[str, Any]:
     return {"value": float(value), "unit": unit, "how": how, "exact": True}
 
 
-def _mass(target: _Target, density: Any, default: bool) -> dict[str, Any]:
+def _mass(
+    target: _Target, density: Any, default: bool, kept: dict[Any, Any] | None
+) -> dict[str, Any]:
     if target.kind != "part":
         raise QueryError("bad_request", f"mass is measured of a part; {target.what}")
     try:
@@ -481,7 +501,7 @@ def _mass(target: _Target, density: Any, default: bool) -> dict[str, Any]:
     if not usable:
         raise QueryError("bad_request", "density is a positive number, in g/cm³")
     need_solid(target.shape, target.key)
-    volume = extent.volume(target.shape)
+    volume = volume_of(target.shape, target.key, kept)
     return {
         # mm³ to cm³.
         "value": volume / 1000 * density,

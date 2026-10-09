@@ -12,8 +12,10 @@ import numpy as np
 from . import extent, topo
 from .queries import QueryError, as_point, need_layout, need_part
 
-# How far a drawn outline may stray from the true one, mm.
+# How far a drawn outline may stray from the true one, mm: unless a finer one
+# is asked for, and never finer than the finest.
 DEFLECTION = 0.05
+FINEST = 0.005
 # No loop is told with more points than this: one that needs more is drawn coarser.
 MAX_POINTS = 2000
 # Ends of cut edges closer than this are one point, mm.
@@ -26,8 +28,9 @@ _ZERO = 1e-12
 
 
 def section(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    """Answer ``section``: ``args`` are ``layout``, ``plane`` (``origin`` and ``normal``) and,
-    to cut only some, ``parts``, a list of names.
+    """Answer ``section``: ``args`` are ``layout``, ``plane`` (``origin`` and ``normal``), to
+    cut only some, ``parts``, a list of names, and, to draw the outlines finer than within
+    0.05 mm, ``deflection``, mm: 0.005 at least, and one over 0.05 is 0.05.
 
     The reply's ``plane`` carries the unit ``normal`` and the axes the points
     are along: ``x`` is the world axis least along the normal (the first of
@@ -54,7 +57,8 @@ def section(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
 
     A loop has its ``points``, whether it is ``closed`` (then the last point
     joins the first, which is not told twice), its ``area`` and the
-    ``deflection`` it is drawn at. The area is that of the true outline, not
+    ``deflection`` it is drawn at: the one asked for, or more when the loop
+    would otherwise have over 2,000 points. The area is that of the true outline, not
     of the polygon: positive for a loop that bounds material, which runs
     counter-clockwise, negative for a hole in it, which runs clockwise, and
     null for a loop that is not closed. ``areaExact`` is false of a loop whose
@@ -82,10 +86,11 @@ def section(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     length = math.sqrt(sum(c * c for c in normal))
     if length < _ZERO:
         raise QueryError("bad_request", "the normal of the section plane has no length")
+    deflection = _deflection(args.get("deflection"))
     need_layout(shapes, layout)
     if names is None:
         names = [key.split(":", 1)[1] for key in shapes if key.startswith(f"{layout}:")]
-    frame = _Frame(np.array(origin), np.array(normal) / length)
+    frame = _Frame(np.array(origin), np.array(normal) / length, deflection)
     parts = []
     for name in dict.fromkeys(names):
         parts.append({"part": name, **_cut(need_part(shapes, layout, name), frame, f"{layout}:{name}")})
@@ -109,12 +114,37 @@ def section(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class _Frame:
-    """A plane and the two axes its points are told along."""
+def _deflection(asked: Any) -> float:
+    """How far the outlines may stray from the true ones, mm, given what the request asks."""
+    if asked is None:
+        return DEFLECTION
+    try:
+        # An integer of hundreds of digits, which JSON may hold, is not finite to a float.
+        usable = (
+            isinstance(asked, (int, float))
+            and not isinstance(asked, bool)
+            and math.isfinite(asked)
+            and asked > 0
+        )
+    except OverflowError:
+        usable = False
+    if not usable:
+        raise QueryError(
+            "bad_request",
+            "args.deflection of section, if given, is a positive number of mm, how far the "
+            f"outline drawn may stray from the true one: {DEFLECTION:g} when none is given, "
+            f"{FINEST:g} at least",
+        )
+    return min(DEFLECTION, max(FINEST, float(asked)))
 
-    def __init__(self, origin: np.ndarray, normal: np.ndarray) -> None:
+
+class _Frame:
+    """A plane, the two axes its points are told along, and how finely its outlines are drawn."""
+
+    def __init__(self, origin: np.ndarray, normal: np.ndarray, deflection: float = DEFLECTION) -> None:
         self.origin = origin
         self.normal = normal
+        self.deflection = deflection
         # argmin takes the first of equals: X before Y before Z.
         least = np.eye(3)[int(np.argmin(np.abs(normal)))]
         along = least - (least @ normal) * normal
@@ -227,13 +257,13 @@ def _sheet(solid: Any, frame: _Frame, plane: Any) -> Any:
 
 def _ring(plane: Any, wire: Any, frame: _Frame, hole: bool) -> dict[str, Any] | None:
     """A closed loop as it is told: its points turning the way that says what it bounds."""
-    outline = _closed_outline(wire, frame)
+    outline, drawn_at = _closed_outline(wire, frame)
     if outline is None:
         return None
     area, exact = _wire_area(plane, wire, outline)
     if (_shoelace(outline) < 0) != hole:
         outline = outline[::-1]
-    points, deflection = _within_limit(outline, closed=True)
+    points, deflection = _within_limit(outline, True, drawn_at)
     return {
         "points": points,
         "closed": True,
@@ -243,12 +273,28 @@ def _ring(plane: Any, wire: Any, frame: _Frame, hole: bool) -> dict[str, Any] | 
     }
 
 
-def _closed_outline(wire: Any, frame: _Frame) -> np.ndarray | None:
-    """The points of a closed wire in the plane, the first not told again at the end."""
-    outline = frame.flat(_polyline(wire))
+def _closed_outline(wire: Any, frame: _Frame) -> tuple[np.ndarray | None, float]:
+    """The points of a closed wire in the plane, the first not told again at the end, and
+    the deflection they are drawn at. No points of a wire that bounds nothing."""
+    outline, drawn_at = _drawn(wire, frame)
     if len(outline) >= 2 and np.linalg.norm(outline[0] - outline[-1]) <= _JOIN:
         outline = outline[:-1]
-    return outline if len(outline) >= 3 else None
+    return (outline if len(outline) >= 3 else None), drawn_at
+
+
+def _drawn(wire: Any, frame: _Frame) -> tuple[np.ndarray, float]:
+    """The points of a wire in the plane and the deflection they are drawn at.
+
+    The one asked for; or, of a wire that has more than MAX_POINTS at one
+    finer than DEFLECTION, twice that and twice again, as far as DEFLECTION:
+    drawing a curve coarser keeps more of it than dropping points does.
+    """
+    deflection = frame.deflection
+    while True:
+        outline = frame.flat(_polyline(wire, deflection))
+        if len(outline) <= MAX_POINTS or deflection >= DEFLECTION:
+            return outline, deflection
+        deflection = min(DEFLECTION, deflection * 2)
 
 
 def _outline(shape: Any, frame: _Frame, key: str) -> tuple[list[dict[str, Any]], bool]:
@@ -273,13 +319,13 @@ def _outline(shape: Any, frame: _Frame, key: str) -> tuple[list[dict[str, Any]],
         return [], True
     closed, loops = [], []
     for wire in Wire.combine([Edge(edge) for edge in edges], tol=_JOIN):
-        outline = _closed_outline(wire.wrapped, frame) if wire.is_closed else None
+        outline = _closed_outline(wire.wrapped, frame)[0] if wire.is_closed else None
         if outline is not None:
             closed.append((wire.wrapped, outline))
             continue
-        outline = frame.flat(_polyline(wire.wrapped))
+        outline, drawn_at = _drawn(wire.wrapped, frame)
         if len(outline) >= 2:
-            points, deflection = _within_limit(outline, closed=False)
+            points, deflection = _within_limit(outline, False, drawn_at)
             loops.append(
                 {
                     "points": points,
@@ -295,8 +341,8 @@ def _outline(shape: Any, frame: _Frame, key: str) -> tuple[list[dict[str, Any]],
     return loops, all(loop["areaExact"] for loop in loops)
 
 
-def _polyline(wire: Any) -> np.ndarray:
-    """The points a wire is drawn through, in its order, no further than DEFLECTION from it."""
+def _polyline(wire: Any, deflection: float) -> np.ndarray:
+    """The points a wire is drawn through, in its order, no further than ``deflection`` from it."""
     from ocp_tessellate.ocp_utils import BRep_Tool, BRepAdaptor_Curve, TopAbs_Orientation
     from OCP.BRepTools import BRepTools_WireExplorer
     from OCP.GCPnts import GCPnts_QuasiUniformDeflection
@@ -309,7 +355,7 @@ def _polyline(wire: Any) -> np.ndarray:
         if BRep_Tool.Degenerated_s(edge):
             continue
         curve = BRepAdaptor_Curve(edge)
-        spread = GCPnts_QuasiUniformDeflection(curve, DEFLECTION)
+        spread = GCPnts_QuasiUniformDeflection(curve, deflection)
         if spread.IsDone() and spread.NbPoints() >= 2:
             run = [spread.Value(i) for i in range(1, spread.NbPoints() + 1)]
         else:
@@ -360,14 +406,15 @@ def _inside(point: np.ndarray, outline: np.ndarray) -> bool:
     return int(np.count_nonzero(straddles & (point[0] < crossing))) % 2 == 1
 
 
-def _within_limit(outline: np.ndarray, closed: bool) -> tuple[np.ndarray, float]:
-    """The outline in at most MAX_POINTS points, and how far it may now stray from the true one."""
-    points, deflection = outline, DEFLECTION
+def _within_limit(outline: np.ndarray, closed: bool, drawn_at: float) -> tuple[np.ndarray, float]:
+    """The outline, drawn at ``drawn_at``, in at most MAX_POINTS points, and how far it may
+    now stray from the true one."""
+    points, deflection = outline, drawn_at
     ring = np.vstack([outline, outline[:1]]) if closed else outline
     while len(points) > MAX_POINTS:
         deflection *= 2
-        # The outline is already DEFLECTION off: what is dropped may add the rest.
-        points = _thinned(ring, deflection - DEFLECTION)
+        # The outline is already that far off: what is dropped may add the rest.
+        points = _thinned(ring, deflection - drawn_at)
         if closed:
             points = points[:-1]
     return points, deflection
