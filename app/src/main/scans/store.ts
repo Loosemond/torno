@@ -1,11 +1,12 @@
-import { copyFile, mkdir, readFile, realpath, rm, rmdir, stat as statFile, writeFile } from 'node:fs/promises'
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { copyFile, mkdir, readFile, rm, rmdir, stat as statFile, writeFile } from 'node:fs/promises'
+import { basename, isAbsolute, join } from 'node:path'
 import type { Vec3 } from '../../shared/marks'
-import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, SCAN_FORMATS, UNIT_MM } from '../../shared/scans'
+import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, UNIT_MM } from '../../shared/scans'
 import { aligned, checked, held, undone } from './alignments'
 import { loadScansFile, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
 import { linkRefusal, maskPath, maskStems, readMaskFile, removeMaskFile, writeMaskFile } from './masks'
+import { sourceOf } from './source'
 import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, ownFolders, removeMesh, scanFolder, sweep } from './meshfiles'
 
 interface ScanEvents {
@@ -744,30 +745,6 @@ export class ScanStore {
     }
   }
 }
-
-/** Whether `path` is `folder` or under it. */
-function isWithin(folder: string, path: string): boolean {
-  const from = relative(folder, path)
-  return from === '' || (from !== '..' && !from.startsWith(`..${sep}`) && !isAbsolute(from))
-}
-
-/**
- * A file that may be read as a scan of the object in `dir`, as a whole path:
- * what the person gave, or what a record says its source is. Throws saying
- * why it is none.
- */
-async function sourceOf(dir: string, given: unknown): Promise<string> {
-  if (typeof given !== 'string' || !isAbsolute(given)) throw new Error('give the whole path of the file')
-  const source = resolve(given)
-  const formats: readonly string[] = SCAN_FORMATS
-  if (!formats.includes(extname(source).toLowerCase())) throw new Error(`${basename(source)} is not a scan torno reads: ${formats.slice(0, -1).join(', ')} or ${formats.at(-1)}`)
-  // By where the file is, whatever name led to it.
-  if (isWithin(await real(join(dir, '.torno')), await real(source))) throw new Error(`${basename(source)} is in this object's .torno folder, where torno keeps its own files: import it from somewhere else`)
-  return source
-}
-
-/** Where a path leads, through whatever links: the path itself when nothing is there. */
-const real = (path: string): Promise<string> => realpath(path).catch(() => path)
 
 /** Where a scan is in its file; an id that is not there is an error that names the ones that are. */
 function indexOf(file: ScansFile, id: string): number {

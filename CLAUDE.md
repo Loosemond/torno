@@ -387,7 +387,7 @@ than two parts is never exploded.
     back, and after a failure only once the scans were told anew
     (`ui/scanMeshes.ts`).
   - Main alone names a mesh or a mask file. The one path the window gives is
-    the source of an import, which main checks (`sourceOf`: absolute, one of
+    the source of an import, which main checks (`sourceOf` in `scans/source.ts`: absolute, one of
     the five formats, not inside the object's `.torno/`) and only reads.
 - One transform per layout (`Scan.alignments`), scan frame to object frame,
   `p' = s · R(q) · p + t`. No transform for a layout: "not aligned" there,
