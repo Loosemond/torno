@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { type ScanInfo, type ScanUnit, type ScanUp, UNIT_MM, alignmentOf, importText, staleText } from '../../shared/scans'
+import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, alignmentOf, importText, staleText } from '../../shared/scans'
 import { actions, store, useStore } from '../state/store'
 import { Confirm } from './Confirm'
 import { EyeIcon } from './Layers'
-import { importScan } from './scanDrop'
+import { importScan, reimportScan } from './scanDrop'
 
 /** What the import process says it is doing, in the panel's words; a stage with no entry is said as it is. */
 const STAGE: Record<string, string> = { hashing: 'checking the file' }
 const UNITS = Object.keys(UNIT_MM) as ScanUnit[]
+const UNIT_WORD: Record<ScanUnit, string> = { mm: 'millimetres', cm: 'centimetres', m: 'metres', in: 'inches' }
 
 /** A sentence with every number of it in the monospace face. */
 function numbered(text: string): ReactNode[] {
@@ -58,7 +59,7 @@ export function ScansPanel() {
     <section className="section scans" aria-label="Scans">
       <div className="section-head">
         <h2 className="section-title">Scans</h2>
-        <button type="button" className="button button-quiet" title="Import a scan: GLB, glTF, OBJ, PLY or STL" onClick={() => void pick()}>
+        <button type="button" className="button button-quiet" title={importing ? `${importing.name} is still being read` : 'Import a scan: GLB, glTF, OBJ, PLY or STL'} disabled={importing !== null} onClick={() => void pick()}>
           Import scan…
         </button>
       </div>
@@ -86,8 +87,11 @@ export function ScansPanel() {
         </p>
       )}
       {refused !== null && (
-        <p className="scans-line selectable" role="alert" data-part="refused" title="Click to put this away" onClick={() => actions.setScansRefused(null)}>
-          {refused}
+        <p className="scans-line selectable" role="alert" data-part="refused">
+          {refused}{' '}
+          <button type="button" className="link-button" onClick={() => actions.setScansRefused(null)}>
+            Dismiss
+          </button>
         </p>
       )}
       {scans.length === 0 && importing === null && <p className="section-note">Drop a scan on the view, or import one.</p>}
@@ -102,20 +106,30 @@ export function ScansPanel() {
   )
 }
 
-/** The one thing to know first of a scan in the layout shown. */
-function stateOf(scan: ScanInfo, layout: string): { state: string; text: string; title: string } {
-  if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', title: 'The mesh torno made of this scan is gone from the disk: it cannot be drawn or checked' }
+/** The one thing to know first of a scan in the layout shown, and what there is to say of it in a sentence. */
+function stateOf(scan: ScanInfo, layout: string): { state: string; text: string; said: string | null } {
+  if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', said: null }
   const stale = alignmentOf(scan, layout) ? staleText(scan.checks[layout]) : null
-  if (stale) return { state: 'stale', text: 'check alignment', title: stale }
-  if (!alignmentOf(scan, layout)) return { state: 'unaligned', text: 'not aligned here', title: 'This scan has no alignment in the layout shown: it is drawn where it was imported' }
-  return { state: 'aligned', text: 'aligned', title: 'Aligned to the model in the layout shown' }
+  if (stale) return { state: 'stale', text: 'check alignment', said: stale }
+  if (!alignmentOf(scan, layout)) return { state: 'unaligned', text: 'not aligned here', said: null }
+  return { state: 'aligned', text: 'aligned', said: null }
+}
+
+/** How a scan was read, where that was a guess: `Read as metres, Y up`; null when the person chose both. */
+function guessOf(scan: ScanInfo): string | null {
+  const { unit, up, assumed } = scan.imported
+  const guessed = [...(assumed.unit ? [UNIT_WORD[unit]] : []), ...(assumed.up ? [`${up.toUpperCase()} up`] : [])]
+  return guessed.length > 0 ? `Read as ${guessed.join(', ')}` : null
 }
 
 function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
   const { id } = scan
   const layout = useStore((s) => s.layout)
   const view = useStore((s) => s.scanViews[id])
-  const [more, setMore] = useState(false)
+  const reading = useStore((s) => s.importing !== null)
+  const guess = guessOf(scan)
+  // What changes how a scan was read is at hand while that is a guess: a wrong one is to be seen and put right at once.
+  const [more, setMore] = useState(guess !== null)
   const [unit, setUnit] = useState<ScanUnit>(scan.imported.unit)
   const [up, setUp] = useState<ScanUp>(scan.imported.up)
   const [busy, setBusy] = useState(false)
@@ -131,13 +145,16 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
   const coloured = scan.imported.colours !== 'none'
   const plain = !coloured || view?.colour === 'plain'
   const state = stateOf(scan, layout)
+  const meshGone = scan.meshState === 'missing'
   const source = scan.sourceState === 'missing' ? 'source missing' : scan.sourceState === 'changed' ? 'source changed' : null
   const layouts = Object.keys(scan.alignments)
+  const changed = unit !== scan.imported.unit || up !== scan.imported.up
+  const fields = `scan-fields-${id}`
 
-  const convert = (): void => {
+  const convert = (as: { unit: ScanUnit; up: ScanUp }): void => {
     setAsking(null)
     setBusy(true)
-    void asked(objectId, window.torno.scans.convert(objectId, id, { unit, up })).finally(() => setBusy(false))
+    void asked(objectId, window.torno.scans.convert(objectId, id, as)).finally(() => setBusy(false))
   }
 
   return (
@@ -151,7 +168,7 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           type="range"
           className="layer-opacity"
           data-set={opacity < 1 ? '' : undefined}
-          min={0.1}
+          min={MIN_SCAN_OPACITY}
           max={1}
           step={0.05}
           value={opacity}
@@ -163,9 +180,26 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           <EyeIcon open={visible} />
         </button>
       </div>
-      <p className="scan-read">{numbered(importText(scan.imported))}</p>
+      <p className="scan-read" data-guessed={guess ? '' : undefined}>
+        {numbered(importText(scan.imported))}
+      </p>
+      {guess && (
+        <p className="scan-guess">
+          {guess}: right?{' '}
+          <button
+            type="button"
+            className="link-button"
+            aria-label={`Yes, ${id} was read rightly`}
+            title="Keeps the scan as it is, and no longer asks"
+            disabled={busy || meshGone}
+            onClick={() => convert({ unit: scan.imported.unit, up: scan.imported.up })}
+          >
+            Yes
+          </button>
+        </p>
+      )}
       <div className="scan-state">
-        <span className="chip" data-state={state.state} title={state.title}>
+        <span className="chip" data-state={state.state}>
           {state.text}
         </span>
         {source && (
@@ -174,15 +208,34 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           </span>
         )}
         <span className="spacer" />
-        <button type="button" className="scan-more" aria-expanded={more} onClick={() => setMore((open) => !open)}>
+        <button type="button" className="scan-more" aria-label={`More of ${id}`} aria-expanded={more} aria-controls={fields} onClick={() => setMore((open) => !open)}>
           More
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m6 4 4 4-4 4" />
           </svg>
         </button>
       </div>
+      {/* Why the state above needs a look, in words: the one sentence it is there for. */}
+      {state.said && <p className="scan-said">{numbered(state.said)}</p>}
+      {meshGone && (
+        <p className="scan-said">
+          Its mesh is gone from the disk: it cannot be drawn or checked.{' '}
+          {scan.sourceState === 'missing' ? (
+            'Its source is gone too: put the file back, or remove the scan.'
+          ) : (
+            <button type="button" className="link-button" aria-label={`Import again, into ${id}`} title={`Reads ${scan.source.path} again into ${id}: its alignments stay`} disabled={reading} onClick={() => reimportScan(objectId, id, scan.name)}>
+              Import again
+            </button>
+          )}
+        </p>
+      )}
+      {busy && (
+        <p className="scan-said" role="status">
+          Converting…
+        </p>
+      )}
       {more && (
-        <div className="scan-fields">
+        <div className="scan-fields" id={fields}>
           <div className="scan-field">
             <span className="scan-label">Read as</span>
             <select className="scan-select num" aria-label={`Unit of ${id}`} value={unit} disabled={busy} onChange={(e) => setUnit(e.target.value as ScanUnit)}>
@@ -196,35 +249,37 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
               <option value="y">Y up</option>
               <option value="z">Z up</option>
             </select>
-            <button type="button" className="button" disabled={busy || scan.meshState === 'missing'} onClick={() => (layouts.length > 0 ? setAsking('convert') : convert())}>
+            <button
+              type="button"
+              className="button"
+              aria-label={`Apply to ${id}`}
+              title={changed ? undefined : 'Choose another unit or up axis first'}
+              disabled={busy || meshGone || !changed}
+              onClick={() => (layouts.length > 0 ? setAsking('convert') : convert({ unit, up }))}
+            >
               Apply
             </button>
           </div>
           <div className="scan-field">
             <span className="scan-label">Colour</span>
             <div className="scan-choice" role="group" aria-label={`Colour of ${id}`}>
-              <button type="button" aria-pressed={!plain} disabled={!coloured} title={coloured ? 'As it was scanned' : 'This scan has no colours of its own'} onClick={() => actions.setScanView(id, { colour: 'own' })}>
+              <button type="button" aria-label={`Own colours of ${id}`} aria-pressed={!plain} disabled={!coloured} title={coloured ? 'Its own colours, toned down' : 'This scan has no colours of its own'} onClick={() => actions.setScanView(id, { colour: 'own' })}>
                 Own colours
               </button>
-              <button type="button" aria-pressed={plain} onClick={() => actions.setScanView(id, { colour: 'plain' })}>
+              <button type="button" aria-label={`Plain colour for ${id}`} aria-pressed={plain} onClick={() => actions.setScanView(id, { colour: 'plain' })}>
                 Plain
               </button>
             </div>
           </div>
           <div className="scan-field">
-            {scan.meshState === 'missing' && scan.sourceState !== 'missing' && (
-              <button type="button" className="button" title={`Read ${scan.source.path} again, as a new scan`} onClick={() => importScan(objectId, scan.source.path)}>
-                Import again
-              </button>
-            )}
-            <button type="button" className="button" onClick={() => setAsking('remove')}>
+            <button type="button" className="button" aria-label={`Remove ${id}`} onClick={() => setAsking('remove')}>
               Remove
             </button>
           </div>
         </div>
       )}
       {asking === 'convert' && (
-        <Confirm label={`Drop the alignment of ${id}?`} accept="Change" cancel="Keep as it is" onCancel={() => setAsking(null)} onAccept={convert}>
+        <Confirm label={`Drop the alignment of ${id}?`} accept="Change" cancel="Keep as it is" onCancel={() => setAsking(null)} onAccept={() => convert({ unit, up })}>
           Changing the unit or the up axis of <span className="num">{id}</span> drops its alignment in {numberedList(layouts)}.
         </Confirm>
       )}

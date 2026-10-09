@@ -4,7 +4,7 @@ import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import { MARK_LAYERS, type Highlights } from './highlight'
 import type { MarkLayer } from './marks/MarkLayer'
 import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayFonts, overlayUnit, type LabelStyle } from './overlay'
-import type { ScanLayer } from './scans'
+import { reaching, type ScanLayer, type ShownScan } from './scans'
 import { describeSection } from './section'
 import { visibleHeight } from './views'
 
@@ -139,9 +139,9 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     scansBack = host.scans.showOnly(state.scans, state.layout)
     host.cutBy(state.section, state.layout, false)
     let extent = otherLayout ? host.layGround(state.layout) : host.groundExtent()
-    // A scan may stand far from the parts: the camera reaches all of what is drawn of it.
+    // A scan may stand far from the parts: the camera reaches what is drawn of it.
     const around = host.scans.box()
-    if (around) extent = extent.clone().union(around.getBoundingSphere(new THREE.Sphere()))
+    if (around) extent = reaching(extent.clone(), around, extent)
     host.marks.setActive(null)
     host.marks.show(state.withMarks ? state.layout : null, state.notDrawn)
     host.marks.showDraft(false)
@@ -168,10 +168,19 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
   }
 }
 
-/** The scans a picture has, as its caption says them: ` · scans S1 at 60 %, S2`, how thin only of one that is; nothing for none. */
-export function scansNote(drawn: ReadonlyArray<{ id: string; opacity: number }>): string {
+/**
+ * The scans a picture has, as its caption says them: ` · scans S1 at 60 %, S2`, how thin only of one that is; nothing
+ * for none. A scan that is not aligned in the picture's layout is not where the model is, and one whose alignment the
+ * last build put in doubt may not be: whoever reads the picture is told, with the scan's name.
+ */
+export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' | 'aligned' | 'stale'>>, layout: string): string {
   if (drawn.length === 0) return ''
-  return ` · scans ${drawn.map((scan) => (scan.opacity < 1 ? `${scan.id} at ${Math.round(scan.opacity * 100)} %` : scan.id)).join(', ')}`
+  const said = drawn.map((scan) => {
+    const thin = scan.opacity < 1 ? ` at ${Math.round(scan.opacity * 100)} %` : ''
+    const where = !scan.aligned ? ` (not aligned in ${layout}: drawn where it was imported)` : scan.stale ? ` (its alignment in ${layout} may no longer hold: ${scan.stale})` : ''
+    return `${scan.id}${thin}${where}`
+  })
+  return ` · scans ${said.join(', ')}`
 }
 
 /**
@@ -269,7 +278,7 @@ export class PictureMaker {
     const names = shown.map((p) => p.part.name).join(', ') || 'none'
     const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
     const cutNote = section ? ` · ${describeSection(section)}` : ''
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn)}${cutNote} · ${projection} · ${width}×${height}`
+    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${cutNote} · ${projection} · ${width}×${height}`
     return { png, width, height, caption }
   }
 

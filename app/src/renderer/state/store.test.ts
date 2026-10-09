@@ -623,6 +623,31 @@ describe('the scans', () => {
     expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, scans: { S1: { opacity: 0.6, visible: false }, S2: { colour: 'plain' } } })
   })
 
+  // Fix round 1.
+  it('are no longer looked at in any way once they are gone: what the scene file kept of a removed scan goes with it', () => {
+    actions.openObject('bracket', { layers: {}, scans: { S1: { visible: false }, S2: { opacity: 0.5 } } })
+    const edits = store.getState().edits
+    actions.setScans({ objectId: 'bracket', scans: [S1] })
+    expect(store.getState().scanViews).toEqual({ S1: { visible: false } })
+    expect(store.getState().edits).toBe(edits) // not the person's doing: nothing is written for it
+    const kept = store.getState().scanViews
+    actions.setScans({ objectId: 'bracket', scans: [S1] })
+    expect(store.getState().scanViews).toBe(kept)
+  })
+
+  it('say that a file is being read from the moment it is asked for, until that is over one way or the other', () => {
+    actions.startImporting('Micra.glb')
+    expect(store.getState().importing).toEqual({ name: 'Micra.glb', stage: null })
+    actions.setImporting({ objectId: 'bracket', name: 'Micra.glb', stage: 'reading' })
+    expect(store.getState().importing).toEqual({ name: 'Micra.glb', stage: 'reading' })
+    // Refused before the process said anything: no stage ever came to end it.
+    actions.startImporting('part.3mf')
+    actions.endImporting('Micra.glb')
+    expect(store.getState().importing).toEqual({ name: 'part.3mf', stage: null })
+    actions.endImporting('part.3mf')
+    expect(store.getState().importing).toBeNull()
+  })
+
   it('are looked at as the scene file left them when their object is opened', () => {
     actions.openObject('bracket', { layers: {}, scans: { S1: { visible: false } } })
     expect(store.getState().scanViews).toEqual({ S1: { visible: false } })

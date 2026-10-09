@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { IDENTITY, alignmentOf, type ScanInfo, type ScanTransform, type ScanView } from '../../shared/scans'
+import { IDENTITY, MIN_SCAN_OPACITY, alignmentOf, staleText, type ScanInfo, type ScanTransform, type ScanView } from '../../shared/scans'
 import { STALE_FADE, mix } from './palette'
 import { buildScan, disposeScan, fadeOwn, placeScan, type BuiltScan } from './scanMesh'
 
@@ -15,8 +15,27 @@ export interface ScanLayerState {
   transform: ScanTransform
 }
 
-/** The least a scan is thinned to: under it, it could not be found again. */
-export const MIN_SCAN_OPACITY = 0.05
+/** What is drawn of a scan, and what must be said of it with a picture: whether it is aligned in the layout drawn, and why that may no longer hold. */
+export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null }
+
+/** How many times the size of the parts the camera reaches for a scan. */
+export const SCAN_REACH = 200
+
+/**
+ * A sphere the camera's near and far are set by, grown to hold the scans
+ * drawn (`box`), but no further than `SCAN_REACH` times the sphere round the
+ * parts: a scan read a thousand times too large would take the near plane
+ * past the parts, and they would not be seen. `extent` is changed and returned.
+ */
+export function reaching(extent: THREE.Sphere, box: THREE.Box3 | null, parts: THREE.Sphere): THREE.Sphere {
+  if (!box) return extent
+  const all = extent.clone().union(box.getBoundingSphere(new THREE.Sphere()))
+  const most = parts.radius * SCAN_REACH
+  if (all.radius <= most) return extent.copy(all)
+  // Round the parts, as far as that; what else is drawn (marks, the plane of a section) stays inside.
+  const round = new THREE.Sphere(parts.center.clone(), most)
+  return extent.copy(round.union(extent.clone()))
+}
 /** From here up a scan is drawn solid: it writes depth, and what is behind it is hidden. */
 const SOLID_FROM = 0.95
 
@@ -116,9 +135,19 @@ export class ScanLayer {
     }
   }
 
-  /** The scans whose mesh is there, and of each whether it is drawn and how thin. */
-  shown(): Array<{ id: string; visible: boolean; opacity: number }> {
-    return this.entries.filter((entry) => entry.built).map((entry) => ({ id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry) }))
+  /**
+   * The scans whose mesh is there, and of each whether it is drawn, how thin,
+   * and whether it is aligned in the layout drawn: the one on screen, or a
+   * picture's while one is made.
+   */
+  shown(): ShownScan[] {
+    const layout = this.pictured?.layout ?? this.layout
+    return this.entries
+      .filter((entry) => entry.built)
+      .map((entry) => {
+        const aligned = alignmentOf(entry.info, layout) !== null
+        return { id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry), aligned, stale: aligned ? staleText(entry.info.checks[layout]) : null }
+      })
   }
 
   /** A box round what is drawn of them, in the object frame; null when nothing is. */

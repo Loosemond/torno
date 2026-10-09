@@ -32,6 +32,17 @@ describe('buildScan', () => {
     expect(built.mesh.geometry.getAttribute('position').getX(0)).toBe(-20)
   })
 
+  // Fix round 1: the box is the one the file says, and the sphere is round it: no pass over the vertices for either.
+  it('takes its box from the file and its sphere from the box', () => {
+    const blob = meshBin(box([40, 30, 5]))
+    new DataView(blob).setFloat32(36, 25, true) // the header's max x, as only the header says it
+    const { geometry } = buildScan('S1', blob).mesh
+    expect(geometry.boundingBox!.min.toArray()).toEqual([-20, -15, -2.5])
+    expect(geometry.boundingBox!.max.toArray()).toEqual([25, 15, 2.5])
+    expect(geometry.boundingSphere!.center.toArray()).toEqual([2.5, 0, 0])
+    expect(geometry.boundingSphere!.radius).toBeCloseTo(Math.hypot(22.5, 15, 2.5), 5)
+  })
+
   it('stands where its transform says, scaled when a fit scaled it', () => {
     const built = buildScan('S1', meshBin(box()))
     placeScan(built, { t: [10, 20, 30], q: [0, 0, Math.SQRT1_2, Math.SQRT1_2], s: 2 })

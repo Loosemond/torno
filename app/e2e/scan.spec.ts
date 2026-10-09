@@ -76,6 +76,10 @@ test('a scan is imported from the panel, drawn, and said in millimetres', async 
   await expect(row('S1')).toContainText('plate under.stl')
   await expect(row('S1')).toContainText('60 × 50 × 2 mm, from mm, Z up (assumed)')
   await expect(row('S1').locator('.chip[data-state="unaligned"]')).toHaveText('not aligned here')
+  // Fix round 1 (I4): a guess is asked about on the row, with what there is to change it open under it.
+  await expect(row('S1').locator('.scan-guess')).toContainText('Read as millimetres, Z up: right?')
+  await expect(row('S1').getByRole('combobox', { name: 'Unit of S1' })).toBeVisible()
+  await expect(row('S1').getByRole('button', { name: 'Apply' })).toBeDisabled()
   await expect.poll(async () => (await scans())[0]).toMatchObject({ id: 'S1', loaded: true, triangles: 12, aligned: false, visible: true, opacity: 1 })
   expect((await state()).scans[0]).toMatchObject({ id: 'S1', sourceState: 'present', meshState: 'ok', source: { path: scanFile } })
   expect(scansFile()).toMatchObject({ next: 2, scans: [{ id: 'S1', source: { path: scanFile, bytes: PLATE.length } }] })
@@ -88,8 +92,15 @@ test('a scan is imported from the panel, drawn, and said in millimetres', async 
 test('a picture has the scan unless it is asked without, and says which', async () => {
   const withScan = await picture({ view: 'iso', size: 256 })
   const without = await picture({ view: 'iso', size: 256, scans: false })
-  expect(withScan.caption).toContain(' · scans S1 · ')
+  // Changed in fix round 1 (I1): a scan that is not aligned is said not to be where the model is.
+  expect(withScan.caption).toContain(' · scans S1 (not aligned in assembly: drawn where it was imported) · ')
   expect(without.caption).not.toContain('scans')
+  await page.evaluate(() => window.torno.scans.align('bracket', 'S1', 'assembly', { transform: { t: [0, 0, 1], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] }))
+  await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
+  expect((await picture({ view: 'iso', size: 256 })).caption).toContain(' · scans S1 · ')
+  expect((await picture({ view: 'iso', size: 256, layout: 'print' })).caption).toContain(' · scans S1 (not aligned in print: drawn where it was imported) · ')
+  await page.evaluate(() => window.torno.scans.align('bracket', 'S1', 'assembly', null))
+  await expect(row('S1').locator('.chip[data-state="unaligned"]')).toHaveText('not aligned here')
   expect(withScan.sum).not.toBe(without.sum)
   await expect(picture({ view: 'iso', size: 256, scans: ['S9'] })).rejects.toThrow('no scan S9; scans: S1')
 })
@@ -97,7 +108,7 @@ test('a picture has the scan unless it is asked without, and says which', async 
 test('opacity and the eye are kept in scene.json as the person set them, and are there again after a restart', async () => {
   await row('S1').getByRole('slider', { name: 'Opacity of S1' }).fill('0.6')
   await expect.poll(async () => (await scans())[0].opacity).toBe(0.6)
-  expect((await picture({ view: 'iso', size: 256 })).caption).toContain('scans S1 at 60 %')
+  expect((await picture({ view: 'iso', size: 256 })).caption).toContain('scans S1 at 60 % (not aligned in assembly')
   await row('S1').getByRole('button', { name: 'Show S1' }).click()
   await expect.poll(async () => (await scans())[0].visible).toBe(false)
   expect((await picture({ view: 'iso', size: 256 })).caption).not.toContain('scans')
@@ -121,7 +132,16 @@ test('the section cuts a scan open, and what the view tells main names it', asyn
   const cut = await picture({ view: 'front', size: 256, section: { origin: [0, 0, 0], normal: [0, -1, 0] } })
   expect(cut.sum).not.toBe(whole.sum)
   const view = await app.evaluate(() => (globalThis as unknown as { __tornoMain: { latestView(objectId: string): ViewState | undefined } }).__tornoMain.latestView('bracket'))
-  expect(view?.scans).toEqual([{ id: 'S1', visible: true, opacity: 0.6 }])
+  expect(view?.scans).toEqual([{ id: 'S1', visible: true, opacity: 0.6, loaded: true }])
+  // Fix round 1 (I5): with the parts left out only the scan can change the pixels. The plate is at z -11 to -9.
+  const only = { view: 'iso', size: 256, parts: [], marks: false } satisfies LookRequest
+  const none = await picture({ ...only, scans: false, section: { origin: [0, 0, -5], normal: [0, 0, -1] } })
+  const gone = await picture({ ...only, scans: ['S1'], section: { origin: [0, 0, -5], normal: [0, 0, -1] } })
+  const kept = await picture({ ...only, scans: ['S1'], section: { origin: [0, 0, -5], normal: [0, 0, 1] } })
+  const through = await picture({ ...only, scans: ['S1'], section: { origin: [0, 0, 0], normal: [0, 1, 0] } })
+  expect(gone.sum).toBe(none.sum) // all of the plate is on the side taken away: nothing of it is drawn
+  expect(kept.sum).not.toBe(none.sum) // on the side kept, it is
+  expect(new Set([none.sum, kept.sum, through.sum]).size).toBe(3) // and half of it when the plane goes through it
 })
 
 test('a unit that was assumed wrongly is changed on the row, without the source', async () => {
@@ -130,13 +150,16 @@ test('a unit that was assumed wrongly is changed on the row, without the source'
   await page.waitForSelector('[data-region="left"]')
   await open('bracket')
   await expect(row('S1').locator('.chip[data-state="source-missing"]')).toHaveText('source missing')
-  await row('S1').getByText('More').click()
+  // Changed in fix round 1 (I4): what changes a guess is open while it is one; "More" would close it.
+  await expect(row('S1').locator('.scan-guess')).toContainText('Read as millimetres, Z up: right?')
   await row('S1').getByRole('combobox', { name: 'Unit of S1' }).selectOption('cm')
   await row('S1').getByRole('button', { name: 'Apply' }).click()
   await expect(row('S1')).toContainText('600 × 500 × 20 mm, from cm, Z up')
   // Both were chosen by pressing Apply: neither is assumed any more.
   await expect.poll(async () => (await state()).scans[0].imported.assumed).toEqual({ unit: false, up: false })
   await expect(row('S1')).not.toContainText('assumed')
+  await expect(row('S1').locator('.scan-guess')).toHaveCount(0)
+  await expect(row('S1').getByRole('button', { name: 'Apply' })).toBeDisabled()
 })
 
 test('a file that is no scan is said to be none, and a scan is removed with its folder only', async () => {
@@ -168,11 +191,18 @@ const drop = (name: string, p: Page = page) =>
     return { taken: over.defaultPrevented, effect: dataTransfer.dropEffect }
   }, name)
 
-test('what is dropped on the view that is no scan, or has no file behind it, is said at the pointer', async () => {
+test('what is dropped on the view that is no scan, or has no file behind it, is said in the panel until it is put away', async () => {
+  // Changed in fix round 1 (I3): said in the panel, where it stays until it is put away, not at the pointer.
+  const panel = page.getByRole('region', { name: 'Scans' })
   expect(await drop('notes.txt')).toMatchObject({ taken: true })
-  await expect(page.locator('.pick-readout')).toHaveText('torno reads .glb, .gltf, .obj, .ply and .stl scans')
+  await expect(panel.getByRole('alert')).toContainText('notes.txt is not a scan: torno reads .glb, .gltf, .obj, .ply and .stl scans')
+  await page.mouse.move(400, 300)
+  await page.mouse.move(420, 320)
+  await expect(panel.getByRole('alert')).toContainText('notes.txt is not a scan')
   await drop('Plate.STL')
-  await expect(page.locator('.pick-readout')).toHaveText('That file has no place on the disk')
+  await expect(panel.getByRole('alert')).toContainText('Plate.STL: That file has no place on the disk')
+  await panel.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(panel.getByRole('alert')).toHaveCount(0)
   // A drag of something that is no file is none of the view's.
   const text = await page.evaluate(() => {
     const dataTransfer = new DataTransfer()
@@ -199,7 +229,11 @@ test('a scan with colours of its own is drawn in them, or plain, as its row says
   await expect(row('S2')).toContainText('plate.ply')
   await expect.poll(async () => (await scans())[0]).toMatchObject({ id: 'S2', loaded: true, triangles: 12 })
   expect((await state()).scans[0].imported.colours).toBe('vertex')
-  await row('S2').getByText('More').click()
+  // The guess was right: saying so keeps the scan as it is, and no longer asks.
+  await row('S2').getByRole('button', { name: 'Yes' }).click()
+  await expect.poll(async () => (await state()).scans[0].imported.assumed).toEqual({ unit: false, up: false })
+  await expect(row('S2').locator('.scan-guess')).toHaveCount(0)
+  await expect(row('S2').getByRole('button', { name: 'Own colours' })).toHaveAttribute('title', 'Its own colours, toned down')
   await expect(row('S2').getByRole('button', { name: 'Own colours' })).toHaveAttribute('aria-pressed', 'true')
   const own = await picture({ view: 'bottom', size: 256, marks: false })
   await row('S2').getByRole('button', { name: 'Plain' }).click()
@@ -209,7 +243,7 @@ test('a scan with colours of its own is drawn in them, or plain, as its row says
   await expect.poll(() => JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scene.json'), 'utf8')).scans.S2).toEqual({ colour: 'plain' })
 })
 
-test('a scan whose mesh is gone says so, is not drawn, and has its source read again as a new scan', async () => {
+test('a scan whose mesh is gone says so, is not drawn, and has its source read again into the scan it is', async () => {
   rmSync(join(root, 'bracket', '.torno', 'scans', 'S2', 'mesh.bin'))
   await page.reload()
   await page.waitForSelector('[data-region="left"]')
@@ -217,9 +251,12 @@ test('a scan whose mesh is gone says so, is not drawn, and has its source read a
   await expect(row('S2').locator('.chip[data-state="mesh-missing"]')).toHaveText('mesh missing')
   expect((await scans())[0]).toMatchObject({ id: 'S2', loaded: false })
   expect((await picture({ view: 'iso', size: 256 })).caption).not.toContain('scans')
-  await row('S2').getByText('More').click()
-  await row('S2').getByRole('button', { name: 'Import again' }).click()
-  await expect(row('S3')).toContainText('plate.ply')
-  await expect.poll(async () => (await scans())[1]).toMatchObject({ id: 'S3', loaded: true })
-  expect((await picture({ view: 'iso', size: 256 })).caption).toContain(' · scans S3 · ')
+  // Changed in fix round 1 (I2): beside what says the mesh is gone, and into the same scan: what it had stays.
+  await page.evaluate(() => window.torno.scans.align('bracket', 'S2', 'assembly', { transform: { t: [0, 0, 1], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] }))
+  await expect(row('S2').locator('.scan-said')).toContainText('Its mesh is gone from the disk')
+  await row('S2').locator('.scan-said').getByRole('button', { name: 'Import again' }).click()
+  await expect.poll(async () => (await scans())[0], { timeout: 30_000 }).toMatchObject({ id: 'S2', loaded: true, aligned: true })
+  await expect(row('S2').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
+  await expect(row('S3')).toHaveCount(0)
+  expect((await picture({ view: 'iso', size: 256 })).caption).toContain(' · scans S2 · ')
 })

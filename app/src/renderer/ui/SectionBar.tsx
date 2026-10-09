@@ -186,7 +186,7 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
       {section && nothingLeft && (
         <>
           <span className="viewbar-rule" aria-hidden="true" />
-          <span className="section-note" role="status">
+          <span className="sectionbar-note" role="status">
             Everything is on the cut side
           </span>
           <button type="button" className="bar-button" title="Put the plane through the middle of the parts" onClick={() => actions.setSection(atOffset(section, box, 0))}>

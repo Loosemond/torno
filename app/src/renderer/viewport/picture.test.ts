@@ -26,8 +26,17 @@ describe('the size of a picture', () => {
 
 describe('the scans a picture has, in its caption', () => {
   it('are named after the parts, how thin only of one that is, and not at all when there is none', () => {
-    expect(scansNote([{ id: 'S1', opacity: 0.6 }, { id: 'S2', opacity: 1 }])).toBe(' · scans S1 at 60 %, S2')
-    expect(scansNote([])).toBe('')
+    const ok = { aligned: true, stale: null }
+    expect(scansNote([{ id: 'S1', opacity: 0.6, ...ok }, { id: 'S2', opacity: 1, ...ok }], 'print')).toBe(' · scans S1 at 60 %, S2')
+    expect(scansNote([], 'print')).toBe('')
+  })
+
+  // Fix round 1 (I1): a scan that is not where the model is must not be read as one that is.
+  it('say of a scan that it is not aligned in the layout drawn, or that its alignment may no longer hold', () => {
+    expect(scansNote([{ id: 'S1', opacity: 1, aligned: false, stale: null }], 'print')).toBe(' · scans S1 (not aligned in print: drawn where it was imported)')
+    expect(scansNote([{ id: 'S1', opacity: 0.5, aligned: false, stale: null }, { id: 'S2', opacity: 1, aligned: true, stale: 'torno has moved lid for display since it was aligned: check the alignment' }], 'assembly')).toBe(
+      ' · scans S1 at 50 % (not aligned in assembly: drawn where it was imported), S2 (its alignment in assembly may no longer hold: torno has moved lid for display since it was aligned: check the alignment)'
+    )
   })
 })
 

@@ -14,7 +14,7 @@ import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
 import { PointerRouter, type ViewportPointer } from './pointer'
-import { ScanLayer, type ScanLayerState } from './scans'
+import { ScanLayer, reaching, type ScanLayerState } from './scans'
 import { SectionCut, nearSegmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
@@ -609,9 +609,8 @@ export class Viewport {
   /** A sphere around everything drawn in the layout shown: the parts and the grid, the marks, the plane of the section, the scans. */
   private measured(): THREE.Sphere {
     const sphere = this.section.extend(this.marks.extend(this.groundExtent.clone(), this.layout))
-    // A scan of a room round a part the size of a hand: the camera reaches all of it, though it frames the parts.
-    const scans = this.scans.box()
-    return scans ? sphere.union(scans.getBoundingSphere(new THREE.Sphere())) : sphere
+    // A scan of a room round a part the size of a hand: the camera reaches it, though it frames the parts.
+    return reaching(sphere, this.scans.box(), this.groundExtent)
   }
 
   private lookOfScans(): void {

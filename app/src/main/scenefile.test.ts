@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { MIN_SCAN_OPACITY } from '../shared/scans'
 import { loadSceneFile, saveSceneFile, sceneFilesSettled, type SceneFile } from './scenefile'
 
 let dir: string
@@ -89,7 +90,8 @@ describe('scene file', () => {
     expect(await loadSceneFile(dir)).toEqual({ layers: {}, scans: { S1: { visible: false, opacity: 1, colour: 'own' } } })
     // A scan thinned to nothing could not be found again: the least is 5 %.
     await saveSceneFile(dir, { layers: {}, scans: { S3: { opacity: 0 }, S4: {} } })
-    expect(await loadSceneFile(dir)).toEqual({ layers: {}, scans: { S3: { opacity: 0.05 } } })
+    expect(await loadSceneFile(dir)).toEqual({ layers: {}, scans: { S3: { opacity: MIN_SCAN_OPACITY } } })
+    expect(MIN_SCAN_OPACITY).toBe(0.05)
     for (const not of [[], 'S1', null, { S1: 4 }]) {
       writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ scans: not }))
       expect(await loadSceneFile(dir)).toEqual({ layers: {} })

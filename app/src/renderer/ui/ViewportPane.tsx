@@ -19,7 +19,7 @@ import { meshOf } from '../viewport/scans'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
 import { NotePopover } from './NotePopover'
-import { NOT_A_SCAN, NO_PATH, droppedScan, importScan } from './scanDrop'
+import { importScan, scanDropped } from './scanDrop'
 import { SectionBar } from './SectionBar'
 import { Selection } from './Selection'
 import { ToolPalette } from './ToolPalette'
@@ -89,7 +89,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const report = () => {
     const s = store.getState()
     if (!s.objectId || !s.scene) return
-    const scans = viewport.scanState().map(({ id, visible, opacity }) => ({ id, visible, opacity }))
+    const scans = viewport.scanState().map(({ id, visible, opacity, loaded }) => ({ id, visible, opacity, loaded }))
     const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s), ...(s.section ? { section: s.section } : {}), scans }
     // What is selected goes to the agent with the next prompt: the refs, each with the kernel's line once it has come.
     if (s.selection.length > 0) {
@@ -145,6 +145,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
           report()
         })
         .catch((e: unknown) => {
+          // Asked again the next time main tells of the scans, not at once: a mesh that is really gone would be asked for without end.
+          asked.delete(key)
           // The mesh is gone, or is not one: the panel says so, in main's words, and the scan is not drawn.
           if (current()) actions.setScansRefused(e instanceof Error ? e.message : String(e))
         })
@@ -343,29 +345,26 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
 /**
  * Has a file dropped on the view imported as a scan into the open object: the
- * first of those dropped that torno reads. What is dropped that is none, or
- * has no path, is said at the pointer. Nothing of a drag goes through React.
+ * first of those dropped that torno reads. What comes to nothing is said in
+ * the Scans panel, where it stays until it is put away. With no object open
+ * a drop is not taken at all. Nothing of a drag goes through React.
  * Returns what undoes it.
  */
-function acceptDrops(pane: HTMLElement, readout: Readout): () => void {
+function acceptDrops(pane: HTMLElement): () => void {
+  // Only files, and only with an object to import into: a drag of text or of anything from the page is none of the view's.
+  const taken = (e: DragEvent): e is DragEvent & { dataTransfer: DataTransfer } => e.dataTransfer?.types.includes('Files') === true && store.getState().objectId !== null
   const onOver = (e: DragEvent): void => {
-    // Only files: a drag of text or of anything from the page is none of the view's.
-    if (!e.dataTransfer?.types.includes('Files')) return
+    if (!taken(e)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
   }
   const onDrop = (e: DragEvent): void => {
-    if (!e.dataTransfer?.types.includes('Files')) return
+    if (!taken(e)) return
     e.preventDefault()
-    const objectId = store.getState().objectId
-    if (!objectId) return
-    const files = e.dataTransfer.files
-    const at = droppedScan(files)
-    if (at < 0) return readout.say([e.clientX, e.clientY], NOT_A_SCAN)
-    const path = window.torno.scans.pathOf(files[at])
-    if (!path) return readout.say([e.clientX, e.clientY], NO_PATH)
-    readout.hide()
-    importScan(objectId, path)
+    const { objectId, importing } = store.getState()
+    const { path, said } = scanDropped(e.dataTransfer.files, (file) => window.torno.scans.pathOf(file), importing?.name ?? null)
+    if (path !== null) importScan(objectId!, path)
+    if (said !== null) actions.setScansRefused(said)
   }
   pane.addEventListener('dragover', onOver)
   pane.addEventListener('drop', onDrop)
@@ -408,7 +407,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
     const disconnect = connect(made, readout)
     const sized = new ResizeObserver(() => made.resize())
     sized.observe(host.current!)
-    const offDrop = acceptDrops(host.current!.parentElement!, readout)
+    const offDrop = acceptDrops(host.current!.parentElement!)
     setViewport(made)
     return () => {
       offDrop()

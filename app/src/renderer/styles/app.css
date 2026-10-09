@@ -765,6 +765,33 @@ button {
   overflow-wrap: anywhere;
 }
 
+/* While how it was read is a guess, the size that guess gives is to be seen: in ink, and asked about under it. */
+.scan-read[data-guessed] {
+  color: var(--ink);
+}
+
+.scan-guess,
+.scan-said {
+  margin: 0;
+  padding: 1px var(--space-4) 0;
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.scan-guess {
+  color: var(--warn);
+}
+
+.scan-said {
+  padding-bottom: 2px;
+  color: var(--muted);
+}
+
+.link-button:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .scan-state {
   display: flex;
   flex-wrap: wrap;
@@ -792,9 +819,8 @@ button {
   background: currentColor;
 }
 
-.chip[data-state='aligned'] {
-  color: var(--ok);
-}
+/* Aligned is the state with nothing to do: said, and left quiet. Not in --ok, which the eye cannot tell from the
+   agent's marks listed under this. */
 
 .chip[data-state='stale'],
 .chip[data-state='unaligned'] {
@@ -1995,7 +2021,7 @@ button {
 }
 
 /* Said in the bar when the plane leaves nothing to see. */
-.section-note {
+.sectionbar-note {
   padding: 0 var(--space-1) 0 var(--space-2);
   color: var(--muted);
 }

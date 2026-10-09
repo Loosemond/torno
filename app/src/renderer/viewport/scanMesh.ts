@@ -50,9 +50,9 @@ export function buildScan(id: string, blob: ArrayBuffer): BuiltScan {
   geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices.slice(), 3))
   geometry.setIndex(new THREE.BufferAttribute(parsed.triangles.slice(), 1))
   if (parsed.colours) geometry.setAttribute('color', new THREE.BufferAttribute(linearColours(parsed.colours), 3, true))
-  // Once, here: what is drawn of it and what the camera must reach are read from these.
-  geometry.computeBoundingBox()
-  geometry.computeBoundingSphere()
+  // The box is the one the file says, and the sphere is round it: neither costs a pass over the vertices.
+  geometry.boundingBox = new THREE.Box3(new THREE.Vector3(...parsed.bbox.min), new THREE.Vector3(...parsed.bbox.max))
+  geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere())
 
   const plain = new THREE.MeshStandardMaterial({ ...SURFACE, flatShading: true, roughness: 0.9, metalness: 0 })
   const own = parsed.colours ? fading(new THREE.MeshBasicMaterial({ ...SURFACE, vertexColors: true })) : null
@@ -77,7 +77,7 @@ export function disposeScan(built: BuiltScan): void {
   built.plain.dispose()
 }
 
-interface Fade { to: { value: THREE.Color }; by: { value: number } }
+interface Fade { to: { value: THREE.Color }; by: { value: number }; light: { value: number } }
 
 /**
  * How much of its colourfulness a scan keeps when drawn in its own colours. A
@@ -87,33 +87,46 @@ interface Fade { to: { value: THREE.Color }; by: { value: number } }
 export const OWN_SATURATION = 0.65
 
 /**
+ * How much of its light a scan in its own colours keeps on a dark background.
+ * They are unlit: a white wall would be the brightest thing on screen, far
+ * brighter than any part, which is lit and of the palette.
+ */
+export const OWN_LIGHT_ON_DARK = 0.5
+
+/**
  * Has a material of vertex colours draw them a step greyer, and take them
  * towards one colour by a share, as the parts' colours are taken towards the
  * background while they are stale. `material.color` could only darken them,
  * which on a light background is the wrong way.
  */
 function fading(material: THREE.MeshBasicMaterial): THREE.MeshBasicMaterial {
-  const fade: Fade = { to: { value: new THREE.Color() }, by: { value: 0 } }
+  const fade: Fade = { to: { value: new THREE.Color() }, by: { value: 0 }, light: { value: 1 } }
   material.userData.fade = fade
   material.onBeforeCompile = (shader) => {
     shader.uniforms.fadeTo = fade.to
     shader.uniforms.fadeBy = fade.by
+    shader.uniforms.ownLight = fade.light
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 fadeTo;\nuniform float fadeBy;')
+      .replace('#include <common>', '#include <common>\nuniform vec3 fadeTo;\nuniform float fadeBy;\nuniform float ownLight;')
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
         diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))), diffuseColor.rgb, ${OWN_SATURATION.toFixed(2)});
-        diffuseColor.rgb = mix(diffuseColor.rgb, fadeTo, fadeBy);`
+        diffuseColor.rgb = mix(diffuseColor.rgb * ownLight, fadeTo, fadeBy);`
       )
   }
   return material
 }
 
-/** Takes a scan's own colours towards `to` by the share `by`, 0 for as they are. */
+/**
+ * Takes a scan's own colours towards `to`, the background, by the share `by`, 0 for as they are; and draws them at
+ * `OWN_LIGHT_ON_DARK` of their light when that background is a dark one.
+ */
 export function fadeOwn(built: BuiltScan, to: string, by: number): void {
   const fade = built.own?.userData.fade as Fade | undefined
   if (!fade) return
   fade.to.value.set(to)
   fade.by.value = by
+  const { r, g, b } = fade.to.value
+  fade.light.value = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2 ? OWN_LIGHT_ON_DARK : 1
 }

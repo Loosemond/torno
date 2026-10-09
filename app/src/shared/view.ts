@@ -22,8 +22,8 @@ export interface ViewState {
   visible: string[] /* part keys */
   selection?: SelectionReport
   section?: SectionPlane | null /* the cut on screen; null or absent for none */
-  /** The scans of the object as the window has them: whether each is switched on, and how thin it is drawn (1 for solid). */
-  scans?: Array<{ id: string; visible: boolean; opacity: number }>
+  /** The scans of the object as the window has them: whether each is switched on, how thin it is drawn (1 for solid), and whether its mesh has come: one that has not is not drawn, switched on or not. */
+  scans?: Array<{ id: string; visible: boolean; opacity: number; loaded: boolean }>
 }
 export interface LookRequest {
   view?: 'current' | ViewName | Camera

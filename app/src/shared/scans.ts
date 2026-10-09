@@ -75,6 +75,9 @@ export interface ScanInfo extends Scan {
  */
 export interface Reimported { scan: ScanInfo; sourceChanged: boolean; meshChanged: boolean }
 
+/** The least a scan is thinned to: under it, it could not be found again. */
+export const MIN_SCAN_OPACITY = 0.05
+
 /** How a scan is looked at: view state, kept in scene.json by scan id. */
 export interface ScanView { visible?: boolean; opacity?: number; colour?: 'own' | 'plain' }
 

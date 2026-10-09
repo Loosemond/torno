@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from './atomic'
-import type { ScanView } from '../shared/scans'
+import { MIN_SCAN_OPACITY, type ScanView } from '../shared/scans'
 import type { LayerSettings, SceneFile } from '../shared/scenefile'
 import { sectionOf } from '../shared/view'
 
@@ -77,7 +77,7 @@ function scanViews(value: unknown): Record<string, ScanView> | undefined {
     if (!/^S\d+$/.test(id) || !isRecord(raw)) continue
     const view: ScanView = {}
     if (typeof raw.visible === 'boolean') view.visible = raw.visible
-    if (typeof raw.opacity === 'number' && Number.isFinite(raw.opacity)) view.opacity = Math.min(Math.max(raw.opacity, 0.05), 1)
+    if (typeof raw.opacity === 'number' && Number.isFinite(raw.opacity)) view.opacity = Math.min(Math.max(raw.opacity, MIN_SCAN_OPACITY), 1)
     if (raw.colour === 'own' || raw.colour === 'plain') view.colour = raw.colour
     if (Object.keys(view).length > 0) scans[id] = view
   }

@@ -249,7 +249,21 @@ export const actions = {
 
   /** The scans of an object, as listed or as changed. Those of an object that is not the open one are not kept. */
   setScans(m: { objectId: string; scans: ScanInfo[] }): void {
-    if (m.objectId === store.getState().objectId) store.setState({ scans: m.scans })
+    const s = store.getState()
+    if (m.objectId !== s.objectId) return
+    // How a scan that is gone was looked at goes with it: ids are never given again. Not the person's doing: no edit.
+    const kept = Object.entries(s.scanViews).filter(([id]) => m.scans.some((scan) => scan.id === id))
+    store.setState({ scans: m.scans, scanViews: kept.length === Object.keys(s.scanViews).length ? s.scanViews : Object.fromEntries(kept) })
+  },
+
+  /** A file was given to main to read as a scan of the open object: said from now, before the process has said anything. */
+  startImporting(name: string): void {
+    store.setState({ importing: { name, stage: null } })
+  },
+
+  /** Reading that file is over, read or refused. Nothing when another is being read by now. */
+  endImporting(name: string): void {
+    if (store.getState().importing?.name === name) store.setState({ importing: null })
   },
 
   /** Change how one scan is looked at, by hand; what is left out keeps its value. It is what the scene file keeps. */
@@ -260,7 +274,10 @@ export const actions = {
 
   /** What the import of a scan into an object is doing; no stage when it is over. Of another object than the open one, nothing is kept. */
   setImporting(m: { objectId: string; name: string; stage: string | null }): void {
-    if (m.objectId === store.getState().objectId) store.setState({ importing: m.stage === null ? null : { name: m.name, stage: m.stage } })
+    const s = store.getState()
+    if (m.objectId !== s.objectId) return
+    if (m.stage !== null) store.setState({ importing: { name: m.name, stage: m.stage } })
+    else if (s.importing?.name === m.name) store.setState({ importing: null })
   },
 
   /** Why what was asked of the scans came to nothing, for the panel to say; null puts it away. */
