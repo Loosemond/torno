@@ -104,14 +104,15 @@ function areaOf(geometry: THREE.BufferGeometry, triangle: number): number {
 
 /**
  * The painting of the object on show, if it has one: it goes only when its scan is gone or is another mesh than
- * it was painted on, and the bar then says which.
+ * it was painted on, once the scans of that object are known (`scansKnown`), and the bar then says which.
  */
 function current(): Painting | null {
   const s = store.getState()
   const mine = s.objectId === null ? undefined : paintings.get(s.objectId)
   if (!mine) return null
   const scan = s.scans.find((one) => one.id === mine.scan)
-  if (scan && meshOf(scan) === mine.mesh) return mine
+  // An object just opened has no scans yet, known or not: what main says of them comes after it is on show.
+  if ((scan && meshOf(scan) === mine.mesh) || (!scan && !s.scansKnown)) return mine
   paintings.delete(mine.objectId)
   regionStore.setState({ notice: scan ? readAgain(mine.scan) : scanGone(mine.scan), refused: null })
   return null
@@ -544,7 +545,7 @@ export function connectRegion(viewport: Pick<Viewport, 'getCamera' | 'paintScan'
   }
   publish()
   const offStore = store.subscribe((s, prev) => {
-    if (s.scans === prev.scans && s.objectId === prev.objectId) return
+    if (s.scans === prev.scans && s.objectId === prev.objectId && s.scansKnown === prev.scansKnown) return
     // Another object, or its scans changed: the painting of the one on show is the one in hand, if it has one.
     if (s.objectId !== prev.objectId) regionStore.setState({ notice: null, refused: null })
     publish()

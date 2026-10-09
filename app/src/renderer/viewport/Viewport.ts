@@ -194,7 +194,6 @@ export class Viewport {
       pick: (x, y) => this.pick(x, y),
       pickedCut: () => this.onCut,
       syncMatrices: () => this.syncMatrices(),
-      settle: this.onControlStart,
       view: () => this.getCamera(),
       setView: (c) => {
         this.move.drop()
@@ -963,10 +962,9 @@ export class Viewport {
     this.onCameraChange()
   }
 
-  /** A press takes over from a camera move: the view is where it was going, at once, and the press is answered there. */
+  /** The person takes over from a camera move: it stops where it is, and the press is answered from the camera as it is. */
   private readonly onControlStart = (): void => {
-    const to = this.move.finish()
-    if (to) this.applyCamera(to)
+    this.move.drop()
   }
 
   private readonly onCameraChange = (): void => {

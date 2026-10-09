@@ -157,8 +157,41 @@ describe('the set being painted', () => {
     expect(tintsOf(made)).toEqual([])
     expect(set.watch).toBeNull()
     // Of a scan that is not there, or a set of another mesh: nothing to draw.
-    expect(made.tints.paint('S9', set)).toBeNull()
-    expect(made.tints.paint('S1', new TriangleSet(12))).toBeNull()
+    made.tints.paint('S9', set)
+    expect(made.tints.state().painting).toBeNull()
+    made.tints.paint('S1', new TriangleSet(12))
+    expect(made.tints.state().painting).toBeNull()
+  })
+
+  // Final fix wave (R2): a mesh that comes after the painting, or comes back, is painted on.
+  it('is drawn once its scan’s mesh has come, and again when that mesh is let go of and comes back', () => {
+    const redrawn = { count: 0 }
+    const made = new ScanLayer(() => (redrawn.count += 1), () => new Promise(() => {}))
+    made.set([scan('S1')], 'assembly')
+    const set = new TriangleSet(1682)
+    set.add(4)
+    const paint = made.tints.paint('S1', set)!
+    expect(paint).not.toBeNull()
+    expect(made.tints.state().painting).toBeNull()
+    made.load('S1', meshBin(grid(30)))
+    expect(made.tints.state().painting).toEqual({ scan: 'S1', triangles: 1, visible: true })
+    made.set([], 'assembly')
+    expect(made.tints.state().painting).toBeNull()
+    set.add(5)
+    paint.touched()
+    made.set([scan('S1')], 'assembly')
+    made.load('S1', meshBin(grid(30)))
+    expect(made.tints.state().painting).toEqual({ scan: 'S1', triangles: 2, visible: true })
+    set.add(6)
+    paint.touched()
+    expect(made.tints.state().painting).toMatchObject({ triangles: 3 })
+    expect(tintsOf(made)[0].geometry.drawRange.count).toBe(9)
+    // Put away, it is not drawn when the mesh next comes.
+    made.tints.paint(null, null)
+    made.set([], 'assembly')
+    made.set([scan('S1')], 'assembly')
+    made.load('S1', meshBin(grid(30)))
+    expect(made.tints.state().painting).toBeNull()
   })
 
   it('is no longer drawn once its scan’s mesh is let go of, and a touch then does nothing', () => {

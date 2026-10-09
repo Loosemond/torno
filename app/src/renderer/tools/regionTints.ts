@@ -3,6 +3,7 @@ import { maskStem } from '../../shared/regions'
 import { maskBits } from '../../shared/scans'
 import { regionStore } from '../state/region'
 import { store, type TornoState } from '../state/store'
+import { toolStore } from '../state/tools'
 import type { KeptRegion } from '../viewport/scanTints'
 import { meshOf } from '../viewport/scans'
 import type { Viewport } from '../viewport/Viewport'
@@ -31,8 +32,9 @@ export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void 
   const bits = new Map<string, Uint8Array | null | false>()
   let told: KeptRegion[] = []
   const tell = (s: TornoState): void => {
-    // One that is being painted again is drawn as that painting, not as it was kept.
-    const wanted = regionsOf(s, regionStore.getState().editing)
+    // One that is being painted again is drawn as that painting, not as it was kept: while the painting is
+    // drawn, which is while the Region tool is in hand. Parked, the region is drawn as it is kept.
+    const wanted = regionsOf(s, toolStore.getState().tool === 'region' ? regionStore.getState().editing : null)
     const now: KeptRegion[] = []
     for (const { mark, key, triangles } of wanted) {
       const have = bits.get(key)
@@ -64,9 +66,13 @@ export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void 
   const offEditing = regionStore.subscribe((r, prev) => {
     if (r.editing !== prev.editing) tell(store.getState())
   })
+  const offTool = toolStore.subscribe((t, prev) => {
+    if (t.tool !== prev.tool && regionStore.getState().editing !== null) tell(store.getState())
+  })
   return () => {
     off()
     offEditing()
+    offTool()
     viewport.setRegions([])
   }
 }

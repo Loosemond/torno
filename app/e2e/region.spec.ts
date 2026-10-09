@@ -116,6 +116,11 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   await page.getByRole('button', { name: 'Import scan…' }).click()
   await expect.poll(async () => (await scans())[0]?.ready).toBe(true)
   await page.getByRole('button', { name: 'Top', exact: true }).click()
+  // The view turns to it over a moment: what follows is aimed from above, and a press is answered from the camera as it then is.
+  await expect.poll(async () => {
+    const { position, target } = await page.evaluate(() => window.__tornoTest!.camera())
+    return Math.hypot(position[0] - target[0], position[1] - target[1])
+  }).toBeLessThan(0.01)
   await page.keyboard.press('b')
   await expect(bar()).toBeVisible()
   await expect(bar()).toContainText('Drag over the scan to paint the part to name')
@@ -127,8 +132,6 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   await page.mouse.up()
   await expect(bar()).toContainText('0 triangles')
   expect((await tints()).painting).toBeNull()
-  // (That press also finished the view's turn to Top, M10: the strokes below need no wait for it.)
-  expect(await page.evaluate(() => { const { position, target } = window.__tornoTest!.camera(); return Math.hypot(position[0] - target[0], position[1] - target[1]) })).toBeLessThan(0.01)
   // The lid is switched off to paint.
   await page.locator('.layer-row[data-layer="lid"]').getByRole('button', { name: 'Show lid' }).click()
   // One stroke along the sheet's left side, from front to back.

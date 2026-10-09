@@ -7,7 +7,7 @@ import type { ScanInfo } from '../../shared/scans'
 import type { Camera } from '../../shared/view'
 import { alignStore } from '../state/align'
 import { regionStore } from '../state/region'
-import { store } from '../state/store'
+import { actions, store } from '../state/store'
 import { grid } from '../../test/scanFixtures'
 import type { BrushRing } from '../viewport/brushRing'
 import type { TriangleSet } from '../viewport/scanPaint'
@@ -98,7 +98,7 @@ beforeEach(() => {
   asked = []
   answer = async () => ({ id: 'M1', kind: 'region', layout: 'assembly' }) as Mark
   vi.stubGlobal('window', { torno: { marks: { addRegion: (objectId: string, region: NewRegion) => (asked.push({ objectId, region }), answer(region)) } } })
-  store.setState({ objectId: 'bracket', layout: 'assembly', revision: 4, scans: [scanInfo('S1')], scanViews: {} })
+  store.setState({ objectId: 'bracket', layout: 'assembly', revision: 4, scans: [scanInfo('S1')], scansKnown: true, scanViews: {}, marks: [] })
   alignStore.setState({ scan: null })
   forgetPaintings()
   toolStore.setState({ tool: 'region' })
@@ -442,6 +442,31 @@ describe('putting it down (I5): a painting is never lost by accident', () => {
     off()
   })
 
+  // Final fix wave (I3): as the window opens an object, the scans arriving after it.
+  it('waits through its object being opened again: it goes only once that object\'s scans are known and its scan is not among them', () => {
+    const { ctx, painted } = fake()
+    const off = connectRegion(ctx.viewport as never)
+    const tool = regionTool()
+    stroke(tool, ctx)
+    const set = painted.set!
+    const count = set.count
+    const file = { layers: {} } as never
+    actions.openObject('gear', file)
+    actions.setScans({ objectId: 'gear', scans: [] })
+    expect(regionStore.getState().count).toBe(0)
+    // Back: the object is on show before its scans have come.
+    actions.openObject('bracket', file)
+    expect(store.getState().scans).toEqual([])
+    expect(regionStore.getState().notice).not.toMatch(/is gone/)
+    actions.setScans({ objectId: 'bracket', scans: [scanInfo('S1')] })
+    expect(painted.set).toBe(set)
+    expect(regionStore.getState()).toMatchObject({ count, scan: 'S1', notice: waiting(count, 'S1') })
+    // Its scan truly gone, as main then says: the painting goes with it.
+    actions.setScans({ objectId: 'bracket', scans: [] })
+    expect(regionStore.getState()).toMatchObject({ count: 0, notice: 'S1 is gone: what was painted on it went with it' })
+    off()
+  })
+
   it('ends a stroke that is cut short, and keeps what was painted', () => {
     const { ctx, navigation, painted, rings } = fake()
     const tool = regionTool()
@@ -629,6 +654,28 @@ describe('painting a kept region again', () => {
     expect(notes).toEqual([])
     expect(regionStore.getState()).toMatchObject({ editing: null, count: 0 })
     off()
+  })
+
+  // Final fix wave (I4): parked, the kept region is what there is to see.
+  it('stays drawn from its kept mask while its painting-again waits: left out only while the tool is in hand', async () => {
+    const { ctx } = fake()
+    const tinted: string[][] = []
+    const viewport = { ...ctx.viewport, setRegions: (regions: Array<{ id: string }>) => void tinted.push(regions.map((region) => region.id)) }
+    vi.stubGlobal('window', { torno: { scans: { mask: async () => maskOf(5, 6, 7) } } })
+    store.setState({ marks: [kept] })
+    toolStore.setState({ tool: 'select' })
+    const off = connectRegion(viewport as never)
+    await vi.waitFor(() => expect(tinted.at(-1)).toEqual(['M4']))
+    await editRegion(kept)
+    expect(toolStore.getState().tool).toBe('region')
+    expect(tinted.at(-1)).toEqual([])
+    // Escape, as the pane does: the painting waits unseen, and the region is drawn as it was kept.
+    toolStore.setState({ tool: 'select' })
+    await vi.waitFor(() => expect(tinted.at(-1)).toEqual(['M4']))
+    toolStore.setState({ tool: 'region' })
+    expect(tinted.at(-1)).toEqual([])
+    off()
+    store.setState({ marks: [] })
   })
 
   it('is not taken in hand while another painting is: that one is kept or cleared first', async () => {

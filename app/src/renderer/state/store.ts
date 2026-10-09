@@ -55,6 +55,11 @@ export interface TornoState {
   activeMark: string | null
   /** The scans of the open object, as main last told them. Their meshes are not here: they go straight to the viewport. */
   scans: ScanInfo[]
+  /**
+   * Whether `scans` is what main said of the object on show: false from when an object is opened until its
+   * scans have come. Meanwhile `scans` is empty, and that says nothing of what the object has.
+   */
+  scansKnown: boolean
   /** How each scan is looked at, by scan id, where the person changed it: what the scene file keeps. */
   scanViews: Record<string, ScanView>
   /** The file being imported into the open object as a scan, and what the process is doing; null for none. */
@@ -106,7 +111,7 @@ const NOTHING_SELECTED: string[] = []
 const NOTHING_PICKED: Record<string, PickedAt> = {}
 const NO_SCANS: ScanInfo[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, scans: NO_SCANS, scanViews: {}, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -141,7 +146,7 @@ export const actions = {
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */
   openObject(objectId: string, file: SceneFile): void {
-    store.setState({ ...NO_OBJECT, objectId, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), scanViews: file.scans ?? {} })
+    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), scanViews: file.scans ?? {} })
   },
 
   applyBuild(build: BuildState): void {
@@ -277,7 +282,7 @@ export const actions = {
     const kept = Object.entries(s.scanViews).filter(([id]) => m.scans.some((scan) => scan.id === id))
     // And what was remembered of how the person had it, where the agent shows it otherwise.
     const shownByAgent = withoutScans(s.shownByAgent, (id) => !m.scans.some((scan) => scan.id === id))
-    store.setState({ scans: m.scans, scanViews: kept.length === Object.keys(s.scanViews).length ? s.scanViews : Object.fromEntries(kept), shownByAgent })
+    store.setState({ scans: m.scans, scansKnown: true, scanViews: kept.length === Object.keys(s.scanViews).length ? s.scanViews : Object.fromEntries(kept), shownByAgent })
   },
 
   /** A file was given to main to read as a scan of the open object: said from now, before the process has said anything. */

@@ -25,7 +25,9 @@ export class ScanTints {
   private regions: KeptRegion[] = []
   /** The meshes of the kept regions that are drawn, by mark id, each with what it was made of. */
   private readonly kept = new Map<string, { of: KeptRegion; built: BuiltScan; mesh: Tint }>()
-  private painting: { scan: string; set: TriangleSet; index: PaintedIndex; built: BuiltScan; mesh: Tint } | null = null
+  /** The set in hand, whether or not its scan's mesh is there to draw it on. */
+  private inHand: { scan: string; set: TriangleSet } | null = null
+  private painting: { scan: string; set: TriangleSet; index: PaintedIndex; attribute: THREE.BufferAttribute; built: BuiltScan; mesh: Tint } | null = null
   private colours = { user: '#B8336A', agent: '#1F7A5C' }
   private planes: THREE.Plane[] | null = null
   /** While a picture is made: whether it draws the marks. The set in hand is in no picture. */
@@ -90,23 +92,42 @@ export class ScanTints {
       mesh.visible = this.shows(region)
       this.kept.set(region.id, { of: region, built, mesh })
     }
-    // The set in hand is of one mesh: of another it is no longer drawn, and whoever paints is told nothing was touched.
+    // The set in hand is drawn on the mesh its scan has: let go of, it is not drawn; come (back), it is, whenever
+    // the set is of that mesh's triangles.
     if (this.painting && this.builtOf(this.painting.scan) !== this.painting.built) this.stopPainting()
+    this.startPainting()
   }
 
   /**
    * The set being painted on a scan, drawn as a tint in the person's mark colour; null for none. Redrawn when
-   * `touched()` is called after it changed: only what changed is sent to the graphics card. Null too for a scan
-   * whose mesh has not come, or a set that is not of its triangles. Once that mesh is let go of (the scan is
-   * removed or read again) the set is no longer drawn, and `touched()` does nothing.
+   * `touched()` is called after it changed: only what changed is sent to the graphics card. While its scan's
+   * mesh has not come, or is let go of, or the set is not of its triangles, nothing is drawn and `touched()`
+   * does nothing; it is drawn, as it then is, once that mesh is there (`sync`).
    */
   paint(id: string | null, set: TriangleSet | null): { touched(): void } | null {
     this.stopPainting()
-    const built = id === null ? null : this.builtOf(id)
-    if (id === null || !set || !built || set.triangles !== built.triangles) {
-      this.redraw()
-      return null
+    this.inHand = id !== null && set ? { scan: id, set } : null
+    const mine = this.inHand
+    this.startPainting()
+    this.redraw()
+    if (!mine) return null
+    return {
+      touched: () => {
+        const painting = this.painting
+        if (this.inHand !== mine || !painting) return
+        for (const [start, count] of painting.index.ranges()) painting.attribute.addUpdateRange(start, count)
+        if (painting.attribute.updateRanges.length > 0) painting.attribute.needsUpdate = true
+        painting.mesh.geometry.setDrawRange(0, painting.index.count * 3)
+        this.redraw()
+      }
     }
+  }
+
+  private startPainting(): void {
+    if (!this.inHand || this.painting) return
+    const { scan, set } = this.inHand
+    const built = this.builtOf(scan)
+    if (!built || set.triangles !== built.triangles) return
     const index = new PaintedIndex(built.mesh.geometry.index!.array, built.triangles)
     const attribute = new THREE.BufferAttribute(index.array, 1)
     attribute.setUsage(THREE.DynamicDrawUsage)
@@ -116,18 +137,7 @@ export class ScanTints {
     index.ranges()
     mesh.geometry.setDrawRange(0, index.count * 3)
     set.watch = index
-    this.painting = { scan: id, set, index, built, mesh }
-    const mine = this.painting
-    this.redraw()
-    return {
-      touched: () => {
-        if (this.painting !== mine) return
-        for (const [start, count] of index.ranges()) attribute.addUpdateRange(start, count)
-        if (attribute.updateRanges.length > 0) attribute.needsUpdate = true
-        mesh.geometry.setDrawRange(0, index.count * 3)
-        this.redraw()
-      }
-    }
+    this.painting = { scan, set, index, attribute, built, mesh }
   }
 
   /** What is drawn, for whoever asks how things stand: the regions by mark id with how many triangles each draws, and the set in hand. */

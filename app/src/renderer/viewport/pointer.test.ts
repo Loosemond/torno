@@ -97,18 +97,6 @@ describe('the pointer over the canvas', () => {
     vi.unstubAllGlobals()
   })
 
-  it('has a move of the camera finished before a press is answered, and at no other event (M10)', () => {
-    const order: string[] = []
-    const { canvas } = router({ settle: () => void order.push('settle'), pick: () => (order.push('pick'), HIT) })
-    fire(canvas, 'pointermove', { clientX: 50, clientY: 50, timeStamp: 5 })
-    fire(canvas, 'pointerdown', { buttons: 1, clientX: 50, clientY: 50, timeStamp: 10 })
-    fire(canvas, 'pointermove', { buttons: 1, clientX: 60, clientY: 50, timeStamp: 20 })
-    fire(canvas, 'pointerup', { clientX: 60, clientY: 50, timeStamp: 30 })
-    expect(order.filter((what) => what === 'settle')).toHaveLength(1)
-    // The pick of the press comes after it.
-    expect(order.slice(order.indexOf('settle'))[1]).toBe('pick')
-  })
-
   it('tells of a click after the release of a press that did not move, and of none after a drag', () => {
     const { canvas, told } = router()
     fire(canvas, 'pointerdown', { buttons: 1, clientX: 50, clientY: 50, timeStamp: 10 })

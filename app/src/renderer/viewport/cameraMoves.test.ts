@@ -21,15 +21,13 @@ describe('a move of the camera', () => {
     expect(between(ISO, TOP, 0).position.map((c) => Math.round(c))).toEqual([90, -90, 110])
   })
 
-  it('finished early says where it was going, and is over; dropped, it says nothing (M10)', () => {
+  it('dropped, it is over where it had got to: nothing takes it to its end', () => {
     const move = new CameraMove()
     move.begin(ISO, TOP, 0)
     move.step(MOVE_MS / 4)
-    expect(move.finish()).toEqual(TOP)
-    expect([move.under, move.finish(), move.step(MOVE_MS)]).toEqual([false, null, null])
-    move.begin(ISO, TOP, 0)
     move.drop()
-    expect([move.under, move.finish()]).toEqual([false, null])
+    expect([move.under, move.step(MOVE_MS)]).toEqual([false, null])
+    expect(move).not.toHaveProperty('finish')
   })
 
   it('leans a camera that looks straight along Z by a hair, so that its up is up on the screen', () => {

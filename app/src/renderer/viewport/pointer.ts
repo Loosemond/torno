@@ -65,8 +65,6 @@ export interface PointerHost {
   pickedCut?(): boolean
   /** Brings the matrices a ray is cast with up to date. */
   syncMatrices(): void
-  /** A press is about to be answered: a move of the camera that is under way is finished first, so that what is pressed is what the view asked for shows there. */
-  settle?(): void
   /** The camera as it is, and a way to put it elsewhere at once, ending a move under way. */
   view(): Camera
   setView(camera: Camera): void
@@ -154,8 +152,6 @@ export class PointerRouter {
     const { host } = this
     const kind = e.type === 'pointermove' ? 'move' : e.type === 'pointerdown' ? 'down' : e.type === 'pointerup' ? 'up' : 'cancel'
     const press = this.press
-    // Before anything is asked of the view: a press is answered from where the camera was going, not from where it had got to.
-    if (kind === 'down') host.settle?.()
     this.last = [e.clientX, e.clientY]
     this.over = kind !== 'cancel'
     if (kind === 'down') this.pointerId = e.pointerId ?? null

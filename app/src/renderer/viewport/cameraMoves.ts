@@ -22,8 +22,8 @@ export function between(from: Camera, to: Camera, k: number): Camera {
 
 /**
  * The camera's move to a view it was sent to, over `MOVE_MS`. `step` says where it is now, and forgets the move
- * once it has arrived; `finish` says where it was going, and forgets it: a press that is to be answered is
- * answered from the view the person asked for, not from wherever the move had got to.
+ * once it has arrived. A press is answered from the camera as it is at the press, wherever the move has got
+ * to: what is clicked is what is seen. Nothing jumps the move to its end.
  */
 export class CameraMove {
   private move: { from: Camera; to: Camera; start: number } | null = null
@@ -52,11 +52,6 @@ export class CameraMove {
     return between(move.from, move.to, t * t * (3 - 2 * t))
   }
 
-  finish(): Camera | null {
-    const to = this.move?.to ?? null
-    this.move = null
-    return to
-  }
 }
 
 /**
