@@ -10,7 +10,8 @@ says what it does and how to run it; the design is
   holds the types both sides use.
 - `kernel/`: the Python package `torno_kernel` (uv). It loads build123d models
   and tessellates them, in forked workers.
-- `scripts/torno`: the launcher.
+- `scripts/torno`: the launcher. It rebuilds the app when a source is newer
+  than `app/out/.built`, which it touches only after a build that succeeded.
 
 ## Tests
 
@@ -32,7 +33,7 @@ While iterating run the focused test; run all four suites before a commit.
 
 ## Global Constraints
 
-- Never write inside a user workspace except under `<object>/.torno/`. Never run `uv sync` there: always `uv run --no-sync`.
+- Never write inside a user workspace except under `<object>/.torno/`. Never run `uv sync` there: always `uv run --no-sync`, and only when `<workspace>/.venv` exists: without it uv would create one, so no kernel is started and builds fail saying to run `uv sync`.
 - The kernel supervisor only imports. It never loads a model, builds, tessellates or answers a query. Workers never fork.
 - Kernel stdout carries protocol frames only. Model output goes to a captured buffer.
 - Units are millimetres, Z up. Coordinates crossing a process boundary are in the object frame unless named `local`.
@@ -59,10 +60,21 @@ While iterating run the focused test; run all four suites before a commit.
 - **prctl.** Each worker sets `PR_SET_PDEATHSIG` to SIGKILL, so it dies with
   the supervisor even when that is killed, and `PR_SET_DUMPABLE` to 0, so a
   crashing model does not wait seconds on a core dump.
-- **Timeouts.** Every build has one (300 s unless the request names another).
+- **Timeouts.** Every build has one: 600 s unless the request names another
+  (the app passes `TORNO_BUILD_TIMEOUT`), a day at most; one that is not a
+  positive, finite number is a `bad_request`.
   A build past it is killed and answered with `error.kind: "timeout"`. A
   worker that crashes is answered with `crash`, one that is superseded with
   `cancelled`. The supervisor never blocks on a write.
+- **A worker is not trusted.** A frame from the building worker that is not a
+  result (not JSON, or without its scene or error) is a `crash` of that build;
+  the supervisor carries on. Frames are written with `allow_nan=False`: a scene
+  that holds a NaN is an `exception` reply, never bytes that are not JSON.
+- **One geometry.** A `print` layout whose parts overlap in XY is spread along
+  X in the worker, before tessellation (`arrange.py`). The shape itself is
+  moved, so the mesh, the bounding box and the shape kept for queries agree;
+  the part carries the translation as `arranged`. The viewport never moves a
+  part.
 - **stdout is the protocol.** The kernel keeps the real stdout for frames and
   points fd 1 at stderr; a worker points fd 1 and 2 at a capture buffer and
   stdin at `/dev/null`. What a model prints comes back as `output`.
@@ -89,6 +101,11 @@ window on it.
 - A test works on a temporary copy of `kernel/tests/fixtures/ws`, never on
   the fixtures themselves and never on a real workspace.
 - Do not touch the clipboard.
+- Never click "Open folder" unless main runs with `TORNO_TEST=1`: only then is
+  the folder dialog replaced by `globalThis.__tornoMain.pickFolder` (the folder
+  to answer with, or null), and `picks` counts the times it was asked.
+- `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
+  side by side.
 
 ## Never run the real `claude` CLI from tests
 

@@ -2,7 +2,7 @@
 # Start torno: scripts/torno [workspace]
 #
 # Works from any directory. Installs the dependencies if they are missing,
-# builds the app if the build is missing or older than its sources, then starts
+# builds the app if it has not been built since its sources changed, then starts
 # Electron on it. A folder given as the argument is opened as the workspace;
 # with none, torno opens the one it was last pointed at.
 set -eu
@@ -51,12 +51,18 @@ if [ ! -d "$root/node_modules" ] || [ ! -d "$app/node_modules" ]; then
   (cd "$root" && pnpm install) >&2
 fi
 
-# Built once, and again whenever a source or the build's own configuration is newer than the build.
-built=$app/out/main/index.js
-if [ ! -f "$built" ] || [ ! -f "$app/out/preload/index.js" ] || [ ! -f "$app/out/renderer/index.html" ] ||
-  [ -n "$(find "$app/src" "$app/package.json" "$app/electron.vite.config.ts" "$app/tsconfig.json" "$root/pnpm-lock.yaml" -newer "$built" -print | head -n 1)" ]; then
+# Built once, and again whenever a source or the build's own configuration is
+# newer than the last build that succeeded. That is what the stamp records: the
+# build's own files will not do, since the main bundle is written before the
+# renderer is compiled, and a build that then fails would leave it looking fresh.
+stamp=$app/out/.built
+if [ ! -f "$stamp" ] || [ ! -f "$app/out/main/index.js" ] || [ ! -f "$app/out/preload/index.js" ] || [ ! -f "$app/out/renderer/index.html" ] ||
+  [ -n "$(find "$app/src" "$app/package.json" "$app/electron.vite.config.ts" "$app/tsconfig.json" "$root/pnpm-lock.yaml" -newer "$stamp" -print | head -n 1)" ]; then
   echo "torno: building the app" >&2
+  # The stamp carries the time the build began: a source saved while it ran is newer.
+  began=$(date +%Y%m%d%H%M.%S)
   (cd "$root" && pnpm build) >&2
+  touch -t "$began" "$stamp"
 fi
 
 exec "$app/node_modules/.bin/electron" "$app"
