@@ -16,6 +16,6 @@ describe('what a sentence has set in the face of numbers', () => {
   })
 
   it('starts a sentence with a capital', () => {
-    expect(capital('plane rms 0.8 mm')).toBe('Plane rms 0.8 mm')
+    expect(capital('plane RMS 0.8 mm')).toBe('Plane RMS 0.8 mm')
   })
 })

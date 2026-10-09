@@ -308,7 +308,7 @@ function FloorBody({ state }: { state: AlignState }) {
       </div>
       {floor && (
         <p className="alignbar-fit" data-warn={warning ? '' : undefined}>
-          Plane rms <span className="num">{fitNumber(floor.plane.rms)}</span> mm over <span className="num">{floor.plane.used}</span> triangles
+          Plane RMS <span className="num">{fitNumber(floor.plane.rms)}</span> mm over <span className="num">{floor.plane.used}</span> triangles
           {share !== null && floor.of !== 3 && (
             <>
               {' '}

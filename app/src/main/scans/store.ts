@@ -707,13 +707,15 @@ export class ScanStore {
   }
 
   private async meshGone(scan: Scan, path: string): Promise<string> {
-    const source = await this.isFile(scan.source.path)
-    return `${scan.id}'s mesh is gone from ${path}. Import it again from ${scan.source.path}${source ? '' : ', which is missing too'}`
+    // A path that is not whole is not looked for: it would be found, or not, wherever torno happens to run.
+    const whole = isAbsolute(scan.source.path)
+    const source = whole && (await this.isFile(scan.source.path))
+    return `${scan.id}'s mesh is gone from ${path}. Import it again from ${scan.source.path}${source ? '' : whole ? ', which is missing too' : ', which is no whole path and cannot be read'}`
   }
 
   /** A scan as it is told: with whether its source is still the file that was read, and whether its mesh is there. */
   private async infoOf(dir: string, scan: Scan): Promise<ScanInfo> {
-    const [source, mesh] = await Promise.all([this.stat(scan.source.path).catch(() => null), this.isFile(join(scanFolder(dir, scan.id), meshName(scan)))])
+    const [source, mesh] = await Promise.all([isAbsolute(scan.source.path) ? this.stat(scan.source.path).catch(() => null) : null, this.isFile(join(scanFolder(dir, scan.id), meshName(scan)))])
     // By its size and its time: the hash is not taken again, which would read the whole file at every listing.
     const sourceState = !source?.isFile() ? 'missing' : source.size !== scan.source.bytes || source.mtimeMs !== scan.source.mtimeMs ? 'changed' : 'present'
     const failed = this.failures.get(dir)?.get(scan.id)

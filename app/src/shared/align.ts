@@ -294,7 +294,7 @@ export function roughOf(alignment: Pick<ScanAlignment, 'steps'> & { pairs?: Scan
   // How well they were fitted, when that is known: a hand that moves the scan afterwards makes a fit neither better nor worse.
   const fitted = alignment.fitRms !== undefined
   const rms = alignment.fitRms ?? rmsOf(pairs.map((pair) => pair.residual))
-  return rms > ROUGH_RMS_MM ? `its pairs of points ${fitted && movedByHand ? 'were fitted' : 'are left'} ${fitNumber(rms)} mm apart (rms): more than ${ROUGH_RMS_MM} mm` : null
+  return rms > ROUGH_RMS_MM ? `its pairs of points ${fitted && movedByHand ? 'were fitted' : 'are left'} ${fitNumber(rms)} mm apart (RMS): more than ${ROUGH_RMS_MM} mm` : null
 }
 
 type Reckoned = Partial<Pick<ScanAlignment, 'rms' | 'scaled' | 'rough'>>

@@ -128,6 +128,26 @@ describe('ScanStore', () => {
     expect(told).toHaveLength(3)
   })
 
+  // Re-review (M2): a path that is not whole would be looked for wherever torno was started.
+  it('never looks on the disk for a source whose path is not whole: it is missing, and that is why', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const kept = file()
+    // A file of that very name where a relative path would be looked for.
+    const here = `torno-relative-${process.pid}.stl`
+    writeFileSync(here, readFileSync(source))
+    try {
+      kept.scans[0].source.path = here
+      writeFileSync(join(dir, '.torno', 'scans.json'), JSON.stringify(kept))
+      scans.forget()
+      expect((await scans.list('bracket'))[0].sourceState).toBe('missing')
+      rmSync(join(dir, '.torno', 'scans', 'S1', 'mesh.bin'))
+      await expect(scans.mesh('bracket', 'S1')).rejects.toThrow(`Import it again from ${here}, which is no whole path and cannot be read`)
+    } finally {
+      rmSync(here, { force: true })
+    }
+  })
+
   it('says when the source has changed since', async () => {
     const scans = store()
     await scans.import('bracket', source)
@@ -470,9 +490,9 @@ describe('ScanStore', () => {
     await scans.import('bracket', source)
     // Fitted 40 mm off its pairs: rough, and kept only on a yes.
     const off = { ...FITTED, transform: { ...FITTED.transform, t: [5, 0, 41] as [number, number, number] } }
-    await expect(scans.align('bracket', 'S1', 'assembly', off)).rejects.toThrow('its pairs of points are left 40 mm apart (rms): more than 5 mm')
+    await expect(scans.align('bracket', 'S1', 'assembly', off)).rejects.toThrow('its pairs of points are left 40 mm apart (RMS): more than 5 mm')
     // The same, said to have been moved by hand: there is no fit behind it that main knows of, so it is judged as it stands.
-    await expect(scans.align('bracket', 'S1', 'assembly', { ...off, steps: ['pairs', 'nudge'] })).rejects.toThrow('its pairs of points are left 40 mm apart (rms): more than 5 mm')
+    await expect(scans.align('bracket', 'S1', 'assembly', { ...off, steps: ['pairs', 'nudge'] })).rejects.toThrow('its pairs of points are left 40 mm apart (RMS): more than 5 mm')
     const kept = (await scans.align('bracket', 'S1', 'assembly', off, YES)).alignments.assembly
     expect(kept.fitRms).toBeCloseTo(40, 9)
     // Nudged: the fit is as rough as it was, wherever the hand puts it, and what the caller says of the fit counts for nothing.
@@ -481,7 +501,7 @@ describe('ScanStore', () => {
     const moved = (await scans.align('bracket', 'S1', 'assembly', nudged, YES)).alignments.assembly
     expect(moved.fitRms).toBeCloseTo(40, 9)
     expect(moved.rms).toBeCloseTo(0, 9)
-    expect(moved.rough).toBe('its pairs of points were fitted 40 mm apart (rms): more than 5 mm')
+    expect(moved.rough).toBe('its pairs of points were fitted 40 mm apart (RMS): more than 5 mm')
     // A good fit moved 20 mm by hand is not rough: it fitted well, and is said to have been moved.
     await scans.align('bracket', 'S1', 'print', FITTED)
     const far = (await scans.align('bracket', 'S1', 'print', { ...FITTED, steps: ['pairs', 'typed'], transform: { ...FITTED.transform, t: [5, 0, 21] } })).alignments.print

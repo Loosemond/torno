@@ -138,7 +138,7 @@ describe('stateText', () => {
         '',
         'A scan is a mesh of the real surroundings: nothing from it is exact.',
         '',
-        '- S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S1.glb; aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm); not aligned in assembly.',
+        '- S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S1.glb; aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm); not aligned in assembly.',
         '- S2 S2.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S2.glb; not aligned in assembly, print.',
         '',
         '## Marks'
@@ -157,12 +157,12 @@ describe('stateText', () => {
     expect(lines([scan('S1', {}, { sourceState: 'changed', meshState: 'missing' })])[0]).toBe('- S1 S1.glb: MESH MISSING, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S1.glb (changed since it was read); not aligned in assembly, print.')
     // What the model moved under, in the words every tool uses.
     const off = scan('S1', { assembly: BY_PAIRS }, { checks: { assembly: { revision: 3, of: 4, off: 2, worst: 6.2, moved: [] } } })
-    expect(lines([off])[0]).toContain('; aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r3: check the alignment; not aligned in print.')
+    expect(lines([off])[0]).toContain('; aligned in assembly by 4 pairs (RMS 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r3: check the alignment; not aligned in print.')
     // Not checked against the build the parts are of: never told as holding.
-    expect(lines([scan('S1', { assembly: BY_PAIRS })], 4)[0]).toContain('; aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (not checked against r4); not aligned in print.')
+    expect(lines([scan('S1', { assembly: BY_PAIRS })], 4)[0]).toContain('; aligned in assembly by 4 pairs (RMS 2.1 mm, worst 3.4 mm) (not checked against r4); not aligned in print.')
     // By hand, tied to no point of the model; and in both layouts: nothing is "not aligned".
     const both = lines([scan('S1', { assembly: TYPED, print: BY_PAIRS })])[0]
-    expect(both).toContain('; aligned in assembly by hand (typed values) (tied to no point of the model: not checked against builds); aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm).')
+    expect(both).toContain('; aligned in assembly by hand (typed values) (tied to no point of the model: not checked against builds); aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm).')
     expect(both).not.toContain('not aligned')
     // An alignment in a layout the build no longer has is not passed over.
     expect(lines([scan('S1', { old: BY_PAIRS })])[0]).toContain('; not aligned in assembly, print; aligned in old, which r3 does not have.')

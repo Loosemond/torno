@@ -379,7 +379,8 @@ While iterating run the focused test; run all four suites before a commit.
   deviation takes 100 to 20,000 samples within 0.1 to 200 mm; a section
   tells as many points as it is asked for (`points`, 2 to 4,000), to 0.1 mm.
   The 10 s start once what is worked out once of the part and the scan is
-  there (20 s in all at most); when they run out before every point was
+  there (cut so that both stay within 20 s where they can: after one-off
+  work longer than that the answer is partial and says so); when they run out before every point was
   measured (`sampling.measured`), depths and the nearest are of the points
   measured, and the reading says so. What was thinned or left undone is in
   `sampling`, and a reading never tells an unfinished count as a no. A scan and its masks are kept by path, inode, times and
@@ -395,7 +396,7 @@ While iterating run the focused test; run all four suites before a commit.
   - In a reading a length or a point taken from a scan is told to 0.1 mm
     (`scanNumber`, `scanVector`; under 0.05 mm is `under 0.1 mm`); the data
     keeps the kernel's. A reading closes with how the scan is aligned and,
-    of a fit, that its rms is of the clicked points (`RMS_OF_CLICKS`):
+    of a fit, that its RMS is of the clicked points (`RMS_OF_CLICKS`):
     never a word on how true the scan is. What else is known of an
     alignment (`standing.note`) is said once a reply, in the reading.
     `scan_deviation` says the least distance, and that `within` is where the
@@ -535,7 +536,8 @@ While iterating run the focused test; run all four suites before a commit.
   only routes frames. It never loads a model, builds, tessellates or answers a
   query: one OCC operation in it would start OCC's thread pool, and every
   worker forked afterwards would deadlock. It reads two files of `/proc`
-  before a build and nothing else of the system.
+  before a build (`meminfo` again after each worker it lets go) and nothing
+  else of the system.
 - **Workers never fork.** One worker is forked per build. For each object
   folder, the last one that succeeded stays alive to answer queries about that
   object, and is replaced when the next build of that folder succeeds. At most
@@ -549,7 +551,9 @@ While iterating run the focused test; run all four suites before a commit.
   the folder's own (`Supervisor._make_room`). `build.started` carries
   `retired`, the folders let go; a query of one is `no_build` with `reason:
   "memory"` until a build of it succeeds. When `/proc` cannot be read nothing
-  is retired. A worker keeps what `nearest`
+  is retired; nor with `TORNO_KEEP_BUILDS=1`, which torno's own test suites
+  set (`kernel/tests/conftest.py`, `app/vitest.config.ts`,
+  `app/playwright.config.ts`) and nothing in use ever does. A worker keeps what `nearest`
   worked out of each part it was asked about. A query names its folder (`dir`)
   and has 30 s, after which it is answered `timeout` and the worker left alone.
   Until that worker has answered every query that was given up on, new queries

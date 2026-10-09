@@ -642,7 +642,7 @@ describe('scans', () => {
   it('says the scans in one line after the status, and nothing when there are none', () => {
     const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [], scans: [{ id: 'S1', visible: true, opacity: 0.6, loaded: true }, { id: 'S2', visible: false, opacity: 1, loaded: true }] }
     const text = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS }), scan('S2')] }).text
-    expect(text.split('\n')[1]).toBe('Scans: S1 S1.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown at 60 %; S2 S2.glb, not aligned in print, hidden.')
+    expect(text.split('\n')[1]).toBe('Scans: S1 S1.glb, aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm), shown at 60 %; S2 S2.glb, not aligned in print, hidden.')
     expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [] }).text).not.toContain('Scans:')
     expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', []).text).not.toContain('Scans:')
   })
@@ -650,7 +650,7 @@ describe('scans', () => {
   it('says it after what is selected, for the first layout and without what is on screen when the object is not open', () => {
     const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [], scans: [{ id: 'S1', visible: true, opacity: 1, loaded: true }], selection: { revision: 4, total: 1, refs: [{ ref: 'base/F1' }] } }
     const lines = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS })] }).text.split('\n')
-    expect(lines.slice(1)).toEqual(['Selected: base/F1', 'Scans: S1 S1.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown.'])
+    expect(lines.slice(1)).toEqual(['Selected: base/F1', 'Scans: S1 S1.glb, aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm), shown.'])
     const elsewhere = contextFor(deps({ build: OK, scene: SCENE, view, open: 'other' }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS })] }).text
     expect(elsewhere.split('\n')[1]).toBe('Scans: S1 S1.glb, not aligned in assembly.')
     // Before anything is built there is no layout to say it of.
@@ -660,15 +660,15 @@ describe('scans', () => {
   it('says when the model has moved under one and when one is only rough, and keeps to its room', () => {
     const stale = scan('S1', { print: BY_PAIRS }, { checks: { print: { revision: 4, of: 4, off: 2, worst: 6.2, moved: [] } } })
     const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [] }
-    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [stale] }).text).toContain('aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r4: check the alignment')
+    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [stale] }).text).toContain('aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r4: check the alignment')
     // Task 5's fix round 1 (R-basis): rough is a doubtful fit of pairs; a scan placed by hand is said to be by hand.
     const rough = scan('S1', { print: { ...BY_PAIRS, pairs: pairs.slice(0, 2), rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan' } })
-    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [rough] }).text).toContain('Scans: S1 S1.glb, aligned roughly in print by 2 pairs (rms 2.1 mm, worst 3.4 mm) (it has 2 pairs of points: it takes three that are not in a line to fix a scan).')
+    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [rough] }).text).toContain('Scans: S1 S1.glb, aligned roughly in print by 2 pairs (RMS 2.1 mm, worst 3.4 mm) (it has 2 pairs of points: it takes three that are not in a line to fix a scan).')
     const byHand = scan('S1', { print: { ...BY_PAIRS, steps: ['typed'], pairs: undefined, rms: undefined } })
     expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [byHand] }).text).toContain('Scans: S1 S1.glb, aligned in print by hand (typed values) (tied to no point of the model: not checked against builds).')
     // One the last build was not checked against says so (R-check).
     const unchecked = scan('S1', { print: BY_PAIRS }, { checks: {} })
-    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [unchecked] }).text).toContain('Scans: S1 S1.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm) (not checked against r4).')
+    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [unchecked] }).text).toContain('Scans: S1 S1.glb, aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm) (not checked against r4).')
     // Final fix wave (T1): a later scan's doubt is never among "and 1 more", and a long name does not cut it off.
     const named = scan('S1', { print: BY_PAIRS }, { name: `${'garage '.repeat(60)}.glb` })
     const second = { ...stale, id: 'S2', name: 'S2.glb' }

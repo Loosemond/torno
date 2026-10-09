@@ -157,6 +157,36 @@ describe('the align tool, by pairs', () => {
     expect(WANTS_MODEL).toBe('That is the scan: click the same point on the model, or type it')
   })
 
+  // Re-review (N2): what the pointer says is what a click will do. Behind a solid scan the viewport's own pick finds no part, and the click finds it.
+  it('says of a move over a part behind the scan what a click there takes: the model end that is asked for', () => {
+    const tool = alignTool()
+    const { ctx, said, hovered } = fake()
+    tool.onPointer(pointer('click', { scan: onScan([1, 2, 3]) }), ctx)
+    // The move has no hit (the scan is in front), and the part is there for whoever asks for the parts alone.
+    const move = pointer('move', { scan: onScan([7, 8, 9], 80), part: onPart([10, 0, 2.5], 97.5) })
+    tool.onPointer({ ...move, hit: null }, ctx)
+    expect(said.at(-1)).toBe('base/F5 | ')
+    expect(hovered.at(-1)).toBe('base/F5')
+    tool.onPointer({ ...pointer('click', { scan: onScan([7, 8, 9], 80), part: onPart([10, 0, 2.5], 97.5) }), hit: null }, ctx)
+    expect(alignStore.getState().pairs).toEqual([{ scan: [1, 2, 3], model: [10, 0, 2.5], part: 'base' }])
+    // Over the scan with no part behind it, it is the scan, and says so.
+    alignStore.setState({ pairs: [{ scan: [1, 2, 3] }] })
+    tool.onPointer({ ...pointer('move', { scan: onScan([7, 8, 9], 80) }), hit: null }, ctx)
+    expect(said.at(-1)).toBe(WANTS_MODEL)
+  })
+
+  // Re-review (M3): the bar is tabbed through as any other.
+  it('leaves Tab alone on a button or a link: the keyboard still goes through the bar', () => {
+    const tool = alignTool()
+    const { ctx } = fake()
+    const on = (inside: string | null): KeyboardEvent => ({ key: 'Tab', target: { closest: (selector: string) => (inside !== null && selector.split(',').map((one) => one.trim()).includes(inside) ? {} : null) } }) as unknown as KeyboardEvent
+    expect(tool.onKey!(on('button'), ctx)).toBe(false)
+    expect(tool.onKey!(on('a'), ctx)).toBe(false)
+    expect(alignStore.getState().first).toBe('scan')
+    expect(tool.onKey!(on(null), ctx)).toBe(true)
+    expect(alignStore.getState().first).toBe('model')
+  })
+
   it('Tab switches which end a pair is asked for first: the model end can be given before the scan end', () => {
     const tool = alignTool()
     const { ctx } = fake()
@@ -558,7 +588,7 @@ describe('a fit that was rough by how far it left its pairs', () => {
     // With no fit on record, moved 30 mm off its pairs: judged as it stands, and asked about.
     store.setState({ scans: [scanInfo('S1', { alignments: { assembly: { ...good, fitRms: undefined } } })] })
     await keepAlignment({ transform: { ...IDENTITY, t: [5, 0, 31] }, steps: ['pairs', 'typed'], pairs })
-    expect(alignStore.getState().asking).toMatchObject({ why: 'its pairs of points are left 30 mm apart (rms): more than 5 mm' })
+    expect(alignStore.getState().asking).toMatchObject({ why: 'its pairs of points are left 30 mm apart (RMS): more than 5 mm' })
     expect(asked).toHaveLength(1)
   })
 })

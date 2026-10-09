@@ -240,10 +240,13 @@ export function alignTool(): Tool {
   const pairs = (e: ViewportPointer, ctx: ToolContext, scan: ScanInfo, on: ScanHit | null, state: AlignState): void => {
     const click = e.type === 'click'
     // A click asks for the part whatever is in front: the scan may lie on it by now. A move takes what the viewport already found.
-    const part = click ? ctx.viewport.pick(e.client[0], e.client[1], { partsOnly: true }) : e.hit
+    const asks = expects(state.pairs, state.first)
+    // And so does a move that is over the scan while the model end is asked for: behind a solid scan the viewport found no part,
+    // and a click there would. What is said is what a click will do.
+    const part = click || (asks === 'model' && on && !e.hit) ? ctx.viewport.pick(e.client[0], e.client[1], { partsOnly: true }) : e.hit
     // The end that is asked for is the only one a click gives, whatever is nearer: with the part sitting in the
     // scan, a click meant for the one lands on the other all the time, and would join the ends of two pairs.
-    const asked = expects(state.pairs, state.first)
+    const asked = asks
     const which = asked === 'scan' ? (on ? 'scan' : null) : part ? 'model' : null
     const other = which === null && (asked === 'scan' ? part : on) ? (asked === 'scan' ? WANTS_SCAN : WANTS_MODEL) : null
     if (!click) {
@@ -292,7 +295,9 @@ export function alignTool(): Tool {
       const state = alignStore.getState()
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
       // Which end of a new pair is given first: the model's, for whoever would rather click it before the scan.
-      if (key === 'Tab' && state.mode === 'pairs') {
+      // Not on a button or a link: there Tab goes on to the next, as everywhere.
+      const onControl = typeof (e.target as Element | null)?.closest === 'function' && (e.target as Element).closest('button, a, [role="button"]') !== null
+      if (key === 'Tab' && state.mode === 'pairs' && !onControl) {
         if (!state.asking && !state.sending) alignStore.setState({ first: state.first === 'scan' ? 'model' : 'scan' })
         quiet(ctx)
         return true

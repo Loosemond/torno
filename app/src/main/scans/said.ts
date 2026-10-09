@@ -46,7 +46,7 @@ export interface AlignmentSaid {
   /** Why nothing is checked against the scan in this layout, with what to do; null when it can be. A doubt never refuses. */
   refused: string | null
   data: AlignmentData
-  /** In a line: `aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm) but …`, `aligned roughly in print by … (why)`, `not aligned in print`. */
+  /** In a line: `aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm) but …`, `aligned roughly in print by … (why)`, `not aligned in print`. */
   line: string
   /** What opens a reading that rests on the alignment: that it rests on a floor alone or on a hand, then its doubts, each a sentence, with a space after; '' when there is nothing to say first. */
   first: string
@@ -61,7 +61,7 @@ export interface AlignmentSaid {
 }
 
 /** Said after the rms of a fit of pairs wherever a reading closes with it: a few clicked points fitted to the micron say nothing of a scan true to millimetres. */
-export const RMS_OF_CLICKS = 'that rms is of the clicked points, and says nothing of how true the scan is'
+export const RMS_OF_CLICKS = 'that RMS is of the clicked points, and says nothing of how true the scan is'
 
 /**
  * Said of a scan that is not aligned in the layout asked: where it is, what the user does, and, when some layout

@@ -56,19 +56,19 @@ describe('what is said of a scan', () => {
   })
 
   it('says how it was aligned, and when a floor is all there is', () => {
-    expect(alignmentText(aligned)).toBe('by floor only (plane rms 0.8 mm): its place in that plane is as imported')
+    expect(alignmentText(aligned)).toBe('by floor only (plane RMS 0.8 mm): its place in that plane is as imported')
     const pairs = [1.8, 3.4, 0.9, 1.2].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual }))
-    expect(alignmentText({ ...aligned, steps: ['floor', 'pairs'], pairs, rms: 2.1 })).toBe('by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)')
+    expect(alignmentText({ ...aligned, steps: ['floor', 'pairs'], pairs, rms: 2.1 })).toBe('by floor + 4 pairs (RMS 2.1 mm, worst 3.4 mm)')
     // Changed in fix round 2 (C): how well it fitted and where its pairs are now are two numbers, each named.
-    expect(alignmentText({ ...aligned, steps: ['pairs', 'nudge'], pairs, rms: 2.1, fitRms: 0.4, scaled: true })).toBe('by 4 pairs (fit rms 0.4 mm), scaled, then moved by hand: the pairs are now 2.1 mm apart')
+    expect(alignmentText({ ...aligned, steps: ['pairs', 'nudge'], pairs, rms: 2.1, fitRms: 0.4, scaled: true })).toBe('by 4 pairs (fit RMS 0.4 mm), scaled, then moved by hand: the pairs are now 2.1 mm apart')
     expect(alignmentText({ ...aligned, steps: ['typed'], rms: undefined })).toBe('by hand (typed values)')
   })
 
   // Task 5: what a fit leaves is said to the thousandth of a millimetre, never with the digits of rounding error.
   it('says how well it fits no finer than a fit is known', () => {
     const pairs = [0.000005728, 0.0000024].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual }))
-    expect(alignmentText({ ...aligned, steps: ['pairs'], pairs, rms: 0.000004247 })).toBe('by 2 pairs (rms 0 mm, worst 0 mm)')
-    expect(alignmentText({ ...aligned, steps: ['pairs'], pairs: [{ ...pairs[0], residual: 0.0126 }], rms: 0.0126 })).toBe('by 1 pair (rms 0.013 mm, worst 0.013 mm)')
+    expect(alignmentText({ ...aligned, steps: ['pairs'], pairs, rms: 0.000004247 })).toBe('by 2 pairs (RMS 0 mm, worst 0 mm)')
+    expect(alignmentText({ ...aligned, steps: ['pairs'], pairs: [{ ...pairs[0], residual: 0.0126 }], rms: 0.0126 })).toBe('by 1 pair (RMS 0.013 mm, worst 0.013 mm)')
   })
 
   it('says a scan read again from a changed source with what the last build found, as one reason to look', () => {
@@ -151,7 +151,7 @@ describe('how an alignment was made', () => {
   it('is said at length, with what a floor leaves open said once', () => {
     expect(alignmentText(made(['nudge']))).toBe('by hand (nudge)')
     expect(alignmentText(made(['nudge', 'typed']))).toBe('by hand (nudge + typed values)')
-    expect(alignmentText(made(['floor', 'pairs', 'typed'], { pairs: four, rms: 20, fitRms: 0.8 }))).toBe('by floor + 4 pairs (fit rms 0.8 mm), then moved by hand: the pairs are now 20 mm apart')
+    expect(alignmentText(made(['floor', 'pairs', 'typed'], { pairs: four, rms: 20, fitRms: 0.8 }))).toBe('by floor + 4 pairs (fit RMS 0.8 mm), then moved by hand: the pairs are now 20 mm apart')
   })
 })
 

@@ -496,7 +496,7 @@ them.
   For a failed build it carries the error. For an object that is not the one
   open in the window it says so, and names no layout. Then, when the object
   has scans, one line of them:
-  `Scans: S1 Micra.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown at 60 %.` Then what you have
+  `Scans: S1 Micra.glb, aligned in print by 4 pairs (RMS 2.1 mm, worst 3.4 mm), shown at 60 %.` Then what you have
   selected, when the parts on screen are those of the last build:
   `Selected: base/F5 (plane, normal +Z, z = 2.5, 1200 mm²), base/E5 (line, 30 mm)`,
   eight refs at most. Then each mark you left since the last prompt, a line
@@ -662,7 +662,7 @@ count, size, unit and up axis and whether they were assumed, whether it is on
 screen, its regions, its box in the layout and its alignment.
 
 ```
-S1 Micra.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in print by 4 pairs (rms 0.003 mm, worst 0.005 mm) (tied to no point of the model: not checked against builds), shown, 1 region.
+S1 Micra.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in print by 4 pairs (RMS 0.003 mm, worst 0.005 mm) (tied to no point of the model: not checked against builds), shown, 1 region.
 ```
 
 **`scan_clash`** takes `part`, and optionally `scan` (when there are
@@ -675,7 +675,7 @@ counts the scan's triangles that cross the part's surface, and names the
 nearest scan point outside. It gives no volume: a scan is an open surface.
 
 ```
-scan_clash airbox-tub vs S1 (print, r1): ≈ 125 scan points inside the part in 1 cluster, deepest 2.4 mm at (-95.6, 125.4, 12.8) under airbox-tub/F25; 145 scan triangles cross its surface; nearest scan point outside under 0.1 mm from airbox-tub/F57. S1 is aligned by 4 pairs (rms 0.003 mm, worst 0.005 mm): that rms is of the clicked points, and says nothing of how true the scan is (tied to no point of the model: not checked against builds).
+scan_clash airbox-tub vs S1 (print, r1): ≈ 125 scan points inside the part in 1 cluster, deepest 2.4 mm at (-95.6, 125.4, 12.8) under airbox-tub/F25; 145 scan triangles cross its surface; nearest scan point outside under 0.1 mm from airbox-tub/F57. S1 is aligned by 4 pairs (RMS 0.003 mm, worst 0.005 mm): that RMS is of the clicked points, and says nothing of how true the scan is (tied to no point of the model: not checked against builds).
 ```
 
 **`scan_deviation`** takes `part`, and optionally `faces` (refs of faces of
@@ -689,7 +689,7 @@ no greatest distance there is), signed where the part is a solid, the worst
 place, and how many samples had nothing within reach.
 
 ```
-scan_deviation airbox-tub vs S1 (print, r1): within 0.1 mm at the nearest; of the 8,802 points of the part that have the scan within 50 mm (further is not looked at): ≈ 24.1 mm median, 25.3 mm mean, 50 mm the furthest, 95 % within 45.7 mm; the scan is inside the part at 84 of them; 1,198 more had no scan within 50 mm; furthest at (-68.7, -57.4, 109.2) on airbox-tub/F71. S1 is aligned by 4 pairs (rms 0.003 mm, worst 0.005 mm): that rms is of the clicked points, and says nothing of how true the scan is (tied to no point of the model: not checked against builds).
+scan_deviation airbox-tub vs S1 (print, r1): within 0.1 mm at the nearest; of the 8,802 points of the part that have the scan within 50 mm (further is not looked at): ≈ 24.1 mm median, 25.3 mm mean, 50 mm the furthest, 95 % within 45.7 mm; the scan is inside the part at 84 of them; 1,198 more had no scan within 50 mm; furthest at (-68.7, -57.4, 109.2) on airbox-tub/F71. S1 is aligned by 4 pairs (RMS 0.003 mm, worst 0.005 mm): that RMS is of the clicked points, and says nothing of how true the scan is (tied to no point of the model: not checked against builds).
 ```
 
 **What the other tools gained.** An end of `measure` (a distance only) may
@@ -718,8 +718,10 @@ number after a `≈` and all that follow it in that sentence are approximate;
 - `scan_clash` checks at most 200,000 scan points near the part (beyond
   that every n-th), takes at most 32 of the points it names again on the
   B-rep, tells the 8 largest clusters and gives itself 10 s, measured from
-  when what is worked out once of the part and the scan is there (a first
-  question about a large part may take up to 20 s in all). When the time
+  when what is worked out once of the part and the scan is there (the
+  first question about a part: the ten seconds are cut so that both stay
+  within 20 s where they can; when that work alone takes longer, the answer
+  comes after it, partial, and says to ask again). When the time
   runs out before every point is measured, the depths told are of the points
   measured, and the reading says so. `scan_deviation`
   gives itself 10 s too. What was thinned or left undone is in `sampling` and

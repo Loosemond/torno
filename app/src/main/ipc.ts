@@ -529,12 +529,12 @@ export function registerIpc(
   ipcMain.handle('scans:mesh', async (_event, objectId: string, id: string) => toArrayBuffer(await requireScans().mesh(String(objectId), String(id))))
   ipcMain.handle('scans:mask', async (_event, objectId: string, id: string, markId: string) => toArrayBuffer(await requireScans().mask(String(objectId), String(id), String(markId))))
 
-  // What the kernel says of a part, a face or an edge of an object's last good build. `Builds.query`
-  // has the object built again when the kernel no longer holds it.
+  // What the kernel says of a part, a face or an edge of an object's last good build, for what the pointer rests
+  // on (`Builds.describe`): never a reason to have the object built again.
   ipcMain.handle('geometry:describe', async (_event, objectId: string, layout: string, ref: string): Promise<Described> => {
     if (typeof layout !== 'string' || typeof ref !== 'string' || !layout || !ref) throw new Error('describe needs a layout and a ref')
     try {
-      return await requireWorkspace().builds.query<Described>(String(objectId), 'describe', { ref: `${layout}:${ref}` })
+      return await requireWorkspace().builds.describe<Described>(String(objectId), layout, ref)
     } catch (e) {
       // A plain message: the renderer shows it, and a KernelError would cross with its class name in front.
       throw new Error(e instanceof Error ? e.message : String(e))

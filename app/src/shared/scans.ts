@@ -282,14 +282,14 @@ export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unche
 }
 
 /**
- * How an alignment was made, at length: `by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)`, `by hand (typed values)`,
- * `by floor only (plane rms 0.8 mm): its place in that plane is as imported`; with `, then moved by hand` when
- * a fit or a floor was: `by 4 pairs (fit rms 0.8 mm), then moved by hand: the pairs are now 20 mm apart`.
+ * How an alignment was made, at length: `by floor + 4 pairs (RMS 2.1 mm, worst 3.4 mm)`, `by hand (typed values)`,
+ * `by floor only (plane RMS 0.8 mm): its place in that plane is as imported`; with `, then moved by hand` when
+ * a fit or a floor was: `by 4 pairs (fit RMS 0.8 mm), then moved by hand: the pairs are now 20 mm apart`.
  */
 export function alignmentText(alignment: ScanAlignment): string {
   const { basis, movedByHand } = basisOf(alignment)
   const pairs = alignment.pairs ?? []
-  const rms = alignment.rms === undefined ? null : `rms ${fitNumber(alignment.rms)} mm`
+  const rms = alignment.rms === undefined ? null : `RMS ${fitNumber(alignment.rms)} mm`
   const moved = movedByHand ? ', then moved by hand' : ''
   const word = (step: AlignStep): string => (step === 'typed' ? 'typed values' : step)
   if (basis === 'hand') return `by hand (${[...new Set(alignment.steps.filter((step) => step === 'nudge' || step === 'typed'))].map(word).join(' + ') || 'handles'})`
@@ -300,7 +300,7 @@ export function alignmentText(alignment: ScanAlignment): string {
   const scaled = alignment.scaled ? ', scaled' : ''
   if (!movedByHand) return `by ${before}${many} (${[...(rms ? [rms] : []), `worst ${fitNumber(Math.max(...pairs.map((pair) => pair.residual)))} mm`].join(', ')})${scaled}`
   // How well it fitted, and where a hand left its pairs: two numbers, never one.
-  const { fitted, now } = movedFit(alignment, (was) => `fit rms ${was} mm`)
+  const { fitted, now } = movedFit(alignment, (was) => `fit RMS ${was} mm`)
   return `by ${before}${many}${fitted}${scaled}${moved}${now}`
 }
 

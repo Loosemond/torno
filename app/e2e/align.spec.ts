@@ -166,7 +166,7 @@ test('a tilted floor is laid flat on the ground, and says that is all it is', as
   await page.keyboard.press('l')
   await bar().getByRole('button', { name: 'Floor' }).click()
   await clickScan([0.5, 0.5, 60.05])
-  await expect(bar()).toContainText(/Plane rms 0(\.\d+)? mm over \d+ triangles/)
+  await expect(bar()).toContainText(/Plane RMS 0(\.\d+)? mm over \d+ triangles/)
   await bar().getByRole('button', { name: 'Apply' }).click()
   // A floor alone is kept as what it is, with no question (fix round 1, R-basis): it is said to be floor only wherever the scan is reported.
   await expect.poll(async () => (await alignment('assembly'))?.steps).toEqual(['floor'])
@@ -177,7 +177,7 @@ test('a tilted floor is laid flat on the ground, and says that is all it is', as
   await expect(row('S1').locator('.scan-said[data-part="note"]')).toHaveText('Tied to no point of the model: not checked against builds.')
   for (const local of [[0.5, 0.5, 60.05], [14.5, -14.5, 61.45], [-14.5, 14.5, 58.55]] as Vec3[]) expect(Math.abs(apply(kept.transform, local)[2])).toBeLessThan(1e-3)
   // What a floor leaves open is said once.
-  await expect(bar().locator('.alignbar-state')).toHaveText(/^Aligned by floor only \(plane rms 0(\.\d+)? mm\): its place in that plane is as imported$/)
+  await expect(bar().locator('.alignbar-state')).toHaveText(/^Aligned by floor only \(plane RMS 0(\.\d+)? mm\): its place in that plane is as imported$/)
   expect((await page.evaluate(async () => (await window.__tornoTest!.look({ view: 'iso', size: 128 })).caption))).toContain('scans S1 (floor only; tied to no point of the model: not checked against builds)')
 })
 
@@ -249,7 +249,7 @@ test('a fit that says the unit is wrong offers the change in one click, keeps no
   await expect(bar().locator('[data-part="size"]')).toContainText('These points fit 10 × smaller: this scan looks like it is in mm, and was imported as cm.')
   // As it is, the fit leaves the pairs far apart: it would be kept only as a rough one, and only on a yes.
   await bar().getByRole('button', { name: 'Apply' }).click()
-  await expect(bar().getByRole('alertdialog', { name: 'Keep a rough alignment?' })).toContainText(/Its pairs of points are left \d+(\.\d+)? mm apart \(rms\): more than 5 mm/)
+  await expect(bar().getByRole('alertdialog', { name: 'Keep a rough alignment?' })).toContainText(/Its pairs of points are left \d+(\.\d+)? mm apart \(RMS\): more than 5 mm/)
   await bar().getByRole('button', { name: 'Not yet' }).click()
   expect(await alignment('assembly')).toBeUndefined()
   // One click reads the scan in the unit the fit names while it is aligned nowhere. Aligned in another layout, it asks first, naming it.
@@ -396,7 +396,7 @@ test('a floor is laid on a face of the model at the point that was clicked, eith
   await bar().getByRole('button', { name: 'Floor' }).click()
   // The sheet lies under the parts by now: a click takes the scan whatever is in front of it.
   await clickScan([0.5, 0.5, 60.05])
-  await expect(bar()).toContainText(/Plane rms 0(\.\d+)? mm over \d+ triangles/)
+  await expect(bar()).toContainText(/Plane RMS 0(\.\d+)? mm over \d+ triangles/)
   await bar().getByRole('button', { name: 'On a face' }).click()
   await expect(bar().locator('.alignbar-next')).toHaveText('Click a flat face of the model to lay the floor on')
   await clickModel(top)

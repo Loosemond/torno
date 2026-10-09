@@ -282,6 +282,14 @@ export class Builds {
     return this.kernel.query<T>(entry.obj.dir, name, args)
   }
 
+  /**
+   * What the kernel says of a part, a face or an edge of the last build, for what the pointer rests on: asked
+   * without ever having the object built again. A hover is no reason to build a model.
+   */
+  describe<T = unknown>(objectId: string, layout: string, ref: string): Promise<T> {
+    return this.query<T>(objectId, 'describe', { ref: `${layout}:${ref}` }, { restore: false })
+  }
+
   /** Resolves when the next build of an object succeeds, starting one if none is on its way; rejects with its error. */
   private builtAgain(entry: Entry): Promise<void> {
     if (!entry.rebuilt) {
@@ -345,9 +353,13 @@ export class Builds {
     // The kernel says which builds it let go to make room for this one: when this object's own is among
     // them, nothing answers of it until this build lands, and the status says so.
     const onStarted = (started: { retired: string[] }): void => {
-      if (this.entries.get(id) !== entry || entry.attempt !== attempt || entry.letGo || !started.retired.includes(obj.dir)) return
-      entry.letGo = true
-      if (entry.state.status === 'building') this.set(entry, { ...entry.state })
+      // Of every open object whose build went, not only this one: the others answer nothing either, until something is asked of them.
+      for (const other of this.entries.values()) {
+        if (other.letGo || !started.retired.includes(other.obj.dir)) continue
+        if (other === entry && (this.entries.get(id) !== entry || entry.attempt !== attempt)) continue
+        other.letGo = true
+        this.set(other, { ...other.state })
+      }
     }
     const opts = { ...(this.timeout === undefined ? {} : { timeout: this.timeout }), onStarted }
     void this.kernel.build(obj.dir, obj.model, opts).then((result) => {

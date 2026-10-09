@@ -65,7 +65,7 @@ function fake(scans: ScanInfo[], says: (name: string, args: never) => unknown = 
 const text = (result: ToolResult): string => result.content.find((block) => block.type === 'text')!.text as string
 const data = (result: ToolResult): any => JSON.parse(text(result))
 const refused = (message: string): ToolResult => ({ isError: true, content: [{ type: 'text', text: message }] })
-const ALIGNED = 'S1 is aligned by 4 pairs (rms 2.1 mm, worst 3.4 mm)'
+const ALIGNED = 'S1 is aligned by 4 pairs (RMS 2.1 mm, worst 3.4 mm)'
 
 describe('scans', () => {
   it('lists them with how each is aligned in the layout, and that nothing of them is exact', async () => {
@@ -73,13 +73,13 @@ describe('scans', () => {
     expect(said).toMatchObject({ layout: 'assembly', revision: 12, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
     expect(said.scans[0]).toMatchObject({
       id: 'S1', name: 'S1.glb', source: { path: '/dl/S1.glb', state: 'present' }, mesh: 'ok', triangles: 1607144, unit: 'm', up: 'y', assumed: { unit: true, up: true }, size: [2517.8, 2350.6, 1493.6], visible: true, opacity: 0.6,
-      alignment: { state: 'aligned', by: 'by 4 pairs (rms 2.1 mm, worst 3.4 mm)', steps: ['pairs'], pairs: 4, rms: 2.1, worst: 3.4 },
+      alignment: { state: 'aligned', by: 'by 4 pairs (RMS 2.1 mm, worst 3.4 mm)', steps: ['pairs'], pairs: 4, rms: 2.1, worst: 3.4 },
       alignedIn: ['assembly'], bbox: { min: [-1257.9, -1173.3, 3], max: [1259.9, 1177.3, 1496.6] }, regions: ['M7 "wiring loom"']
     })
     expect(said.scans[1]).toMatchObject({ id: 'S2', alignment: { state: 'not aligned' }, alignedIn: [] })
     expect(said.scans[1].bbox).toBeUndefined()
     expect(said.reading).toBe(
-      'S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown at 60 %, 1 region. S2 S2.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), not aligned in assembly, shown at 60 %.'
+      'S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in assembly by 4 pairs (RMS 2.1 mm, worst 3.4 mm), shown at 60 %, 1 region. S2 S2.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), not aligned in assembly, shown at 60 %.'
     )
   })
 
@@ -90,7 +90,7 @@ describe('scans', () => {
     const rough = data(await scansTool(fake([scan('S1', { assembly: ROUGH }, { meshState: 'missing', sourceState: 'missing' })], undefined, { busy: ['S1'] }), 'box', {}))
     expect(rough.scans[0]).toMatchObject({ mesh: 'missing', busy: true, source: { state: 'missing' }, alignment: { state: 'aligned', basis: 'pairs', rough: ROUGH.rough } })
     expect(rough.reading).toBe(
-      'S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned roughly in assembly by 2 pairs (rms 2.1 mm, worst 3.4 mm) (it has 2 pairs of points: it takes three that are not in a line to fix a scan), shown at 60 %, its mesh is gone, its source is missing, being converted or imported again.'
+      'S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned roughly in assembly by 2 pairs (RMS 2.1 mm, worst 3.4 mm) (it has 2 pairs of points: it takes three that are not in a line to fix a scan), shown at 60 %, its mesh is gone, its source is missing, being converted or imported again.'
     )
     // Task 5's fix round 1: what an alignment rests on is said, and what no build can say of it; one not checked against this build says so.
     const byHand = data(await scansTool(fake([scan('S1', { assembly: TYPED })]), 'box', {}))
@@ -99,9 +99,9 @@ describe('scans', () => {
     expect(byHand.reading).toContain('aligned in assembly by hand (typed values) (tied to no point of the model: not checked against builds), shown at 60 %')
     const unchecked = data(await scansTool(fake([scan('S1', { assembly: BY_PAIRS }, { checks: { assembly: { revision: 11, of: 4, off: 0, worst: 0, moved: [] } } })]), 'box', {}))
     expect(unchecked.scans[0].alignment).toMatchObject({ unchecked: true, stale: 'it was not checked against r12', tied: 4 })
-    expect(unchecked.reading).toContain('aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (not checked against r12), shown at 60 %')
+    expect(unchecked.reading).toContain('aligned in assembly by 4 pairs (RMS 2.1 mm, worst 3.4 mm) (not checked against r12), shown at 60 %')
     const confirmed = data(await scansTool(fake([scan('S1', { assembly: { ...BY_PAIRS, confirmed: { revision: 12, at: '', held: [] } } })]), 'box', {}))
-    expect(confirmed.reading).toContain('aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (confirmed by the user on r12), shown at 60 %')
+    expect(confirmed.reading).toContain('aligned in assembly by 4 pairs (RMS 2.1 mm, worst 3.4 mm) (confirmed by the user on r12), shown at 60 %')
   })
 
   it('answers for the layout asked, and refuses one the build has not', async () => {
@@ -120,7 +120,7 @@ describe('scan_clash', () => {
     expect(deps.queries).toEqual([{ name: 'scan_clash', args: { layout: 'assembly', part: 'tub', margin: 5, scan: { id: 'S1', path: '/ws/box/.torno/scans/S1/mesh.bin', transform: BY_PAIRS.transform, ignore: [], only: null } } }])
     expect(data(result)).toMatchObject({ layout: 'assembly', revision: 12, scan: 'S1', alignment: { state: 'aligned', rms: 2.1 }, inside: { count: 2168 }, exact: false, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
     expect(data(result).reading).toBe(
-      `scan_clash tub vs S1 (assembly, r12): ≈ 2,168 scan points inside the part in 4 clusters (the 1 largest is told), deepest 14.2 mm at (-96.1, 31, 40.2) under tub/F40; 310 scan triangles cross its surface; nearest scan point outside 0.9 mm from tub/F12. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`
+      `scan_clash tub vs S1 (assembly, r12): ≈ 2,168 scan points inside the part in 4 clusters (the 1 largest is told), deepest 14.2 mm at (-96.1, 31, 40.2) under tub/F40; 310 scan triangles cross its surface; nearest scan point outside 0.9 mm from tub/F12. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`
     )
     expect(data(result).note).toBeUndefined()
     expect(data(result).stale).toBeUndefined()
@@ -129,13 +129,13 @@ describe('scan_clash', () => {
   it('reads a part the scan is clear of, a thinned answer and one that ran out of time', async () => {
     const clear = { ...CLASHED, inside: { count: 0, crossing: 0, crossingAtLeast: false, clusters: [], clustersOmitted: 0 }, crossings: { ...CLASHED.crossings, clusters: [] }, deepest: null, nearest: { ...CLASHED.nearest, distance: 12 } }
     const reading = async (said: object): Promise<string> => data(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS })], () => said), 'box', { part: 'tub' })).reading
-    expect(await reading(clear)).toBe(`scan_clash tub vs S1 (assembly, r12): no scan point is inside the part (≈ 13,476 checked within 5 mm of it) and no scan triangle crosses its surface; nearest 12 mm from tub/F12. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`)
+    expect(await reading(clear)).toBe(`scan_clash tub vs S1 (assembly, r12): no scan point is inside the part (≈ 13,476 checked within 5 mm of it) and no scan triangle crosses its surface; nearest 12 mm from tub/F12. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`)
     // A count that is thinned or unfinished is not a "no": the reading opens with what was really checked.
     expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 540000, checked: 180000 }, sampling: { ...CLASHED.sampling, every: 3 } })).toBe(
-      `scan_clash tub vs S1 (assembly, r12): none of the ≈ 180,000 scan points checked (every 3rd of the 540,000 within 5 mm of the part) is inside it, and no scan triangle crosses its surface; nearest of those checked 12 mm from tub/F12. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`
+      `scan_clash tub vs S1 (assembly, r12): none of the ≈ 180,000 scan points checked (every 3rd of the 540,000 within 5 mm of the part) is inside it, and no scan triangle crosses its surface; nearest of those checked 12 mm from tub/F12. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`
     )
     expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 180000, checked: 100000 }, sampling: { ...CLASHED.sampling, partial: true, seconds: 10.1 } })).toBe(
-      `scan_clash tub vs S1 (assembly, r12): none of the ≈ 100,000 scan points checked before the time ran out (of the 180,000 within 5 mm of the part) is inside it, and no scan triangle crosses its surface; nearest of those checked 12 mm from tub/F12, the time ran out after 10.1 s with 100,000 of 180,000 points checked. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`
+      `scan_clash tub vs S1 (assembly, r12): none of the ≈ 100,000 scan points checked before the time ran out (of the 180,000 within 5 mm of the part) is inside it, and no scan triangle crosses its surface; nearest of those checked 12 mm from tub/F12, the time ran out after 10.1 s with 100,000 of 180,000 points checked. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`
     )
     expect(await reading({ ...clear, points: { ...CLASHED.points, candidates: 0, checked: 0 }, nearest: null })).toContain('r12): no scan point is within 5 mm of the part. S1 is aligned')
   })
@@ -151,7 +151,7 @@ describe('scan_clash', () => {
     expect(await reading(late)).toContain(', the time ran out after 10 s with 5,000 of 17,392 triangles tried.')
     const sampled = { ...CLASHED, points: { ...CLASHED.points, candidates: 540000, checked: 180000, touching: 12 }, sampling: { ...CLASHED.sampling, every: 3, retakesFailed: 2 } }
     expect(await reading(sampled)).toBe(
-      `scan_clash tub vs S1 (assembly, r12): ≈ 2,168 of the scan points checked are inside the part in 4 clusters (the 1 largest is told), deepest 14.2 mm at (-96.1, 31, 40.2) under tub/F40; 310 scan triangles cross its surface; 12 scan points lie on its surface, counted on neither side; nearest scan point outside 0.9 mm from tub/F12, every 3rd point checked, 2 points could not be taken on the B-rep. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`
+      `scan_clash tub vs S1 (assembly, r12): ≈ 2,168 of the scan points checked are inside the part in 4 clusters (the 1 largest is told), deepest 14.2 mm at (-96.1, 31, 40.2) under tub/F40; 310 scan triangles cross its surface; 12 scan points lie on its surface, counted on neither side; nearest scan point outside 0.9 mm from tub/F12, every 3rd point checked, 2 points could not be taken on the B-rep. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`
     )
     expect(await reading({ ...CLASHED, deepest: null, inside: { ...CLASHED.inside, clusters: [{ ...CLASHED.inside.clusters[0], depth: undefined, at: undefined, under: undefined }], clustersOmitted: 0 } })).toContain('≈ 2,168 scan points inside the part in 1 cluster, how deep was not taken on the B-rep; ')
     expect(await reading(CLASHED, { margin: 12.5 })).not.toContain('5 mm of it')
@@ -232,7 +232,7 @@ describe('scan_clash', () => {
     expect(settled.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): ≈ 2,168 /)
     expect(settled.alignment).not.toHaveProperty('unchecked')
     // The ending of a rough one is as of any fit (restored in fix round 2, m8).
-    expect(rough.reading).toMatch(/ S1 is aligned by 2 pairs \(rms 2\.1 mm, worst 3\.4 mm\): that rms is of the clicked points, and says nothing of how true the scan is\.$/)
+    expect(rough.reading).toMatch(/ S1 is aligned by 2 pairs \(RMS 2\.1 mm, worst 3\.4 mm\): that RMS is of the clicked points, and says nothing of how true the scan is\.$/)
     // And one that was not checked against the build asked about says that first.
     const unchecked = data(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS }, { checks: {} })]), 'box', { part: 'tub' }))
     expect(unchecked.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1's alignment was not checked against r12: whether it still holds on it is not known\. ≈ 2,168 /)
@@ -315,7 +315,7 @@ describe('scan_deviation', () => {
     const said = data(await scanDeviationTool(deps, 'box', { part: 'tub', faces: ['tub/F5'], region: 'M7', samples: 20000 }))
     expect(deps.queries).toEqual([{ name: 'scan_deviation', args: { layout: 'assembly', part: 'tub', faces: [5], from: 'part', within: 50, samples: 20000, scan: { id: 'S1', path: '/ws/box/.torno/scans/S1/mesh.bin', transform: BY_PAIRS.transform, ignore: [], only: '/ws/box/.torno/scans/S1/M7.mask' } } }])
     expect(said.reading).toBe(
-      `scan_deviation tub/F5 vs S1 region M7 (assembly, r12): within 0.1 mm at the nearest; of the 18,840 points of the part that have the scan within 50 mm (further is not looked at): ≈ 1.3 mm median, 1.9 mm mean, 7.4 mm the furthest, 95 % within 5.1 mm; the scan is inside the part at 212 of them; 1,160 more had no scan within 50 mm; furthest at (10, 4, 6) on tub/F5. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`
+      `scan_deviation tub/F5 vs S1 region M7 (assembly, r12): within 0.1 mm at the nearest; of the 18,840 points of the part that have the scan within 50 mm (further is not looked at): ≈ 1.3 mm median, 1.9 mm mean, 7.4 mm the furthest, 95 % within 5.1 mm; the scan is inside the part at 212 of them; 1,160 more had no scan within 50 mm; furthest at (10, 4, 6) on tub/F5. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`
     )
     expect(said).toMatchObject({ layout: 'assembly', revision: 12, scan: 'S1', region: 'M7', exact: false, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact', alignment: { state: 'aligned' } })
   })
@@ -341,14 +341,14 @@ describe('scan_deviation', () => {
     expect(await reading({ ...DEVIATED, sampling: { ...DEVIATED.sampling, unsure: 3 }, how: '3 of them may be told up to 1.09545 mm too far: not every triangle' })).toContain('; 3 of the distances may be told up to 1.1 mm too far; ')
     // The time ran out, and none of those it got to had the scan within reach: that is not "nothing of the scan is within 50 mm".
     const unfinished = { ...DEVIATED, faces: null, samples: 500, compared: 0, beyond: 500, distance: null, signed: null, worst: null, sampling: { ...DEVIATED.sampling, asked: 10000, partial: true } }
-    expect(await reading(unfinished)).toBe(`scan_deviation tub vs S1 (assembly, r12): none of the 500 points measured before the time ran out (of 10,000 asked) had the scan within 50 mm: ask for fewer samples or a smaller within. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`)
+    expect(await reading(unfinished)).toBe(`scan_deviation tub vs S1 (assembly, r12): none of the 500 points measured before the time ran out (of 10,000 asked) had the scan within 50 mm: ask for fewer samples or a smaller within. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`)
     const none = { ...DEVIATED, samples: 0, compared: 0, beyond: 0, distance: null, signed: null, worst: null, sampling: { ...DEVIATED.sampling, partial: true } }
-    expect(await reading(none)).toBe(`scan_deviation tub vs S1 (assembly, r12): the time ran out before any point was measured: ask for fewer samples or a smaller within. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`)
+    expect(await reading(none)).toBe(`scan_deviation tub vs S1 (assembly, r12): the time ran out before any point was measured: ask for fewer samples or a smaller within. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`)
   })
 
   it('says when nothing is within reach, and refuses faces of another part', async () => {
     const none = { ...DEVIATED, faces: null, compared: 0, beyond: 20000, distance: null, signed: null, worst: null }
-    expect(data(await scanDeviationTool(aligned(() => none), 'box', { part: 'tub' })).reading).toBe(`scan_deviation tub vs S1 (assembly, r12): nothing of the scan is within 50 mm of the part. ${ALIGNED}: that rms is of the clicked points, and says nothing of how true the scan is.`)
+    expect(data(await scanDeviationTool(aligned(() => none), 'box', { part: 'tub' })).reading).toBe(`scan_deviation tub vs S1 (assembly, r12): nothing of the scan is within 50 mm of the part. ${ALIGNED}: that RMS is of the clicked points, and says nothing of how true the scan is.`)
     expect(text(await scanDeviationTool(aligned(), 'box', { part: 'tub', faces: ['lid/F1'] }))).toBe('lid/F1 is not a face of tub: give refs such as tub/F0')
     expect(text(await scanDeviationTool(aligned(), 'box', { part: 'tub', faces: ['tub/E3'] }))).toBe('tub/E3 is not a face of tub: give refs such as tub/F0')
     expect(text(await scanDeviationTool(aligned(), 'box', { part: 'tub', faces: ['tub/F40'] }))).toBe('tub has 12 faces, F0 to F11: there is no F40')

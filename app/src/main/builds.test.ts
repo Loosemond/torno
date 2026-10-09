@@ -293,6 +293,43 @@ describe('Builds.query', () => {
     expect(builds.state('bracket')!.letGo).toBeUndefined()
   })
 
+  // Re-review (M1): every object whose build was let go for this one says so, not only the one being built.
+  it('says so of every open object the kernel let go to make room for a build, at once', async () => {
+    const { kernel, builds, states } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    builds.open(gear)
+    kernel.succeed(1)
+    await flush()
+    kernel.retiring = ['/ws/gear', '/ws/elsewhere']
+    builds.rebuild('bracket')
+    expect(builds.state('gear')).toMatchObject({ status: 'ok', letGo: 'memory' })
+    expect(states.filter((s) => s.objectId === 'gear').at(-1)).toMatchObject({ status: 'ok', letGo: 'memory' })
+    expect(builds.state('bracket')!.letGo).toBeUndefined()
+    // Until a build of it lands.
+    kernel.retiring = []
+    kernel.succeed(2)
+    await flush()
+    builds.rebuild('gear')
+    kernel.succeed(3)
+    await flush()
+    expect(builds.state('gear')!.letGo).toBeUndefined()
+  })
+
+  // Re-review (M4): what the pointer rests on is described from the build there is, and no build is started for it.
+  it('describes a ref for a hover without ever having the object built again', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    await expect(builds.describe('bracket', 'assembly', 'base/F1')).resolves.toEqual({ dir: '/ws/bracket', name: 'describe', args: { ref: 'assembly:base/F1' } })
+    kernel.retired.add('/ws/bracket')
+    await expect(builds.describe('bracket', 'assembly', 'base/F1')).rejects.toMatchObject({ kind: 'no_build', message: 'the kernel no longer holds this build' })
+    await flush()
+    expect(kernel.calls).toHaveLength(1)
+  })
+
   it('says nothing of memory when the kernel let go only the builds of other objects', async () => {
     const { kernel, builds } = setup()
     builds.open(bracket)
