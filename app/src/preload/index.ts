@@ -20,8 +20,8 @@ async function invokePlain<T>(channel: string, ...args: unknown[]): Promise<T> {
   }
 }
 
-// Declared here and backed by the tasks that use them: geometry.describe,
-// view.onShow, view.onHighlight and session.insert do nothing yet.
+// Declared here and backed by the task that uses them: view.onShow and
+// view.onHighlight do nothing yet.
 const notYet = (): (() => void) => () => {}
 
 const bridge: TornoBridge = {
@@ -56,7 +56,7 @@ const bridge: TornoBridge = {
     onProblem: (cb) => subscribe('marks:problem', cb)
   },
   geometry: {
-    describe: () => Promise.reject(new Error('not implemented'))
+    describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref)
   },
   session: {
     current: (objectId) => ipcRenderer.invoke('session:current', objectId),
@@ -66,7 +66,7 @@ const bridge: TornoBridge = {
     stop: (sessionId) => ipcRenderer.invoke('session:stop', sessionId),
     onData: (cb) => subscribe('session:data', cb),
     onStatus: (cb) => subscribe('session:status', cb),
-    insert: () => {}
+    insert: (sessionId, text) => ipcRenderer.send('session:insert', sessionId, text)
   }
 }
 

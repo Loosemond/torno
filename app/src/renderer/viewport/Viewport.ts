@@ -2,9 +2,11 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, ViewName } from '../../shared/view'
+import { Highlights, type HighlightLayer } from './highlight'
 import { PERSPECTIVE_NOTE, drawOverlay } from './overlay'
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
-import { buildPart, type BuiltPart } from './partMesh'
+import { buildPart, type BuiltPart, disposePart } from './partMesh'
+import { type Hit, pickParts, pointerRay } from './picking'
 import { DEFAULT_FOV, fitCamera, gridStep, viewDirection, visibleHeight } from './views'
 
 export interface LayerState {
@@ -23,6 +25,8 @@ interface Theme {
   hairline: string
   ink: string
   muted: string
+  accent: string
+  agent: string
 }
 
 type AnyCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
@@ -43,8 +47,28 @@ export interface Picture {
 }
 type Vec3 = [number, number, number]
 
+/**
+ * The pointer over the canvas. `hit` is what it is on, among the parts shown;
+ * null while a drag turns the camera. A `click` follows the `up` of a press
+ * released where it was made; `cancel` says the pointer left or was taken away.
+ */
+export interface ViewportPointer {
+  type: 'move' | 'down' | 'up' | 'click' | 'cancel'
+  hit: Hit | null
+  /** Where the pointer looks along, in the object frame. */
+  ray: { origin: Vec3; direction: Vec3 }
+  client: [number, number]
+  buttons: number
+  shift: boolean
+}
+
 /** The light values of styles/tokens.css, used where no stylesheet is loaded. */
-const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178' }
+const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C' }
+
+/** A press released within this many pixels and milliseconds of where and when it was made is a click, not a drag. */
+const CLICK_PX = 4
+const CLICK_MS = 400
+const POINTER_EVENTS = ['pointermove', 'pointerdown', 'pointerup', 'pointercancel', 'pointerleave'] as const
 
 const SETTLE_MS = 150
 const MOVE_MS = 240
@@ -64,7 +88,7 @@ const EMPTY_BOX = { min: [-50, -50, 0], max: [50, 50, 50] }
  * units are millimetres. It draws only when something changed.
  */
 export class Viewport {
-  private readonly canvas: HTMLCanvasElement
+  readonly canvas: HTMLCanvasElement
   private readonly renderer: THREE.WebGLRenderer
   private readonly scene = new THREE.Scene()
   private readonly perspective = new THREE.PerspectiveCamera(DEFAULT_FOV, NAMED_ASPECT, 0.1, 1000)
@@ -94,6 +118,11 @@ export class Viewport {
   private readonly settledListeners: ((c: Camera) => void)[] = []
   private move: { from: Camera; to: Camera; start: number } | null = null
   private disposed = false
+
+  private readonly highlights = new Highlights()
+  private pointerListener: ((e: ViewportPointer) => void) | null = null
+  /** The left button's press, until it is released: where and when. */
+  private press: { x: number; y: number; at: number } | null = null
 
   private imageTargets: { width: number; height: number; drawn: THREE.WebGLRenderTarget; encoded: THREE.WebGLRenderTarget } | null = null
   private readonly encoder = new Encoder()
@@ -127,6 +156,8 @@ export class Viewport {
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
     this.controls.addEventListener('start', this.onControlStart)
     this.controls.addEventListener('change', this.onCameraChange)
+
+    for (const type of POINTER_EVENTS) canvas.addEventListener(type, this.onPointerEvent)
 
     // Without preventDefault the browser never restores a lost context.
     canvas.addEventListener('webglcontextlost', this.onContextLost)
@@ -248,6 +279,58 @@ export class Viewport {
     }
   }
 
+  // ---- pointing ----
+
+  /**
+   * What a point of the window is on: a face, or an edge within reach of it,
+   * of the parts of the current layout that are switched on. A part that is
+   * hidden is never hit; one that is see-through is hit like any other.
+   * Coordinates are the browser's client pixels; the answer is in the object frame.
+   */
+  pick(clientX: number, clientY: number, opts?: { edges?: boolean }): Hit | null {
+    const at = this.canvasPoint(clientX, clientY)
+    if (!at) return null
+    this.syncMatrices()
+    const parts = [...this.entries.values()].filter((e) => e.built.group.visible).map((e) => ({ key: e.part.key, name: e.part.name, built: e.built }))
+    return pickParts(parts, this.camera, at.ndc, at.size, opts)
+  }
+
+  /** Where a point of the object frame falls in the window, in client pixels. */
+  project(point: Vec3): [number, number] {
+    const rect = this.canvas.getBoundingClientRect()
+    this.syncMatrices()
+    const v = new THREE.Vector3().fromArray(point).project(this.camera)
+    return [rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height]
+  }
+
+  /** Marks what the pointer is on; null for nothing. */
+  setHover(hit: Hit | null): void {
+    this.highlight('hover', hit ? [hit.ref] : [])
+  }
+
+  /** Marks the selection, in the accent colour. Refs are of the layout shown: `lid/F12`, `lid/E3`, `lid`. */
+  setSelection(refs: string[]): void {
+    this.highlight('selection', refs)
+  }
+
+  /** Marks what the agent points at, in the colour of its marks. */
+  setAgentHighlight(refs: string[]): void {
+    this.highlight('agent', refs)
+  }
+
+  /**
+   * Has `cb` told what the pointer does over the canvas. There is one listener:
+   * whoever calls this routes the events on, and a second call replaces the first.
+   */
+  onPointer(cb: (e: ViewportPointer) => void): void {
+    this.pointerListener = cb
+  }
+
+  /** Whether dragging turns, pans and zooms the camera. A tool that drags switches it off meanwhile. */
+  setNavigation(enabled: boolean): void {
+    this.controls.enabled = enabled
+  }
+
   /** Calls back 150 ms after the camera stops moving, however it was moved. */
   onCameraSettled(cb: (c: Camera) => void): void {
     this.settledListeners.push(cb)
@@ -299,6 +382,7 @@ export class Viewport {
 
     // Everything from here to the end of `finally` is synchronous, so no frame on screen sees it.
     const before = new Map([...this.entries.values()].map((e) => [e, e.built.group.visible]))
+    this.highlights.setVisible(false) // a picture is of the parts, not of what the person points at
     const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
     let pixels: Uint8ClampedArray<ArrayBuffer>
     try {
@@ -323,6 +407,7 @@ export class Viewport {
     } finally {
       this.renderer.setRenderTarget(null)
       for (const [entry, visible] of before) entry.built.group.visible = visible
+      this.highlights.setVisible(true)
       if (req.layout !== this.layout) this.rebuildGround(this.layout)
     }
 
@@ -368,12 +453,15 @@ export class Viewport {
     if (this.frame) cancelAnimationFrame(this.frame)
     clearTimeout(this.settleTimer)
     this.settledListeners.length = 0
+    this.pointerListener = null
+    for (const type of POINTER_EVENTS) this.canvas.removeEventListener(type, this.onPointerEvent)
     this.scheme?.removeEventListener('change', this.onSchemeChange)
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored)
     this.controls.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
+    this.highlights.dispose()
     this.ground.geometry.dispose()
     this.ground.material.dispose()
     this.imageTargets?.drawn.dispose()
@@ -385,18 +473,59 @@ export class Viewport {
   // ---- parts ----
 
   private discard(entry: Entry): void {
-    const { group, mesh, edges } = entry.built
-    this.scene.remove(group)
-    mesh.geometry.dispose()
-    mesh.material.dispose()
-    edges.geometry.dispose()
-    edges.material.dispose()
+    this.highlights.forget(entry.built)
+    this.scene.remove(entry.built.group)
+    disposePart(entry.built)
   }
 
   /** Brings every part's look and the ground in line with the current layout, layers and theme. */
   private refresh(): void {
     for (const entry of this.entries.values()) this.applyLook(entry)
     this.extent = this.rebuildGround(this.layout)
+    this.highlights.apply(this.partNamed) // the refs may name other geometry now, or none
+  }
+
+  private highlight(layer: HighlightLayer, refs: string[]): void {
+    if (!this.highlights.set(layer, refs)) return
+    this.highlights.apply(this.partNamed, layer)
+    this.invalidate()
+  }
+
+  /** A part of the layout shown, by name. */
+  private readonly partNamed = (name: string): BuiltPart | undefined => this.entries.get(`${this.layout}:${name}`)?.built
+
+  /** A point of the window as the camera sees it: -1 to 1 across the canvas, y up. Null while the canvas has no size. */
+  private canvasPoint(clientX: number, clientY: number): { ndc: { x: number; y: number }; size: { width: number; height: number } } | null {
+    const rect = this.canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+    const ndc = { x: ((clientX - rect.left) / rect.width) * 2 - 1, y: 1 - ((clientY - rect.top) / rect.height) * 2 }
+    return { ndc, size: { width: rect.width, height: rect.height } }
+  }
+
+  /** Brings the matrices that picking reads up to date: a frame may not have been drawn since they changed. */
+  private syncMatrices(): void {
+    setProjection(this.camera, this.controls.target, this.fov, this.aspect, this.extent)
+    this.camera.updateMatrixWorld()
+    this.scene.updateMatrixWorld()
+  }
+
+  private readonly onPointerEvent = (e: PointerEvent): void => {
+    const kind = e.type === 'pointermove' ? 'move' : e.type === 'pointerdown' ? 'down' : e.type === 'pointerup' ? 'up' : 'cancel'
+    const press = this.press
+    if (kind === 'down') this.press = e.button === 0 ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null
+    else if (kind !== 'move') this.press = null
+    const cb = this.pointerListener
+    const at = this.canvasPoint(e.clientX, e.clientY)
+    if (!cb || !at) return
+
+    // Nothing is pointed at while a drag turns the camera.
+    const turning = kind === 'move' && e.buttons !== 0 && this.controls.enabled
+    const hit = kind === 'cancel' || turning ? null : this.pick(e.clientX, e.clientY)
+    this.syncMatrices()
+    const event = { hit, ray: pointerRay(this.camera, at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey }
+    cb({ type: kind, ...event })
+    const still = press && e.button === 0 && Math.hypot(e.clientX - press.x, e.clientY - press.y) <= CLICK_PX && e.timeStamp - press.at <= CLICK_MS
+    if (kind === 'up' && still) cb({ type: 'click', ...event })
   }
 
   private applyLook(entry: Entry): void {
@@ -475,8 +604,11 @@ export class Viewport {
       surface: read('--surface', LIGHT_THEME.surface),
       hairline: read('--hairline', LIGHT_THEME.hairline),
       ink: read('--ink', LIGHT_THEME.ink),
-      muted: read('--muted', LIGHT_THEME.muted)
+      muted: read('--muted', LIGHT_THEME.muted),
+      accent: read('--accent', LIGHT_THEME.accent),
+      agent: read('--agent-mark', LIGHT_THEME.agent)
     }
+    this.highlights.setColors(this.theme)
     this.scene.background = new THREE.Color(this.theme.surface)
     this.ground.material.color.set(this.theme.hairline)
   }

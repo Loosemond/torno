@@ -65,13 +65,12 @@ async function openBracket(): Promise<void> {
 }
 
 /** What a call through the bridge rejected with, or null when it did not. */
-function rejection(call: 'unknownObject' | 'unknownMark' | 'notAMark' | 'describe'): Promise<string | null> {
+function rejection(call: 'unknownObject' | 'unknownMark' | 'notAMark'): Promise<string | null> {
   return page.evaluate(async (which) => {
     const calls = {
       unknownObject: () => window.torno.marks.list('ghost'),
       unknownMark: () => window.torno.marks.update('bracket', 'M9', { note: 'x' }),
-      notAMark: () => window.torno.marks.add('bracket', { kind: 'dimension' } as never),
-      describe: () => window.torno.geometry.describe('bracket', 'assembly', 'base')
+      notAMark: () => window.torno.marks.add('bracket', { kind: 'dimension' } as never)
     }
     return calls[which]().then(
       () => null,
@@ -138,8 +137,8 @@ test('a mark made in the window is the person\'s, whatever it says of its author
   expect(marksOnDisk()).toMatchObject({ next: 3, marks: [{ id: 'M1', author: 'user' }] })
 })
 
+// geometry.describe and session.insert are backed now: e2e/pick.spec.ts.
 test('what the bridge declares for later tasks is there, and does nothing yet', async () => {
-  expect(await rejection('describe')).toBe('not implemented')
   const sorts = await page.evaluate(() => {
     const offShow = window.torno.view.onShow(() => {})
     const offHighlight = window.torno.view.onHighlight(() => {})

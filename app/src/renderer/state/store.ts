@@ -37,6 +37,12 @@ export interface TornoState {
   marks: Mark[]
   /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
   marksProblem: string | null
+  /**
+   * What the person has picked: refs in the layout shown (`lid/F12`, `lid/E3`),
+   * in the order picked. They name geometry of the revision on screen, so the
+   * selection is emptied when the object, the layout or the revision changes.
+   */
+  selection: string[]
   ortho: boolean
   /** Counts changes of layout and layers made by hand: what the scene file is saved for. */
   edits: number
@@ -44,7 +50,8 @@ export interface TornoState {
   sessions: Record<string, SessionView>
 }
 
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null }
+const NOTHING_SELECTED: string[] = []
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, selection: NOTHING_SELECTED }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -97,14 +104,14 @@ export const actions = {
     const names = new Set(m.scene.parts.map((p) => p.name))
     const kept = Object.entries(s.layers).filter(([name]) => names.has(name))
     const layers = kept.length === Object.keys(s.layers).length ? s.layers : Object.fromEntries(kept)
-    store.setState({ scene: m.scene, revision: m.revision, layout, layers })
+    store.setState({ scene: m.scene, revision: m.revision, layout, layers, selection: NOTHING_SELECTED })
     return true
   },
 
   setLayout(layout: string): void {
     const s = store.getState()
     if (layout === s.layout || !s.scene?.layouts.includes(layout)) return
-    store.setState({ layout, edits: s.edits + 1 })
+    store.setState({ layout, edits: s.edits + 1, selection: NOTHING_SELECTED })
   },
 
   /** Change some settings of one part; the others keep their values. */
@@ -123,6 +130,19 @@ export const actions = {
     if (m.objectId === store.getState().objectId) store.setState({ marksProblem: m.message })
   },
 
+  /** Select these refs and no others; none to clear. */
+  setSelection(refs: string[]): void {
+    const { selection } = store.getState()
+    if (refs.length === selection.length && refs.every((ref, i) => ref === selection[i])) return
+    store.setState({ selection: refs.length === 0 ? NOTHING_SELECTED : [...new Set(refs)] })
+  },
+
+  /** Add a ref to the selection, or take it out if it is there. */
+  toggleSelection(ref: string): void {
+    const { selection } = store.getState()
+    actions.setSelection(selection.includes(ref) ? selection.filter((r) => r !== ref) : [...selection, ref])
+  },
+
   setOrtho(ortho: boolean): void {
     store.setState({ ortho })
   },
@@ -139,6 +159,12 @@ export const actions = {
     if (objectId === undefined || sessions[objectId].status === m.status) return
     store.setState({ sessions: { ...sessions, [objectId]: { sessionId: m.sessionId, status: m.status } } })
   }
+}
+
+/** The session of the open object that an agent is running in, if any: where a ref can be inserted. */
+export function runningSession(s: TornoState): SessionView | undefined {
+  const session = s.objectId ? s.sessions[s.objectId] : undefined
+  return session && session.status !== 'exited' ? session : undefined
 }
 
 /** The parts of the layout shown, in the scene's order. */

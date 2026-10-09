@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
+import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark } from '../shared/marks'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
@@ -22,9 +23,9 @@ import { scanWorkspace } from './workspace'
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:stop,
-//           marks:list, marks:add, marks:update, marks:remove
+//           marks:list, marks:add, marks:update, marks:remove, geometry:describe
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply,
-//           session:write, session:resize
+//           session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
 //           marks:changed, marks:problem
@@ -250,6 +251,10 @@ export function registerIpc(
     if (typeof data === 'string') sessions?.write(String(sessionId), data)
   })
 
+  ipcMain.on('session:insert', (_event, sessionId: string, text: string) => {
+    if (typeof text === 'string') sessions?.insert(String(sessionId), text)
+  })
+
   ipcMain.on('session:resize', (_event, sessionId: string, cols: number, rows: number) => {
     sessions?.resize(String(sessionId), cols, rows)
   })
@@ -264,6 +269,18 @@ export function registerIpc(
     requireMarks().update(String(objectId), String(id), patch)
   )
   ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))
+
+  // What the kernel says of a part, a face or an edge of an object's last good build. `Builds.query`
+  // has the object built again when the kernel no longer holds it.
+  ipcMain.handle('geometry:describe', async (_event, objectId: string, layout: string, ref: string): Promise<Described> => {
+    if (typeof layout !== 'string' || typeof ref !== 'string' || !layout || !ref) throw new Error('describe needs a layout and a ref')
+    try {
+      return await requireWorkspace().builds.query<Described>(String(objectId), 'describe', { ref: `${layout}:${ref}` })
+    } catch (e) {
+      // A plain message: the renderer shows it, and a KernelError would cross with its class name in front.
+      throw new Error(e instanceof Error ? e.message : String(e))
+    }
+  })
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

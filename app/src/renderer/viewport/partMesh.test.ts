@@ -57,6 +57,15 @@ describe('buildPart', () => {
     expect(Array.from(built.faceStarts)).toEqual([0, 6, 18])
   })
 
+  it('makes edgeStarts the running segment count with a leading 0', () => {
+    expect(Array.from(built.edgeStarts)).toEqual([0, 1, 2, 3])
+  })
+
+  it('has a bounds tree for picking, and leaves the triangles in the order faceStarts counts in', () => {
+    expect(built.mesh.geometry.boundsTree).toBeDefined()
+    expect(Array.from(built.mesh.geometry.getIndex()!.array)).toEqual(Array.from(triangles))
+  })
+
   it('gives the geometry the right vertex and index counts', () => {
     const g = built.mesh.geometry
     expect(g.getAttribute('position').count).toBe(10)
@@ -176,6 +185,10 @@ describe('buildPart, for a part made of a mesh', () => {
   it('takes them from the surface, with a crease at 25° or more', () => {
     const creases = new THREE.EdgesGeometry(built.mesh.geometry, 25).getAttribute('position')
     expect(Array.from(drawn.array)).toEqual(Array.from(creases.array))
+  })
+
+  it('has no edges to pick: its lines are creases', () => {
+    expect(Array.from(built.edgeStarts)).toEqual([0])
   })
 
   it('still places and parents the edges as for any part', () => {

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh'
 import { bufView, type Part } from '../../shared/scene'
 
 export interface BuiltPart {
@@ -11,6 +12,12 @@ export interface BuiltPart {
   faceted: boolean
   /** Index offset at which each face's triangles start, with the total at the end. */
   faceStarts: Uint32Array
+  /**
+   * Segment number at which each B-rep edge starts in `edges`, with the total
+   * at the end. Just `[0]` for a faceted part, whose lines are creases and
+   * belong to no edge.
+   */
+  edgeStarts: Uint32Array
 }
 
 const FACETED_MIN_FACES = 1000
@@ -56,15 +63,24 @@ export function buildPart(part: Part, blob: ArrayBuffer): BuiltPart {
     })
   )
 
+  // What a pointer's ray is tested against, built once for the part. Indirect:
+  // the triangles stay in the kernel's order, which `faceStarts` counts in.
+  if (surface.index!.count > 0) surface.boundsTree = new MeshBVH(surface, { indirect: true })
+  mesh.raycast = acceleratedRaycast
+
   const perFace = bufView(blob, m.trianglesPerFace, Uint32Array)
   const faceted = isFaceted(perFace)
   let lines: THREE.BufferGeometry
+  let edgeStarts = new Uint32Array(1)
   if (faceted) {
     // Where the surface turns, and its rim: what reads as the shape's edges.
     lines = new THREE.EdgesGeometry(surface, CREASE_ANGLE)
   } else {
     lines = new THREE.BufferGeometry()
     lines.setAttribute('position', new THREE.BufferAttribute(bufView(blob, m.edges, Float32Array).slice(), 3))
+    const perEdge = bufView(blob, m.segmentsPerEdge, Uint32Array)
+    edgeStarts = new Uint32Array(perEdge.length + 1)
+    for (let i = 0; i < perEdge.length; i++) edgeStarts[i + 1] = edgeStarts[i] + perEdge[i]
   }
   const edges = new THREE.LineSegments(lines, new THREE.LineBasicMaterial())
 
@@ -78,7 +94,16 @@ export function buildPart(part: Part, blob: ArrayBuffer): BuiltPart {
   group.quaternion.fromArray(part.loc.q)
   group.add(mesh, edges)
 
-  return { group, mesh, edges, faceStarts, faceted }
+  return { group, mesh, edges, faceStarts, edgeStarts, faceted }
+}
+
+/** Frees what `buildPart` made: the geometries, their bounds tree and the materials. */
+export function disposePart(built: BuiltPart): void {
+  built.mesh.geometry.boundsTree = undefined
+  built.mesh.geometry.dispose()
+  built.mesh.material.dispose()
+  built.edges.geometry.dispose()
+  built.edges.material.dispose()
 }
 
 /**

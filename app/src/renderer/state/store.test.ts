@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
-import { actions, partsInLayout, sceneFileOf, store, visibleKeys } from './store'
+import { actions, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
 
 const BUF = { offset: 0, length: 0 }
 const MESH = { vertices: BUF, normals: BUF, triangles: BUF, edges: BUF, trianglesPerFace: BUF, segmentsPerEdge: BUF, faceTypes: BUF, edgeTypes: BUF }
@@ -222,5 +222,63 @@ describe('marks', () => {
     actions.setMarksProblem({ objectId: 'bracket', message: 'x' })
     actions.setWorkspace(null)
     expect(store.getState()).toMatchObject({ marks: [], marksProblem: null })
+  })
+})
+
+describe('the selection', () => {
+  beforeEach(() => actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET }))
+
+  it('is what was last selected, each ref once, in the order picked', () => {
+    expect(store.getState().selection).toEqual([])
+    actions.setSelection(['base/F5'])
+    actions.toggleSelection('post/E2')
+    actions.toggleSelection('base/F1')
+    expect(store.getState().selection).toEqual(['base/F5', 'post/E2', 'base/F1'])
+    actions.toggleSelection('post/E2')
+    expect(store.getState().selection).toEqual(['base/F5', 'base/F1'])
+    actions.setSelection(['base/F0', 'base/F0'])
+    expect(store.getState().selection).toEqual(['base/F0'])
+    actions.setSelection([])
+    expect(store.getState().selection).toEqual([])
+  })
+
+  it('is the same list when nothing changes, so nothing is drawn again', () => {
+    actions.setSelection(['base/F5'])
+    const before = store.getState().selection
+    actions.setSelection(['base/F5'])
+    actions.setLayer('base', { opacity: 0.5 })
+    actions.applyBuild(build({ status: 'building', stale: true }))
+    expect(store.getState().selection).toBe(before)
+  })
+
+  it('is emptied by a new revision, whose faces are numbered anew', () => {
+    actions.setSelection(['base/F5'])
+    expect(actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })).toBe(false)
+    expect(store.getState().selection).toEqual(['base/F5'])
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: BRACKET })
+    expect(store.getState().selection).toEqual([])
+  })
+
+  it('is emptied by another layout, and by another object', () => {
+    actions.setSelection(['base/F5'])
+    actions.setLayout('assembly') // the one shown: nothing changes
+    expect(store.getState().selection).toEqual(['base/F5'])
+    actions.setLayout('print')
+    expect(store.getState().selection).toEqual([])
+    actions.setSelection(['base/F5'])
+    actions.openObject('gear', { layers: {} })
+    expect(store.getState().selection).toEqual([])
+  })
+})
+
+describe('the running session of the open object', () => {
+  it('is the one an agent still runs in', () => {
+    expect(runningSession(store.getState())).toBeUndefined()
+    actions.setSession('gear', { sessionId: 'g', status: 'idle' })
+    expect(runningSession(store.getState())).toBeUndefined()
+    actions.setSession('bracket', { sessionId: 'b', status: 'working' })
+    expect(runningSession(store.getState())).toEqual({ sessionId: 'b', status: 'working' })
+    actions.applySessionStatus({ sessionId: 'b', status: 'exited' })
+    expect(runningSession(store.getState())).toBeUndefined()
   })
 })

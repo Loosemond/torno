@@ -72,6 +72,8 @@ interface Entry {
   /** Something other than Python changed while it was building: build once more when that build ends. */
   changedMeanwhile: boolean
   unwatch: Array<() => void>
+  /** Queries waiting for the next build to end, because the kernel no longer holds the last one (see `query`). */
+  rebuilt?: { promise: Promise<void>; resolve: () => void; reject: (e: KernelError) => void }
 }
 
 /**
@@ -193,6 +195,7 @@ export class Builds {
     this.entries.delete(objectId)
     this.displaced.delete(objectId)
     for (const unwatch of entry.unwatch) unwatch()
+    this.settleRebuilt(entry, new KernelError('no_build', `${objectId} was closed, so there is nothing to ask about`))
     this.abandon(objectId)
   }
 
@@ -209,14 +212,54 @@ export class Builds {
    * Ask the kernel about the last successful build of an open object. Rejects
    * with a KernelError: `no_build` when the object has not been built
    * successfully yet (or is not open), or whatever kind the kernel answers with.
+   *
+   * The kernel keeps the builds of a few objects only, and none across a
+   * restart. When it no longer holds this one, the object is built again and
+   * the kernel asked once more; if that build fails, the rejection is its
+   * error. The build takes its turn: it never stops one that is running, and
+   * queries that wait at the same time share it.
    */
-  query<T = unknown>(objectId: string, name: string, args: object): Promise<T> {
+  async query<T = unknown>(objectId: string, name: string, args: object): Promise<T> {
     const entry = this.entries.get(objectId)
     if (!entry?.lastGood) {
       const message = `${objectId} has not been built successfully yet, so there is nothing to ask about`
-      return Promise.reject(new KernelError('no_build', message))
+      throw new KernelError('no_build', message)
     }
+    try {
+      return await this.kernel.query<T>(entry.obj.dir, name, args)
+    } catch (e) {
+      const gone = e instanceof KernelError && e.kind === 'no_build'
+      if (!gone || this.entries.get(objectId) !== entry) throw e
+    }
+    await this.builtAgain(entry)
     return this.kernel.query<T>(entry.obj.dir, name, args)
+  }
+
+  /** Resolves when the next build of an object succeeds, starting one if none is on its way; rejects with its error. */
+  private builtAgain(entry: Entry): Promise<void> {
+    if (!entry.rebuilt) {
+      let resolve!: () => void
+      let reject!: (e: KernelError) => void
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res
+        reject = rej
+      })
+      entry.rebuilt = { promise, resolve, reject }
+      // A build of this object that is running, or waiting for its turn, will do.
+      if (entry.state.status !== 'building') {
+        if (this.running === null) this.start(entry)
+        else this.displaced.add(entry.obj.id) // started when the kernel is free
+      }
+    }
+    return entry.rebuilt.promise
+  }
+
+  private settleRebuilt(entry: Entry, error?: KernelError): void {
+    const waiting = entry.rebuilt
+    if (!waiting) return
+    entry.rebuilt = undefined
+    if (error) waiting.reject(error)
+    else waiting.resolve()
   }
 
   on(event: 'build', cb: (s: BuildState) => void): void
@@ -283,6 +326,8 @@ export class Builds {
 
   private set(entry: Entry, state: BuildState): void {
     entry.state = state
+    if (state.status === 'ok') this.settleRebuilt(entry)
+    else if (state.status === 'failed') this.settleRebuilt(entry, new KernelError(state.error?.kind ?? 'exception', state.error?.message ?? 'the build failed'))
     for (const cb of this.buildListeners) cb(state)
   }
 

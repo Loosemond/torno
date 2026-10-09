@@ -15,6 +15,8 @@ const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
 /** The hooks that say a conversation has a prompt in it: it exists for the agent, and can be resumed. */
 const CONVERSATION_EVENTS = new Set(['UserPromptSubmit', 'Stop'])
+/** C0 and C1 controls and DEL: among them ESC, the newlines and the one-byte CSI. */
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface Session {
@@ -146,6 +148,19 @@ export class Sessions {
 
   write(sessionId: string, data: string): void {
     this.sessions.get(sessionId)?.pty.write(data)
+  }
+
+  /**
+   * Put text at the agent's cursor as a paste, without sending it: the person
+   * reads it, adds to it and presses Enter themselves. Control characters are
+   * taken out first, so the text can neither end the paste nor send the prompt.
+   * Nothing is written to a session that has ended or been hung up on.
+   */
+  insert(sessionId: string, text: string): void {
+    const s = this.sessions.get(sessionId)
+    if (!s || s.killTimer) return
+    const plain = text.replace(CONTROL_CHARACTERS, '')
+    if (plain) s.pty.write(`\x1b[200~${plain}\x1b[201~`)
   }
 
   resize(sessionId: string, cols: number, rows: number): void {

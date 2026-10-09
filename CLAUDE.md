@@ -100,7 +100,9 @@ window on it.
   same code the `look` tool uses; it renders to a target and does not wait for
   a frame.
 - State is read through hooks, not pixels: `window.__tornoTest.state()` and
-  `.camera()`, `window.__tornoTerm.text()` for what the terminal shows, and
+  `.camera()`, `.pickAt(fx, fy)` for what a point of the canvas is on and
+  `.project(point)` for where a point of the object is drawn (both in fractions
+  of the canvas, to aim `page.mouse` with), `window.__tornoTerm.text()` for what the terminal shows, and
   `globalThis.__tornoMain` in main (`app.evaluate`) for the MCP address.
 - A test works on a temporary copy of `kernel/tests/fixtures/ws`, never on
   the fixtures themselves and never on a real workspace.

@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Scene } from '../../shared/scene'
 import type { LookRequest, LookResult } from '../../shared/view'
+import { describe, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
-import { Viewport } from '../viewport/Viewport'
+import { toolStore, type ToolHandler, type ToolName } from '../state/tools'
+import { Readout } from '../viewport/highlight'
+import { Viewport, type ViewportPointer } from '../viewport/Viewport'
+import { Selection } from './Selection'
+import { ToolPalette } from './ToolPalette'
 import { ViewBar } from './ViewBar'
 
 const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output: '' }
@@ -38,8 +43,56 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
   return { ...picture, ...drawn! }
 }
 
+/** How long the pointer rests on a face or an edge before the kernel is asked what it is. */
+const DESCRIBE_AFTER_MS = 150
+/** Said at the pointer while the parts on screen are older than the model: their refs would name the wrong geometry. */
+const STALE_MESSAGE = 'Rebuilding: picks wait for the new build'
+
+/**
+ * The select tool: what is under the pointer is marked and named beside it,
+ * a click selects it, with Shift adds it or takes it out, and a click on
+ * nothing clears the selection. Dragging turns the camera as ever.
+ */
+function selectTool(viewport: Viewport, readout: Readout): ToolHandler {
+  let hovered: string | null = null
+  let rest: ReturnType<typeof setTimeout> | undefined
+  const stop = () => {
+    clearTimeout(rest)
+    hovered = null
+    viewport.setHover(null)
+    readout.hide()
+  }
+  return {
+    stop,
+    pointer(e: ViewportPointer) {
+      if (e.type === 'click') {
+        if (!e.hit) actions.setSelection([])
+        else if (e.shift) actions.toggleSelection(e.hit.ref)
+        else actions.setSelection([e.hit.ref])
+        return
+      }
+      const { hit } = e
+      const { objectId, revision, layout } = store.getState()
+      if (e.type === 'cancel' || !hit || !objectId) return stop()
+
+      const { ref } = hit
+      hovered = ref
+      viewport.setHover(hit)
+      const known = descriptorOf(objectId, revision, layout, ref)
+      readout.show(e.client, ref, known)
+      clearTimeout(rest)
+      if (known !== undefined) return
+      rest = setTimeout(() => {
+        void describe(objectId, revision, layout, ref).then((text) => {
+          if (text !== null && hovered === ref && store.getState().revision === revision) readout.describe(text)
+        })
+      }, DESCRIBE_AFTER_MS)
+    }
+  }
+}
+
 /** Join a viewport to the store and to main. Returns what undoes it. */
-function connect(viewport: Viewport): () => void {
+function connect(viewport: Viewport, readout: Readout): () => void {
   const applyLayers = (s: TornoState) => {
     // Every part, each time: the viewport remembers settings by key, and keys repeat between objects.
     for (const part of s.scene?.parts ?? []) {
@@ -65,7 +118,32 @@ function connect(viewport: Viewport): () => void {
     report()
   })
 
+  // The one pointer subscription: every event goes to the tool in use, and to
+  // none while the parts are stale. Tools made by later tasks are added here.
+  const handlers: Partial<Record<ToolName, ToolHandler>> = { select: selectTool(viewport, readout) }
+  let tool = handlers[toolStore.getState().tool]
+  const putDown = () => {
+    tool?.stop()
+    readout.hide()
+    viewport.setNavigation(true)
+  }
+  const offTool = toolStore.subscribe((t) => {
+    putDown()
+    tool = handlers[t.tool]
+  })
+  viewport.onPointer((e) => {
+    const s = store.getState()
+    if (!s.scene) return
+    if (!s.build?.stale) return tool?.pointer(e)
+    // Refs of the old build would name other faces in the new one: nothing is picked.
+    if (e.hit) readout.say(e.client, STALE_MESSAGE)
+    else readout.hide()
+  })
+
   const offStore = store.subscribe((s, prev) => {
+    if (s.selection !== prev.selection) viewport.setSelection(s.selection)
+    // What was pointed at belongs to the object, the layout and the build it was pointed at in.
+    if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision || (s.build?.stale ?? false) !== (prev.build?.stale ?? false)) putDown()
     if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
       viewport.setScene(NO_SCENE, new ArrayBuffer(0))
       viewport.setStale(false)
@@ -94,16 +172,30 @@ function connect(viewport: Viewport): () => void {
     window.__tornoTest = {
       state: () => store.getState(),
       look: (req) => look(viewport, req),
-      camera: () => viewport.getCamera()
+      camera: () => viewport.getCamera(),
+      pickAt: (fx, fy, opts) => {
+        const box = canvasBox(viewport)
+        return viewport.pick(box.left + fx * box.width, box.top + fy * box.height, opts)
+      },
+      project: (point) => {
+        const box = canvasBox(viewport)
+        const [x, y] = viewport.project(point)
+        return [(x - box.left) / box.width, (y - box.top) / box.height]
+      }
     }
   }
 
   return () => {
+    offTool()
     offScene()
     offStore()
     offLook()
     delete window.__tornoTest
   }
+}
+
+function canvasBox(viewport: Viewport): DOMRect {
+  return viewport.canvas.getBoundingClientRect()
 }
 
 /**
@@ -131,13 +223,15 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
       setFailure(e instanceof Error ? e.message : String(e))
       return
     }
-    const disconnect = connect(made)
+    const readout = new Readout(host.current!)
+    const disconnect = connect(made, readout)
     const sized = new ResizeObserver(() => made.resize())
     sized.observe(host.current!)
     setViewport(made)
     return () => {
       sized.disconnect()
       disconnect()
+      readout.dispose()
       made.dispose()
       canvas.remove()
       setViewport(null)
@@ -151,7 +245,13 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
     <div className="viewport-pane">
       {/* Always laid out, so the camera is fitted to its real shape; what is said below covers it. */}
       <div className="viewport-canvas" ref={host} />
-      {viewport && hasScene && <ViewBar viewport={viewport} />}
+      {viewport && hasScene && (
+        <>
+          <ViewBar viewport={viewport} />
+          <ToolPalette />
+          <Selection />
+        </>
+      )}
       {!hasScene && (
         <div className="viewport-empty">
           <DatumMark />

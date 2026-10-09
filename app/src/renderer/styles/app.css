@@ -758,6 +758,173 @@ button {
   background: var(--accent-wash);
 }
 
+/* ---- Tools: the palette at the left edge of the viewport ---- */
+
+.toolbox {
+  position: absolute;
+  top: 50%;
+  left: var(--space-3);
+  transform: translateY(-50%);
+  display: grid;
+  gap: 2px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.tool-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+}
+
+.tool-button svg {
+  width: 16px;
+  height: 16px;
+  /* Up and left a little: the key sits in the other corner. */
+  transform: translate(-2px, -2px);
+}
+
+.tool-button:hover:enabled {
+  background: var(--accent-wash);
+}
+
+.tool-button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.tool-button:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+/* The key that chooses the tool, like the size stamped on a drill's shank. */
+.tool-key {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--muted);
+}
+
+.tool-button[aria-pressed='true'] .tool-key {
+  color: inherit;
+}
+
+/* ---- Pointing: the readout at the pointer, and the selection ---- */
+
+.pick-readout {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  max-width: min(420px, calc(100% - 16px));
+  padding: 3px 7px;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  font-size: var(--text-small);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.pick-readout[hidden],
+.pick-readout [hidden] {
+  display: none;
+}
+
+.pick-readout-ref {
+  color: var(--accent);
+}
+
+.pick-readout-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+/* A sentence rather than a ref and its numbers. */
+.pick-readout[data-says='sentence'] .pick-readout-detail {
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
+.selection {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.selection-chips {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  list-style: none;
+}
+
+.selection-chip {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  height: 26px;
+  padding: 0 9px;
+  line-height: 26px;
+}
+
+.selection-chip + .selection-chip {
+  border-left: var(--divider);
+}
+
+.selection-ref {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.selection-descriptor {
+  color: var(--muted);
+}
+
+.selection-descriptor:empty {
+  display: none;
+}
+
+.selection .bar-button:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.selection .bar-button:disabled:hover {
+  background: transparent;
+}
+
 /* ---- Status line ---- */
 
 .status {

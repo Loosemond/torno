@@ -89,6 +89,42 @@ describe('a session', () => {
     await expect.poll(() => said(sessionId)).toContain('> hello')
   })
 
+  it('inserts text at the input as a paste, without sending it', async () => {
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    sessions.insert(sessionId, 'base/F5 post/E2')
+    // The terminal shows what was put in; the agent has been given no line yet.
+    await expect.poll(() => said(sessionId)).toContain('base/F5 post/E2')
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(said(sessionId)).not.toContain('> ')
+    sessions.write(sessionId, '\r')
+    await expect.poll(() => said(sessionId)).toContain('> \\e[200~base/F5 post/E2\\e[201~')
+  })
+
+  it('takes escapes and control characters out of what it inserts', async () => {
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    // A newline would send the prompt, and an end-of-paste would let what follows be typed as keys.
+    sessions.insert(sessionId, 'a\x1b[201~b\r\nc\x07\x03d\x7f\u009be\tf')
+    sessions.write(sessionId, '\r')
+    await expect.poll(() => said(sessionId)).toContain('> \\e[200~a[201~bcdef\\e[201~')
+    // Nothing left to insert: nothing is written, not even an empty paste.
+    sessions.insert(sessionId, '\x1b\n')
+    sessions.write(sessionId, 'x\r')
+    await expect.poll(() => said(sessionId)).toContain('> x')
+  })
+
+  it('inserts nothing into a session that has ended', async () => {
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    await sessions.stop(sessionId)
+    const before = said(sessionId)
+    expect(() => sessions.insert(sessionId, 'base/F5')).not.toThrow()
+    expect(() => sessions.insert('no-such-session', 'base/F5')).not.toThrow()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(said(sessionId)).toBe(before)
+  })
+
   it('goes from starting to idle to working, and gives the prompt its context', async () => {
     const { sessionId } = sessions.start(object('bracket'), {})
     expect(existsSync(join(root, 'bracket', '.torno', 'session.json'))).toBe(false)
