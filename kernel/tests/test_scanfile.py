@@ -68,3 +68,57 @@ def test_a_mask_is_one_bit_a_triangle_lowest_first(tmp_path):
     assert np.array_equal(scanfile.read_mask(tmp_path / "M7.mask", 12), bits)
     with pytest.raises(ValueError, match="12 triangles, not 13"):
         scanfile.read_mask(tmp_path / "M7.mask", 13)
+
+
+def test_a_mesh_whose_triangles_name_no_vertex_or_whose_vertices_are_no_numbers_is_not_read(tmp_path):
+    scanfile.write_bin(tmp_path / "mesh.bin", *box())
+    raw = (tmp_path / "mesh.bin").read_bytes()
+    lost = bytearray(raw)
+    struct.pack_into("<I", lost, 64 + 12 * 8, 4_000_000_000)
+    (tmp_path / "lost.bin").write_bytes(lost)
+    with pytest.raises(ValueError, match="a triangle names vertex 4000000000, and there are 8"):
+        scanfile.read_bin(tmp_path / "lost.bin")
+    nowhere = bytearray(raw)
+    struct.pack_into("<f", nowhere, 64, float("nan"))
+    (tmp_path / "nowhere.bin").write_bytes(nowhere)
+    with pytest.raises(ValueError, match="a vertex is not finite"):
+        scanfile.read_bin(tmp_path / "nowhere.bin")
+    empty = raw[:16] + struct.pack("<II", 0, 0) + raw[24:64]
+    (tmp_path / "empty.bin").write_bytes(empty)
+    with pytest.raises(ValueError, match="no vertices or no triangles"):
+        scanfile.read_bin(tmp_path / "empty.bin")
+
+
+def test_a_mesh_with_no_area_is_not_written(tmp_path):
+    with pytest.raises(ValueError, match="no area"):
+        scanfile.write_bin(tmp_path / "mesh.bin", np.zeros((3, 3)) + 5, np.array([[0, 1, 2]] * 4))
+    with pytest.raises(ValueError, match="no area"):
+        scanfile.write_bin(tmp_path / "mesh.bin", np.array([[0.0, 0, 0], [1, 0, 0], [2, 0, 0]]), np.array([[0, 1, 2]]))
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_mask_cut_short_says_so(tmp_path):
+    scanfile.write_mask(tmp_path / "M7.mask", np.ones(20, dtype=bool))
+    raw = (tmp_path / "M7.mask").read_bytes()
+    (tmp_path / "short.mask").write_bytes(raw[:-1])
+    with pytest.raises(ValueError, match="is truncated: 18 bytes, and its header says 19"):
+        scanfile.read_mask(tmp_path / "short.mask", 20)
+    (tmp_path / "head.mask").write_bytes(raw[:10])
+    with pytest.raises(ValueError, match="is truncated"):
+        scanfile.read_mask(tmp_path / "head.mask", 20)
+
+
+def test_a_mask_is_written_whole_or_not_at_all(tmp_path, monkeypatch):
+    first = np.zeros(12, dtype=bool)
+    scanfile.write_mask(tmp_path / "M7.mask", first)
+    assert [p.name for p in tmp_path.iterdir()] == ["M7.mask"]
+
+    def fails(*_):
+        raise OSError("no room")
+
+    monkeypatch.setattr(scanfile.os, "replace", fails)
+    with pytest.raises(OSError, match="no room"):
+        scanfile.write_mask(tmp_path / "M7.mask", np.ones(12, dtype=bool))
+    # A reader sees the old mask, and nothing is left beside it.
+    assert np.array_equal(scanfile.read_mask(tmp_path / "M7.mask", 12), first)
+    assert [p.name for p in tmp_path.iterdir()] == ["M7.mask"]

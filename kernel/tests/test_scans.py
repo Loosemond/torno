@@ -1,8 +1,10 @@
 """The import process: every format, units, the up axis, colours, the limit, what is refused."""
 
 import json
+import signal
 import subprocess
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -134,3 +136,132 @@ def test_the_module_brings_neither_the_cad_kernel_nor_trimesh_until_it_reads():
     code = "import sys, torno_kernel.scans, torno_kernel.scanfile; bad = [m for m in ('build123d', 'OCP', 'trimesh', 'PIL') if m in sys.modules]; sys.exit(repr(bad) if bad else 0)"
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, done.stderr
+
+
+# What the review of the first cut found
+
+
+def test_a_file_that_holds_no_mesh_of_its_format_is_not_called_a_point_cloud(tmp_path, capsys):
+    whole = scanfix.write_stl(tmp_path / "box.stl", *BOX).read_bytes()
+    (tmp_path / "cut.stl").write_bytes(whole[:-30])
+    (tmp_path / "diary.stl").write_text("Dear diary,\nthis is not a mesh.\n" * 50)
+    (tmp_path / "none.stl").write_bytes(b"\0" * 80 + b"\0\0\0\0")
+    for name in ("cut.stl", "diary.stl", "none.stl"):
+        status, said = run(capsys, "import", tmp_path / name, tmp_path / "mesh.bin")
+        assert status == 1 and said["error"] == {"kind": "unreadable", "message": f"{name} could not be read as a .stl mesh: no triangle and no point was found in it"}
+    assert not (tmp_path / "mesh.bin").exists()
+
+
+def test_a_vertex_that_is_no_number_is_said_of_the_file(tmp_path, capsys):
+    vertices, triangles = BOX
+    vertices = vertices.copy()
+    vertices[3, 2] = np.nan
+    status, said = run(capsys, "import", scanfix.write_stl(tmp_path / "nan.stl", vertices, triangles), tmp_path / "mesh.bin")
+    assert status == 1 and said["error"] == {"kind": "unreadable", "message": "nan.stl could not be read: a vertex is not finite"}
+
+
+def test_a_mesh_with_no_area_is_refused(tmp_path, capsys):
+    source = scanfix.write_stl(tmp_path / "dot.stl", np.zeros((3, 3)) + 5, np.array([[0, 1, 2]] * 4))
+    status, said = run(capsys, "import", source, tmp_path / "mesh.bin")
+    assert status == 1 and said["error"] == {"kind": "no_triangles", "message": "dot.stl has no triangle with an area: every one of its 4 is a point or a line"}
+    assert not (tmp_path / "mesh.bin").exists()
+
+
+def test_the_source_is_never_written_over_nor_any_file_that_is_not_a_mesh_of_tornos(tmp_path, capsys):
+    source = scanfix.write_stl(tmp_path / "box.stl", *BOX)
+    before = source.read_bytes()
+    status, said = run(capsys, "import", source, source)
+    assert status == 1 and said["error"] == {"kind": "bad_request", "message": "box.stl would be written over itself: the mesh goes to another file"}
+    (tmp_path / "link.stl").symlink_to(source)
+    status, said = run(capsys, "import", source, tmp_path / "link.stl")
+    assert status == 1 and said["error"]["kind"] == "bad_request" and "over itself" in said["error"]["message"]
+    other = scanfix.write_stl(tmp_path / "other.stl", *BOX)
+    status, said = run(capsys, "import", source, other)
+    assert status == 1 and said["error"] == {"kind": "bad_request", "message": "other.stl is there and is not a mesh torno wrote: it is not written over"}
+    (tmp_path / "folder").mkdir()
+    status, said = run(capsys, "import", source, tmp_path / "folder")
+    assert status == 1 and said["error"]["kind"] == "bad_request" and "not written over" in said["error"]["message"]
+    assert source.read_bytes() == before and other.read_bytes() == before
+    # A mesh torno wrote is written over: that is importing again.
+    assert run(capsys, "import", source, tmp_path / "mesh.bin")[0] == 0
+    assert run(capsys, "import", source, tmp_path / "mesh.bin", "--unit", "cm")[1]["bbox"]["max"] == pytest.approx([200, 150, 25])
+
+
+def test_a_folder_that_is_not_there_and_a_source_that_is_a_folder_are_said_in_a_sentence(tmp_path, capsys):
+    source = scanfix.write_stl(tmp_path / "box.stl", *BOX)
+    status, said = run(capsys, "import", source, tmp_path / "no" / "such" / "mesh.bin")
+    assert status == 1 and said["error"] == {"kind": "bad_request", "message": f"the mesh cannot be written: there is no folder {tmp_path / 'no' / 'such'}"}
+    (tmp_path / "folder.stl").mkdir()
+    status, said = run(capsys, "import", tmp_path / "folder.stl", tmp_path / "mesh.bin")
+    assert status == 1 and said["error"]["kind"] == "unreadable" and said["error"]["message"].startswith("folder.stl could not be read: ")
+    assert "/" not in said["error"]["message"]
+
+
+def test_a_flag_that_is_wrong_is_answered_in_one_line_like_any_other_failure(tmp_path, capsys):
+    source = scanfix.write_stl(tmp_path / "box.stl", *BOX)
+    status, said = run(capsys, "import", source, tmp_path / "mesh.bin", "--unit", "ft")
+    assert status == 1 and said["ok"] is False and said["error"]["kind"] == "bad_request"
+    assert "--unit" in said["error"]["message"] and "'ft'" in said["error"]["message"]
+    status, said = run(capsys, "polish", source)
+    assert status == 1 and said["error"]["kind"] == "bad_request"
+    for most in ("0", "-5"):
+        status, said = run(capsys, "import", source, tmp_path / "mesh.bin", "--max-triangles", most)
+        assert status == 1 and said["error"] == {"kind": "bad_request", "message": "--max-triangles is a whole number, 1 or more"}
+    done = subprocess.run([sys.executable, "-m", "torno_kernel.scans", "import", str(source)], capture_output=True, text=True, timeout=120)
+    assert done.returncode == 1 and json.loads(done.stdout.strip().splitlines()[-1])["error"]["kind"] == "bad_request"
+    assert not (tmp_path / "mesh.bin").exists()
+
+
+def test_without_the_extra_it_says_that_the_extra_is_not_there(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(sys.modules, "trimesh", None)
+    status, said = run(capsys, "import", scanfix.write_stl(tmp_path / "box.stl", *BOX), tmp_path / "mesh.bin")
+    assert status == 1 and said["error"]["kind"] == "bad_request"
+    assert said["error"]["message"].startswith("the scans extra is not installed: trimesh could not be imported")
+
+
+def test_what_is_reduced_has_no_triangle_twice_and_none_that_is_a_line(tmp_path):
+    vertices, triangles = scanfix.grid(60)
+    # Every triangle twice, the second time from another corner.
+    doubled = np.concatenate([triangles, np.roll(triangles, 1, axis=1)])
+    v, t, _, reduced = scans.reduce(vertices * 10, doubled, None, 2000)
+    assert reduced["from"] == 2 * 6962 and 0 < len(t) <= 2000
+    assert len({tuple(sorted(row)) for row in t.tolist()}) == len(t)
+    assert all(len(set(row)) == 3 for row in t.tolist())
+    # Which way a triangle faces is kept: the sheet still faces +Z.
+    corners = v[t]
+    assert (np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])[:, 2] > 0).all()
+
+
+def test_a_mesh_that_cannot_be_brought_under_the_limit_is_refused_and_not_tried_for_ever():
+    vertices, triangles = scanfix.box()
+    with pytest.raises(scans.ScanError) as e:
+        scans.reduce(vertices, triangles, None, 0)
+    assert e.value.kind == "too_large"
+
+
+def test_a_process_that_is_told_to_end_leaves_no_half_written_mesh(tmp_path):
+    # The write is held where the temporary file is there and the mesh is not yet.
+    code = (
+        "import os, sys, time, pathlib\n"
+        "import numpy as np\n"
+        "from torno_kernel import scans, scanfile\n"
+        "scans.end_on_sigterm()\n"
+        "def held(fd):\n"
+        "    pathlib.Path(sys.argv[1], 'writing').touch()\n"
+        "    time.sleep(60)\n"
+        "scanfile.os.fsync = held\n"
+        "scanfile.write_bin(pathlib.Path(sys.argv[1], 'mesh.bin'), np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0]]), np.array([[0, 1, 2]]))\n"
+    )
+    process = subprocess.Popen([sys.executable, "-c", code, str(tmp_path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        for _ in range(600):
+            if (tmp_path / "writing").exists():
+                break
+            time.sleep(0.05)
+        assert [p.name for p in tmp_path.glob("*.tmp")], "the write never began"
+        process.send_signal(signal.SIGTERM)
+        assert process.wait(timeout=30) == 143
+    finally:
+        process.kill()
+        process.communicate()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["writing"]

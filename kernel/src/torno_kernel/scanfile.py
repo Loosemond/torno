@@ -40,26 +40,38 @@ def write_bin(path: str | Path, vertices: np.ndarray, triangles: np.ndarray, col
     c = None if colours is None else np.ascontiguousarray(colours, dtype=np.uint8).reshape(-1, 4)
     if c is not None and len(c) != len(v):
         raise ValueError(f"{len(c)} colours for {len(v)} vertices")
+    area = area_of(v, t)
+    if not area > 0:
+        raise ValueError("a scan with no area: every triangle of it is a point or a line")
     low, high = v.min(axis=0), v.max(axis=0)
+    head = _HEAD.pack(MAGIC, VERSION, 0 if c is None else 1, len(v), len(t), *map(float, low), *map(float, high))
+    _replaced(path, [head, v.tobytes(), b"" if c is None else c.tobytes(), t.tobytes()])
+    box = {"min": [float(x) for x in low], "max": [float(x) for x in high]}
+    return {"vertices": len(v), "triangles": len(t), "bbox": box, "area": area}
+
+
+def _replaced(path: str | Path, parts: list[bytes]) -> None:
+    """Write a file through a temporary one beside it: a reader sees the old file or the new one, whole."""
     temp = Path(f"{path}.{os.getpid()}.tmp")
     try:
         with open(temp, "wb") as out:
-            out.write(_HEAD.pack(MAGIC, VERSION, 0 if c is None else 1, len(v), len(t), *map(float, low), *map(float, high)))
-            out.write(v.tobytes())
-            if c is not None:
-                out.write(c.tobytes())
-            out.write(t.tobytes())
+            for part in parts:
+                out.write(part)
             out.flush()
             os.fsync(out.fileno())
         os.replace(temp, path)
     finally:
         temp.unlink(missing_ok=True)
-    box = {"min": [float(x) for x in low], "max": [float(x) for x in high]}
-    return {"vertices": len(v), "triangles": len(t), "bbox": box, "area": area_of(v, t)}
 
 
 def read_bin(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-    """The vertices (V, 3), the triangles (T, 3) and the colours (V, 4) or None of a ``mesh.bin``."""
+    """The vertices (V, 3), the triangles (T, 3) and the colours (V, 4) or None of a ``mesh.bin``.
+
+    A file whose bytes are not a mesh is a ``ValueError``: one of another
+    length than its header says, one with a triangle that names no vertex,
+    one with a vertex that is no number. What is returned can be indexed
+    without looking again.
+    """
     raw = Path(path).read_bytes()
     if len(raw) < HEADER or raw[:8] != MAGIC:
         raise ValueError(f"{path} is not a scan torno wrote")
@@ -74,23 +86,34 @@ def read_bin(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarray | Non
     at = HEADER + 12 * count
     colours = np.frombuffer(raw, np.uint8, 4 * count, at).reshape(-1, 4) if coloured else None
     triangles = np.frombuffer(raw, "<u4", 3 * faces, at + (4 * count if coloured else 0)).reshape(-1, 3)
+    if count == 0 or faces == 0:
+        raise ValueError(f"{path} has no vertices or no triangles")
+    if int(triangles.max()) >= count:
+        raise ValueError(f"in {path} a triangle names vertex {int(triangles.max())}, and there are {count}")
+    if not np.isfinite(vertices).all():
+        raise ValueError(f"in {path} a vertex is not finite")
     return vertices, triangles, colours
 
 
 def write_mask(path: str | Path, bits: np.ndarray) -> None:
-    """Write which triangles a region has: one bit each, bit ``i & 7`` of byte ``i >> 3``."""
+    """Write which triangles a region has: one bit each, bit ``i & 7`` of byte ``i >> 3``. Whole, or not at all."""
     bits = np.asarray(bits, dtype=bool).reshape(-1)
-    Path(path).write_bytes(_MASK_HEAD.pack(MASK_MAGIC, VERSION, len(bits)) + np.packbits(bits, bitorder="little").tobytes())
+    _replaced(path, [_MASK_HEAD.pack(MASK_MAGIC, VERSION, len(bits)), np.packbits(bits, bitorder="little").tobytes()])
 
 
 def read_mask(path: str | Path, triangles: int) -> np.ndarray:
     """The triangles of a region, as one bool each, for a mesh of ``triangles`` triangles."""
     raw = Path(path).read_bytes()
-    if len(raw) < _MASK_HEAD.size or raw[:8] != MASK_MAGIC:
+    if raw[:8] != MASK_MAGIC[: len(raw)] or not raw:
         raise ValueError(f"{path} is not a region torno wrote")
+    if len(raw) < _MASK_HEAD.size:
+        raise ValueError(f"{path} is truncated: {len(raw)} bytes, fewer than its header has")
     _, version, count = _MASK_HEAD.unpack_from(raw)
     if version != VERSION:
         raise ValueError(f"{path} is of version {version}; this torno reads version {VERSION}")
-    if count != triangles or len(raw) != _MASK_HEAD.size + (count + 7) // 8:
+    if count != triangles:
         raise ValueError(f"{path} is of a mesh of {count} triangles, not {triangles}")
+    expected = _MASK_HEAD.size + (count + 7) // 8
+    if len(raw) != expected:
+        raise ValueError(f"{path} {'is truncated' if len(raw) < expected else 'is too long'}: {len(raw)} bytes, and its header says {expected}")
     return np.unpackbits(np.frombuffer(raw, np.uint8, offset=_MASK_HEAD.size), bitorder="little")[:count].astype(bool)
