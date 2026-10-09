@@ -9,6 +9,7 @@ import type { AlignPoint } from './alignPoints'
 import type { BrushRing } from './brushRing'
 import { CameraMove, standingAt } from './cameraMoves'
 import { PartsApart, asBuilt, drawnAt, drawnBox, reachingApart } from './explode'
+import { groundOf } from './ground'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
 import { mmPerPx } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
@@ -23,7 +24,8 @@ import { ScanEdit } from './scanEdit'
 import { ScanLayer, rayOf, reaching, type ScanHit, type ScanLayerState } from './scans'
 import { SectionCut, nearSegmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
-import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
+import { type Theme, LIGHT_THEME, markColours, themeOf, toHex } from './theme'
+import { DEFAULT_FOV, fitCamera, lockedViewOf, viewDirection } from './views'
 
 export interface LayerState {
   visible?: boolean
@@ -36,31 +38,11 @@ interface Entry {
   built: BuiltPart
 }
 
-interface Theme {
-  surface: string
-  hairline: string
-  ink: string
-  muted: string
-  accent: string
-  agent: string
-  user: string
-  panel: string
-  /** A scan drawn plain. */
-  scan: string
-  /** The three axes of the gizmo. */
-  axisX: string
-  axisY: string
-  axisZ: string
-}
-
 export type { GizmoMode, ImageRequest, Picture, ShapeTransform, ViewportPointer }
 
 type AnyCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
 
 type Vec3 = [number, number, number]
-
-/** The light values of styles/tokens.css, used where no stylesheet is loaded. */
-const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C', user: '#CF3F2C', panel: '#FAF9F6', scan: '#B4AFA5', axisX: '#9A3350', axisY: '#4C7F2C', axisZ: '#2E5FA9' }
 
 const SETTLE_MS = 150
 /** How near the handle of the section's plane the pointer must be to take hold of it, in pixels. */
@@ -965,56 +947,17 @@ export class Viewport {
 
   // ---- ground and theme ----
 
-  /**
-   * Lays the grid under a layout's parts, on the lowest z of the layout, and
-   * returns a sphere around the parts and the grid.
-   */
+  /** Lays the grid under a layout's parts, on the lowest z of the layout, and returns a sphere around the parts and the grid. */
   private rebuildGround(layout: string): THREE.Sphere {
-    const box = boxOf(this.partsOf(layout)) ?? EMPTY_BOX
-    const [x0, y0, z] = box.min
-    const [x1, y1, z1] = box.max
-    const size = Math.max(x1 - x0, y1 - y0) || z1 - z || 10
-    const step = gridStep(size)
-    const pad = Math.max(size / 2, step * 2)
-    const left = Math.floor((x0 - pad) / step) * step
-    const right = Math.ceil((x1 + pad) / step) * step
-    const near = Math.floor((y0 - pad) / step) * step
-    const far = Math.ceil((y1 + pad) / step) * step
-
-    const points: number[] = []
-    for (let i = 0, n = Math.round((right - left) / step); i <= n; i++) {
-      const x = left + i * step
-      points.push(x, near, z, x, far, z)
-    }
-    for (let i = 0, n = Math.round((far - near) / step); i <= n; i++) {
-      const y = near + i * step
-      points.push(left, y, z, right, y, z)
-    }
+    const { points, extent } = groundOf(boxOf(this.partsOf(layout)) ?? EMPTY_BOX)
     this.ground.geometry.dispose()
     this.ground.geometry = new THREE.BufferGeometry()
     this.ground.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3))
-
-    const all = new THREE.Box3(new THREE.Vector3(left, near, z), new THREE.Vector3(right, far, Math.max(z1, z)))
-    return all.getBoundingSphere(new THREE.Sphere())
+    return extent
   }
 
   private readTheme(): void {
-    const css = typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null
-    const read = (name: string, fallback: string) => css?.getPropertyValue(name).trim() || fallback
-    this.theme = {
-      surface: read('--surface', LIGHT_THEME.surface),
-      hairline: read('--hairline', LIGHT_THEME.hairline),
-      ink: read('--ink', LIGHT_THEME.ink),
-      muted: read('--muted', LIGHT_THEME.muted),
-      accent: read('--accent', LIGHT_THEME.accent),
-      agent: read('--agent-mark', LIGHT_THEME.agent),
-      user: read('--user-mark', LIGHT_THEME.user),
-      panel: read('--panel', LIGHT_THEME.panel),
-      scan: read('--scan-plain', LIGHT_THEME.scan),
-      axisX: read('--axis-x', LIGHT_THEME.axisX),
-      axisY: read('--axis-y', LIGHT_THEME.axisY),
-      axisZ: read('--axis-z', LIGHT_THEME.axisZ)
-    }
+    this.theme = themeOf()
     // The axes keep their usual colours, toned to the palette; the handle under the pointer is ink, like anything pressed.
     this.gizmo.setColours(toHex(this.theme.axisX), toHex(this.theme.axisY), toHex(this.theme.axisZ), toHex(this.theme.ink))
     this.highlights.setColors(this.theme)
@@ -1180,13 +1123,4 @@ function boxOf(parts: Part[]): { min: number[]; max: number[] } | null {
     }
   }
   return { min, max }
-}
-
-function markColours(theme: Theme): { user: string; agent: string; reference: string } {
-  return { user: toHex(theme.user), agent: toHex(theme.agent), reference: toHex(theme.muted) }
-}
-
-/** Any CSS colour as #RRGGBB. */
-function toHex(color: string): string {
-  return `#${new THREE.Color(color).getHexString()}`
 }
