@@ -51,6 +51,11 @@ NEAREST = (8, 32, 128)
 # Where the last of those did not settle it either, every point within the distance found and the reach is tried,
 # unless there are more of them than this round the one point: then the distance stays unsure, and is counted.
 BALL = 20_000
+# No more pairs of a point of one mesh and a point of another are ever asked for at a time: they are counted
+# first, and what would be more is asked for in halves. (Of 24 bytes each: 96 MB.)
+MAX_PAIRS = 4_000_000
+# A triangle with a side longer than this, mm, is stood for only where it is asked about: cut to that box first.
+LONG = 512.0
 # How many points at a time are measured so, and how many of a deviation, with the clock looked at between.
 BALL_BATCH = 128
 DEVIATION_BATCH = 2_000
@@ -191,6 +196,9 @@ def clusters(points: np.ndarray, cell: float = CELL) -> np.ndarray:
     cells = np.floor(points / cell).astype(np.int64)
     cells -= cells.min(axis=0)
     span = cells.max(axis=0) + 3
+    if not _packs(span):
+        return _clusters_apart(cells)
+    # One number a cell, with room for a neighbour on every side: it fits in 64 bits, which was just looked at.
     key = ((cells[:, 0] + 1) * span[1] + cells[:, 1] + 1) * span[2] + cells[:, 2] + 1
     filled, of = np.unique(key, return_inverse=True)
     of = of.reshape(-1)
@@ -220,6 +228,39 @@ def clusters(points: np.ndarray, cell: float = CELL) -> np.ndarray:
     return rank[numbered[of]]
 
 
+def _packs(span: np.ndarray) -> bool:
+    """Whether cells numbered up to ``span`` along each axis can each be one number of 64 bits."""
+    return int(span[0]) * int(span[1]) * int(span[2]) < 2**62
+
+
+def _clusters_apart(cells: np.ndarray) -> np.ndarray:
+    """As ``clusters``, of cells too far apart to be one number each: each filled cell is looked up by its three."""
+    filled, of = np.unique(cells, axis=0, return_inverse=True)
+    of = of.reshape(-1)
+    number = {tuple(cell): n for n, cell in enumerate(filled.tolist())}
+    label = list(range(len(filled)))
+
+    def root(n: int) -> int:
+        while label[n] != n:
+            label[n] = label[label[n]]
+            n = label[n]
+        return n
+
+    for (x, y, z), n in number.items():
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    beside = number.get((x + dx, y + dy, z + dz))
+                    if beside is not None:
+                        label[root(beside)] = root(n)
+    _, numbered = np.unique([root(n) for n in range(len(filled))], return_inverse=True)
+    points_in = np.bincount(numbered[of])
+    by_size = np.argsort(-points_in, kind="stable")
+    rank = np.empty(len(by_size), dtype=np.int64)
+    rank[by_size] = np.arange(len(by_size))
+    return rank[numbered[of]]
+
+
 # Distances
 
 
@@ -231,8 +272,8 @@ def _sides(corners: np.ndarray) -> np.ndarray:
 
 def _steps(sides: np.ndarray, spacing: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """How many steps of at most ``spacing`` the first two sides of each triangle are sampled in, and which triangles have no side longer than it."""
-    nu = np.clip(np.ceil(sides[:, 0] / spacing).astype(np.int64), 1, 512)
-    nv = np.clip(np.ceil(sides[:, 1] / spacing).astype(np.int64), 1, 512)
+    nu = np.maximum(np.ceil(sides[:, 0] / spacing).astype(np.int64), 1)
+    nv = np.maximum(np.ceil(sides[:, 1] / spacing).astype(np.int64), 1)
     return nu, nv, sides.max(axis=1) <= spacing
 
 
@@ -242,9 +283,14 @@ def sampled(vertices: np.ndarray, triangles: np.ndarray, spacing: float = SURFAC
     Each triangle gets a grid along two of its sides, as fine as each side
     needs, so a long thin triangle is not sampled as a large one would be. A
     triangle with no side longer than the spacing gets its middle alone: no
-    point of it is further from that than two thirds of the spacing.
+    point of it is further from that than two thirds of the spacing. There
+    are as many points as the area asks for: whoever calls this has looked
+    how many that is (``_spacing``).
     """
-    corners = np.asarray(vertices, dtype=np.float64)[np.asarray(triangles, dtype=np.int64)]
+    return _sampled(np.asarray(vertices, dtype=np.float64)[np.asarray(triangles, dtype=np.int64).reshape(-1, 3)], spacing)
+
+
+def _sampled(corners: np.ndarray, spacing: float) -> tuple[np.ndarray, np.ndarray]:
     a, b, c = corners[:, 0], corners[:, 1], corners[:, 2]
     nu, nv, small = _steps(_sides(corners), spacing)
     count = np.where(small, 1, (nu + 1) * (nv + 1))
@@ -293,24 +339,41 @@ def _tree(points: np.ndarray) -> Any:
     return cKDTree(points, balanced_tree=False, compact_nodes=False)
 
 
-def _spacing(corners: np.ndarray, spacing: float, most: int) -> tuple[float, float]:
-    """How far apart to ask ``sampled`` for its points so that they are at most ``most``, and how far apart they then really are.
+def _spacing(corners: np.ndarray, spacing: float, most: int) -> float:
+    """How far apart the points that stand for triangles are to be, so that there are at most ``most`` of them.
 
-    The two differ for a triangle with a side of more than 512 times the
-    spacing: ``sampled`` gives no side more points than that. The spacing
-    grows by half until the points are few enough, and no further than the
-    longest side there is: by then every triangle has one point.
+    The spacing asked for, or more by half as often as it takes, and no more
+    than the longest side there is: by then every triangle has one point.
     """
     if len(corners) == 0:
-        return spacing, spacing
+        return spacing
     sides = _sides(corners)
     while spacing < sides.max():
         nu, nv, small = _steps(sides, spacing)
         if np.where(small, 1, (nu + 1) * (nv + 2) // 2).sum() <= most:
             break
         spacing *= 1.5
-    # The two sides the points are laid along are the first two.
-    return spacing, max(spacing, float(sides[:, :2].max()) / 512)
+    return spacing
+
+
+def _cut(corners: np.ndarray, low: np.ndarray, high: np.ndarray) -> np.ndarray:
+    """What of one triangle is in a box, as triangles: none when it passes the box by."""
+    shape = [corner for corner in corners]
+    for axis in range(3):
+        for bound, keeps in ((low[axis], 1.0), (high[axis], -1.0)):
+            # One side of the box at a time: the corners on its inner side, and where the outline goes through it.
+            cut = []
+            for n, here in enumerate(shape):
+                there = shape[(n + 1) % len(shape)]
+                one, other = (here[axis] - bound) * keeps, (there[axis] - bound) * keeps
+                if one >= 0:
+                    cut.append(here)
+                if (one >= 0) != (other >= 0):
+                    cut.append(here + (there - here) * (one / (one - other)))
+            shape = cut
+            if len(shape) < 3:
+                return np.zeros((0, 3, 3))
+    return np.array([[shape[0], shape[n], shape[n + 1]] for n in range(1, len(shape) - 1)])
 
 
 class _Sampled:
@@ -321,12 +384,27 @@ class _Sampled:
     and is nearer than the distance found and ``reach`` has had its triangle
     tried: the triangle that is nearest has a point no further than that.
     ``spacing`` is how far apart the points are, mm.
+
+    With a ``box`` (its least and its greatest corner), a triangle with a
+    side longer than ``LONG`` is stood for by what of it is in the box: a
+    scan may have one of 30 m among its thousands of 4 mm, and it is asked
+    about beside a part. ``corners`` are then the pieces, and ``origin``
+    says which triangle each is of: every answer names the triangle.
     """
 
-    def __init__(self, vertices: np.ndarray, triangles: np.ndarray, most: int | None = None) -> None:
+    def __init__(self, vertices: np.ndarray, triangles: np.ndarray, most: int | None = None, box: tuple[np.ndarray, np.ndarray] | None = None) -> None:
         self.corners = np.asarray(vertices, dtype=np.float64)[np.asarray(triangles, dtype=np.int64).reshape(-1, 3)]
-        self.asked, self.spacing = _spacing(self.corners, SURFACE, MAX_PART_SAMPLES if most is None else most)
-        self.points, self.owner = sampled(vertices, triangles, self.asked) if len(self.corners) else (np.zeros((0, 3)), np.zeros(0, dtype=np.int64))
+        self.origin = np.arange(len(self.corners))
+        if box is not None and len(self.corners):
+            long = np.flatnonzero(_sides(self.corners).max(axis=1) > LONG)
+            if len(long):
+                pieces = [_cut(self.corners[n], box[0] - TOUCH, box[1] + TOUCH) for n in long]
+                short = np.ones(len(self.corners), dtype=bool)
+                short[long] = False
+                self.origin = np.concatenate([self.origin[short], np.repeat(long, [len(piece) for piece in pieces])])
+                self.corners = np.concatenate([self.corners[short], *pieces])
+        self.spacing = _spacing(self.corners, SURFACE, MAX_PART_SAMPLES if most is None else most)
+        self.points, self.owner = _sampled(self.corners, self.spacing) if len(self.corners) else (np.zeros((0, 3)), np.zeros(0, dtype=np.int64))
         self.tree = _tree(self.points) if len(self.points) else None
         # No point of a triangle is further than this from one of those that stand for it.
         self.reach = 1.1 * self.spacing
@@ -343,7 +421,8 @@ class _Sampled:
         points at a time until the clock (``time.monotonic``) is past
         ``deadline``. A distance left unsure, by the clock or because more
         than ``BALL`` points are that near, is of a triangle all the same,
-        and too long by less than ``reach``.
+        and too long by less than ``reach``: so one found beyond ``within``
+        by less than that is not said to be beyond it, but unsure.
         """
         points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
         best, at, on = np.full(len(points), np.inf), points.copy(), np.full(len(points), -1, dtype=np.int64)
@@ -393,9 +472,9 @@ class _Sampled:
                 pair = np.unique(np.repeat(rows, count) * len(self.corners) + self.owner[sample])
                 tried(pair // len(self.corners), pair % len(self.corners))
             unsure[rows] = False
-        beyond = best > within
+        beyond = (best > within) & ~(unsure & (best - self.reach <= within))
         best[beyond], at[beyond], on[beyond], unsure[beyond] = np.inf, points[beyond], -1, False
-        return best, at, on, unsure
+        return best, at, np.where(on >= 0, self.origin[np.maximum(on, 0)], -1) if len(self.origin) else on, unsure
 
 
 # Edges through a mesh
@@ -412,6 +491,16 @@ def _clipped(p: np.ndarray, d: np.ndarray, low: np.ndarray, high: np.ndarray) ->
     return np.maximum(enters.max(axis=1), 0.0), np.minimum(leaves.min(axis=1), 1.0)
 
 
+def _pairs(one: Any, other: Any, reach: float) -> Any:
+    """The points of two trees that are within ``reach`` of each other, as scipy's records ``i``, ``j``: None when there are more than ``MAX_PAIRS``.
+
+    They are counted before they are asked for: nothing here ever asks for more.
+    """
+    if one.count_neighbors(other, reach) > MAX_PAIRS:
+        return None
+    return one.sparse_distance_matrix(other, reach, output_type="ndarray")
+
+
 def _hits(p: np.ndarray, d: np.ndarray, first: np.ndarray, last: np.ndarray, surface: "_Sampled") -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Where segments meet the triangles of a mesh: of each meeting the segment, the share of it, 0 to 1, the triangle, and how far within the triangle it is.
 
@@ -425,7 +514,10 @@ def _hits(p: np.ndarray, d: np.ndarray, first: np.ndarray, last: np.ndarray, sur
     pieces and points are that near, and only those pairs of a segment and a
     triangle are tried. A meeting on the edge two triangles share is found
     twice: whoever asks counts the places, not the meetings. A segment that
-    lies in the plane of a triangle does not meet it.
+    lies in the plane of a triangle does not meet it. The pairs of a piece
+    and a point are counted before they are asked for, and asked for in
+    halves where there are more than ``MAX_PAIRS``; one piece that has more
+    alone is a ``bad_request``.
     """
     nothing = np.zeros(0, dtype=np.int64), np.zeros(0), np.zeros(0, dtype=np.int64), np.zeros(0)
     if surface.tree is None or len(p) == 0:
@@ -438,8 +530,15 @@ def _hits(p: np.ndarray, d: np.ndarray, first: np.ndarray, last: np.ndarray, sur
     # A piece of a segment longer than 4096 pieces is longer than the others: so then is how far is looked from its middle.
     reach = float((np.linalg.norm(d[segment], axis=1) * width).max()) / 2 + surface.reach
     found_segment, found_share, found_triangle, found_within = [], [], [], []
-    for start in range(0, len(segment), BATCH):
-        near = _tree(middle[start : start + BATCH]).sparse_distance_matrix(surface.tree, reach, output_type="ndarray")
+
+    def meet(start: int, stop: int) -> None:
+        near = _pairs(_tree(middle[start:stop]), surface.tree, reach)
+        if near is None:
+            if stop - start == 1:
+                raise QueryError("bad_request", f"the scan and the part are too dense to be checked against each other here: more than {MAX_PAIRS:,} points of one within {reach:.3g} mm of one point of the other")
+            meet(start, (start + stop) // 2)
+            meet((start + stop) // 2, stop)
+            return
         pair = np.unique(segment[start + near["i"]] * len(surface.corners) + surface.owner[near["j"]])
         asked, triangle = pair // len(surface.corners), pair % len(surface.corners)
         a, e1, e2 = surface.corners[triangle, 0], surface.corners[triangle, 1] - surface.corners[triangle, 0], surface.corners[triangle, 2] - surface.corners[triangle, 0]
@@ -457,8 +556,11 @@ def _hits(p: np.ndarray, d: np.ndarray, first: np.ndarray, last: np.ndarray, sur
             inner = np.minimum(np.minimum(s, t), 1 - s - t)
         found_segment.append(asked[hit])
         found_share.append(share[hit])
-        found_triangle.append(triangle[hit])
+        found_triangle.append(surface.origin[triangle[hit]])
         found_within.append(inner[hit])
+
+    for start in range(0, len(segment), BATCH):
+        meet(start, min(start + BATCH, len(segment)))
     return (np.concatenate(found_segment), np.concatenate(found_share), np.concatenate(found_triangle), np.concatenate(found_within)) if found_segment else nothing
 
 
@@ -471,7 +573,8 @@ def _through(points: np.ndarray, corners: np.ndarray, vertices: np.ndarray, tria
     a face, does not; one that goes in at one side of a wall and out at the
     other does, with both its ends outside. Where it goes through is the
     middle of the first piece of the edge that is inside. A part that goes
-    through the middle of a triangle and meets none of its edges is not seen.
+    through the middle of a triangle and meets none of its edges is not seen
+    here: ``_poked`` sees it, from the part's edges.
     """
     # Numbers of 64 bits: one vertex's times the number of vertices is past 32 for any scan of more than 65,536.
     corners = np.asarray(corners, dtype=np.int64)
@@ -518,19 +621,24 @@ def _edges(vertices: np.ndarray, triangles: np.ndarray) -> tuple[np.ndarray, np.
     return begins, np.asarray(vertices, dtype=np.float64)[sides[:, 1]] - begins
 
 
-def _poked(p: np.ndarray, d: np.ndarray, points: np.ndarray, corners: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _poked(p: np.ndarray, d: np.ndarray, points: np.ndarray, corners: np.ndarray, box: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     """Which of the triangles ``corners`` an edge ``p`` to ``p + d`` of another mesh goes through, and where.
 
     Through: it meets the triangle within it, not on its rim, and between
     its own ends, not at one of them. An edge of a closed mesh that does so
     has that mesh's surface on both sides of the triangle. This is what sees
     a part that goes through the middle of a large triangle of a scan and
-    meets none of its edges.
+    meets none of its edges. ``box`` is where the edges are: a long triangle
+    is looked at there only. What neither this nor ``_through`` sees is a
+    surface that goes through a triangle exactly at a corner of the other
+    mesh, where no edge of either goes through anything.
     """
     pierced, where = np.zeros(len(corners), dtype=bool), np.zeros((len(corners), 3))
     if len(corners) == 0 or len(p) == 0:
         return pierced, where
-    mesh = _Sampled(points, corners, MAX_SCAN_SAMPLES)
+    mesh = _Sampled(points, corners, MAX_SCAN_SAMPLES, box)
+    if len(mesh.corners) == 0:
+        return pierced, where
     first, last = _clipped(p, d, mesh.corners.min(axis=(0, 1)) - TOUCH, mesh.corners.max(axis=(0, 1)) + TOUCH)
     meets = np.flatnonzero((first <= last) & (np.abs(d).max(axis=1) > 0))
     edge, share, triangle, within = _hits(p[meets], d[meets], first[meets], last[meets], mesh)
@@ -644,7 +752,7 @@ class _Scan:
         which = (tuple(map(float, low)), tuple(map(float, high)))
         if self.stood is None or self.stood[0] != which:
             self.stood = None
-            self.stood = (which, _Sampled(self.points, self.triangles[self.meeting(low, high)], MAX_SCAN_SAMPLES))
+            self.stood = (which, _Sampled(self.points, self.triangles[self.meeting(low, high)], MAX_SCAN_SAMPLES, (low, high)))
         return self.stood[1]
 
     def meeting(self, low: np.ndarray, high: np.ndarray) -> np.ndarray:
@@ -768,7 +876,7 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
     while tested < len(tried) and time.monotonic() - started <= EDGES_SHARE * BUDGET:
         corners = scan.triangles[tried[tested : tested + EDGE_BATCH]]
         through, where = _through(scan.points, corners, vertices, triangles, surface, grids)
-        poked, there = _poked(*of_part, scan.points, corners)
+        poked, there = _poked(*of_part, scan.points, corners, (low, high))
         crossed.append(np.where(through[:, None], where, there)[through | poked])
         tested = min(tested + EDGE_BATCH, len(tried))
     late = late or tested < len(tried)
@@ -834,6 +942,7 @@ def clash(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) ->
         "crossing counts the scan's triangles an edge of which goes through that mesh, and those that one of the edges of the part's mesh goes through, whether or not a vertex is inside"
         + (f": at least, since only every {_nth(step)} of them was tried" if step > 1 else "")
         + (": at least, since the time ran out" if step == 1 and at_least else ""),
+        "a surface that goes through a triangle exactly at a corner of the other mesh, and meets no edge, may be missed",
         "each depth and distance told is from that scan point to the part's B-rep",
     ]
     if failed:
@@ -912,6 +1021,7 @@ def deviation(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]
     sampling["surface"] = of_part.spacing
     if source == "part":
         # Points of the part, each to the triangles of the scan: a scan of large triangles has few vertices to be near.
+        fewer = f"there are no more, {of_part.spacing:g} mm apart"
         some = _few(len(of_part.points), wanted)
         points, owner = of_part.points[some], numbers[of_part.owner[some]]
         mesh = scan.stand_in(points.min(axis=0) - within, points.max(axis=0) + within) if len(points) else _Sampled(scan.points, scan.triangles[:0])
@@ -922,6 +1032,7 @@ def deviation(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]
         mesh = of_part
         box = vertices[triangles[chosen]].reshape(-1, 3)
         near = np.flatnonzero(scan.counts & ((scan.points >= box.min(axis=0) - within) & (scan.points <= box.max(axis=0) + within)).all(axis=1))
+        fewer = f"no more are within {within:g} mm of the part"
         points = scan.points[near[_few(len(near), wanted)]]
         how = "vertices of the scan to the triangles of the part's mesh"
     # In an order that is none: what there was time for is then of all over, not of the first faces.
@@ -942,8 +1053,14 @@ def deviation(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]
         owner, on_scan, other = owner[order], there, there
     else:
         owner, on_scan, other = numbers[np.maximum(on, 0)] if len(numbers) else on, points, there
-    how = f"from {len(points):,} {how}"
+    what, to = how.split(" to ", 1)
+    sampling["asked"] = wanted
     sampling["partial"] = done < asked
+    how = f"from {len(points):,} {what}" + (f" ({wanted:,} were asked: {fewer})" if asked < wanted else "") + f" to {to}"
+    if done == 0 and asked:
+        sampling["seconds"] = round(time.monotonic() - started, 2)
+        said = {"part": part, "faces": faces, "scan": scan.id, "from": source, "samples": 0, "compared": 0, "beyond": 0}
+        return {**said, "distance": None, "signed": None, "worst": None, "sampling": {**sampling, "unsure": 0}, "how": f"{how}; the time ran out before any of {asked:,} was measured", "exact": False}
     if done < asked:
         how += f"; the time ran out after {done:,} of {asked:,}"
     compared = np.isfinite(distance)

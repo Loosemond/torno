@@ -417,9 +417,10 @@ def test_how_far_a_point_is_from_a_mesh_is_to_its_triangles_not_to_the_points_th
     distance, at, on, _ = mesh.nearest(points, 50)
     assert distance[:3] == pytest.approx([0.3, 0.3, 0.5]) and np.isinf(distance[3]) and on[3] == -1
     assert at[:3] == pytest.approx(np.array([[0.3, 0.2, 5], [10, 0.2, 0.1], [10, 10, 0]]))
-    # A triangle longer than 512 points a side is sampled further apart, and says how far.
+    # A long triangle is stood for no more coarsely than a short one: along all its 2,048 mm, and across its 4.
     long = scanclash._Sampled(np.array([[0.0, 0, 0], [2048, 0, 0], [0, 4, 0]]), np.array([[0, 1, 2]]))
-    assert long.spacing == pytest.approx(4)
+    assert long.spacing == 1.0 and 2049 <= len(long.points) <= 2049 * 5
+    assert long.nearest(np.array([[1024.3, 1.0, 0.25]]))[0] == pytest.approx([0.25])
 
 
 def test_a_scan_of_large_triangles_is_seen_between_its_vertices(tmp_path):
@@ -788,3 +789,155 @@ def test_what_a_deviation_says_of_a_point_is_of_that_point(tmp_path):
     # The plane of the sheet goes through (0, 0, 9) with the normal turned 10° about Y.
     normal = np.array([math.sin(tilt), 0, math.cos(tilt)])
     assert abs((on - [0, 0, 9]) @ normal) < 1e-6 and said["distance"]["max"] == pytest.approx(abs((at - [0, 0, 9]) @ normal), abs=1e-6)
+
+
+# What the third review found
+
+
+def beside(mesh, long: float, corner: float = 20.0):
+    """A scan with one more triangle, ``long`` mm a side, that passes 1.4 mm beside the corner of a box ``corner`` from the middle: it crosses nothing."""
+    vertices, triangles = mesh
+    edge = 2 * corner + 2
+    more = [[edge + long, -long, 0], [-long, edge + long, 0], [edge / 2, edge / 2, long]]
+    return np.vstack([vertices, more]), np.vstack([triangles, [[len(vertices), len(vertices) + 1, len(vertices) + 2]]])
+
+
+# A sheet of 28,322 triangles half a millimetre a side, through a box 40 × 40 × 20 and out of its four walls.
+DENSE = scanfix.grid(120, 0.5, 3.0)
+
+
+@pytest.mark.parametrize("long", [3_000, 30_000])
+def test_one_long_triangle_among_the_scans_does_not_make_the_others_coarse(tmp_path, long):
+    from build123d import Box
+
+    shapes = {"assembly:a": Box(40, 40, 20)}
+    plain = ask(shapes, "scan_clash", scan=scan_of(tmp_path, DENSE))
+    said = ask(shapes, "scan_clash", scan=scan_of(tmp_path, beside(DENSE, long)))
+    assert plain["inside"]["count"] == 80 * 80 and plain["inside"]["crossing"] == 4 * 79 * 2 + 6
+    assert said["inside"] == plain["inside"] and said["crossings"]["clusters"] == plain["crossings"]["clusters"]
+    assert said["crossings"]["triangles"]["candidates"] == plain["crossings"]["triangles"]["candidates"] + 1
+    assert said["sampling"]["partial"] is False and said["sampling"]["seconds"] < 10
+    # And of how far the part is from it: the long triangle is the nearest thing to the corner, and nothing is unsure for it.
+    top = int(face_at(shapes, [0, 0, 10]).split("F")[1])
+    far = ask(shapes, "scan_deviation", scan=scan_of(tmp_path, beside(DENSE, long)), faces=[top], within=10)
+    near = ask(shapes, "scan_deviation", scan=scan_of(tmp_path, DENSE), faces=[top], within=10)
+    assert far["sampling"]["scanSurface"] == 1.0 and far["sampling"]["unsure"] == 0 and far["sampling"]["partial"] is False
+    # The corner (20, 20, 10) is √2 from the plane x + y = 42 the triangle lies in.
+    assert far["distance"]["max"] == pytest.approx(7) and near["distance"]["min"] == pytest.approx(7)
+    assert far["distance"]["min"] == pytest.approx(math.sqrt(2), abs=1e-6)
+
+
+def test_a_long_triangle_is_stood_for_only_where_it_is_asked_about():
+    # 30 m a side, lying in z = 0: stood for within a box of 100 mm it has ten thousand points, not a thousand million.
+    vertices = np.array([[-10_000.0, -10_000, 0], [20_000, -10_000, 0], [-10_000, 20_000, 0], [0, 0, 5], [1, 0, 5], [0, 1, 5]])
+    triangles = np.array([[0, 1, 2], [3, 4, 5]])
+    mesh = scanclash._Sampled(vertices, triangles, box=(np.array([-50.0, -50, -50]), np.array([50.0, 50, 50])))
+    assert mesh.spacing == 1.0 and 5_000 < len(mesh.points) < 30_000
+    distance, at, on, unsure = mesh.nearest(np.array([[10.2, -20.7, 3], [0.2, 0.2, 4.5], [49.9, 49.9, -1]]), 50)
+    assert distance == pytest.approx([3, 0.5, 1]) and on.tolist() == [0, 1, 0] and not unsure.any()
+    assert at == pytest.approx(np.array([[10.2, -20.7, 0], [0.2, 0.2, 5], [49.9, 49.9, 0]]))
+    # One that only passes the box by is not stood for at all.
+    past = scanclash._Sampled(vertices + [0, 0, 80], triangles[:1], box=(np.array([-50.0, -50, -50]), np.array([50.0, 50, 50])))
+    assert len(past.points) == 0 and np.isinf(past.nearest(np.array([[0.0, 0, 0]]))[0]).all()
+
+
+def test_no_more_pairs_are_asked_for_at_a_time_than_fit_and_the_answer_is_the_same(tmp_path, monkeypatch):
+    plain = ask(box_part(), "scan_clash", scan=scan_of(tmp_path))
+    asked = []
+    real = scanclash._pairs
+
+    def watched(one, other, reach):
+        found = real(one, other, reach)
+        asked.extend([] if found is None else [len(found)])
+        return found
+
+    monkeypatch.setattr(scanclash, "_pairs", watched)
+    monkeypatch.setattr(scanclash, "MAX_PAIRS", 300)
+    said = ask(box_part(), "scan_clash", scan=scan_of(tmp_path))
+    assert said["inside"] == plain["inside"] and said["crossings"] == plain["crossings"]
+    assert len(asked) > 4 and max(asked) <= 300
+    # Where one piece alone has more than fit, it is refused in a sentence: never asked for.
+    monkeypatch.setattr(scanclash, "MAX_PAIRS", 0)
+    kind, message = refused(box_part(), "scan_clash", scan=scan_of(tmp_path))
+    assert kind == "bad_request" and "too dense" in message
+
+
+def test_within_two_gigabytes_a_scan_with_a_triangle_30_m_long_is_answered(tmp_path):
+    import json
+    import subprocess
+    import sys
+
+    scanfile.write_bin(tmp_path / "S1.bin", *beside(DENSE, 30_000))
+    code = (
+        "import json, resource, sys\n"
+        "from build123d import Box\n"
+        "from torno_kernel import queries\n"
+        "import scipy.spatial\n"
+        "now = 1024 * int(next(line for line in open('/proc/self/status') if line.startswith('VmData')).split()[1])\n"
+        "resource.setrlimit(resource.RLIMIT_DATA, (now + (2 << 30), now + (2 << 30)))\n"
+        "scan = {'id': 'S1', 'path': sys.argv[1], 'transform': {'t': [0, 0, 0], 'q': [0, 0, 0, 1], 's': 1}}\n"
+        "shapes = {'assembly:a': Box(40, 40, 20)}\n"
+        "clash = queries.run(shapes, 'scan_clash', {'layout': 'assembly', 'part': 'a', 'scan': scan}, {})\n"
+        "far = queries.run(shapes, 'scan_deviation', {'layout': 'assembly', 'part': 'a', 'scan': scan}, {})\n"
+        "print(json.dumps({'inside': clash['inside']['count'], 'crossing': clash['inside']['crossing'], 'partial': clash['sampling']['partial'], 'unsure': far['sampling']['unsure'], 'scanSurface': far['sampling']['scanSurface']}))\n"
+    )
+    done = subprocess.run([sys.executable, "-c", code, str(tmp_path / "S1.bin")], capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"inside": 6400, "crossing": 638, "partial": False, "unsure": 0, "scanSurface": 1.0}
+
+
+def test_a_point_that_may_be_within_reach_is_unsure_not_beyond():
+    vertices, triangles = scanfix.box((20, 20, 10))
+    mesh = scanclash._Sampled(vertices, triangles)
+    points = np.array([[0.3, 0.2, 8.0]])
+    # Settled, it is 3 away: beyond 2.5.
+    distance, _, on, unsure = mesh.nearest(points, 2.5)
+    assert np.isinf(distance[0]) and on[0] == -1 and not unsure[0]
+
+
+def test_a_point_not_settled_that_may_be_within_reach_is_unsure_not_beyond(monkeypatch):
+    vertices, triangles = scanfix.box((20, 20, 10))
+    mesh = scanclash._Sampled(vertices, triangles)
+    monkeypatch.setattr(scanclash, "NEAREST", (1,))
+    monkeypatch.setattr(scanclash, "BALL", 0)
+    points = np.array([[0.3, 0.2, 8.0]])
+    # Not settled: found 3 away, which may be up to 1.1 too far. Within 2.5 it may yet be; within 1.5 it cannot.
+    distance, _, on, unsure = mesh.nearest(points, 2.5)
+    assert distance[0] == pytest.approx(3, abs=0.01) and on[0] >= 0 and unsure[0]
+    distance, _, on, unsure = mesh.nearest(points, 1.5)
+    assert np.isinf(distance[0]) and on[0] == -1 and not unsure[0]
+
+
+def test_points_far_apart_are_clustered_as_points_near_are():
+    # Cells of 5 mm over 2,000 km a side: their numbers multiplied are past what 64 bits hold.
+    points = np.array([[0.0, 0, 0], [6, 0, 0], [2e9, 2e9, 2e9], [2e9 + 6, 2e9, 2e9], [2e9, 2e9 + 4, 2e9], [-2e9, 3e8, 7e8]])
+    assert scanclash.clusters(points).tolist() == [1, 1, 0, 0, 0, 2]
+    # And one of them wrapped onto another's number: 2 ** 64 cells further along the last axis is not the same cell.
+    assert scanclash._packs(np.array([4_000_000_000, 4_000_000_000, 4_000_000_000])) is False
+    assert scanclash._packs(np.array([1_000_000, 1_000_000, 1_000_000])) is True
+
+
+def test_a_clash_says_what_it_cannot_see(tmp_path):
+    said = ask(box_part(), "scan_clash", scan=scan_of(tmp_path))
+    assert "a surface that goes through a triangle exactly at a corner of the other mesh, and meets no edge, may be missed" in said["how"]
+
+
+def test_a_deviation_with_no_time_says_that_and_not_that_nothing_is_near(tmp_path, monkeypatch):
+    monkeypatch.setattr(scanclash, "BUDGET", -1.0)
+    none = ask(box_part(), "scan_deviation", scan=scan_of(tmp_path, transform={"t": [0, 0, 7], "q": [0, 0, 0, 1], "s": 1}))
+    assert none["samples"] == 0 and none["distance"] is None and none["sampling"]["partial"] is True
+    assert none["how"].endswith("the time ran out before any of 2,808 was measured") and "nothing of the scan" not in none["how"]
+
+
+def test_a_deviation_says_how_many_points_were_asked_and_why_there_are_fewer(tmp_path):
+    shapes = box_part()
+    top = int(face_at(shapes, [0, 0, 5]).split("F")[1])
+    scan = scan_of(tmp_path, transform={"t": [0, 0, 7], "q": [0, 0, 0, 1], "s": 1})
+    few = ask(shapes, "scan_deviation", scan=scan, faces=[top])
+    assert few["sampling"]["asked"] == 10_000 and few["samples"] == 632 and few["sampling"]["partial"] is False
+    assert "632 points of the part's mesh (10,000 were asked: there are no more, 1 mm apart)" in few["how"]
+    from_scan = ask(shapes, "scan_deviation", scan=scan, **{"from": "scan"})
+    assert from_scan["sampling"]["asked"] == 10_000 and from_scan["samples"] == 900
+    assert "900 vertices of the scan (10,000 were asked: no more are within 50 mm of the part)" in from_scan["how"]
+    all_of = ask(shapes, "scan_deviation", scan=scan, samples=500)
+    assert all_of["sampling"]["asked"] == 500 and all_of["samples"] == 500 and "were asked" not in all_of["how"]
