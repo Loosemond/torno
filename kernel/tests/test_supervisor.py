@@ -324,6 +324,7 @@ def test_nearest_over_the_protocol(bracket_kernel):
         "ref": above["ref"],
         "distance": pytest.approx(3),
         "descriptor": "plane, normal +Z, z = 2.5, 1200 mm²",
+        "support": "face",
     }
     # The ref is one describe takes once the layout is put in front of it.
     assert above["ref"].startswith("base/F")

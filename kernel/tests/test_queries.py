@@ -235,6 +235,7 @@ def test_nearest_above_the_base_is_its_top_face(shapes):
         "ref": top["ref"].removeprefix("assembly:"),
         "distance": pytest.approx(3),
         "descriptor": "plane, normal +Z, z = 2.5, 1200 mm²",
+        "support": "face",
     }
 
 
@@ -344,9 +345,130 @@ def test_nearest_point_on_no_face_of_the_part_is_an_error_not_its_last_face(shap
         assert e.value.message == "the point of assembly:base nearest to the anchor is on none of its faces"
 
 
-def test_face_at_a_coordinate_of_modelling_noise_is_at_zero():
-    facts = {"type": "plane", "normal": [0, 0, 1], "center": [3, 4, -0.0000001], "area": 100}
-    assert descriptor("face", facts) == "plane, normal +Z, z = 0, 100 mm²"
+def test_nearest_anchor_that_cannot_be_answered_says_so_and_the_others_are_answered(shapes, monkeypatch):
+    # One anchor whose nearest point is on no face is that anchor's failure, not the call's.
+    face_under = queries._Surface._face_under
+
+    def odd(self, key, support_type, support):
+        if key == "assembly:post":
+            raise queries.QueryError("exception", f"the point of {key} nearest to the anchor is on none of its faces")
+        return face_under(self, key, support_type, support)
+
+    monkeypatch.setattr(queries._Surface, "_face_under", odd)
+    on_base, on_post, gone, again = nearest(
+        shapes, "assembly", ("base", [5, 3, 5.5]), ("post", [7, 0, 12]), ("lid", [0, 0, 0]), ("base", [5, 3, -4.5])
+    )
+    assert on_base["distance"] == pytest.approx(3)
+    assert on_post == {
+        "part": "post",
+        "found": True,
+        "error": "the point of assembly:post nearest to the anchor is on none of its faces",
+    }
+    assert gone == {"part": "lid", "found": False}
+    assert again["distance"] == pytest.approx(2)
+
+
+def test_nearest_says_what_the_point_lies_on_and_names_the_edge_and_the_faces_that_meet_there(shapes):
+    top = face_of(shapes, "assembly:base", normal=[0, 0, 1])["ref"].removeprefix("assembly:")
+    side = face_of(shapes, "assembly:base", normal=[1, 0, 0])["ref"].removeprefix("assembly:")
+    in_face, on_edge, on_corner, beyond = nearest(
+        shapes,
+        "assembly",
+        ("base", [5, 3, 2.5]),
+        ("base", [20, 3, 2.5]),
+        ("base", [20, 15, 2.5]),
+        ("base", [23, 3, 5.5]),
+    )
+    assert in_face["support"] == "face"
+    assert not {"edgeUnder", "between", "edgeUnderDescriptor"} & set(in_face)
+    assert on_edge["support"] == "edge"
+    assert on_edge["between"] == sorted([top, side], key=lambda ref: int(ref.split("/F")[1]))
+    # The edge it names is the one whose middle is there, described as describe would.
+    named = queries.describe(shapes, f"assembly:{on_edge['edgeUnder']}")
+    assert named["type"] == "line"
+    assert named["length"] == pytest.approx(30)
+    assert named["center"] == pytest.approx([20, 0, 2.5])
+    assert on_edge["edgeUnderDescriptor"] == named["descriptor"] == "line, 30 mm"
+    # The face it names is still the adjacent one of lowest index.
+    assert on_edge["ref"] == on_edge["between"][0]
+    assert on_corner["support"] == "vertex"
+    assert "edgeUnder" not in on_corner
+    # Off the part, the nearest point is on that edge all the same: the distance says it is not on it.
+    assert (beyond["support"], beyond["edgeUnder"]) == ("edge", on_edge["edgeUnder"])
+    assert beyond["distance"] == pytest.approx(math.hypot(3, 3))
+
+
+def test_nearest_on_the_seam_of_a_cylinder_is_on_its_face_not_on_an_edge(shapes):
+    # A seam is where one face meets itself: nothing a person would call an edge.
+    [seam] = nearest(shapes, "assembly", ("post", [4, 0, 12]))
+    assert seam["distance"] == pytest.approx(0, abs=1e-9)
+    assert seam["support"] == "face"
+    assert "edgeUnder" not in seam
+    # The rim of its top is an edge between two faces.
+    [rim] = nearest(shapes, "assembly", ("post", [4 * math.cos(0.3), 4 * math.sin(0.3), 22.5]))
+    assert rim["support"] == "edge"
+    assert len(rim["between"]) == 2
+    assert rim["edgeUnderDescriptor"].startswith("circle, radius 4")
+
+
+def test_nearest_naming_an_edge_says_which_faces_meet_at_it(shapes):
+    [on_edge] = nearest(shapes, "assembly", ("base", [20, 3, 2.5]))
+    [named] = nearest_with(
+        shapes, "assembly", {"part": "base", "point": [20, 3.2, 2.5], "edge": on_edge["edgeUnder"]}
+    )
+    assert named["edgeFound"] is True
+    assert named["edgeBetween"] == on_edge["between"]
+
+
+def test_nearest_keeps_what_it_worked_out_of_a_part_for_the_life_of_the_worker(shapes, monkeypatch):
+    made = []
+    surface = queries._Surface
+
+    class Counted(surface):
+        def __init__(self, shape):
+            made.append(shape)
+            super().__init__(shape)
+
+    monkeypatch.setattr(queries, "_Surface", Counted)
+    args = {"layout": "assembly", "anchors": [{"part": "base", "point": [5, 3, 5.5]}, {"part": "post", "point": [7, 0, 12]}]}
+    kept: dict = {}
+    first = queries.run(shapes, "nearest", args, kept)
+    assert len(made) == 2
+    second = queries.run(shapes, "nearest", args, kept)
+    other = queries.run(shapes, "nearest", {"layout": "assembly", "anchors": [{"part": "base", "point": [23, 3, 5.5]}]}, kept)
+    assert len(made) == 2
+    assert second == first
+    # Another layout's part of the same name is another shape.
+    queries.run(shapes, "nearest", {"layout": "print", "anchors": [{"part": "base", "point": [5, 3, 5.5]}]}, kept)
+    assert len(made) == 3
+    # What is kept changes no answer: the same as from a worker that kept nothing.
+    assert first == queries.run(shapes, "nearest", args)
+    assert other == queries.run(shapes, "nearest", {"layout": "assembly", "anchors": [{"part": "base", "point": [23, 3, 5.5]}]})
+
+
+def test_spread_fixture_sets_its_lid_further_along_when_its_tray_grows(tmp_path):
+    """The model the app's keeping of marks on spread parts is tried on."""
+    import shutil
+
+    folder = tmp_path / "spread"
+    shutil.copytree(WS / "spread", folder, ignore=shutil.ignore_patterns("__pycache__"))
+
+    def built(width):
+        (folder / "width.txt").write_text(f"{width}\n")
+        scene, _, shapes = build_scene(load_scene(folder, "spread.py"), "spread.py")
+        return {p["name"]: p.get("arranged") for p in scene["parts"]}, shapes
+
+    arranged, shapes = built(30)
+    assert arranged == {"tray": None, "lid": pytest.approx([35, 0, 0])}
+    # The middle of the lid's top, where it was moved to.
+    [before] = nearest(shapes, "print", ("lid", [35, 0, 2]))
+    assert before["distance"] == pytest.approx(0, abs=1e-9)
+
+    arranged, shapes = built(40)
+    assert arranged == {"tray": None, "lid": pytest.approx([40, 0, 0])}
+    # The same point of the lid is 5 mm further along.
+    [after] = nearest(shapes, "print", ("lid", [40, 0, 2]))
+    assert (after["ref"], after["distance"]) == (before["ref"], pytest.approx(0, abs=1e-9))
 
 
 def test_nearest_says_how_far_the_anchor_is_from_the_edge_it_names(shapes):

@@ -22,8 +22,15 @@ class QueryError(Exception):
         self.message = message
 
 
-def run(shapes: dict[str, Any], name: str, args: Any) -> dict[str, Any]:
-    """Answer the query ``name`` over the shapes of the last build, by part key."""
+def run(
+    shapes: dict[str, Any], name: str, args: Any, kept: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Answer the query ``name`` over the shapes of the last build, by part key.
+
+    ``kept`` is where what was worked out of a part is kept from one query to
+    the next: a worker hands in the same dict for as long as it lives, which
+    is as long as its shapes are the ones asked about.
+    """
     if not isinstance(args, dict):
         args = {}
     if name == "describe":
@@ -37,7 +44,7 @@ def run(shapes: dict[str, Any], name: str, args: Any) -> dict[str, Any]:
             raise QueryError(
                 "bad_request", "nearest needs args.layout, a string, and args.anchors, a list"
             )
-        return {"anchors": nearest(shapes, layout, anchors)}
+        return {"anchors": nearest(shapes, layout, anchors, kept)}
     raise QueryError("bad_request", f"unknown query {name!r}; the queries are describe and nearest")
 
 
@@ -60,7 +67,12 @@ def describe(shapes: dict[str, Any], ref: str) -> dict[str, Any]:
     return _describe_edge(ref, _pick(topo.edges(shape), index, key, "edges", "E"))
 
 
-def nearest(shapes: dict[str, Any], layout: str, anchors: list[Any]) -> list[dict[str, Any]]:
+def nearest(
+    shapes: dict[str, Any],
+    layout: str,
+    anchors: list[Any],
+    kept: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """For each anchor, the point of its part's surface nearest to it in ``layout``.
 
     An anchor is ``{"part": name, "point": [x, y, z]}``, in the object frame of
@@ -69,20 +81,33 @@ def nearest(shapes: dict[str, Any], layout: str, anchors: list[Any]) -> list[dic
     distance between the two in mm, and the face's descriptor (null for a
     face that cannot be described). Where the nearest point is on an edge or a
     corner, the face is the adjacent one of lowest index. A part the layout
-    does not have is ``found: false``.
+    does not have is ``found: false``. A part it has, of which nothing can be
+    said for this point, is ``found: true`` with ``error``, a sentence, and
+    nothing else: one such anchor does not fail the others.
+
+    ``support`` says what the nearest point lies on: ``face``, ``edge`` or
+    ``vertex``. On an edge, which is where two faces or more meet (a seam,
+    where a face meets itself, counts as its face), ``edgeUnder`` is the edge
+    (``lid/E40``), ``edgeUnderDescriptor`` what it is (null when it cannot be
+    described) and ``between`` the faces that meet there, lowest first.
 
     An anchor may also name an edge of its part (``"edge": "lid/E3"``), as one
     that was put on an edge does. Its answer then says whether the part has
     that edge (``edgeFound``) and, when it has, how far the anchor's point is
-    from it (``edgeDistance``, mm) and what it is (``edgeDescriptor``). Edges
-    are numbered anew by every build: the distance is what tells whether the
-    number still means the edge the anchor was put on.
+    from it (``edgeDistance``, mm), what it is (``edgeDescriptor``) and the
+    faces that meet at it (``edgeBetween``). Edges are numbered anew by every
+    build: the distance is what tells whether the number still means the edge
+    the anchor was put on.
+
+    ``kept`` holds what was worked out of each part asked about (``run``).
     """
     layouts = list(dict.fromkeys(key.split(":", 1)[0] for key in shapes))
     if not any(key.startswith(f"{layout}:") for key in shapes):
         raise QueryError("bad_ref", f"no layout {layout!r}; the layouts are {', '.join(layouts)}")
     wanted = [_anchor(anchor) for anchor in anchors]
-    surfaces: dict[str, _Surface] = {}  # a part is asked about once per mark on it
+    # A part is asked about once per mark on it, and again after every build
+    # of another object, every mark added: taking it apart is done once.
+    surfaces: dict[str, Any] = {} if kept is None else kept
     found = []
     for part, point, edge in wanted:
         key = f"{layout}:{part}"
@@ -91,7 +116,12 @@ def nearest(shapes: dict[str, Any], layout: str, anchors: list[Any]) -> list[dic
             continue
         if key not in surfaces:
             surfaces[key] = _Surface(shapes[key])
-        answer = {"part": part, "found": True, **surfaces[key].nearest(part, key, point)}
+        try:
+            answer = {"part": part, "found": True, **surfaces[key].nearest(part, key, point)}
+        except QueryError as e:
+            # Of this point nothing can be said; the other anchors are answered all the same.
+            found.append({"part": part, "found": True, "error": e.message})
+            continue
         if edge is not None:
             answer.update(surfaces[key].edge(part, key, edge, point))
         found.append(answer)
@@ -145,6 +175,8 @@ class _Surface:
         self._descriptors: dict[int, str | None] = {}
         self._extrema: Any = None  # holds the part taken apart and boxed, once asked
         self._edges: list[Any] | None = None  # in the kernel's order, once an anchor names one
+        self._edge_index: Any = None  # the map topo.edges walks, once a point is on an edge
+        self._edge_descriptors: dict[int, str | None] = {}
 
     def nearest(self, part: str, key: str, point: list[float]) -> dict[str, Any]:
         from build123d import Face, Vector
@@ -181,7 +213,56 @@ class _Surface:
             "ref": f"{part}/F{index}",
             "distance": float(extrema.Value()),
             "descriptor": self._descriptor(key, index),
+            **self._support(part, key, extrema.SupportTypeShape1(on), extrema.SupportOnShape1(on)),
         }
+
+    def _support(self, part: str, key: str, support_type: Any, support: Any) -> dict[str, Any]:
+        """What a nearest point lies on, and of an edge which it is and the faces that meet there."""
+        from OCP.BRepExtrema import BRepExtrema_SupportType
+
+        if support_type == BRepExtrema_SupportType.BRepExtrema_IsInFace:
+            return {"support": "face"}
+        if support_type != BRepExtrema_SupportType.BRepExtrema_IsOnEdge:
+            return {"support": "vertex"}
+        between = self._between(part, support)
+        index = self._edge_number(support)
+        # A seam has one face on both sides; an edge the map does not have is not named.
+        if len(between) < 2 or index is None:
+            return {"support": "face"}
+        return {
+            "support": "edge",
+            "edgeUnder": f"{part}/E{index}",
+            "edgeUnderDescriptor": self._edge_descriptor(key, index, support),
+            "between": between,
+        }
+
+    def _between(self, part: str, edge: Any) -> list[str]:
+        """The faces that meet at an edge, as refs, lowest first, each once."""
+        around = self._faces_around("edge")
+        faces = around.FindFromKey(edge) if around.Contains(edge) else []
+        numbers = sorted({self._index.FindIndex(face) for face in faces} - {0})
+        return [f"{part}/F{number - 1}" for number in numbers]
+
+    def _edge_number(self, edge: Any) -> int | None:
+        """The index of an edge in the kernel's order, or None for one the part does not have."""
+        from ocp_tessellate.ocp_utils import TopAbs_EDGE, TopExp, TopTools_IndexedMapOfShape
+
+        if self._edge_index is None:
+            # The same map topo.edges walks, so an index here is an index there.
+            self._edge_index = TopTools_IndexedMapOfShape()
+            TopExp.MapShapes_s(self._shape, TopAbs_EDGE, self._edge_index)
+        number = self._edge_index.FindIndex(edge)
+        return number - 1 if number >= 1 else None
+
+    def _edge_descriptor(self, key: str, index: int, edge: Any) -> str | None:
+        """The descriptor of an edge, or None for one that cannot be described."""
+        if index not in self._edge_descriptors:
+            try:
+                described = _describe_edge(f"{key}/E{index}", edge)["descriptor"]
+            except Exception:
+                described = None
+            self._edge_descriptors[index] = described
+        return self._edge_descriptors[index]
 
     def edge(self, part: str, key: str, ref: str, point: list[float]) -> dict[str, Any]:
         """How far ``point`` is from the edge ``ref`` (``part/E<i>``) names, if the part has it."""
@@ -207,14 +288,11 @@ class _Surface:
         if not measured:
             # An edge with no curve, such as a sphere's pole: nothing can be said to be on it.
             return {"edgeFound": False}
-        try:
-            described = _describe_edge(f"{key}/E{index}", edge)["descriptor"]
-        except Exception:
-            described = None
         return {
             "edgeFound": True,
             "edgeDistance": float(extrema.Value()),
-            "edgeDescriptor": described,
+            "edgeDescriptor": self._edge_descriptor(key, index, edge),
+            "edgeBetween": self._between(part, edge),
         }
 
     def _descriptor(self, key: str, index: int) -> str | None:
