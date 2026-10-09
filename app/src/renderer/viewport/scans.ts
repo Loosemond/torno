@@ -5,6 +5,7 @@ import { IDENTITY, MIN_SCAN_OPACITY, alignmentOf, standingOf, type ScanInfo, typ
 import { STALE_FADE, mix } from './palette'
 import { buildScanBvh } from './scanBvh'
 import { SCAN_OFFSET_FACTOR, buildScan, disposeScan, fadeOwn, placeScan, type BuiltScan } from './scanMesh'
+import { ScanTints } from './scanTints'
 
 export interface ScanLayerState {
   id: string
@@ -126,10 +127,15 @@ export class ScanLayer {
   /** The patch of a scan that is tinted, if one is: a mesh over the scan's own positions, in the scan's group. */
   private tint: { scan: string; mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; index: Uint32Array } | null = null
 
+  /** What is laid over the scans: the regions kept, and the set being painted. */
+  readonly tints: ScanTints
+
   constructor(
     private readonly redraw: () => void,
     private readonly build: TreeBuilder = (geometry, stop) => buildScanBvh(geometry, undefined, stop)
-  ) {}
+  ) {
+    this.tints = new ScanTints(redraw, (id) => this.built(id))
+  }
 
   /** The scans of the object on show, the layout shown and the build on show: which there are and where each stands. Their meshes come by `load`. */
   set(scans: ScanInfo[], layout: string, revision = this.revision): void {
@@ -253,6 +259,22 @@ export class ScanLayer {
   placed(id: string): ScanTransform | null {
     const entry = this.entries.find((e) => e.info.id === id)
     return entry ? (this.previews.get(id) ?? alignmentOf(entry.info, this.layout)?.transform ?? IDENTITY) : null
+  }
+
+  /**
+   * Where a scan stands in a layout: where it is drawn for now when that is the layout on screen, else by its
+   * alignment there, or as imported. Null for a scan that is not there or whose mesh has not come.
+   */
+  placedIn(id: string, layout: string): ScanTransform | null {
+    const entry = this.entries.find((e) => e.info.id === id)
+    if (!entry?.built) return null
+    return (layout === this.layout && !this.pictured ? this.previews.get(id) : undefined) ?? alignmentOf(entry.info, layout)?.transform ?? IDENTITY
+  }
+
+  /** Whether a scan is drawn on screen: its mesh has come and it is switched on. */
+  drawn(id: string): boolean {
+    const entry = this.entries.find((e) => e.info.id === id)
+    return entry?.built != null && this.views.get(id)?.visible !== false
   }
 
   /**
@@ -381,9 +403,10 @@ export class ScanLayer {
     this.redraw()
   }
 
-  /** The colour of a scan drawn plain, the background and the colour a patch is tinted in, and whether the parts are stale: the scans fade with them. */
-  setLook(look: { plain: string; surface: string; accent?: string }, stale: boolean): void {
+  /** The colour of a scan drawn plain, the background, the colour a patch is tinted in and those of the marks (its regions are marks), and whether the parts are stale: the scans fade with them. */
+  setLook(look: { plain: string; surface: string; accent?: string; marks?: { user: string; agent: string } }, stale: boolean): void {
     this.look = look
+    if (look.marks) this.tints.setColours(look.marks)
     this.accent = look.accent ?? this.accent
     this.tint?.mesh.material.color.set(this.accent)
     this.stale = stale
@@ -396,6 +419,7 @@ export class ScanLayer {
     this.planes = planes
     if (this.tint) this.tint.mesh.material.clippingPlanes = planes
     if (this.coloured) this.coloured.mesh.material.clippingPlanes = planes
+    this.tints.setClipping(planes)
     for (const entry of this.entries) this.apply(entry)
   }
 
@@ -403,18 +427,22 @@ export class ScanLayer {
    * For a picture: only these are drawn (none for null), each as it is on
    * screen, but where the picture's layout puts it when that is another.
    * Returns what puts the screen back. Throws, having changed nothing, for an
-   * id that is no scan of the object.
+   * id that is no scan of the object. The regions of that layout are tinted
+   * on the scans drawn unless `regions` is false (a picture without marks);
+   * the set being painted is in no picture.
    */
-  showOnly(ids: string[] | null, layout = this.layout): () => void {
+  showOnly(ids: string[] | null, layout = this.layout, regions = true): () => void {
     const unknown = (ids ?? []).find((id) => !this.entries.some((entry) => entry.info.id === id))
     if (unknown !== undefined) throw new Error(`no scan ${unknown}; scans: ${this.entries.map((entry) => entry.info.id).join(', ') || 'none'}`)
     this.pictured = { ids: new Set(ids ?? []), layout }
     for (const entry of this.entries) this.apply(entry)
     if (this.tint) this.tint.mesh.visible = false
+    this.tints.show(layout, { regions })
     return () => {
       this.pictured = null
       for (const entry of this.entries) this.apply(entry)
       if (this.tint) this.tint.mesh.visible = true
+      this.tints.show(this.layout)
     }
   }
 
@@ -465,6 +493,7 @@ export class ScanLayer {
   dispose(): void {
     for (const entry of this.entries) this.letGo(entry)
     this.entries = []
+    this.tints.dispose()
     this.group.clear()
   }
 
@@ -497,6 +526,9 @@ export class ScanLayer {
       if (entry.built) this.group.add(entry.built.group)
       this.apply(entry)
     }
+    // After the meshes: a region is drawn over the mesh its scan has now, in the layout shown.
+    this.tints.show(this.layout)
+    this.tints.sync()
     this.redraw()
   }
 

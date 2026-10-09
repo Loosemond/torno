@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
-import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type Measurement, type NewMark, type Replacement, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, markAnchors, translated } from '../../shared/marks'
+import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type Measurement, type NewMark, type Replacement, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, REGION_KEYS, markAnchors, translated } from '../../shared/marks'
+import type { RegionStats } from '../../shared/regions'
 import { loadMarksFile, sanitiseMark, saveMarksFile } from './file'
 
 /** What a check of a mark against a build found (`reanchorAll`), for `MarkStore.reanchor` to write. */
@@ -128,19 +129,71 @@ export class MarkStore {
    * Keeps a new mark, as a draft: what the agent is yet to be told. One the
    * agent made itself is added as `sent`, since there is nothing to tell.
    * `measured` is what the kernel has already said of a dimension: main's own
-   * to give, kept in the same write.
+   * to give, kept in the same write. `region` is what main worked out of a
+   * region from its scan's mesh, and what writes its mask: `before` is run
+   * once the mark has its number and before anything is written or told. If
+   * it rejects, there is no mark, and the number is given to the next.
    */
-  add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft', measured?: Measurement): Promise<Mark> {
+  add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft', measured?: Measurement, region?: { stats: RegionStats; before(id: string): Promise<void> }): Promise<Mark> {
+    return this.change(
+      objectId,
+      (file) => {
+        // What main alone says is not taken from whoever made the mark: nor, of a dimension, what it measures, nor, of a region, what it is.
+        const of = kind(mark)
+        const own = of === 'dimension' ? { keys: MEASURED_KEYS as readonly string[], says: measured } : of === 'region' ? { keys: REGION_KEYS as readonly string[], says: region?.stats } : { keys: [], says: undefined }
+        const mainOnly: readonly string[] = [...MAIN_ONLY_KEYS, ...own.keys]
+        const given = Object.fromEntries(Object.entries(Object(mark) as object).filter(([key]) => !mainOnly.includes(key)))
+        const added = sanitiseMark({ ...given, ...own.says, id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
+        if (!added) throw new Error('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
+        file.next += 1
+        file.marks.push(added)
+        return added
+      },
+      [],
+      kind(mark) === 'region' && region ? (added) => region.before(added.id) : undefined
+    )
+  }
+
+  /**
+   * The regions of a scan have nothing under them any more: the scan is gone,
+   * or its mesh is another than the one they were painted on. They keep their
+   * notes and say so (`orphaned`); `ids` names those meant, all of the scan's
+   * without. One the agent was sent is a draft again: what it was told of the
+   * region no longer holds. Nothing is written when none changes.
+   */
+  orphanRegions(objectId: string, scan: string, ids?: readonly string[]): Promise<void> {
     return this.change(objectId, (file) => {
-      // What main alone says is not taken from whoever made the mark: nor, of a dimension, what it measures.
-      const mainOnly: readonly string[] = (mark as { kind?: unknown } | null)?.kind === 'dimension' ? [...MAIN_ONLY_KEYS, ...MEASURED_KEYS] : MAIN_ONLY_KEYS
-      const given = Object.fromEntries(Object.entries(Object(mark) as object).filter(([key]) => !mainOnly.includes(key)))
-      const added = sanitiseMark({ ...given, ...(mainOnly === MAIN_ONLY_KEYS ? {} : measured), id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
-      if (!added) throw new Error('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
-      file.next += 1
-      file.marks.push(added)
-      return added
-    })
+      let any = false
+      for (const mark of file.marks) {
+        if (mark.kind !== 'region' || mark.scan !== scan || mark.anchorState === 'orphaned' || (ids !== undefined && !ids.includes(mark.id))) continue
+        mark.anchorState = 'orphaned'
+        if (mark.status === 'sent') mark.status = 'draft'
+        any = true
+      }
+      return any ? undefined : UNCHANGED
+    }).then(() => {})
+  }
+
+  /**
+   * Writes what the regions of an object are, worked out anew from their scan's mesh (it was converted to another
+   * unit or up axis: the triangles are the same, and where they are is not), in one write. Ids not listed are
+   * untouched; one that is gone, orphaned or no region is passed over. Nothing else of a mark changes, its
+   * status least of all: the person said nothing new of it.
+   */
+  restateRegions(objectId: string, changes: Array<{ id: string; stats: RegionStats }>): Promise<void> {
+    return this.change(objectId, (file) => {
+      let any = false
+      for (const { id, stats } of changes) {
+        const at = file.marks.findIndex((m) => m.id === id)
+        const mark = file.marks[at]
+        if (mark?.kind !== 'region' || mark.anchorState === 'orphaned') continue
+        const now = sanitiseMark({ ...mark, ...stats })
+        if (!now || isDeepStrictEqual(now, mark)) continue
+        file.marks[at] = now
+        any = true
+      }
+      return any ? undefined : UNCHANGED
+    }).then(() => {})
   }
 
   /**
@@ -369,16 +422,18 @@ export class MarkStore {
 
   /**
    * Change the marks of an object: `edit` is given a copy of the file to
-   * change. The copy is written, then kept, then told; an `edit` that throws,
+   * change. The copy is written (after `before`, when there is one), then kept, then told; an `edit` that throws,
    * or a write that fails, leaves the marks as they were. An `edit` that
    * returns UNCHANGED writes and tells nothing. `moved` are marks the edit
    * tied to other geometry: they are told as unchecked, like those added.
    */
-  private change<T>(objectId: string, edit: (file: MarksFile) => T, moved: readonly string[] = []): Promise<T> {
+  private change<T>(objectId: string, edit: (file: MarksFile) => T, moved: readonly string[] = [], before?: (result: T) => Promise<void>): Promise<T> {
     return this.turn(objectId, async (current, dir, epoch) => {
       const file = structuredClone(current)
       const result = edit(file)
       if (result === UNCHANGED) return result
+      // What must be on the disk before the mark that names it: when it fails, nothing of the change is kept.
+      await before?.(result)
       await saveMarksFile(dir, file)
       // Told only to the workspace it was asked in: the write of one that has been left lands, and is not broadcast.
       if (epoch === this.epoch) {
@@ -439,6 +494,8 @@ function withMeasurement(mark: DimensionMark, result: Measurement): Mark | null 
 
 /** What a dimension is measured through: where its ends are, and what each names. */
 const through = (d: Pick<DimensionMark, 'a' | 'b'>): unknown[] => [d.a.point, d.a.ref, d.b?.point, d.b?.ref]
+
+const kind = (mark: unknown): unknown => (mark as { kind?: unknown } | null)?.kind
 
 /** What an edit returns when it changed nothing. */
 const UNCHANGED = Symbol('unchanged')

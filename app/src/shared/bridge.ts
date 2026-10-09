@@ -1,6 +1,6 @@
 import type { BuildState } from './build'
 import type { Described } from './geometry'
-import type { Mark, MarkPatch, NewMark, Replacement } from './marks'
+import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
 import type { Scene } from './scene'
 import type { AlignMade, NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } from './scans'
 import type { SceneFile } from './scenefile'
@@ -41,6 +41,8 @@ export interface TornoBridge {
     list(objectId: string): Promise<Mark[]>
     /** A dimension is measured by main as it is kept, and comes back with its value; one the kernel cannot measure is not kept, and the rejection says why. */
     add(objectId: string, mark: NewMark): Promise<Mark>
+    /** Keeps what was painted on a scan as a region mark: main works out its count, area and place from the mesh, and writes its triangles beside it. Rejects for no triangle, or bits that are not of that scan's mesh. */
+    addRegion(objectId: string, region: NewRegion): Promise<Mark>
     update(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
     remove(objectId: string, id: string): Promise<void>
     /** Puts a pin, a pick or an arrow somewhere else on a part: the same mark and note, tied where it was clicked. An arrow keeps its length and direction. */
@@ -85,6 +87,8 @@ export interface TornoBridge {
     alignHolds(objectId: string, id: string, layout: string): Promise<ScanInfo>
     /** The scan's `mesh.bin`, for `parseScanMesh`. */
     mesh(objectId: string, id: string): Promise<ArrayBuffer>
+    /** The `.mask` of a region of a scan, as the file is: for `maskBits`. */
+    mask(objectId: string, id: string, markId: string): Promise<ArrayBuffer>
     onChanged(cb: (m: { objectId: string; scans: ScanInfo[] }) => void): () => void
     onProgress(cb: (m: { objectId: string; name: string; stage: string | null }) => void): () => void
     /** Something about an object's scans file the person should know, said once: a file that could not be read was set aside. */

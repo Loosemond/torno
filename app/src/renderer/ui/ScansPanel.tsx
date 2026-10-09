@@ -141,6 +141,8 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
   const layout = useStore((s) => s.layout)
   const view = useStore((s) => s.scanViews[id])
   const reading = useStore((s) => s.importing !== null)
+  // The regions painted on it, which lose their triangles with it: said before it is removed.
+  const regions = useStore((s) => s.marks.filter((mark) => mark.kind === 'region' && mark.scan === id && mark.anchorState !== 'orphaned').length)
   const guess = guessOf(scan)
   // What changes how a scan was read is at hand while that is a guess: a wrong one is to be seen and put right at once.
   const [more, setMore] = useState(guess !== null)
@@ -341,6 +343,12 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           }}
         >
           Remove <span className="num">{id}</span> from this object? Its source file is not touched.
+          {regions > 0 && (
+            <>
+              {' '}
+              It has <span className="num">{regions}</span> {regions === 1 ? 'region' : 'regions'} painted on it: {regions === 1 ? 'that goes' : 'those go'} on as {regions === 1 ? 'a mark' : 'marks'} with {regions === 1 ? 'its note' : 'their notes'}, and {regions === 1 ? 'has' : 'have'} no triangles any more.
+            </>
+          )}
         </Confirm>
       )}
     </li>

@@ -148,7 +148,7 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
     for (const [i, mark] of listed.entries()) {
       const tag = tagOf(mark)
       // A mark's coordinates and refs are in the frame of its layout, which may not be the one named above.
-      const line = `${describeMark(mark, { revision, ...(tag ? { tag } : {}) })}${mark.layout === named ? '' : ` [in layout ${mark.layout}]`}`
+      const line = `${describeMark(mark, { revision, scans: opts.scans ?? [], ...(tag ? { tag } : {}) })}${mark.layout === named ? '' : ` [in layout ${mark.layout}]`}`
       const after = listed.length - i - 1
       // Room is kept for the line that says how many are left out, should the next one not fit.
       if (used + 1 + line.length + (after > 0 ? 1 + more(after).length : 0) > CONTEXT_LIMIT) {

@@ -3,6 +3,7 @@ import type { Camera, LookRequest, LookResult } from '../shared/view'
 import type { TornoState } from './state/store'
 import type { Hit } from './viewport/picking'
 import type { ScanHit, ScanLayerState } from './viewport/scans'
+import type { ScanTints } from './viewport/scanTints'
 
 declare global {
   interface Window {
@@ -25,6 +26,8 @@ declare global {
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
       /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */
       scans(): ScanLayerState[]
+      /** What is tinted on the scans: the regions kept, each with how many triangles it draws and in which colour, and the set being painted. */
+      regions(): ReturnType<ScanTints['state']>
       /** What a point of the canvas is on of the scans drawn, as `pickAt` is of the parts. */
       pickScanAt(fx: number, fy: number): ScanHit | null
       /** Where a point of a scan, in the scan's own frame, is drawn: fractions of the canvas, as `project`. */

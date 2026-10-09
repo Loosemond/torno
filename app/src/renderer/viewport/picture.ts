@@ -143,7 +143,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     host.renderer.setViewport(0, 0, state.width, state.height)
     for (const p of parts) p.built.group.visible = false
     for (const p of state.shown) p.built.group.visible = true
-    scansBack = host.scans.showOnly(state.scans, state.layout)
+    scansBack = host.scans.showOnly(state.scans, state.layout, state.withMarks)
     host.cutBy(state.section, state.layout, false)
     // Once the scan stands and is cut as the picture has it: its colours are of where it stands.
     if (state.colour) host.scans.colourFor(state.colour.scan, state.colour.colours())
@@ -335,7 +335,9 @@ export class PictureMaker {
     if (colouring) drawDeviationLegend(ctx, { width, height, ink: colours.ink, surface: colours.surface }, { ...tokens, inside: solid ? tokens.inside : null, range: colouring.range, title: `${colouring.scan} to ${colouring.part}` })
     if (withMarks) {
       // With the camera of the picture, which for a named view is not the one on screen.
-      const labels = host.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP), notDrawn)
+      // A region's number goes with its scan: not in a picture that does not draw that scan.
+      const left = new Set([...notDrawn, ...host.scans.shown().filter((scan) => !drawn.some((one) => one.id === scan.id)).map((scan) => `scan:${scan.id}`)])
+      const labels = host.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP), left)
       drawLabels(ctx, labels, colours, unit * PICTURE_CHIP)
     }
     const blob = await picture.convertToBlob({ type: 'image/png' })

@@ -1,7 +1,7 @@
 import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { verdictOf } from '../../shared/dimension'
-import type { Anchor, DimensionMark, Mark, MarksFile, Quat, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
+import type { Anchor, DimensionMark, Mark, MarksFile, Quat, RegionMark, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import { MAX_STROKE_POINTS, MIN_SHAPE_SIZE } from '../../shared/marks'
 import { writeFileAtomic } from '../atomic'
@@ -177,9 +177,31 @@ export function sanitiseMark(value: unknown): Mark | null {
     }
     case 'dimension':
       return dimensionOf(base, value)
+    case 'region':
+      return regionOf(base, value)
     default:
       return null
   }
+}
+
+/**
+ * A region of a scan: the scan's number, how many triangles it has (one at least), their area, and where they
+ * are in the scan's own frame. Its triangles themselves are no part of a mark: they are the mask beside the mesh.
+ */
+function regionOf(base: Omit<RegionMark, 'kind' | 'scan' | 'triangles' | 'area' | 'local'>, value: Record<string, unknown>): RegionMark | null {
+  if (typeof value.scan !== 'string' || !/^S[1-9]\d{0,14}$/.test(value.scan)) return null
+  if (!isNumber(value.triangles) || !Number.isSafeInteger(value.triangles) || value.triangles < 1) return null
+  if (!isNumber(value.area) || value.area < 0) return null
+  const local = isRecord(value.local) ? value.local : {}
+  const bbox = isRecord(local.bbox) ? local.bbox : {}
+  const plane = isRecord(local.plane) ? local.plane : {}
+  const centroid = tuple<Vec3>(local.centroid, 3)
+  const min = tuple<Vec3>(bbox.min, 3)
+  const max = tuple<Vec3>(bbox.max, 3)
+  const origin = tuple<Vec3>(plane.origin, 3)
+  const normal = tuple<Vec3>(plane.normal, 3)
+  if (!centroid || !min || !max || !origin || !normal || !isNumber(plane.rms) || plane.rms < 0) return null
+  return { ...base, kind: 'region', scan: value.scan, triangles: value.triangles, area: value.area, local: { centroid, bbox: { min, max }, plane: { origin, normal, rms: plane.rms } } }
 }
 
 /** The longest account of how a value was taken that a dimension keeps. */

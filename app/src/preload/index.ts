@@ -51,6 +51,7 @@ const bridge: TornoBridge = {
   marks: {
     list: (objectId) => invokePlain('marks:list', objectId),
     add: (objectId, mark) => invokePlain('marks:add', objectId, mark),
+    addRegion: (objectId, region) => invokePlain('marks:addRegion', objectId, region),
     update: (objectId, id, patch) => invokePlain('marks:update', objectId, id, patch),
     remove: (objectId, id) => invokePlain('marks:remove', objectId, id),
     replace: (objectId, id, placed) => invokePlain('marks:replace', objectId, id, placed),
@@ -72,6 +73,7 @@ const bridge: TornoBridge = {
     undoAlign: (objectId, id, layout) => invokePlain('scans:undoAlign', objectId, id, layout),
     alignHolds: (objectId, id, layout) => invokePlain('scans:alignHolds', objectId, id, layout),
     mesh: (objectId, id) => invokePlain('scans:mesh', objectId, id),
+    mask: (objectId, id, markId) => invokePlain('scans:mask', objectId, id, markId),
     onChanged: (cb) => subscribe('scans:changed', cb),
     onProgress: (cb) => subscribe('scans:progress', cb),
     onProblem: (cb) => subscribe('scans:problem', cb),

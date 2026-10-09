@@ -5,8 +5,9 @@ import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanTransform, ScanView } from '../../shared/scans'
 import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import { type AlignPoint, drawAlignPoints } from './alignPoints'
+import { type BrushRing, drawBrushRing } from './brushRing'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
-import { labelAnchor, markPoints } from './marks/markObjects'
+import { markPoints } from './marks/markObjects'
 import { mmPerPx, type Placed } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { chipSize, drawLabels, overlayFonts, type LabelStyle } from './overlay'
@@ -121,7 +122,8 @@ export class Viewport {
   /** The scan the gizmo holds while it is moved by hand, and the points of an alignment being made. */
   private readonly scanEdit = new ScanEdit(this.scans)
   private alignPoints: AlignPoint[] = []
-  private readonly marks = new MarkLayer(markColours(LIGHT_THEME))
+  private brush: BrushRing | null = null
+  private readonly marks = new MarkLayer(markColours(LIGHT_THEME), this.scans)
   /** The marks of the object as last given, resolved ones too: `focusMark` goes to any of them. */
   private allMarks: Mark[] = []
   /** Over the canvas, for the labels of the marks: drawn anew with every frame, never through React. */
@@ -323,6 +325,22 @@ export class Viewport {
     return this.scans.patch(hit, radius, opts)
   }
 
+  /** The set being painted on a scan, tinted in `--user-mark`; null for none. Redrawn when `touched()` is called after it changed. */
+  paintScan(...of: Parameters<ScanLayer['tints']['paint']>): { touched(): void } | null {
+    return this.scans.tints.paint(...of)
+  }
+
+  /** The regions kept, to be tinted on their scans in their authors' colours: bits by mark id. */
+  setRegions(regions: Parameters<ScanLayer['tints']['setRegions']>[0]): void {
+    this.scans.tints.setRegions(regions)
+  }
+
+  /** The Region tool's brush as a ring on the scan, in `--user-mark` and in no picture; null for none. */
+  showBrush(ring: BrushRing | null): void {
+    this.brush = ring
+    this.invalidate()
+  }
+
   /** Numbered dots for the ends of the pairs being made and the points of a floor: in `--accent`, in no picture. */
   showAlignPoints(points: AlignPoint[]): void {
     this.alignPoints = points
@@ -413,7 +431,7 @@ export class Viewport {
     const label = mark && this.placedLabel(id)
     if (!mark || !label) return null
     const rect = this.canvas.getBoundingClientRect()
-    const at = this.project(labelAnchor(mark).point)
+    const at = this.project(this.marks.anchorOf(mark).point)
     const xs = [at[0], rect.left + label.box.x, rect.left + label.box.x + label.box.w]
     const ys = [at[1], rect.top + label.box.y, rect.top + label.box.y + label.box.h]
     for (const point of markPoints(mark)) {
@@ -663,7 +681,7 @@ export class Viewport {
   }
 
   private lookOfScans(): void {
-    this.scans.setLook({ plain: this.theme.scan, surface: this.theme.surface, accent: this.theme.accent }, this.stale)
+    this.scans.setLook({ plain: this.theme.scan, surface: this.theme.surface, accent: this.theme.accent, marks: this.theme }, this.stale)
   }
 
   /** Where a point of the object frame falls in the window, in client pixels. */
@@ -1102,6 +1120,7 @@ export class Viewport {
     const labels = this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1))
     drawLabels(ctx, labels, this.labelStyle(), 1, this.marks.activeId)
     drawAlignPoints(ctx, this.alignPoints, this.camera, size, { accent: this.theme.accent, paper: this.theme.panel })
+    drawBrushRing(ctx, this.brush, this.camera, size, { mark: this.theme.user, paper: this.theme.panel })
   }
 }
 

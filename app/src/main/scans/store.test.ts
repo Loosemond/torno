@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1036,5 +1036,69 @@ describe('frameOf', () => {
     expect(frameOf(scene, 'print')).toEqual({ tub: [0, 0, 0], lid: [277.361, 0, 0] })
     expect(frameOf(scene, 'main')).toBeNull()
     expect(frameOf(undefined, 'print')).toBeNull()
+  })
+})
+
+describe('the masks of regions', () => {
+  const folder = (): string => join(dir, '.torno', 'scans', 'S1')
+  const bits = (...triangles: number[]): Uint8Array => {
+    const made = new Uint8Array(2)
+    for (const t of triangles) made[t >> 3] |= 1 << (t & 7)
+    return made
+  }
+
+  it('writes a region as <scan>/<mark>.mask, the header and a bit a triangle, and reads it back', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.writeMask('bracket', 'S1', 'M7', bits(0, 9, 11))
+    const written = readFileSync(join(folder(), 'M7.mask'))
+    expect(written.subarray(0, 8).toString('ascii')).toBe('TORNOMSK')
+    expect([written.readUInt32LE(8), written.readUInt32LE(12)]).toEqual([1, 12])
+    expect([...written.subarray(16)]).toEqual([0b00000001, 0b00001010])
+    expect((await scans.mask('bracket', 'S1', 'M7')).equals(written)).toBe(true)
+    // No temp file is left beside it.
+    expect(readdirSync(folder()).sort()).toEqual(['M7.mask', 'mesh.bin'])
+    // Written anew each time: another file, which is what tells the kernel that it changed.
+    const first = statSync(join(folder(), 'M7.mask')).ino
+    await scans.writeMask('bracket', 'S1', 'M7', bits(1))
+    expect(statSync(join(folder(), 'M7.mask')).ino).not.toBe(first)
+  })
+
+  it('refuses bits that do not fit the mesh, a triangle past its last, a name that is no mark and a scan that is not there', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await expect(scans.writeMask('bracket', 'S1', 'M7', new Uint8Array(3))).rejects.toThrow('M7 has 3 bytes of triangles, and S1 has 12 triangles: 2 bytes')
+    await expect(scans.writeMask('bracket', 'S1', 'M7', bits(12))).rejects.toThrow('M7 names a triangle past the last of S1, which has 12')
+    await expect(scans.writeMask('bracket', 'S1', '../M7', bits(1))).rejects.toThrow('../M7 is no mark')
+    await expect(scans.writeMask('bracket', 'S9', 'M7', bits(1))).rejects.toThrow('no scan S9; scans: S1')
+    await expect(scans.mask('bracket', 'S1', 'M8')).rejects.toThrow('M8 has no triangles on the disk: its file is gone from')
+    await expect(scans.mask('bracket', 'S1', '../../scans')).rejects.toThrow('is no mark')
+    expect(readdirSync(folder())).toEqual(['mesh.bin'])
+    // Nothing is written into the folder of a scan that is gone.
+    await scans.remove('bracket', 'S1')
+    await expect(scans.writeMask('bracket', 'S1', 'M7', bits(1))).rejects.toThrow('no scan S1')
+    expect(existsSync(folder())).toBe(false)
+  })
+
+  it('removes the mask of one region only, and all of them with their scan', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.writeMask('bracket', 'S1', 'M7', bits(0))
+    await scans.writeMask('bracket', 'S1', 'M8', bits(1))
+    await scans.removeMask('bracket', 'S1', 'M7')
+    expect(readdirSync(folder()).sort()).toEqual(['M8.mask', 'mesh.bin'])
+    // One that is not there, or of a scan that is gone, is nothing to remove.
+    await scans.removeMask('bracket', 'S1', 'M7')
+    await scans.removeMask('bracket', 'S9', 'M7')
+    await scans.remove('bracket', 'S1')
+    expect(existsSync(folder())).toBe(false)
+  })
+
+  it('keeps the masks through a conversion: the triangles are the same', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.writeMask('bracket', 'S1', 'M7', bits(0, 5))
+    await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
+    expect([...(await scans.mask('bracket', 'S1', 'M7')).subarray(16)]).toEqual([0b00100001, 0])
   })
 })

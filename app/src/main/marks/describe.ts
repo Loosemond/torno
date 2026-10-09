@@ -1,6 +1,9 @@
 import { number } from '../../shared/format'
 import { expectedText, lastValue, measuredValue, notMeasuredText, offBy, onBuild, standingOf, valueText } from '../../shared/dimension'
-import { type Anchor, type DimensionMark, type Mark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
+import { type Anchor, type DimensionMark, type Mark, type RegionMark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
+import { isFlat, regionInLayout } from '../../shared/regions'
+import { type ScanInfo, alignmentOf } from '../../shared/scans'
+import { alignmentSaid } from '../scans/said'
 
 /** Marks the note of a mark the last build moved off its surface, or left without its part. */
 const ANCHOR_SUFFIX = { ok: '', drifted: ' [moved since it was placed: check it]', orphaned: ' [its part is gone]' } as const
@@ -26,15 +29,18 @@ export function sizes(v: readonly number[]): string {
  * the last build that worked, it says so when nothing has checked the mark
  * against that build: what it says of the ref is then of an older one. A
  * dimension gives its value only as that of the build of `revision`
- * (`dimension`): without one it is told as not measured.
+ * (`dimension`): without one it is told as not measured. A region of a scan
+ * is told where the scan's alignment in the mark's layout puts it (`region`):
+ * that takes the `scans` of the object, and without them it has no place.
  */
-export function describeMark(mark: Mark, opts: { tag?: string; revision?: number } = {}): string {
+export function describeMark(mark: Mark, opts: { tag?: string; revision?: number; scans?: readonly ScanInfo[] } = {}): string {
   const tags = [mark.author === 'agent' ? 'yours' : '', opts.tag ?? ''].filter(Boolean).join(', ')
   const note = mark.note.replace(/\s+/g, ' ').trim()
   const unchecked = isUnchecked(mark, opts.revision) ? ` [not checked against r${opts.revision}]` : ''
   // A dimension that lost its part says so in place of its value, not after its note.
-  const suffix = mark.kind === 'dimension' && mark.anchorState === 'orphaned' ? '' : ANCHOR_SUFFIX[mark.anchorState]
-  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark, opts.revision)}${note ? `: "${note}"` : ''}${suffix}${unchecked}${asMeasured(mark, opts.revision)}`
+  // So does a region that lost its scan: it is on no part.
+  const suffix = mark.kind === 'region' ? regionDoubt(mark, opts) : mark.kind === 'dimension' && mark.anchorState === 'orphaned' ? '' : ANCHOR_SUFFIX[mark.anchorState]
+  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark, opts)}${note ? `: "${note}"` : ''}${suffix}${unchecked}${asMeasured(mark, opts.revision)}`
 }
 
 /**
@@ -59,8 +65,14 @@ function asMeasured(mark: Mark, revision: number | undefined): string {
  * - A resolved one is no longer measured: what it held when it was last
  *   measured is `resolvedValue` and `resolvedVerdict`, of `resolvedOnRevision`
  *   when that is known, whichever build is the last. Never `value`.
+ *
+ * A region holds `scan`, `triangles` and `area`, and, where its scan is
+ * aligned in its layout, `centroid`, `bbox` and `plane` in the object frame
+ * of that layout, with whether it is `flat`. Never `local`: that is in the
+ * scan's own frame, which is main's and the window's.
  */
-export function markData(mark: Mark, revision: number | undefined): object {
+export function markData(mark: Mark, revision: number | undefined, scans?: readonly ScanInfo[]): object {
+  if (mark.kind === 'region') return regionData(mark, scans)
   if (mark.kind !== 'dimension') return mark
   if (mark.status !== 'resolved' && measuredValue(mark, revision) !== undefined) return mark
   const { value: _value, how: _how, points: _points, verdict: _verdict, ...rest } = mark
@@ -111,7 +123,58 @@ function dimension(mark: DimensionMark, revision: number | undefined): string {
   return `${mark.measure} ${shown(mark.value)}${how}, ${ends}${verdict}`
 }
 
-function what(mark: Mark, revision: number | undefined): string {
+/** Said of everything a region is told with: it is of a scan. */
+export const REGION_APPROXIMATE = 'a region is part of a scan, a mesh measured by a phone or a scanner: nothing of it is exact'
+
+const many = (n: number): string => n.toLocaleString('en-US')
+
+/** The scan a region is on, where it is aligned in the region's layout; null when it is not, or the scans are not known. */
+function placeOf(mark: RegionMark, scans: readonly ScanInfo[] | undefined): { scan: ScanInfo; there: ReturnType<typeof regionInLayout> } | null {
+  const scan = scans?.find((one) => one.id === mark.scan)
+  const alignment = scan ? alignmentOf(scan, mark.layout) : null
+  return scan && alignment ? { scan, there: regionInLayout(mark, alignment.transform) } : null
+}
+
+/**
+ * `region on scan S1: 4,812 triangles, ≈ 31000 mm², centre (-120, 85, 40), box 180 × 90 × 60 mm, flat to 4.2 mm
+ * about a plane with normal (0, 0.1, 0.995)`: what the person painted, in the object frame of its layout, where
+ * the scan's alignment there puts it. The plane only of a region that lies about one (`isFlat`). Where the scan is
+ * not aligned in that layout it has no place, and only its size is told; one whose scan is gone, or is no longer
+ * the mesh it was painted on, says that and nothing of where it was.
+ */
+function region(mark: RegionMark, scans: readonly ScanInfo[] | undefined): string {
+  const head = `region on scan ${mark.scan}`
+  if (mark.anchorState === 'orphaned') {
+    return `${head} ${scans?.some((one) => one.id === mark.scan) ? '[the mesh of its scan is no longer the one it was painted on: the user paints it again]' : '[its scan is gone]'}`
+  }
+  const size = (area: number): string => `${many(mark.triangles)} triangle${mark.triangles === 1 ? '' : 's'}, ≈ ${number(area)} mm²`
+  const placed = placeOf(mark, scans)
+  if (!placed) return `${head} (not aligned in ${mark.layout}, so it has no place in the model’s frame): ${size(mark.area)}`
+  const { there } = placed
+  const box = sizes(there.bbox.max.map((c, axis) => c - there.bbox.min[axis]))
+  const plane = isFlat(there) ? `flat to ${number(there.plane.rms)} mm about a plane with normal ${vector(there.plane.normal)}` : `not flat (${number(there.plane.rms)} mm rms about its nearest plane)`
+  return `${head}: ${size(there.area)}, centre ${vector(there.centroid)}, box ${box} mm, ${plane}`
+}
+
+/** Said after a region whose place rests on an alignment that is rough, in doubt or not checked against the build: where it is told is only as good as that. */
+function regionDoubt(mark: RegionMark, opts: { revision?: number; scans?: readonly ScanInfo[] }): string {
+  const placed = mark.anchorState === 'orphaned' ? null : placeOf(mark, opts.scans)
+  if (!placed) return ''
+  const said = alignmentSaid(placed.scan, mark.layout, opts.revision)
+  const doubts = [...(said.note ? [said.note] : []), ...(said.data.rough ? [`${mark.scan} is only roughly aligned: ${said.data.rough}`] : [])]
+  return doubts.length > 0 ? ` [${doubts.join('; ')}]` : ''
+}
+
+function regionData(mark: RegionMark, scans: readonly ScanInfo[] | undefined): object {
+  const { local: _local, ...rest } = mark
+  const placed = mark.anchorState === 'orphaned' ? null : placeOf(mark, scans)
+  if (!placed) return { ...rest, approximate: REGION_APPROXIMATE }
+  const { there } = placed
+  return { ...rest, area: there.area, centroid: there.centroid, bbox: there.bbox, plane: there.plane, flat: isFlat(there), approximate: REGION_APPROXIMATE }
+}
+
+function what(mark: Mark, opts: { revision?: number; scans?: readonly ScanInfo[] }): string {
+  const { revision } = opts
   const settled = mark.anchorState === 'ok'
   switch (mark.kind) {
     case 'pin':
@@ -131,6 +194,8 @@ function what(mark: Mark, revision: number | undefined): string {
       return shape(mark)
     case 'dimension':
       return dimension(mark, revision)
+    case 'region':
+      return region(mark, opts.scans)
   }
 }
 

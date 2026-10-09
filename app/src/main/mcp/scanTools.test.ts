@@ -402,7 +402,7 @@ describe('what a scan tool says it did', () => {
   it('refuses a region that no longer fits the mesh of its scan, for leaving out and for measuring', async () => {
     const orphaned = { ...(REGION as unknown as Record<string, unknown>), anchorState: 'orphaned' } as unknown as Mark
     const deps = fake([scan('S1', { assembly: BY_PAIRS })], undefined, { marks: [orphaned] })
-    const GONE = 'M7 no longer fits the mesh of S1 (the scan was converted or imported again since it was painted): the user paints it again'
+    const GONE = 'M7 no longer fits the mesh of S1 (the scan was imported again from a changed source since it was painted): the user paints it again'
     expect(await scanClashTool(deps, 'box', { part: 'tub', ignore: ['M7'] })).toEqual(refused(GONE))
     expect(await scanDeviationTool(deps, 'box', { part: 'tub', region: 'M7' })).toEqual(refused(GONE))
     expect(deps.queries).toEqual([])

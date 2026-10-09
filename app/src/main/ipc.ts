@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
 import type { Described } from '../shared/geometry'
-import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
+import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks'
 import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
@@ -16,6 +16,7 @@ import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
 import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
 import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
+import { type RegionDeps, addRegion, orphanLost, removeMark, restateRegions } from './marks/regions'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { type AlignCheckDeps, checkAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
@@ -428,7 +429,11 @@ export function registerIpc(
     if (dueAfterEdit(patch, changed, lastScene(String(objectId))?.revision)) void remeasure(measuring(store), String(objectId), changed)
     return changed
   })
-  ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))
+  // With a region goes the mask that held its triangles.
+  const regions = (): RegionDeps => ({ marks: requireMarks(), scans: requireScans() })
+  ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => (scans ? removeMark(regions(), String(objectId), String(id)) : requireMarks().remove(String(objectId), String(id))))
+  // What the person painted on a scan: main works out what it is from the mesh, and writes its triangles beside it.
+  ipcMain.handle('marks:addRegion', (_event, objectId: string, region: NewRegion) => addRegion(regions(), String(objectId), region))
   ipcMain.handle('marks:replace', async (_event, objectId: string, id: string, placed: Replacement) => {
     const store = requireMarks()
     const layout = (await store.list(String(objectId))).find((m) => m.id === String(id))?.layout
@@ -457,6 +462,8 @@ export function registerIpc(
     const listed = await requireScans().list(String(objectId))
     // The window asks: an alignment that was not checked against the last build is asked about again.
     recheckAlignments(String(objectId), listed)
+    // And a region whose scan or whose mask was lost while torno was not looking says so.
+    if (marks) void orphanLost(regions(), String(objectId)).catch((e) => console.error(`cannot check the regions of ${String(objectId)} against its scans: ${e instanceof Error ? e.message : String(e)}`))
     return listed
   })
   ipcMain.handle('scans:pick', async (event): Promise<string | null> => {
@@ -468,10 +475,24 @@ export function registerIpc(
   })
   ipcMain.handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
   // Read again, a scan may be another mesh: what the last build makes of its alignments is asked anew.
-  ipcMain.handle('scans:reimport', (_event, objectId: string, id: string) => checked(String(objectId), requireScans().reimport(String(objectId), String(id))))
-  ipcMain.handle('scans:convert', (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) => requireScans().convert(String(objectId), String(id), as))
+  // What was painted on it was painted on the mesh it had: of another mesh, or of the same count from another file, its regions are of nothing.
+  ipcMain.handle('scans:reimport', async (_event, objectId: string, id: string) => {
+    const read = await checked(String(objectId), requireScans().reimport(String(objectId), String(id)))
+    if (read.meshChanged || read.sourceChanged) await marks?.orphanRegions(String(objectId), read.scan.id)
+    return read
+  })
+  // Its triangles are the same and are elsewhere: what its regions say of themselves is worked out again from the mesh it has now.
+  ipcMain.handle('scans:convert', async (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) => {
+    const converted = await requireScans().convert(String(objectId), String(id), as)
+    if (marks) await restateRegions(regions(), String(objectId), converted.id).catch((e) => console.error(`cannot say the regions of ${converted.id} anew: ${e instanceof Error ? e.message : String(e)}`))
+    return converted
+  })
   ipcMain.handle('scans:rename', (_event, objectId: string, id: string, name: string) => requireScans().rename(String(objectId), String(id), name))
-  ipcMain.handle('scans:remove', (_event, objectId: string, id: string) => requireScans().remove(String(objectId), String(id)))
+  // Its regions go on as marks, with their notes, and say that their scan is gone.
+  ipcMain.handle('scans:remove', async (_event, objectId: string, id: string) => {
+    await requireScans().remove(String(objectId), String(id))
+    await marks?.orphanRegions(String(objectId), String(id))
+  })
   ipcMain.handle('scans:problem', (_event, objectId: string) => requireScans().problem(String(objectId)))
   ipcMain.handle('scans:dismissProblem', (_event, objectId: string) => requireScans().dismissProblem(String(objectId)))
   // What only main says of an alignment is said here: how the parts of that layout are spread on the last build,
@@ -507,6 +528,7 @@ export function registerIpc(
   })
   // A copy with a buffer of its own, as the blob of a scene is sent.
   ipcMain.handle('scans:mesh', async (_event, objectId: string, id: string) => toArrayBuffer(await requireScans().mesh(String(objectId), String(id))))
+  ipcMain.handle('scans:mask', async (_event, objectId: string, id: string, markId: string) => toArrayBuffer(await requireScans().mask(String(objectId), String(id), String(markId))))
 
   // What the kernel says of a part, a face or an edge of an object's last good build. `Builds.query`
   // has the object built again when the kernel no longer holds it.

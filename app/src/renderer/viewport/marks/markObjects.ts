@@ -4,7 +4,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
-import { type DimensionMark, type Mark, type ShapeKind, type ShapeMark, type StrokeMark, type Vec3, MIN_SHAPE_SIZE } from '../../../shared/marks'
+import { type DimensionMark, type Mark, type RegionMark, type ShapeKind, type ShapeMark, type StrokeMark, type Vec3, MIN_SHAPE_SIZE } from '../../../shared/marks'
 
 /** The colours marks are drawn in: by author, and the grey of a shape that is only a reference. */
 export interface MarkColours {
@@ -220,8 +220,11 @@ export function shapeLabelPoint(mark: ShapeMark): Vec3 {
  * pixels along it (`LEADER_PX` when not said). A dimension's hangs at the
  * middle of its line, off the rim of what is round, or off the middle of its arc.
  */
-export function labelAnchor(mark: Mark): { point: Vec3; leader?: Vec3; reach?: number } {
+export function labelAnchor(mark: Mark, regionAt?: (mark: RegionMark) => Vec3 | null): { point: Vec3; leader?: Vec3; reach?: number } {
   switch (mark.kind) {
+    case 'region':
+      // At its middle, where its scan stands in the view drawn: only whoever draws the scans knows that.
+      return { point: regionAt?.(mark) ?? mark.local.centroid }
     case 'pin':
       return { point: mark.anchor.point, leader: unit(mark.anchor.normal) }
     case 'pick':
@@ -323,6 +326,9 @@ export function markPoints(mark: Mark): Vec3[] {
     }
     case 'dimension':
       return [mark.a.point, ...(mark.b ? [mark.b.point] : []), ...(mark.points ?? [])]
+    case 'region':
+      // It is drawn on its scan, which is inside what the camera keeps in already.
+      return []
   }
 }
 
@@ -387,6 +393,9 @@ export function build(mark: Mark, colours: MarkColours, scale: number): THREE.Ob
       break
     case 'dimension':
       addDimension(parts, mark)
+      break
+    case 'region':
+      // Nothing of its own: it is the tint on its scan (`ScanTints`), and its number.
       break
   }
   rescale(root, () => scale, 1)

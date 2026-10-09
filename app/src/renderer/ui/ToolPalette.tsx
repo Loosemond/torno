@@ -241,5 +241,12 @@ export const ICONS: Record<ToolName, ReactNode> = {
       <path d="M7.750 2.250h6v5h-6v-5Z" strokeDasharray="1.5 1.75" />
       <path d="M10.250 8.750v2.500H9.750M11 10l-.750 1.250L9.500 10" />
     </Icon>
+  ),
+  // A brush, and what it has painted on the scan: a patch, dashed like the scan it is of.
+  region: (
+    <Icon>
+      <path d="m8.750 7.750 4.300-5.200a.9.900 0 0 1 1.400 1.150L10.250 9M8.750 7.750 10.250 9c.3 1.600-.9 3-2.750 2.750-.9-.1-1.500-.6-1.750-1 .9-.1 1.300-.6 1.500-1.500.150-.8.7-1.350 1.500-1.500Z" />
+      <path d="M2 13.250c1-1.400 2.250-1.400 3.250 0s2.250 1.400 3.250 0" strokeDasharray="1.5 1.75" />
+    </Icon>
   )
 }

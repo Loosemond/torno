@@ -13,15 +13,18 @@ import { drawTool } from '../tools/drawTool'
 import { measureTool } from '../tools/measureTool'
 import { commitMark, replaceMark } from '../tools/pickMarks'
 import { pinTool } from '../tools/pinTool'
+import { connectRegion, regionTool } from '../tools/regionTool'
 import { sectionTool } from '../tools/sectionTool'
 import { selectTool } from '../tools/selectTool'
 import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
 import { Readout } from '../viewport/highlight'
 import { meshOf } from '../viewport/scans'
+import type { ScanTints } from '../viewport/scanTints'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
 import { AlignBar } from './AlignBar'
+import { RegionBar } from './RegionBar'
 import { NotePopover } from './NotePopover'
 import { importScan, scanDropped } from './scanDrop'
 import { SectionBar } from './SectionBar'
@@ -199,7 +202,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // The one pointer subscription: every event goes to the tool in use, and to
   // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
-  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), section: sectionTool(), measure: measureTool(), align: alignTool() }
+  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), section: sectionTool(), measure: measureTool(), align: alignTool(), region: regionTool() }
   let tool = tools[toolStore.getState().tool]
   const putDown = () => {
     tool?.cancel(context())
@@ -272,6 +275,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // After the store's own subscription above: by then the viewport has the scans as they now are.
   const offAlign = connectAlign(viewport)
+  // The regions kept are tinted on their scans, and what is being painted is the tool's.
+  const offRegion = connectRegion(viewport)
 
   viewport.onCameraSettled((camera) => {
     if (camera.ortho !== store.getState().ortho) actions.setOrtho(camera.ortho)
@@ -347,6 +352,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
       },
       scans: () => viewport.scanState(),
+      regions: () => (viewport as unknown as { scans: { tints: ScanTints } }).scans.tints.state(),
       markScreen: (id) => {
         const box = canvasBox(viewport)
         const label = viewport.markLabel(id)
@@ -363,6 +369,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offStore()
     offShape()
     offAlign()
+    offRegion()
     setPictures(null)
     offAgent()
     delete window.__tornoTest
@@ -460,6 +467,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
           <Selection viewport={viewport} />
           <SectionBar viewport={viewport} />
           <AlignBar />
+          <RegionBar />
           <AgentLine />
           <NotePopover viewport={viewport} />
         </>

@@ -225,8 +225,10 @@ const toolDeps: ToolDeps = {
 }
 
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
-const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId) })
+const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId) })
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
+// Where a region is told to be follows its scan's alignment.
+scans.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 
 /**
  * What a test needs of main that it cannot reach through the window. `pickFolder`

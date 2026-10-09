@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
+import type { ScanInfo } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { writeFileAtomic } from './atomic'
@@ -19,7 +20,7 @@ export const STATE_DELAY_MS = 1000
  * Nothing in it changes unless the build or the marks do: no times, no camera.
  * The file itself begins with `writtenLine`, before this.
  */
-export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[]): string {
+export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[]): string {
   const lines = [
     `# ${obj.name}`,
     '',
@@ -50,7 +51,7 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     )
     for (const layout of [...new Set(open.map((m) => m.layout))]) {
       lines.push('', `In layout ${layout}:`, '')
-      for (const mark of open) if (mark.layout === layout) lines.push(`- ${describeMark(mark, { revision: last?.revision })}`)
+      for (const mark of open) if (mark.layout === layout) lines.push(`- ${describeMark(mark, { revision: last?.revision, ...(scans ? { scans } : {}) })}`)
     }
   }
   return `${lines.join('\n')}\n`
@@ -86,6 +87,8 @@ export interface StateFileDeps {
   build(objectId: string): BuildState | undefined
   scene(objectId: string): { revision: number; scene: Scene } | undefined
   marks(objectId: string): Promise<Mark[]>
+  /** The scans of an object: a region of one is told where the scan's alignment puts it. */
+  scans?(objectId: string): Promise<ScanInfo[]>
   delayMs?: number
   write?(path: string, text: string): Promise<void>
   log?(message: string): void
@@ -130,10 +133,12 @@ export class StateFiles {
     const obj = this.deps.object(objectId)
     if (!obj || !this.deps.build(objectId)) return
     const marks = await this.deps.marks(objectId)
+    // Only a region is told from the scans: without one they are not asked for.
+    const scans = marks.some((mark) => mark.kind === 'region') ? await this.deps.scans?.(objectId).catch(() => undefined) : undefined
     // As things are once the marks are read: a build may have ended meanwhile.
     const build = this.deps.build(objectId)
     if (!build || this.deps.object(objectId)?.dir !== obj.dir) return
-    const text = stateText(obj, build, this.deps.scene(objectId), marks)
+    const text = stateText(obj, build, this.deps.scene(objectId), marks, scans)
     const path = join(obj.dir, FOLDER, NAME)
     if (this.written.get(path) === text) return
     await (this.deps.write ?? writeFileAtomic)(path, `${writtenLine(this.deps.now?.() ?? new Date())}\n\n${text}`)

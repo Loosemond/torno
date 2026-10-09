@@ -101,7 +101,27 @@ export interface DimensionMark extends MarkBase {
   verdict?: 'pass' | 'fail' // present when expected is set and value is known
   points?: [Vec3, Vec3]     // the two points the value was taken between, for drawing the dimension line
 }
-export type Mark = PinMark | PickMark | ArrowMark | StrokeMark | ShapeMark | DimensionMark
+/**
+ * A part of a scan the person painted, and named with its note: "wiring loom, can be pushed aside". Its
+ * triangles are a bitset beside the scan's mesh (`.torno/scans/<scan>/<id>.mask`), which only main writes.
+ * It is tied to no part and to no build: its `anchorState` follows its scan, `orphaned` once that is removed
+ * or its mesh is another than the one the region was painted on.
+ */
+export interface RegionMark extends MarkBase {
+  kind: 'region'
+  scan: string                 // 'S1'
+  triangles: number
+  area: number                 // mm², of the mesh as imported (times s² where a fit scaled the scan)
+  /** In the scan's own frame, which is why it is named `local`: where the region is in a layout is worked out from the scan's transform there. */
+  local: {
+    centroid: Vec3               // area-weighted
+    bbox: { min: Vec3; max: Vec3 }
+    plane: { origin: Vec3; normal: Vec3; rms: number }   // best fit through the triangles' centroids
+  }
+}
+/** What main alone says of a region, from the scan's mesh and the mask: no caller supplies these. */
+export const REGION_KEYS = ['triangles', 'area', 'local'] as const
+export type Mark = PinMark | PickMark | ArrowMark | StrokeMark | ShapeMark | DimensionMark | RegionMark
 export type MarkKind = Mark['kind']
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 /** What main alone says of a mark: no caller supplies these. */
@@ -110,7 +130,7 @@ export const MAIN_ONLY_KEYS = ['resolvedBy', 'acknowledged', 'sentBefore', 'reop
 export const MEASURED_KEYS = ['value', 'how', 'points', 'measuredRevision', 'refused', 'verdict'] as const
 /** What the kernel's measurement leaves on a dimension (`MEASURED_KEYS`). */
 export type Measurement = Pick<DimensionMark, (typeof MEASURED_KEYS)[number]>
-type Given<M> = M extends DimensionMark ? Omit<M, (typeof MEASURED_KEYS)[number]> : M
+type Given<M> = M extends DimensionMark ? Omit<M, (typeof MEASURED_KEYS)[number]> : M extends RegionMark ? Omit<M, (typeof REGION_KEYS)[number]> : M
 /** What a caller supplies; main adds id, status, anchorState, createdAt, and what only it says. */
 export type NewMark = DistributiveOmit<Given<Mark>, 'id' | 'status' | 'anchorState' | 'createdAt' | (typeof MAIN_ONLY_KEYS)[number]>
 /** `acknowledged` may only be set, and only on a mark the agent resolved. */
@@ -121,6 +141,11 @@ export type MarkPatch = Partial<Pick<MarkBase, 'note' | 'status' | 'resolvedNote
     tolerance?: number | null
   }
 export interface MarksFile { next: number; marks: Mark[] }
+/**
+ * What the window gives to keep a region: the scan, and its triangles as the bits of a mask (bit `i & 7` of
+ * byte `i >> 3` for triangle `i`). Main works out everything else from the mesh, and writes the mask.
+ */
+export interface NewRegion { scan: string; note: string; layout: string; revision: number; camera: Camera; bits: Uint8Array }
 /** Where a mark is put again, by a click on a part: the anchor found there, on which build and from which view. */
 export interface Replacement { anchor: Anchor; revision: number; camera: Camera }
 
@@ -143,6 +168,9 @@ export function markAnchors(mark: Mark): Anchor[] {
       return mark.anchor ? [mark.anchor] : []
     case 'dimension':
       return mark.b ? [mark.a, mark.b] : [mark.a]
+    case 'region':
+      // It is on a scan, not on a part: nothing of a build is under it.
+      return []
   }
 }
 
@@ -168,7 +196,8 @@ export function strokeSamples(mark: Mark, most = STROKE_SAMPLES): Vec3[] {
  * `revision` is that of the last build that worked; with none, nothing is unchecked.
  */
 export function isUnchecked(mark: Mark, revision: number | undefined): boolean {
-  return mark.status !== 'resolved' && revision !== undefined && revision > 0 && mark.checkedRevision !== revision
+  // A region is of a scan: no build has anything to say of it.
+  return mark.kind !== 'region' && mark.status !== 'resolved' && revision !== undefined && revision > 0 && mark.checkedRevision !== revision
 }
 
 /** A mark the agent resolved and the person has not yet said they have seen: it stays among the open ones in the panel. */
@@ -208,5 +237,8 @@ export function translated<M extends Mark>(mark: M, by: Vec3, byB: Vec3 = by): M
     case 'dimension':
       // Of one end alone (a radius, a wall) both points are of that end.
       return { ...m, a: at(m.a), ...(m.b ? { b: { ...m.b, point: moved(m.b.point, byB) } } : {}), ...(m.points ? { points: [moved(m.points[0], by), moved(m.points[1], m.b ? byB : by)] } : {}) } as M
+    case 'region':
+      // What it holds is in its scan's frame, and a scan is never spread.
+      return mark
   }
 }

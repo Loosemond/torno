@@ -11,7 +11,7 @@ import { spreadApart } from '../marks/spread'
 import { EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance } from '../marks/reanchor'
 import { onlyKeysWrong, unknownKeys } from './keys'
 import type { AlignmentSaid } from '../scans/said'
-import { type RegionOfScan, isRegion, scanFor } from './scanTools'
+import { regionLost, scanFor } from './scanTools'
 import {
   type AddMarkArgs,
   type HighlightArgs,
@@ -32,6 +32,7 @@ import {
   noMark,
   notOpen,
   onScreen,
+  scansFor,
   tidy
 } from './tools'
 
@@ -128,11 +129,11 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
       }
       const mark = marks.find((m) => m.id === arg)
       if (!mark) return noMark(arg, marks)
-      if (isRegion(mark)) {
-        const region = mark as unknown as RegionOfScan
+      if (mark.kind === 'region') {
+        const region = mark
         const of = await scanFor(deps, objectId, layout, revision, region.scan)
         if ('content' in of) return of
-        if (region.anchorState === 'orphaned' || !isPoint(region.local?.centroid)) return failure(`${arg} no longer fits the mesh of ${region.scan}: give a point of the scan, as {"scan": "${region.scan}", "point": [x, y, z]}`)
+        if (region.anchorState === 'orphaned' || !isPoint(region.local?.centroid)) return failure(`${regionLost(arg, region.scan)}, or give a point of the scan, as {"scan": "${region.scan}", "point": [x, y, z]}`)
         const point = tidy(apply(of.alignment.transform, region.local.centroid))
         ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned }, text: `the centroid of region ${arg} (${of.scan.id}) at ${vector(point)}` })
         continue
@@ -562,7 +563,8 @@ export async function resolveMarkTool(deps: ToolDeps, objectId: string, args: Re
   try {
     const mark = await deps.updateMark(objectId, args.id, { status: 'resolved', ...(note ? { resolvedNote: note } : {}) })
     const unmeasured = mark.kind === 'dimension' ? `\n${mark.id} is no longer measured.` : ''
-    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}${unmeasured}` }] }
+    const scans = await scansFor(deps, objectId, [mark])
+    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision, ...(scans ? { scans } : {}) })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}${unmeasured}` }] }
   } catch (e) {
     return failure(messageOf(e))
   }

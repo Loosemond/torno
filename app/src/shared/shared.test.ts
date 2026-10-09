@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type Mark, strokeSamples } from './marks'
+import { type Mark, isUnchecked, markAnchors, strokeSamples, translated } from './marks'
 import { bufView } from './scene'
 
 function blobOf(floats: number[]): ArrayBuffer {
@@ -75,5 +75,16 @@ describe('strokeSamples', () => {
   it('gives none of a profile on a plane, or of a mark that is no stroke', () => {
     expect(strokeSamples(stroke(20, 'plane'))).toEqual([])
     expect(strokeSamples({ kind: 'pin', anchor: { point: [0, 0, 0] } } as unknown as Mark)).toEqual([])
+  })
+})
+
+describe('a region mark', () => {
+  const region = { id: 'M7', kind: 'region', scan: 'S1', author: 'user', note: 'loom', status: 'sent', anchorState: 'ok', layout: 'print', revision: 12, camera: {}, createdAt: '', triangles: 2, area: 100, local: { centroid: [0, 0, 0], bbox: { min: [0, 0, 0], max: [1, 1, 1] }, plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 0 } } } as unknown as Mark
+
+  it('is tied to no part and to no build: it has no anchors, is never moved with a part, and is never unchecked', () => {
+    expect(markAnchors(region)).toEqual([])
+    expect(translated(region, [1, 2, 3])).toBe(region)
+    expect(isUnchecked(region, 12)).toBe(false)
+    expect(isUnchecked({ ...region, status: 'draft' } as Mark, 13)).toBe(false)
   })
 })

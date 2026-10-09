@@ -620,6 +620,19 @@ describe('scans', () => {
   const scan = (id: string, alignments: Record<string, ScanAlignment> = {}, more: Partial<ScanInfo> = {}): ScanInfo =>
     ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 9, triangles: 9, colours: 'none', bbox: { min: [0, 0, 0], max: [1, 1, 1] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks: Object.fromEntries(Object.keys(alignments).map((layout) => [layout, { revision: 4, of: 4, off: 0, worst: 0, moved: [] }])), ...more }) as ScanInfo
 
+  it('lists a draft region with the other marks, where its scan stands in its layout', () => {
+    const region = { id: 'M7', kind: 'region', scan: 'S1', author: 'user', note: 'wiring loom, can be pushed aside', status: 'draft', anchorState: 'ok', layout: 'print', revision: 4, camera: CAMERA, createdAt: '', triangles: 4812, area: 31000, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, 0], max: [-10, -10, 0] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 0.42 } } } as unknown as Mark
+    const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [], scans: [{ id: 'S1', visible: true, opacity: 1, loaded: true }] }
+    const told = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [region], { scans: [scan('S1', { print: BY_PAIRS })] })
+    expect(told.text.split('\n')).toContain('M7 region on scan S1: 4,812 triangles, ≈ 31000 mm², centre (-14, -13, 3), box 10 × 10 × 0 mm, flat to 0.42 mm about a plane with normal (0, 0, 1): "wiring loom, can be pushed aside"')
+    expect(told.sentMarkIds).toEqual(['M7'])
+    // Its scan gone: it is told as that, with its note.
+    const gone = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [{ ...region, anchorState: 'orphaned', sentBefore: true } as Mark], { scans: [] })
+    expect(gone.text.split('\n')).toContain('(changed) M7 region on scan S1 [its scan is gone]: "wiring loom, can be pushed aside"')
+    // Nothing counts it as a mark no build has checked.
+    expect(told.text).not.toContain('not checked')
+  })
+
   it('says the scans in one line after the status, and nothing when there are none', () => {
     const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [], scans: [{ id: 'S1', visible: true, opacity: 0.6, loaded: true }, { id: 'S2', visible: false, opacity: 1, loaded: true }] }
     const text = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS }), scan('S2')] }).text

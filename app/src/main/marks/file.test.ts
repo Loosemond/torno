@@ -391,3 +391,28 @@ describe('a dimension', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 })
+
+describe('a region', () => {
+  const region = (over: object = {}): object => ({ ...BASE, id: 'M7', kind: 'region', scan: 'S1', triangles: 4812, area: 31000, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, 0], max: [-10, -10, 0] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 4.2 } }, ...over })
+  const local = (over: object): object => ({ ...(region() as { local: object }).local, ...over })
+
+  it('loads whole, and with nothing a region does not have', () => {
+    expect(sanitiseMark(JSON.parse(JSON.stringify(region())))).toEqual(region())
+    expect(sanitiseMark(region({ bits: [1, 2, 3], anchor: ANCHOR, mask: '/etc/passwd' }))).toEqual(region())
+    expect(markAnchors(sanitiseMark(region())!)).toEqual([])
+  })
+
+  it('is dropped when its scan is no scan, it has no triangle, or a number of it is not finite', () => {
+    expect(sanitiseMark(region({ scan: 'lid' }))).toBeNull()
+    expect(sanitiseMark(region({ scan: '../S1' }))).toBeNull()
+    expect(sanitiseMark(region({ triangles: 0 }))).toBeNull()
+    expect(sanitiseMark(region({ triangles: 1.5 }))).toBeNull()
+    expect(sanitiseMark(region({ area: Number.NaN }))).toBeNull()
+    expect(sanitiseMark(region({ area: -1 }))).toBeNull()
+    expect(sanitiseMark(region({ local: local({ centroid: [1, 2] }) }))).toBeNull()
+    expect(sanitiseMark(region({ local: local({ centroid: [1, 2, Number.POSITIVE_INFINITY] }) }))).toBeNull()
+    expect(sanitiseMark(region({ local: local({ bbox: { min: [0, 0, 0] } }) }))).toBeNull()
+    expect(sanitiseMark(region({ local: local({ plane: { origin: [0, 0, 0], normal: [0, 0, 1] } }) }))).toBeNull()
+    expect(sanitiseMark(region({ local: undefined }))).toBeNull()
+  })
+})

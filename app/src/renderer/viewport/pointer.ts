@@ -20,6 +20,8 @@ export interface ViewportPointer {
   shift: boolean
   /** Alt is held: a tool that takes every press leaves this one to the camera. */
   alt: boolean
+  /** Ctrl is held: the Region tool's brush takes out what it would take. */
+  ctrl?: boolean
   /** The pointer is on the cut face of a section: `hit` is null, since what a section draws is no face of the model. */
   cut?: boolean
 }
@@ -176,7 +178,7 @@ export class PointerRouter {
     const hit = kind === 'cancel' || turning ? null : host.pick(e.clientX, e.clientY)
     const cut = kind !== 'cancel' && !turning && hit === null && host.pickedCut?.() === true
     host.syncMatrices()
-    const event = { hit, ray: pointerRay(host.camera(), at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey, ...(cut ? { cut } : {}) }
+    const event = { hit, ray: pointerRay(host.camera(), at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey, ...(e.ctrlKey ? { ctrl: true } : {}), ...(cut ? { cut } : {}) }
     cb({ type: kind, ...event })
     if (kind === 'up' && isClick(press, { button: e.button, x: e.clientX, y: e.clientY, at: e.timeStamp })) cb({ type: 'click', ...event })
   }

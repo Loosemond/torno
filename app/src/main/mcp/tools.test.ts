@@ -1129,6 +1129,30 @@ describe('scans in scene, look and show', () => {
     return textOf(answered)
   }
 
+  it('tells a region of a scan through marks, describe and resolve_mark where the scan stands, and never in the scan’s own frame', async () => {
+    const region = { id: 'M5', kind: 'region', scan: 'S1', author: 'user', note: 'loom', status: 'sent', anchorState: 'ok', layout: 'assembly', revision: 3, camera: CAMERA, createdAt: '', triangles: 4812, area: 31000, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, 0], max: [-10, -10, 0] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 0.42 } } } as unknown as Mark
+    const moved: ScanAlignment = { ...TYPED, transform: { t: [100, 0, 5], q: [0, 0, 0, 1], s: 1 } }
+    const deps = scanned({ scans: async () => [scan('S1', { assembly: moved })] })
+    deps.w.list.push(region)
+    const LINE = /^M5 region on scan S1: 4,812 triangles, ≈ 31000 mm², centre \(85, -15, 5\), box 10 × 10 × 0 mm, flat to 0.42 mm about a plane with normal \(0, 0, 1\): "loom" \[S1's alignment was not checked against r3/
+    const listed = jsonOf(await marksTool(deps, 'bracket', {})).marks.find((m: Mark) => m.id === 'M5')
+    expect(listed).toMatchObject({ kind: 'region', scan: 'S1', triangles: 4812, area: 31000, centroid: [85, -15, 5], bbox: { min: [80, -20, 5], max: [90, -10, 5] }, flat: true })
+    expect(listed.local).toBeUndefined()
+    expect(listed.line).toMatch(LINE)
+    const one = jsonOf(await describeTool(deps, 'bracket', { ref: 'M5' })).mark
+    expect(one.line).toMatch(LINE)
+    expect(one.local).toBeUndefined()
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M5' }))).toMatch(/^resolved: M5 region on scan S1: 4,812 triangles, ≈ 31000 mm², centre \(85, -15, 5\)/)
+    // Where the scan is not aligned in the region's layout it has no place, and none is made up.
+    const elsewhere = scanned({ scans: async () => [scan('S1', { print: moved })] })
+    elsewhere.w.list.push(region)
+    const nowhere = jsonOf(await marksTool(elsewhere, 'bracket', {})).marks.find((m: Mark) => m.id === 'M5')
+    expect(nowhere.line).toBe('M5 region on scan S1 (not aligned in assembly, so it has no place in the model’s frame): 4,812 triangles, ≈ 31000 mm²: "loom"')
+    expect(nowhere).not.toHaveProperty('centroid')
+    expect(nowhere).not.toHaveProperty('local')
+    expect(TOOLS.marks.description).toContain('a region is a part of a scan the user painted')
+  })
+
   it('scene names the scans, each with whether it is aligned in the layout it answers for, and where to ask how', () => {
     const scene = JSON.parse(textOf(sceneTool(scanned(), 'bracket', [], SCANS)))
     expect(scene.scans).toEqual([{ id: 'S1', name: 'S1.glb', triangles: 722, aligned: true }, { id: 'S2', name: 'S2.glb', triangles: 722, aligned: false }])

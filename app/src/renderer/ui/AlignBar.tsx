@@ -245,7 +245,7 @@ function numberedNames(names: string[]): ReactNode[] {
 }
 
 /** One number to type: the DOM's own while it is typed in; `commit` is given what was typed when it is a number. */
-function Field({ label, sign, axis, value, unit, disabled, commit }: { label: string; sign?: string; axis?: 'x' | 'y' | 'z'; value: string; unit?: string; disabled?: boolean; commit: (value: number, input: HTMLInputElement) => void }) {
+export function Field({ label, sign, axis, value, unit, disabled, commit }: { label: string; sign?: string; axis?: 'x' | 'y' | 'z'; value: string; unit?: string; disabled?: boolean; commit: (value: number, input: HTMLInputElement) => void }) {
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (ref.current && document.activeElement !== ref.current) ref.current.value = value

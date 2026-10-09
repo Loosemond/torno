@@ -1,6 +1,6 @@
 import { apply } from '../../shared/align'
 import type { ScanClashed, ScanDeviated } from '../../shared/geometry'
-import type { Mark } from '../../shared/marks'
+import type { Mark, RegionMark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import { type ScanAlignment, type ScanInfo, type ScanTransform, MIN_SCAN_OPACITY, importText } from '../../shared/scans'
 import type { ScanColouring } from '../../shared/view'
@@ -49,13 +49,11 @@ const isVec = (value: unknown): value is Vec3 => Array.isArray(value) && value.l
 const nth = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`
 const reply = (value: object): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value) }] })
 
-/**
- * A region of a scan, as far as these tools read one: a mark of kind `region` (Task 8 adds it to `Mark`), whose
- * triangles are the mask beside the scan's mesh. `local` is in the scan's own frame.
- */
-export interface RegionOfScan { id: string; kind: 'region'; scan: string; note: string; anchorState: string; local?: { centroid?: Vec3 } }
-export const isRegion = (mark: Mark | undefined): boolean => (mark as { kind?: string } | undefined)?.kind === 'region'
-export const regionsOf = (marks: readonly Mark[], scan: string): RegionOfScan[] => (marks as unknown as RegionOfScan[]).filter((mark) => mark.kind === 'region' && mark.scan === scan)
+/** The regions of a scan among the marks of its object: what the user painted on it, each with its mask beside the scan's mesh. */
+export const regionsOf = (marks: readonly Mark[], scan: string): RegionMark[] => marks.filter((mark): mark is RegionMark => mark.kind === 'region' && mark.scan === scan)
+
+/** Said of a region that is of no mesh any more, where a tool is given it. */
+export const regionLost = (id: string, scan: string): string => `${id} no longer fits the mesh of ${scan} (the scan was imported again from a changed source since it was painted): the user paints it again`
 
 /** The scans of an object, or the error to answer with: the object is not in the workspace, or its scans cannot be read. */
 async function scansOf(deps: ToolDeps, objectId: string): Promise<ScanInfo[] | ToolResult> {
@@ -176,7 +174,7 @@ async function masksOf(deps: ToolDeps, objectId: string, asked: ScanAsked, ids: 
   for (const id of ids) {
     const region = regions.find((mark) => mark.id === id)
     if (!region) return failure(regions.length > 0 ? `${id} is not a region of ${asked.scan.id}; its regions: ${regions.map((mark) => mark.id).join(', ')}` : `${id} is not a region of ${asked.scan.id}, which has no regions: the user paints one on the scan`)
-    if (region.anchorState === 'orphaned') return failure(`${id} no longer fits the mesh of ${asked.scan.id} (the scan was converted or imported again since it was painted): the user paints it again`)
+    if (region.anchorState === 'orphaned') return failure(regionLost(id, asked.scan.id))
     masks.push(asked.mask(id))
   }
   return masks
@@ -242,7 +240,7 @@ export async function scansTool(deps: ToolDeps, objectId: string, args: ScansArg
       alignedIn: inLayouts,
       // Where it stands in this layout: the box of its own box's corners, in the frame of the layout.
       ...(aligned?.alignment ? { bbox: placedBox(aligned.alignment.transform, min, max) } : {}),
-      regions: regions.map((mark) => `${mark.id} ${JSON.stringify(mark.note)}`)
+      regions: regions.map((mark) => `${mark.id} ${JSON.stringify(mark.note)}${mark.anchorState === 'orphaned' ? ' (no longer fits the mesh: not usable)' : ''}`)
     }
   })
   const coming = busy.filter((id) => !scans.some((scan) => scan.id === id))

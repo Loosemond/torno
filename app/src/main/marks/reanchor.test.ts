@@ -158,6 +158,17 @@ describe('reanchorAll', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('asks nothing of a region of a scan, says it was looked at on that build, and leaves what its scan made of it', async () => {
+    const stats = { triangles: 2, area: 100, local: { centroid: [0, 0, 0], bbox: { min: [0, 0, 0], max: [1, 1, 0] }, plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 0 } } } as never
+    const region = { author: 'user', note: 'loom', layout: 'assembly', revision: 1, camera: CAMERA, kind: 'region', scan: 'S1' } as unknown as NewMark
+    await store.add('bracket', region, 'draft', undefined, { stats, before: async () => {} }) // M1
+    await store.add('bracket', region, 'draft', undefined, { stats, before: async () => {} }) // M2
+    await store.orphanRegions('bracket', 'S1', ['M2'])
+    expect(await run()).toBe(true)
+    expect(asked).toEqual([])
+    expect(await byId()).toMatchObject({ M1: { anchorState: 'ok', checkedRevision: 1 }, M2: { anchorState: 'orphaned', checkedRevision: 1 } })
+  })
+
   it('asks once per layout, for the anchors of the unresolved marks that are on a part, and writes once', async () => {
     await store.add('bracket', pin(ON_TOP)) // M1
     await store.add('bracket', arrow(ON_POST)) // M2

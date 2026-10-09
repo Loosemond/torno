@@ -874,3 +874,64 @@ describe('a dimension', () => {
     expect(read).not.toHaveProperty('measuredRevision')
   })
 })
+
+describe('a region of a scan', () => {
+  const STATS = { triangles: 2, area: 100, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, 0], max: [-10, -10, 0] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 0 } } } as const
+  const region = (scan = 'S1', over: object = {}): NewMark => ({ ...BASE, kind: 'region', scan, note: 'loom', ...over }) as NewMark
+  const kept = (before: (id: string) => Promise<void> = async () => {}) => ({ stats: structuredClone(STATS) as never, before })
+
+  it('is kept with the numbers main worked out, whatever came in their place', async () => {
+    const added = await store.add('bracket', region('S1', { triangles: 999999, area: 1, local: { centroid: [9, 9, 9] }, checkedRevision: 4 }), 'draft', undefined, kept())
+    expect(added).toMatchObject({ id: 'M1', kind: 'region', scan: 'S1', status: 'draft', anchorState: 'ok', ...STATS })
+    expect(added).not.toHaveProperty('checkedRevision')
+    expect(onDisk('bracket').marks[0]).toMatchObject(STATS)
+    // Without what main says of it, it is no region.
+    await expect(store.add('bracket', region())).rejects.toThrow('that is not a mark')
+  })
+
+  it('has its mask written once it has its number, before the mark is written or told', async () => {
+    await store.add('bracket', pin())
+    changes = []
+    const seen: string[] = []
+    await store.add('bracket', region(), 'draft', undefined, kept(async (id) => {
+      seen.push(id, ...ids(onDisk('bracket').marks), `told ${changes.length}`)
+    }))
+    expect(seen).toEqual(['M2', 'M1', 'told 0'])
+    expect(ids(onDisk('bracket').marks)).toEqual(['M1', 'M2'])
+    expect(changes).toHaveLength(1)
+  })
+
+  it('is no mark when its mask could not be written: nothing is told, and the next mark has that number', async () => {
+    await expect(store.add('bracket', region(), 'draft', undefined, kept(async () => Promise.reject(new Error('the disk is full'))))).rejects.toThrow('the disk is full')
+    expect(changes).toEqual([])
+    expect(await store.list('bracket')).toEqual([])
+    expect((await store.add('bracket', pin())).id).toBe('M1')
+  })
+
+  it('is orphaned with its scan, and no other mark is', async () => {
+    await store.add('bracket', region('S1'), 'draft', undefined, kept())
+    await store.add('bracket', region('S2'), 'draft', undefined, kept())
+    await store.add('bracket', pin())
+    await store.add('bracket', region('S1'), 'sent', undefined, kept())
+    saves.mockClear()
+    await store.orphanRegions('bracket', 'S1')
+    expect((await store.list('bracket')).map((m) => m.anchorState)).toEqual(['orphaned', 'ok', 'ok', 'orphaned'])
+    // What the agent was told of a region it was sent no longer holds: it is told again.
+    expect((await store.list('bracket')).map((m) => m.status)).toEqual(['draft', 'draft', 'draft', 'draft'])
+    expect(saves).toHaveBeenCalledTimes(1)
+    // Nothing left to say: nothing written.
+    await store.orphanRegions('bracket', 'S1')
+    await store.orphanRegions('bracket', 'S9')
+    expect(saves).toHaveBeenCalledTimes(1)
+    // Only those named, when some are.
+    await store.orphanRegions('bracket', 'S2', ['M9'])
+    expect((await store.list('bracket'))[1].anchorState).toBe('ok')
+  })
+
+  it('changes by its note and its status only', async () => {
+    await store.add('bracket', region(), 'sent', undefined, kept())
+    await expect(store.update('bracket', 'M1', { size: [1, 1, 1] })).rejects.toThrow('M1 is a region, not a shape')
+    expect(await store.update('bracket', 'M1', { note: 'battery' })).toMatchObject({ note: 'battery', status: 'draft', ...STATS })
+    await expect(store.replace('bracket', 'M1', { anchor: ANCHOR, revision: 2, camera: CAMERA } as Replacement)).rejects.toThrow('M1 is a region: only a pin, a pick or an arrow is put somewhere else')
+  })
+})

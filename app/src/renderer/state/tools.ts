@@ -3,7 +3,7 @@ import { createStore } from 'zustand/vanilla'
 import type { ShapeKind } from '../../shared/marks'
 import type { GizmoMode } from '../viewport/Viewport'
 
-export type ToolName = 'select' | 'pin' | 'arrow' | 'draw' | 'shape' | 'section' | 'measure' | 'align'
+export type ToolName = 'select' | 'pin' | 'arrow' | 'draw' | 'shape' | 'section' | 'measure' | 'align' | 'region'
 
 /** The tools of the palette, in its order. One that is not `ready` is shown, and cannot be chosen yet. */
 export const TOOLS: { name: ToolName; label: string; key: string; ready: boolean }[] = [
@@ -14,7 +14,8 @@ export const TOOLS: { name: ToolName; label: string; key: string; ready: boolean
   { name: 'shape', label: 'Shape', key: 'S', ready: true },
   { name: 'section', label: 'Section', key: 'X', ready: true },
   { name: 'measure', label: 'Measure', key: 'M', ready: true },
-  { name: 'align', label: 'Align scan', key: 'L', ready: true }
+  { name: 'align', label: 'Align scan', key: 'L', ready: true },
+  { name: 'region', label: 'Region of a scan', key: 'B', ready: true }
 ]
 
 export type { GizmoMode }

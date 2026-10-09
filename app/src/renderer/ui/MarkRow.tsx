@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { exactText, shownDimension } from '../../shared/dimension'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
-import { actions, store } from '../state/store'
+import { number } from '../../shared/format'
+import { actions, store, useStore } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { labelText } from '../viewport/marks/labels'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
@@ -11,8 +12,8 @@ import { ICONS, SHAPE_ICONS } from './ToolPalette'
 /** The longest note a mark keeps (main cuts there); the field stops at it, so nothing is cut unseen. */
 export const MAX_NOTE = 2000
 
-const KIND_ICON: Record<MarkKind, ReactNode> = { pin: ICONS.pin, pick: ICONS.select, arrow: ICONS.arrow, stroke: ICONS.draw, shape: ICONS.shape, dimension: ICONS.measure }
-const KIND_NAME: Record<MarkKind, string> = { pin: 'Pin', pick: 'Pick', arrow: 'Arrow', stroke: 'Stroke', shape: 'Shape', dimension: 'Dimension' }
+const KIND_ICON: Record<MarkKind, ReactNode> = { pin: ICONS.pin, pick: ICONS.select, arrow: ICONS.arrow, stroke: ICONS.draw, shape: ICONS.shape, dimension: ICONS.measure, region: ICONS.region }
+const KIND_NAME: Record<MarkKind, string> = { pin: 'Pin', pick: 'Pick', arrow: 'Arrow', stroke: 'Stroke', shape: 'Shape', dimension: 'Dimension', region: 'Region' }
 /** What the row says of a dimension the agent has been given: it stays, with its value, until it is resolved. */
 export const PINNED = 'pinned'
 const ANCHOR_NOTE = {
@@ -22,6 +23,15 @@ const ANCHOR_NOTE = {
 } as const
 /** What the row says of a mark the last build left off its surface, or without its part. */
 export const ANCHOR_BADGE = { drifted: 'moved: check it', orphaned: 'its part is gone' } as const
+/** What the row says of a region whose scan is gone, or is no longer the mesh it was painted on, and why. */
+export const SCAN_GONE = 'its scan is gone'
+export const SCAN_READ_AGAIN = 'its scan was read again'
+const REGION_NOTE = {
+  [SCAN_GONE]: 'The scan it was painted on was removed: it has no triangles any more. Its note is kept',
+  [SCAN_READ_AGAIN]: 'The scan it was painted on was imported again from a changed source: it is not of that mesh. Paint it again'
+} as const
+/** What the row says of a region whose scan is switched off: it is not drawn either. */
+export const SCAN_HIDDEN = 'its scan is hidden'
 /** What the row says of a mark whose layout the build no longer has: it cannot be shown, and going to it does nothing. */
 export const LAYOUT_GONE = 'its layout is gone'
 /** What the row says of a mark on a part that is switched off: it is not drawn either. */
@@ -112,7 +122,17 @@ export function MarkRow({
   // A dimension's numbers need no view of it: they open wherever it is the one being worked on.
   const expects = mark.kind === 'dimension' && active && !resolved
 
-  const what = [KIND_NAME[mark.kind], mark.kind === 'shape' ? `${mark.shape}, ${mark.intent}` : mark.kind === 'dimension' ? mark.measure : '', elsewhere ? `in layout ${mark.layout}` : ''].filter(Boolean).join(' · ')
+  const what = [
+    KIND_NAME[mark.kind],
+    mark.kind === 'shape' ? `${mark.shape}, ${mark.intent}` : mark.kind === 'dimension' ? mark.measure : mark.kind === 'region' ? `${mark.scan} · ${mark.triangles.toLocaleString('en-US')} ${mark.triangles === 1 ? 'triangle' : 'triangles'}` : '',
+    elsewhere ? `in layout ${mark.layout}` : ''
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  // A region goes with its scan: of one that is no longer there, or is another mesh, it says which.
+  const scanThere = useStore((s) => mark.kind === 'region' && s.scans.some((scan) => scan.id === mark.scan))
+  const lost = mark.kind === 'region' && mark.anchorState === 'orphaned' ? (scanThere ? SCAN_READ_AGAIN : SCAN_GONE) : null
+  const anchorNote = lost ? REGION_NOTE[lost] : ANCHOR_NOTE[mark.anchorState]
 
   return (
     <li
@@ -129,13 +149,18 @@ export function MarkRow({
       aria-current={active ? 'true' : undefined}
       onClick={() => actions.focusMark(mark.id)}
     >
-      <span className="mark-chip num" data-author={mark.author} title={[mark.author === 'user' ? 'Your mark' : "The agent's mark", ANCHOR_NOTE[mark.anchorState]].filter(Boolean).join('. ')}>
+      <span className="mark-chip num" data-author={mark.author} title={[mark.author === 'user' ? 'Your mark' : "The agent's mark", anchorNote].filter(Boolean).join('. ')}>
         {label}
       </span>
       <span className="mark-kind" title={what} aria-label={what} role="img">
         {mark.kind === 'shape' ? SHAPE_ICONS[mark.shape] : KIND_ICON[mark.kind]}
       </span>
       {mark.kind === 'dimension' && <DimensionValue mark={mark} revision={revision} />}
+      {mark.kind === 'region' && (
+        <span className="mark-value num" title={`${mark.triangles.toLocaleString('en-US')} ${mark.triangles === 1 ? 'triangle' : 'triangles'} of ${mark.scan}, ≈ ${number(mark.area)} mm² of its mesh`}>
+          {mark.scan}
+        </span>
+      )}
       {draft === null ? (
         <button
           type="button"
@@ -187,14 +212,14 @@ export function MarkRow({
       ) : (
         !resolved &&
         mark.anchorState !== 'ok' && (
-          <span className="mark-anchor" data-state={mark.anchorState} title={ANCHOR_NOTE[mark.anchorState]}>
-            {ANCHOR_BADGE[mark.anchorState]}
+          <span className="mark-anchor" data-state={mark.anchorState} title={anchorNote}>
+            {lost ?? ANCHOR_BADGE[mark.anchorState]}
           </span>
         )
       )}
       {partHidden && (
-        <span className="mark-layout" title="Marks on a part that is switched off are not drawn. Switch the part on to see it">
-          {PART_HIDDEN}
+        <span className="mark-layout" title={mark.kind === 'region' ? 'A region is drawn on its scan: switch the scan on to see it' : 'Marks on a part that is switched off are not drawn. Switch the part on to see it'}>
+          {mark.kind === 'region' ? SCAN_HIDDEN : PART_HIDDEN}
         </span>
       )}
       {elsewhere && <span className="mark-layout num">{mark.layout}</span>}

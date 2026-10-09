@@ -136,6 +136,7 @@ const withSpread = (anchor: Anchor, arranged: Vec3 | null): Anchor => {
 function withAnchor<M extends Mark | NewMark>(mark: M, change: (anchor: Anchor) => Anchor): M {
   if (mark.kind === 'arrow') return { ...mark, from: change(mark.from) }
   if (mark.kind === 'dimension') return { ...mark, a: change(mark.a), ...(mark.b ? { b: change(mark.b) } : {}) }
+  if (mark.kind === 'region') return mark
   return mark.anchor ? { ...mark, anchor: change(mark.anchor) } : mark
 }
 
@@ -371,7 +372,8 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
     const now = anchors.map((anchor): Judged | undefined => (anchor.part === undefined ? { anchor, state: 'ok' } : judged.get(anchor)))
     if (!now.every((j) => j !== undefined)) continue
     const ofAnchors = WORST_FIRST.find((state) => now.some((j) => j.state === state)) ?? 'ok'
-    const anchorState = ofAnchors === 'ok' && offSurface.has(mark.id) ? 'drifted' : ofAnchors
+    // A region is on a scan: no build moves it or loses it, and what its scan made of it stands.
+    const anchorState = mark.kind === 'region' ? original.anchorState : ofAnchors === 'ok' && offSurface.has(mark.id) ? 'drifted' : ofAnchors
     const was = markAnchors(original)
     if (anchorState === original.anchorState && original.checkedRevision === revision && shift === null && shiftB === null && now.every((j, i) => isDeepStrictEqual(j.anchor, was[i]))) continue
     changes.push({ id: mark.id, judged: was, anchors: now.map((j) => j.anchor), anchorState, ...(shift ? { shift } : {}), ...(shiftB ? { shiftB } : {}), checkedRevision: revision })

@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { shownDimension } from '../../../shared/dimension'
-import { type Mark, type ShapeMark, type Vec3, markAnchors } from '../../../shared/marks'
+import { apply } from '../../../shared/align'
+import { type Mark, type RegionMark, type ShapeMark, type Vec3, markAnchors } from '../../../shared/marks'
+import type { ScanTransform } from '../../../shared/scans'
 import type { SectionPlane } from '../../../shared/view'
 import { mmPerPx, place, project, type Chip, type Placed, type Size } from './labels'
 import { build, dispose, labelAnchor, markPoints, rescale, setActive, setDimmed, type MarkColours } from './markObjects'
@@ -48,9 +50,27 @@ export class MarkLayer {
   private revision = 0
   private draft: { is: Draft; object: THREE.Object3D } | null = null
 
-  constructor(colours: MarkColours) {
+  /**
+   * `scans` says of a scan where it stands in a layout and whether it is drawn on screen: a region is a mark on
+   * one, with its number at its middle there, and is not drawn where its scan is not. Without it no region is.
+   */
+  constructor(
+    colours: MarkColours,
+    private readonly scans?: { placedIn(scan: string, layout: string): ScanTransform | null; drawn(scan: string): boolean }
+  ) {
     this.colours = colours
     this.group.name = 'marks'
+  }
+
+  /** Where the middle of a region is in the layout of its mark, as its scan stands there; null when its scan is not there, or is no longer the mesh it was painted on. */
+  private readonly regionAt = (mark: RegionMark): Vec3 | null => {
+    const placed = mark.anchorState === 'orphaned' ? null : this.scans?.placedIn(mark.scan, mark.layout)
+    return placed ? apply(placed, mark.local.centroid) : null
+  }
+
+  /** Where a mark's label hangs, as this layer draws it (`labelAnchor`). */
+  anchorOf(mark: Mark): ReturnType<typeof labelAnchor> {
+    return labelAnchor(mark, this.regionAt)
   }
 
   /** The colours changed, as with the colour scheme: everything is made again. */
@@ -130,6 +150,8 @@ export class MarkLayer {
 
   /** A mark is drawn dimmed when a section has taken away what it is on, and a dimension while the line it draws is of another build's value. */
   private dim(entry: { mark: Mark; object: THREE.Object3D }): void {
+    // A region has nothing of its own to dim: its tint is cut with its scan.
+    if (entry.mark.kind === 'region') return
     setDimmed(entry.object, cutAway(entry.mark, this.section) || staleValue(entry.mark, this.revision))
   }
 
@@ -156,6 +178,17 @@ export class MarkLayer {
 
   private shows(mark: Mark, layout: string | null = this.layout, hidden: ReadonlySet<string> = this.hidden): boolean {
     return mark.layout === layout && !onHidden(mark, hidden)
+  }
+
+  /**
+   * Whether a region is not drawn: its scan is not (its mesh has not come, it is gone, or is another), or, on
+   * screen, is switched off. A view that says what it leaves out (`hidden`, a picture's) names the scans it does
+   * not draw as `scan:S1`.
+   */
+  private regionHidden(mark: Mark, hidden: ReadonlySet<string> | undefined): boolean {
+    if (mark.kind !== 'region') return false
+    if (this.regionAt(mark) === null) return true
+    return hidden ? hidden.has(`scan:${mark.scan}`) : this.scans?.drawn(mark.scan) !== true
   }
 
   /**
@@ -195,7 +228,7 @@ export class MarkLayer {
    * as `show` was last told, or `hidden` for a view that draws other parts.
    */
   labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: Chip, hidden?: ReadonlySet<string>): Placed[] {
-    return place(project(this.marksOf(layout, hidden), camera, size, unit, this.revision), chip, size, unit)
+    return place(project(this.marksOf(layout, hidden), camera, size, unit, this.revision, this.regionAt), chip, size, unit)
   }
 
   /**
@@ -221,7 +254,7 @@ export class MarkLayer {
   /** A mark of a layout, among those drawn: not one on a part that is switched off. */
   markOf(layout: string, id: string): Mark | undefined {
     const mark = this.entries.get(id)?.mark
-    return mark?.layout === layout && !onHidden(mark, this.hidden) ? mark : undefined
+    return mark?.layout === layout && !onHidden(mark, this.hidden) && !this.regionHidden(mark, undefined) ? mark : undefined
   }
 
   dispose(): void {
@@ -230,8 +263,8 @@ export class MarkLayer {
   }
 
   /** The marks of a layout that are drawn, in the order of their numbers, so that a label keeps its place as others come and go after it. */
-  private marksOf(layout: string, hidden: ReadonlySet<string> = this.hidden): Mark[] {
-    return [...this.entries.values()].map((e) => e.mark).filter((m) => m.layout === layout && !onHidden(m, hidden)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
+  private marksOf(layout: string, hidden?: ReadonlySet<string>): Mark[] {
+    return [...this.entries.values()].map((e) => e.mark).filter((m) => m.layout === layout && !onHidden(m, hidden ?? this.hidden) && !this.regionHidden(m, hidden)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
   }
 
   private clear(): void {

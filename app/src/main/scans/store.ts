@@ -6,6 +6,9 @@ import type { Scene } from '../../shared/scene'
 import { number } from '../../shared/format'
 import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, MAX_PAIRS, SCAN_FORMATS, UNIT_MM, alignmentOf } from '../../shared/scans'
 import { reckoned } from '../../shared/align'
+import { bytesFor } from '../../shared/regions'
+import { maskFile } from '../../shared/scans'
+import { writeFileAtomic } from '../atomic'
 import { anchoredPoints } from './alignCheck'
 import { loadScansFile, sanitiseAlignment, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
@@ -577,6 +580,50 @@ export class ScanStore {
   }
 
   /**
+   * Writes the triangles of a region of a scan as `<scan>/<mark>.mask`: a bit a triangle of the mesh the scan
+   * has. Through a temp file, so the name is of a whole file whenever it is read, and of a new one each time
+   * (the kernel tells a mask that changed by its file). Refuses bits of another length than the mesh has
+   * triangles for, and a bit past its last. The path is made here, from the scan and the mark: never given.
+   */
+  writeMask(objectId: string, id: string, markId: string, bits: Uint8Array): Promise<void> {
+    return this.of(objectId, (place) =>
+      this.turn(place, async (file, dir) => {
+        const scan = file.scans[indexOf(file, id)]
+        const path = maskPath(dir, scan.id, markId)
+        const { triangles } = scan.imported
+        if (!(bits instanceof Uint8Array) || bits.length !== bytesFor(triangles)) throw new Error(`${markId} has ${bits?.length ?? 0} bytes of triangles, and ${scan.id} has ${triangles} triangles: ${bytesFor(triangles)} bytes`)
+        if ((triangles & 7) !== 0 && bits[bits.length - 1] >> (triangles & 7) !== 0) throw new Error(`${markId} names a triangle past the last of ${scan.id}, which has ${triangles}`)
+        await writeFileAtomic(path, maskFile(bits, triangles))
+      })
+    )
+  }
+
+  /** The `.mask` of a region of a scan, as the file is. Rejects for one that is not there. */
+  mask(objectId: string, id: string, markId: string): Promise<Buffer> {
+    return this.of(objectId, (place) =>
+      this.turn(place, async (file, dir) => {
+        const path = maskPath(dir, file.scans[indexOf(file, id)].id, markId)
+        try {
+          return await readFile(path)
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+          throw new Error(`${markId} has no triangles on the disk: its file is gone from ${path}`)
+        }
+      })
+    )
+  }
+
+  /** Deletes the mask of a region: that file only. One that is not there, or of a scan that is gone, is nothing to delete. */
+  removeMask(objectId: string, id: string, markId: string): Promise<void> {
+    return this.of(objectId, (place) =>
+      this.turn(place, async (file, dir) => {
+        const scan = file.scans.find((one) => one.id === id)
+        if (scan) await rm(maskPath(dir, scan.id, markId), { force: true })
+      })
+    )
+  }
+
+  /**
    * Where a scan's files are: for the kernel, which is given paths and never
    * looks for files. Which file is its mesh is in its record, so this is of
    * the scans as last read or written: undefined for a scan that is not
@@ -591,10 +638,7 @@ export class ScanStore {
     const folder = scanFolder(dir, scan.id)
     return {
       mesh: join(folder, meshName(scan)),
-      mask(markId) {
-        if (typeof markId !== 'string' || !/^M[1-9]\d{0,14}$/.test(markId)) throw new RangeError(`${markId} is no mark: a region's file is named by its mark`)
-        return join(folder, `${markId}.mask`)
-      }
+      mask: (markId) => maskPath(dir, scan.id, markId)
     }
   }
 
@@ -796,6 +840,12 @@ async function sourceOf(dir: string, given: unknown): Promise<string> {
 const real = (path: string): Promise<string> => realpath(path).catch(() => path)
 
 /** Where a scan is in its file; an id that is not there is an error that names the ones that are. */
+/** Where the mask of a region of a scan is. Throws for what is no mark's number: nothing else names a file there. */
+function maskPath(dir: string, scan: string, markId: string): string {
+  if (typeof markId !== 'string' || !/^M[1-9]\d{0,14}$/.test(markId)) throw new RangeError(`${markId} is no mark: a region's file is named by its mark`)
+  return join(scanFolder(dir, scan), `${markId}.mask`)
+}
+
 function indexOf(file: ScansFile, id: string): number {
   const at = file.scans.findIndex((s) => s.id === id)
   if (at < 0) throw new Error(`no scan ${id}; scans: ${file.scans.map((s) => s.id).join(', ') || 'none'}`)

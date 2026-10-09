@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Mark } from '../../shared/marks'
+import type { ScanAlignment, ScanInfo } from '../../shared/scans'
 import { describeMark, markData, number } from './describe'
 
 const BASE = {
@@ -292,5 +293,56 @@ describe('a dimension in one line', () => {
     // Any other mark is as it is.
     const pin = mark({ kind: 'pin', anchor: TOP })
     expect(markData(pin, 4)).toBe(pin)
+  })
+})
+
+describe('a region of a scan', () => {
+  const scan = (id: string, alignments: Record<string, ScanAlignment> = {}, checks: ScanInfo['checks'] = {}): ScanInfo =>
+    ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 9000, triangles: 16000, colours: 'none', bbox: { min: [-50, -50, 0], max: [50, 50, 10] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks }) as ScanInfo
+  // Deviation from the brief: its rms of 4.2 mm over a box 14 mm across is no flat region; the flat one lies within 0.42 mm.
+  const REGION = mark({ id: 'M7', kind: 'region', scan: 'S1', note: 'wiring loom', layout: 'print', triangles: 4812, area: 31000, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, 0], max: [-10, -10, 0] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 0.42 } } })
+  const BUMPY = { ...REGION, local: { ...(REGION as { local: object }).local, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 4.2 } } } as Mark
+
+  it('tells a region where its scan is aligned, and says when that is nowhere', () => {
+    const at = { print: { transform: { t: [100, 0, 5], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' } }
+    expect(describeMark(REGION, { scans: [scan('S1', at as never)] })).toBe('M7 region on scan S1: 4,812 triangles, ≈ 31000 mm², centre (85, -15, 5), box 10 × 10 × 0 mm, flat to 0.42 mm about a plane with normal (0, 0, 1): "wiring loom"')
+    expect(describeMark(REGION, { scans: [scan('S1')] })).toBe('M7 region on scan S1 (not aligned in print, so it has no place in the model’s frame): 4,812 triangles, ≈ 31000 mm²: "wiring loom"')
+    expect(describeMark(REGION)).toBe('M7 region on scan S1 (not aligned in print, so it has no place in the model’s frame): 4,812 triangles, ≈ 31000 mm²: "wiring loom"')
+    expect(describeMark({ ...REGION, anchorState: 'orphaned' }, { scans: [] })).toBe('M7 region on scan S1 [its scan is gone]: "wiring loom"')
+    // Nothing has checked a region against a build, and nothing needs to.
+    // (Its scan's alignment is another matter: here it was checked against r12 and holds.)
+    const held = { print: { revision: 12, of: 0, off: 0, worst: 0, moved: [] } }
+    expect(describeMark(REGION, { revision: 12, scans: [scan('S1', at as never, held)] })).not.toContain('not checked')
+  })
+
+  it('gives a region as data in the frame of its layout, never in that of its scan', () => {
+    const at = { print: { transform: { t: [100, 0, 5], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' } }
+    const told = markData(REGION, 12, [scan('S1', at as never)]) as Record<string, unknown>
+    expect(told).toMatchObject({ id: 'M7', kind: 'region', scan: 'S1', triangles: 4812, area: 31000, centroid: [85, -15, 5] })
+    expect(told.local).toBeUndefined()
+    expect((markData(REGION, 12, [scan('S1')]) as Record<string, unknown>).centroid).toBeUndefined()
+  })
+
+  it('says a plane only of a region that lies about one', () => {
+    const at = { print: { transform: { t: [100, 0, 5], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' } }
+    expect(describeMark(BUMPY, { scans: [scan('S1', at as never)] })).toBe('M7 region on scan S1: 4,812 triangles, ≈ 31000 mm², centre (85, -15, 5), box 10 × 10 × 0 mm, not flat (4.2 mm rms about its nearest plane): "wiring loom"')
+    expect(markData(BUMPY, 12, [scan('S1', at as never)])).toMatchObject({ flat: false, plane: { rms: 4.2 } })
+    expect(markData(REGION, 12, [scan('S1', at as never)])).toMatchObject({ flat: true, bbox: { min: [80, -20, 5], max: [90, -10, 5] }, approximate: expect.stringContaining('scan') })
+  })
+
+  it('says after it what puts its place in doubt: an alignment that is rough, may no longer hold, or was not checked against the build', () => {
+    const at = { print: { transform: { t: [100, 0, 5], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' } }
+    expect(describeMark(REGION, { revision: 12, scans: [scan('S1', at as never)] })).toMatch(/: "wiring loom" \[S1's alignment was not checked against r12: whether it still holds on it is not known\]$/)
+    const off = { print: { revision: 12, of: 4, off: 2, worst: 6.2, moved: [] } }
+    expect(describeMark(REGION, { revision: 12, scans: [scan('S1', at as never, off)] })).toMatch(/\[S1's alignment may no longer hold: the model is no longer under 2 of its 4 points \(worst 6.2 mm off\) on r12: check the alignment\]$/)
+    const rough = { print: { ...at.print, rough: 'it has 2 pairs of points' } }
+    expect(describeMark(REGION, { scans: [scan('S1', rough as never)] })).toMatch(/\[S1 is only roughly aligned: it has 2 pairs of points\]$/)
+  })
+
+  it('says of a region whose scan is still there that its mesh is another, and of a scaled scan the size it has there', () => {
+    expect(describeMark({ ...REGION, anchorState: 'orphaned' }, { scans: [scan('S1')] })).toBe('M7 region on scan S1 [the mesh of its scan is no longer the one it was painted on: the user paints it again]: "wiring loom"')
+    const doubled = { print: { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 2 }, steps: ['typed'], frame: {}, at: '' } }
+    expect(describeMark(REGION, { scans: [scan('S1', doubled as never)] })).toContain('≈ 124000 mm², centre (-30, -30, 0), box 20 × 20 × 0 mm, flat to 0.84 mm')
+    expect(describeMark({ ...REGION, author: 'agent', status: 'resolved' }, { tag: 'changed' })).toMatch(/^\(yours, changed\) M7 region on scan S1 \(not aligned in print/)
   })
 })

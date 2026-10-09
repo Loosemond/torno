@@ -18,6 +18,7 @@ export function MarksPanel() {
   const layouts = useStore((s) => s.scene?.layouts)
   const parts = useStore((s) => s.scene?.parts)
   const layers = useStore((s) => s.layers)
+  const scanViews = useStore((s) => s.scanViews)
   const revision = useStore((s) => (s.scene ? s.revision : 0))
   const active = useStore((s) => s.activeMark)
   const problem = useStore((s) => s.marksProblem)
@@ -41,6 +42,8 @@ export function MarksPanel() {
   /** Whether a mark is on a part that is there and switched off: it is not drawn, like its part. A dimension, when that is so of both its ends. */
   const hidden = (mark: (typeof marks)[number]): boolean => {
     if (mark.status === 'resolved') return false
+    // A region is drawn on its scan, and not while that is switched off.
+    if (mark.kind === 'region') return mark.anchorState !== 'orphaned' && scanViews[mark.scan]?.visible === false
     const off = (part: string | undefined): boolean => part !== undefined && layers[part]?.visible === false && (parts?.some((p) => p.layout === mark.layout && p.name === part) ?? false)
     const ends = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)
     return ends.length > 0 && ends.every((anchor) => off(anchor.part))
