@@ -310,7 +310,7 @@ class _Surface:
             # boxing its faces is most of the work, and is the same for every
             # point asked about.
             self._extrema = BRepExtrema_DistShapeShape()
-            self._extrema.LoadS1(self._shape)
+            self._extrema.LoadS1(self._surface())
         extrema = self._extrema
         extrema.LoadS2(BRepBuilderAPI_MakeVertex(gp_Pnt(*point)).Vertex())
         if not extrema.Perform() or extrema.NbSolution() < 1:
@@ -336,6 +336,28 @@ class _Surface:
             "descriptor": self._descriptor(key, index),
             **self._support(part, key, extrema.SupportTypeShape1(on), extrema.SupportOnShape1(on)),
         }
+
+    def _surface(self) -> Any:
+        """The part as the extrema are to be given it: never a solid on its own.
+
+        Of a shape that *is* a solid, the extrema say that a point inside it
+        is no distance from it and on none of its faces. Of a solid within a
+        compound, as a ``Part`` is, they say how far the point is from its
+        faces, which is what is asked. So a bare solid is given within a
+        compound: the same faces, edges and corners, to be found in the same
+        maps.
+        """
+        from OCP.BRep import BRep_Builder
+        from OCP.TopAbs import TopAbs_COMPSOLID, TopAbs_SOLID
+        from OCP.TopoDS import TopoDS_Compound
+
+        if self._shape.ShapeType() not in (TopAbs_SOLID, TopAbs_COMPSOLID):
+            return self._shape
+        within = TopoDS_Compound()
+        builder = BRep_Builder()
+        builder.MakeCompound(within)
+        builder.Add(within, self._shape)
+        return within
 
     def _support(self, part: str, key: str, support_type: Any, support: Any) -> dict[str, Any]:
         """What a nearest point lies on, and of an edge which it is and the faces that meet there."""

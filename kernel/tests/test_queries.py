@@ -690,3 +690,13 @@ def test_morph_fixture_moves_its_top_and_loses_its_post(tmp_path):
     (folder / "variant.txt").write_text("c")
     with pytest.raises(Exception, match="it must say a or b"):
         load_scene(folder, "morph.py")
+
+
+def test_nearest_of_a_point_inside_a_part_that_is_a_bare_solid_is_on_its_surface():
+    from build123d import Box, Pos, Solid
+
+    shapes = {"assembly:made": Pos(-10, -10, -5) * Solid.make_box(20, 20, 10), "assembly:picked": Box(20, 20, 10).solid(), "assembly:part": Box(20, 20, 10)}
+    for part in ("made", "picked", "part"):
+        [inside, outside] = queries.nearest(shapes, "assembly", [{"part": part, "point": [0.5, 0.5, 1]}, {"part": part, "point": [0.5, 0.5, 9]}], {})
+        assert inside["distance"] == pytest.approx(4) and inside["point"] == pytest.approx([0.5, 0.5, 5]) and inside["support"] == "face"
+        assert outside["distance"] == pytest.approx(4) and outside["ref"] == inside["ref"]

@@ -411,6 +411,47 @@ def test_scan_clash_over_the_protocol_for_the_object_asked(fresh, ws, tmp_path):
     assert fresh.query(ws / "hollow", "describe", {"ref": "assembly:tub"})["ok"] is True
 
 
+def test_scan_deviation_and_scan_section_over_the_protocol(fresh, ws, tmp_path):
+    import scanfix
+
+    from torno_kernel import scanfile
+
+    vertices, triangles = scanfix.grid(20)
+    scanfile.write_bin(tmp_path / "S1.bin", vertices, triangles)
+    scan = {"id": "S1", "path": str(tmp_path / "S1.bin"), "transform": {"t": [0, 0, 1], "q": [0, 0, 0, 1], "s": 1}}
+    reply, _ = fresh.build(ws / "hollow", "hollow.py")
+    assert reply["ok"], reply
+    # The sheet lies in the tub's floor, 2 mm thick from z = 0: a millimetre from its top and from its bottom.
+    for source in ("scan", "part"):
+        said = fresh.query(ws / "hollow", "scan_deviation", {"layout": "assembly", "part": "tub", "from": source, "scan": scan})
+        assert said["ok"] is True, said
+        result = said["result"]
+        assert (result["part"], result["scan"], result["from"], result["exact"]) == ("tub", "S1", source, False)
+        assert result["compared"] > 0 and result["sampling"]["retakesFailed"] == 0 and result["sampling"]["partial"] is False
+        if source == "scan":
+            assert result["samples"] == result["compared"] == 400 and result["signed"]["inside"] == 400
+            assert result["distance"]["max"] == pytest.approx(1) and result["distance"]["mean"] == pytest.approx(1)
+            assert result["worst"]["distance"] == pytest.approx(1, abs=1e-9) and result["worst"]["at"][2] == 1
+        else:
+            # Every point of the tub has the sheet within 50 mm, the nearest of them a millimetre from it; and the sheet is inside the tub.
+            assert result["beyond"] == 0 and result["distance"]["min"] == pytest.approx(1) and result["sampling"]["scanSurface"] == 1
+            assert result["signed"]["inside"] == result["compared"] and result["signed"]["max"] == pytest.approx(-1)
+    # A hair under that millimetre, nothing of the scan is in reach of any point of the tub: said, with no number.
+    none = fresh.query(ws / "hollow", "scan_deviation", {"layout": "assembly", "part": "tub", "within": 0.999, "scan": scan})["result"]
+    assert none["compared"] == 0 and none["beyond"] == none["samples"] and none["distance"] is None and none["worst"] is None
+    cut = fresh.query(ws / "hollow", "scan_section", {"layout": "assembly", "plane": {"origin": [0.25, 0, 0], "normal": [5, 0, 0]}, "scan": scan})
+    assert cut["ok"] is True, cut
+    assert cut["result"]["plane"] == {"origin": [0.25, 0, 0], "normal": [1, 0, 0], "x": [0, 1, 0], "y": [0, 0, 1]}
+    [line] = cut["result"]["polylines"]
+    assert line["closed"] is False and len(line["points"]) == 39 and {v for _, v in line["points"]} == {1}
+    assert (cut["result"]["segments"], cut["result"]["pointsFound"], cut["result"]["pointsTold"], cut["result"]["thinned"], cut["result"]["exact"]) == (38, 39, 39, False, False)
+    # What is refused is that query's failure, said as a request that was wrong: the worker goes on answering.
+    for args in ({"layout": "nope", "plane": {"origin": [0, 0, 0], "normal": [1, 0, 0]}, "scan": scan}, {"layout": "assembly", "plane": {"origin": [0, 0, 0], "normal": [1e-200, 0, 0]}, "scan": {**scan, "transform": {"t": [0, 0, 0], "q": [1e-200, 0, 0, 0], "s": 1}}}):
+        refused = fresh.query(ws / "hollow", "scan_section", args)
+        assert refused["ok"] is False and refused["error"]["kind"] in ("bad_ref", "bad_request"), refused
+    assert fresh.query(ws / "hollow", "describe", {"ref": "assembly:tub"})["ok"] is True
+
+
 def test_section_over_the_protocol_for_the_object_asked(fresh, ws):
     plate, bracket = ws / "measures", ws / "bracket"
     reply, _ = fresh.build(plate, "measures.py")
