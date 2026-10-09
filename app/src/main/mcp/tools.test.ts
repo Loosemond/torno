@@ -6,7 +6,8 @@ import type { Anchor, Mark, MarkPatch, NewMark } from '../../shared/marks'
 import type { Camera, LookRequest, LookResult, ShowRequest, ViewState } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
 import type { NearestAnchor } from '../marks/reanchor'
-import { addMarkTool, describeTool, highlightTool, lookTool, marksTool, resolveMarkTool, sceneTool, showTool, TOOLS, type ToolDeps } from './tools'
+import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
+import { describeTool, lookTool, marksTool, sceneTool, showTool, TOOLS, type ToolDeps } from './tools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 const STAND: ObjectInfo = { id: 'helmet-stand', name: 'helmet-stand', dir: '/ws/helmet-stand', model: 'stand.py' }

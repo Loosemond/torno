@@ -18,7 +18,8 @@ import { AgentLine } from './AgentLine'
 import { NotePopover } from './NotePopover'
 import { Selection } from './Selection'
 import { ToolPalette } from './ToolPalette'
-import { TYPING, ViewBar } from './ViewBar'
+import { TYPING } from './typing'
+import { ViewBar } from './ViewBar'
 
 const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output: '' }
 

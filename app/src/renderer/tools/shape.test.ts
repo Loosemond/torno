@@ -4,7 +4,8 @@ import type { Mark, NewMark, Quat, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { MIN_SIZE_MM, fitSize } from '../viewport/marks/markObjects'
+import { MIN_SHAPE_SIZE } from '../../shared/marks'
+import { fitSize } from '../viewport/marks/markObjects'
 import { defaultShape, eulerOf, groundPoint, quatOf, shapeTool } from './shapeTool'
 import { routePointer, type ToolContext } from './Tool'
 
@@ -68,7 +69,7 @@ describe('defaultShape', () => {
 
 describe('fitSize', () => {
   it('clamps each size at 0.1 mm', () => {
-    expect(MIN_SIZE_MM).toBe(0.1)
+    expect(MIN_SHAPE_SIZE).toBe(0.1)
     expect(fitSize('box', [10, 0.04, -3], [10, 10, 4])).toEqual([10, 0.1, 0.1])
     expect(fitSize('box', [0, 10, 4], [10, 10, 4])).toEqual([0.1, 10, 4])
   })

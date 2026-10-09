@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ViewName } from '../../shared/view'
 import { actions, store, useStore } from '../state/store'
 import type { Viewport } from '../viewport/Viewport'
+import { TYPING } from './typing'
 
 const MAIN_VIEWS: { view: ViewName; label: string; key: string }[] = [
   { view: 'iso', label: 'Iso', key: '1' },
@@ -14,9 +15,6 @@ const MORE_VIEWS: { view: ViewName; label: string }[] = [
   { view: 'left', label: 'Left' },
   { view: 'bottom', label: 'Bottom' }
 ]
-
-/** Where a key press belongs to something else: a field, or the session's terminal. */
-export const TYPING = 'input, textarea, select, [contenteditable], [data-region="session"]'
 
 function setOrtho(viewport: Viewport, ortho: boolean): void {
   viewport.setOrtho(ortho)

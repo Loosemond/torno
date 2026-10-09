@@ -2,7 +2,7 @@ import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Anchor, Mark, MarksFile, Quat, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
-import { MAX_STROKE_POINTS } from '../../shared/marks'
+import { MAX_STROKE_POINTS, MIN_SHAPE_SIZE } from '../../shared/marks'
 import { writeFileAtomic } from '../atomic'
 
 const FOLDER = '.torno'
@@ -177,9 +177,6 @@ export function sanitiseMark(value: unknown): Mark | null {
       return null
   }
 }
-
-/** The least a side, a diameter or a height of a shape can be, in mm. */
-export const MIN_SHAPE_SIZE = 0.1
 
 /**
  * The size of a shape as its kind has it, whoever asked for it: a box three

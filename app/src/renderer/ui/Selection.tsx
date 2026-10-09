@@ -5,7 +5,7 @@ import { useTool } from '../state/tools'
 import { noteSelection } from '../tools/pickMarks'
 import { staleMessage } from '../tools/Tool'
 import type { Viewport } from '../viewport/Viewport'
-import { TYPING } from './ViewBar'
+import { TYPING } from './typing'
 
 /** Put the selected refs at the cursor of the open object's session, for the person to write around. */
 function insert(refs: string[]): void {

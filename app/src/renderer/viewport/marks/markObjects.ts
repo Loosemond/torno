@@ -4,7 +4,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
-import type { Mark, ShapeKind, ShapeMark, StrokeMark, Vec3 } from '../../../shared/marks'
+import { type Mark, type ShapeKind, type ShapeMark, type StrokeMark, type Vec3, MIN_SHAPE_SIZE } from '../../../shared/marks'
 
 /** The colours marks are drawn in: by author, and the grey of a shape that is only a reference. */
 export interface MarkColours {
@@ -33,9 +33,6 @@ const PLANE_OPACITY = 0.1
 /** How far the rectangle of a stroke's plane reaches past the stroke, as a share of the stroke's size. */
 const PLANE_MARGIN = 0.15
 
-/** The least a shape measures along any of its axes, in millimetres. */
-export const MIN_SIZE_MM = 0.1
-
 /**
  * The size a shape takes when `wanted` is asked of it, having been `from`:
  * always millimetres a shape of its kind can have. No axis is under 0.1 mm; a
@@ -44,7 +41,7 @@ export const MIN_SIZE_MM = 0.1
  * the size stays what it was.
  */
 export function fitSize(kind: ShapeKind, wanted: Vec3, from: Vec3): Vec3 {
-  const size = wanted.map((mm, i) => (Number.isFinite(mm) ? Math.max(mm, MIN_SIZE_MM) : from[i])) as Vec3
+  const size = wanted.map((mm, i) => (Number.isFinite(mm) ? Math.max(mm, MIN_SHAPE_SIZE) : from[i])) as Vec3
   // The diameter that was changed, or the first when none was.
   const changed = (axes: number[]): number => size[axes.find((i) => size[i] !== from[i]) ?? axes[0]]
   switch (kind) {

@@ -79,6 +79,9 @@ export interface MarksFile { next: number; marks: Mark[] }
 /** Where a mark is put again, by a click on a part: the anchor found there, on which build and from which view. */
 export interface Replacement { anchor: Anchor; revision: number; camera: Camera }
 
+/** The least a side, a diameter or a height of a shape can be, in millimetres: main holds a size to it, and the gizmo and the fields stop there. */
+export const MIN_SHAPE_SIZE = 0.1
+
 /** The most points a stroke keeps. Main cuts a longer one there; whoever draws one sends no more. */
 export const MAX_STROKE_POINTS = 400
 

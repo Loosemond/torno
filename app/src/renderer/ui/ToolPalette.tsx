@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ShapeKind } from '../../shared/marks'
 import { SHAPES, TOOLS, setShape, setTool, useShape, useTool, type ToolName } from '../state/tools'
-import { TYPING } from './ViewBar'
+import { TYPING } from './typing'
 
 /**
  * The tools, floating at the left edge of the viewport: what the pointer does
