@@ -1,3 +1,4 @@
+import { stat as statFile } from 'node:fs/promises'
 import type { Mark, NewMark, NewRegion, RegionMark } from '../../shared/marks'
 import { bitsRefused, maskStem, meshIdentity, popcount, regionStats } from '../../shared/regions'
 import { type ScanInfo, type ScanUnit, type ScanUp, maskBits, parseScanMesh } from '../../shared/scans'
@@ -151,17 +152,43 @@ export function meshesOf(scans: Pick<ScanStore, 'list' | 'problem'>): (objectId:
   }
 }
 
-/** Whether the mask of a region reads as one of the mesh its scan has now, for the marks to bring back a region whose cause for being orphaned has passed (`MarkStore`'s `maskReads`). */
+/**
+ * Whether the mask of a region reads as one of the mesh its scan has now, for the marks to bring back a region
+ * whose cause for being orphaned has passed (`MarkStore`'s `maskReads`). False is of the file as it is: it is
+ * gone, or is no mask of that mesh. Rejects when that could not be found out (the scans or the disk could not
+ * be read just now): nothing is then known of the file.
+ */
 export function maskReadsOf(scans: Pick<ScanStore, 'list' | 'mask'>): (objectId: string, scan: string, stem: string) => Promise<boolean> {
   return async (objectId, scan, stem) => {
+    const info = (await scans.list(objectId)).find((one) => one.id === scan)
+    if (!info || info.meshState !== 'ok') return false
+    let file: Buffer
     try {
-      const info = (await scans.list(objectId)).find((one) => one.id === scan)
-      if (!info || info.meshState !== 'ok') return false
-      maskBits(await scans.mask(objectId, scan, stem), info.imported.triangles)
+      file = await scans.mask(objectId, scan, stem)
+    } catch (e) {
+      if (e instanceof MaskGone) return false
+      throw e
+    }
+    try {
+      maskBits(file, info.imported.triangles)
       return true
     } catch {
       return false
     }
+  }
+}
+
+/**
+ * What the file of a region's mask is now, as far as one `stat` says: its time and its size, or that it is
+ * gone (`MarkStore`'s `maskStamp`). A mask that did not read is read again when this is another. The path is
+ * the scan store's, of the scans as last listed.
+ */
+export function maskStampOf(scans: Pick<ScanStore, 'paths'>, stat: (path: string) => Promise<{ mtimeMs: number; size: number }> = statFile): (objectId: string, scan: string, stem: string) => Promise<string> {
+  return async (objectId, scan, stem) => {
+    const path = scans.paths(objectId, scan)?.mask(stem)
+    if (path === undefined) return 'no scan'
+    const found = await stat(path).catch(() => null)
+    return found ? `${found.mtimeMs} ${found.size}` : 'gone'
   }
 }
 

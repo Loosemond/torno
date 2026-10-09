@@ -516,9 +516,12 @@ than two parts is never exploded.
     its cause passes: `list` brings back an orphaned region whose scan is
     there again with the mesh the mark records and a mask that reads
     (`maskReads`), and says so once (`M7 is back: …`). A mask that did not
-    read is asked for again once the scans are told anew
-    (`MarkStore.scansChanged`), not at every listing; so is one the window
-    could not get for its tints (`regionTints.ts`). A region's data says in a
+    read is not read again at every listing: one `stat` a listing
+    (`maskStamp`) says whether its file is another than it was, and then it
+    is, as when the scans are told anew (`MarkStore.scansChanged`); a read
+    that failed for a reason that may pass (`maskReads` rejects) is
+    remembered of nothing. One the window could not get for its tints is
+    asked for again when the scans are told anew (`regionTints.ts`). A region's data says in a
     word how the alignment it is placed by stands (`alignment`, as
     `alignmentSaid().state`); a draft region of an object that is not the
     one open is told in the first layout of its build, and its line says

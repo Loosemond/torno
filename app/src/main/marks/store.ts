@@ -87,10 +87,10 @@ export class MarkStore {
    * `meshes` says which mesh each scan of an object has now (`meshIdentity`, by scan id), or null when that is
    * not known: a region is held against it whenever the marks are listed.
    */
-  /** The masks that did not read when an orphaned region was looked at, each by its object's folder, its scan and its stem: until that object's scans change (`scansChanged`). */
-  private unread = new Set<string>()
+  /** The masks that did not read when an orphaned region was looked at, each by its object's folder, its scan and its stem, with what its file then was (`maskStamp`): read again when the file is another, or that object's scans change (`scansChanged`). */
+  private unread = new Map<string, string>()
 
-  constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date; meshes?(objectId: string): Promise<Map<string, string> | null>; maskReads?(objectId: string, scan: string, stem: string): Promise<boolean> }) {}
+  constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date; meshes?(objectId: string): Promise<Map<string, string> | null>; maskReads?(objectId: string, scan: string, stem: string): Promise<boolean>; /** What the file of a mask is now (its time and size, or that it is gone): one that did not read is read again when this is another. */ maskStamp?(objectId: string, scan: string, stem: string): Promise<string> }) {}
 
   on<E extends keyof MarkEvents>(event: E, cb: (m: MarkEvents[E]) => void): void {
     this.listeners[event].push(cb)
@@ -110,7 +110,7 @@ export class MarkStore {
   scansChanged(objectId: string): void {
     const dir = this.deps.dirOf(objectId)
     if (dir === undefined) return
-    for (const key of this.unread) if (key.startsWith(`${dir}\n`)) this.unread.delete(key)
+    for (const key of this.unread.keys()) if (key.startsWith(`${dir}\n`)) this.unread.delete(key)
   }
 
   /**
@@ -135,7 +135,8 @@ export class MarkStore {
    * And the other way: an orphaned region whose scan is there again with the very mesh the mark records, and
    * whose mask reads for it (`maskReads`), is of that scan as it ever was. Its cause has passed (a scans file
    * that was lost and put back, a mask restored): it is back, and that is said once. A mask that did not read
-   * is asked for again once the scans are told anew, not at every listing (`scansChanged`).
+   * is not read at every listing: again when its file is another than it was (`maskStamp`: one `stat`), or
+   * the scans are told anew (`scansChanged`). A read that failed for a reason that may pass is remembered of nothing.
    */
   async list(objectId: string): Promise<Mark[]> {
     const marks = await this.turn(objectId, (file) => structuredClone(file.marks))
@@ -148,9 +149,14 @@ export class MarkStore {
       if (mark.anchorState !== 'orphaned' || mark.mesh === undefined || meshes.get(mark.scan) !== mark.mesh || !this.deps.maskReads) continue
       // By the mask's own name, in its object's folder: one that did not read is not read again until the scans are told anew.
       const key = `${this.deps.dirOf(objectId)}\n${mark.scan}/${maskStem(mark)}`
-      if (this.unread.has(key)) continue
-      if (await this.deps.maskReads(objectId, mark.scan, maskStem(mark)).catch(() => false)) back.push(mark)
-      else this.unread.add(key)
+      // One `stat` a listing: the file as it is now. While it is the one that did not read, it is not read again.
+      const stamp = (await this.deps.maskStamp?.(objectId, mark.scan, maskStem(mark)).catch(() => undefined)) ?? ''
+      if (this.unread.get(key) === stamp) continue
+      // That it could not be found out (it rejects) is nothing known of the file: asked again at the next listing.
+      const reads = await this.deps.maskReads(objectId, mark.scan, maskStem(mark)).catch(() => undefined)
+      if (reads) back.push(mark)
+      if (reads === false) this.unread.set(key, stamp)
+      else this.unread.delete(key)
     }
     if (lost.length === 0 && back.length === 0) return marks
     if (lost.length > 0) await this.orphaned(objectId, lost)

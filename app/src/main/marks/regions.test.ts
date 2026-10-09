@@ -8,7 +8,7 @@ import type { ImportReply, Importer } from '../scans/importer'
 import { ScanStore } from '../scans/store'
 import { MarkStore } from './store'
 import { UNIT_MM } from '../../shared/scans'
-import { type RegionDeps, addRegion, convertScan, maskReadsOf, meshesOf, removeMark, repaintRegion, restateRegions, tendRegions } from './regions'
+import { type RegionDeps, addRegion, convertScan, maskReadsOf, maskStampOf, meshesOf, removeMark, repaintRegion, restateRegions, tendRegions } from './regions'
 
 // A region is kept by main from what the window painted: against the real stores, in a folder of the test's own.
 
@@ -53,7 +53,7 @@ beforeEach(async () => {
   source = join(root, 'sheet.stl')
   writeFileSync(source, stl(sheet))
   scans = new ScanStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), importer: () => importer })
-  marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans), maskReads: maskReadsOf(scans) })
+  marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans), maskReads: maskReadsOf(scans), maskStamp: maskStampOf(scans) })
   told = []
   marks.on('changed', (m) => told.push(m.marks))
   await scans.import('bracket', source)
@@ -232,9 +232,7 @@ describe('a region goes with the mesh it was painted on (M5)', () => {
     writeFileSync(maskOf('M1'), Buffer.concat([mask.subarray(0, 16), Buffer.alloc(9)]))
     expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
     writeFileSync(maskOf('M1'), mask)
-    // Milestone 5 (M12): a mask that did not read is not read at every listing: again once the scans are told anew.
-    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
-    marks.scansChanged('bracket')
+    // Fix round 1 (I3): put back by hand, it is another file than the one that did not read: the next listing reads it.
     expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
     // Orphaned because the scan was read again from a changed source: the mesh it records is not the scan's.
     await marks.orphanRegions('bracket', 'S1', ['M2'])
@@ -245,27 +243,42 @@ describe('a region goes with the mesh it was painted on (M5)', () => {
     expect((await marks.list('bracket'))[1].anchorState).toBe('orphaned')
   })
 
-  // Milestone 5 (M12)
-  it('reads a mask that did not read once, however often the marks are listed, until the scans change', async () => {
+  // Milestone 5 (M12), fix round 1 (I3): by the file itself, as it is on the disk.
+  it('reads a mask that did not read once while its file is as it was, and again as soon as it is another', async () => {
     const read: string[] = []
     const reads = maskReadsOf(scans)
-    marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans), maskReads: (objectId, scan, stem) => (read.push(`${scan}/${stem}`), reads(objectId, scan, stem)) })
-    scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
+    marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans), maskReads: (objectId, scan, stem) => (read.push(`${scan}/${stem}`), reads(objectId, scan, stem)), maskStamp: maskStampOf(scans) })
     await addRegion(deps(), 'bracket', region())
+    const mask = readFileSync(maskOf('M1'))
     rmSync(maskOf('M1'))
     await tendRegions(deps(), 'bracket')
     await marks.list('bracket')
     await marks.list('bracket')
     expect(read).toEqual(['S1/M1'])
-    // The scans change (here: one is renamed): it is asked for once more.
-    await scans.rename('bracket', 'S1', 'again.stl')
+    // Of another triangle count: there, and no region of this mesh. Read once.
+    writeFileSync(maskOf('M1'), Buffer.concat([mask.subarray(0, 16), Buffer.alloc(9)]))
     await marks.list('bracket')
-    await marks.list('bracket')
-    expect(read).toEqual(['S1/M1', 'S1/M1'])
-    // Another workspace: nothing of the one that was left is remembered.
-    marks.forget()
-    await marks.list('bracket')
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+    expect(read).toHaveLength(2)
+    // Put back by hand: nothing told of the scans, and the next listing has the region back.
+    writeFileSync(maskOf('M1'), mask)
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
     expect(read).toHaveLength(3)
+  })
+
+  it('asks again at the next listing for a mask whose read failed for a reason that may pass: that is not remembered of the file', async () => {
+    let fails = true
+    let asked = 0
+    const reads = maskReadsOf({ list: (objectId) => scans.list(objectId), mask: (objectId, scan, stem) => ((asked += 1), fails ? Promise.reject(Object.assign(new Error('EIO: i/o error, read'), { code: 'EIO' })) : scans.mask(objectId, scan, stem)) })
+    marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans), maskReads: reads, maskStamp: maskStampOf(scans) })
+    await addRegion(deps(), 'bracket', region())
+    await marks.orphanRegions('bracket', 'S1', ['M1'])
+    // The mask is there and whole; the disk could not be read just now.
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+    expect(asked).toBe(2)
+    fails = false
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
   })
 
   it('leaves a mark from before meshes were recorded as it is, while its scan is there', async () => {
