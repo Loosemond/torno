@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
+import type { ScanInfo } from '../../shared/scans'
 import { actions, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
 
 const BUF = { offset: 0, length: 0 }
@@ -582,5 +583,59 @@ describe('the section', () => {
     actions.setSection({ ...X })
     expect(sceneFileOf(store.getState()).section).toEqual(X)
     expect(store.getState().shownByAgent?.section).toBeUndefined()
+  })
+})
+
+describe('the scans', () => {
+  const S1 = { id: 'S1', name: 'plate.stl' } as ScanInfo
+
+  it('are those of the open object, as main last told them; another object has its own', () => {
+    actions.setScans({ objectId: 'other', scans: [S1] })
+    expect(store.getState().scans).toEqual([])
+    actions.setScans({ objectId: 'bracket', scans: [S1] })
+    expect(store.getState().scans).toEqual([S1])
+    actions.openObject('two', { layers: {} })
+    expect(store.getState()).toMatchObject({ scans: [], scanViews: {}, importing: null })
+  })
+
+  it('say why an import came to nothing and what was wrong with their file, until that is put away or another object is opened', () => {
+    actions.setScansRefused('part.3mf is not a scan torno reads')
+    actions.setScansProblem({ objectId: 'other', message: 'not of this object' })
+    expect(store.getState()).toMatchObject({ scansRefused: 'part.3mf is not a scan torno reads', scansProblem: null })
+    actions.setScansProblem({ objectId: 'bracket', message: 'scans.json was set aside' })
+    expect(store.getState().scansProblem).toBe('scans.json was set aside')
+    actions.dismissScansProblem()
+    actions.setScansRefused(null)
+    expect(store.getState()).toMatchObject({ scansRefused: null, scansProblem: null })
+    actions.setScansRefused('again')
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().scansRefused).toBeNull()
+  })
+
+  it('are looked at as the person set each: a change is merged, is an edit, and is what the scene file keeps', () => {
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    const edits = store.getState().edits
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
+    actions.setScanView('S1', { opacity: 0.6 })
+    actions.setScanView('S1', { visible: false })
+    actions.setScanView('S2', { colour: 'plain' })
+    expect(store.getState()).toMatchObject({ scanViews: { S1: { opacity: 0.6, visible: false }, S2: { colour: 'plain' } }, edits: edits + 3 })
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, scans: { S1: { opacity: 0.6, visible: false }, S2: { colour: 'plain' } } })
+  })
+
+  it('are looked at as the scene file left them when their object is opened', () => {
+    actions.openObject('bracket', { layers: {}, scans: { S1: { visible: false } } })
+    expect(store.getState().scanViews).toEqual({ S1: { visible: false } })
+    expect(sceneFileOf(store.getState()).scans).toEqual({ S1: { visible: false } })
+  })
+
+  it('say what is being imported into the open object, and nothing of an import into another', () => {
+    actions.setImporting({ objectId: 'other', name: 'Micra.glb', stage: 'reading' })
+    expect(store.getState().importing).toBeNull()
+    actions.setImporting({ objectId: 'bracket', name: 'Micra.glb', stage: 'colours' })
+    expect(store.getState().importing).toEqual({ name: 'Micra.glb', stage: 'colours' })
+    // No stage: the process is over.
+    actions.setImporting({ objectId: 'bracket', name: 'Micra.glb', stage: null })
+    expect(store.getState().importing).toBeNull()
   })
 })

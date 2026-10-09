@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
-import { asPictured, pictureSize, type PictureHost, type PicturePart, type PictureState } from './picture'
+import { asPictured, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState } from './picture'
 
 describe('the size of a picture', () => {
   it('is 1280 on its long edge when none is asked for, or what is asked for is no number', () => {
@@ -24,11 +24,18 @@ describe('the size of a picture', () => {
   })
 })
 
+describe('the scans a picture has, in its caption', () => {
+  it('are named after the parts, how thin only of one that is, and not at all when there is none', () => {
+    expect(scansNote([{ id: 'S1', opacity: 0.6 }, { id: 'S2', opacity: 1 }])).toBe(' · scans S1 at 60 %, S2')
+    expect(scansNote([])).toBe('')
+  })
+})
+
 /** The section the person has on screen. */
 const ON_SCREEN = { origin: [0, 0, 12], normal: [0, 0, 1] } satisfies PictureState['section']
 
 /** A viewport showing `assembly`, with one of its two parts switched off, that writes down what is asked of it. */
-function viewport(): { host: PictureHost; log: string[]; parts: PicturePart[]; visible: () => boolean[]; ground: THREE.Sphere } {
+function viewport(far: THREE.Box3 | null = null): { host: PictureHost; log: string[]; parts: PicturePart[]; visible: () => boolean[]; ground: THREE.Sphere } {
   const log: string[] = []
   const part = (layout: string, name: string, visible: boolean): PicturePart => ({ part: { key: `${layout}:${name}`, layout, name } as Part, built: { group: { visible } } })
   const parts = [part('assembly', 'base', true), part('assembly', 'post', false), part('print', 'base', false)]
@@ -59,6 +66,14 @@ function viewport(): { host: PictureHost; log: string[]; parts: PicturePart[]; v
       },
       update: () => {},
       labels: () => []
+    },
+    scans: {
+      showOnly: (ids, layout) => {
+        log.push(`scans ${ids?.join(',') || 'none'} as in ${layout}`)
+        return () => log.push('scans as on screen')
+      },
+      shown: () => [],
+      box: () => far
     },
     highlights: { setVisible: (visible, layers) => log.push(`highlights ${visible ? 'on' : 'off'}${layers ? ` ${layers.join(',')}` : ''}`) },
     closed: () => false,
@@ -91,7 +106,7 @@ function viewport(): { host: PictureHost; log: string[]; parts: PicturePart[]; v
 describe('what the scene is while a picture of it is drawn', () => {
   it('is the picture’s parts, layout, marks and section, with nothing of what the person points at or holds; and the screen’s again after, in this order', () => {
     const { host, log, parts, visible } = viewport()
-    const state: PictureState = { layout: 'print', shown: [parts[2]], withMarks: true, section: { origin: [0, 0, 4], normal: [0, 0, 1] }, notDrawn: new Set(['lid']), width: 640, height: 480 }
+    const state: PictureState = { layout: 'print', shown: [parts[2]], withMarks: true, scans: ['S1'], section: { origin: [0, 0, 4], normal: [0, 0, 1] }, notDrawn: new Set(['lid']), width: 640, height: 480 }
     const radius = asPictured(host, state, (extent) => {
       expect(visible()).toEqual([false, false, true])
       log.push('draw')
@@ -103,6 +118,7 @@ describe('what the scene is while a picture of it is drawn', () => {
       'highlights off',
       'gizmo off',
       'viewport 640×480',
+      'scans S1 as in print',
       'cut at z 4 across print, plane not drawn',
       'ground print',
       'active null',
@@ -114,6 +130,7 @@ describe('what the scene is while a picture of it is drawn', () => {
       'draw',
       'viewport 800×600',
       'target null',
+      'scans as on screen',
       'cut at z 12 across assembly, plane drawn',
       'gizmo on',
       'highlights on',
@@ -128,26 +145,44 @@ describe('what the scene is while a picture of it is drawn', () => {
 
   it('leaves the ground and the tints alone for a picture of the layout on screen without its marks', () => {
     const { host, log, parts, visible, ground } = viewport()
-    asPictured(host, { layout: 'assembly', shown: [parts[1]], withMarks: false, section: null, notDrawn: new Set(), width: 64, height: 48 }, (extent) => {
+    asPictured(host, { layout: 'assembly', shown: [parts[1]], withMarks: false, scans: null, section: null, notDrawn: new Set(), width: 64, height: 48 }, (extent) => {
       expect(extent).toBe(ground)
       expect(visible()).toEqual([false, true, false])
     })
 
-    expect(log).toEqual(['highlights off', 'gizmo off', 'viewport 64×48', 'cut by nothing across assembly, plane not drawn', 'active null', 'marks null but on none', 'draft off', 'viewport 800×600', 'target null', 'cut at z 12 across assembly, plane drawn', 'gizmo on', 'highlights on', 'active M2', 'marks as on screen', 'draft on'])
+    expect(log).toEqual(['highlights off', 'gizmo off', 'viewport 64×48', 'scans none as in assembly', 'cut by nothing across assembly, plane not drawn', 'active null', 'marks null but on none', 'draft off', 'viewport 800×600', 'target null', 'scans as on screen', 'cut at z 12 across assembly, plane drawn', 'gizmo on', 'highlights on', 'active M2', 'marks as on screen', 'draft on'])
     expect(visible()).toEqual([true, false, false])
     expect(ground.radius).toBe(10) // what the marks add is added to a copy
   })
 
   it('puts everything back when the drawing fails', () => {
     const { host, log, parts, visible } = viewport()
-    const state: PictureState = { layout: 'print', shown: [parts[2]], withMarks: true, section: ON_SCREEN, notDrawn: new Set(), width: 640, height: 480 }
+    const state: PictureState = { layout: 'print', shown: [parts[2]], withMarks: true, scans: ['S1', 'S2'], section: ON_SCREEN, notDrawn: new Set(), width: 640, height: 480 }
     expect(() =>
       asPictured(host, state, () => {
         throw new Error('no context')
       })
     ).toThrow('no context')
 
-    expect(log.slice(log.indexOf('tint print') + 1)).toEqual(['viewport 800×600', 'target null', 'cut at z 12 across assembly, plane drawn', 'gizmo on', 'highlights on', 'active M2', 'marks as on screen', 'draft on', 'ground assembly', 'tint assembly'])
+    expect(log.slice(log.indexOf('tint print') + 1)).toEqual(['viewport 800×600', 'target null', 'scans as on screen', 'cut at z 12 across assembly, plane drawn', 'gizmo on', 'highlights on', 'active M2', 'marks as on screen', 'draft on', 'ground assembly', 'tint assembly'])
+    expect(log).toContain('scans S1,S2 as in print')
+    expect(visible()).toEqual([true, false, false])
+  })
+
+  it('has the scans it draws within what the camera reaches, however far they stand from the parts', () => {
+    const { host, parts, ground } = viewport(new THREE.Box3(new THREE.Vector3(990, -10, -10), new THREE.Vector3(1010, 10, 10)))
+    const extent = asPictured(host, { layout: 'assembly', shown: [parts[0]], withMarks: false, scans: ['S1'], section: null, notDrawn: new Set(), width: 64, height: 48 }, (extent) => extent)
+    for (const corner of [new THREE.Vector3(1010, 10, 10), new THREE.Vector3(0, 0, -10)]) expect(extent.distanceToPoint(corner)).toBeLessThanOrEqual(1e-6)
+    expect(ground.radius).toBe(10) // what the scans add is added to a copy
+  })
+
+  it('draws nothing of a scan that is not there, and changes nothing on screen for it', () => {
+    const { host, log, parts, visible } = viewport()
+    host.scans.showOnly = () => {
+      throw new Error('no scan S9; scans: S1')
+    }
+    expect(() => asPictured(host, { layout: 'assembly', shown: [parts[1]], withMarks: false, scans: ['S9'], section: null, notDrawn: new Set(), width: 64, height: 48 }, () => log.push('draw'))).toThrow('no scan S9; scans: S1')
+    expect(log).not.toContain('draw')
     expect(visible()).toEqual([true, false, false])
   })
 })

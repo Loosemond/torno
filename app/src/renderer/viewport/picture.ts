@@ -4,6 +4,7 @@ import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import { MARK_LAYERS, type Highlights } from './highlight'
 import type { MarkLayer } from './marks/MarkLayer'
 import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayFonts, overlayUnit, type LabelStyle } from './overlay'
+import type { ScanLayer } from './scans'
 import { describeSection } from './section'
 import { visibleHeight } from './views'
 
@@ -17,6 +18,8 @@ export interface ImageRequest {
   marks?: boolean
   /** What the parts are cut by: `'current'`, and when left out, the section on screen; null for none; or a plane of the picture's own. */
   section?: SectionPlane | 'current' | null
+  /** The scans drawn with the parts: `'current'`, and when left out, those switched on on screen; false for none; or those of these ids. */
+  scans?: 'current' | false | string[]
 }
 
 export interface Picture {
@@ -47,6 +50,7 @@ export interface PictureHost {
   readonly scene: THREE.Scene
   readonly marks: Pick<MarkLayer, 'activeId' | 'setActive' | 'show' | 'showDraft' | 'extend' | 'update' | 'labels'>
   readonly highlights: Pick<Highlights, 'setVisible'>
+  readonly scans: Pick<ScanLayer, 'showOnly' | 'shown' | 'box'>
   /** The viewport has been disposed of. */
   closed(): boolean
   /** The layouts of the scene on show, and the one on screen. */
@@ -96,7 +100,9 @@ export interface PictureState {
   layout: string
   shown: readonly PicturePart[]
   withMarks: boolean
-  /** What the parts are cut by, or null. The plane itself is not drawn. */
+  /** The ids of the scans drawn with the parts, each where this layout puts it; null for none. */
+  scans: string[] | null
+  /** What the parts and the scans are cut by, or null. The plane itself is not drawn. */
   section: SectionPlane | null
   /** The names of the layout's parts the picture leaves out: a mark on one is left out with it. */
   notDrawn: ReadonlySet<string>
@@ -110,7 +116,7 @@ export interface PictureState {
  * around all that is drawn, and leaves the renderer on any target it likes.
  * Nothing in here waits: no frame on screen sees the scene in between.
  *
- * A picture is of the parts and the marks: not of what the person points at,
+ * A picture is of the parts, the scans and the marks: not of what the person points at,
  * of what they hold a shape by, of which mark they are working on, of what
  * is not a mark yet, or of the plane they cut by (the cut itself is in it).
  */
@@ -125,12 +131,17 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
   // Fat lines take their width in pixels from the renderer's viewport, which is the
   // canvas's whatever is being drawn to: for the picture it is the picture's size.
   const onScreen = host.renderer.getViewport(new THREE.Vector4())
+  let scansBack = (): void => {}
   try {
     host.renderer.setViewport(0, 0, state.width, state.height)
     for (const p of parts) p.built.group.visible = false
     for (const p of state.shown) p.built.group.visible = true
+    scansBack = host.scans.showOnly(state.scans, state.layout)
     host.cutBy(state.section, state.layout, false)
     let extent = otherLayout ? host.layGround(state.layout) : host.groundExtent()
+    // A scan may stand far from the parts: the camera reaches all of what is drawn of it.
+    const around = host.scans.box()
+    if (around) extent = extent.clone().union(around.getBoundingSphere(new THREE.Sphere()))
     host.marks.setActive(null)
     host.marks.show(state.withMarks ? state.layout : null, state.notDrawn)
     host.marks.showDraft(false)
@@ -145,6 +156,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     host.renderer.setViewport(onScreen)
     host.renderer.setRenderTarget(null)
     for (const [p, visible] of before) p.built.group.visible = visible
+    scansBack()
     host.cutBy(cut, host.layout(), true)
     showGizmo()
     host.highlights.setVisible(true)
@@ -154,6 +166,12 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     if (otherLayout) host.layGround(host.layout())
     if (state.withMarks) host.tintPicks(host.layout())
   }
+}
+
+/** The scans a picture has, as its caption says them: ` · scans S1 at 60 %, S2`, how thin only of one that is; nothing for none. */
+export function scansNote(drawn: ReadonlyArray<{ id: string; opacity: number }>): string {
+  if (drawn.length === 0) return ''
+  return ` · scans ${drawn.map((scan) => (scan.opacity < 1 ? `${scan.id} at ${Math.round(scan.opacity * 100)} %` : scan.id)).join(', ')}`
 }
 
 /**
@@ -200,13 +218,15 @@ export class PictureMaker {
     }
 
     const withMarks = req.marks !== false
+    // Those switched on on screen, unless the picture names its own or wants none.
+    const scans = req.scans === false ? null : Array.isArray(req.scans) ? req.scans : host.scans.shown().filter((scan) => scan.visible).map((scan) => scan.id)
     const section = req.section === undefined || req.section === 'current' ? host.section() : req.section
     // A mark on a part the picture leaves out is left out with it.
     const notDrawn = host.hiddenParts(req.layout, wanted)
     const unit = overlayUnit(width, height)
 
     // Everything from here to the end of `asPictured` is synchronous, so no frame on screen sees it.
-    const { camera, pixels } = asPictured(host, { layout: req.layout, shown, withMarks, section, notDrawn, width, height }, (extent) => {
+    const { camera, pixels, drawn } = asPictured(host, { layout: req.layout, shown, withMarks, scans, section, notDrawn, width, height }, (extent) => {
       const camera = host.cameraFor(view, aspect, extent)
       // In the picture's own pixels: a dot is as large a share of a big picture as of a small one.
       host.marks.update(camera, { width, height }, unit)
@@ -217,7 +237,8 @@ export class PictureMaker {
       this.encoder.render(host.renderer, targets.drawn.texture, targets.encoded)
       const pixels = new Uint8ClampedArray(width * height * 4)
       host.renderer.readRenderTargetPixels(targets.encoded, 0, 0, width, height, pixels)
-      return { camera, pixels }
+      // What was drawn of the scans: one whose mesh has not come is not in the picture, and is not said to be.
+      return { camera, pixels, drawn: host.scans.shown().filter((scan) => scan.visible) }
     })
 
     const picture = new OffscreenCanvas(width, height)
@@ -248,7 +269,7 @@ export class PictureMaker {
     const names = shown.map((p) => p.part.name).join(', ') || 'none'
     const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
     const cutNote = section ? ` · ${describeSection(section)}` : ''
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${cutNote} · ${projection} · ${width}×${height}`
+    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn)}${cutNote} · ${projection} · ${width}×${height}`
     return { png, width, height, caption }
   }
 

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from './atomic'
+import type { ScanView } from '../shared/scans'
 import type { LayerSettings, SceneFile } from '../shared/scenefile'
 import { sectionOf } from '../shared/view'
 
@@ -54,6 +55,8 @@ function clean(value: unknown): SceneFile {
   // A plane, its normal a unit vector, or nothing: a section that is not one is no section.
   const section = sectionOf(value.section)
   if (section) file.section = section
+  const scans = scanViews(value.scans)
+  if (scans) file.scans = scans
   if (!isRecord(value.layers)) return file
   for (const [name, raw] of Object.entries(value.layers)) {
     if (!isRecord(raw)) continue
@@ -64,6 +67,21 @@ function clean(value: unknown): SceneFile {
     if (Object.keys(layer).length > 0) file.layers[name] = layer
   }
   return file
+}
+
+/** How each scan is looked at, by scan id; undefined when nothing is said of any. A scan is never thinned to nothing. */
+function scanViews(value: unknown): Record<string, ScanView> | undefined {
+  if (!isRecord(value)) return undefined
+  const scans: Record<string, ScanView> = {}
+  for (const [id, raw] of Object.entries(value)) {
+    if (!/^S\d+$/.test(id) || !isRecord(raw)) continue
+    const view: ScanView = {}
+    if (typeof raw.visible === 'boolean') view.visible = raw.visible
+    if (typeof raw.opacity === 'number' && Number.isFinite(raw.opacity)) view.opacity = Math.min(Math.max(raw.opacity, 0.05), 1)
+    if (raw.colour === 'own' || raw.colour === 'plain') view.colour = raw.colour
+    if (Object.keys(view).length > 0) scans[id] = view
+  }
+  return Object.keys(scans).length > 0 ? scans : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

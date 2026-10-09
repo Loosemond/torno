@@ -7,6 +7,7 @@ import { Confirm } from './ui/Confirm'
 import { Layers } from './ui/Layers'
 import { MarksPanel } from './ui/MarksPanel'
 import { ObjectList } from './ui/ObjectList'
+import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
 import { DatumMark, ViewportPane } from './ui/ViewportPane'
 
@@ -79,6 +80,11 @@ async function openObject(id: string): Promise<void> {
     // What main found wrong with the marks file is told once, and this window may not have been listening.
     const problem = await window.torno.marks.problem(id).catch(() => null)
     if (problem !== null) actions.setMarksProblem({ objectId: id, message: problem })
+    // Their meshes are asked for by the viewport, one by one, once it knows which there are.
+    await window.torno.scans.list(id).then(
+      (scans) => actions.setScans({ objectId: id, scans }),
+      () => {} // an object with no folder yet has no scans
+    )
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     actions.applyBuild({ objectId: id, status: 'failed', revision: 0, stale: false, error: { kind: 'open', message } })
@@ -98,6 +104,8 @@ function useMain(): void {
     const offBuild = window.torno.object.onBuild(actions.applyBuild)
     const offMarks = window.torno.marks.onChanged(actions.setMarks)
     const offMarksProblem = window.torno.marks.onProblem(actions.setMarksProblem)
+    const offScans = window.torno.scans.onChanged(actions.setScans)
+    const offImporting = window.torno.scans.onProgress(actions.setImporting)
     // Whatever the window shows, even nothing: a picture asked for is answered, or said at once to be none.
     const offLook = connectLook()
 
@@ -131,6 +139,8 @@ function useMain(): void {
       offBuild()
       offMarks()
       offMarksProblem()
+      offScans()
+      offImporting()
       offLook()
       offStore()
       window.removeEventListener('pagehide', flush)
@@ -220,7 +230,7 @@ export function App() {
         <ViewportPane onShowError={() => setErrorOpen(true)} />
       </main>
 
-      <aside className="left" data-region="left" aria-label="Objects, layers and marks">
+      <aside className="left" data-region="left" aria-label="Objects, layers, scans and marks">
         <header className="panel-head">
           <h1 className="workspace-name" title={workspace.root}>
             {basename(workspace.root)}
@@ -245,6 +255,7 @@ export function App() {
         )}
         <ObjectList onOpen={(id) => void openObject(id)} />
         <Layers />
+        <ScansPanel />
         <MarksPanel />
       </aside>
 

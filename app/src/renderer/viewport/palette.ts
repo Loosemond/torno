@@ -35,6 +35,9 @@ export function edgeTint(hex: string): string {
   return mix(hex, '#000000', 0.5)
 }
 
+/** How far a stale part's colour is taken towards the background, and a scan's with it. */
+export const STALE_FADE = 0.6
+
 /** Blends `a` towards `b` by `t` (0 gives `a`, 1 gives `b`), channel by channel. */
 export function mix(a: string, b: string, t: number): string {
   const ca = channels(a)

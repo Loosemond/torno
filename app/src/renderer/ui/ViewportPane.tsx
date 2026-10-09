@@ -15,9 +15,11 @@ import { selectTool } from '../tools/selectTool'
 import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
 import { Readout } from '../viewport/highlight'
+import { meshOf } from '../viewport/scans'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
 import { NotePopover } from './NotePopover'
+import { NOT_A_SCAN, NO_PATH, droppedScan, importScan } from './scanDrop'
 import { SectionBar } from './SectionBar'
 import { Selection } from './Selection'
 import { ToolPalette } from './ToolPalette'
@@ -59,7 +61,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       }
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans }
   })
   return { ...picture, ...drawn! }
 }
@@ -87,7 +89,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const report = () => {
     const s = store.getState()
     if (!s.objectId || !s.scene) return
-    const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s), ...(s.section ? { section: s.section } : {}) }
+    const scans = viewport.scanState().map(({ id, visible, opacity }) => ({ id, visible, opacity }))
+    const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s), ...(s.section ? { section: s.section } : {}), scans }
     // What is selected goes to the agent with the next prompt: the refs, each with the kernel's line once it has come.
     if (s.selection.length > 0) {
       const { objectId, revision, layout } = s
@@ -110,6 +113,44 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       if (store.getState().selection === selection) report()
     })
   }
+
+  // The scans of the open object: which there are comes through the store, their meshes straight from main to the
+  // viewport, each asked for once by its scan's id. Main alone knows where a mesh is kept.
+  const asked = new Set<string>()
+  const applyScans = (s: TornoState) => {
+    viewport.setScans(s.scans)
+    // Every scan, each time: the viewport remembers how one is looked at by id, and ids repeat between objects.
+    for (const { id } of s.scans) {
+      const view = s.scanViews[id]
+      viewport.setScanView(id, { visible: view?.visible !== false, opacity: view?.opacity ?? 1, colour: view?.colour ?? 'own' })
+    }
+    const objectId = s.objectId
+    if (!objectId) return
+    for (const id of viewport.wantingScans()) {
+      const scan = s.scans.find((one) => one.id === id)
+      // By what its record says of the mesh: converted or written anew, it is another, and is asked for again.
+      const key = scan && `${id} ${meshOf(scan)}`
+      if (!scan || !key || asked.has(key)) continue
+      asked.add(key)
+      const current = (): boolean => {
+        const now = store.getState()
+        const still = now.objectId === objectId ? now.scans.find((one) => one.id === id) : undefined
+        return still !== undefined && meshOf(still) === meshOf(scan)
+      }
+      window.torno.scans
+        .mesh(objectId, id)
+        .then((blob) => {
+          if (!current()) return // of a scan that is gone, or of a mesh that was replaced meanwhile
+          viewport.setScanMesh(id, blob)
+          report()
+        })
+        .catch((e: unknown) => {
+          // The mesh is gone, or is not one: the panel says so, in main's words, and the scan is not drawn.
+          if (current()) actions.setScansRefused(e instanceof Error ? e.message : String(e))
+        })
+    }
+  }
+  applyScans(store.getState())
 
   const offScene = window.torno.object.onScene((m) => {
     const first = store.getState().scene === null
@@ -201,6 +242,11 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.selection !== prev.selection && s.objectId === prev.objectId && s.scene === prev.scene && s.layout === prev.layout) reportSelection(s)
     if (s.marks !== prev.marks || shown(s) !== shown(prev)) viewport.setMarks(s.marks, shown(s))
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
+    if (s.objectId !== prev.objectId) asked.clear()
+    if (s.scans !== prev.scans || s.scanViews !== prev.scanViews) {
+      applyScans(s)
+      if (s.objectId === prev.objectId) report()
+    }
     // What was pointed at belongs to the object, the layout and the build it was pointed at in.
     if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision || (s.build?.stale ?? false) !== (prev.build?.stale ?? false)) putDown()
     if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
@@ -273,6 +319,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         }
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
       },
+      scans: () => viewport.scanState(),
       markScreen: (id) => {
         const box = canvasBox(viewport)
         const label = viewport.markLabel(id)
@@ -291,6 +338,40 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     setPictures(null)
     offAgent()
     delete window.__tornoTest
+  }
+}
+
+/**
+ * Has a file dropped on the view imported as a scan into the open object: the
+ * first of those dropped that torno reads. What is dropped that is none, or
+ * has no path, is said at the pointer. Nothing of a drag goes through React.
+ * Returns what undoes it.
+ */
+function acceptDrops(pane: HTMLElement, readout: Readout): () => void {
+  const onOver = (e: DragEvent): void => {
+    // Only files: a drag of text or of anything from the page is none of the view's.
+    if (!e.dataTransfer?.types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  const onDrop = (e: DragEvent): void => {
+    if (!e.dataTransfer?.types.includes('Files')) return
+    e.preventDefault()
+    const objectId = store.getState().objectId
+    if (!objectId) return
+    const files = e.dataTransfer.files
+    const at = droppedScan(files)
+    if (at < 0) return readout.say([e.clientX, e.clientY], NOT_A_SCAN)
+    const path = window.torno.scans.pathOf(files[at])
+    if (!path) return readout.say([e.clientX, e.clientY], NO_PATH)
+    readout.hide()
+    importScan(objectId, path)
+  }
+  pane.addEventListener('dragover', onOver)
+  pane.addEventListener('drop', onDrop)
+  return () => {
+    pane.removeEventListener('dragover', onOver)
+    pane.removeEventListener('drop', onDrop)
   }
 }
 
@@ -327,8 +408,10 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
     const disconnect = connect(made, readout)
     const sized = new ResizeObserver(() => made.resize())
     sized.observe(host.current!)
+    const offDrop = acceptDrops(host.current!.parentElement!, readout)
     setViewport(made)
     return () => {
+      offDrop()
       sized.disconnect()
       disconnect()
       readout.dispose()

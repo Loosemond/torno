@@ -2,6 +2,7 @@ import type { TornoBridge } from '../shared/bridge'
 import type { Camera, LookRequest, LookResult } from '../shared/view'
 import type { TornoState } from './state/store'
 import type { Hit } from './viewport/picking'
+import type { ScanLayerState } from './viewport/scans'
 
 declare global {
   interface Window {
@@ -22,6 +23,8 @@ declare global {
       project(point: [number, number, number]): [number, number]
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
+      /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */
+      scans(): ScanLayerState[]
     }
     /** Only with TORNO_TEST=1: what the terminal of the open object shows, as text. */
     __tornoTerm?: {

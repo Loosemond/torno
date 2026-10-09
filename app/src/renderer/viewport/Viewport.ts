@@ -2,17 +2,19 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
+import type { ScanInfo, ScanView } from '../../shared/scans'
 import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
 import { labelAnchor, markPoints } from './marks/markObjects'
 import { mmPerPx, type Placed } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { chipSize, drawLabels, overlayFonts, type LabelStyle } from './overlay'
-import { colorFor, colorsByName, edgeTint, mix } from './palette'
+import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
 import { PointerRouter, type ViewportPointer } from './pointer'
+import { ScanLayer, type ScanLayerState } from './scans'
 import { SectionCut, nearSegmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
@@ -37,6 +39,8 @@ interface Theme {
   agent: string
   user: string
   panel: string
+  /** A scan drawn plain. */
+  scan: string
   /** The three axes of the gizmo. */
   axisX: string
   axisY: string
@@ -50,14 +54,12 @@ type AnyCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
 type Vec3 = [number, number, number]
 
 /** The light values of styles/tokens.css, used where no stylesheet is loaded. */
-const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C', user: '#CF3F2C', panel: '#FAF9F6', axisX: '#9A3350', axisY: '#4C7F2C', axisZ: '#2E5FA9' }
+const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C', user: '#CF3F2C', panel: '#FAF9F6', scan: '#B4AFA5', axisX: '#9A3350', axisY: '#4C7F2C', axisZ: '#2E5FA9' }
 
 const SETTLE_MS = 150
 /** How near the handle of the section's plane the pointer must be to take hold of it, in pixels. */
 export const SECTION_HANDLE_REACH_PX = 12
 const MOVE_MS = 240
-/** How far a stale part's colour is taken towards the background. */
-const STALE_FADE = 0.6
 /** What `fit` and the named views frame when no part is shown. */
 const EMPTY_BOX = { min: [-50, -50, 0], max: [50, 50, 50] }
 
@@ -101,9 +103,15 @@ export class Viewport {
   private disposed = false
 
   private readonly highlights = new Highlights()
-  /** The section through the parts: what is highlighted on them is cut with them. */
+  /** The scans of the object on show, as last given, and what is drawn of them. */
+  private scanInfos: ScanInfo[] = []
+  private readonly scans = new ScanLayer(() => this.invalidate())
+  /** The section through the parts: what is highlighted on them is cut with them, and the scans are cut open. */
   private readonly section = new SectionCut(
-    (planes) => this.highlights.setClipping(planes),
+    (planes) => {
+      this.highlights.setClipping(planes)
+      this.scans.setClipping(planes)
+    },
     (built, gone) => this.highlights.suppress(built, gone)
   )
   /** Whether the last `pick` ended on the cut face of a solid. */
@@ -140,7 +148,7 @@ export class Viewport {
     this.ground.material.depthWrite = false
     this.ground.renderOrder = -1
     this.ground.frustumCulled = false
-    this.scene.add(this.ground, this.marks.group, this.section.decor)
+    this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor)
 
     this.labelCanvas = canvas.parentElement ? document.createElement('canvas') : null
     if (this.labelCanvas) {
@@ -195,6 +203,7 @@ export class Viewport {
       scene: this.scene,
       marks: this.marks,
       highlights: this.highlights,
+      scans: this.scans,
       closed: () => this.disposed,
       layouts: () => this.layouts,
       layout: () => this.layout,
@@ -262,6 +271,34 @@ export class Viewport {
       this.setView('iso', false)
     }
     this.invalidate()
+  }
+
+  /** The scans of the object on show: each is drawn where its alignment for the layout shown puts it, once its mesh has come (`setScanMesh`). */
+  setScans(scans: ScanInfo[]): void {
+    this.scanInfos = scans
+    this.scans.set(scans, this.layout)
+    this.extent = this.measured()
+  }
+
+  /** The mesh of a scan, as main read it from the disk. Throws for bytes that are no scan. */
+  setScanMesh(id: string, blob: ArrayBuffer): void {
+    this.scans.load(id, blob)
+    this.extent = this.measured()
+  }
+
+  /** Whether a scan is drawn, how thin, and in its own colours or plain; what is left out keeps its value. */
+  setScanView(id: string, view: ScanView): void {
+    this.scans.setView(id, view)
+    this.extent = this.measured()
+  }
+
+  /** The scans whose mesh is still to be asked of main. */
+  wantingScans(): string[] {
+    return this.scans.wanting()
+  }
+
+  scanState(): ScanLayerState[] {
+    return this.scans.state()
   }
 
   /**
@@ -415,6 +452,7 @@ export class Viewport {
     if (stale === this.stale) return
     this.stale = stale
     for (const entry of this.entries.values()) this.applyLook(entry)
+    this.lookOfScans()
     this.invalidate()
   }
 
@@ -568,9 +606,16 @@ export class Viewport {
     if (!decor) this.section.outline()
   }
 
-  /** A sphere around everything drawn in the layout shown: the parts and the grid, the marks, the plane of the section. */
+  /** A sphere around everything drawn in the layout shown: the parts and the grid, the marks, the plane of the section, the scans. */
   private measured(): THREE.Sphere {
-    return this.section.extend(this.marks.extend(this.groundExtent.clone(), this.layout))
+    const sphere = this.section.extend(this.marks.extend(this.groundExtent.clone(), this.layout))
+    // A scan of a room round a part the size of a hand: the camera reaches all of it, though it frames the parts.
+    const scans = this.scans.box()
+    return scans ? sphere.union(scans.getBoundingSphere(new THREE.Sphere())) : sphere
+  }
+
+  private lookOfScans(): void {
+    this.scans.setLook({ plain: this.theme.scan, surface: this.theme.surface }, this.stale)
   }
 
   /** Where a point of the object frame falls in the window, in client pixels. */
@@ -682,6 +727,7 @@ export class Viewport {
     this.controls.dispose()
     this.gizmo.dispose()
     this.section.dispose()
+    this.scans.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
     this.highlights.dispose()
@@ -705,6 +751,7 @@ export class Viewport {
   /** Brings every part's look and the ground in line with the current layout, layers and theme. */
   private refresh(): void {
     for (const entry of this.entries.values()) this.applyLook(entry)
+    this.scans.set(this.scanInfos, this.layout) // a scan stands elsewhere in another layout, or is not aligned there
     this.groundExtent = this.rebuildGround(this.layout)
     // The parts may have moved, and the plane is laid across those of this layout.
     this.cutBy(this.section.get(), this.layout, true)
@@ -838,6 +885,7 @@ export class Viewport {
       agent: read('--agent-mark', LIGHT_THEME.agent),
       user: read('--user-mark', LIGHT_THEME.user),
       panel: read('--panel', LIGHT_THEME.panel),
+      scan: read('--scan-plain', LIGHT_THEME.scan),
       axisX: read('--axis-x', LIGHT_THEME.axisX),
       axisY: read('--axis-y', LIGHT_THEME.axisY),
       axisZ: read('--axis-z', LIGHT_THEME.axisZ)
@@ -847,6 +895,7 @@ export class Viewport {
     this.highlights.setColors(this.theme)
     this.marks.setColours(markColours(this.theme))
     this.section.setColours(toHex(this.theme.muted), toHex(this.theme.accent))
+    this.lookOfScans()
     this.showMarks()
     this.scene.background = new THREE.Color(this.theme.surface)
     this.ground.material.color.set(this.theme.hairline)

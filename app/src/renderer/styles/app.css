@@ -565,10 +565,28 @@ button {
   padding: var(--space-1) 0 var(--space-2);
 }
 
+.scans {
+  flex: 0 1 auto;
+  max-height: 32%;
+  border-top: var(--divider);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
 .marks {
   flex: 1 1 0;
+  /* The scans above may be many: the marks keep room for a few rows. */
+  min-height: 96px;
   border-top: var(--divider);
   padding-top: var(--space-1);
+}
+
+/* A title with the one thing to do in its section beside it. */
+.section-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: var(--space-2);
 }
 
 .section-title {
@@ -689,6 +707,214 @@ button {
 .layer-opacity:hover::-webkit-slider-thumb,
 .layer-opacity:focus-visible::-webkit-slider-thumb {
   background: var(--accent);
+}
+
+/* ---- Scans: the surroundings the parts are looked at in ----
+   A row is of the family of the layer rows: an id, a name, the same slider and
+   eye. Under them, quieter, how the scan was read and how it stands. */
+
+.scans-line {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  font-size: var(--text-small);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.scans-line[data-part='refused'] {
+  color: var(--fail);
+}
+
+.scan-row {
+  display: block;
+  height: auto;
+  padding: 0 0 var(--space-2);
+}
+
+.scan-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+}
+
+.scan-id {
+  flex: none;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.scan-row .row-name {
+  font-size: var(--text-small);
+}
+
+.scan-row[data-hidden] .row-name {
+  color: var(--muted);
+}
+
+.scan-row:hover .layer-opacity {
+  opacity: 1;
+}
+
+.scan-read {
+  margin: -2px 0 0;
+  padding: 0 var(--space-4);
+  font-size: var(--text-small);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.scan-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-3);
+  min-height: 22px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  font-size: var(--text-small);
+}
+
+/* How a scan stands, in a word and the colour of its state; what is said of its source besides is quieter. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.chip[data-state='aligned'] {
+  color: var(--ok);
+}
+
+.chip[data-state='stale'],
+.chip[data-state='unaligned'] {
+  color: var(--warn);
+}
+
+.chip[data-state='mesh-missing'] {
+  color: var(--fail);
+}
+
+.chip[data-state^='source-']::before {
+  display: none;
+}
+
+.scan-more {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 2px 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.scan-more:hover {
+  color: var(--ink);
+}
+
+.scan-more svg {
+  width: 12px;
+  height: 12px;
+}
+
+.scan-more[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.scan-fields {
+  display: grid;
+  gap: 6px;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
+  font-size: var(--text-small);
+}
+
+.scan-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.scan-label {
+  flex: none;
+  width: 44px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.scan-fields .button {
+  height: 22px;
+  padding: 0 9px;
+}
+
+.scan-select {
+  height: 22px;
+  padding: 0 2px 0 5px;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--text-small);
+}
+
+.scan-select:not(.num) {
+  font-family: var(--font-ui);
+}
+
+.scan-select:hover {
+  border-color: var(--accent);
+}
+
+/* One of two: the one in use is washed, as a pressed tool is. */
+.scan-choice {
+  display: flex;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.scan-choice button {
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.scan-choice button + button {
+  border-left: var(--divider);
+}
+
+.scan-choice button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.scan-choice button:disabled {
+  opacity: 0.45;
+}
+
+.scan-choice button:focus-visible {
+  outline-offset: -2px;
+}
+
+.scan-row > .confirm {
+  margin-top: var(--space-1);
+  font-size: var(--text-small);
 }
 
 /* ---- Marks: what the person and the agent have pointed at ----

@@ -4,6 +4,7 @@ import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
+import type { ScanInfo, ScanView } from '../../shared/scans'
 import { sectionOf, snappedSection, type SectionPlane, type ViewName } from '../../shared/view'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
@@ -52,6 +53,16 @@ export interface TornoState {
   marksProblem: string | null
   /** The mark being worked on: the row lit in the panel and the label ringed in the viewport. Null for none. */
   activeMark: string | null
+  /** The scans of the open object, as main last told them. Their meshes are not here: they go straight to the viewport. */
+  scans: ScanInfo[]
+  /** How each scan is looked at, by scan id, where the person changed it: what the scene file keeps. */
+  scanViews: Record<string, ScanView>
+  /** The file being imported into the open object as a scan, and what the process is doing; null for none. */
+  importing: { name: string; stage: string | null } | null
+  /** Why what was last asked of the scans here (an import, another unit, a removal) came to nothing, as main said it; null once it is put away. */
+  scansRefused: string | null
+  /** What main said was wrong with the scans file of the open object, as a sentence; null when nothing was. */
+  scansProblem: string | null
   /** The mark whose note is open over the viewport, for the person to write it; null for none. It is the active one. */
   noting: string | null
   /** Counts the times the camera was asked to go to the active mark's view. */
@@ -89,8 +100,9 @@ export interface TornoState {
 
 const NOTHING_SELECTED: string[] = []
 const NOTHING_PICKED: Record<string, PickedAt> = {}
+const NO_SCANS: ScanInfo[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, scans: NO_SCANS, scanViews: {}, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -125,7 +137,7 @@ export const actions = {
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */
   openObject(objectId: string, file: SceneFile): void {
-    store.setState({ ...NO_OBJECT, objectId, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section) })
+    store.setState({ ...NO_OBJECT, objectId, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), scanViews: file.scans ?? {} })
   },
 
   applyBuild(build: BuildState): void {
@@ -233,6 +245,36 @@ export const actions = {
     const awaited = s.noting !== null && s.noting === s.activeMark && !s.marks.some((mark) => mark.id === s.noting)
     const activeMark = awaited || m.marks.some((mark) => mark.id === s.activeMark) ? s.activeMark : null
     store.setState({ marks: m.marks, activeMark, noting: activeMark === null ? null : s.noting })
+  },
+
+  /** The scans of an object, as listed or as changed. Those of an object that is not the open one are not kept. */
+  setScans(m: { objectId: string; scans: ScanInfo[] }): void {
+    if (m.objectId === store.getState().objectId) store.setState({ scans: m.scans })
+  },
+
+  /** Change how one scan is looked at, by hand; what is left out keeps its value. It is what the scene file keeps. */
+  setScanView(id: string, view: ScanView): void {
+    const s = store.getState()
+    store.setState({ scanViews: { ...s.scanViews, [id]: { ...s.scanViews[id], ...view } }, edits: s.edits + 1 })
+  },
+
+  /** What the import of a scan into an object is doing; no stage when it is over. Of another object than the open one, nothing is kept. */
+  setImporting(m: { objectId: string; name: string; stage: string | null }): void {
+    if (m.objectId === store.getState().objectId) store.setState({ importing: m.stage === null ? null : { name: m.name, stage: m.stage } })
+  },
+
+  /** Why what was asked of the scans came to nothing, for the panel to say; null puts it away. */
+  setScansRefused(message: string | null): void {
+    if (message !== store.getState().scansRefused) store.setState({ scansRefused: message })
+  },
+
+  /** Main said what was wrong with an object's scans file. It stays until it is dismissed or another object is opened. */
+  setScansProblem(m: { objectId: string; message: string }): void {
+    if (m.objectId === store.getState().objectId) store.setState({ scansProblem: m.message })
+  },
+
+  dismissScansProblem(): void {
+    store.setState({ scansProblem: null })
   },
 
   /** Make a mark of the open object the active one, or none. The note that was open is of another mark: it closes. */
@@ -349,7 +391,8 @@ export function visibleKeys(s: TornoState, layout = s.layout): string[] {
 
 /**
  * What `<object>/.torno/scene.json` should hold for the open object: the
- * layout, the layers and the section as the person chose them. Where the
+ * layout, the layers, the section and how each scan is looked at, as the
+ * person chose them. Where the
  * agent's `show` has something else on screen, it is the person's choice that
  * is kept.
  */
@@ -363,7 +406,7 @@ export function sceneFileOf(s: TornoState): SceneFile {
     else delete layers[name]
   }
   const section = s.shownByAgent?.section ? s.shownByAgent.section.theirs : s.section
-  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}) }
+  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(s.scanViews).length > 0 ? { scans: s.scanViews } : {}) }
 }
 
 /** Whether two sections are the same: both none, or the same plane to the last digit. */

@@ -64,7 +64,7 @@ export function Layers() {
   )
 }
 
-function EyeIcon({ open }: { open: boolean }) {
+export function EyeIcon({ open }: { open: boolean }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
       <path d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8Z" />

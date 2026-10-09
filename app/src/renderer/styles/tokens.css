@@ -18,6 +18,8 @@
   --ok: #2B8A5C;
   --warn: #B7791F;
   --fail: #CF3F2C;
+  /* A scan drawn without colours of its own: a paper grey a step from the ground, in no hue of the part palette. */
+  --scan-plain: #B4AFA5;
 
   /* The three axes, on the gizmo and beside the numbers it changes: the usual
      red, green and blue, toned to sit with the part palette and kept clear of
@@ -97,6 +99,7 @@
     --ok: #5CC492;
     --warn: #E0A94A;
     --fail: #F0705E;
+    --scan-plain: #5A5E64;
     --axis-x: #E886B0;
     --axis-y: #9CC56C;
     --axis-z: #82A6EA;

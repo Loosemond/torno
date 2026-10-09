@@ -15,7 +15,16 @@ export const MAX_SELECTION_REPORTED = 8
  * points to is not drawn; the side it points away from is kept. `normal` has length 1.
  */
 export interface SectionPlane { origin: [number, number, number]; normal: [number, number, number] }
-export interface ViewState { objectId: string; layout: string; camera: Camera; visible: string[] /* part keys */; selection?: SelectionReport; section?: SectionPlane | null /* the cut on screen; null or absent for none */ }
+export interface ViewState {
+  objectId: string
+  layout: string
+  camera: Camera
+  visible: string[] /* part keys */
+  selection?: SelectionReport
+  section?: SectionPlane | null /* the cut on screen; null or absent for none */
+  /** The scans of the object as the window has them: whether each is switched on, and how thin it is drawn (1 for solid). */
+  scans?: Array<{ id: string; visible: boolean; opacity: number }>
+}
 export interface LookRequest {
   view?: 'current' | ViewName | Camera
   layout?: string
@@ -24,6 +33,8 @@ export interface LookRequest {
   marks?: boolean /* draw the marks and their numbers; true when absent */
   /** The cut the picture is drawn with: `'current'` (and when absent) the one on screen, null for none, or a plane of its own. */
   section?: SectionPlane | 'current' | null
+  /** The scans drawn with the parts: `'current'` (and when absent) those switched on on screen, false for none, or those of these ids. */
+  scans?: 'current' | false | string[]
 }
 /** A picture, and what the window drew to make it: the object it had open, that object's revision, and whether its parts were stale. */
 export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean }
