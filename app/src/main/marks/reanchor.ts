@@ -1,25 +1,48 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { Described } from '../../shared/geometry'
-import { type Anchor, type AnchorState, type Mark, type Vec3, markAnchors, strokeSamples } from '../../shared/marks'
+import { type Anchor, type AnchorState, type Mark, type NewMark, type Replacement, type Vec3, markAnchors, strokeSamples, translated } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
-import type { MarkStore } from './store'
+import type { MarkStore, Reanchored } from './store'
 
 /**
  * What the kernel's `nearest` says of one anchor: the point of its part's
  * surface nearest to it, the face that point is on (`lid/F12`, no layout in
- * front), and how far the two are apart; or that the layout has no such part.
+ * front), and how far the two are apart; that the layout has no such part; or
+ * that the part is there and nothing could be said of this point (`error`).
+ *
+ * `support` is what the nearest point lies on. On an edge, `edgeUnder` is that
+ * edge (`lid/E40`), `edgeUnderDescriptor` what it is and `between` the faces
+ * that meet there.
  *
  * For an anchor sent with the `edge` it was put on (`lid/E3`), also whether
  * the part has an edge of that number and, if so, how far the anchor's point
- * is from it and what it is.
+ * is from it, what it is, and the faces that meet at it.
  */
-export type NearestAnchor =
-  | ({ part: string; found: true; point: Vec3; normal: Vec3 | null; ref: string; distance: number; descriptor: string | null } & EdgeOfAnchor)
-  | { part: string; found: false }
+export type NearestAnchor = FoundAnchor | { part: string; found: true; error: string } | { part: string; found: false }
 
-type EdgeOfAnchor = { edgeFound?: undefined } | { edgeFound: false } | { edgeFound: true; edgeDistance: number; edgeDescriptor: string | null }
+export type FoundAnchor = {
+  part: string
+  found: true
+  error?: undefined
+  point: Vec3
+  normal: Vec3 | null
+  ref: string
+  distance: number
+  descriptor: string | null
+  support?: 'face' | 'edge' | 'vertex'
+  edgeUnder?: string
+  edgeUnderDescriptor?: string | null
+  between?: string[]
+} & EdgeOfAnchor
+
+type EdgeOfAnchor = { edgeFound?: undefined } | { edgeFound: false } | { edgeFound: true; edgeDistance: number; edgeDescriptor: string | null; edgeBetween?: string[] }
+
+/** Whether the kernel found the part and could say where on it the anchor is. */
+export function answered(one: NearestAnchor | undefined): one is FoundAnchor {
+  return one?.found === true && one.error === undefined
+}
 
 /** An anchor as `nearest` is asked about it. */
 export type AskedAnchor = { part: string; point: Vec3; edge?: string }
@@ -59,23 +82,122 @@ export function tolerance(bbox: Part['bbox'] | undefined): number {
  * An anchor as a new build leaves it. Its part gone: orphaned, and kept as it
  * was, so that it is found again if the part comes back. Otherwise its ref,
  * normal and descriptor are those of the face now nearest, and it is drifted
- * when that face is further away than `tolerance`. The point is never moved:
- * it is where the person put it.
+ * when that face is further away than `tolerance`. The point is never moved
+ * from where the person put it on the part, nor what the anchor says of how
+ * its part is spread.
  */
-export function judge(anchor: Anchor, nearest: NearestAnchor, tolerance: number): Judged {
+export function judge(anchor: Anchor, nearest: FoundAnchor | { part: string; found: false }, tolerance: number): Judged {
   if (!nearest.found) return { anchor, state: 'orphaned' }
   const refreshed: Anchor = { point: anchor.point, part: anchor.part, ref: nearest.ref }
   // Without them rather than with the old ones, which were said of another face.
   if (nearest.normal) refreshed.normal = nearest.normal
   if (typeof nearest.descriptor === 'string') refreshed.descriptor = nearest.descriptor
+  if (anchor.arranged) refreshed.arranged = anchor.arranged
   return { anchor: refreshed, state: nearest.distance <= tolerance ? 'ok' : 'drifted' }
+}
+
+/** The edge a pin's anchor says it is on: the one it names, or its ref when that is an edge of its part (as the Pin tool leaves it). */
+export function edgeOfPin(anchor: Anchor): string | undefined {
+  if (anchor.part === undefined) return undefined
+  const isEdge = (ref: string | undefined): ref is string => ref !== undefined && ref.startsWith(`${anchor.part}/`) && /^E\d+$/.test(ref.slice(anchor.part!.length + 1))
+  return isEdge(anchor.edge) ? anchor.edge : isEdge(anchor.ref) ? anchor.ref : undefined
+}
+
+/**
+ * The anchor of a pin as a new build leaves it: as `judge` says, and on an
+ * edge when its point is on one. That is the edge it names, while its point
+ * is within `EDGE_TOLERANCE_MM` of the edge of that number; else the edge the
+ * kernel found the point on. The anchor then names the edge as its ref, with
+ * the faces that meet there when they are two, and has no normal: an edge has
+ * no one normal. A pin that was on an edge and is on none now has drifted,
+ * and keeps the edge it was put on, so that a build which puts the edge back
+ * finds the pin on it again.
+ */
+export function judgePin(anchor: Anchor, nearest: FoundAnchor | { part: string; found: false }, tolerance: number): Judged {
+  const onFace = judge(anchor, nearest, tolerance)
+  if (!nearest.found) return onFace
+  const named = edgeOfPin(anchor)
+  const on = (edge: string, between: string[] | undefined, descriptor: string | null | undefined): Judged => ({
+    anchor: {
+      point: anchor.point,
+      part: anchor.part,
+      ref: edge,
+      edge,
+      ...(between?.length === 2 ? { between: [between[0], between[1]] } : {}),
+      ...(typeof descriptor === 'string' ? { descriptor } : {}),
+      ...(anchor.arranged ? { arranged: anchor.arranged } : {})
+    },
+    state: 'ok'
+  })
+  if (named !== undefined && nearest.edgeFound === true && nearest.edgeDistance <= EDGE_TOLERANCE_MM) return on(named, nearest.edgeBetween, nearest.edgeDescriptor)
+  if (nearest.support === 'edge' && typeof nearest.edgeUnder === 'string' && onFace.state === 'ok') return on(nearest.edgeUnder, nearest.between, nearest.edgeUnderDescriptor)
+  return named === undefined ? onFace : { anchor, state: 'drifted' }
+}
+
+/** The last successful build of an object: its scene, and the revision it is. */
+type LastBuild = { revision: number; scene: Scene }
+
+const NOT_SPREAD: Vec3 = [0, 0, 0]
+
+/** How far a part of a layout was spread by the build, or null when the layout has no such part. */
+function spreadOf(scene: Scene, layout: string, part: string): Vec3 | null {
+  const found = scene.parts.find((p) => p.layout === layout && p.name === part)
+  return found ? (found.arranged ?? NOT_SPREAD) : null
+}
+
+const withSpread = (anchor: Anchor, arranged: Vec3): Anchor => {
+  const { arranged: _was, ...rest } = anchor
+  return arranged.some((c) => c !== 0) ? { ...rest, arranged } : rest
+}
+
+/** A mark, or what a mark is put on again, with `change` made to the anchor that ties it to the geometry. */
+function withAnchor<M extends Mark | NewMark>(mark: M, change: (anchor: Anchor) => Anchor): M {
+  if (mark.kind === 'arrow') return { ...mark, from: change(mark.from) }
+  return mark.anchor ? { ...mark, anchor: change(mark.anchor) } : mark
+}
+
+/**
+ * A mark as main keeps it when it is placed: its anchor says how far its part
+ * is spread on the build it was placed on, when that is the last build, which
+ * is the only one main knows. Whatever the placer said of it is not kept. Of
+ * a mark placed on another build nothing is said, and the first check takes
+ * the mark to be where it is.
+ */
+export function asPlaced<M extends Mark | NewMark>(mark: M, last: LastBuild | undefined): M {
+  return withAnchor(mark, (anchor) => placedAnchor(anchor, mark.layout, mark.revision, last))
+}
+
+/** What a mark is put on again, said the same way (`asPlaced`). */
+export function asReplaced(placed: Replacement, layout: string, last: LastBuild | undefined): Replacement {
+  const anchor = (placed as Replacement | null)?.anchor
+  if (typeof anchor !== 'object' || anchor === null) return placed
+  return { ...placed, anchor: placedAnchor(anchor, layout, placed.revision, last) }
+}
+
+function placedAnchor(anchor: Anchor, layout: string, revision: number, last: LastBuild | undefined): Anchor {
+  const spread = last?.revision === revision && typeof anchor.part === 'string' ? spreadOf(last.scene, layout, anchor.part) : null
+  return withSpread(anchor, spread ?? NOT_SPREAD)
+}
+
+/**
+ * How far a mark has to move to stay where it was put on its part, now that
+ * the build spreads that part by `now`: the difference to the spread its
+ * anchor records. Nothing for a mark that was never checked and records
+ * none: it comes from before spreads were recorded, or was placed on a build
+ * main no longer has, and is taken to be where it is.
+ */
+function shiftOf(mark: Mark, primary: Anchor, now: Vec3): Vec3 | null {
+  if (primary.arranged === undefined && mark.checkedRevision === undefined) return null
+  const was = primary.arranged ?? NOT_SPREAD
+  const by: Vec3 = [now[0] - was[0], now[1] - was[1], now[2] - was[2]]
+  return by.some((c) => c !== 0) ? by : null
 }
 
 export interface ReanchorDeps {
   marks: Pick<MarkStore, 'list' | 'reanchor'>
   query: Builds['query']
-  /** The last successful build of an object: a new one is a new value. */
-  scene(objectId: string): Scene | undefined
+  /** The last successful build of an object: a new one has another scene. */
+  scene(objectId: string): LastBuild | undefined
   /** Told, once per call, what could not be checked. */
   log?(message: string): void
 }
@@ -84,39 +206,63 @@ export interface ReanchorDeps {
  * Check the unresolved marks of an object against its last successful build:
  * one `nearest` query per layout, for every anchor that names a part, and one
  * write of what changed. An anchor that names no part (a point in space) is
- * always ok; a mark is as bad as the worst of its anchors.
+ * always ok; a mark is as bad as the worst of its anchors. Every mark that
+ * could be judged then says it was checked against that build
+ * (`checkedRevision`). Resolves false when some could not be.
  *
- * A query that fails leaves the marks it was about as they were, and is
- * logged, once for the whole call. When a newer build arrives meanwhile
- * (`scene` answers another value) everything is dropped: the answers were
- * about geometry that is no longer shown, and that build has its own call.
+ * Before it is judged, a mark on a part that the build spread otherwise than
+ * the mark's anchor records (`Anchor.arranged`: a print layout sets its parts
+ * side by side, and an earlier part that grows pushes the later ones along)
+ * is moved by the difference, with everything it holds, and judged there: it
+ * stays where it was put on its part. A mark with no part, or whose part is
+ * gone, is not moved.
+ *
+ * A query that fails, or an anchor the kernel cannot answer for, leaves the
+ * marks it was about as they were, not moved either, and is logged, once for
+ * the whole call. When a newer build arrives meanwhile (`scene` answers
+ * another) everything is dropped: the answers were about geometry that is no
+ * longer shown, and that build has its own call. What is written says what
+ * each mark was judged from: the store passes over a mark that was put
+ * somewhere else meanwhile, and the check that follows that is of where it is.
  *
  * A pick of a whole part keeps the part as its ref. A pick of an edge keeps
  * its edge ref, and is ok only while the build has an edge of that number
  * within the tolerance of the mark's point: the kernel measures that distance.
- * Otherwise it is drifted, whatever the surface did.
+ * Otherwise it is drifted, whatever the surface did. A pin on an edge:
+ * `judgePin`.
  *
  * A stroke on the surface is anchored by its first point, and is more than
  * that point: a few points along it (`strokeSamples`) are asked about in the
  * same query, and it is drifted when one of them is on no surface any more,
  * though its first point is. Its anchor is still refreshed from the first.
  */
-export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise<void> {
-  const scene = deps.scene(objectId)
-  if (!scene) return
-  const superseded = (): boolean => deps.scene(objectId) !== scene
-  const marks = (await deps.marks.list(objectId)).filter((mark) => mark.status !== 'resolved')
-  if (superseded()) return
+export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise<boolean> {
+  const last = deps.scene(objectId)
+  if (!last) return true
+  const { scene, revision } = last
+  const superseded = (): boolean => deps.scene(objectId)?.scene !== scene
+  const listed = (await deps.marks.list(objectId)).filter((mark) => mark.status !== 'resolved')
+  if (superseded()) return true
+
+  /** Each mark as listed, how far it is moved first, and as it is judged: moved, its anchor saying the spread of this build. */
+  const checked = listed.map((original): { original: Mark; shift: Vec3 | null; mark: Mark } => {
+    const primary = markAnchors(original)[0]
+    const now = primary?.part === undefined ? null : spreadOf(scene, original.layout, primary.part)
+    if (!primary || now === null) return { original, shift: null, mark: original }
+    const shift = shiftOf(original, primary, now)
+    return { original, shift, mark: withAnchor(shift ? translated(original, shift) : original, (anchor) => withSpread(anchor, now)) }
+  })
+  const marks = checked.map((one) => one.mark)
 
   const failures: string[] = []
-  /** By anchor, as listed: how the build leaves it. Without an entry it could not be asked about. */
+  /** By anchor, as judged: how the build leaves it. Without an entry it could not be asked about. */
   const judged = new Map<Anchor, Judged>()
   const toleranceOf = (layout: string, part: string | undefined): number =>
     tolerance(scene.parts.find((p) => p.layout === layout && p.name === part)?.bbox)
 
   /** By anchor: what the kernel said of it. */
-  const nearest = new Map<Anchor, NearestAnchor>()
-  const byLayout = new Map<string, Array<{ anchor: Anchor; asked: AskedAnchor }>>()
+  const nearest = new Map<Anchor, FoundAnchor | { part: string; found: false }>()
+  const byLayout = new Map<string, Array<{ mark: Mark; anchor: Anchor; asked: AskedAnchor }>>()
   /** By layout: the points along its strokes, each with the parts it is asked about against, and the stroke it is of. */
   const alongStrokes = new Map<string, Array<{ id: string; asked: AskedAnchor[] }>>()
   for (const mark of marks) {
@@ -124,16 +270,17 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       if (anchor.part === undefined) continue
       const entries = byLayout.get(mark.layout) ?? []
       byLayout.set(mark.layout, entries)
-      const edge = edgeRef(mark)
-      entries.push({ anchor, asked: { part: anchor.part, point: anchor.point, ...(edge === undefined ? {} : { edge }) } })
+      const edge = mark.kind === 'pin' ? edgeOfPin(anchor) : edgeRef(mark)
+      entries.push({ mark, anchor, asked: { part: anchor.part, point: anchor.point, ...(edge === undefined ? {} : { edge }) } })
       const names = scene.parts.filter((p) => p.layout === mark.layout).map((p) => p.name)
       const parts = names.length <= STROKE_PARTS && names.includes(anchor.part) ? names : [anchor.part]
       const samples = strokeSamples(mark).map((point) => ({ id: mark.id, asked: parts.map((part) => ({ part, point })) }))
       if (samples.length > 0) alongStrokes.set(mark.layout, [...(alongStrokes.get(mark.layout) ?? []), ...samples])
     }
   }
-  /** The strokes with a point that is on no surface any more. */
+  /** The strokes with a point that is on no surface any more, and those with a point nothing could be said of. */
   const offSurface = new Set<string>()
+  const unanswered = new Set<string>()
   for (const [layout, entries] of byLayout) {
     if (!scene.layouts.includes(layout)) {
       // The kernel would refuse the layout; the scene already says none of its parts is there.
@@ -146,20 +293,31 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       const asked = [...entries.map((entry) => entry.asked), ...samples.flatMap((sample) => sample.asked)]
       found = nearestReply(await deps.query(objectId, 'nearest', { layout, anchors: asked }), asked)
     } catch (e) {
-      if (superseded()) return
+      if (superseded()) return true
       failures.push(`layout ${layout}: ${messageOf(e)}`)
       continue
     }
-    if (superseded()) return
-    entries.forEach(({ anchor }, i) => {
-      nearest.set(anchor, found[i])
-      judged.set(anchor, judge(anchor, found[i], toleranceOf(layout, anchor.part)))
+    if (superseded()) return true
+    entries.forEach(({ mark, anchor }, i) => {
+      const said = found[i]
+      if (said.found && said.error !== undefined) {
+        failures.push(`${mark.id}: ${said.error}`)
+        return
+      }
+      nearest.set(anchor, said)
+      judged.set(anchor, (mark.kind === 'pin' ? judgePin : judge)(anchor, said, toleranceOf(layout, anchor.part)))
     })
     let at = entries.length
     for (const sample of samples) {
       const answers = found.slice(at, at + sample.asked.length)
       at += sample.asked.length
-      if (!answers.some((one) => one.found && one.distance <= toleranceOf(layout, one.part))) offSurface.add(sample.id)
+      if (answers.some((one) => answered(one) && one.distance <= toleranceOf(layout, one.part))) continue
+      // A point the kernel could say nothing of may be on the surface: the stroke is not said to have left it.
+      const failed = answers.find((one) => one.found && one.error !== undefined)
+      if (failed?.found && failed.error !== undefined) {
+        if (!unanswered.has(sample.id)) failures.push(`${sample.id}: ${failed.error}`)
+        unanswered.add(sample.id)
+      } else offSurface.add(sample.id)
     }
   }
 
@@ -206,20 +364,23 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       judged.set(old, { anchor: { ...rest, ref: part, ...descriptor }, state: onFace.state })
     })
   )
-  if (superseded()) return
+  if (superseded()) return true
 
-  const changes: Array<{ id: string; anchors: Anchor[]; anchorState: AnchorState }> = []
-  for (const mark of marks) {
+  const changes: Reanchored[] = []
+  for (const { original, shift, mark } of checked) {
+    if (unanswered.has(mark.id)) continue
     const anchors = markAnchors(mark)
     const now = anchors.map((anchor): Judged | undefined => (anchor.part === undefined ? { anchor, state: 'ok' } : judged.get(anchor)))
     if (!now.every((j) => j !== undefined)) continue
     const ofAnchors = WORST_FIRST.find((state) => now.some((j) => j.state === state)) ?? 'ok'
     const anchorState = ofAnchors === 'ok' && offSurface.has(mark.id) ? 'drifted' : ofAnchors
-    if (anchorState === mark.anchorState && now.every((j, i) => isDeepStrictEqual(j.anchor, anchors[i]))) continue
-    changes.push({ id: mark.id, anchors: now.map((j) => j.anchor), anchorState })
+    const was = markAnchors(original)
+    if (anchorState === original.anchorState && original.checkedRevision === revision && shift === null && now.every((j, i) => isDeepStrictEqual(j.anchor, was[i]))) continue
+    changes.push({ id: mark.id, judged: was, anchors: now.map((j) => j.anchor), anchorState, ...(shift ? { shift } : {}), checkedRevision: revision })
   }
   if (changes.length > 0) await deps.marks.reanchor(objectId, changes)
   if (failures.length > 0) (deps.log ?? console.error)(`cannot check the marks of ${objectId} against its last build: ${failures.join('; ')}`)
+  return failures.length === 0
 }
 
 /** The edge a mark was put on, as its anchor names it: of a pick of an edge whose ref is one of its part's edges. */
@@ -241,6 +402,8 @@ function nearestReply(reply: unknown, asked: AskedAnchor[]): NearestAnchor[] {
     found.every((one: Record<string, unknown> | null, i) => {
       if (one?.part !== asked[i].part) return false
       if (one.found === false) return true
+      // The part is there, and the kernel could say nothing of this point.
+      if (one.found === true && typeof one.error === 'string') return true
       if (one.found !== true || typeof one.ref !== 'string' || !isDistance(one.distance)) return false
       if (asked[i].edge === undefined) return true
       return one.edgeFound === false || (one.edgeFound === true && isDistance(one.edgeDistance))
@@ -255,6 +418,44 @@ function isDistance(value: unknown): value is number {
 
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/** How long after a check of the marks that failed it is tried again: three times, then left until the next build. */
+export const RETRY_AFTER_MS = [2000, 10_000, 30_000]
+
+/**
+ * `check`, one at a time per object (`coalesced`), and again after a while
+ * when it could not check everything (it resolves false, or rejects): after
+ * each of `RETRY_AFTER_MS`, then no more. Asking anew, as for a newer build
+ * or a mark just added, drops what was waiting and starts the count again.
+ */
+export function retrying(check: (objectId: string) => Promise<boolean>, log: (message: string) => void = console.error): (objectId: string) => void {
+  /** By object: how many times it has been tried again, and the wait for the next. */
+  const waiting = new Map<string, { tried: number; timer?: NodeJS.Timeout }>()
+  const run = coalesced(async (objectId) => {
+    let ok = false
+    try {
+      ok = await check(objectId)
+    } finally {
+      const state = waiting.get(objectId) ?? { tried: 0 }
+      clearTimeout(state.timer)
+      state.timer = undefined
+      if (ok || state.tried >= RETRY_AFTER_MS.length) waiting.delete(objectId)
+      else {
+        waiting.set(objectId, state)
+        state.timer = setTimeout(() => {
+          state.timer = undefined
+          state.tried += 1
+          run(objectId)
+        }, RETRY_AFTER_MS[state.tried])
+      }
+    }
+  }, log)
+  return (objectId) => {
+    clearTimeout(waiting.get(objectId)?.timer)
+    waiting.delete(objectId)
+    run(objectId)
+  }
 }
 
 /**

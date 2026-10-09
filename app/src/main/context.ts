@@ -1,7 +1,7 @@
 import type { BuildState } from '../shared/build'
-import type { Mark } from '../shared/marks'
+import { type Mark, isUnchecked } from '../shared/marks'
 import type { Scene } from '../shared/scene'
-import type { ViewState } from '../shared/view'
+import { type ViewState, MAX_SELECTION_REPORTED } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import { describeMark } from './marks/describe'
 
@@ -14,7 +14,12 @@ const OPEN_LIMIT = 300
 
 const TRACEBACK_LINES = 12
 const MESSAGE_LIMIT = 400
+/** The most of it that says what is selected, and of that the most that is said of one ref. */
+const SELECTION_LIMIT = 1000
+const SELECTED_DESCRIPTOR_LIMIT = 100
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
+const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
+const MARKS_DATA = '; call mcp__torno__marks for their data'
 
 export interface ContextDeps {
   object(objectId: string): ObjectInfo | undefined
@@ -36,47 +41,102 @@ export interface PromptContext {
 
 /**
  * What the agent is told with every prompt in an object: whether the last build
- * worked, what is on screen, each mark the person has left since the last
- * prompt (the drafts, oldest first, a line each) and the numbers of the marks
- * still open. At most CONTEXT_LIMIT characters: drafts that do not fit are
- * counted, not listed, and are not among `sentMarkIds`. Nothing for an object
- * that is not in the workspace.
+ * worked, what is on screen and what is selected there, each mark that is
+ * news to it (the drafts, oldest first, a line each) and the numbers of the
+ * marks still open, each with what the last build did to it. At most
+ * CONTEXT_LIMIT characters: marks that do not fit are counted, not listed,
+ * and are not among `sentMarkIds`. Nothing for an object that is not in the
+ * workspace.
+ *
+ * A draft is a mark of the person's the agent has not been given, or one it
+ * was given that has changed since (`changed`), or one of its own that the
+ * person reopened. In a conversation that has not seen the marks (`fresh`:
+ * the agent started another, as on /clear), the person's marks it was given
+ * before are listed once more, since "M3" means nothing there.
  *
  * It changes nothing: whoever delivers the text turns `sentMarkIds` into sent.
  */
-export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = []): PromptContext {
-  // The agent's own marks are never news to it, whatever their status.
-  const drafts = marks.filter((m) => m.status === 'draft' && m.author === 'user')
+export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean } = {}): PromptContext {
+  const revision = deps.scene(objectId)?.revision
+  const drafts = marks.filter((m) => m.status === 'draft')
   const open = marks.filter((m) => m.status !== 'resolved' && !drafts.includes(m))
+  const still = opts.fresh ? open.filter((m) => m.author === 'user') : []
   const told = drafts.length > 0 || open.length > 0
   const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
   // foresaw, such as a very long name.
   const lines = [cutEnd(status(deps, objectId, limit), limit)]
   if (lines[0] === '') return { text: '', sentMarkIds: [] }
-  const openLine = open.length > 0 ? `Open marks: ${fitted(open.map((m) => m.id), '', OPEN_LIMIT)}` : ''
+  const selected = selection(deps, objectId)
+  if (selected) lines.push(selected)
+  const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision)}` : ''
   const sentMarkIds: string[] = []
-  if (drafts.length > 0) {
-    const named = layoutNamed(deps, objectId)
-    lines.push(MARKS_HEAD)
+  const named = layoutNamed(deps, objectId)
+  let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0)
+  /** A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed. */
+  const list = (head: string, listed: readonly Mark[], tagOf: (mark: Mark) => string | undefined): Mark[] => {
+    if (listed.length === 0) return []
     const more = (count: number): string => `… and ${count} more: call mcp__torno__marks`
-    let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0)
-    for (const [i, mark] of drafts.entries()) {
+    // The head is said even when no mark fits under it: the line that counts them needs it.
+    lines.push(head)
+    used += 1 + head.length
+    const fitting: Mark[] = []
+    for (const [i, mark] of listed.entries()) {
+      const tag = tagOf(mark)
       // A mark's coordinates and refs are in the frame of its layout, which may not be the one named above.
-      const line = `${describeMark(mark)}${mark.layout === named ? '' : ` [in layout ${mark.layout}]`}`
-      const after = drafts.length - i - 1
+      const line = `${describeMark(mark, { revision, ...(tag ? { tag } : {}) })}${mark.layout === named ? '' : ` [in layout ${mark.layout}]`}`
+      const after = listed.length - i - 1
       // Room is kept for the line that says how many are left out, should the next one not fit.
       if (used + 1 + line.length + (after > 0 ? 1 + more(after).length : 0) > CONTEXT_LIMIT) {
-        lines.push(more(drafts.length - i))
+        lines.push(more(listed.length - i))
+        used += 1 + more(listed.length - i).length
         break
       }
       lines.push(line)
       used += 1 + line.length
-      sentMarkIds.push(mark.id)
+      fitting.push(mark)
     }
+    return fitting
   }
+  // One of its own is a draft only because the person reopened it. One of theirs that it has been given
+  // before is told again because it changed: it knows the number, unless this conversation is another.
+  const news = (mark: Mark): string | undefined => (mark.author === 'agent' ? 'reopened by the user' : mark.sentBefore && !opts.fresh ? 'changed' : undefined)
+  sentMarkIds.push(...list(MARKS_HEAD, drafts, news).map((m) => m.id))
+  list(STILL_OPEN_HEAD, still, () => undefined)
   if (openLine) lines.push(openLine)
   return { text: lines.join('\n'), sentMarkIds }
+}
+
+/**
+ * The numbers of the marks still open, each with what the agent cannot rely
+ * on of it: its part is gone, the build moved its surface, or nothing has
+ * checked it against the build. When any is said, so is where their data is.
+ */
+function openMarks(open: readonly Mark[], revision: number | undefined): string {
+  const flag = (m: Mark): string => (m.anchorState === 'orphaned' ? ' (part gone)' : m.anchorState === 'drifted' ? ' (moved)' : isUnchecked(m, revision) ? ' (unchecked)' : '')
+  const names = open.map((m) => `${m.id}${flag(m)}`)
+  const after = names.some((name) => name.includes(' ')) ? MARKS_DATA : ''
+  const full = names.join(', ') + after
+  return full.length <= OPEN_LIMIT ? full : someOf(names, OPEN_LIMIT - after.length) + after
+}
+
+/**
+ * What the person has selected in the window, as one line, or '' when it
+ * cannot be said: the object is not the one open, the selection is of another
+ * build than the last or of another layout than is shown, or the parts on
+ * screen are stale. Its refs name geometry of one build only.
+ */
+function selection(deps: ContextDeps, objectId: string): string {
+  if (deps.openObjectId() !== objectId) return ''
+  const build = deps.build(objectId)
+  const last = deps.scene(objectId)
+  const view = deps.view(objectId)
+  const refs = view?.selection?.refs
+  if (!build || build.status !== 'ok' || build.stale || !last || !view || !Array.isArray(refs) || refs.length === 0) return ''
+  if (view.selection?.revision !== last.revision || view.layout !== layoutShown(view, last.scene)) return ''
+  const names = refs.slice(0, MAX_SELECTION_REPORTED).map(({ ref, descriptor }) => (descriptor ? `${ref} (${cutEnd(descriptor, SELECTED_DESCRIPTOR_LIMIT)})` : ref))
+  const more = refs.length > names.length ? ` and ${refs.length - names.length} more` : ''
+  return cutEnd(`Selected: ${names.join(', ')}${more}`, SELECTION_LIMIT)
 }
 
 /** The layout on screen of an object that is open in the window: the one asked for by the view, when the build has it. */

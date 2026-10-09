@@ -200,6 +200,24 @@ describe('Builds.query', () => {
     expect(builds.state('bracket')).toMatchObject({ status: 'building', stale: true })
   })
 
+  it('leaves stale parts stale while it builds again for a query: the last build failed, and they are not of the model as it is', async () => {
+    const { kernel, builds, states } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    builds.rebuild('bracket')
+    kernel.fail(1, { kind: 'exception', message: 'no' })
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'failed', revision: 1, stale: true })
+    kernel.retired.add('/ws/bracket')
+    const answer = builds.query('bracket', 'describe', {}).catch((e) => e)
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', revision: 1, stale: true })
+    kernel.fail(2, { kind: 'exception', message: 'no' })
+    await answer
+    expect(states.slice(-2).map((s) => [s.status, s.stale])).toEqual([['building', true], ['failed', true]])
+  })
+
   it('calls them stale once the sources change during that build', async () => {
     const { kernel, builds, watched } = setup()
     builds.open(bracket)

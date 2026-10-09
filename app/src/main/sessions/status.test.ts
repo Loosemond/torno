@@ -47,15 +47,19 @@ describe('reduceStatus', () => {
 })
 
 describe('sessionOfWorkspace', () => {
-  const dirOf = (id: string) => (id === 'bracket' ? '/ws/bracket' : undefined)
-
-  it('is a session of an object of the open workspace, in the same folder', () => {
-    expect(sessionOfWorkspace({ id: 'bracket', dir: '/ws/bracket' }, dirOf)).toBe(true)
+  it('is a session the manager has, in a folder directly under the open workspace', () => {
+    expect(sessionOfWorkspace({ id: 'bracket', dir: '/ws/bracket' }, '/ws')).toBe(true)
   })
 
-  it('is not one the manager does not have, nor one of an object that is not there, nor of a namesake elsewhere', () => {
-    expect(sessionOfWorkspace(undefined, dirOf)).toBe(false)
-    expect(sessionOfWorkspace({ id: 'gear', dir: '/ws/gear' }, dirOf)).toBe(false)
-    expect(sessionOfWorkspace({ id: 'bracket', dir: '/old/bracket' }, dirOf)).toBe(false)
+  it('is still one when its object has left the list: the last model file was deleted, and the agent is there to be told', () => {
+    // Nothing is asked of the list of objects at all.
+    expect(sessionOfWorkspace({ id: 'gear', dir: '/ws/gear' }, '/ws')).toBe(true)
+  })
+
+  it('is not one the manager does not have, one of a workspace that was left, or one deeper down', () => {
+    expect(sessionOfWorkspace(undefined, '/ws')).toBe(false)
+    expect(sessionOfWorkspace({ id: 'bracket', dir: '/old/bracket' }, '/ws')).toBe(false)
+    expect(sessionOfWorkspace({ id: 'bracket', dir: '/ws/deep/bracket' }, '/ws')).toBe(false)
+    expect(sessionOfWorkspace({ id: 'bracket', dir: '/ws/bracket' }, undefined)).toBe(false)
   })
 })

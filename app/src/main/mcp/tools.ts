@@ -8,7 +8,7 @@ import type { Camera, HighlightResult, LookRequest, LookResult, ShowRequest, Sho
 import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, number, vector } from '../marks/describe'
 import { MAX_NOTE } from '../marks/file'
-import { type AskedAnchor, type NearestAnchor, EDGE_TOLERANCE_MM, judge, tolerance } from '../marks/reanchor'
+import { type AskedAnchor, type NearestAnchor, EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance } from '../marks/reanchor'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -127,10 +127,10 @@ const INTENTS = ['add', 'remove', 'keep-out', 'reference'] as const
 const addMarkInput = {
   kind: z.enum(['pin', 'pick', 'arrow', 'shape']).describe('pin: a point. pick: a whole part, face or edge. arrow: from a point, a direction and a length. shape: a box, cylinder, sphere or plane in space.'),
   note: z.string().describe('What the mark says to the user, in a line.'),
-  ref: z.string().optional().describe(`What a pin, a pick or the start of an arrow is on. ${refText} Without a point, the mark is put at the centre of the face or edge.`),
+  ref: z.string().optional().describe(`What a pin, a pick or the start of an arrow is on. ${refText} Without a point, the mark is put at the centre of the face or edge. A pin given an edge is a pin on that edge.`),
   point: vec3.optional().describe('Where a pin is, or an arrow starts: [x, y, z] in mm in the frame of the layout. Without a ref, it is tied to the part whose surface it is on, if any.'),
   to: vec3.optional().describe('Where an arrow ends: [x, y, z] in mm.'),
-  by: vec3.optional().describe('Instead of to: the vector from the start of an arrow to its end, in mm.'),
+  by: vec3.optional().describe('Instead of to, never with it: the vector from the start of an arrow to its end, in mm.'),
   shape: z.enum(SHAPES).optional().describe('For a shape: which.'),
   size: vec3.optional().describe('For a shape, in mm: a box is [x, y, z]; a cylinder [diameter, diameter, height] along its Z; a sphere [diameter, diameter, diameter]; a plane [width, height, 0].'),
   position: vec3.optional().describe('For a shape: its centre, [x, y, z] in mm.'),
@@ -192,12 +192,12 @@ export const TOOLS = {
   },
   marks: {
     description:
-      "Returns JSON of the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, so the ref may no longer name what the mark is on.",
+      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision lower than the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
     description:
-      'Returns JSON with the exact geometry of a part, a face or an edge: its type, size, area or length, centre, normal or radius, and a one-line descriptor. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it.',
+      'Returns JSON with the exact geometry of a part, a face or an edge: its type, size, area or length, centre, normal or radius, a one-line descriptor, the revision of the build it was measured on, and a stale note when a newer build is running or failed. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it.',
     inputSchema: describeInput
   },
   highlight: {
@@ -212,12 +212,12 @@ export const TOOLS = {
   },
   add_mark: {
     description:
-      "Returns the number and a one-line description of a mark you placed on the object, which the user sees in the viewport and in their list of marks in your colour. Use it to show where you made a change, or to point at the place a question is about; refs come from marks, scene and describe.",
+      "Returns the number and a one-line description of a mark you placed on the object, which the user sees in the viewport and in their list of marks in your colour, and the revision of the build it was placed on. Use it to show where you made a change, or to point at the place a question is about; refs come from marks, scene and describe.",
     inputSchema: addMarkInput
   },
   resolve_mark: {
     description:
-      "Returns the mark, now resolved, which moves it to the user's resolved list with your note. Call it for each mark of the user's once you have acted on it and checked the result.",
+      "Returns the mark, now resolved: the user sees it in their list as resolved by you, with your note, until they confirm or reopen it. Call it for each mark of the user's once you have acted on it and checked the result.",
     inputSchema: resolveMarkInput
   }
 }
@@ -401,14 +401,36 @@ const noMark = (id: string, marks: Mark[]): ToolResult => failure(`no mark ${id}
  * A mark as data, with the line that says it in words. The data of a mark
  * that moved or lost its part still holds the ref it was placed on beside what
  * the kernel says is under it now; the line pairs nothing that may not agree.
+ * Given the revision of the last build, the line says when the mark was not
+ * checked against it.
  */
-const withLine = (mark: Mark): Mark & { line: string } => ({ ...mark, line: describeMark(mark) })
+const withLine = (mark: Mark, revision?: number): Mark & { line: string } => ({ ...mark, line: describeMark(mark, { revision }) })
+
+/** Why the last successful build of an object is not of its model as it now is: a build is running, or the latest failed. '' otherwise. */
+function behind(deps: ToolDeps, objectId: string): string {
+  const status = deps.build(objectId)?.status
+  return status === 'building' ? 'a build is running' : status === 'failed' ? 'the latest build failed' : ''
+}
+
+/**
+ * Which build an answer made from what main knows is of: its revision (null
+ * before the first), and, while that is not the latest attempt, a note that
+ * says so. The marks, their refs and what the kernel says are all of the last
+ * build that worked.
+ */
+function ofBuild(deps: ToolDeps, objectId: string): { revision: number | null; stale?: string } {
+  const revision = deps.scene(objectId)?.revision ?? null
+  const why = revision === null ? '' : behind(deps, objectId)
+  return { revision, ...(why ? { stale: `${why}, so this is still what is known of r${revision}: refs and descriptors may not hold for the model as it now is` } : {}) }
+}
 
 export async function marksTool(deps: ToolDeps, objectId: string, args: MarksArgs): Promise<ToolResult> {
   const marks = await marksOf(deps, objectId)
   if ('content' in marks) return marks
   const wanted = args.status
-  return json(marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted)).map(withLine))
+  const build = ofBuild(deps, objectId)
+  const listed = marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted))
+  return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined)) })
 }
 
 /**
@@ -452,7 +474,8 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
     const marks = await marksOf(deps, objectId)
     if ('content' in marks) return marks
     const mark = marks.find((m) => m.id === args.ref)
-    return mark ? json(withLine(mark)) : noMark(args.ref, marks)
+    const build = ofBuild(deps, objectId)
+    return mark ? json({ ...build, mark: withLine(mark, build.revision ?? undefined) }) : noMark(args.ref, marks)
   }
   const found = built(deps, objectId)
   if ('content' in found) return found
@@ -461,7 +484,9 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
   const checked = checkRef(found.scene, layout, args.ref)
   if (typeof checked === 'string') return failure(checked)
   try {
-    return json({ layout, ...(await deps.describe(objectId, layout, args.ref)) })
+    const described = await deps.describe(objectId, layout, args.ref)
+    // As of the answer: a build may have ended while the kernel was asked.
+    return json({ layout, ...ofBuild(deps, objectId), ...described })
   } catch (e) {
     return failure(messageOf(e))
   }
@@ -578,6 +603,8 @@ async function anchorFor(
 ): Promise<{ anchor: Anchor; target?: CheckedRef['target']; said?: string } | ToolResult> {
   const parts = scene.parts.filter((p) => p.layout === layout)
   const pick = kind === 'pick'
+  // A pin is on an edge when its point is on one (`judgePin`); anything else is on the face there.
+  const pin = kind === 'pin'
   try {
     if (ref === undefined) {
       if (!point) return failure('give a ref or a point')
@@ -585,8 +612,8 @@ async function anchorFor(
       let best: Anchor | undefined
       let least = Infinity
       found.forEach((one, i) => {
-        if (!one.found || one.distance >= least) return
-        const judged = judge({ point, part: one.part }, one, tolerance(parts[i].bbox))
+        if (!answered(one) || one.distance >= least) return
+        const judged = (pin ? judgePin : judge)({ point, part: one.part }, one, tolerance(parts[i].bbox))
         if (judged.state !== 'ok') return
         least = one.distance
         best = judged.anchor
@@ -603,17 +630,18 @@ async function anchorFor(
     if (described.kind === 'face' && described.normal) base.normal = described.normal
     // The mark is checked against the build the moment it is kept (`followMarks`): what is kept here is
     // what that check would make of it, so that the answer given now still holds afterwards.
-    const onEdge = pick && target === 'edge'
-    // The middle of an edge is on the edge: there is nothing to ask.
-    if (onEdge && !point) return { anchor: base, target }
+    const onEdge = (pick || pin) && target === 'edge'
+    // The middle of an edge is on the edge: for a pick there is nothing to ask. A pin also says which faces meet there.
+    if (onEdge && !point && pick) return { anchor: base, target }
     const [nearBase] = await deps.nearest(objectId, layout, [{ part: part.name, point: base.point, ...(onEdge ? { edge: ref } : {}) }])
-    if (!nearBase?.found) return { anchor: base, target }
+    if (nearBase?.found && nearBase.error !== undefined) return failure(`the kernel could not say where ${vector(base.point)} is on ${part.name}: ${nearBase.error}`)
+    if (!answered(nearBase)) return { anchor: base, target }
     let near = nearBase
     if (onEdge) {
       // Off its edge, the mark would be said to have drifted at once. An edge has no one normal.
       if (near.edgeFound !== true) return failure(`the kernel did not say how far the point ${vector(base.point)} is from ${ref}: leave the point out to use the middle of the edge`)
       if (near.edgeDistance > EDGE_TOLERANCE_MM) return failure(`the point ${vector(base.point)} is ${number(near.edgeDistance)} mm from ${ref}: give a point on the edge, or leave the point out to use its middle`)
-      return { anchor: base, target }
+      return { anchor: pin ? judgePin({ ...base, edge: ref }, near, Infinity).anchor : base, target }
     }
     if (point && near.distance > tolerance(part.bbox)) {
       return failure(`the point ${vector(point)} is ${number(near.distance)} mm from the surface of ${part.name}: give a point on it, or leave the point out to use the centre of ${ref}`)
@@ -625,7 +653,12 @@ async function anchorFor(
       // The point kept is the rounded one, and that is where the check will ask: beside a curved edge it may
       // be under another face than the one it was rounded from. What is kept and said is what the kernel says of it.
       const [there] = await deps.nearest(objectId, layout, [{ part: part.name, point: at }])
-      if (there?.found) near = there
+      if (answered(there)) near = there
+    }
+    if (pin && near.support === 'edge') {
+      // The point is on an edge, whatever was named to find it: the check would find the pin on that edge.
+      const onIt = judgePin({ point: at, part: part.name }, near, tolerance(part.bbox)).anchor
+      if (onIt.edge !== undefined) return { anchor: onIt, target, said: `That point is on the edge ${onIt.edge}: the pin is placed on the edge.` }
     }
     const elsewhere = target === 'face' && near.ref !== ref
     if (pick) {
@@ -732,6 +765,7 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
     if (args.kind === 'pick' && args.ref === undefined) return failure('a pick needs a ref: the part, face or edge it is of. For a point, place a pin')
     if (args.ref === undefined && args.point === undefined) return failure(`${args.kind === 'arrow' ? 'an arrow' : 'a pin'} needs a ref or a point${args.kind === 'arrow' ? ' to start from' : ''}`)
     if (args.kind === 'arrow' && args.to === undefined && args.by === undefined) return failure('an arrow needs to (where it ends) or by (the vector from its start), in mm')
+    if (args.kind === 'arrow' && args.to !== undefined && args.by !== undefined) return failure('an arrow takes to (where it ends) or by (the vector from its start), not both')
     const tied = await anchorFor(deps, objectId, scene, layout, args.ref, args.point, args.kind)
     if ('content' in tied) return tied
     const { anchor } = tied
@@ -752,7 +786,10 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
   } catch (e) {
     return failure(messageOf(e))
   }
-  return { content: [{ type: 'text', text: `placed in layout ${layout}: ${describeMark(added)}${said ? `\n${said}` : ''}` }] }
+  // Placed on the last build that worked, which the agent may take for the model as it has just edited it.
+  const why = behind(deps, objectId)
+  const stale = why ? `, stale: ${why}, so the mark was placed on the parts of r${revision}; it is checked against the next build that works` : ''
+  return { content: [{ type: 'text', text: `placed in layout ${layout}: ${describeMark(added)}${said ? `\n${said}` : ''}\nrevision r${revision}${stale}` }] }
 }
 
 export async function resolveMarkTool(deps: ToolDeps, objectId: string, args: ResolveMarkArgs): Promise<ToolResult> {

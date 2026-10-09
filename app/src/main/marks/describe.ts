@@ -1,4 +1,4 @@
-import type { Anchor, Mark, ShapeMark, StrokeMark } from '../../shared/marks'
+import { type Anchor, type Mark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
 
 /** Marks the note of a mark the last build moved off its surface, or left without its part. */
 const ANCHOR_SUFFIX = { ok: '', drifted: ' [moved since it was placed: check it]', orphaned: ' [its part is gone]' } as const
@@ -37,12 +37,16 @@ export function sizes(v: readonly number[]): string {
  * A mark in one line, for the agent: its number, what kind it is, what it is
  * on and where, in millimetres in the object frame of its layout, and the
  * note. It says so when the mark is the agent's own, and when the last build
- * moved the surface it was on or dropped its part.
+ * moved the surface it was on or dropped its part. `tag` is said before it,
+ * in brackets: what the line is news of (`changed`). Given the `revision` of
+ * the last build that worked, it says so when nothing has checked the mark
+ * against that build: what it says of the ref is then of an older one.
  */
-export function describeMark(mark: Mark): string {
-  const yours = mark.author === 'agent' ? '(yours) ' : ''
+export function describeMark(mark: Mark, opts: { tag?: string; revision?: number } = {}): string {
+  const tags = [mark.author === 'agent' ? 'yours' : '', opts.tag ?? ''].filter(Boolean).join(', ')
   const note = mark.note.replace(/\s+/g, ' ').trim()
-  return `${yours}${mark.id} ${what(mark)}${note ? `: "${note}"` : ''}${ANCHOR_SUFFIX[mark.anchorState]}`
+  const unchecked = isUnchecked(mark, opts.revision) ? ` [not checked against r${opts.revision}]` : ''
+  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark)}${note ? `: "${note}"` : ''}${ANCHOR_SUFFIX[mark.anchorState]}${unchecked}`
 }
 
 function what(mark: Mark): string {
@@ -78,7 +82,11 @@ function named(anchor: Anchor): string {
  */
 function on(anchor: Anchor, settled: boolean): string {
   if (!anchor.ref) return ''
-  return settled ? `on ${named(anchor)} ` : `placed on ${anchor.ref} `
+  if (!settled) return `placed on ${anchor.ref} `
+  if (anchor.edge === undefined) return `on ${named(anchor)} `
+  // On an edge: which, the two faces that meet there, and what the edge is.
+  const between = anchor.between ? ` between ${anchor.between[0]} and ${anchor.between[1]}` : ''
+  return `on the edge ${anchor.edge}${between}${anchor.descriptor ? ` (${anchor.descriptor})` : ''} `
 }
 
 function stroke(mark: StrokeMark): string {

@@ -106,8 +106,8 @@ test('a pin added through the bridge is M1, in the window and in .torno/marks.js
   expect(Number.isNaN(Date.parse(added.createdAt))).toBe(false)
 
   // The window is told, not asked: its list follows main's. Main has checked the new mark against
-  // the build there is, so it names the face that is at its point, and says what that is.
-  const checked = { ...added, anchor: { ...(added as PinMark).anchor, ref: expect.stringMatching(/^base\/F\d$/), descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } }
+  // the build there is, so it names the face that is at its point, says what that is, and which build that was.
+  const checked = { ...added, checkedRevision: 1, anchor: { ...(added as PinMark).anchor, ref: expect.stringMatching(/^base\/F\d$/), descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' } }
   await expect.poll(async () => (await state()).marks).toEqual([checked])
   expect(marksOnDisk()).toEqual({ next: 2, marks: (await state()).marks })
   // Beside it only the state file, which follows the build and the marks by a second.

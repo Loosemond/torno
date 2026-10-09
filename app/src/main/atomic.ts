@@ -1,4 +1,4 @@
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 /** The last write to each file, so that writes of one file land in the order they were made. */
@@ -6,7 +6,8 @@ const writes = new Map<string, Promise<void>>()
 
 /**
  * Writes a file through a temp file beside it, creating its folder. Readers
- * see the old file or the new one, never half of one. A write that fails
+ * see the old file or the new one, never half of one: the temp file is on
+ * the disk before it is renamed. A write that fails
  * leaves the old file and no temp file, and does not hold up the next.
  */
 export function writeFileAtomic(path: string, data: string | Uint8Array): Promise<void> {
@@ -16,7 +17,15 @@ export function writeFileAtomic(path: string, data: string | Uint8Array): Promis
       await mkdir(dirname(path), { recursive: true })
       const temp = `${path}.${process.pid}.tmp`
       try {
-        await writeFile(temp, data)
+        // On the disk before it takes the place of the old file: a crash or a power cut must not leave
+        // a name that points at nothing, where hours of marks were.
+        const file = await open(temp, 'w')
+        try {
+          await file.writeFile(data)
+          await file.sync()
+        } finally {
+          await file.close()
+        }
         await rename(temp, path)
       } catch (e) {
         await rm(temp, { force: true }).catch(() => {})

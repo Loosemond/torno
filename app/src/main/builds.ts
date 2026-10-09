@@ -292,7 +292,8 @@ export class Builds {
     const id = obj.id
     const attempt = ++entry.attempt
     const revision = entry.state.revision
-    const stale = revision > 0 && !entry.restoring
+    // A build for a query's sake says nothing new of the parts on screen: stale parts stay stale, fresh ones fresh.
+    const stale = entry.restoring ? entry.state.stale : revision > 0
     this.displaced.delete(id)
     entry.changedMeanwhile = false // this build sees whatever changed
 

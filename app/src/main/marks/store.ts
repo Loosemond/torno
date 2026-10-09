@@ -1,5 +1,28 @@
-import type { Anchor, AnchorState, Mark, MarkPatch, MarksFile, NewMark, Replacement } from '../../shared/marks'
+import { isDeepStrictEqual } from 'node:util'
+import { type Anchor, type AnchorState, type Mark, type MarkPatch, type MarksFile, type NewMark, type Replacement, type Vec3, MAIN_ONLY_KEYS, markAnchors, translated } from '../../shared/marks'
 import { loadMarksFile, sanitiseMark, saveMarksFile } from './file'
+
+/** What a check of a mark against a build found (`reanchorAll`), for `MarkStore.reanchor` to write. */
+export interface Reanchored {
+  id: string
+  /**
+   * The anchors the mark had when it was judged, in the order of `markAnchors`.
+   * When the mark's are no longer these (it was put somewhere else meanwhile),
+   * the entry is passed over: it says nothing of where the mark is now.
+   */
+  judged: Anchor[]
+  /** Its anchors as the build leaves them, in the same order. A mark given none keeps the one it has. */
+  anchors: Anchor[]
+  anchorState: AnchorState
+  /**
+   * How far the part it is on was moved by the spread of its layout since the
+   * mark was last checked: everything the mark holds in that frame moves with
+   * it (`translated`). `anchors` are already there.
+   */
+  shift?: Vec3
+  /** The revision of the build it was checked against. */
+  checkedRevision?: number
+}
 
 interface MarkEvents {
   /** The marks of an object changed: the whole list, as it now is. */
@@ -18,6 +41,8 @@ interface MarkEvents {
 /** What a patch may change of any mark, and of a shape only. */
 const COMMON_KEYS = ['note', 'status', 'resolvedNote'] as const
 const SHAPE_KEYS = ['intent', 'position', 'rotation', 'size', 'shape'] as const
+/** What a mark says to the agent, of what a patch may change: a change to any of it is news. */
+const CONTENT_KEYS = ['note', ...SHAPE_KEYS] as const
 
 /**
  * The marks of the objects of the open workspace, and the only writer of their
@@ -79,7 +104,9 @@ export class MarkStore {
    */
   add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft'): Promise<Mark> {
     return this.change(objectId, (file) => {
-      const added = sanitiseMark({ ...mark, id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
+      // What main alone says is not taken from whoever made the mark.
+      const given = Object.fromEntries(Object.entries(Object(mark) as object).filter(([key]) => !(MAIN_ONLY_KEYS as readonly string[]).includes(key)))
+      const added = sanitiseMark({ ...given, id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
       if (!added) throw new Error('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
       file.next += 1
       file.marks.push(added)
@@ -87,7 +114,17 @@ export class MarkStore {
     })
   }
 
-  update(objectId: string, id: string, patch: MarkPatch): Promise<Mark> {
+  /**
+   * Changes the note, the status or, of a shape, what it is. `by` is who asks:
+   * a mark that becomes resolved says who resolved it.
+   *
+   * A mark of the person's that the agent was sent, and whose note or shape
+   * is changed without the patch naming a status, is a draft again: the next
+   * prompt carries it once more, as changed. A mark that is no longer
+   * resolved forgets who resolved it. `acknowledged` can only be set, and only
+   * on a mark the agent resolved.
+   */
+  update(objectId: string, id: string, patch: MarkPatch, by: 'user' | 'agent' = 'user'): Promise<Mark> {
     return this.change(objectId, (file) => {
       const at = indexOf(file, id)
       const mark = file.marks[at]
@@ -100,6 +137,23 @@ export class MarkStore {
       if (mark.status === 'resolved' && asked.status === 'sent') throw new Error(`${id} is resolved: reopen it as a draft before it is sent again`)
       const changed = sanitiseMark({ ...mark, ...Object.fromEntries([...given(COMMON_KEYS), ...forShape].map((key) => [key, asked[key]])) })
       if (!changed) throw new Error(`that is not a valid change to ${id}`)
+      const said = changed as unknown as Record<string, unknown>
+      const before = mark as unknown as Record<string, unknown>
+      // What the agent was told of it no longer holds: it is told again.
+      if (asked.status === undefined && mark.status === 'sent' && mark.author === 'user' && CONTENT_KEYS.some((key) => !isDeepStrictEqual(said[key], before[key]))) {
+        changed.status = 'draft'
+      }
+      if (changed.status !== 'resolved') {
+        delete changed.resolvedBy
+        delete changed.acknowledged
+      } else if (mark.status !== 'resolved') {
+        changed.resolvedBy = by === 'agent' ? 'agent' : 'user'
+        delete changed.acknowledged
+      }
+      if (asked.acknowledged !== undefined) {
+        if (asked.acknowledged !== true || changed.status !== 'resolved' || changed.resolvedBy !== 'agent') throw new Error(`${id} was not resolved by the agent: there is nothing to acknowledge`)
+        changed.acknowledged = true
+      }
       file.marks[at] = changed
       return changed
     })
@@ -119,7 +173,8 @@ export class MarkStore {
    * that face or edge. The mark is taken to be on its surface until the check
    * that follows (`unchecked`) has said. One the agent had been sent is a
    * draft again: what it was told of the mark no longer holds. Strokes and
-   * shapes are not moved this way, nor a resolved mark.
+   * shapes are not moved this way, nor a resolved mark, nor a mark of the
+   * agent's: where that is, is what the agent said.
    */
   replace(objectId: string, id: string, placed: Replacement): Promise<Mark> {
     return this.change(
@@ -128,10 +183,12 @@ export class MarkStore {
         const at = indexOf(file, id)
         const mark = file.marks[at]
         if (mark.kind !== 'pin' && mark.kind !== 'pick' && mark.kind !== 'arrow') throw new Error(`${id} is a ${mark.kind}: only a pin, a pick or an arrow is put somewhere else`)
+        if (mark.author !== 'user') throw new Error(`${id} is the agent's mark: it is not put somewhere else`)
         if (mark.status === 'resolved') throw new Error(`${id} is resolved: reopen it first`)
         const anchor = (placed as Replacement | null)?.anchor
         if (typeof anchor !== 'object' || anchor === null || typeof anchor.part !== 'string') throw new Error(`${id} was not put on a part`)
-        const common = { anchorState: 'ok', status: mark.author === 'user' ? 'draft' : mark.status, revision: placed.revision, camera: placed.camera } as const
+        // Nothing has checked it where it now is.
+        const common = { anchorState: 'ok', status: 'draft', revision: placed.revision, camera: placed.camera, checkedRevision: undefined } as const
         let moved: Mark | null
         if (mark.kind === 'arrow') {
           const by = mark.to.map((c, i) => c - mark.from.point[i])
@@ -154,20 +211,25 @@ export class MarkStore {
   }
 
   /**
-   * Replaces anchors and anchor states in one write; ids not listed are
-   * untouched. `anchors` are in the order of `markAnchors`. An id that is not
-   * there is passed over: the mark may have been removed while a build ran.
+   * Writes what a check of the marks against a build found, in one write; ids
+   * not listed are untouched. An id that is not there is passed over: the
+   * mark may have been removed while the check ran. So is a mark whose
+   * anchors are no longer the ones that were judged: it was put somewhere
+   * else meanwhile, and the check that follows that is of where it is now.
    * A mark given no anchor keeps the one it has.
    */
-  reanchor(objectId: string, changes: Array<{ id: string; anchors: Anchor[]; anchorState: AnchorState }>): Promise<void> {
+  reanchor(objectId: string, changes: Reanchored[]): Promise<void> {
     return this.change(objectId, (file) => {
       let any = false
-      for (const { id, anchors, anchorState } of changes) {
+      for (const { id, judged, anchors, anchorState, shift, checkedRevision } of changes) {
         const at = file.marks.findIndex((m) => m.id === id)
         if (at < 0) continue
         const mark = file.marks[at]
+        if (!isDeepStrictEqual(markAnchors(mark), judged)) continue
+        // Whatever else the mark holds is moved from where it is now: a shape may have been dragged meanwhile.
+        const where = shift && anchors[0] ? translated(mark, shift) : mark
         const anchor = anchors[0] ? { [mark.kind === 'arrow' ? 'from' : 'anchor']: anchors[0] } : {}
-        const moved = sanitiseMark({ ...mark, ...anchor, anchorState })
+        const moved = sanitiseMark({ ...where, ...anchor, anchorState, ...(checkedRevision === undefined ? {} : { checkedRevision }) })
         if (!moved) continue
         file.marks[at] = moved
         any = true
@@ -184,7 +246,10 @@ export class MarkStore {
   markSent(objectId: string, ids?: readonly string[]): Promise<Mark[]> {
     return this.change(objectId, (file) => {
       const drafts = file.marks.filter((m) => m.status === 'draft' && (ids === undefined || ids.includes(m.id)))
-      for (const mark of drafts) mark.status = 'sent'
+      for (const mark of drafts) {
+        mark.status = 'sent'
+        mark.sentBefore = true
+      }
       return drafts.length > 0 ? drafts : UNCHANGED
     }).then((sent) => (sent === UNCHANGED ? [] : sent))
   }

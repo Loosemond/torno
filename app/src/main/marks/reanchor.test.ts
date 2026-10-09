@@ -2,11 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Anchor, Mark, MarksFile, NewMark } from '../../shared/marks'
+import type { Anchor, ArrowMark, Mark, MarksFile, NewMark, PinMark, ShapeMark, StrokeMark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import * as file from './file'
-import { type NearestAnchor, coalesced, followMarks, judge, reanchorAll, tolerance } from './reanchor'
+import { type FoundAnchor, RETRY_AFTER_MS, asPlaced, coalesced, followMarks, judge, judgePin, reanchorAll, retrying, tolerance } from './reanchor'
 import { MarkStore } from './store'
 
 // The real store on a real folder, with its writes counted.
@@ -37,7 +37,7 @@ function sceneOf(keys: string[], sizes: Record<string, [number, number, number]>
   return { model: 'm.py', layouts: [...new Set(parts.map((p) => p.layout))], parts, seconds: 0, output: '' } as unknown as Scene
 }
 
-const found = (part: string, ref: string, distance: number, more: { point?: [number, number, number]; normal?: [number, number, number] | null; descriptor?: string | null } = {}): NearestAnchor => ({
+const found = (part: string, ref: string, distance: number, more: { point?: [number, number, number]; normal?: [number, number, number] | null; descriptor?: string | null } = {}): FoundAnchor => ({
   part,
   found: true,
   point: [0, 0, 0],
@@ -92,6 +92,9 @@ describe('reanchorAll', () => {
   let store: MarkStore
   let changes: Array<{ objectId: string; marks: Mark[] }>
   let scene: Scene | undefined
+  /** The revision of the build `scene` is of. */
+  let revision: number
+  const last = (): { revision: number; scene: Scene } | undefined => (scene ? { revision, scene } : undefined)
   let asked: Array<{ objectId: string; name: string; args: Record<string, unknown> }>
   let logged: string[]
   /** What the kernel answers: by default every anchor is where it was, on face F1 of its part. */
@@ -101,7 +104,7 @@ describe('reanchorAll', () => {
     asked.push({ objectId, name, args: structuredClone(args) as Record<string, unknown> })
     return answer(name, args as Record<string, unknown>) as T
   }
-  const run = (): Promise<void> => reanchorAll({ marks: store, query, scene: () => scene, log: (message) => logged.push(message) }, 'bracket')
+  const run = (): Promise<boolean> => reanchorAll({ marks: store, query, scene: last, log: (message) => logged.push(message) }, 'bracket')
   const anchorsOf = (args: Record<string, unknown>) => args.anchors as Array<{ part: string; point: number[] }>
   const still = (args: Record<string, unknown>) => ({ anchors: anchorsOf(args).map(({ part }) => found(part, `${part}/F1`, 0)) })
   const onDisk = (): MarksFile => JSON.parse(readFileSync(join(dirs.bracket, '.torno', 'marks.json'), 'utf8'))
@@ -115,6 +118,7 @@ describe('reanchorAll', () => {
     changes = []
     store.on('changed', (m) => changes.push(m))
     scene = sceneOf(['assembly:base', 'assembly:post', 'print:base'])
+    revision = 1
     asked = []
     logged = []
     answer = (_name, args) => still(args)
@@ -231,7 +235,10 @@ describe('reanchorAll', () => {
     saves.mockClear()
     await run()
     expect(asked).toEqual([])
-    expect(saves).not.toHaveBeenCalled()
+    // Nothing to ask of a point in space: one write says it was checked against this build, and then none.
+    expect(saves).toHaveBeenCalledTimes(1)
+    await run()
+    expect(saves).toHaveBeenCalledTimes(1)
   })
 
   it('a mark that comes back to its surface, or whose part comes back, is ok again', async () => {
@@ -280,7 +287,7 @@ describe('reanchorAll', () => {
     answer = () => {
       throw new KernelError('timeout', 'the query was not answered within 30 s')
     }
-    await expect(run()).resolves.toBeUndefined()
+    await expect(run()).resolves.toBe(false)
     expect(await store.list('bracket')).toEqual(before)
     expect(saves).not.toHaveBeenCalled()
     expect(logged).toHaveLength(1)
@@ -339,6 +346,293 @@ describe('reanchorAll', () => {
     asked = []
     await run()
     expect(asked).toEqual([])
+  })
+
+  describe('while the kernel is answering', () => {
+    const THERE: Anchor = { point: [-10, 8, 2.5], normal: [0, 0, 1], part: 'base', ref: 'base/F4', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' }
+
+    it('a pin put somewhere else stays where it was put, and is checked there by the run that follows', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      let first = true
+      answer = async (_name, args) => {
+        // The answer is of where the pin was when the kernel was asked.
+        const reply = { anchors: anchorsOf(args).map(({ part }) => found(part, 'base/F9', 3)) }
+        if (first) {
+          first = false
+          await store.replace('bracket', 'M1', { anchor: THERE, revision: 1, camera: CAMERA } as never)
+        }
+        return reply
+      }
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: THERE })
+      expect((await byId()).M1).not.toHaveProperty('checkedRevision')
+
+      answer = (_name, args) => still(args)
+      await run()
+      expect(anchorsOf(asked.at(-1)!.args)).toEqual([{ part: 'base', point: [-10, 8, 2.5] }])
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', checkedRevision: 1, anchor: { point: [-10, 8, 2.5], ref: 'base/F1' } })
+    })
+
+    it('an arrow put somewhere else keeps its start and its end together', async () => {
+      await store.add('bracket', arrow(ON_POST)) // to [0, 0, 40]: by (-4, 0, 28)
+      answer = async (_name, args) => {
+        const reply = still(args)
+        await store.replace('bracket', 'M1', { anchor: THERE, revision: 1, camera: CAMERA } as never)
+        return reply
+      }
+      await run()
+      const moved = (await byId()).M1 as ArrowMark
+      expect(moved.from).toEqual(THERE)
+      expect(moved.to).toEqual([-14, 8, 30.5])
+    })
+
+    it('a mark that was not touched is still written, beside one that was', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      await store.add('bracket', pin(ON_POST))
+      answer = async (_name, args) => {
+        const reply = still(args)
+        await store.replace('bracket', 'M1', { anchor: THERE, revision: 1, camera: CAMERA } as never)
+        return reply
+      }
+      await run()
+      const marks = await byId()
+      expect(marks.M1).toMatchObject({ anchor: THERE })
+      expect(marks.M2).toMatchObject({ checkedRevision: 1, anchor: { ref: 'post/F1' } })
+    })
+  })
+
+  describe('in a layout whose parts are spread', () => {
+    /** The scene of a print layout: the base where the model put it, the post moved along X by `dx`. */
+    const spreadBy = (dx: number): Scene => {
+      const made = sceneOf(['print:base', 'print:post'])
+      made.parts[1].arranged = [dx, 0, 0]
+      return made
+    }
+    const PRINT = { layout: 'print' }
+    /** On the post, as placed on a build that had it moved 50 mm: main says so in the anchor. */
+    const ON_SPREAD: Anchor = { point: [54, 0, 12], normal: [1, 0, 0], part: 'post', ref: 'post/F0', arranged: [50, 0, 0] }
+
+    beforeEach(() => {
+      scene = spreadBy(50)
+    })
+
+    /** The next build: the base is 5 mm wider, so the post is set 5 mm further along. */
+    const widen = async (): Promise<void> => {
+      await run()
+      scene = spreadBy(55)
+      revision = 2
+      asked = []
+      await run()
+    }
+
+    it('a pin stays where it was put on its part when an earlier part grows: it moves with the part, and is asked about there', async () => {
+      await store.add('bracket', pin(ON_SPREAD, PRINT))
+      await widen()
+      expect(anchorsOf(asked[0].args)).toEqual([{ part: 'post', point: [59, 0, 12] }])
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', checkedRevision: 2, anchor: { point: [59, 0, 12], part: 'post', ref: 'post/F1', arranged: [55, 0, 0] } })
+      // And not again for the same build.
+      saves.mockClear()
+      await run()
+      expect(saves).not.toHaveBeenCalled()
+    })
+
+    it('an arrow moves whole: its start and its end', async () => {
+      await store.add('bracket', { ...arrow(ON_SPREAD), ...PRINT } as NewMark)
+      await widen()
+      const moved = (await byId()).M1 as ArrowMark
+      expect(moved.from.point).toEqual([59, 0, 12])
+      expect(moved.to).toEqual([5, 0, 40])
+    })
+
+    it('a stroke on the surface moves with every point, and is asked about where they now are', async () => {
+      const points = [ON_SPREAD.point, [54, 1, 13], [54, 2, 14]]
+      await store.add('bracket', { ...BASE, ...PRINT, kind: 'stroke', space: 'surface', anchor: ON_SPREAD, points } as NewMark)
+      await widen()
+      const moved = (await byId()).M1 as StrokeMark
+      expect(moved.points).toEqual([[59, 0, 12], [59, 1, 13], [59, 2, 14]])
+      expect(moved.anchor.point).toEqual([59, 0, 12])
+      expect(anchorsOf(asked[0].args).map((a) => a.point)).toContainEqual([59, 2, 14])
+    })
+
+    it('a stroke on a plane that began on a part moves its plane, and keeps its points on it', async () => {
+      const plane = { origin: [54, 0, 12], x: [0, 1, 0], y: [0, 0, 1], label: 'YZ at x = 54.0' }
+      await store.add('bracket', { ...BASE, ...PRINT, kind: 'stroke', space: 'plane', anchor: ON_SPREAD, plane, points2d: [[0, 0], [3, 4]] } as NewMark)
+      await widen()
+      const moved = (await byId()).M1 as StrokeMark
+      expect(moved.plane?.origin).toEqual([59, 0, 12])
+      expect(moved.points2d).toEqual([[0, 0], [3, 4]])
+    })
+
+    it('a shape tied to a part moves with it; one placed in space, and a profile begun in space, stay', async () => {
+      await store.add('bracket', { ...shape(ON_SPREAD), ...PRINT, position: [60, 0, 20] } as NewMark)
+      await store.add('bracket', { ...shape(), ...PRINT, position: [60, 0, 20] } as NewMark)
+      const plane = { origin: [90, 0, 0], x: [0, 1, 0], y: [0, 0, 1], label: 'YZ at x = 90.0' }
+      await store.add('bracket', { ...BASE, ...PRINT, kind: 'stroke', space: 'plane', anchor: { point: [90, 0, 0] }, plane, points2d: [[0, 0]] } as NewMark)
+      await widen()
+      const marks = await byId()
+      expect(marks.M1).toMatchObject({ position: [65, 0, 20], anchor: { point: [59, 0, 12], arranged: [55, 0, 0] } })
+      expect((marks.M2 as ShapeMark).position).toEqual([60, 0, 20])
+      expect((marks.M3 as StrokeMark).plane?.origin).toEqual([90, 0, 0])
+      expect(marks.M3).toMatchObject({ checkedRevision: 2 })
+    })
+
+    it('a shape dragged while the kernel was answering is moved from where it was dragged to', async () => {
+      await store.add('bracket', { ...shape(ON_SPREAD), ...PRINT, position: [60, 0, 20] } as NewMark)
+      await run()
+      scene = spreadBy(55)
+      revision = 2
+      answer = async (_name, args) => {
+        const reply = still(args)
+        await store.update('bracket', 'M1', { position: [60, 7, 20] })
+        return reply
+      }
+      await run()
+      expect((await byId()).M1).toMatchObject({ position: [65, 7, 20], anchor: { point: [59, 0, 12] } })
+    })
+
+    it('a part no longer spread takes its marks back with it, and says nothing of a spread', async () => {
+      await store.add('bracket', pin(ON_SPREAD, PRINT))
+      await run()
+      scene = sceneOf(['print:base', 'print:post'])
+      revision = 2
+      await run()
+      const back = (await byId()).M1 as PinMark
+      expect(back.anchor.point).toEqual([4, 0, 12])
+      expect(back.anchor).not.toHaveProperty('arranged')
+    })
+
+    it('a mark whose part is gone stays where it is, and moves by all that changed when the part is back', async () => {
+      await store.add('bracket', pin(ON_SPREAD, PRINT))
+      await run()
+      scene = sceneOf(['print:base'])
+      revision = 2
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part }) => ({ part, found: false })) })
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'orphaned', anchor: { point: [54, 0, 12], arranged: [50, 0, 0] } })
+      scene = spreadBy(62)
+      revision = 3
+      answer = (_name, args) => still(args)
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: { point: [66, 0, 12], arranged: [62, 0, 0] } })
+    })
+
+    it('a mark from before spreads were recorded is taken to be where it is: it is not moved by the whole spread', async () => {
+      const { arranged: _none, ...legacy } = ON_SPREAD
+      await store.add('bracket', pin(legacy, PRINT))
+      await run()
+      expect((await byId()).M1).toMatchObject({ checkedRevision: 1, anchor: { point: [54, 0, 12], arranged: [50, 0, 0] } })
+    })
+
+    it('a query that fails moves nothing: the mark is moved when it can be judged where it would be', async () => {
+      await store.add('bracket', pin(ON_SPREAD, PRINT))
+      await run()
+      scene = spreadBy(55)
+      revision = 2
+      answer = () => {
+        throw new KernelError('timeout', 'the query was not answered within 30 s')
+      }
+      await run()
+      expect((await byId()).M1).toMatchObject({ checkedRevision: 1, anchor: { point: [54, 0, 12], arranged: [50, 0, 0] } })
+    })
+  })
+
+  describe('what was checked', () => {
+    it('every open mark says which build it was checked against, also one that is on no part', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      await store.add('bracket', pin({ point: [90, 0, 0] }))
+      await store.add('bracket', pin(ON_TOP, { layout: 'exploded' }))
+      revision = 12
+      expect(await run()).toBe(true)
+      expect((await store.list('bracket')).map((m) => m.checkedRevision)).toEqual([12, 12, 12])
+      // The next build, in which nothing moved: one write says they were checked against it.
+      revision = 13
+      scene = sceneOf(['assembly:base', 'assembly:post', 'print:base'])
+      saves.mockClear()
+      await run()
+      expect(saves).toHaveBeenCalledTimes(1)
+      expect((await store.list('bracket')).map((m) => m.checkedRevision)).toEqual([13, 13, 13])
+    })
+
+    it('marks of a layout whose query failed stay as checked against the build before', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      await store.add('bracket', pin({ point: [0, 0, 1], part: 'base' }, { layout: 'print' }))
+      await run()
+      revision = 2
+      answer = (_name, args) => {
+        if (args.layout === 'assembly') throw new KernelError('timeout', 'the query was not answered within 30 s')
+        return still(args)
+      }
+      expect(await run()).toBe(false)
+      expect((await store.list('bracket')).map((m) => m.checkedRevision)).toEqual([1, 2])
+    })
+
+    it('an anchor the kernel could not answer for leaves its mark unchecked, and the others are checked', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      await store.add('bracket', pin(ON_POST))
+      answer = (_name, args) => ({
+        anchors: anchorsOf(args).map(({ part }) => (part === 'post' ? { part, found: true, error: 'the point of assembly:post nearest to the anchor is on none of its faces' } : found(part, 'base/F1', 0)))
+      })
+      expect(await run()).toBe(false)
+      const marks = await byId()
+      expect(marks.M1).toMatchObject({ checkedRevision: 1, anchor: { ref: 'base/F1' } })
+      expect(marks.M2).toMatchObject({ anchorState: 'ok', anchor: ON_POST })
+      expect(marks.M2).not.toHaveProperty('checkedRevision')
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain('M2: the point of assembly:post nearest to the anchor is on none of its faces')
+    })
+
+    it('a stroke with a point the kernel could not answer for is left unchecked, not said to have drifted', async () => {
+      const points = [ON_TOP.point, [6, 3, 2.5], [7, 3, 2.5]]
+      scene = sceneOf(['assembly:base'])
+      await store.add('bracket', { ...BASE, kind: 'stroke', space: 'surface', anchor: ON_TOP, points } as NewMark)
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part, point }) => (point[0] === 7 ? { part, found: true, error: 'no nearest point' } : found(part, 'base/F1', 0))) })
+      expect(await run()).toBe(false)
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok' })
+      expect((await byId()).M1).not.toHaveProperty('checkedRevision')
+    })
+  })
+
+  describe('a pin on an edge', () => {
+    const ON_EDGE: Anchor = { point: [20, 3, 2.5], part: 'base', ref: 'base/E5' }
+    const edge = (more: object): ((name: string, args: Record<string, unknown>) => unknown) => (_name, args) => ({
+      anchors: anchorsOf(args).map(({ part }) => ({ ...found(part, 'base/F1', 0), ...more }))
+    })
+
+    it('placed on an edge names it to the kernel, and keeps it with the faces it is between', async () => {
+      await store.add('bracket', pin(ON_EDGE))
+      answer = edge({ support: 'face', edgeFound: true, edgeDistance: 0.02, edgeDescriptor: 'line, 30 mm', edgeBetween: ['base/F1', 'base/F4'] })
+      await run()
+      expect(anchorsOf(asked[0].args)).toEqual([{ part: 'base', point: [20, 3, 2.5], edge: 'base/E5' }])
+      const kept = (await byId()).M1 as PinMark
+      expect(kept.anchorState).toBe('ok')
+      expect(kept.anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E5', edge: 'base/E5', between: ['base/F1', 'base/F4'], descriptor: 'line, 30 mm' })
+    })
+
+    it('follows the edge to its new number when the kernel finds the point on another', async () => {
+      await store.add('bracket', pin({ ...ON_EDGE, edge: 'base/E5', between: ['base/F1', 'base/F4'] }))
+      answer = edge({ edgeFound: true, edgeDistance: 12, edgeDescriptor: 'line, 30 mm', edgeBetween: ['base/F0', 'base/F2'], support: 'edge', edgeUnder: 'base/E9', edgeUnderDescriptor: 'line, 31 mm', between: ['base/F1', 'base/F6'] })
+      await run()
+      expect(((await byId()).M1 as PinMark).anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E9', edge: 'base/E9', between: ['base/F1', 'base/F6'], descriptor: 'line, 31 mm' })
+    })
+
+    it('has drifted when no edge is under it any more, and keeps the edge it was put on', async () => {
+      await store.add('bracket', pin(ON_EDGE))
+      answer = edge({ support: 'face', edgeFound: false })
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'drifted', anchor: ON_EDGE })
+    })
+
+    it('a pin whose point the kernel finds on an edge is on that edge, though it named none', async () => {
+      await store.add('bracket', pin(ON_TOP))
+      answer = edge({ support: 'edge', edgeUnder: 'base/E2', edgeUnderDescriptor: 'circle, radius 4, 25.13 mm', between: ['base/F4'] })
+      await run()
+      // A seam, or the rim of a hole in one face: there are not two faces to name.
+      expect(((await byId()).M1 as PinMark).anchor).toEqual({ point: [5, 3, 2.5], part: 'base', ref: 'base/E2', edge: 'base/E2', descriptor: 'circle, radius 4, 25.13 mm' })
+    })
+
+    it('judgePin leaves a pin on a face as judge does', () => {
+      expect(judgePin(ON_TOP, found('base', 'base/F9', 0.2), 0.5)).toEqual(judge(ON_TOP, found('base', 'base/F9', 0.2), 0.5))
+    })
   })
 
   describe('a pick', () => {
@@ -477,7 +771,7 @@ describe('reanchorAll', () => {
 
   describe('followed', () => {
     /** The check as main wires it: one at a time, and again for a mark that is added or reopened. */
-    const follow = (): void => followMarks(store, coalesced((id) => reanchorAll({ marks: store, query, scene: () => scene, log: (message) => logged.push(message) }, id)))
+    const follow = (): void => followMarks(store, coalesced((id) => reanchorAll({ marks: store, query, scene: last, log: (message) => logged.push(message) }, id).then(() => {})))
     const quiet = async (): Promise<void> => {
       // Until a few turns of the loop pass with nothing more asked or written.
       let seen = -1
@@ -546,7 +840,7 @@ describe('reanchorAll', () => {
       await store.update('bracket', 'M1', { status: 'sent' })
       await store.markSent('bracket')
       await store.update('bracket', 'M1', { status: 'resolved' })
-      await store.reanchor('bracket', [{ id: 'M1', anchors: [ON_POST], anchorState: 'drifted' }])
+      await store.reanchor('bracket', [{ id: 'M1', judged: [(await byId()).M1 as PinMark].map((m) => m.anchor), anchors: [ON_POST], anchorState: 'drifted' }])
       await store.remove('bracket', 'M1')
       await quiet()
       expect(asked).toEqual([])
@@ -602,5 +896,100 @@ describe('coalesced', () => {
     await settle()
     expect(runs).toBe(2)
     expect(said).toHaveLength(1)
+  })
+})
+
+describe('asPlaced', () => {
+  const scene = sceneOf(['print:base', 'print:post'])
+  scene.parts[1].arranged = [50, 0, 0]
+  const ON: Anchor = { point: [54, 0, 12], part: 'post', ref: 'post/F0' }
+
+  it('says in the anchor how far its part is spread on the build the mark was placed on, whatever the window said', () => {
+    const placed = asPlaced({ ...pin({ ...ON, arranged: [1, 2, 3] }), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as PinMark
+    expect(placed.anchor.arranged).toEqual([50, 0, 0])
+    const onBase = asPlaced({ ...pin({ point: [0, 0, 1], part: 'base', arranged: [1, 2, 3] }), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as PinMark
+    expect(onBase.anchor).not.toHaveProperty('arranged')
+    const start = asPlaced({ ...arrow(ON), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as ArrowMark
+    expect(start.from.arranged).toEqual([50, 0, 0])
+  })
+
+  it('says nothing of it for a mark placed on another build than the last: the first check takes it as it is', () => {
+    const placed = asPlaced({ ...pin({ ...ON, arranged: [1, 2, 3] }), layout: 'print', revision: 3 } as NewMark, { revision: 4, scene }) as PinMark
+    expect(placed.anchor).not.toHaveProperty('arranged')
+    expect((asPlaced({ ...pin(ON), layout: 'print', revision: 3 } as NewMark, undefined) as PinMark).anchor).toEqual(ON)
+  })
+})
+
+describe('retrying', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** A check that fails while `failing`, and the times it ran, in ms since the start. */
+  const checker = () => {
+    const state = { failing: true, runs: [] as number[] }
+    const started = Date.now()
+    const check = retrying(async () => {
+      state.runs.push(Date.now() - started)
+      return !state.failing
+    })
+    return { state, check }
+  }
+
+  it('checks again 2 s, 10 s and 30 s after a check that failed, and then leaves it', async () => {
+    expect(RETRY_AFTER_MS).toEqual([2000, 10_000, 30_000])
+    const { state, check } = checker()
+    check('a')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(state.runs).toEqual([0, 2000, 12_000, 42_000])
+  })
+
+  it('stops once a check has worked', async () => {
+    const { state, check } = checker()
+    check('a')
+    await vi.advanceTimersByTimeAsync(2000)
+    state.failing = false
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(state.runs).toEqual([0, 2000, 12_000])
+  })
+
+  it('a newer build cancels what was waiting, and starts the count again', async () => {
+    const { state, check } = checker()
+    check('a')
+    await vi.advanceTimersByTimeAsync(5000) // ran at 0 and 2000; the next is due at 12000
+    check('a')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(state.runs).toEqual([0, 2000, 5000, 7000, 17_000, 47_000])
+  })
+
+  it('counts each object by itself', async () => {
+    const runs: string[] = []
+    const check = retrying(async (id) => {
+      runs.push(id)
+      return id === 'b'
+    })
+    check('a')
+    check('b')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(runs).toEqual(['a', 'b', 'a'])
+  })
+
+  it('a check that throws is taken as one that failed', async () => {
+    const said: string[] = []
+    let runs = 0
+    const check = retrying(
+      async () => {
+        runs += 1
+        throw new Error('cannot write')
+      },
+      (message) => said.push(message)
+    )
+    check('a')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(runs).toBe(2)
+    expect(said[0]).toBe('cannot re-anchor the marks of a: cannot write')
   })
 })

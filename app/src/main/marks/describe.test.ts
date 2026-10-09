@@ -150,6 +150,38 @@ describe('describeMark', () => {
     expect(describeMark(mark({ id: 'M1', kind: 'pin', anchorState: 'drifted', anchor: { point: [1, 2, 3] } }))).toBe('M1 pin at (1, 2, 3) [moved since it was placed: check it]')
   })
 
+  it('says a pin on an edge is on the edge, between which faces, and what the edge is', () => {
+    const anchor = { point: [20, 0, 5], part: 'lid', ref: 'lid/E40', edge: 'lid/E40', between: ['lid/F12', 'lid/F40'], descriptor: 'line, 40 mm' }
+    expect(describeMark(mark({ id: 'M3', kind: 'pin', note: 'this edge is ugly', anchor }))).toBe(
+      'M3 pin on the edge lid/E40 between lid/F12 and lid/F40 (line, 40 mm) at (20, 0, 5): "this edge is ugly"'
+    )
+    // A seam has one face, and a kernel that could not describe the edge says nothing of it.
+    const { between: _one, descriptor: _none, ...seam } = anchor
+    expect(describeMark(mark({ id: 'M3', kind: 'pin', anchor: seam }))).toBe('M3 pin on the edge lid/E40 at (20, 0, 5)')
+    // Once it has moved off it, only where it was placed.
+    expect(describeMark(mark({ id: 'M3', kind: 'pin', anchorState: 'drifted', anchor }))).toBe('M3 pin placed on lid/E40 at (20, 0, 5) [moved since it was placed: check it]')
+  })
+
+  it('says so when nothing has checked an open mark against the build there is', () => {
+    const pin = { id: 'M6', kind: 'pin', note: 'here', anchor: { point: [1, 2, 3], part: 'lid', ref: 'lid/F2' } }
+    expect(describeMark(mark({ ...pin, checkedRevision: 11 }), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here" [not checked against r12]')
+    expect(describeMark(mark(pin), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here" [not checked against r12]')
+    expect(describeMark(mark({ ...pin, checkedRevision: 12 }), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here"')
+    // After what the last check found, when it found something.
+    expect(describeMark(mark({ ...pin, checkedRevision: 11, anchorState: 'drifted' }), { revision: 12 })).toBe(
+      'M6 pin placed on lid/F2 at (1, 2, 3): "here" [moved since it was placed: check it] [not checked against r12]'
+    )
+    // A resolved mark is checked by nothing, and nothing is said of it; nor when no build is named.
+    expect(describeMark(mark({ ...pin, status: 'resolved', checkedRevision: 3 }), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here"')
+    expect(describeMark(mark(pin))).toBe('M6 pin on lid/F2 at (1, 2, 3): "here"')
+  })
+
+  it('says what a line is news of, before the mark', () => {
+    const pin = { id: 'M2', kind: 'pin', note: 'here', anchor: { point: [1, 2, 3] } }
+    expect(describeMark(mark(pin), { tag: 'changed' })).toBe('(changed) M2 pin at (1, 2, 3): "here"')
+    expect(describeMark(mark({ ...pin, author: 'agent' }), { tag: 'reopened by the user' })).toBe('(yours, reopened by the user) M2 pin at (1, 2, 3): "here"')
+  })
+
   it("marks the agent's own", () => {
     const pin = mark({ id: 'M9', kind: 'pin', author: 'agent', note: 'this face?', anchor: { point: [1, 2, 3], part: 'lid', ref: 'lid/F2' } })
     expect(describeMark(pin)).toBe('(yours) M9 pin on lid/F2 at (1, 2, 3): "this face?"')

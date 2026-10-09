@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import type { HighlightRequest, HighlightResult, LookRequest, LookResult, ShowRequest, ShowResult, ViewState } from '../shared/view'
+import { type HighlightRequest, type HighlightResult, type LookRequest, type LookResult, type SelectionReport, type ShowRequest, type ShowResult, type ViewState, MAX_SELECTION_REPORTED } from '../shared/view'
 
 // What the agent asks of the window is done by the renderer, which owns the
 // viewport: a picture of it (`view:look`), a change of what it shows
@@ -81,9 +81,31 @@ export function resolveRequest(id: number, result: object | { error: string }): 
 
 const views = new Map<string, ViewState>()
 
-/** What the renderer last said the person is looking at. */
+/** The longest line about a selected ref that is kept. */
+const MAX_SELECTED_DESCRIPTOR = 200
+
+/**
+ * What the renderer last said the person is looking at, and has selected
+ * there. The selection goes to the agent with the next prompt, so only what
+ * is one is kept of it: a revision, and at most eight refs on one line each.
+ */
 export function reportView(v: ViewState): void {
-  views.set(v.objectId, v)
+  const { selection: said, ...view } = v
+  const selection = selectionOf(said)
+  views.set(v.objectId, selection ? { ...view, selection } : view)
+}
+
+function selectionOf(value: unknown): SelectionReport | null {
+  const said = value as { revision?: unknown; refs?: unknown } | null
+  if (typeof said !== 'object' || said === null || typeof said.revision !== 'number' || !Array.isArray(said.refs)) return null
+  const refs: SelectionReport['refs'] = []
+  for (const one of said.refs as Array<{ ref?: unknown; descriptor?: unknown } | null>) {
+    if (refs.length === MAX_SELECTION_REPORTED) break
+    if (typeof one?.ref !== 'string' || !/^[^\s]{1,200}$/.test(one.ref)) continue
+    const descriptor = typeof one.descriptor === 'string' ? one.descriptor.replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTED_DESCRIPTOR) : ''
+    refs.push(descriptor ? { ref: one.ref, descriptor } : { ref: one.ref })
+  }
+  return refs.length > 0 ? { revision: said.revision, refs } : null
 }
 
 /** The camera, layout and visible parts of an object as last shown, if it has been shown. */

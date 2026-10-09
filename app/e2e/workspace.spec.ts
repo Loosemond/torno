@@ -64,7 +64,7 @@ test('the workspace named by TORNO_WORKSPACE is open at start', async () => {
   expect(info?.root).toBe(root)
   expect(info?.hasProject).toBe(false)
   expect(info?.objects.map((o) => o.id)).toEqual(
-    ['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'morph', 'noscene', 'plain', 'slow', 'two']
+    ['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'morph', 'noscene', 'plain', 'slow', 'spread', 'two']
   )
 })
 

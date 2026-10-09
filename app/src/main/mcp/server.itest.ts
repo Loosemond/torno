@@ -143,13 +143,14 @@ describe('the MCP server', () => {
       expect(result.isError, `${name}: ${(result.content as Content)[0].text}`).toBeFalsy()
       return (result.content as Content)[0].text!
     }
-    const line = 'M1 pin on base/F5 at (1, 2, 5): "here"'
-    expect(JSON.parse(await text('marks', { status: 'draft' }))).toEqual([{ ...PIN, line }])
+    const line = 'M1 pin on base/F5 at (1, 2, 5): "here" [not checked against r2]'
+    // The pin was never checked against a build, and both answers say so beside the revision they are of.
+    expect(JSON.parse(await text('marks', { status: 'draft' }))).toEqual({ revision: 2, marks: [{ ...PIN, line }] })
     expect(JSON.parse(await text('describe', { ref: 'base/F5' }))).toMatchObject({ layout: 'main', kind: 'face', ref: 'main:base/F5', descriptor: 'plane, normal +Z, z = 5, 1200 mm²' })
-    expect(JSON.parse(await text('describe', { ref: 'M1' }))).toEqual({ ...PIN, line })
+    expect(JSON.parse(await text('describe', { ref: 'M1' }))).toEqual({ revision: 2, mark: { ...PIN, line } })
     expect(await text('highlight', { refs: ['base/F5', 'M1'], note: 'this one?' })).toBe('highlighted base/F5 in layout main for the user, with the note "this one?", until they click in the viewport or 60 s pass.')
     expect(await text('show', { view: 'top' })).toBe("view top · layout main\nrevision r2\nThe user's viewport now shows this.")
-    expect(await text('add_mark', { kind: 'pin', note: 'this face?', ref: 'base/F5' })).toBe('placed in layout main: (yours) M2 pin on base/F5 (plane, normal +Z, z = 5, 1200 mm²) at (20, 15, 5): "this face?"')
+    expect(await text('add_mark', { kind: 'pin', note: 'this face?', ref: 'base/F5' })).toBe('placed in layout main: (yours) M2 pin on base/F5 (plane, normal +Z, z = 5, 1200 mm²) at (20, 15, 5): "this face?"\nrevision r2')
     expect(added).toMatchObject([{ kind: 'pin', author: 'agent', anchor: { ref: 'base/F5' } }])
     expect(await text('resolve_mark', { id: 'M1', note: 'done' })).toBe('resolved: M1 pin on base/F5 at (1, 2, 5): "here"\nnote: done')
     const missing = await client.callTool({ name: 'resolve_mark', arguments: { id: 'M7' } })

@@ -19,7 +19,7 @@ const SCENE: Scene = {
 const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 0.8123, stale: false }
 const CAMERA = { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const pin = (n: number, over: object = {}): Mark =>
-  ({ id: `M${n}`, kind: 'pin', author: 'user', note: `note ${n}`, status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 3, camera: CAMERA, createdAt: 't', anchor: { point: [n, 0, 5], part: 'base', ref: 'base/F1' }, ...over }) as Mark
+  ({ id: `M${n}`, kind: 'pin', author: 'user', note: `note ${n}`, status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 3, camera: CAMERA, createdAt: 't', checkedRevision: 3, anchor: { point: [n, 0, 5], part: 'base', ref: 'base/F1' }, ...over }) as Mark
 
 let root: string
 let obj: ObjectInfo
@@ -70,6 +70,11 @@ describe('stateText', () => {
         ''
       ].join('\n')
     )
+  })
+
+  it('says of a mark that nothing has checked it against the build the parts are of', () => {
+    const text = stateText(obj, OK, { revision: 3, scene: SCENE }, [pin(1, { checkedRevision: 2 }), pin(2)])
+    expect(text).toContain('- M1 pin on base/F1 at (1, 0, 5): "note 1" [not checked against r3]\n- M2 pin on base/F1 at (2, 0, 5): "note 2"\n')
   })
 
   it('gives the error of a build that failed, and says which build the parts are of', () => {

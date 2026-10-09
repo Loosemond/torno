@@ -8,6 +8,17 @@ export interface Anchor {
   part?: string            // part name; absent for a point in empty space
   ref?: string             // `lid` | `lid/F12` | `lid/E3`, refreshed after each build
   descriptor?: string      // from the kernel: "plane, normal +Z, z = 20, 1180 mm²"
+  /**
+   * How far its part had been spread for display (`Part.arranged`) on the build
+   * the anchor was placed on or last checked against. Absent means not at all.
+   * Main sets it: when the part is spread otherwise by a later build, the mark
+   * is moved by the difference, so it stays where it was put on the part.
+   */
+  arranged?: Vec3
+  /** The edge the point is on, when it is on one: `lid/E40`. Then `ref` is that edge too. */
+  edge?: string
+  /** The two faces that meet at `edge`: `['lid/F12', 'lid/F40']`. */
+  between?: [string, string]
 }
 export type MarkStatus = 'draft' | 'sent' | 'resolved'
 export type AnchorState = 'ok' | 'drifted' | 'orphaned'
@@ -25,6 +36,14 @@ interface MarkBase {
   camera: Camera           // the view it was placed from
   createdAt: string        // ISO
   resolvedNote?: string
+  /** Who resolved it. Set by main, on a mark that is resolved. */
+  resolvedBy?: 'user' | 'agent'
+  /** The person has seen that the agent resolved it. Only ever true, on a mark the agent resolved. */
+  acknowledged?: boolean
+  /** It has been given to the agent with a prompt at least once. Set by main; only ever true. */
+  sentBefore?: boolean
+  /** The revision of the last build its anchors were checked against. Set by main. Absent: never checked. */
+  checkedRevision?: number
 }
 export interface PinMark extends MarkBase { kind: 'pin'; anchor: Anchor }
 export interface PickMark extends MarkBase { kind: 'pick'; target: 'face' | 'edge' | 'part'; anchor: Anchor }
@@ -49,9 +68,12 @@ export interface ShapeMark extends MarkBase {
 export type Mark = PinMark | PickMark | ArrowMark | StrokeMark | ShapeMark
 export type MarkKind = Mark['kind']
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
-/** What a caller supplies; main adds id, status, anchorState, createdAt. */
-export type NewMark = DistributiveOmit<Mark, 'id' | 'status' | 'anchorState' | 'createdAt'>
-export type MarkPatch = Partial<Pick<MarkBase, 'note' | 'status' | 'resolvedNote'>> &
+/** What main alone says of a mark: no caller supplies these. */
+export const MAIN_ONLY_KEYS = ['resolvedBy', 'acknowledged', 'sentBefore', 'checkedRevision'] as const
+/** What a caller supplies; main adds id, status, anchorState, createdAt, and what only it says. */
+export type NewMark = DistributiveOmit<Mark, 'id' | 'status' | 'anchorState' | 'createdAt' | (typeof MAIN_ONLY_KEYS)[number]>
+/** `acknowledged` may only be set, and only on a mark the agent resolved. */
+export type MarkPatch = Partial<Pick<MarkBase, 'note' | 'status' | 'resolvedNote' | 'acknowledged'>> &
   Partial<Pick<ShapeMark, 'intent' | 'position' | 'rotation' | 'size' | 'shape'>>
 export interface MarksFile { next: number; marks: Mark[] }
 /** Where a mark is put again, by a click on a part: the anchor found there, on which build and from which view. */
@@ -88,4 +110,47 @@ export function strokeSamples(mark: Mark, most = STROKE_SAMPLES): Vec3[] {
   const rest = (mark.points ?? []).slice(1)
   if (rest.length <= most) return rest
   return Array.from({ length: most }, (_, i) => rest[Math.round(((i + 1) * rest.length) / most) - 1])
+}
+
+/**
+ * Whether nothing has checked an open mark against the build there is: its
+ * ref and descriptor are then of an older build, or of whoever placed it.
+ * `revision` is that of the last build that worked; with none, nothing is unchecked.
+ */
+export function isUnchecked(mark: Mark, revision: number | undefined): boolean {
+  return mark.status !== 'resolved' && revision !== undefined && revision > 0 && (mark.checkedRevision ?? 0) < revision
+}
+
+/** A mark the agent resolved and the person has not yet said they have seen: it stays among the open ones in the panel. */
+export function awaitsAcknowledgement(mark: Mark): boolean {
+  return mark.status === 'resolved' && mark.resolvedBy === 'agent' && mark.acknowledged !== true
+}
+
+const moved = (p: Vec3, by: Vec3): Vec3 => [p[0] + by[0], p[1] + by[1], p[2] + by[2]]
+
+/**
+ * A mark with everything it holds in the frame of its layout moved by `by`:
+ * its anchor's point, an arrow's end, the points of a stroke on the surface,
+ * the origin of a stroke's plane, a shape's position. Used when the part it
+ * is on is spread otherwise than it was (`Anchor.arranged`).
+ */
+export function translated<M extends Mark>(mark: M, by: Vec3): M {
+  const at = (anchor: Anchor): Anchor => ({ ...anchor, point: moved(anchor.point, by) })
+  const m: Mark = mark
+  switch (m.kind) {
+    case 'pin':
+    case 'pick':
+      return { ...m, anchor: at(m.anchor) } as M
+    case 'arrow':
+      return { ...m, from: at(m.from), to: moved(m.to, by) } as M
+    case 'stroke':
+      return {
+        ...m,
+        anchor: at(m.anchor),
+        ...(m.points ? { points: m.points.map((p) => moved(p, by)) } : {}),
+        ...(m.plane ? { plane: { ...m.plane, origin: moved(m.plane.origin, by) } } : {})
+      } as M
+    case 'shape':
+      return { ...m, position: moved(m.position, by), ...(m.anchor ? { anchor: at(m.anchor) } : {}) } as M
+  }
 }

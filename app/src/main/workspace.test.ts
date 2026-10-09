@@ -12,7 +12,7 @@ describe('scanWorkspace on the fixture workspace', () => {
     expect(info.root).toBe(FIXTURES)
     expect(info.hasProject).toBe(false)
     expect(info.objects.map((o) => o.id)).toEqual(
-      ['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'morph', 'noscene', 'plain', 'slow', 'two']
+      ['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'morph', 'noscene', 'plain', 'slow', 'spread', 'two']
     )
   })
 

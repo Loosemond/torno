@@ -182,6 +182,42 @@ describe('marks file', () => {
     expect((await loadMarksFile(dir)).file).toEqual({ next: 1, marks: [] })
   })
 
+  it('reads a file written before marks said who resolved them or what they were checked against, as it is and with nothing to say', async () => {
+    // Every kind, none with resolvedBy, acknowledged, sentBefore, checkedRevision, or an anchor with arranged, edge or between.
+    const old = `${JSON.stringify({ next: 7, marks: ALL }, null, 2)}\n`
+    mkdirSync(join(dir, '.torno'), { recursive: true })
+    writeFileSync(join(dir, '.torno', 'marks.json'), old)
+    writes.mockClear()
+    const loaded = await loadMarksFile(dir)
+    expect(loaded).toEqual({ file: { next: 7, marks: ALL } })
+    expect(loaded.problem).toBeUndefined()
+    // Nothing rewritten, nothing set aside.
+    expect(writes).not.toHaveBeenCalled()
+    expect(readdirSync(join(dir, '.torno'))).toEqual(['marks.json'])
+    expect(readFileSync(join(dir, '.torno', 'marks.json'), 'utf8')).toBe(old)
+  })
+
+  it('round trips what main says of a mark, and what an anchor says of an edge and of the spread of its part', async () => {
+    const onEdge = { ...ANCHOR, ref: 'base/E5', edge: 'base/E5', between: ['base/F1', 'base/F4'], arranged: [35, 0, 0] }
+    const marks = [
+      pin({ anchor: onEdge, status: 'sent', sentBefore: true, checkedRevision: 12 }),
+      { ...pick, id: 'M2', status: 'resolved', resolvedBy: 'agent', acknowledged: true, resolvedNote: 'done' },
+      { ...arrow, id: 'M3', status: 'resolved', resolvedBy: 'user' }
+    ] as Mark[]
+    await saveMarksFile(dir, { next: 4, marks })
+    expect((await loadMarksFile(dir)).file.marks).toEqual(marks)
+  })
+
+  it('keeps of those only what they can be', () => {
+    const odd = sanitiseMark(pin({ sentBefore: 'yes', checkedRevision: '12', resolvedBy: 'agent', acknowledged: true, anchor: { ...ANCHOR, arranged: [0, 0, 0], edge: 5, between: ['base/F1'] } }))
+    // A draft is resolved by nobody; a spread of nothing is none; one face is not two.
+    expect(odd).toEqual(pin())
+    expect(sanitiseMark(pin({ status: 'resolved', resolvedBy: 'someone', acknowledged: true }))).toEqual(pin({ status: 'resolved' }))
+    // Only a mark the agent resolved can have been acknowledged.
+    expect(sanitiseMark(pin({ status: 'resolved', resolvedBy: 'user', acknowledged: true }))).toEqual(pin({ status: 'resolved', resolvedBy: 'user' }))
+    expect(sanitiseMark(pin({ anchor: { ...ANCHOR, arranged: [1, NaN, 0] } }))).toEqual(pin())
+  })
+
   it('sanitises on write as on read', async () => {
     await saveMarksFile(dir, { next: 2, marks: [pin({ note: 'x'.repeat(MAX_NOTE + 50), stray: 1 }), { ...pick, kind: 'region' } as unknown as Mark] })
     const written = JSON.parse(readFileSync(path(), 'utf8')) as MarksFile

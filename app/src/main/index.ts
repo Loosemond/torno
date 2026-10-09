@@ -6,7 +6,7 @@ import { writeFileAtomic } from './atomic'
 import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
-import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, queryObject, registerIpc } from './ipc'
+import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, placedMark, queryObject, registerIpc } from './ipc'
 import { latestView, requestHighlight, requestLook, requestShow } from './look'
 import type { NearestAnchor } from './marks/reanchor'
 import { MarkStore } from './marks/store'
@@ -108,10 +108,11 @@ function createWindow(): BrowserWindow {
   // electron-vite serves the renderer from its dev server under `pnpm dev`.
   // `?test=1` tells the renderer to expose its test hook (window.__tornoTest).
   const devUrl = process.env.ELECTRON_RENDERER_URL
-  // What the menu gave a developer, under `pnpm dev` only: in the app itself Ctrl+R is the agent's CLI's own key.
-  if (!app.isPackaged && devUrl) {
+  // What the menu gave a developer: the developer tools wherever the app is not packaged, and reloading
+  // under `pnpm dev` only, since in the app itself Ctrl+R is the agent's CLI's own key.
+  if (!app.isPackaged) {
     win.webContents.on('before-input-event', (event, input) => {
-      const action = devShortcut(input)
+      const action = devShortcut(input, { reload: devUrl !== undefined })
       if (!action) return
       event.preventDefault()
       if (action === 'reload') win.webContents.reload()
@@ -153,8 +154,9 @@ const toolDeps: ToolDeps = {
   },
   marks: (objectId) => marks.list(objectId),
   // A mark made through the tools is the agent's, and it knows of it: there is nothing to send it.
-  addMark: (objectId, mark) => marks.add(objectId, { ...mark, author: 'agent' }, 'sent'),
-  updateMark: (objectId, id, patch) => marks.update(objectId, id, patch),
+  addMark: (objectId, mark) => marks.add(objectId, placedMark({ ...mark, author: 'agent' }, objectId), 'sent'),
+  // Whoever changes a mark through the tools is the agent.
+  updateMark: (objectId, id, patch) => marks.update(objectId, id, patch, 'agent'),
   describe: (objectId, layout, ref) => queryObject<Described>(objectId, 'describe', { ref: `${layout}:${ref}` }),
   async nearest(objectId, layout, anchors) {
     const reply = await queryObject<{ anchors?: NearestAnchor[] }>(objectId, 'nearest', { layout, anchors })
@@ -220,7 +222,7 @@ void app.whenReady().then(async () => {
     http,
     adapter: claudeAdapter(process.env.TORNO_AGENT_CMD),
     // The marks of an object that cannot be read are not a reason to tell the agent nothing of its build.
-    contextFor: async (id) => contextFor(toolDeps, id, await marks.list(id).catch(() => [])),
+    contextFor: async (id, opts) => contextFor(toolDeps, id, await marks.list(id).catch(() => []), opts),
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
     systemPrompt: SYSTEM_PROMPT,

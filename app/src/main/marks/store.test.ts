@@ -182,6 +182,105 @@ describe('updating a mark', () => {
   })
 })
 
+describe('changing a mark the agent has been sent', () => {
+  const sentShape = async (): Promise<void> => {
+    await store.add('bracket', shape())
+    await store.markSent('bracket')
+  }
+
+  it('is sent again when its note changes, and says it was sent before', async () => {
+    await store.add('bracket', pin('here'))
+    expect(await store.markSent('bracket')).toMatchObject([{ id: 'M1', status: 'sent', sentBefore: true }])
+    const changed = await store.update('bracket', 'M1', { note: 'here, 2 mm thicker' })
+    expect(changed).toMatchObject({ status: 'draft', sentBefore: true, note: 'here, 2 mm thicker' })
+    expect(onDisk('bracket').marks[0]).toMatchObject({ status: 'draft', sentBefore: true })
+  })
+
+  it.each([
+    ['intent', { intent: 'remove' }],
+    ['position', { position: [1, 0, 0] }],
+    ['rotation', { rotation: [0, 0, 1, 0] }],
+    ['size', { size: [10, 10, 12] }],
+    ['shape', { shape: 'sphere' }]
+  ] as const)('is sent again when its %s changes', async (_field, patch) => {
+    await sentShape()
+    expect(await store.update('bracket', 'M1', patch as never)).toMatchObject({ status: 'draft', sentBefore: true })
+  })
+
+  it('stays sent when the patch changes nothing of it', async () => {
+    await sentShape()
+    saves.mockClear()
+    const same = await store.update('bracket', 'M1', { note: '', intent: 'add', position: [0, 0, 0], rotation: [0, 0, 0, 1], size: [10, 10, 10], shape: 'box' })
+    expect(same.status).toBe('sent')
+  })
+
+  it('takes the status the patch names, when it names one', async () => {
+    await store.add('bracket', pin('here'))
+    await store.markSent('bracket')
+    expect((await store.update('bracket', 'M1', { note: 'done with', status: 'resolved' })).status).toBe('resolved')
+    await store.add('bracket', pin('there'))
+    await store.markSent('bracket')
+    expect((await store.update('bracket', 'M2', { note: 'still told', status: 'sent' })).status).toBe('sent')
+  })
+
+  it("leaves a mark of the agent's as sent: it wrote the note itself", async () => {
+    await store.add('bracket', { ...pin('this face?'), author: 'agent' }, 'sent')
+    expect((await store.update('bracket', 'M1', { note: 'this face, then' })).status).toBe('sent')
+  })
+
+  it('a draft that was never sent does not say it was', async () => {
+    await store.add('bracket', pin('here'))
+    expect(await store.update('bracket', 'M1', { note: 'there' })).not.toHaveProperty('sentBefore')
+  })
+
+  it('takes neither from whoever adds or patches a mark: only sending says a mark was sent', async () => {
+    const added = await store.add('bracket', { ...pin('here'), sentBefore: true, checkedRevision: 9, resolvedBy: 'agent', acknowledged: true } as never)
+    expect(added).not.toHaveProperty('sentBefore')
+    expect(added).not.toHaveProperty('checkedRevision')
+    expect(added).not.toHaveProperty('resolvedBy')
+    expect(added).not.toHaveProperty('acknowledged')
+    expect(await store.update('bracket', 'M1', { sentBefore: true, checkedRevision: 9, resolvedBy: 'agent' } as never)).toEqual(added)
+  })
+})
+
+describe('resolving a mark', () => {
+  it('says who resolved it: the person from the window, the agent through its tools', async () => {
+    await store.add('bracket', pin('one'))
+    await store.add('bracket', pin('two'))
+    expect(await store.update('bracket', 'M1', { status: 'resolved' })).toMatchObject({ status: 'resolved', resolvedBy: 'user' })
+    expect(await store.update('bracket', 'M2', { status: 'resolved', resolvedNote: 'filleted at 2 mm' }, 'agent')).toMatchObject({ status: 'resolved', resolvedBy: 'agent', resolvedNote: 'filleted at 2 mm' })
+    expect(onDisk('bracket').marks.map((m) => m.resolvedBy)).toEqual(['user', 'agent'])
+    // Not from what the patch says of it.
+    await store.add('bracket', pin('three'))
+    expect(await store.update('bracket', 'M3', { status: 'resolved', resolvedBy: 'agent' } as never)).toMatchObject({ resolvedBy: 'user' })
+  })
+
+  it('keeps who resolved it when something else of it is changed, and forgets it when the mark is reopened', async () => {
+    await store.add('bracket', pin('one'))
+    await store.update('bracket', 'M1', { status: 'resolved' }, 'agent')
+    expect(await store.update('bracket', 'M1', { note: 'still one' })).toMatchObject({ status: 'resolved', resolvedBy: 'agent' })
+    expect(await store.update('bracket', 'M1', { status: 'resolved' })).toMatchObject({ resolvedBy: 'agent' })
+    const reopened = await store.update('bracket', 'M1', { status: 'draft' })
+    expect(reopened).not.toHaveProperty('resolvedBy')
+    expect(reopened).not.toHaveProperty('acknowledged')
+  })
+
+  it('is acknowledged by the person when the agent resolved it, and by nothing else', async () => {
+    await store.add('bracket', pin('one'))
+    await store.add('bracket', pin('two'))
+    await store.add('bracket', pin('three'))
+    await store.update('bracket', 'M1', { status: 'resolved' }, 'agent')
+    await store.update('bracket', 'M2', { status: 'resolved' })
+    expect(await store.update('bracket', 'M1', { acknowledged: true })).toMatchObject({ status: 'resolved', resolvedBy: 'agent', acknowledged: true })
+    await expect(store.update('bracket', 'M2', { acknowledged: true })).rejects.toThrow('M2 was not resolved by the agent: there is nothing to acknowledge')
+    await expect(store.update('bracket', 'M3', { acknowledged: true })).rejects.toThrow('M3 was not resolved by the agent')
+    await expect(store.update('bracket', 'M1', { acknowledged: false })).rejects.toThrow('there is nothing to acknowledge')
+    // Reopened and resolved again by the agent, it is to be seen again.
+    await store.update('bracket', 'M1', { status: 'draft' })
+    expect(await store.update('bracket', 'M1', { status: 'resolved' }, 'agent')).not.toHaveProperty('acknowledged')
+  })
+})
+
 describe('sending marks', () => {
   it('turns every draft into sent, returns those, and tells of it once', async () => {
     await store.add('bracket', pin('one'))
@@ -249,14 +348,14 @@ describe('re-anchoring after a build', () => {
 
     const moved: Anchor = { point: [1, 2, 21], normal: [0, 0, 1], part: 'base', ref: 'base/F7', descriptor: 'plane, normal +Z, z = 21' }
     await store.reanchor('bracket', [
-      { id: 'M1', anchors: [moved], anchorState: 'drifted' },
-      { id: 'M2', anchors: [{ point: [1, 2, 20] }], anchorState: 'orphaned' },
-      { id: 'M3', anchors: [moved], anchorState: 'ok' },
-      { id: 'M5', anchors: [], anchorState: 'ok' },
-      { id: 'M9', anchors: [moved], anchorState: 'ok' } // removed while the build ran: passed over
+      { id: 'M1', judged: [ANCHOR], anchors: [moved], anchorState: 'drifted', checkedRevision: 7 },
+      { id: 'M2', judged: [ANCHOR], anchors: [{ point: [1, 2, 20] }], anchorState: 'orphaned' },
+      { id: 'M3', judged: [ANCHOR], anchors: [moved], anchorState: 'ok' },
+      { id: 'M5', judged: [], anchors: [], anchorState: 'ok' },
+      { id: 'M9', judged: [ANCHOR], anchors: [moved], anchorState: 'ok' } // removed while the build ran: passed over
     ])
     const marks = await store.list('bracket')
-    expect(marks[0]).toMatchObject({ id: 'M1', anchor: moved, anchorState: 'drifted' })
+    expect(marks[0]).toMatchObject({ id: 'M1', anchor: moved, anchorState: 'drifted', checkedRevision: 7 })
     expect(marks[1]).toMatchObject({ id: 'M2', from: { point: [1, 2, 20] }, to: [1, 2, 30], anchorState: 'orphaned' })
     expect(marks[1]).not.toHaveProperty('from.ref')
     expect(marks[2]).toMatchObject({ id: 'M3', anchor: moved, anchorState: 'ok' })
@@ -270,15 +369,48 @@ describe('re-anchoring after a build', () => {
   it('writes nothing when no mark it names is there', async () => {
     await store.add('bracket', pin())
     saves.mockClear()
-    await store.reanchor('bracket', [{ id: 'M4', anchors: [ANCHOR], anchorState: 'ok' }])
+    await store.reanchor('bracket', [{ id: 'M4', judged: [ANCHOR], anchors: [ANCHOR], anchorState: 'ok' }])
     await store.reanchor('bracket', [])
     expect(saves).not.toHaveBeenCalled()
   })
 
   it('leaves a mark as it was when it is given no anchor to put in place of the one it must have', async () => {
     await store.add('bracket', pin())
-    await store.reanchor('bracket', [{ id: 'M1', anchors: [], anchorState: 'orphaned' }])
+    await store.reanchor('bracket', [{ id: 'M1', judged: [ANCHOR], anchors: [], anchorState: 'orphaned' }])
     expect((await store.list('bracket'))[0]).toMatchObject({ anchor: ANCHOR, anchorState: 'orphaned' })
+  })
+
+  it('passes over a mark whose anchors are no longer the ones that were judged, and writes the others', async () => {
+    await store.add('bracket', pin('moved meanwhile'))
+    await store.add('bracket', arrow())
+    const elsewhere: Anchor = { point: [9, 9, 20], part: 'base', ref: 'base/F4' }
+    const judged: Anchor = { point: [1, 2, 20], part: 'base', ref: 'base/F7' }
+    await store.replace('bracket', 'M1', { anchor: elsewhere, revision: 1, camera: CAMERA } as Replacement)
+    await store.reanchor('bracket', [
+      { id: 'M1', judged: [ANCHOR], anchors: [judged], anchorState: 'drifted', checkedRevision: 2 },
+      { id: 'M2', judged: [ANCHOR], anchors: [judged], anchorState: 'ok', checkedRevision: 2 }
+    ])
+    const [first, second] = await store.list('bracket')
+    expect(first).toMatchObject({ anchor: elsewhere, anchorState: 'ok' })
+    expect(first).not.toHaveProperty('checkedRevision')
+    expect(second).toMatchObject({ from: judged, checkedRevision: 2 })
+  })
+
+  it('moves what else the mark holds by the shift, from where it is now, in the same write', async () => {
+    const tied: Anchor = { ...ANCHOR, arranged: [50, 0, 0] }
+    await store.add('bracket', { ...shape(tied), position: [60, 0, 20] } as NewMark)
+    await store.add('bracket', { ...arrow(), from: tied } as NewMark)
+    await store.update('bracket', 'M1', { position: [60, 7, 20] })
+    saves.mockClear()
+    const now: Anchor = { ...ANCHOR, point: [6, 2, 20], arranged: [55, 0, 0] }
+    await store.reanchor('bracket', [
+      { id: 'M1', judged: [tied], anchors: [now], anchorState: 'ok', shift: [5, 0, 0] },
+      { id: 'M2', judged: [tied], anchors: [now], anchorState: 'ok', shift: [5, 0, 0] }
+    ])
+    const [box, pointer] = await store.list('bracket')
+    expect(box).toMatchObject({ position: [65, 7, 20], anchor: now })
+    expect(pointer).toMatchObject({ from: now, to: [6, 2, 30] })
+    expect(saves).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -295,7 +427,7 @@ describe('putting a mark somewhere else', () => {
 
   it('ties a pin where it was clicked: the same number and note, ok until it is checked, and asks for the check', async () => {
     await store.add('bracket', pin('too thin here'))
-    await store.reanchor('bracket', [{ id: 'M1', anchors: [ANCHOR], anchorState: 'drifted' }])
+    await store.reanchor('bracket', [{ id: 'M1', judged: [ANCHOR], anchors: [ANCHOR], anchorState: 'drifted' }])
     await store.markSent('bracket')
     unchecked = []
     const moved = await store.replace('bracket', 'M1', placed)
@@ -324,9 +456,17 @@ describe('putting a mark somewhere else', () => {
     expect((whole as PinMark).anchor.descriptor).toBeUndefined()
   })
 
-  it("leaves a mark of the agent's as sent", async () => {
-    await store.add('bracket', { ...pin(), author: 'agent' } as NewMark, 'sent')
-    expect((await store.replace('bracket', 'M1', placed)).status).toBe('sent')
+  it("refuses a mark of the agent's: where it is, is what the agent said", async () => {
+    const said = await store.add('bracket', { ...pin(), author: 'agent' } as NewMark, 'sent')
+    await expect(store.replace('bracket', 'M1', placed)).rejects.toThrow("M1 is the agent's mark: it is not put somewhere else")
+    expect(await store.list('bracket')).toEqual([said])
+  })
+
+  it('says nothing has checked it where it now is', async () => {
+    await store.add('bracket', pin())
+    await store.reanchor('bracket', [{ id: 'M1', judged: [ANCHOR], anchors: [ANCHOR], anchorState: 'ok', checkedRevision: 3 }])
+    expect((await store.list('bracket'))[0].checkedRevision).toBe(3)
+    expect(await store.replace('bracket', 'M1', placed)).not.toHaveProperty('checkedRevision')
   })
 
   it('refuses a stroke, a shape, a resolved mark, a place that is on no part, and a mark that is not there', async () => {

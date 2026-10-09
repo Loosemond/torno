@@ -141,6 +141,23 @@ describe('latestView', () => {
     expect(latestView('two')?.layout).toBe('main')
   })
 
+  it('keeps of a selection what a selection is: at most eight refs, each with a line of text at most', () => {
+    const refs = Array.from({ length: 12 }, (_, i) => ({ ref: `base/F${i}`, descriptor: i === 0 ? 'd'.repeat(500) : 'plane', more: 'x' }))
+    reportView({ ...view('bracket', 'assembly'), selection: { revision: 4, refs } } as ViewState)
+    const kept = latestView('bracket')?.selection
+    expect(kept?.revision).toBe(4)
+    expect(kept?.refs).toHaveLength(8)
+    expect(kept?.refs[1]).toEqual({ ref: 'base/F1', descriptor: 'plane' })
+    expect(kept?.refs[0].descriptor).toHaveLength(200)
+    // What is not one is left out, and the view kept.
+    for (const selection of [null, 'base/F1', { revision: 'x', refs: [] }, { revision: 4, refs: 'base/F1' }, { revision: 4, refs: [] }]) {
+      reportView({ ...view('bracket', 'print'), selection } as unknown as ViewState)
+      expect(latestView('bracket')).toEqual(view('bracket', 'print'))
+    }
+    reportView({ ...view('bracket', 'print'), selection: { revision: 4, refs: [{ ref: 7 }, { ref: 'base/E2', descriptor: 9 }, null, { ref: 'x\ny' }] } } as unknown as ViewState)
+    expect(latestView('bracket')?.selection).toEqual({ revision: 4, refs: [{ ref: 'base/E2' }] })
+  })
+
   it('is forgotten with the workspace', () => {
     reportView(view('bracket', 'assembly'))
     forgetViews()

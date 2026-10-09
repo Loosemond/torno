@@ -177,6 +177,7 @@ describe('contextFor', () => {
         revision: 3,
         camera: CAMERA,
         createdAt: '2026-10-09T12:00:00.000Z',
+        checkedRevision: 3,
         anchor: { point: [n, 0, 5], part: 'base', ref: 'base/F1', descriptor: 'plane, normal +Z, z = 5, 1200 mm²' },
         ...over
       }) as Mark
@@ -187,6 +188,13 @@ describe('contextFor', () => {
       const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
       expect(context.text).toBe([STATUS, HEAD, line(1), 'M2 pin placed on base/F1 at (2, 0, 5): "note 2" [moved since it was placed: check it]', line(3)].join('\n'))
       expect(context.sentMarkIds).toEqual(['M1', 'M2', 'M3'])
+    })
+
+    it('says of a draft the agent was sent before that it has changed', () => {
+      const marks = [pin(1, { sentBefore: true }), pin(2)]
+      const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
+      expect(context.text).toBe([STATUS, HEAD, `(changed) ${line(1)}`, line(2)].join('\n'))
+      expect(context.sentMarkIds).toEqual(['M1', 'M2'])
     })
 
     it('sums up the marks already sent in one line, and lists none of them again', () => {
@@ -201,11 +209,122 @@ describe('contextFor', () => {
       expect(again.sentMarkIds).toEqual([])
     })
 
-    it("does not tell the agent of its own marks as the user's, whatever their status", () => {
-      const marks = [pin(1, { author: 'agent' }), pin(2, { author: 'agent', status: 'sent' })]
+    it("does not tell the agent of its own marks as news: they are among the open ones", () => {
+      const marks = [pin(1, { author: 'agent', status: 'sent' }), pin(2, { author: 'agent', status: 'sent' })]
       const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
       expect(context.text).toBe([STATUS, 'Open marks: M1, M2'].join('\n'))
       expect(context.sentMarkIds).toEqual([])
+    })
+
+    it('says of each open mark that moved, lost its part or was not checked, and then where to get their data', () => {
+      const marks = [
+        pin(1, { status: 'sent', anchorState: 'drifted' }),
+        pin(2, { status: 'sent' }),
+        pin(4, { status: 'sent', anchorState: 'orphaned' }),
+        pin(6, { status: 'sent', checkedRevision: 2 }),
+        pin(7, { status: 'sent', anchorState: 'drifted', checkedRevision: 2 })
+      ]
+      expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks).text).toBe(
+        [STATUS, 'Open marks: M1 (moved), M2, M4 (part gone), M6 (unchecked), M7 (moved); call mcp__torno__marks for their data'].join('\n')
+      )
+      // Nothing to get when nothing is flagged.
+      expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [marks[1]]).text).toBe([STATUS, 'Open marks: M2'].join('\n'))
+    })
+
+    it('still says where to get their data when the flagged marks do not all fit', () => {
+      const marks = Array.from({ length: 200 }, (_, i) => pin(i + 1, { status: 'sent', anchorState: 'drifted' }))
+      const last = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks).text.split('\n').at(-1)!
+      expect(last).toMatch(/^Open marks: M1 \(moved\), M2 \(moved\), .* and \d+ more; call mcp__torno__marks for their data$/)
+      expect(last.length).toBeLessThanOrEqual('Open marks: '.length + 300)
+    })
+
+    it('says in a draft line that the mark was not checked against the build named above', () => {
+      const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [pin(1, { checkedRevision: 2 })])
+      expect(context.text).toBe([STATUS, HEAD, `${line(1)} [not checked against r3]`].join('\n'))
+    })
+
+    it("lists a mark of the agent's that the user reopened, once, as its own and reopened", () => {
+      const marks = [pin(1, { author: 'agent', status: 'draft' }), pin(2, { author: 'agent', status: 'sent' })]
+      const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
+      expect(context.text).toBe([STATUS, HEAD, `(yours, reopened by the user) ${line(1)}`, 'Open marks: M2'].join('\n'))
+      // Sent with the prompt, like a draft of the user's: then it is one of the open marks.
+      expect(context.sentMarkIds).toEqual(['M1'])
+    })
+
+    describe('in a conversation that has not seen them', () => {
+      const STILL = 'Marks still open (this conversation has not seen them):'
+
+      it("lists every open mark of the user's once more, after the drafts, and sends only the drafts", () => {
+        const marks = [pin(1, { status: 'sent', sentBefore: true }), pin(2, { status: 'resolved' }), pin(3, { sentBefore: true }), pin(4, { author: 'agent', status: 'sent' }), pin(5, { status: 'sent', anchorState: 'drifted' })]
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks, { fresh: true })
+        expect(context.text).toBe(
+          [
+            STATUS,
+            HEAD,
+            // Not "(changed)": this conversation never had it.
+            line(3),
+            STILL,
+            line(1),
+            'M5 pin placed on base/F1 at (5, 0, 5): "note 5" [moved since it was placed: check it]',
+            'Open marks: M1, M4, M5 (moved); call mcp__torno__marks for their data'
+          ].join('\n')
+        )
+        expect(context.sentMarkIds).toEqual(['M3'])
+      })
+
+      it('says nothing more than usual when there is none', () => {
+        const marks = [pin(1), pin(4, { author: 'agent', status: 'sent' })]
+        expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks, { fresh: true }).text).toBe([STATUS, HEAD, line(1), 'Open marks: M4'].join('\n'))
+      })
+
+      it('keeps to the limit: those that do not fit are counted', () => {
+        const marks = Array.from({ length: 200 }, (_, i) => pin(i + 1, { status: 'sent', note: `note ${i + 1} ${'n'.repeat(60)}` }))
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks, { fresh: true })
+        expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+        const lines = context.text.split('\n')
+        expect(lines[1]).toBe(STILL)
+        expect(lines.at(-2)).toMatch(/^… and \d+ more: call mcp__torno__marks$/)
+        expect(lines.length).toBeGreaterThan(30)
+        expect(context.sentMarkIds).toEqual([])
+      })
+    })
+
+    describe('with a selection', () => {
+      const selected = (over: Partial<ViewState> = {}): ViewState => ({
+        objectId: 'bracket',
+        layout: 'assembly',
+        camera: CAMERA,
+        visible: ['assembly:base', 'assembly:post'],
+        selection: { revision: 3, refs: [{ ref: 'base/F5', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' }, { ref: 'base/E5', descriptor: 'line, 30 mm' }, { ref: 'post' }] },
+        ...over
+      })
+      const SELECTED = 'Selected: base/F5 (plane, normal +Z, z = 2.5, 1200 mm²), base/E5 (line, 30 mm), post'
+
+      it('says what the user has selected, after the build line and before the marks', () => {
+        expect(contextFor(deps({ build: OK, scene: SCENE, view: selected() }), 'bracket', [pin(1)]).text).toBe([STATUS, SELECTED, HEAD, line(1)].join('\n'))
+        expect(textFor(deps({ build: OK, scene: SCENE, view: selected() }), 'bracket')).toBe([STATUS, SELECTED].join('\n'))
+      })
+
+      it('says nothing of it when the refs may not name what was selected: another build, a stale one, another layout, another object', () => {
+        const none = (d: ContextDeps): void => expect(textFor(d, 'bracket')).not.toContain('Selected')
+        none(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 2, refs: [{ ref: 'base/F5' }] } }) }))
+        none(deps({ build: { ...OK, stale: true }, scene: SCENE, view: selected() }))
+        none(deps({ build: { objectId: 'bracket', status: 'building', revision: 3, startedAt: 0, stale: true }, scene: SCENE, view: selected() }))
+        none(deps({ build: { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'no' } }, scene: SCENE, view: selected() }))
+        none(deps({ build: OK, scene: SCENE, view: selected(), open: 'gear' }))
+        none(deps({ build: OK, scene: SCENE, view: selected({ layout: 'exploded' }) }))
+        none(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 3, refs: [] } }) }))
+      })
+
+      it('names at most eight, and stays within the limit with the marks', () => {
+        const refs = Array.from({ length: 12 }, (_, i) => ({ ref: `base/F${i}`, descriptor: 'd'.repeat(300) }))
+        const marks = Array.from({ length: 200 }, (_, i) => pin(i + 1, { note: `note ${i + 1} ${'n'.repeat(60)}` }))
+        const context = contextFor(deps({ build: OK, scene: SCENE, view: selected({ selection: { revision: 3, refs } }) }), 'bracket', marks)
+        expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+        const selectedLine = context.text.split('\n')[1]
+        expect(selectedLine.match(/base\/F\d+/g)).toHaveLength(8)
+        expect(selectedLine).toContain('and 4 more')
+      })
     })
 
     it('says nothing of marks when all are resolved', () => {

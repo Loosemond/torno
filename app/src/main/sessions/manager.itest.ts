@@ -20,6 +20,8 @@ let context = (id: string) => `context for ${id}`
 /** By object: the marks its next prompt would tell of. What was delivered is taken out, as the store would. */
 let drafts = new Map<string, string[]>()
 let delivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
+/** Each time the context of a prompt was asked for: of which object, and whether in a conversation that had not been given one. */
+let asked: Array<{ objectId: string; fresh: boolean }> = []
 /** What the context waits for before it is given, and what is told when it is asked for. */
 let gate: Promise<void> = Promise.resolve()
 let asking: (() => void) | null = null
@@ -36,8 +38,9 @@ function make(command = `node ${FAKE}`): Sessions {
   const made = new Sessions({
     http,
     adapter: claudeAdapter(command),
-    contextFor: async (id) => {
+    contextFor: async (id, opts) => {
       asking?.()
+      asked.push({ objectId: id, fresh: opts.fresh })
       await gate
       return { text: context(id), sentMarkIds: drafts.get(id) ?? [] }
     },
@@ -509,6 +512,39 @@ describe('the hook endpoint', () => {
     for (const name of ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']) {
       expect((await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}' })).status).toBe(200)
     }
+  })
+
+  it('does not read what a tool hook carries: a tool result of megabytes moves the status and is answered', async () => {
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    const body = JSON.stringify({ tool_response: 'x'.repeat(2 * 1024 * 1024) })
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      const reply = await fetch(http.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body })
+      expect(reply.status).toBe(200)
+      expect(await reply.json()).toEqual({})
+    }
+    expect(statuses.get(sessionId)?.at(-1)).toBe('working')
+    // Nor is it parsed: what is not JSON is as good.
+    expect((await fetch(http.url(`/hooks/${sessionId}/PostToolUse`), { method: 'POST', body: 'not json' })).status).toBe(200)
+  })
+
+  it('says a prompt is in a conversation that has not seen the marks when the agent names another than before, once', async () => {
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    asked = []
+    const prompt = async (conversation = ''): Promise<void> => {
+      const before = asked.length
+      sessions.write(sessionId, `hook UserPromptSubmit ${conversation}\r`)
+      await expect.poll(() => asked.length).toBe(before + 1)
+    }
+    // The conversation it was started with, twice: nothing new.
+    await prompt()
+    await prompt()
+    // After /clear the agent names another.
+    await prompt('11111111-2222-4333-8444-555555555555')
+    await prompt('11111111-2222-4333-8444-555555555555')
+    await prompt('99999999-2222-4333-8444-555555555555')
+    expect(asked.map((a) => a.fresh)).toEqual([false, false, true, false, true])
   })
 
   it('refuses a body over 1 MB', async () => {

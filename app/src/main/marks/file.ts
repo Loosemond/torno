@@ -144,7 +144,12 @@ export function sanitiseMark(value: unknown): Mark | null {
     revision: value.revision,
     camera,
     createdAt: value.createdAt,
-    ...(typeof value.resolvedNote === 'string' ? { resolvedNote: value.resolvedNote.slice(0, MAX_NOTE) } : {})
+    ...(typeof value.resolvedNote === 'string' ? { resolvedNote: value.resolvedNote.slice(0, MAX_NOTE) } : {}),
+    // What main alone says of a mark. A file written before there were any has none, and is whole without.
+    ...(value.status === 'resolved' && oneOf(value.resolvedBy, ['user', 'agent'] as const) ? { resolvedBy: value.resolvedBy } : {}),
+    ...(value.status === 'resolved' && value.resolvedBy === 'agent' && value.acknowledged === true ? { acknowledged: true as const } : {}),
+    ...(value.sentBefore === true ? { sentBefore: true as const } : {}),
+    ...(isNumber(value.checkedRevision) ? { checkedRevision: value.checkedRevision } : {})
   }
   const anchor = anchorOf(value.anchor)
   switch (value.kind) {
@@ -218,6 +223,10 @@ function anchorOf(value: unknown): Anchor | null {
   if (typeof value.part === 'string') anchor.part = value.part
   if (typeof value.ref === 'string') anchor.ref = value.ref
   if (typeof value.descriptor === 'string') anchor.descriptor = value.descriptor
+  const arranged = tuple<Vec3>(value.arranged, 3)
+  if (arranged && arranged.some((c) => c !== 0)) anchor.arranged = arranged
+  if (typeof value.edge === 'string') anchor.edge = value.edge
+  if (Array.isArray(value.between) && value.between.length === 2 && value.between.every((ref) => typeof ref === 'string')) anchor.between = [value.between[0], value.between[1]]
   return anchor
 }
 

@@ -13,7 +13,7 @@ import { Builds, buildTimeout, watchFolder } from './builds'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
-import { coalesced, followMarks, reanchorAll } from './marks/reanchor'
+import { asPlaced, asReplaced, followMarks, reanchorAll, retrying } from './marks/reanchor'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
@@ -107,9 +107,10 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
   // marks are on: each mark is checked against it. One check at a time per object; a build that
   // succeeds during one is checked after it, and what was found for the build before is dropped.
-  const reanchor = coalesced((objectId) => {
+  // A check that could not say of every mark is tried again after a while (`retrying`).
+  const reanchor = retrying((objectId) => {
     const store = marks
-    if (!store) return Promise.resolve()
+    if (!store) return Promise.resolve(true)
     const counted = checks.get(objectId) ?? { started: 0, finished: 0 }
     checks.set(objectId, counted)
     counted.started += 1
@@ -118,7 +119,7 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
         marks: store,
         query: (id, name, args) => builds.query(id, name, args),
         // None once the workspace is left: nothing is asked or written for it any more.
-        scene: (id) => (current === ws ? builds.scene(id)?.scene : undefined)
+        scene: (id) => (current === ws ? builds.scene(id) : undefined)
       },
       objectId
     ).finally(() => (counted.finished += 1))
@@ -178,6 +179,19 @@ export function buildState(id: string): BuildState | undefined {
 /** The last successful build of an object. */
 export function lastScene(id: string): { revision: number; scene: Scene } | undefined {
   return current?.builds.scene(id)
+}
+
+/**
+ * A mark as it is kept when it is placed (`asPlaced`): a mark that is no mark
+ * is handed on as it came, for the store to refuse.
+ */
+export function placedMark<M extends NewMark>(mark: M, objectId: string): M {
+  const whole = typeof mark === 'object' && mark !== null && typeof mark.layout === 'string'
+  try {
+    return whole ? asPlaced(mark, lastScene(objectId)) : mark
+  } catch {
+    return mark
+  }
 }
 
 /**
@@ -313,10 +327,9 @@ export function registerIpc(
 
   ipcMain.handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
 
-  // What a window types or inserts goes only to a session the manager has for an object of the open
+  // What a window types or inserts goes only to a session the manager has in a folder of the open
   // workspace: the window names a session, and is not taken at its word.
-  const ofThisWorkspace = (sessionId: string): boolean =>
-    sessions !== null && sessionOfWorkspace(sessions.objectOf(sessionId), (id) => findObject(id)?.dir)
+  const ofThisWorkspace = (sessionId: string): boolean => sessions !== null && sessionOfWorkspace(sessions.objectOf(sessionId), current?.info.root)
 
   ipcMain.on('session:write', (_event, sessionId: string, data: string) => {
     if (typeof data === 'string' && ofThisWorkspace(String(sessionId))) sessions?.write(String(sessionId), data)
@@ -333,16 +346,20 @@ export function registerIpc(
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
   ipcMain.handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
   // A mark made in the window is the person's. The agent's come through its tools, which call the store themselves.
+  // What only main says of a mark is said here: how far its part is spread on the build it was placed on.
   ipcMain.handle('marks:add', (_event, objectId: string, mark: NewMark) =>
-    requireMarks().add(String(objectId), { ...mark, author: 'user' })
+    requireMarks().add(String(objectId), placedMark({ ...mark, author: 'user' }, String(objectId)))
   )
+  // Whoever resolves a mark from the window is the person.
   ipcMain.handle('marks:update', (_event, objectId: string, id: string, patch: MarkPatch) =>
-    requireMarks().update(String(objectId), String(id), patch)
+    requireMarks().update(String(objectId), String(id), patch, 'user')
   )
   ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))
-  ipcMain.handle('marks:replace', (_event, objectId: string, id: string, placed: Replacement) =>
-    requireMarks().replace(String(objectId), String(id), placed)
-  )
+  ipcMain.handle('marks:replace', async (_event, objectId: string, id: string, placed: Replacement) => {
+    const store = requireMarks()
+    const layout = (await store.list(String(objectId))).find((m) => m.id === String(id))?.layout
+    return store.replace(String(objectId), String(id), layout === undefined ? placed : asReplaced(placed, layout, lastScene(String(objectId))))
+  })
   ipcMain.handle('marks:problem', (_event, objectId: string) => requireMarks().problem(String(objectId)))
   ipcMain.handle('marks:dismissProblem', (_event, objectId: string) => requireMarks().dismissProblem(String(objectId)))
 

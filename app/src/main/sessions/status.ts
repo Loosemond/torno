@@ -1,3 +1,4 @@
+import { dirname } from 'node:path'
 import type { SessionStatus } from '../../shared/bridge'
 
 /**
@@ -38,10 +39,12 @@ export function reduceStatus(prev: SessionStatus, event: string): SessionStatus 
 /**
  * Whether a session is one that may be typed into from the window: the manager
  * has it (`of` is what `Sessions.objectOf` says, none for a session that is
- * unknown, ended or hung up on), and its object is an object of the open
- * workspace, in the same folder. A session of a workspace that was left may
- * linger for a moment, and an object of the next one may bear the same name.
+ * unknown, ended or hung up on), and its folder is directly under the root of
+ * the open workspace. Not "its object is in the list": an object leaves the
+ * list when its last `.py` is deleted, and the agent in its folder is still
+ * there to be talked to. A session of a workspace that was left may linger
+ * for a moment: its folder is under another root.
  */
-export function sessionOfWorkspace(of: { id: string; dir: string } | undefined, dirOf: (objectId: string) => string | undefined): boolean {
-  return of !== undefined && dirOf(of.id) === of.dir
+export function sessionOfWorkspace(of: { id: string; dir: string } | undefined, root: string | undefined): boolean {
+  return of !== undefined && root !== undefined && dirname(of.dir) === root
 }

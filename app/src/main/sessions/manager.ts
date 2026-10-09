@@ -16,6 +16,8 @@ const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
 /** The hooks that say a conversation has a prompt in it: it exists for the agent, and can be resumed. */
 const CONVERSATION_EVENTS = new Set(['UserPromptSubmit', 'Stop'])
+/** The hooks that only say the agent is at work again. */
+const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse'])
 /** C0 and C1 controls and DEL: among them ESC, the newlines and the one-byte CSI. */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -25,6 +27,8 @@ interface Session {
   object: ObjectInfo
   /** The agent's id of the conversation, as its last hook named it. */
   conversationId: string
+  /** The conversation the last prompt was in: the one it was started with, until a prompt names another. */
+  promptedIn: string
   status: SessionStatus
   cols: number
   rows: number
@@ -63,8 +67,10 @@ export class Sessions {
        * What the agent should know with the next prompt in that object ('' for
        * nothing), and the marks that text tells of for the first time. Asking
        * changes nothing: `onDelivered` says when the agent has been given it.
+       * `fresh` says the prompt is the first in a conversation other than the
+       * last one: the agent started another (/clear), which has seen nothing.
        */
-      contextFor: (objectId: string) => PromptContext | Promise<PromptContext>
+      contextFor: (objectId: string, opts: { fresh: boolean }) => PromptContext | Promise<PromptContext>
       /**
        * The answer to a prompt's hook has left for the agent of that object,
        * and these marks were in it. Only ever for a UserPromptSubmit of a
@@ -120,6 +126,7 @@ export class Sessions {
       id,
       object: obj,
       conversationId,
+      promptedIn: conversationId,
       status: 'starting',
       cols,
       rows,
@@ -241,6 +248,15 @@ export class Sessions {
     if (!HOOK_EVENTS.includes(event)) return sendJson(res, 404, { error: 'no such hook' })
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' })
 
+    // A tool hook says only that the agent is at work. Its body is the tool's input or result, which may
+    // be megabytes: it is neither read nor parsed, and never a reason to refuse the hook.
+    if (TOOL_EVENTS.has(event)) {
+      req.resume()
+      this.advance(session, event)
+      if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}`)
+      return sendJson(res, 200, {})
+    }
+
     let body: unknown
     try {
       body = JSON.parse(await readBody(req, HOOK_BODY_LIMIT))
@@ -275,9 +291,13 @@ export class Sessions {
       return sendJson(res, 200, {})
     }
     const objectId = session.object.id
+    // Another conversation than the last prompt was in: the agent began anew, and knows no mark by its number.
+    const named = typeof conversation === 'string' && UUID.test(conversation) ? conversation : undefined
+    const fresh = named !== undefined && named !== session.promptedIn
+    if (named !== undefined) session.promptedIn = named
     let context: PromptContext
     try {
-      context = await this.deps.contextFor(objectId)
+      context = await this.deps.contextFor(objectId, { fresh })
     } catch (e) {
       // The prompt goes ahead without it rather than wait for the hook to time out.
       console.error(`no context for the prompt in ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
