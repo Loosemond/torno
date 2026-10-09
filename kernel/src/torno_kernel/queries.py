@@ -8,6 +8,9 @@ from . import topo
 from .describe import descriptor
 
 _SUBSHAPE = re.compile(r"^(?P<key>.+)/(?P<kind>[FE])(?P<index>\d+)$")
+# No part has a face or an edge of a million: a longer number is not one, and
+# one of thousands of digits is more than int() takes.
+_INDEX_DIGITS = 6
 
 
 class QueryError(Exception):
@@ -51,7 +54,7 @@ def describe(shapes: dict[str, Any], ref: str) -> dict[str, Any]:
     if key not in shapes:
         raise QueryError("bad_ref", f"no part {key!r}; the parts are {', '.join(shapes)}")
     shape = shapes[key]
-    index = int(match["index"])
+    index = _index(match)
     if match["kind"] == "F":
         return _describe_face(ref, _pick(topo.faces(shape), index, key, "faces", "F"))
     return _describe_edge(ref, _pick(topo.edges(shape), index, key, "edges", "E"))
@@ -191,7 +194,7 @@ class _Surface:
             return {"edgeFound": False}
         if self._edges is None:
             self._edges = topo.edges(self._shape)
-        index = int(match["index"])
+        index = _index(match)
         if index >= len(self._edges):
             return {"edgeFound": False}
         edge = self._edges[index]
@@ -259,6 +262,12 @@ class _Surface:
                 self._shape, self._kinds[kind], TopAbs_FACE, self._around[kind]
             )
         return self._around[kind]
+
+
+def _index(match: re.Match[str]) -> int:
+    """The number a ref ends in; one too long to be the number of anything is past every list."""
+    digits = match["index"]
+    return int(digits) if len(digits) <= _INDEX_DIGITS else 10**_INDEX_DIGITS
 
 
 def _pick(items: list[Any], index: int, key: str, plural: str, letter: str) -> Any:

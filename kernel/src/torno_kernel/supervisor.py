@@ -130,8 +130,13 @@ class _Worker:
     decoder: _Decoder = field(default_factory=_Decoder)
     # Queries sent and not yet answered, oldest first: (id, when to give up on it).
     queries: list[tuple[Any, float]] = field(default_factory=list)
-    # A query to it timed out and it has sent nothing since: it is still busy with that one.
-    stalled: bool = False
+    # Queries to it that timed out and that it has not answered yet: it answers one at a
+    # time, so it is still busy with them, and with nothing else until it has sent as many frames.
+    abandoned: int = 0
+
+    @property
+    def stalled(self) -> bool:
+        return self.abandoned > 0
 
     def answered(self, id: Any) -> bool:
         """Take the query ``id`` off the list. False if it was not waiting for an answer."""
@@ -345,10 +350,12 @@ class Supervisor:
             elif not isinstance(header, dict):
                 self._live_died(worker)
             else:
-                worker.stalled = False  # it has got past whatever kept it
                 if worker.answered(header.get("id")):
                     self._send(header, blob)
-                # Otherwise the answer to a query already given up on: it is dropped.
+                elif worker.abandoned > 0:
+                    # The answer to a query already given up on: it is dropped, and the
+                    # worker has one less of them to get through.
+                    worker.abandoned -= 1
 
     def _build_finished(self, worker: _Worker, result: dict[str, Any], blob: bytes) -> None:
         self._building = None
@@ -421,7 +428,7 @@ class Supervisor:
         """Answer the queries a live worker has had for too long. The worker is left alone."""
         while worker.queries and worker.queries[0][1] <= now:
             id, _ = worker.queries.pop(0)
-            worker.stalled = True
+            worker.abandoned += 1
             self._fail(
                 id,
                 "timeout",

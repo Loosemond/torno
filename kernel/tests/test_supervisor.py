@@ -818,3 +818,44 @@ def test_the_wait_ends_at_the_earlier_of_the_build_and_query_deadlines(routed, m
     assert time.monotonic() - start < 2
     assert [f["error"]["kind"] for f in routed.sent()] == ["timeout"]
     assert sup._building is building and not gone(building.pid)
+
+
+def test_a_worker_is_busy_until_it_has_answered_every_query_that_was_given_up_on(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.3)
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    # Two sent one behind the other: it answers one at a time, and both run out of time.
+    routed.request(id="first", op="query", dir="/object", name="nearest", args={})
+    routed.request(id="second", op="query", dir="/object", name="nearest", args={})
+    sup._step()
+    sup._step()  # the deadline of both passes
+    timed_out = routed.sent()
+    if len(timed_out) < 2:
+        sup._step()
+        timed_out += routed.sent()
+    assert [f["error"]["kind"] for f in timed_out] == ["timeout", "timeout"]
+
+    # It answers the first, late, and is now on the second: still busy.
+    live_end.sendall(frame({"id": "first", "ok": True, "result": {}}))
+    sup._step()
+    routed.request(id="third", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    sup._step()
+    [refused] = routed.sent()
+    assert refused["id"] == "third"
+    assert refused["error"]["kind"] == "timeout"
+    assert "still busy" in refused["error"]["message"]
+    assert live.queries == []
+
+    # The second answered too: it is free again.
+    live_end.sendall(frame({"id": "second", "ok": True, "result": {}}))
+    sup._step()
+    assert routed.sent() == []
+    routed.request(id="fourth", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    sup._step()
+    assert [id for id, _ in live.queries] == ["fourth"]
+    live_end.sendall(frame({"id": "fourth", "ok": True, "result": {"n": 4}}))
+    sup._step()
+    assert routed.sent() == [{"id": "fourth", "ok": True, "result": {"n": 4}}]

@@ -375,13 +375,28 @@ def test_nearest_says_how_far_the_anchor_is_from_the_edge_it_names(shapes):
     assert not {"edgeFound", "edgeDistance", "edgeDescriptor"} & set(plain)
 
 
-@pytest.mark.parametrize("edge", ["base/E99", "post/E0", "base/F0", "base", "E3", "", "base/E-1"])
+@pytest.mark.parametrize(
+    "edge",
+    ["base/E99", "post/E0", "base/F0", "base", "E3", "", "base/E-1", "base/E1234567", "base/E" + "9" * 5000],
+)
 def test_nearest_naming_an_edge_the_part_does_not_have_says_so(shapes, edge):
     [anchor] = nearest_with(shapes, "assembly", {"part": "base", "point": [5, 3, 5.5], "edge": edge})
     assert anchor["found"] is True
     assert anchor["distance"] == pytest.approx(3)
     assert anchor["edgeFound"] is False
     assert "edgeDistance" not in anchor
+
+
+def test_describe_of_a_number_too_long_to_be_one_is_a_bad_ref_not_a_crash(shapes):
+    for ref in ("assembly:base/F" + "9" * 5000, "assembly:base/E1234567"):
+        with pytest.raises(queries.QueryError) as failed:
+            queries.run(shapes, "describe", {"ref": ref})
+        assert failed.value.kind == "bad_ref"
+    # Six digits are still a number: of a face the part does not have.
+    with pytest.raises(queries.QueryError) as failed:
+        queries.run(shapes, "describe", {"ref": "assembly:base/F999999"})
+    assert failed.value.kind == "bad_ref"
+    assert "faces" in str(failed.value)
 
 
 def test_nearest_edge_of_a_missing_part_is_only_not_found(shapes):
