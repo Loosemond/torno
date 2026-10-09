@@ -33,13 +33,17 @@ def run(
     part's surface under its key; the others keep theirs under a pair
     ``(what, key)``.
     """
-    # It builds on what is below, so it is imported once that is defined.
-    from . import measure
+    # These build on what is below, so they are imported once that is defined.
+    from . import checks, measure, section
 
     if not isinstance(args, dict):
         args = {}
     if name == "measure":
         return measure.measure(shapes, args, kept)
+    if name == "section":
+        return section.section(shapes, args)
+    if name == "check":
+        return checks.check(shapes, args, kept)
     if name == "describe":
         ref = args.get("ref")
         if not isinstance(ref, str):
@@ -54,7 +58,7 @@ def run(
         return {"anchors": nearest(shapes, layout, anchors, kept)}
     raise QueryError(
         "bad_request",
-        f"unknown query {name!r}; the queries are describe, nearest and measure",
+        f"unknown query {name!r}; the queries are describe, nearest, measure, section and check",
     )
 
 

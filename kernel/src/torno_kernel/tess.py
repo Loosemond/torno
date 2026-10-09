@@ -57,6 +57,19 @@ def build_scene(
     return scene, bytes(blob), shapes
 
 
+def mesh_of(shape: Any) -> tuple[np.ndarray, np.ndarray]:
+    """The mesh one part is drawn with: its vertices in the object frame, and its triangles.
+
+    The same tessellation as the scene's, at the same tolerances, so what is
+    found of it is true of what is shown and exported. ocp-tessellate keeps
+    the mesh of a shape it has meshed, so asking again costs little.
+    """
+    [(_, _, mesh, loc, _)] = _tessellate({"part": shape})
+    vertices = np.asarray(mesh["vertices"]).reshape(-1, 3)
+    triangles = np.asarray(mesh["triangles"]).reshape(-1, 3)
+    return _posed(vertices, [float(x) for x in loc[0]], [float(x) for x in loc[1]]), triangles
+
+
 def _tessellate(named: dict[str, Any]) -> list[tuple[str, Any, dict, Any, str | None]]:
     """Mesh one layout: (name, shape, mesh arrays, loc, cache id) per part."""
     # ocp-tessellate needs OCP from the user's workspace, so it is imported only here.
@@ -131,8 +144,13 @@ def _append(blob: bytearray, array: np.ndarray) -> dict[str, int]:
 
 def _bbox(vertices: np.ndarray, t: list[float], q: list[float]) -> dict[str, list[float]]:
     """Bounding box of part-local vertices after the pose, in the object frame."""
-    points = vertices.reshape(-1, 3).astype(np.float64) @ _rotation(q).T + np.array(t)
+    points = _posed(vertices.reshape(-1, 3), t, q)
     return {"min": points.min(axis=0).tolist(), "max": points.max(axis=0).tolist()}
+
+
+def _posed(points: np.ndarray, t: list[float], q: list[float]) -> np.ndarray:
+    """Part-local points after the pose, in the object frame."""
+    return points.astype(np.float64) @ _rotation(q).T + np.array(t)
 
 
 def _rotation(q: list[float]) -> np.ndarray:

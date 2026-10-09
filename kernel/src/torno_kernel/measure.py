@@ -295,7 +295,10 @@ def _round(
 
 
 def _away(at: np.ndarray, centre: np.ndarray, axis: np.ndarray) -> np.ndarray:
-    """The unit direction from ``centre`` towards ``at``, square to ``axis``; any such for a point on it."""
+    """The unit direction from ``centre`` towards ``at``, square to ``axis``.
+
+    Any such direction, for a point on the axis.
+    """
     out = at - centre
     towards = _unit(out - (out @ axis) * axis)
     if towards is None:

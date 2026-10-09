@@ -23,6 +23,20 @@ def edges(shape: Any) -> list[Any]:
     return _subshapes(shape, TopAbs_EDGE)
 
 
+def solids(shape: Any) -> list[Any]:
+    """The shape's distinct solids as ``TopoDS_Solid``: none of a shell or a lone face."""
+    from ocp_tessellate.ocp_utils import TopAbs_SOLID
+
+    return _subshapes(shape, TopAbs_SOLID)
+
+
+def vertices(shape: Any) -> list[Any]:
+    """The shape's distinct vertices as ``TopoDS_Vertex``."""
+    from ocp_tessellate.ocp_utils import TopAbs_VERTEX
+
+    return _subshapes(shape, TopAbs_VERTEX)
+
+
 def _subshapes(shape: Any, kind: Any) -> list[Any]:
     # OCP comes from the user's workspace, so it is imported only when used.
     # ocp_tessellate's shims paper over the names OCP 8 changed.

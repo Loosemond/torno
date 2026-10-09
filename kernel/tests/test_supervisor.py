@@ -372,6 +372,65 @@ def test_measure_over_the_protocol_for_the_object_asked(fresh, ws):
     }
 
 
+def test_section_over_the_protocol_for_the_object_asked(fresh, ws):
+    plate, bracket = ws / "measures", ws / "bracket"
+    reply, _ = fresh.build(plate, "measures.py")
+    assert reply["ok"], reply
+    build_bracket(fresh, ws)
+    level = {"origin": [0, 0, 12.5], "normal": [0, 0, 1]}
+    cut = fresh.query(bracket, "section", {"layout": "assembly", "plane": level})
+    assert cut["ok"] is True, cut
+    result = cut["result"]
+    assert result["plane"] == {**level, "x": [1, 0, 0], "y": [0, 1, 0]}
+    base, post = result["parts"]
+    assert base == {"part": "base", "loops": [], "area": 0, "open": 0}
+    [circle] = post["loops"]
+    assert (circle["closed"], circle["area"]) == (True, pytest.approx(math.pi * 16))
+    assert all(math.hypot(u, v) == pytest.approx(4) for u, v in circle["points"])
+    assert result["bounds"] == {"min": pytest.approx([-4, -4]), "max": pytest.approx([4, 4])}
+    # The plate is cut by its own worker: across its two holes and its pocket.
+    across = {"layout": "assembly", "plane": {"origin": [0, 0, 0], "normal": [0, 0, 1]}}
+    [part] = fresh.query(plate, "section", {**across, "parts": ["plate"]})["result"]["parts"]
+    assert [loop["area"] for loop in part["loops"]] == [
+        pytest.approx(1200),
+        pytest.approx(-60),
+        pytest.approx(-math.pi * 16),
+        pytest.approx(-math.pi * 16),
+    ]
+    assert (part["area"], part["open"]) == (pytest.approx(1140 - 32 * math.pi), 0)
+    missing = fresh.query(plate, "section", {**across, "parts": ["post"]})
+    assert missing["error"] == {
+        "kind": "bad_ref",
+        "message": "no part 'post' in assembly; its parts are plate",
+    }
+
+
+def test_check_over_the_protocol_for_the_object_asked(fresh, ws):
+    plate, bracket = ws / "measures", ws / "bracket"
+    reply, _ = fresh.build(plate, "measures.py")
+    assert reply["ok"], reply
+    build_bracket(fresh, ws)
+
+    def check(folder, kind: str, **args) -> dict:
+        return fresh.query(folder, "check", {"kind": kind, "layout": "assembly", **args})
+
+    standing = check(bracket, "clearance", a="post", b="base")
+    assert standing["ok"] is True, standing
+    assert (standing["result"]["distance"], standing["result"]["overlapping"]) == (0, False)
+    assert standing["result"]["points"][0][2] == pytest.approx(2.5)
+    assert check(bracket, "overlap", a="post", b="base")["result"] == {"volume": 0, "bbox": None}
+    mesh = check(plate, "mesh", a="plate")["result"]
+    assert mesh == {"watertight": True, "openEdges": 0, "where": [], "triangles": mesh["triangles"]}
+    # As many triangles as the build said the part is drawn with: it is the same mesh.
+    [drawn] = reply["scene"]["parts"]
+    assert mesh["triangles"] == drawn["triangleCount"]
+    assert check(plate, "overlap", a="post", b="base")["error"] == {
+        "kind": "bad_ref",
+        "message": "no part 'post' in assembly; its parts are plate",
+    }
+    assert check(bracket, "mesh")["error"]["kind"] == "bad_request"
+
+
 def test_nearest_in_an_unknown_layout_is_bad_ref_naming_the_layouts(bracket_kernel):
     reply = bracket_kernel.nearest(BRACKET, "exploded", [])
     assert reply["ok"] is False

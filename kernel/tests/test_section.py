@@ -1,0 +1,246 @@
+"""``section``, in-process: the exact outline a plane cuts of each part."""
+
+import math
+from pathlib import Path
+
+import pytest
+
+from torno_kernel import queries
+from torno_kernel.loader import load_scene
+from torno_kernel.tess import build_scene
+
+WS = Path(__file__).parent / "fixtures" / "ws"
+
+
+@pytest.fixture(scope="module")
+def bracket():
+    _, _, shapes = build_scene(load_scene(WS / "bracket", "bracket.py"), "bracket.py")
+    return shapes
+
+
+def section(shapes, origin, normal, layout="assembly", **more) -> dict:
+    plane = {"origin": origin, "normal": normal}
+    return queries.run(shapes, "section", {"layout": layout, "plane": plane, **more}, {})
+
+
+def refused(shapes, args) -> tuple[str, str]:
+    with pytest.raises(queries.QueryError) as e:
+        queries.run(shapes, "section", args, {})
+    return e.value.kind, e.value.message
+
+
+def shoelace(points) -> float:
+    """The signed area of a polygon: positive when it runs counter-clockwise."""
+    pairs = zip(points, points[1:] + points[:1], strict=True)
+    return sum(a[0] * b[1] - b[0] * a[1] for a, b in pairs) / 2
+
+
+def by_name(result) -> dict:
+    return {part["part"]: part for part in result["parts"]}
+
+
+def test_a_cut_through_the_post_is_one_closed_circle_and_the_base_is_missed(bracket):
+    result = section(bracket, [0, 0, 12.5], [0, 0, 1])
+    assert [part["part"] for part in result["parts"]] == ["base", "post"]
+    parts = by_name(result)
+    assert parts["base"] == {"part": "base", "loops": [], "area": 0, "open": 0}
+    post = parts["post"]
+    [loop] = post["loops"]
+    assert loop["closed"] is True
+    # The area is of the circle itself, not of the polygon drawn of it.
+    assert loop["area"] == pytest.approx(math.pi * 16, rel=1e-9)
+    assert (post["area"], post["open"]) == (pytest.approx(math.pi * 16), 0)
+    # Every point is on the circle, and no chord strays more than 0.05 mm from it.
+    assert all(math.hypot(u, v) == pytest.approx(4) for u, v in loop["points"])
+    assert 0 < math.pi * 16 - shoelace(loop["points"]) < 0.05 * 2 * math.pi * 4
+    assert len(loop["points"]) <= 2000
+    assert loop["points"][0] != loop["points"][-1]
+    assert result["bounds"] == {"min": pytest.approx([-4, -4]), "max": pytest.approx([4, 4])}
+
+
+def test_a_cut_through_the_base_is_its_rectangle(bracket):
+    result = section(bracket, [0, 0, 0], [0, 0, 1])
+    parts = by_name(result)
+    assert parts["post"]["loops"] == []
+    [loop] = parts["base"]["loops"]
+    assert (loop["closed"], loop["area"]) == (True, pytest.approx(1200))
+    assert parts["base"]["area"] == pytest.approx(1200)
+    assert sorted(map(tuple, loop["points"])) == [
+        pytest.approx((-20, -15)),
+        pytest.approx((-20, 15)),
+        pytest.approx((20, -15)),
+        pytest.approx((20, 15)),
+    ]
+    # An outer loop runs counter-clockwise.
+    assert shoelace(loop["points"]) == pytest.approx(1200)
+
+
+def test_the_plane_says_its_axes_and_points_are_along_them(bracket):
+    # Looking along +X: of Y and Z, equally square to the normal, Y is the first.
+    result = section(bracket, [3, 1, 0.5], [2, 0, 0])
+    assert result["plane"] == {
+        "origin": [3, 1, 0.5],
+        "normal": [1, 0, 0],
+        "x": [0, 1, 0],
+        "y": [0, 0, 1],
+    }
+    [loop] = by_name(result)["base"]["loops"]
+    # The base is 30 along Y and 5 along Z; the origin of the plane is at (1, 0.5) of them.
+    assert sorted(map(tuple, loop["points"])) == [
+        pytest.approx((-16, -3)),
+        pytest.approx((-16, 2)),
+        pytest.approx((14, -3)),
+        pytest.approx((14, 2)),
+    ]
+    assert result["bounds"] == {"min": pytest.approx([-16, -3]), "max": pytest.approx([14, 22])}
+    # Back in the object: origin + u·x + v·y, which is on the plane.
+    assert loop["area"] == pytest.approx(150)
+
+
+@pytest.mark.parametrize(
+    ("normal", "x", "y"),
+    [
+        ([0, 0, 1], [1, 0, 0], [0, 1, 0]),
+        ([0, 0, -1], [1, 0, 0], [0, -1, 0]),
+        ([0, 1, 0], [1, 0, 0], [0, 0, -1]),
+        ([1, 0, 0], [0, 1, 0], [0, 0, 1]),
+        ([1, 0, 1], [0, 1, 0], [-math.sqrt(0.5), 0, math.sqrt(0.5)]),
+        ([1, 2, 3], [math.sqrt(13 / 14), -2 / math.sqrt(182), -3 / math.sqrt(182)], None),
+    ],
+)
+def test_axes_are_a_right_handed_pair_from_the_world_axis_least_along_the_normal(bracket, normal, x, y):
+    plane = section(bracket, [0, 0, 0], normal)["plane"]
+    length = math.sqrt(sum(c * c for c in normal))
+    assert plane["normal"] == pytest.approx([c / length for c in normal])
+    assert plane["x"] == pytest.approx(x)
+    if y is not None:
+        assert plane["y"] == pytest.approx(y)
+    n, u, v = plane["normal"], plane["x"], plane["y"]
+    cross = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+    assert cross == pytest.approx(n)
+
+
+def test_a_hollow_part_has_an_outer_loop_and_a_hole():
+    from build123d import Box
+
+    shapes = {"assembly:shell": Box(20, 20, 20) - Box(16, 16, 16)}
+    [part] = section(shapes, [0, 0, 0], [0, 0, 1])["parts"]
+    outer, hole = part["loops"]
+    assert (outer["closed"], outer["area"]) == (True, pytest.approx(400))
+    assert (hole["closed"], hole["area"]) == (True, pytest.approx(-256))
+    assert (part["area"], part["open"]) == (pytest.approx(144), 0)
+    # The outer loop runs counter-clockwise and the hole clockwise.
+    assert shoelace(outer["points"]) == pytest.approx(400)
+    assert shoelace(hole["points"]) == pytest.approx(-256)
+
+
+def test_an_island_in_a_hole_is_counted_again():
+    from build123d import Box, Cylinder
+
+    shapes = {"assembly:nested": Box(20, 20, 20) - Box(16, 16, 16) + Cylinder(3, 16)}
+    [part] = section(shapes, [0, 0, 0], [0, 0, 1])["parts"]
+    assert [loop["area"] for loop in part["loops"]] == [
+        pytest.approx(400),
+        pytest.approx(-256),
+        pytest.approx(math.pi * 9),
+    ]
+    assert part["area"] == pytest.approx(144 + math.pi * 9)
+
+
+def test_a_plane_that_misses_lists_every_part_with_no_loops(bracket):
+    result = section(bracket, [0, 0, 100], [0, 0, 1])
+    assert result["parts"] == [
+        {"part": "base", "loops": [], "area": 0, "open": 0},
+        {"part": "post", "loops": [], "area": 0, "open": 0},
+    ]
+    assert result["bounds"] is None
+
+
+def test_only_the_parts_asked_for_are_cut_and_in_the_layout_named(bracket):
+    result = section(bracket, [0, 0, 0], [0, 0, 1], parts=["post"])
+    assert [part["part"] for part in result["parts"]] == ["post"]
+    # In the print layout the post lies on its side, 60 mm along X.
+    lying = section(bracket, [60, 0, 4], [0, 1, 0], layout="print", parts=["post"])
+    [loop] = lying["parts"][0]["loops"]
+    assert loop["area"] == pytest.approx(math.pi * 16)
+
+
+def test_a_part_that_is_not_closed_gives_open_loops_and_says_how_many():
+    from build123d import Axis, Box, Shell
+
+    faces = Box(10, 10, 10).faces().sort_by(Axis.Z)
+    shapes = {"assembly:tub": Shell(faces[:-1])}  # without its top
+    [part] = section(shapes, [0, 0, 0], [0, 1, 0])["parts"]
+    [loop] = part["loops"]
+    assert (loop["closed"], loop["area"], part["area"], part["open"]) == (False, 0, 0, 1)
+    # Up one side is not there: down, across the bottom and up again.
+    assert len(loop["points"]) == 4
+    ends = sorted([tuple(loop["points"][0]), tuple(loop["points"][-1])])
+    # Looking along +Y the axes are X and -Z.
+    assert ends == [pytest.approx((-5, -5)), pytest.approx((5, -5))]
+    # Cut level, it is closed all the same.
+    [level] = section(shapes, [0, 0, 0], [0, 0, 1])["parts"]
+    assert (level["loops"][0]["closed"], level["area"], level["open"]) == (True, pytest.approx(100), 0)
+
+
+def test_a_loop_of_more_points_than_the_limit_is_drawn_coarser_and_its_area_is_still_exact():
+    from build123d import RegularPolygon, extrude
+
+    sides = 2200
+    shapes = {"assembly:gear": extrude(RegularPolygon(50, sides), 2)}
+    [part] = section(shapes, [0, 0, 1], [0, 0, 1])["parts"]
+    [loop] = part["loops"]
+    assert 20 < len(loop["points"]) <= 2000
+    assert loop["deflection"] > 0.05
+    assert loop["area"] == pytest.approx(sides / 2 * 2500 * math.sin(2 * math.pi / sides), rel=1e-9)
+    assert all(math.hypot(u, v) == pytest.approx(50) for u, v in loop["points"])
+    # One that needs no more than the limit is drawn at 0.05 mm.
+    few = {"assembly:gear": extrude(RegularPolygon(50, 12), 2)}
+    [loop] = section(few, [0, 0, 1], [0, 0, 1])["parts"][0]["loops"]
+    assert (len(loop["points"]), loop["deflection"]) == (12, 0.05)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {},
+        {"layout": "assembly"},
+        {"layout": 3, "plane": {"origin": [0, 0, 0], "normal": [0, 0, 1]}},
+        {"layout": "assembly", "plane": [0, 0, 1]},
+        {"layout": "assembly", "plane": {"origin": [0, 0], "normal": [0, 0, 1]}},
+        {"layout": "assembly", "plane": {"origin": [0, 0, 0], "normal": [0, 0, float("nan")]}},
+        {"layout": "assembly", "plane": {"origin": [0, 0, 0]}},
+    ],
+)
+def test_a_section_that_names_no_plane_is_refused(bracket, args):
+    assert refused(bracket, args) == (
+        "bad_request",
+        "section needs args.layout, a string, and args.plane with origin and normal, each "
+        "three finite numbers",
+    )
+
+
+def test_a_normal_of_no_length_and_parts_that_are_not_names_are_refused(bracket):
+    plane = {"origin": [0, 0, 0], "normal": [0, 0, 0]}
+    assert refused(bracket, {"layout": "assembly", "plane": plane}) == (
+        "bad_request",
+        "the normal of the section plane has no length",
+    )
+    plane = {"origin": [0, 0, 0], "normal": [0, 0, 1]}
+    for parts in ("post", [3], []):
+        assert refused(bracket, {"layout": "assembly", "plane": plane, "parts": parts}) == (
+            "bad_request",
+            "args.parts of section, if given, is a list of part names, at least one",
+        )
+
+
+def test_a_layout_or_a_part_that_is_not_there_is_a_bad_ref_naming_those_that_are(bracket):
+    plane = {"origin": [0, 0, 0], "normal": [0, 0, 1]}
+    assert refused(bracket, {"layout": "exploded", "plane": plane}) == (
+        "bad_ref",
+        "no layout 'exploded'; the layouts are assembly, print",
+    )
+    assert refused(bracket, {"layout": "assembly", "plane": plane, "parts": ["post", "lid"]}) == (
+        "bad_ref",
+        "no part 'lid' in assembly; its parts are base, post",
+    )
