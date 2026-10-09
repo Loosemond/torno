@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AnchorState, Mark } from '../../shared/marks'
-import { actions, useStore } from '../state/store'
+import { actions, store, useStore } from '../state/store'
 import { labelText } from '../viewport/marks/labels'
 import type { Viewport } from '../viewport/Viewport'
 import { ANCHOR_BADGE, MAX_NOTE } from './MarkRow'
@@ -86,7 +86,10 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
     () => () => {
       const { text: typed, kept, ended } = latest.current
       const note = unsavedNote(typed, kept, ended)
-      if (note !== null) window.torno.marks.update(objectId, id, { note }).catch(() => {}) // the mark may be gone: that is why the card went
+      // Only while its object is still the one open: once another is, or another folder, main may know
+      // an object of the same name with a mark of the same number, and the note is not that one's.
+      if (note === null || store.getState().objectId !== objectId) return
+      window.torno.marks.update(objectId, id, { note }).catch(() => {}) // the mark may be gone: that is why the card went
     },
     [objectId, id]
   )

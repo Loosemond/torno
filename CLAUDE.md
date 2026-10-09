@@ -6,8 +6,10 @@ says what it does and how to run it; the design is
 
 - `app/`: the Electron app (pnpm, TypeScript, electron-vite). `src/main` is the
   shell, the kernel client, the sessions, the HTTP server with the MCP tools and
-  the hooks. `src/renderer` is the UI and the three.js viewport. `src/shared`
-  holds the types both sides use.
+  the hooks, and the marks (`src/main/marks`). `src/renderer` is the UI, the
+  three.js viewport (`viewport/`) and the tools that point at it (`tools/`).
+  `src/shared` holds the types both sides use; `shared/bridge.ts` is everything
+  the renderer may ask of main.
 - `kernel/`: the Python package `torno_kernel` (uv). It loads build123d models
   and tessellates them, in forked workers.
 - `scripts/torno`: the launcher. It rebuilds the app when a source is newer
@@ -47,6 +49,41 @@ While iterating run the focused test; run all four suites before a commit.
 
 ("The tokens in Task 4" are `app/src/renderer/styles/tokens.css`.)
 
+## Marks
+
+- A mark is a pin, a pick, an arrow, a stroke or a shape, with a note
+  (`app/src/shared/marks.ts`). Ids are `M1`, `M2`, … per object, never reused,
+  given by main only.
+- Main is the only writer of `<object>/.torno/marks.json`
+  (`src/main/marks/store.ts`): one change at a time per object, written
+  atomically before it is told. The renderer and the MCP tools go through it.
+- Coordinates and refs of a mark are in the object frame of the mark's layout.
+  A ref is `<part>`, `<part>/F<i>`, `<part>/E<i>` or `M<n>`; to the kernel it
+  is sent with the layout in front (`assembly:lid/F12`).
+- After every successful build, and when a mark is added, reopened or put
+  somewhere else, the marks are checked against the build
+  (`src/main/marks/reanchor.ts`, one `nearest` query per layout). A mark's
+  point never moves; its ref and descriptor are refreshed; `anchorState` says
+  `drifted` or `orphaned`. Whatever reports a mark says so: the agent is told
+  nothing it cannot rely on.
+- Status: `draft` until a `UserPromptSubmit` hook has carried the mark to the
+  agent of its own object (`src/main/context.ts`; turned `sent` only once the
+  answer has left), then `resolved`. No other hook consumes drafts.
+- The MCP tools (`src/main/mcp/tools.ts`): `scene`, `look`, `marks`,
+  `describe`, `highlight`, `show`, `add_mark`, `resolve_mark`. `show` changes
+  the view for now and is never saved to `scene.json`; it is refused while a
+  button is held in the viewport.
+- `<object>/.torno/state.md` says the same as the tools, as text
+  (`src/main/statefile.ts`); its first line is when it was written.
+- User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and
+  nothing else in the UI uses those colours. A picture for the agent draws
+  every mark alike: no active mark, no selection, no hover, no gizmo.
+- Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape; `G`,
+  `R`, `T` for the gizmo of the active shape. A tool is a `Tool`
+  (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
+  subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
+  through React or the store.
+
 ## Kernel invariants
 
 - **The supervisor only imports.** `python -m torno_kernel` imports build123d
@@ -60,8 +97,9 @@ While iterating run the focused test; run all four suites before a commit.
   four stay alive: a fifth folder retires the one least recently built or
   queried, whose queries are then `no_build`. A query names its folder (`dir`)
   and has 30 s, after which it is answered `timeout` and the worker left alone.
-  Until that worker next sends a frame, new queries to it are answered
-  `timeout` at once: it answers one at a time, and is still busy with that one.
+  Until that worker has answered every query that was given up on, new queries
+  to it are answered `timeout` at once: it answers one at a time, and is still
+  busy with those.
   A worker leaves through `os._exit`.
 - **prctl.** Each worker sets `PR_SET_PDEATHSIG` to SIGKILL, so it dies with
   the supervisor even when that is killed, and `PR_SET_DUMPABLE` to 0, so a
@@ -104,8 +142,14 @@ window on it.
 - State is read through hooks, not pixels: `window.__tornoTest.state()` and
   `.camera()`, `.pickAt(fx, fy)` for what a point of the canvas is on and
   `.project(point)` for where a point of the object is drawn (both in fractions
-  of the canvas, to aim `page.mouse` with), `window.__tornoTerm.text()` for what the terminal shows, and
-  `globalThis.__tornoMain` in main (`app.evaluate`) for the MCP address.
+  of the canvas, to aim `page.mouse` with), `.markScreen(id)` for where a
+  mark's label is, `.timePicks(count)` for what a pick costs,
+  `window.__tornoTerm.text()` for what the terminal shows, and
+  `globalThis.__tornoMain` in main (`app.evaluate`) for the MCP address, the
+  mark store (to leave the marks an agent would) and `marksChecks(objectId)`
+  (started and finished counts: equal when no check of the marks is under way).
+- `page.mouse` and `page.keyboard` work on the hidden window: marks are placed
+  in tests with real pointer events through the tools.
 - A test works on a temporary copy of `kernel/tests/fixtures/ws`, never on
   the fixtures themselves and never on a real workspace.
 - Do not touch the clipboard.
