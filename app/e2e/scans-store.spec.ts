@@ -180,8 +180,8 @@ test('an alignment is kept with how the layout was spread, and dropped when the 
   expect(converted).toMatchObject({ imported: { unit: 'cm', up: 'z', assumed: { unit: false, up: false }, triangles: 12, bbox: { min: [-200, -150, -25], max: [200, 150, 25] } }, alignments: {} })
   expect(scansOnDisk().scans[0].alignments).toEqual({})
   // The mesh that was converted is another file, which the record names; the one it was made from is gone.
-  expect(converted.imported.mesh).toBe('mesh.1.bin')
-  expect(readdirSync(join(scansFolder(), 'S1'))).toEqual(['mesh.1.bin'])
+  expect(converted.imported.mesh).toMatch(/^mesh\.\d+\.bin$/)
+  expect(readdirSync(join(scansFolder(), 'S1'))).toEqual([converted.imported.mesh])
   const bytes = await page.evaluate(async () => (await window.torno.scans.mesh('bracket', 'S1')).byteLength)
   expect(bytes).toBe(64 + 8 * 12 + 12 * 12)
   expect(readFileSync(join(scansFolder(), '.gitignore'), 'utf8')).toBe('mesh*.bin\n')
@@ -193,8 +193,9 @@ test('a scan whose mesh is not there is read again from its source, into the sam
   rmSync(join(scansFolder(), 'S1'), { recursive: true })
   expect((await page.evaluate(() => window.torno.scans.list('bracket')))[0].meshState).toBe('missing')
   const again = await page.evaluate(() => window.torno.scans.reimport('bracket', 'S1'))
-  expect(again).toMatchObject({ sourceChanged: false, meshChanged: false, scan: { id: 'S1', meshState: 'ok', imported: { unit: 'cm', mesh: 'mesh.2.bin', bbox: { max: [200, 150, 25] } } } })
-  expect(readdirSync(join(scansFolder(), 'S1'))).toEqual(['mesh.2.bin'])
+  expect(again).toMatchObject({ sourceChanged: false, meshChanged: false, scan: { id: 'S1', meshState: 'ok', imported: { unit: 'cm', bbox: { max: [200, 150, 25] } } } })
+  expect(again.scan.imported.mesh).toMatch(/^mesh\.\d+\.bin$/)
+  expect(readdirSync(join(scansFolder(), 'S1'))).toEqual([again.scan.imported.mesh])
   expect(scansOnDisk()).toMatchObject({ next: 3, scans: [{ id: 'S1' }] })
 })
 

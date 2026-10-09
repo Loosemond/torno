@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto'
+import type { Dirent } from 'node:fs'
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Scan } from '../../shared/scans'
@@ -30,12 +32,25 @@ export function meshName(scan: Pick<Scan, 'imported'>): string {
   return scan.imported.mesh ?? MESH
 }
 
-/** The file a conversion of the mesh in `current` is written to: the next number. */
-export function nextMeshName(current: string): string {
-  return `mesh.${Number(/^mesh\.(\d+)\.bin$/.exec(current)?.[1] ?? 0) + 1}.bin`
+/**
+ * The file a new mesh of a scan is written to, beside the one it has: a name
+ * that no file of the folder has. `number` draws its number, at random
+ * unless a test says otherwise: an import process that outlived a torno
+ * which was killed still holds the name it was given, and may put its file
+ * there at any time. A name it cannot have been given is never the scan's.
+ */
+export async function freshMeshName(folder: string, number: () => number = () => randomInt(1, 1_000_000_000)): Promise<string> {
+  const taken = new Set(await names(folder))
+  for (;;) {
+    const name = `mesh.${number()}.bin`
+    if (!MESH_NAME.test(name)) throw new RangeError(`${name} is no name for a mesh`)
+    if (!taken.has(name)) return name
+  }
 }
 
 const names = (folder: string): Promise<string[]> => readdir(folder).catch(() => [])
+/** What is in a folder, with what each is: a link is neither a file nor a folder here, whatever it leads to. */
+const entries = (folder: string): Promise<Dirent[]> => readdir(folder, { withFileTypes: true }).catch(() => [])
 
 /**
  * The first number no scan folder of the object has: an id is the name of a
@@ -66,27 +81,35 @@ export async function removeMesh(folder: string, name: string): Promise<void> {
  * Clears away what torno left behind when it was stopped in the middle of
  * something, as the scans of an object are first read:
  *
- * - in the folder of each scan, every mesh file its record does not name
- *   (a conversion writes a new file, and the record is what says it was
- *   made), and every temp file of one;
+ * - in the folder of each scan, every temp file of a mesh, and every mesh
+ *   file its record does not name (a conversion writes a new file, and the
+ *   record is what says it was made): but those only while the mesh it does
+ *   name is there. Where that is missing (an older `scans.json` was put
+ *   back), another mesh in the folder may be all there is of the scan;
  * - the folder of an import that never ended (`IMPORTING`, and no scan);
  *   one that holds a region's `.mask` is kept, and only loses its temp files.
  *
  * `busy` are the ids with an import or a conversion under way: theirs is
  * left alone. A folder with no scan and no sign of an import is left too:
- * it is what remains of a scans file that was lost.
+ * it is what remains of a scans file that was lost. Only real folders and
+ * real files are looked at: nothing is deleted through a link, nor a link
+ * itself.
  */
 export async function sweep(dir: string, scans: readonly Scan[], busy: ReadonlySet<string>): Promise<void> {
   const known = new Map(scans.map((scan) => [scan.id, meshName(scan)]))
   const remove = (path: string): Promise<void> => rm(path, { recursive: true, force: true }).catch(() => {})
-  for (const id of await names(join(dir, '.torno', 'scans'))) {
-    if (!SCAN_ID.test(id) || busy.has(id)) continue
+  for (const entry of await entries(join(dir, '.torno', 'scans'))) {
+    const id = entry.name
+    if (!entry.isDirectory() || !SCAN_ID.test(id) || busy.has(id)) continue
     const folder = scanFolder(dir, id)
-    const found = await names(folder)
+    const files = (await entries(folder)).filter((found) => found.isFile()).map((found) => found.name)
     const mesh = known.get(id)
-    if (mesh !== undefined) await Promise.all(found.filter((name) => name === IMPORTING || (MESH_FILE.test(name) && name !== mesh)).map((name) => remove(join(folder, name))))
-    else if (!found.includes(IMPORTING)) continue
-    else if (found.some((name) => name.endsWith('.mask'))) await Promise.all(found.filter((name) => MESH_TEMP.test(name)).map((name) => remove(join(folder, name))))
-    else await remove(folder)
+    const gone = (name: string): boolean => {
+      if (mesh === undefined) return MESH_TEMP.test(name)
+      return name === IMPORTING || MESH_TEMP.test(name) || (MESH_FILE.test(name) && name !== mesh && files.includes(mesh))
+    }
+    if (mesh === undefined && !files.includes(IMPORTING)) continue
+    if (mesh === undefined && !(await names(folder)).some((name) => name.endsWith('.mask'))) await remove(folder)
+    else await Promise.all(files.filter(gone).map((name) => remove(join(folder, name))))
   }
 }

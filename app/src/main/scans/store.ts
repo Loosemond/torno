@@ -5,7 +5,7 @@ import type { Scene } from '../../shared/scene'
 import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, SCAN_FORMATS, UNIT_MM } from '../../shared/scans'
 import { loadScansFile, sanitiseAlignment, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
-import { IMPORTING, MESH, ignoreMeshes, meshName, nextMeshName, removeMesh, scanFolder, sweep } from './meshfiles'
+import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, removeMesh, scanFolder, sweep } from './meshfiles'
 
 interface ScanEvents {
   /** The scans of an object changed, or what was found of them: the whole list, as it now is. */
@@ -57,7 +57,7 @@ export class ScanStore {
   private epoch = 0
   private listeners: { [E in keyof ScanEvents]: Array<(m: ScanEvents[E]) => void> } = { changed: [], progress: [], problem: [] }
 
-  constructor(private deps: { dirOf(objectId: string): string | undefined; importer(): Importer | string /* why none can run */; now?(): Date; stat?: typeof statFile }) {}
+  constructor(private deps: { dirOf(objectId: string): string | undefined; importer(): Importer | string /* why none can run */; now?(): Date; stat?: typeof statFile; /** The number in the name of a new mesh: drawn at random unless a test gives it. */ meshNumber?(): number }) {}
 
   on<E extends keyof ScanEvents>(event: E, cb: (m: ScanEvents[E]) => void): void {
     this.listeners[event].push(cb)
@@ -124,12 +124,7 @@ export class ScanStore {
     const { dir, epoch } = place
     const busy = this.busyIn(dir)
     const taken = await this.turn(place, async (file) => {
-      if (typeof given !== 'string' || !isAbsolute(given)) throw new Error('give the whole path of the file')
-      const source = resolve(given)
-      const formats: readonly string[] = SCAN_FORMATS
-      if (!formats.includes(extname(source).toLowerCase())) throw new Error(`${basename(source)} is not a scan torno reads: ${formats.slice(0, -1).join(', ')} or ${formats.at(-1)}`)
-      // By where the file is, whatever name led to it.
-      if (isWithin(await real(join(dir, '.torno')), await real(source))) throw new Error(`${basename(source)} is in this object's .torno folder, where torno keeps its own files: import it from somewhere else`)
+      const source = await sourceOf(dir, given)
       const importer = this.importer(epoch)
       const id = `S${file.next}`
       // Taken before the process is started, and for good: were the import to fail, or torno to stop, the id is not given again.
@@ -144,6 +139,7 @@ export class ScanStore {
     const name = basename(source)
     const folder = scanFolder(dir, id)
     let made = false
+    let committed = false
     try {
       await ignoreMeshes(dir)
       // A folder of that name is another scan's, whatever the file says: it is not written in, and not deleted below.
@@ -176,13 +172,16 @@ export class ScanStore {
           file.scans.push(scan)
           return scan
         },
-        // It is a scan now: its folder is no longer that of an import under way.
-        () => rm(join(folder, IMPORTING), { force: true }).catch(() => {})
+        // It is a scan now: its folder is no longer that of an import under way, and whatever fails from here on, it is kept.
+        () => {
+          committed = true
+          return rm(join(folder, IMPORTING), { force: true }).catch(() => {})
+        }
       )
       return await this.infoOf(dir, kept)
     } catch (e) {
-      // Only ever the folder made above for this id.
-      if (made) await rm(folder, { recursive: true, force: true }).catch(() => {})
+      // Only ever the folder made above for this id, and never once it is a scan's.
+      if (made && !committed) await rm(folder, { recursive: true, force: true }).catch(() => {})
       throw new Error(e instanceof Error ? e.message : String(e))
     } finally {
       busy.delete(id)
@@ -222,7 +221,7 @@ export class ScanStore {
       if (!(await this.isFile(join(folder, old)))) throw new Error(await this.meshGone(scan, join(folder, old)))
       const importer = this.importer(epoch)
       busy.add(scan.id)
-      return { importer, from, folder, old, fresh: nextMeshName(old) }
+      return { importer, from, folder, old, fresh: await freshMeshName(folder, this.deps.meshNumber) }
     })
     if (begun === null) {
       const same = await this.change(place, (file) => {
@@ -234,6 +233,7 @@ export class ScanStore {
     }
 
     const { importer, from, folder, old, fresh } = begun
+    let committed = false
     try {
       await ignoreMeshes(dir)
       await copyFile(join(folder, old), join(folder, fresh))
@@ -252,13 +252,16 @@ export class ScanStore {
           this.checks.get(dir)?.delete(id)
           return converted
         },
-        // The record names the new mesh: the old one is nobody's.
-        () => removeMesh(folder, old)
+        // The record names the new mesh: the old one is nobody's, and whatever fails from here on, the new one is the scan's.
+        () => {
+          committed = true
+          return removeMesh(folder, old)
+        }
       )
       return await this.infoOf(dir, kept)
     } catch (e) {
       // The record still names the mesh it had, which nothing wrote in.
-      await removeMesh(folder, fresh)
+      if (!committed) await removeMesh(folder, fresh)
       throw new Error(e instanceof Error ? e.message : String(e))
     } finally {
       busy.delete(id)
@@ -287,6 +290,8 @@ export class ScanStore {
     const begun = await this.turn(place, async (file) => {
       const scan = file.scans[indexOf(file, id)]
       if (busy.has(scan.id)) throw new Error(`${scan.id} is being converted or imported again already`)
+      // What the record says its source is, is what a file says: it is read only if it would have been the first time.
+      await sourceOf(dir, scan.source.path)
       // As it is before it is read, as for a first import.
       const stats = await this.stat(scan.source.path).catch(() => null)
       if (!stats?.isFile()) throw new Error(`${scan.id} cannot be imported again: its source ${scan.source.path} is missing`)
@@ -298,16 +303,18 @@ export class ScanStore {
     const { importer, was, mtimeMs } = begun
     const folder = scanFolder(dir, was.id)
     const old = meshName(was)
-    const fresh = nextMeshName(old)
     const name = basename(was.source.path)
+    let fresh: string | null = null
+    let committed = false
     try {
       await ignoreMeshes(dir)
       // The scan's own folder, there or not: its id is in the file.
       await mkdir(folder, { recursive: true })
+      const mesh = (fresh = await freshMeshName(folder, this.deps.meshNumber))
       if (epoch !== this.epoch) throw new Error(LEFT)
       let reply: ImportReply
       try {
-        reply = await importer.import(was.source.path, join(folder, fresh), { unit: was.imported.unit, up: was.imported.up }, (stage) => this.progress(place, name, stage))
+        reply = await importer.import(was.source.path, join(folder, mesh), { unit: was.imported.unit, up: was.imported.up }, (stage) => this.progress(place, name, stage))
       } finally {
         this.progress(place, name, null)
       }
@@ -324,7 +331,7 @@ export class ScanStore {
           const again = sanitiseScan({
             ...scan,
             source: { path: scan.source.path, bytes: reply.source?.bytes, mtimeMs, sha256: reply.source?.sha256 },
-            imported: { ...reply, reduced: reply.reduced ?? undefined, unit, up, assumed, mesh: fresh, at: this.now().toISOString() }
+            imported: { ...reply, reduced: reply.reduced ?? undefined, unit, up, assumed, mesh, at: this.now().toISOString() }
           })
           if (!again) throw new Error(`the import of ${name} did not say what it wrote: ${id} is as it was`)
           sourceChanged = again.source.sha256 !== scan.source.sha256
@@ -334,11 +341,16 @@ export class ScanStore {
           if (sourceChanged || meshChanged) this.checks.get(dir)?.delete(id)
           return again
         },
-        () => removeMesh(folder, old)
+        () => {
+          committed = true
+          return removeMesh(folder, old)
+        }
       )
       return { scan: await this.infoOf(dir, kept), sourceChanged, meshChanged }
     } catch (e) {
-      await removeMesh(folder, fresh)
+      if (!committed && fresh !== null) await removeMesh(folder, fresh)
+      // Its folder went with it, and what the process then says is of a folder that is not there.
+      if (!committed && (await this.isGone(place, id))) throw new Error(`${id} was removed while it was being imported again`)
       throw new Error(e instanceof Error ? e.message : String(e))
     } finally {
       busy.delete(id)
@@ -454,7 +466,9 @@ export class ScanStore {
    * Where a scan's files are: for the kernel, which is given paths and never
    * looks for files. Which file is its mesh is in its record, so this is of
    * the scans as last read or written: undefined for a scan that is not
-   * among them, and before the object's scans were read (`list`).
+   * among them, and until the object's scans were read since the workspace
+   * was opened. Whoever asks awaits `list` first, and then has the answer
+   * for as long as the workspace is open, whatever is written meanwhile.
    */
   paths(objectId: string, id: string): { mesh: string; mask(markId: string): string } | undefined {
     const dir = this.deps.dirOf(objectId)
@@ -511,10 +525,19 @@ export class ScanStore {
     if (epoch === this.epoch) this.emit('progress', { objectId, name, stage })
   }
 
-  /** The file as it now is on the disk, for the workspace it was written in: one that was left meanwhile reads it again. */
+  /**
+   * The file as it was just written: kept for the workspace that is open.
+   * A write asked in a workspace since left is kept too where the open one
+   * has read that folder: it is what is on the disk now, and what was kept
+   * is not.
+   */
   private keep({ dir, epoch }: Place, file: ScansFile): void {
-    if (epoch === this.epoch) this.files.set(dir, file)
-    else this.files.delete(dir)
+    if (epoch === this.epoch || this.files.has(dir)) this.files.set(dir, file)
+  }
+
+  /** Whether a scan is no longer among its object's. */
+  private isGone(place: Place, id: string): Promise<boolean> {
+    return this.turn(place, (file) => !file.scans.some((scan) => scan.id === id)).catch(() => false)
   }
 
   /**
@@ -589,8 +612,15 @@ export class ScanStore {
     return turn
   }
 
+  /** Each listener by itself: one that fails keeps nothing from the others, and undoes nothing of what it was told. */
   private emit<E extends keyof ScanEvents>(event: E, message: ScanEvents[E]): void {
-    for (const cb of this.listeners[event]) cb(message)
+    for (const cb of this.listeners[event]) {
+      try {
+        cb(message)
+      } catch (e) {
+        console.error(`a listener to the scans' ${event} failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
   }
 }
 
@@ -609,6 +639,21 @@ export function frameOf(scene: Scene | undefined, layout: string): Record<string
 function isWithin(folder: string, path: string): boolean {
   const from = relative(folder, path)
   return from === '' || (from !== '..' && !from.startsWith(`..${sep}`) && !isAbsolute(from))
+}
+
+/**
+ * A file that may be read as a scan of the object in `dir`, as a whole path:
+ * what the person gave, or what a record says its source is. Throws saying
+ * why it is none.
+ */
+async function sourceOf(dir: string, given: unknown): Promise<string> {
+  if (typeof given !== 'string' || !isAbsolute(given)) throw new Error('give the whole path of the file')
+  const source = resolve(given)
+  const formats: readonly string[] = SCAN_FORMATS
+  if (!formats.includes(extname(source).toLowerCase())) throw new Error(`${basename(source)} is not a scan torno reads: ${formats.slice(0, -1).join(', ')} or ${formats.at(-1)}`)
+  // By where the file is, whatever name led to it.
+  if (isWithin(await real(join(dir, '.torno')), await real(source))) throw new Error(`${basename(source)} is in this object's .torno folder, where torno keeps its own files: import it from somewhere else`)
+  return source
 }
 
 /** Where a path leads, through whatever links: the path itself when nothing is there. */
