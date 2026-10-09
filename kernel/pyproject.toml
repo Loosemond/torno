@@ -8,10 +8,20 @@ dependencies = [
     "numpy",
 ]
 
+[project.optional-dependencies]
+# What reading a scan needs. Asked for by the import process only (app/src/main/scans/importer.ts):
+# the kernel itself starts without them, so no build waits on a library no build uses.
+scans = [
+    "trimesh>=5,<6",
+    "pillow",
+]
+
 [dependency-groups]
 dev = [
     "build123d==0.13.0",
     "pytest",
+    "trimesh>=5,<6",
+    "pillow",
 ]
 
 [build-system]

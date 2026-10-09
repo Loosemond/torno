@@ -938,22 +938,35 @@ dependencies = [
     { name = "ocp-tessellate" },
 ]
 
+[package.optional-dependencies]
+scans = [
+    { name = "pillow" },
+    { name = "trimesh" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "build123d" },
+    { name = "pillow" },
     { name = "pytest" },
+    { name = "trimesh" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
     { name = "ocp-tessellate", specifier = ">=3.5,<4" },
+    { name = "pillow", marker = "extra == 'scans'" },
+    { name = "trimesh", marker = "extra == 'scans'", specifier = ">=5,<6" },
 ]
+provides-extras = ["scans"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "build123d", specifier = "==0.13.0" },
+    { name = "pillow" },
     { name = "pytest" },
+    { name = "trimesh", specifier = ">=5,<6" },
 ]
 
 [[package]]
@@ -972,6 +985,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6f/52/18f909fcc652b2a4de75a274aa3de0d567a5d592b13d57e65b76c550bdf1/trianglesolver-1.2.tar.gz", hash = "sha256:4af18aade579d5c0d64389b3e65aeaf06cff26319762ccd859e3268559a76aea", size = 4718, upload-time = "2020-04-10T18:52:31.193Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ff/8e/43d45cf3e18e3f455e4b5ab333a7c27b8e38c4e535f7346b7148ce08eb65/trianglesolver-1.2-py3-none-any.whl", hash = "sha256:aa0903c3708b4e2b496f06d490cae72c6ff6274b00d1edce420fcfa3b2b76682", size = 5377, upload-time = "2020-04-10T18:52:29.811Z" },
+]
+
+[[package]]
+name = "trimesh"
+version = "5.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/bf/a7efaef127e0f1a228a03e5d00c04f5aeb2c25a60adb4d47003d4d0855bc/trimesh-5.1.1.tar.gz", hash = "sha256:56070be44cd97ac87544c9bd3da4b7a298c6f728e83183aeb1f3524d673d5fac", size = 874580, upload-time = "2026-10-02T21:06:07.704Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/f6/fb68b8c08f864ecee8f7f7ee2f1203ed5cba2335215de69e4f621eb47db5/trimesh-5.1.1-py3-none-any.whl", hash = "sha256:c5be85a3e31e9ff749f9b0aecc204e37a2cf7cca4e92cd066bb5f3d3c1127765", size = 750449, upload-time = "2026-10-02T21:06:05.958Z" },
 ]
 
 [[package]]
