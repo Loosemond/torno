@@ -65,18 +65,17 @@ class Area(NamedTuple):
 def area(shape: Any) -> Area:
     """The area of a face, or of all the faces of a part.
 
-    Exact only if every face's is; otherwise good to about as many digits as
-    the face of which the fewest are, and to none that can be said when that
-    is so of one of its faces. Its spread is the sum of its faces'.
+    Exact only if every face's is; otherwise its spread is the sum of its
+    faces', and it is good to about as many digits as that leaves of all its
+    area: a small face in doubt takes little from a large part.
     """
     each = [_face_area(face) for face in topo.faces(shape)]
-    doubted = [one.digits for one in each if not one.exact]
-    return Area(
-        math.fsum(one.value for one in each),
-        not doubted,
-        None if None in doubted else min(doubted, default=None),
-        math.fsum(one.spread for one in each if not one.exact),
-    )
+    doubted = [one for one in each if not one.exact]
+    value = math.fsum(one.value for one in each)
+    if not doubted:
+        return Area(value, True)
+    spread = math.fsum(one.spread for one in doubted)
+    return Area(value, False, _digits(spread, value), spread)
 
 
 def volume(shape: Any) -> float:

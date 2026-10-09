@@ -1041,8 +1041,8 @@ def test_the_area_of_a_freeform_face_cut_on_the_slant_is_not_said_to_be_exact(sp
     assert result["how"] == "of the face, approximate: its integrals differ by 0.28 %"
     whole = measure(made, "area", "assembly:wedge")
     assert whole["exact"] is False
-    # The part says no digits either: its faces' integrals differ by less of all its area.
-    assert 0 < said_percent(whole["how"]) < 0.28
+    # Of all the part's area that doubt is less: it leaves about two digits.
+    assert whole["how"] == "surface of the part, approximate, good to about 2 significant digits"
     described = queries.describe(made, side)
     assert described["areaExact"] is False
     assert described["descriptor"] == f"extrusion, ≈ {number(result['value'])} mm²"

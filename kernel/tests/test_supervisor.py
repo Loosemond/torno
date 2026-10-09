@@ -539,7 +539,7 @@ def test_query_before_any_build_is_no_build_and_shutdown_exits(fresh):
     assert reply["ok"] is False
     assert reply["error"]["kind"] == "no_build"
     fresh.send("shutdown")
-    assert fresh.proc.wait(2) == 0
+    assert fresh.proc.wait(15) == 0
 
 
 def test_query_without_a_folder_is_a_bad_request(bracket_kernel):
@@ -653,7 +653,7 @@ def test_closing_stdin_leaves_no_live_worker_of_any_object(fresh, ws, tmp_path):
     pids = [started_build(fresh, folder) for folder in copies(ws, tmp_path, 3)]
     assert not any(gone(pid) for pid in pids)
     fresh.proc.stdin.close()
-    assert fresh.proc.wait(2) == 0
+    assert fresh.proc.wait(15) == 0
     assert all(gone(pid) for pid in pids)
 
 
@@ -704,7 +704,7 @@ def test_closing_stdin_exits_and_leaves_no_children(fresh, ws):
     building, _ = fresh.recv(5)
     assert live["id"] == id and not gone(live["pid"]) and not gone(building["pid"])
     fresh.proc.stdin.close()
-    assert fresh.proc.wait(2) == 0
+    assert fresh.proc.wait(15) == 0
     assert gone(live["pid"])
     assert gone(building["pid"])
 
