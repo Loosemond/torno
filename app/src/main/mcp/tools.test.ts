@@ -724,6 +724,33 @@ describe('add_mark', () => {
     expect(textOf(byEdge)).toContain('\nA pin is on a face: it is placed on base/F5, the face under the middle of base/E7. Use a pick to mark the edge itself.')
   })
 
+  it('says of an arrow that it starts on the face, and of a shape that it is tied to it', async () => {
+    const deps = fake()
+    const arrow = await addMarkTool(deps, 'bracket', { kind: 'arrow', note: '', ref: 'base/E7', by: [0, 0, 5] })
+    expect(textOf(arrow)).toContain('\nAn arrow starts on a face: it starts on base/F5, the face under the middle of base/E7. Use a pick to mark the edge itself.')
+    const shape = await addMarkTool(deps, 'bracket', { kind: 'shape', note: '', ref: 'base/E7', shape: 'box', intent: 'add', size: [5, 5, 5], position: [0, 15, 5] })
+    expect(textOf(shape)).toContain('\nA shape is tied to a face: it is tied to base/F5, the face under the middle of base/E7. Use a pick to mark the edge itself.')
+  })
+
+  it('keeps and says what the kernel finds at the rounded point it keeps, not at the one it rounded', async () => {
+    const deps = fake()
+    // The middle of a curved edge, as measured; the point of the surface nearest to it rounds to another, which is on the next face.
+    const nearest = deps.nearest
+    deps.nearest = async (objectId, layout, anchors) => {
+      const found = await nearest(objectId, layout, anchors)
+      return found.map((one, i) => {
+        if (!one.found) return one
+        const exact = anchors[i].point[0] === 0
+        return { ...one, point: exact ? [0.00016, 15, 2.5] : anchors[i].point, ref: exact ? 'base/F5' : 'base/F6', descriptor: exact ? 'the face before rounding' : 'the face at the rounded point' } as NearestAnchor
+      })
+    }
+    const result = await addMarkTool(deps, 'bracket', { kind: 'pin', note: '', ref: 'base/E7' })
+    expect(deps.w.asked.map((a) => a.anchors[0].point)).toEqual([[0, 15, 2.5], [0.0002, 15, 2.5]])
+    expect((deps.w.added[0] as { anchor: Anchor }).anchor).toEqual({ point: [0.0002, 15, 2.5], part: 'base', ref: 'base/F6', normal: [0, 0, 1], descriptor: 'the face at the rounded point' })
+    expect(textOf(result)).toContain('M5 pin on base/F6 (the face at the rounded point) at (0.0002, 15, 2.5)')
+    expect(textOf(result)).toContain('it is placed on base/F6, the face under the middle of base/E7')
+  })
+
   it('leaves a mark on an edge at the middle of the edge, which needs no asking', async () => {
     const deps = fake()
     const result = await addMarkTool(deps, 'bracket', { kind: 'pick', note: 'this hole', ref: 'base/E7' })

@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -28,6 +28,9 @@ type Content = Array<{ type: string; text?: string; data?: string; mimeType?: st
 test.beforeAll(async () => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-mcp-'))
   cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  // A plate with a blind pocket in the middle of its top: the centre of that face is over the pocket, not on the face.
+  mkdirSync(join(root, 'pocket'))
+  writeFileSync(join(root, 'pocket', 'pocket.py'), 'from build123d import Box, Pos\n\nplate = Box(40, 30, 5) - Pos(0, 0, 1.5) * Box(10, 10, 2)\n')
   // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
   app = await electron.launch({
     args: ['.'],
@@ -45,6 +48,25 @@ test.afterAll(async () => {
 })
 
 const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
+
+/** How many checks of an object's marks against its build main has started, and how many have ended. */
+function checks(objectId: string): Promise<{ started: number; finished: number }> {
+  return app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { marksChecks(id: string): { started: number; finished: number } } }).__tornoMain.marksChecks(id), objectId)
+}
+
+/**
+ * Wait until main has checked the marks of an object against its build since
+ * `before` was read (read it before the marks are added): a check has ended
+ * since, and none is under way or waiting.
+ */
+async function checked(objectId: string, before: { finished: number }): Promise<void> {
+  await expect
+    .poll(async () => {
+      const now = await checks(objectId)
+      return now.started === now.finished && now.finished > before.finished
+    })
+    .toBe(true)
+}
 const terminal = (): Promise<string> => page.evaluate(() => window.__tornoTerm!.text())
 
 /** The address an agent working on that object is given. */
@@ -232,6 +254,38 @@ async function prompt(): Promise<void> {
 
 let pin: PinMark
 
+test("show changes what the user sees for now, not the layers they saved, and waits while they have a button down", async () => {
+  const sceneFile = join(root, 'bracket', '.torno', 'scene.json')
+  // As the person left it, by hand, in the test above: the post hidden.
+  await expect.poll(() => (existsSync(sceneFile) ? JSON.parse(readFileSync(sceneFile, 'utf8')).layers : null)).toEqual({ post: { visible: false } })
+  const saved = readFileSync(sceneFile, 'utf8')
+
+  // In the middle of a drag in the viewport, the view is theirs.
+  const box = (await canvas().boundingBox())!
+  await page.mouse.move(box.x + box.width - 40, box.y + box.height - 80)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 60, box.y + box.height - 90, { steps: 2 })
+  const refused = await call(bracket, 'show', { parts: ['base', 'post'], layout: 'print' })
+  expect(refused).toMatchObject({ isError: true, text: 'the user is in the middle of a stroke or drag; try again' })
+  expect(await state()).toMatchObject({ layout: 'assembly', layers: { post: { visible: false } } })
+  await page.mouse.up()
+
+  const shown = await call(bracket, 'show', { parts: ['base', 'post'], layout: 'print' })
+  expect(shown.isError).toBe(false)
+  expect(await state()).toMatchObject({ layout: 'print', layers: { post: { visible: true } } })
+  // Longer than a change made by hand takes to be written.
+  await page.waitForTimeout(900)
+  expect(readFileSync(sceneFile, 'utf8')).toBe(saved)
+  // A change the person then makes by hand is saved, without what the agent had shown.
+  await page.locator('[data-layer="base"]').getByRole('button', { name: 'Show base' }).click()
+  await expect.poll(() => JSON.parse(readFileSync(sceneFile, 'utf8'))).toEqual({ layout: 'assembly', layers: { base: { visible: false }, post: { visible: false } } })
+  await page.locator('[data-layer="base"]').getByRole('button', { name: 'Show base' }).click()
+  await expect.poll(() => JSON.parse(readFileSync(sceneFile, 'utf8')).layers.base.visible).toBe(true)
+  // Back as the tests that follow expect it: assembly, the post hidden by the person.
+  expect((await call(bracket, 'show', { layout: 'assembly', parts: ['base'] })).isError).toBe(false)
+  expect(await state()).toMatchObject({ layout: 'assembly', layers: { post: { visible: false } } })
+})
+
 test("show changes the user's layers and camera, and says what they see then", async () => {
   // The post was hidden by hand above: the agent brings it back.
   const parts = await call(bracket, 'show', { parts: ['base', 'post'] })
@@ -308,6 +362,7 @@ test('the next prompt carries the pin as one line, and turns it sent', async () 
 })
 
 test("add_mark places the agent's own marks, by ref and by point, which the user sees in green", async () => {
+  const unchecked = await checks('bracket')
   const byRef = await call(bracket, 'add_mark', { kind: 'pin', note: '<i>this</i> face?', ref: pin.anchor.ref })
   expect(byRef.isError).toBe(false)
   expect(byRef.text).toBe(`placed in layout assembly: (yours) M2 pin on ${pin.anchor.ref} (plane, normal +Z, z = 2.5, 1200 mm²) at (0, 0, 2.5): "<i>this</i> face?"`)
@@ -333,7 +388,7 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
   await expect.poll(async () => (await state()).marks.map((m) => `${m.id} ${m.author} ${m.kind}`)).toEqual(['M1 user pin', 'M2 agent pin', 'M3 agent arrow', 'M4 agent shape'])
 
   // Main checks each new mark against the build at once: what was answered still holds afterwards.
-  await page.waitForTimeout(500)
+  await checked('bracket', unchecked)
   const kept = (await state()).marks
   expect(kept.map((m) => m.anchorState)).toEqual(['ok', 'ok', 'ok', 'ok'])
   expect(byRef.text).toBe(`placed in layout assembly: ${describeMark(kept[1])}`)
@@ -458,4 +513,33 @@ test('for an object that is not the one open, look refuses and scene says what i
   // The object that is open answers at its own address.
   const plain = await call(await connect('plain'), 'look', { view: 'top' })
   expect(plain.text).toContain('view top · layout main · parts plate')
+})
+
+test('add_mark by a face whose centre is not on it puts the pin on the face under the point, says so, and keeps what it said', async () => {
+  await openObject('pocket')
+  const pocket = await connect('pocket')
+  const faces: Array<{ ref: string; descriptor: string }> = []
+  for (let i = 0; i < 11; i += 1) {
+    const face = JSON.parse((await call(pocket, 'describe', { ref: `plate/F${i}` })).text)
+    faces.push({ ref: `plate/F${i}`, descriptor: face.descriptor })
+  }
+  // The top, with the mouth of the pocket in its middle, and the floor of the pocket 2 mm under it.
+  const top = faces.find((f) => /^plane, normal \+Z, z = 2\.5, /.test(f.descriptor))!
+  const floor = faces.find((f) => /^plane, normal \+Z, z = 0\.5, /.test(f.descriptor))!
+  expect(top.descriptor).toBe('plane, normal +Z, z = 2.5, 1100 mm²')
+  expect(floor.descriptor).toBe('plane, normal +Z, z = 0.5, 100 mm²')
+
+  const unchecked = await checks('pocket')
+  const placed = await call(pocket, 'add_mark', { kind: 'pin', note: 'deeper?', ref: top.ref })
+  expect(placed.isError).toBe(false)
+  expect(placed.text).toBe(
+    `placed in layout main: (yours) M1 pin on ${floor.ref} (${floor.descriptor}) at (0, 0, 0.5): "deeper?"\nThe centre of ${top.ref} is not on it: the mark is placed on ${floor.ref}, the face under that point. Give a point on ${top.ref} to put it there.`
+  )
+  // The check that follows the adding finds it as it was said to be.
+  await checked('pocket', unchecked)
+  const [kept] = (await state()).marks as PinMark[]
+  expect(kept).toMatchObject({ id: 'M1', anchorState: 'ok', anchor: { point: [0, 0, 0.5], part: 'plate', ref: floor.ref, descriptor: floor.descriptor } })
+  expect(placed.text.split('\n')[0]).toBe(`placed in layout main: ${describeMark(kept)}`)
+  const [listed] = JSON.parse((await call(pocket, 'marks')).text) as Array<{ line: string }>
+  expect(listed.line).toBe(describeMark(kept))
 })

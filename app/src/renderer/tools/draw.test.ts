@@ -287,6 +287,21 @@ describe('the draw tool', () => {
     expect(navigation.at(-1)).toEqual([true])
   })
 
+  it('is no stroke when it goes out and back within 0.1 mm of where it began: simplified, it would be two points in one place', async () => {
+    const { ctx, committed, drafts } = fake({ locked: 'front' })
+    const tool = drawTool()
+    const at = (type: ViewportPointer['type'], px: number): ViewportPointer => ({ ...pointer(type, px / 500, 0), client: [px, 0] })
+    // 0.16 mm out and back: 0.32 mm of path, and nothing left of it between its ends.
+    routePointer(tool, at('down', 0), ctx)
+    routePointer(tool, at('move', 40), ctx)
+    routePointer(tool, at('move', 80), ctx)
+    routePointer(tool, at('move', 40), ctx)
+    routePointer(tool, at('up', 0), ctx)
+    await settled()
+    expect(committed).toEqual([])
+    expect(drafts.at(-1)).toBeNull()
+  })
+
   it('samples every 3 px the pointer travels', () => {
     const { ctx, drafts } = fake({ locked: 'front' })
     const tool = drawTool()

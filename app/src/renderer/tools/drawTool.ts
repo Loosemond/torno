@@ -36,6 +36,12 @@ function lengthOf(points: number[][]): number {
   return length
 }
 
+/** How far apart the points of a drawn line lie at most: the diagonal of the box around them. */
+function spanOf(points: number[][]): number {
+  if (points.length === 0) return 0
+  return Math.hypot(...points[0].map((_, k) => Math.max(...points.map((p) => p[k])) - Math.min(...points.map((p) => p[k]))))
+}
+
 /** How wide and how high a drawing on a plane is, in millimetres: `12.0 × 7.5 mm`. */
 function extent(points: [number, number][]): string {
   const us = points.map((p) => p[0])
@@ -57,7 +63,8 @@ function extent(points: [number, number][]): string {
  *
  * Either way the stroke is simplified when it is let go (to at most the
  * points main keeps: it would cut more without a word), a stroke of fewer
- * than two points or shorter than 0.1 mm is none, and the wheel still zooms
+ * than two points, shorter than 0.1 mm, or whose simplified points all lie
+ * within 0.1 mm of one another is none, and the wheel still zooms
  * while drawing. On a locked view every press of the left button draws, so
  * a press with Alt held is left alone: it turns the camera, as on any view.
  */
@@ -165,8 +172,9 @@ export function drawTool(): Tool {
         drawing.on === 'surface'
           ? { ...drawing, points: simplify(drawing.points, TOLERANCE_MM, MAX_STROKE_POINTS) }
           : { ...drawing, points: simplify(drawing.points, TOLERANCE_MM, MAX_STROKE_POINTS) }
-      // Measured as it was drawn: a small circle is short from end to end, and long.
-      const short = lengthOf(drawing.points) < MIN_LENGTH_MM
+      // Measured as it was drawn: a small circle is short from end to end, and long. And as it will be
+      // kept: a line out and back within the tolerance is two points in one place once it is simplified.
+      const short = lengthOf(drawing.points) < MIN_LENGTH_MM || spanOf(drawn.points) < MIN_LENGTH_MM
       drop(ctx)
       if (drawn.points.length < 2 || short) return ctx.viewport.setDraft(null)
       // Stays drawn, as it will be kept, until main has it.

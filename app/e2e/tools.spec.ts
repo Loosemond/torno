@@ -969,6 +969,34 @@ test('a click beside the parts places the shape on the ground at the middle of t
   await page.keyboard.press('v')
 })
 
+test('a note that goes away by itself keeps what was typed; Control+A selects all of it though there is no menu', async () => {
+  await page.keyboard.press('1')
+  await page.keyboard.press('p')
+  await expect(tool('Pin')).toHaveAttribute('aria-pressed', 'true')
+  const at: Vec3 = [-16, -11, 2.5]
+  expect((await pickOver(at))?.part).toBe('base')
+  await clickOver(at)
+  await expect(field()).toBeFocused()
+  const id = (await state()).noting!
+  await page.keyboard.type('first thought')
+  await page.keyboard.press('Control+A')
+  await page.keyboard.type('make this 8 mm')
+  await expect(field()).toHaveValue('make this 8 mm')
+  // Undo is the field's own too: it brings back what the typing replaced.
+  await page.keyboard.press('Control+Z')
+  await expect(field()).not.toHaveValue('make this 8 mm')
+  await page.keyboard.press('Control+A')
+  await page.keyboard.type('make this 8 mm')
+  expect(marksOnDisk().marks.find((m) => m.id === id)?.note).toBe('')
+
+  // Resolved from elsewhere, as the agent does: the card goes with no press and no key.
+  await page.evaluate((mark) => window.torno.marks.update('bracket', mark, { status: 'resolved' }), id)
+  await expect(card()).toHaveCount(0)
+  await expect.poll(() => marksOnDisk().marks.find((m) => m.id === id)?.note).toBe('make this 8 mm')
+  await page.keyboard.press('Escape')
+  await expect(tool('Select')).toHaveAttribute('aria-pressed', 'true')
+})
+
 // Set TORNO_SHOTS=<dir> to write tool-pin-light.png, tool-arrow-light.png,
 // tool-draw-light.png, tool-shape-light.png and their -dark twins there: the
 // note open on a fresh pin, an arrow being dragged with its readout, a profile

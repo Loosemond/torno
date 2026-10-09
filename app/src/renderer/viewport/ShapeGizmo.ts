@@ -19,12 +19,15 @@ const STEPS_PER_MM = 100
  * press it belongs to began on the gizmo (to be handed back with the next
  * event of that press). The gizmo has the pointer over a handle while no
  * button is held, and for the whole of a press that began on a handle, its
- * release included. A press that began elsewhere stays the tool's wherever it
+ * release included; a move with no button held ends a press whose release was
+ * missed. A press that began elsewhere stays the tool's wherever it
  * goes: a stroke drawn across a handle is not cut short, though the gizmo
  * still notices the pointer passing over it.
  */
 export function gizmoTakes(gizmo: { dragging: boolean; onHandle: boolean }, e: { kind: PointerKind; buttons: number }, press: boolean): { takes: boolean; press: boolean } {
-  const began = e.kind === 'down' ? gizmo.dragging || gizmo.onHandle : press
+  // A move with no button held: the press is over, though its release never reached the canvas.
+  const released = e.kind === 'move' && e.buttons === 0
+  const began = e.kind === 'down' ? gizmo.dragging || gizmo.onHandle : press && !released
   const hovering = e.kind === 'move' && e.buttons === 0 && gizmo.onHandle
   return { takes: began || hovering || gizmo.dragging, press: e.kind === 'up' || e.kind === 'cancel' ? false : began }
 }

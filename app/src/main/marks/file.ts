@@ -202,7 +202,7 @@ function strokeOf(base: Omit<StrokeMark, 'kind' | 'space' | 'anchor'>, anchor: A
     const x = tuple<Vec3>(plane.x, 3)
     const y = tuple<Vec3>(plane.y, 3)
     if (!origin || !x || !y || typeof plane.label !== 'string' || !Array.isArray(value.points2d)) return null
-    return { ...base, kind: 'stroke', space: 'plane', anchor, plane: { origin, x, y, label: plane.label }, points2d: tuples<[number, number]>(value.points2d, 2) }
+    return { ...base, kind: 'stroke', space: 'plane', anchor, plane: { origin, x, y, label: planeLabel(plane.label) }, points2d: tuples<[number, number]>(value.points2d, 2) }
   }
   return null
 }
@@ -256,4 +256,12 @@ function isNumber(value: unknown): value is number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** The longest label a plane keeps. */
+export const MAX_PLANE_LABEL = 120
+
+/** A plane's label as it is kept: on one line and no longer than `MAX_PLANE_LABEL`. The agent is given it as it is. */
+function planeLabel(label: string): string {
+  return label.replace(/\s*[\r\n\u0085\u2028\u2029]+\s*/g, ' ').trim().slice(0, MAX_PLANE_LABEL)
 }

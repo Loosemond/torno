@@ -44,6 +44,19 @@ test('with no folder open, the window is one prompt with one button', async () =
   }
 })
 
+test('there is no menu: a lone Alt has no menu bar to show', async () => {
+  const menu = await app.evaluate(({ BrowserWindow, Menu }) => ({
+    application: Menu.getApplicationMenu() === null,
+    visible: BrowserWindow.getAllWindows()[0].isMenuBarVisible()
+  }))
+  expect(menu).toEqual({ application: true, visible: false })
+  // Pressed and let go, it resizes nothing.
+  const before = await page.evaluate(() => [window.innerWidth, window.innerHeight])
+  await page.keyboard.press('Alt')
+  await page.waitForTimeout(200)
+  expect(await page.evaluate(() => [window.innerWidth, window.innerHeight])).toEqual(before)
+})
+
 test('the window is hidden, 1440 × 900, and titled torno', async () => {
   const win = await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0]

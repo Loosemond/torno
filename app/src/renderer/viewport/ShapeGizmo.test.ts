@@ -49,6 +49,19 @@ describe('whose the pointer is, the gizmo’s or the tool’s', () => {
     ).toEqual([false, false, false, false, false, false])
   })
 
+  it('takes a move with no button held for the end of a press whose release never came: the pointer is the tool’s again', () => {
+    expect(
+      run([
+        { kind: 'down', buttons: 1, gizmo: ON },
+        { kind: 'move', buttons: 1, gizmo: OFF },
+        // Let go beside the window: the canvas is told of no release.
+        { kind: 'move', buttons: 0, gizmo: OFF },
+        { kind: 'move', buttons: 0, gizmo: OFF },
+        { kind: 'move', buttons: 0, gizmo: ON }
+      ])
+    ).toEqual([true, true, false, false, true])
+  })
+
   it('forgets a press when the pointer is taken away', () => {
     expect(run([{ kind: 'down', buttons: 1, gizmo: ON }, { kind: 'cancel', buttons: 0, gizmo: OFF }, { kind: 'move', buttons: 1, gizmo: OFF }])).toEqual([true, true, false])
   })

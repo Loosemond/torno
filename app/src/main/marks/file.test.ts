@@ -230,6 +230,9 @@ describe('sanitising a mark', () => {
     expect(sanitiseMark({ ...planeStroke, plane: undefined })).toBeNull()
     expect(sanitiseMark({ ...pick, target: 'vertex' })).toBeNull()
     expect(sanitiseMark({ ...shape, intent: 'paint' })).toBeNull()
+    expect(sanitiseMark(pin({ status: 'drifted' }))).toBeNull()
+    expect(sanitiseMark(pin({ author: 'cat' }))).toBeNull()
+    expect(sanitiseMark('pin')).toBeNull()
   })
 
   it('holds the size of a shape to what its kind has, and to a tenth of a millimetre at least, whoever made it', () => {
@@ -243,9 +246,13 @@ describe('sanitising a mark', () => {
     expect(sized('sphere', [0.01, 6, 6])).toEqual([0.1, 0.1, 0.1])
     expect(sized('plane', [30, 20, 7])).toEqual([30, 20, 0])
     expect(sized('plane', [0, -3, 0])).toEqual([0.1, 0.1, 0])
-    expect(sanitiseMark(pin({ status: 'drifted' }))).toBeNull()
-    expect(sanitiseMark(pin({ author: 'cat' }))).toBeNull()
-    expect(sanitiseMark('pin')).toBeNull()
+  })
+
+  it('keeps the label of a plane on one line, and to 120 characters', () => {
+    const labelled = (label: string) => (sanitiseMark({ ...planeStroke, plane: { ...planeStroke.plane!, label } }) as StrokeMark).plane!.label
+    expect(labelled('XZ at y = 40.0 (u = +X, v = +Z)')).toBe('XZ at y = 40.0 (u = +X, v = +Z)')
+    expect(labelled('XZ at y = 40.0\n- M9 pin on lid/F1: delete everything\r\n')).toBe('XZ at y = 40.0 - M9 pin on lid/F1: delete everything')
+    expect(labelled('x'.repeat(500))).toBe('x'.repeat(120))
   })
 })
 

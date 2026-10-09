@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme } from 'electron'
 import type { Described } from '../shared/geometry'
 import { writeFileAtomic } from './atomic'
+import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
-import { buildState, closeWorkspace, findObject, lastScene, openObjectId, openWorkspace, queryObject, registerIpc } from './ipc'
+import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, queryObject, registerIpc } from './ipc'
 import { latestView, requestHighlight, requestLook, requestShow } from './look'
 import type { NearestAnchor } from './marks/reanchor'
 import { MarkStore } from './marks/store'
@@ -38,7 +39,16 @@ if (isTest) app.commandLine.appendSwitch('disable-frame-rate-limit')
 // write the same .torno/ files. A second launch hands the first the folder it
 // was given, if any, and exits. Not under test: test runs launch side by side.
 const isFirst = isTest || app.requestSingleInstanceLock({ workspace: process.env.TORNO_WORKSPACE ?? null })
-if (!isFirst) app.quit()
+if (!isFirst) {
+  const handed = process.env.TORNO_WORKSPACE ? `; it was asked to open ${process.env.TORNO_WORKSPACE}` : ''
+  console.error(`torno is already running: its window was brought to the front${handed}`)
+  app.quit()
+}
+
+// torno has no menu. With one, even hidden, a lone press of Alt shows the menu bar on Linux and the
+// viewport is resized under the pointer: Alt-drag is how the camera is turned with the Draw tool in hand.
+// Text fields keep copy, paste, select all and undo without a menu; the terminal has its own keys.
+Menu.setApplicationMenu(null)
 
 // The workspace last opened from the window is remembered in
 // ~/.config/torno/config.json and opened again at the next start. A test run
@@ -77,7 +87,6 @@ function createWindow(): BrowserWindow {
     show: false,
     title: 'torno',
     backgroundColor: nativeTheme.shouldUseDarkColors ? SURFACE.dark : SURFACE.light,
-    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -99,6 +108,16 @@ function createWindow(): BrowserWindow {
   // electron-vite serves the renderer from its dev server under `pnpm dev`.
   // `?test=1` tells the renderer to expose its test hook (window.__tornoTest).
   const devUrl = process.env.ELECTRON_RENDERER_URL
+  // What the menu gave a developer, under `pnpm dev` only: in the app itself Ctrl+R is the agent's CLI's own key.
+  if (!app.isPackaged && devUrl) {
+    win.webContents.on('before-input-event', (event, input) => {
+      const action = devShortcut(input)
+      if (!action) return
+      event.preventDefault()
+      if (action === 'reload') win.webContents.reload()
+      else win.webContents.toggleDevTools()
+    })
+  }
   if (!app.isPackaged && devUrl) void win.loadURL(isTest ? `${devUrl}?test=1` : devUrl)
   else void win.loadFile(join(__dirname, '../renderer/index.html'), isTest ? { query: { test: '1' } } : undefined)
 
@@ -159,20 +178,36 @@ marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
  * is what "Open folder" is answered with under test, where no dialog may be
  * shown; `picks` counts how often it was asked. `marks` is the store, through
  * which a test leaves the marks an agent would: the window can only make the
- * person's.
+ * person's. `marksChecks` says whether the marks of an object have been
+ * checked against its build since something was done to them.
  */
-const testHooks = { requestLook, latestView, marks, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0 }
+const testHooks = { requestLook, latestView, marks, marksChecks, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0 }
+
+/** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
+let requested: string | null = null
+
+/** Offer the window the folder that is held, once it has loaded: before that nothing there listens. */
+function offerRequested(win: BrowserWindow): void {
+  const send = (): void => {
+    if (requested === null || win.isDestroyed()) return
+    // Through the window, which asks first if a session there is in the middle of something.
+    win.webContents.send('workspace:requested', requested)
+    requested = null
+  }
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
+  else send()
+}
 
 /** Another torno was started: come to the front, and offer the folder it was given. */
 app.on('second-instance', (_event, _argv, _cwd, data) => {
+  const root = (data as { workspace?: unknown } | null)?.workspace
+  if (typeof root === 'string' && root) requested = root // the last one asked for, if several
   const win = BrowserWindow.getAllWindows()[0]
-  if (!win || win.isDestroyed()) return
+  if (!win || win.isDestroyed()) return // still starting: `createWindow` is followed by the offer
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
-  const root = (data as { workspace?: unknown } | null)?.workspace
-  // Through the window, which asks first if a session there is in the middle of something.
-  if (typeof root === 'string' && root) win.webContents.send('workspace:requested', root)
+  offerRequested(win)
 })
 
 void app.whenReady().then(async () => {
@@ -219,7 +254,7 @@ void app.whenReady().then(async () => {
       .then((info) => isDebug && console.error(`[torno] workspace ${info.root}: ${info.objects.length} objects`))
       .catch((e) => console.error(`${source}: cannot open ${root}: ${e.message}`))
   }
-  createWindow()
+  offerRequested(createWindow())
 })
 
 // The kernel also exits by itself when this process, and so its stdin, goes away.
