@@ -90,7 +90,11 @@ In each object folder, `.torno/`:
 ```
 .torno/
   marks.json          all marks, open and resolved
-  scene.json          layer visibility, colours, named views, section state
+  scene.json          layer visibility, colours, the section, how far each layout is exploded, the saved views
+  thumb.png, thumb.json  a picture of the last build, for the page of objects
+  agent.json          which agent this object's sessions run
+  prompt.md           what an agent without hooks is told when the person sends their marks
+  exports/            HTML files the person exported (ignored by git)
   scans.json          every scan: its source (path, size, hash), how it was imported, one transform per layout
   scans/<id>/         mesh.bin (the scan, in mm, Z up) and one .mask per region painted on it
   views/              images the agent asked for (latest N)
@@ -187,7 +191,7 @@ The real CLI in a PTY, drawn with xterm.js, one or more per object. Launch argum
 - `--append-system-prompt` with a short description of torno's tools and the ref syntax
 - `--allowedTools mcp__torno__*`
 
-An **agent adapter** is a small config record: command, argument templates, how to pass MCP config, whether hooks exist. Claude Code is the first adapter. Codex, Gemini CLI and opencode are later adapters. A chat-panel adapter can be added without touching the rest.
+An **agent adapter** says how one CLI is started so that it knows torno (command, arguments, where the MCP server is, the system prompt) and whether it posts hooks. Claude Code does. Copilot CLI is the second adapter and does not: it reads its instructions from a folder torno names, is told of the build and the marks through .torno/prompt.md when the person presses "Send marks", and its status is only running or ended. The agent is chosen per object. Codex, Gemini CLI and opencode are not written: none was at hand to read the flags of.
 
 Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSubmit`, `Stop`, `Notification`, `PermissionRequest`, `SessionEnd`. (`SessionStart` does not fire as an HTTP hook and is not used.) Torno does not read Claude's private files.
 
@@ -201,10 +205,10 @@ Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSu
 
 | Tool | Returns |
 |---|---|
-| `scene()` | parts, layouts, scans, build status, revision, what is visible, the user's camera |
+| `scene()` | parts, layouts, scans, build status, revision, what is visible, the user's camera, the saved views and whether the view is exploded |
 | `marks(status?)` | marks as data |
 | `scans()` | the scans with their alignment in the layout, size, source |
-| `look(view?, parts?, section?, marks?, scans?, size?)` | an image. No arguments means exactly what the user sees. `view` is a preset name, a named view, or a camera. Each image has axes, a scale bar and mark numbers. |
+| `look(view?, parts?, section?, marks?, scans?, size?, explode?)` | an image. No arguments means exactly what the user sees. `view` is a preset name, a named view, or a camera. Each image has axes, a scale bar and mark numbers. |
 | `describe(ref)` | exact geometry of a part, face or edge, and its neighbours |
 | `measure(kind, a, b?)` | distance, angle, radius, thickness, bbox, mass |
 | `section(plane, parts?, scan?)` | image plus outlines in mm |
@@ -212,7 +216,8 @@ Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSu
 | `scan_clash(part, scan?, ignore?)` | scan points inside a part, in clusters, the deepest and the nearest outside; approximate |
 | `scan_deviation(part, faces?, scan?, region?, from?)` | how far a part, or faces of it, lies from a scan; approximate |
 | `highlight(refs, note?)` | shows the user those refs |
-| `show(view?, parts?, section?, scans?)` | changes the user's viewport |
+| `show(view?, parts?, section?, scans?, explode?)` | changes the user's viewport |
+| `save_view(name, …)` | proposes a saved view to the user |
 | `add_mark(...)`, `resolve_mark(id, note?)` | writes marks |
 
 Images come from the same renderer the user sees (a render target in the window, 20 to 30 ms at 1024 × 768), so the two sides never disagree about what is on screen. The long edge is capped at 2000 px, above which the CLI downscales.
@@ -225,7 +230,7 @@ Custom, on plain three.js with three-mesh-bvh. It is the centre of the product a
 
 - **Parts:** one mesh per part with per-face triangle ranges, plus true B-rep edges as lines. Z up, millimetres.
 - **Picking:** BVH raycast; the triangle index maps to a face through the cumulative `triangles_per_face`. Edges and vertices are picked within a pixel radius. Hover highlights the face or edge and shows its type and size.
-- **Layers:** every part, reference and scan has visibility, colour and opacity. Layout switch between assembly and print. Explode slider.
+- **Layers:** every part, reference and scan has visibility, colour and opacity. Layout switch between assembly and print. Explode slider: per layout, for display only. Nothing is marked, measured or cut while the parts are drawn apart, and no position told to the agent is an exploded one. A section is never drawn exploded.
 - **Views:** standard views, perspective/orthographic toggle, named views saved per object.
 - **Section:** one plane, axis-aligned or taken from a picked face, dragged along its normal, with stencil caps coloured per part. Scans are clipped without caps.
 - **Measure:** point, edge and face snapping; live readout from the mesh while hovering, the committed value from the kernel.
@@ -246,7 +251,7 @@ A transform is kept per layout; a scan with none for the layout shown is not ali
 
 ## 9. Show
 
-A scene with several objects, references and scans, switchable layers and named views, already is the "show". **Export** writes one self-contained HTML file with the same viewer reduced to layers, views, explode and scan opacity, for a phone or for publishing. Torno does not publish anything itself.
+The objects of a workspace are on one page of cards: a picture of the last build, its status, open marks and failing dimensions. **Export** writes one self-contained HTML file for one object or several: three.js and a small viewer inlined, meshes quantised and compressed, parts, layouts, explode, a clipping section, saved views, marks when asked, scans only when the person ticks them and then reduced to 60,000 triangles. It fetches nothing and opens from file://. Torno does not publish anything itself, and has no side-by-side comparison of objects.
 
 ## 10. Design language
 
@@ -257,7 +262,7 @@ Its own, and deliberately far from nerv's dark control room.
 - **Colour:** warm paper-grey surfaces and graphite text in light mode, with a matching dark mode. One accent, layout blue (the blue machinists paint on steel before scribing). User marks are red pencil, agent marks are green, so authorship is visible at a glance. Parts use a muted, distinguishable palette.
 - **Type:** a humanist sans for UI and a monospace with tabular figures for every number and ref. Sentence case. No all-caps labels.
 - **Feel:** small radii, hairline dividers, no glow, no ornament. Motion only where it explains a change (camera moves, a rebuild landing).
-- **Keyboard:** single-key tools (`P` pin, `A` arrow, `D` draw, `S` shape, `M` measure, `X` section), a command palette, and `Tab` between viewport and session.
+- **Keyboard:** single-key tools (`P` pin, `A` arrow, `D` draw, `S` shape, `M` measure, `X` section), `E` explode, and `?` for the sheet of keys.
 
 ## 11. Errors
 
@@ -282,4 +287,4 @@ Each is its own plan and ends in something usable.
 2. **Talk.** Picking, marks (pin, pick, arrow, stroke, shape), prompt context hook, insert ref, `marks`, `highlight`, `show`, `add_mark`, `resolve_mark`, `describe`.
 3. **Read.** Measure, pinned dimensions, section cut, `measure`, `section`, `check` for overlap, clearance and mesh.
 4. **Scan.** Import, align, overlay, regions, `scan_clash`.
-5. **Show.** Explode, named views, HTML export, more agent adapters, polish.
+5. **Show.** Explode, named views, the page of objects, HTML export, a second agent adapter, polish.
