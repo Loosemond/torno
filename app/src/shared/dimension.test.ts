@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dimensionText, isUnmeasured, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
+import { dimensionText, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
 import type { DimensionMark, Mark } from './marks'
 
 const dim = (over: Partial<DimensionMark> = {}): DimensionMark =>
@@ -91,5 +91,14 @@ describe('how a dimension stands on a build', () => {
     const { failing, unmeasured } = unmetDimensions(marks, 3)
     expect(failing.map((m) => m.id)).toEqual(['M1', 'M6'])
     expect(unmeasured.map((m) => m.id)).toEqual(['M3', 'M4'])
+  })
+})
+
+describe('an end that is off the edge it was put on', () => {
+  it('is said by main in words the window knows again', () => {
+    expect(offEdgeReason('plate/E7', 12)).toBe('the edge plate/E7 it was on is not under its end on r12')
+    expect(isOffEdge(offEdgeReason('plate/E7', 12))).toBe(true)
+    expect(isOffEdge('plate/F9 is a plane face: it has no diameter')).toBe(false)
+    expect(isOffEdge(undefined)).toBe(false)
   })
 })

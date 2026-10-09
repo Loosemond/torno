@@ -1,10 +1,11 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { Described } from '../../shared/geometry'
 import { type Anchor, type AnchorState, type Mark, type NewMark, type Replacement, type Vec3, markAnchors, strokeSamples, translated } from '../../shared/marks'
-import type { Part, Scene } from '../../shared/scene'
+import type { Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
-import { EDGE_TOLERANCE_MM, type RemeasureDeps, remeasureAll } from './measure'
+import { type RemeasureDeps, remeasureAll } from './measure'
+import { EDGE_TOLERANCE_MM, edgeIsUnder, edgeOfPin, tolerance } from './tolerance'
 import type { MarkStore, Reanchored } from './store'
 
 /**
@@ -50,9 +51,8 @@ export type AskedAnchor = { part: string; point: Vec3; edge?: string }
 
 export type Judged = { anchor: Anchor; state: AnchorState }
 
-const LEAST_TOLERANCE_MM = 0.5
-const TOLERANCE_OF_DIAGONAL = 0.005
-export { EDGE_TOLERANCE_MM }
+// Where these are kept, for whoever judges an anchor and whoever measures from one.
+export { EDGE_TOLERANCE_MM, edgeIsUnder, edgeOfPin, tolerance }
 const WORST_FIRST: AnchorState[] = ['orphaned', 'drifted', 'ok']
 /**
  * A stroke on the surface may run from one part onto the next, and its points
@@ -61,17 +61,6 @@ const WORST_FIRST: AnchorState[] = ['orphaned', 'drifted', 'ok']
  * the part the stroke began on only.
  */
 const STROKE_PARTS = 8
-
-/**
- * How far from the surface of a part an anchor may be and still be on it, in
- * mm: half a percent of the diagonal of the part's bounding box, and never
- * less than half a millimetre.
- */
-export function tolerance(bbox: Part['bbox'] | undefined): number {
-  if (!bbox) return LEAST_TOLERANCE_MM
-  const diagonal = Math.hypot(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2])
-  return Math.max(LEAST_TOLERANCE_MM, TOLERANCE_OF_DIAGONAL * diagonal)
-}
 
 /**
  * An anchor as a new build leaves it. Its part gone: orphaned, and kept as it
@@ -91,19 +80,12 @@ export function judge(anchor: Anchor, nearest: FoundAnchor | { part: string; fou
   return { anchor: refreshed, state: nearest.distance <= tolerance ? 'ok' : 'drifted' }
 }
 
-/** The edge a pin's anchor says it is on: the one it names, or its ref when that is an edge of its part (as the Pin tool leaves it). */
-export function edgeOfPin(anchor: Anchor): string | undefined {
-  if (anchor.part === undefined) return undefined
-  const isEdge = (ref: string | undefined): ref is string => ref !== undefined && ref.startsWith(`${anchor.part}/`) && /^E\d+$/.test(ref.slice(anchor.part!.length + 1))
-  return isEdge(anchor.edge) ? anchor.edge : isEdge(anchor.ref) ? anchor.ref : undefined
-}
-
 /**
  * The anchor of a pin as a new build leaves it: as `judge` says, and on an
  * edge when its point is on one. That is the edge the kernel found the point
- * on, whichever the pin names; else, when the kernel found it on a face, the
- * edge it names, while its point is within `EDGE_TOLERANCE_MM` of the edge of
- * that number. The anchor then names the edge as its ref, with
+ * on, whichever the pin names; else the edge it names, while that is under
+ * its point (`edgeIsUnder`: within `EDGE_TOLERANCE_MM` of the edge of that
+ * number). The anchor then names the edge as its ref, with
  * the faces that meet there when they are two, and has no normal: an edge has
  * no one normal. A pin that was on an edge and is on none now has drifted,
  * and keeps the edge it was put on, so that a build which puts the edge back
@@ -128,7 +110,8 @@ export function judgePin(anchor: Anchor, nearest: FoundAnchor | { part: string; 
   // The edge the kernel found the point on, before the one named: two edges may both be within the
   // tolerance (those of a narrow chamfer), and the point is on one of them.
   if (nearest.support === 'edge' && typeof nearest.edgeUnder === 'string' && onFace.state === 'ok') return on(nearest.edgeUnder, nearest.between, nearest.edgeUnderDescriptor)
-  if (named !== undefined && nearest.edgeFound === true && nearest.edgeDistance <= EDGE_TOLERANCE_MM) return on(named, nearest.edgeBetween, nearest.edgeDescriptor)
+  // The edge named, when it is under the point: found on it by the kernel is the case above, so by its distance.
+  if (named !== undefined && edgeIsUnder(nearest, named, tolerance) && nearest.edgeFound === true) return on(named, nearest.edgeBetween, nearest.edgeDescriptor)
   return named === undefined ? onFace : { anchor, state: 'drifted' }
 }
 

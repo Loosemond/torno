@@ -1,4 +1,4 @@
-import { verdictOf } from '../../shared/dimension'
+import { offEdgeReason, verdictOf } from '../../shared/dimension'
 import type { MeasureArgs, MeasureTarget, Measured } from '../../shared/geometry'
 import type { Anchor, DimensionMark, Mark, Measurement, NewMark, Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
@@ -6,6 +6,7 @@ import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
 import { sanitiseMark } from './file'
 import type { MarkStore, Remeasured } from './store'
+import { type NearEdge, edgeIsUnder, edgeOfPin, tolerance } from './tolerance'
 
 /** How long a new dimension waits for its value before it appears without one, to be given it when it comes. */
 export const APPEARS_AFTER_MS = 300
@@ -52,14 +53,6 @@ export function measureRequest(mark: Pick<DimensionMark, 'measure' | 'layout' | 
 const isPoint = (value: unknown): value is Vec3 => Array.isArray(value) && value.length === 3 && value.every((c) => typeof c === 'number' && Number.isFinite(c))
 
 /**
- * How far from an edge a point may be and still be on it, in mm, whatever the
- * size of the part: edges lie closer to one another than surfaces do (the two
- * of a 1 mm chamfer), and a tolerance that grew with the part would take one
- * for the other.
- */
-export const EDGE_TOLERANCE_MM = 0.5
-
-/**
  * Measures a dimension on the build `revision` of its object, the one its
  * ends' refs are of: the kernel is asked with each end's ref and point, and
  * what comes back is the value in full, how it was taken, the points it was
@@ -77,8 +70,9 @@ export const EDGE_TOLERANCE_MM = 0.5
  *   measured from the face its end names now, which the check of the marks
  *   refreshed. An end on an edge keeps the edge it was put on when that is
  *   no longer under it, to be found again should it come back, and that
- *   number may be another edge's now: it is asked first whether the edge is
- *   under the end (`offItsEdge`), and when it is not there is no value, and
+ *   number may be another edge's now, or the same edge somewhere else: it
+ *   is asked first whether the edge is under the end (`offItsEdge`, by the
+ *   rule the check judged it by), and when it is not there is no value, and
  *   `refused` says so. Nothing is measured from the face under it instead:
  *   that would be another measurement.
  *
@@ -109,7 +103,7 @@ export async function measureDimension(
     for (const end of between && mark.b ? [mark.a, mark.b] : [mark.a]) {
       const edge = await offItsEdge(deps, objectId, mark.layout, end)
       stillThat()
-      if (edge !== null) return { measuredRevision: revision, refused: `the edge ${edge} it was on is not under its end on r${revision}` }
+      if (edge !== null && revision !== undefined) return { measuredRevision: revision, refused: offEdgeReason(edge, revision) }
     }
   }
   const request = measureRequest(mark.measure === 'thickness' ? { ...mark, a: await onItsFace(deps, objectId, mark.layout, mark.a) } : mark)
@@ -134,26 +128,27 @@ export async function measureDimension(
 }
 
 /**
- * The edge an end names when that edge is not under the end on the build
- * there is; null when it is, or when the end names no edge. The kernel says
- * (`nearest`, asked with the edge): the point lies on the edge of that
- * number, or within `EDGE_TOLERANCE_MM` of it. Throws when the kernel does
- * not say: it is then not known what the ref names.
+ * The edge an end is on (`edgeOfPin`, as it is judged) when that edge is not
+ * under the end on the build there is; null when it is, or when the end is
+ * on no edge. The kernel is asked (`nearest`, with the edge), and what it
+ * says is held to the rule the check of the marks judges an end by
+ * (`edgeIsUnder`). Throws when the kernel does not say: it is then not known
+ * what the ref names.
  */
-async function offItsEdge(deps: Pick<MeasureDeps, 'query'>, objectId: string, layout: string, end: Anchor): Promise<string | null> {
-  const { part, ref } = end
-  if (part === undefined || ref === undefined || !ref.startsWith(`${part}/`) || !/^E\d+$/.test(ref.slice(part.length + 1))) return null
-  type Near = { found?: boolean; error?: unknown; support?: unknown; edgeUnder?: unknown; edgeFound?: unknown; edgeDistance?: unknown }
+async function offItsEdge(deps: MeasureDeps, objectId: string, layout: string, end: Anchor): Promise<string | null> {
+  const edge = edgeOfPin(end)
+  if (edge === undefined) return null
+  type Near = NearEdge & { found?: boolean; error?: unknown }
   let near: Near | null | undefined
   try {
-    near = (await deps.query<{ anchors?: Array<Near | null> }>(objectId, 'nearest', { layout, anchors: [{ part, point: end.point, edge: ref }] }))?.anchors?.[0]
+    near = (await deps.query<{ anchors?: Array<Near | null> }>(objectId, 'nearest', { layout, anchors: [{ part: end.part, point: end.point, edge }] }))?.anchors?.[0]
   } catch (e) {
     throw new Error(plain(e, layout))
   }
-  if (near?.found === false) return ref
-  if (near?.found !== true || near.error !== undefined) throw new Error(`the kernel did not say whether ${ref} is under its end`)
-  if (near.support === 'edge' && near.edgeUnder === ref) return null
-  return near.edgeFound === true && typeof near.edgeDistance === 'number' && near.edgeDistance <= EDGE_TOLERANCE_MM ? null : ref
+  if (near?.found === false) return edge
+  if (near?.found !== true || near.error !== undefined) throw new Error(`the kernel did not say whether ${edge} is under its end`)
+  const bbox = deps.scene(objectId)?.scene.parts.find((p) => p.layout === layout && p.name === end.part)?.bbox
+  return edgeIsUnder(near, edge, tolerance(bbox)) ? null : edge
 }
 
 /**

@@ -284,7 +284,7 @@ describe('a dimension in one line', () => {
     // Resolved, it is no longer measured: what it held is told as that, whichever build is the last, and never as `value`.
     for (const last of [4, 5, undefined]) {
       const resolved = markData(hole({ status: 'resolved', expected: 8, verdict: 'pass', points: [[-14, 5, 0], [-6, 5, 0]] }), last) as Record<string, unknown>
-      for (const key of ['value', 'how', 'points', 'verdict', 'wasValue']) expect(resolved).not.toHaveProperty(key)
+      for (const key of ['value', 'how', 'points', 'verdict', 'wasValue', 'measuredRevision']) expect(resolved).not.toHaveProperty(key)
       expect(resolved).toMatchObject({ status: 'resolved', resolvedValue: 8, resolvedVerdict: 'pass', resolvedOnRevision: 4 })
     }
     expect(markData(hole({ status: 'resolved', measuredRevision: undefined }), 5)).not.toHaveProperty('resolvedOnRevision')

@@ -168,10 +168,27 @@ describe('measureDimension', () => {
     })
 
     it('is measured when the edge is under its end still: it was another end that moved', async () => {
-      const k = kernel(() => SIX, near({ support: 'edge', edgeUnder: 'plate/E7', edgeFound: true, edgeDistance: 0 }))
+      const k = kernel(() => SIX, near({ distance: 0, support: 'edge', edgeUnder: 'plate/E7', edgeFound: true, edgeDistance: 0 }))
       expect(await onR3(k, 'measures', span())).toMatchObject({ value: 6.000000000000001, measuredRevision: 3 })
       expect(k.asked.map((q) => q.name)).toEqual(['nearest', 'measure'])
       expect(await onR3(kernel(() => SIX, near({ support: 'face', edgeFound: true, edgeDistance: 0.3 })), 'measures', span())).toMatchObject({ value: 6.000000000000001 })
+    })
+
+    it('is not measured through the edge of the same number when that is the nearest edge and not under its end: the plate got thinner', async () => {
+      // No renumbering: plate/E7 is still the top edge, now 1 mm below where the end was put. The kernel says the
+      // nearest point of the part is on an edge, as it does however far away that is.
+      const k = kernel(() => ({ ...SIX, value: 5 }), near({ distance: 1, support: 'edge', edgeUnder: 'plate/E7', edgeFound: true, edgeDistance: 1 }))
+      expect(await onR3(k, 'measures', span())).toEqual({ measuredRevision: 3, refused: 'the edge plate/E7 it was on is not under its end on r3' })
+      expect(k.asked.map((q) => q.name)).toEqual(['nearest'])
+      // Within the tolerance of the part's surface it is under it.
+      const close = kernel(() => SIX, near({ distance: 0.4, support: 'edge', edgeUnder: 'plate/E7' }))
+      expect(await onR3(close, 'measures', span())).toMatchObject({ value: 6.000000000000001 })
+    })
+
+    it('goes by the edge the end says it is on, before its ref', async () => {
+      const k = kernel(() => SIX, near({ distance: 0, support: 'edge', edgeUnder: 'plate/E7' }))
+      await onR3(k, 'measures', span({ a: { ...ON_EDGE, ref: 'plate/F5' } }))
+      expect((k.asked[0].args.anchors as object[])[0]).toEqual({ part: 'plate', point: [20, 3, 3], edge: 'plate/E7' })
     })
 
     it('asks nothing first of ends on faces, nor while no end has moved', async () => {

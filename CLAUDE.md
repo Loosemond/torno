@@ -129,7 +129,10 @@ While iterating run the focused test; run all four suites before a commit.
     refresh: an end on an edge keeps the edge it was put on when that is no
     longer under it, and is then not measurable (`the edge plate/E7 it was on
     is not under its end on r12`), never measured by that number nor from the
-    face under it. Besides that, only a lost part (`orphaned`) or a refusal by
+    face under it. Whether an edge is under a point is one rule
+    (`marks/tolerance.ts` `edgeIsUnder`), for judging an end and for
+    measuring through it. So a dimension between two edges of a plate that
+    gets thinner is not measurable: between its faces it is measured again. Besides that, only a lost part (`orphaned`) or a refusal by
     the kernel makes it `not measurable`; `refused` keeps the reason.
   - A measurement is of the build its refs are of: `measureDimension` is
     given that revision and rejects when the last build is another, before or

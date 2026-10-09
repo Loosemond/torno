@@ -65,7 +65,11 @@ export function markData(mark: Mark, revision: number | undefined): object {
   const { value: _value, how: _how, points: _points, verdict: _verdict, ...rest } = mark
   const last = lastValue(mark)
   const on = (key: string): object => (mark.measuredRevision === undefined ? {} : { [key]: mark.measuredRevision })
-  if (mark.status === 'resolved') return last === undefined ? rest : { ...rest, resolvedValue: last, ...(mark.verdict ? { resolvedVerdict: mark.verdict } : {}), ...on('resolvedOnRevision') }
+  if (mark.status === 'resolved') {
+    // Which build it was measured on is said once, as the build its resolved value is of.
+    const { measuredRevision: _on, ...settled } = rest
+    return last === undefined ? settled : { ...settled, resolvedValue: last, ...(mark.verdict ? { resolvedVerdict: mark.verdict } : {}), ...on('resolvedOnRevision') }
+  }
   if (standingOf(mark, revision) !== 'unmeasured' || last === undefined) return rest
   return { ...rest, wasValue: last, ...on('wasRevision') }
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { defaultTolerance, lastValue, measuredValue, offBy, standingOf, unmeasuredText, valueText } from '../../shared/dimension'
+import { defaultTolerance, isOffEdge, lastValue, measuredValue, offBy, standingOf, unmeasuredText, valueText } from '../../shared/dimension'
 import type { DimensionMark, MarkPatch } from '../../shared/marks'
 
 /** What the row says of a dimension the kernel cannot measure on the build on show. */
@@ -22,10 +22,24 @@ export function shownValue(mark: DimensionMark, revision: number): { text: strin
 /** `r12`, in the face of numbers. */
 const Rev = ({ revision }: { revision: number }) => <span className="num">r{revision}</span>
 
+/**
+ * What the person can do about a dimension whose end is no longer on the edge
+ * it was put on: said after the reason, in the row only. A dimension is not
+ * put somewhere else as a pin is, so it is measured anew; between faces it
+ * follows the part when that changes size.
+ */
+export const OFF_EDGE_ADVICE = ' — measure it again, or between faces'
+
+/** Why a dimension has no value of the build on show, in a few words; of an end off its edge, with what to do. */
+export function whyNotMeasurable(mark: DimensionMark): string {
+  if (mark.refused === undefined) return 'the kernel could not measure it on this build'
+  return `${mark.refused}${isOffEdge(mark.refused) ? OFF_EDGE_ADVICE : ''}`
+}
+
 /** Why a dimension has no value of the build on show, in a few words. */
 function WhyNone({ mark, revision }: { mark: DimensionMark; revision: number }) {
   if (mark.anchorState === 'orphaned') return <>the part an end of it was on is gone</>
-  if (standingOf(mark, revision) !== 'unmeasured') return <>{mark.refused ?? 'the kernel could not measure it on this build'}</>
+  if (standingOf(mark, revision) !== 'unmeasured') return <>{whyNotMeasurable(mark)}</>
   if (lastValue(mark) === undefined) return <>it is measured after every build</>
   return (
     <>

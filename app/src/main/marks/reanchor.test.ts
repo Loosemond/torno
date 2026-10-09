@@ -6,7 +6,7 @@ import type { Anchor, ArrowMark, DimensionMark, Mark, MarksFile, NewMark, PinMar
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import * as file from './file'
-import { type FoundAnchor, RETRY_AFTER_MS, asPlaced, checkMarks, coalesced, followMarks, judge, judgePin, reanchorAll, retrying, tolerance } from './reanchor'
+import { type FoundAnchor, RETRY_AFTER_MS, asPlaced, checkMarks, edgeIsUnder, coalesced, followMarks, judge, judgePin, reanchorAll, retrying, tolerance } from './reanchor'
 import { describeMark } from './describe'
 import { addDimension } from './measure'
 import { MarkStore } from './store'
@@ -85,6 +85,33 @@ describe('judge', () => {
   it('says nothing of a normal or a descriptor the kernel could not give: the old ones were of another face', () => {
     const { anchor } = judge(ON_TOP, found('base', 'base/F9', 0, { normal: null, descriptor: null }), 0.5)
     expect(anchor).toEqual({ point: [5, 3, 2.5], part: 'base', ref: 'base/F9' })
+  })
+})
+
+describe('edgeIsUnder: the one rule for whether an edge is under a point', () => {
+  const near = (more: object): FoundAnchor => ({ ...found('base', 'base/F1', 0), ...more }) as FoundAnchor
+
+  it('is so when the kernel finds the point on that edge, within the tolerance of the part’s surface', () => {
+    expect(edgeIsUnder(near({ support: 'edge', edgeUnder: 'base/E7' }), 'base/E7', 0.5)).toBe(true)
+    expect(edgeIsUnder(near({ distance: 0.5, support: 'edge', edgeUnder: 'base/E7' }), 'base/E7', 0.5)).toBe(true)
+    // The nearest point of the part is on that edge, a millimetre away: the kernel says `edge` however far it is.
+    expect(edgeIsUnder(near({ distance: 1, support: 'edge', edgeUnder: 'base/E7' }), 'base/E7', 0.5)).toBe(false)
+    expect(edgeIsUnder(near({ support: 'edge', edgeUnder: 'base/E9' }), 'base/E7', 0.5)).toBe(false)
+  })
+
+  it('or when the point is within half a millimetre of the edge of that number, whatever the size of the part', () => {
+    expect(edgeIsUnder(near({ support: 'face', edgeFound: true, edgeDistance: 0.5 }), 'base/E7', 3)).toBe(true)
+    expect(edgeIsUnder(near({ support: 'face', edgeFound: true, edgeDistance: 0.51 }), 'base/E7', 3)).toBe(false)
+    expect(edgeIsUnder(near({ distance: 1, support: 'edge', edgeUnder: 'base/E7', edgeFound: true, edgeDistance: 1 }), 'base/E7', 0.5)).toBe(false)
+    expect(edgeIsUnder(near({ support: 'face', edgeFound: false }), 'base/E7', 0.5)).toBe(false)
+    expect(edgeIsUnder(near({}), 'base/E7', 0.5)).toBe(false)
+  })
+
+  it('is what judgePin goes by: an end a millimetre off the edge it names has drifted, and keeps the edge', () => {
+    const end: Anchor = { point: [20, 3, 6], part: 'base', ref: 'base/E7', edge: 'base/E7' }
+    const lower = near({ distance: 1, support: 'edge', edgeUnder: 'base/E7', edgeFound: true, edgeDistance: 1 })
+    expect(judgePin(end, lower, 0.5)).toEqual({ anchor: end, state: 'drifted' })
+    expect(judgePin(end, near({ distance: 0.2, support: 'edge', edgeUnder: 'base/E7' }), 0.5).state).toBe('ok')
   })
 })
 

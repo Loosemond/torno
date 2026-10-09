@@ -89,6 +89,18 @@ export function verdictOn(mark: DimensionMark, revision: number | undefined): 'p
   return measuredValue(mark, revision) === undefined ? undefined : mark.verdict
 }
 
+/**
+ * Why a dimension with an end on an edge has no value when that edge is not
+ * under the end on the build `revision`: main says it (`refused`), and the
+ * window knows it again by `isOffEdge`, to say what can be done about it.
+ */
+export function offEdgeReason(edge: string, revision: number): string {
+  return `the edge ${edge} it was on is not under its end on r${revision}`
+}
+export function isOffEdge(refused: string | undefined): boolean {
+  return refused !== undefined && /^the edge \S+ it was on is not under its end on r\d+$/.test(refused)
+}
+
 /** `not measured on r12`: said of a dimension in place of a value that is not of the build there is; `not measured` when there is no build. */
 export function unmeasuredText(revision: number | undefined): string {
   return revision !== undefined && revision > 0 ? `not measured on r${revision}` : 'not measured'
