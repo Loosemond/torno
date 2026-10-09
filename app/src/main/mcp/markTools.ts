@@ -5,6 +5,7 @@ import type { Camera, HighlightResult } from '../../shared/view'
 import { describeMark, number, vector } from '../marks/describe'
 import { MAX_NOTE } from '../marks/file'
 import type { Unmeasured } from '../marks/measure'
+import { spreadApart } from '../marks/spread'
 import { EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance } from '../marks/reanchor'
 import {
   type AddMarkArgs,
@@ -391,13 +392,14 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
 
   let added: Mark
   let unmeasured: Unmeasured | undefined
+  let reason: string | undefined
   try {
-    if (mark.kind === 'dimension') ({ mark: added, unmeasured } = await deps.addDimension(objectId, mark))
+    if (mark.kind === 'dimension') ({ mark: added, unmeasured, reason } = await deps.addDimension(objectId, mark))
     else added = await deps.addMark(objectId, mark)
   } catch (e) {
     return failure(messageOf(e))
   }
-  if (added.kind === 'dimension' && unmeasured) return keptUnmeasured(deps, objectId, layout, added, unmeasured)
+  if (added.kind === 'dimension' && unmeasured) return keptUnmeasured(deps, objectId, layout, added, unmeasured, reason)
   // Placed on the last build that worked, which the agent may take for the model as it has just edited it.
   const why = behind(deps, objectId)
   const stale = why ? `, stale: ${why}, so the mark was placed on the parts of r${revision}; it is checked against the next build that works` : ''
@@ -409,17 +411,18 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
 /**
  * What is said of a dimension that was kept without a value: first that it
  * was not measured and why, so that the line after it is not taken for a
- * measurement, then that the mark is there and when it will have a value.
+ * measurement, then that the mark is there and when it will have a value
+ * (it is not to be placed again: that would leave two).
  * The revision is the last build's as of now: of a dimension the model was
  * rebuilt under, it is the newer one, on which its ends are yet to be found.
  */
-function keptUnmeasured(deps: ToolDeps, objectId: string, layout: string, added: Mark, why: Unmeasured): ToolResult {
+function keptUnmeasured(deps: ToolDeps, objectId: string, layout: string, added: Mark, why: Unmeasured, reason: string | undefined): ToolResult {
   const revision = deps.scene(objectId)?.revision
   const on = revision === undefined ? 'the next build' : `r${revision}`
   const said =
     why === 'rebuilt'
-      ? `the model was rebuilt while this was measured: ask again. ${added.id} was kept without a value, and is measured when its ends have been found on ${on}: read it then with describe.`
-      : `the kernel did not answer within its deadline. ${added.id} was kept without a value, and is measured when the marks are next checked against ${on}: read it then with describe.`
+      ? `the model was rebuilt while this was measured. ${added.id} was kept without a value, and is measured when its ends have been found on ${on}: read it then with describe.`
+      : `the kernel gave no answer${reason ? ` (${reason})` : ''}. ${added.id} was kept without a value, and is measured when the marks are next checked against ${on}: read it then with describe.`
   return { content: [{ type: 'text', text: `NOT MEASURED: ${said}\nplaced in layout ${layout}: ${describeMark(added, { revision })}\nrevision ${on}` }] }
 }
 
@@ -452,6 +455,9 @@ async function dimensionFor(
 
   const ends = await endsOf(deps, objectId, scene, revision, layout, [['a', args.a], ...(args.b === undefined ? [] : ([['b', args.b]] as Array<['b', EndArg]>))])
   if ('content' in ends) return ends
+  // Said before anything is asked; `addDimension` refuses it too, for whoever places one.
+  const apart = measure === 'distance' ? spreadApart(scene, layout, ends[0].part?.name, ends[1]?.part?.name, 'the distance between') : null
+  if (apart !== null) return failure(apart)
   const anchors: Anchor[] = []
   for (const end of ends) {
     if (end.ref === undefined) {

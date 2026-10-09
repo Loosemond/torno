@@ -6,6 +6,7 @@ import type { ObjectInfo } from '../../shared/workspace'
 import { KernelError } from '../kernel/client'
 import { number, sizes, vector } from '../marks/describe'
 import { plain, wire } from '../marks/measure'
+import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
 import { type PlaneArg, type ToolDeps, type ToolResult, NO_PLANE, SPREAD_NOTE, built, clampSize, failure, layoutFor, messageOf, notOpen, ofBuild, tidy } from './tools'
 
@@ -77,39 +78,8 @@ function clean<T>(value: T): T {
 
 const reply = (value: object): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value) }] })
 
-// A `print` layout whose parts overlapped as the model placed them is spread along X before anything is drawn
-// (`Part.arranged`), and the kernel answers of the parts where they are shown. What is of one part is the same
-// wherever the part is put; what is between two parts is then of torno's arrangement, and is not told as the model's.
-
-/** Whether torno moved this part to set it beside the others: only a part that was moved says how far (the first of a row stays). */
-const isSpread = (part: Part | undefined): boolean => part?.arranged !== undefined
-
-/**
- * The refusal of a question about two parts that torno spread apart, or null
- * when they are where the model placed them. `what` is what was asked of
- * them: `the distance between`. It names the layouts that have both parts
- * as placed, if any.
- */
-function spreadApart(scene: Scene, layout: string, a: Part | undefined, b: Part | undefined, what: string): ToolResult | null {
-  if (!a || !b || a.name === b.name || !(isSpread(a) || isSpread(b))) return null
-  const placed = (name: string, of: string): boolean => {
-    const part = scene.parts.find((p) => p.layout === of && p.name === name)
-    return part !== undefined && !isSpread(part)
-  }
-  const assembled = scene.layouts.filter((of) => of !== layout && placed(a.name, of) && placed(b.name, of))
-  const where =
-    assembled.length > 0
-      ? `Ask in a layout that places the parts as assembled (layouts: ${assembled.join(', ')}), or check each part by itself.`
-      : 'This object has no layout that places its parts as assembled: check each part by itself.'
-  return failure(
-    `In layout ${layout} torno spread these parts apart for display (they overlapped as the model placed them), so ${what} ${a.name} and ${b.name} there is torno's, not the model's. ${where}`
-  )
-}
-
-/** How far torno moved the one part an answer is of, for its points to be put back by; nothing of a part that was not moved. */
-function movedBy(part: Part | undefined): { arranged?: Vec3 } {
-  return part?.arranged?.some((c) => c !== 0) ? { arranged: part.arranged } : {}
-}
+/** A layout torno spread for display has parts that carry how far they were moved (`marks/spread.ts`, where the rule for what is then told is). */
+const inLayoutOf = (scene: Scene, layout: string) => (name: string): Part | undefined => scene.parts.find((p) => p.layout === layout && p.name === name)
 
 const BETWEEN = ['distance', 'angle']
 
@@ -125,8 +95,8 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
     if ('content' in ends) return ends
     const [a, b] = ends
     // An angle is the same wherever the parts are put: they are moved, never turned. A distance is not.
-    const apart = args.kind === 'distance' ? spreadApart(found.scene, layout, a.part, b?.part, 'the distance between') : null
-    if (apart) return apart
+    const apart = args.kind === 'distance' ? spreadApart(found.scene, layout, a.part?.name, b?.part?.name, 'the distance between') : null
+    if (apart !== null) return failure(apart)
     try {
       // A wall is measured at a point of its face: with none given, at the centre of the face, which the kernel refuses when it is not on it.
       if (args.kind === 'thickness' && a.ref !== undefined && a.point === undefined) {
@@ -144,9 +114,12 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const { layout, a, b, measured } = asked.got
   const reading = measureReading(measured, a, b)
   if (reading === null) return failure('the kernel did not answer with a measurement')
-  // Of one part: its points are where the part is shown.
-  const one = !b || b.part === undefined || b.part.name === a.part?.name ? a.part : undefined
-  return reply({ layout, ...ofBuild(deps, objectId), ...clean(measured), ...movedBy(one), reading })
+  // Of one part (an end that is a bare point is of none): its points are where the part is shown, and that is said.
+  // Of two, the points of an angle are apart as torno put the parts, and are left out where it moved one.
+  const parts = [...new Map([a, ...(b ? [b] : [])].flatMap((end) => (end.part ? [[end.part.name, end.part] as const] : []))).values()]
+  const { points: _points, ...angleOnly } = measured as Measured & { points?: unknown }
+  const told = parts.length === 2 && parts.some(isMoved) ? angleOnly : measured
+  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 ? movedForDisplay(parts[0], layout) : {}), reading })
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -219,8 +192,8 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
       if (checked.target !== 'part') return failure(`check ${args.kind} is of whole parts, and ${name} is ${checked.target === 'face' ? 'a face' : 'an edge'}: give ${checked.part.name}`)
       parts.push(checked.part)
     }
-    const apart = two ? spreadApart(found.scene, layout, parts[0], parts[1], args.kind === 'overlap' ? 'what is shared between' : 'the distance between') : null
-    if (apart) return apart
+    const apart = two ? spreadApart(found.scene, layout, parts[0].name, parts[1].name, args.kind === 'overlap' ? 'what is shared between' : 'the distance between') : null
+    if (apart !== null) return failure(apart)
     try {
       return { got: { layout, part: parts[0], checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, a: args.a, ...(two ? { b: args.b } : {}) }) } }
     } catch (e) {
@@ -232,7 +205,7 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   const reading = checkReading(args, checked)
   if (reading === null) return failure('the kernel did not answer with a check')
   // Where the open edges of a mesh are is where its part is shown.
-  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two ? {} : movedBy(part)), reading })
+  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two ? {} : movedForDisplay(part, layout)), reading })
 }
 
 /** A check in a line. Null for a reply that is none. */
@@ -290,9 +263,9 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   const { found } = asked
   // The build the outlines were cut on, said now: drawing them takes a while, and another build may land meanwhile.
   const of = { ...ofBuild(deps, objectId), revision: found.revision }
-  const inLayout = (name: string): Part | undefined => found.scene.parts.find((p) => p.layout === layout && p.name === name)
+  const inLayout = inLayoutOf(found.scene, layout)
   // Torno moved parts of this layout apart: the cut is of them where they are shown.
-  const spread = cut.parts.some((part) => isSpread(inLayout(part.part)))
+  const spread = cut.parts.some((part) => isMoved(inLayout(part.part)))
 
   // One part is given in full; of several, each loop in no more points than can be read.
   const full = args.parts?.length === 1

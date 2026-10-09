@@ -5,6 +5,7 @@ import type { Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
 import { sanitiseMark } from './file'
+import { spreadApart, spreadReason } from './spread'
 import type { MarkStore, Remeasured } from './store'
 import { type NearEdge, edgeIsUnder, edgeOfPin, tolerance } from './tolerance'
 
@@ -99,6 +100,9 @@ export async function measureDimension(
   }
   stillThat()
   const between = mark.measure === 'distance' || mark.measure === 'angle'
+  // How far apart two parts are that torno set side by side for display is no measurement of the model.
+  const spread = mark.measure === 'distance' && mark.b ? spreadReason(deps.scene(objectId)!.scene, mark.layout, mark.a.part, mark.b.part) : null
+  if (spread !== null && revision !== undefined) return { measuredRevision: revision, refused: spread }
   if (mark.anchorState === 'drifted') {
     for (const end of between && mark.b ? [mark.a, mark.b] : [mark.a]) {
       const edge = await offItsEdge(deps, objectId, mark.layout, end)
@@ -214,24 +218,32 @@ export async function addDimensionTold(
   objectId: string,
   mark: NewMark,
   status: 'draft' | 'sent' = 'draft'
-): Promise<{ mark: Mark; unmeasured?: Unmeasured }> {
+): Promise<{ mark: Mark; unmeasured?: Unmeasured; reason?: string }> {
   const probe = sanitiseMark({ ...Object(mark), id: 'M1', status: 'draft', anchorState: 'ok', createdAt: '' })
   if (probe?.kind !== 'dimension') return { mark: await deps.marks.add(objectId, mark, status) }
+  /** What went wrong asking the kernel, when it gave no answer. */
+  let reason: string | undefined
   /** The mark as it was kept, and why it has no value of the build there now is, if it has none. */
-  const told = (kept: Mark): { mark: Mark; unmeasured?: Unmeasured } => {
+  const told = (kept: Mark): { mark: Mark; unmeasured?: Unmeasured; reason?: string } => {
     const now = deps.scene(objectId)?.revision
     if (kept.kind !== 'dimension' || (now !== undefined && kept.measuredRevision === now)) return { mark: kept }
-    return { mark: kept, unmeasured: now !== probe.revision ? 'rebuilt' : 'unanswered' }
+    if (now !== probe.revision) return { mark: kept, unmeasured: 'rebuilt' }
+    return { mark: kept, unmeasured: 'unanswered', ...(reason === undefined ? {} : { reason }) }
   }
-  const built = deps.scene(objectId)?.revision
-  if (built === undefined) throw new Error(`there is no build of ${objectId} to measure on`)
+  const last = deps.scene(objectId)
+  if (last === undefined) throw new Error(`there is no build of ${objectId} to measure on`)
+  const built = last.revision
   if (probe.revision !== built) throw new Error(`it was placed on r${probe.revision}, and the part has been built again since (r${built}): measure it again`)
+  // Between two parts torno spread apart, a distance would be kept as a check of torno's spacing: it is not kept, whoever asks.
+  const apart = probe.measure === 'distance' ? spreadApart(last.scene, probe.layout, probe.a.part, probe.b?.part, 'the distance between') : null
+  if (apart !== null) throw new Error(apart)
 
   /** What the kernel said; null when it could not be asked. Throws its reason when it refused. */
   const measuring: Promise<Measurement | null> = measureDimension(deps, objectId, probe, probe.revision).then(
     (measured) => measured,
     (e: unknown) => {
-      ;(deps.log ?? console.error)(`cannot measure a new dimension of ${objectId} yet: ${e instanceof Error ? e.message : String(e)}`)
+      reason = e instanceof Error ? e.message : String(e)
+      ;(deps.log ?? console.error)(`cannot measure a new dimension of ${objectId} yet: ${reason}`)
       return null
     }
   )

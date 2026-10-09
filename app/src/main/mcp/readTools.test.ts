@@ -7,7 +7,7 @@ import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState
 import { KernelError } from '../kernel/client'
 import { addMarkTool } from './markTools'
 import { MAX_LOOP_POINTS, checkTool, measureTool, sectionTool, thinned } from './readTools'
-import { type ToolDeps, type ToolResult, lookTool, sceneTool, showTool, TOOLS } from './tools'
+import { type ToolDeps, type ToolResult, describeTool, lookTool, sceneTool, showTool, TOOLS } from './tools'
 
 // The tools the agent reads the part with, against stand-ins for the kernel,
 // the marks and the window: what is asked of each is kept, and what the
@@ -19,6 +19,7 @@ const SCENE: Scene = { model: 'box.py', layouts: ['assembly', 'print'], parts: [
 /** The same, with the parts of the print layout spread: they overlapped as the model placed them, and torno moved the lid 45 mm along X. */
 const SPREAD: Scene = { ...SCENE, parts: [part('assembly', 'tub'), part('assembly', 'lid'), part('print', 'tub'), part('print', 'lid', { arranged: [45, 0, 0] })] }
 const spread = (says?: Parameters<typeof fake>[0], scene: Scene = SPREAD): Fake => fake(says, { scene: () => ({ revision: 4, scene }) })
+const MOVED = 'lid was moved by torno for display in layout print: these coordinates are in the displayed frame; subtract arranged for the model’s own.'
 const SPREAD_NOTE = 'The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
 const CAMERA: Camera = { position: [100, -80, 60], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const VIEW: ViewState = { objectId: 'box', layout: 'assembly', camera: CAMERA, visible: ['assembly:tub', 'assembly:lid'] }
@@ -410,6 +411,13 @@ describe('a layout whose parts torno spread apart for display', () => {
     expect(await checkTool(deps, 'box', { kind: 'clearance', a: 'lid', b: 'tub', layout: 'print' })).toEqual(refusal('the distance between'))
     expect(await measureTool(deps, 'box', { kind: 'distance', a: 'lid/F1', b: { ref: 'tub/F2', point: [1, 2, 3] }, layout: 'print' })).toEqual(refusal('the distance between'))
     expect(await measureTool(deps, 'box', { kind: 'distance', a: 'lid', b: 'tub', layout: 'print' })).toEqual(refusal('the distance between'))
+    // A mark stands for the part it is on, here as anywhere.
+    const onLid: Mark = { ...MARK, id: 'M1', kind: 'pin', layout: 'print', anchor: { point: [45, 0, 2], part: 'lid', ref: 'lid/F1' } }
+    const marked = fake(undefined, { scene: () => ({ revision: 4, scene: SPREAD }), marks: async () => [onLid] })
+    expect(await measureTool(marked, 'box', { kind: 'distance', a: 'M1', b: 'tub/F2', layout: 'print' })).toEqual(refusal('the distance between'))
+    // And a dimension between them is not left as a check of the part.
+    expect(await addMarkTool(deps, 'box', { kind: 'dimension', note: '', measure: 'distance', a: 'lid/F5', b: 'tub/F5', layout: 'print', expected: 2 })).toEqual(refusal('the distance between'))
+    expect(deps.added).toEqual([])
     expect(deps.queries).toEqual([])
     // With no other layout, that is said.
     const only: Scene = { ...SPREAD, layouts: ['print'], parts: SPREAD.parts.filter((p) => p.layout === 'print') }
@@ -425,17 +433,27 @@ describe('a layout whose parts torno spread apart for display', () => {
 
   it('answers what is of one part as ever, with how far that part was moved so that its points can be put back', async () => {
     const hole = { kind: 'diameter', value: 8, unit: 'mm', how: 'cylinder', points: [[41, 0, 0], [49, 0, 0]], exact: true }
-    expect(data(await measureTool(spread(() => hole), 'box', { kind: 'diameter', a: 'lid/F3', layout: 'print' }))).toEqual({ layout: 'print', revision: 4, ...hole, arranged: [45, 0, 0], reading: '⌀ 8 mm, lid/F3' })
+    expect(data(await measureTool(spread(() => hole), 'box', { kind: 'diameter', a: 'lid/F3', layout: 'print' }))).toEqual({ layout: 'print', revision: 4, ...hole, arranged: [45, 0, 0], note: MOVED, reading: '⌀ 8 mm, lid/F3' })
+    // A free point and a part are of that one part, whichever is named first.
+    const toPoint = { kind: 'distance', value: 3, unit: 'mm', how: 'point to plane', points: [[45, 0, 5], [45, 0, 2]], exact: true }
+    for (const ends of [{ a: { point: [45, 0, 5] }, b: 'lid/F1' }, { a: 'lid/F1', b: { point: [45, 0, 5] } }] as const) {
+      expect(data(await measureTool(spread(() => toPoint), 'box', { kind: 'distance', ...ends, layout: 'print' } as never))).toMatchObject({ value: 3, arranged: [45, 0, 0], note: MOVED })
+    }
     // Two ends on one part are of that part.
     const within = { kind: 'distance', value: 2, unit: 'mm', how: 'between planes', exact: true }
     expect(data(await measureTool(spread(() => within), 'box', { kind: 'distance', a: 'lid/F1', b: 'lid/F2', layout: 'print' }))).toMatchObject({ value: 2, arranged: [45, 0, 0] })
     // A part that was not moved says nothing of it, and a mesh is the part's own.
     expect(data(await measureTool(spread(() => hole), 'box', { kind: 'diameter', a: 'tub/F3', layout: 'print' }))).not.toHaveProperty('arranged')
     const mesh = data(await checkTool(spread(() => ({ watertight: true, openEdges: 0, where: [], triangles: 12 })), 'box', { kind: 'mesh', a: 'lid', layout: 'print' }))
-    expect(mesh).toMatchObject({ reading: 'mesh of lid: closed, 12 triangles', arranged: [45, 0, 0] })
+    expect(mesh).toMatchObject({ reading: 'mesh of lid: closed, 12 triangles', arranged: [45, 0, 0], note: MOVED })
     // An angle is the same wherever the parts are put: they were moved, not turned.
-    const angle = { kind: 'angle', value: 90, unit: 'deg', how: 'between normals', exact: true }
-    expect(data(await measureTool(spread(() => angle), 'box', { kind: 'angle', a: 'lid/F1', b: 'tub/F2', layout: 'print' })).reading).toBe('90° between normals, lid/F1 to tub/F2')
+    // Where its two ends are relative to each other is torno's, though: the points are left out.
+    const angle = { kind: 'angle', value: 90, unit: 'deg', how: 'between normals', points: [[45, 0, 0], [0, 0, 0]], exact: true }
+    const between = data(await measureTool(spread(() => angle), 'box', { kind: 'angle', a: 'lid/F1', b: 'tub/F2', layout: 'print' }))
+    expect(between.reading).toBe('90° between normals, lid/F1 to tub/F2')
+    expect(between).not.toHaveProperty('points')
+    expect(between).not.toHaveProperty('arranged')
+    expect(data(await measureTool(spread(() => angle), 'box', { kind: 'angle', a: 'lid/F1', b: 'tub/F2', layout: 'assembly' }))).toHaveProperty('points')
   })
 
   it('cuts them where they are shown, and says so: a note, how far each part was moved, the reading, and the title of the drawing', async () => {
@@ -451,6 +469,25 @@ describe('a layout whose parts torno spread apart for display', () => {
     const unspread = data(await sectionTool(plain, 'box', { plane: { axis: 'z', at: 3 }, layout: 'print' }))
     expect(unspread).not.toHaveProperty('note')
     expect(plain.drawings[0].spread).toBe(false)
+  })
+})
+
+describe('describe and the caps of the inputs', () => {
+  it('describe says of a part torno moved how far, so that its centre and its box can be put back', async () => {
+    const moved = data(await describeTool(spread(), 'box', { ref: 'lid/F5', layout: 'print' }))
+    expect(moved).toMatchObject({ layout: 'print', center: [0, 0, 3], arranged: [45, 0, 0], note: MOVED })
+    const still = data(await describeTool(spread(), 'box', { ref: 'tub/F5', layout: 'print' }))
+    expect(still).not.toHaveProperty('arranged')
+    expect(still).not.toHaveProperty('note')
+  })
+
+  it('no tool takes more than 64 part names', () => {
+    const names = (count: number): string[] => Array.from({ length: count }, (_, i) => `p${i}`)
+    for (const tool of [TOOLS.look, TOOLS.show, TOOLS.section]) {
+      const parts = (tool.inputSchema as unknown as { parts: { safeParse(value: unknown): { success: boolean } } }).parts
+      expect(parts.safeParse(names(64)).success).toBe(true)
+      expect(parts.safeParse(names(65)).success).toBe(false)
+    }
   })
 })
 
@@ -552,15 +589,15 @@ describe('add_mark with a dimension', () => {
   })
 
   it.each([
-    ['rebuilt', 5, 'NOT MEASURED: the model was rebuilt while this was measured: ask again. M9 was kept without a value, and is measured when its ends have been found on r5: read it then with describe.'],
-    ['unanswered', 4, 'NOT MEASURED: the kernel did not answer within its deadline. M9 was kept without a value, and is measured when the marks are next checked against r4: read it then with describe.']
+    ['rebuilt', 5, 'NOT MEASURED: the model was rebuilt while this was measured. M9 was kept without a value, and is measured when its ends have been found on r5: read it then with describe.'],
+    ['unanswered', 4, 'NOT MEASURED: the kernel gave no answer (the worker died). M9 was kept without a value, and is measured when the marks are next checked against r4: read it then with describe.']
   ] as const)('says first that a dimension was kept without a value, and why (%s), so that its line is not read as a measurement', async (unmeasured, now, first) => {
     let revision = 4
     const deps = fake(undefined, {
       scene: () => ({ revision, scene: SCENE }),
       addDimension: async (_objectId, mark) => {
         revision = now
-        return { mark: { ...mark, id: 'M9', status: 'sent', anchorState: 'ok', createdAt: MARK.createdAt } as Mark, unmeasured }
+        return { mark: { ...mark, id: 'M9', status: 'sent', anchorState: 'ok', createdAt: MARK.createdAt } as Mark, unmeasured, ...(unmeasured === 'unanswered' ? { reason: 'the worker died' } : {}) }
       }
     })
     const result = await addMarkTool(deps, 'box', { kind: 'dimension', note: '', measure: 'diameter', a: 'tub/F5', expected: 8 })

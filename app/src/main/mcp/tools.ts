@@ -22,6 +22,7 @@ import {
 import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, markData } from '../marks/describe'
 import type { Unmeasured } from '../marks/measure'
+import { movedForDisplay } from '../marks/spread'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { type EndArg, addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { checkTool, measureTool, sectionTool } from './readTools'
@@ -51,7 +52,7 @@ export interface ToolDeps {
    * Keeps a dimension of the agent's, measured by the kernel as it is kept. Rejects with the kernel's reason when it
    * cannot be measured, and nothing is kept. One kept without a value of the last build says why (`unmeasured`).
    */
-  addDimension(objectId: string, mark: NewMark): Promise<{ mark: Mark; unmeasured?: Unmeasured }>
+  addDimension(objectId: string, mark: NewMark): Promise<{ mark: Mark; unmeasured?: Unmeasured; reason?: string }>
   /** Changes a mark. Rejects with a text that names the marks there are when there is none of that id. */
   updateMark(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
   /** What the kernel says of a part, a face or an edge of the last successful build, in a layout. Rejects with a text. */
@@ -586,8 +587,8 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
   if (typeof checked === 'string') return failure(checked)
   try {
     const described = await deps.describe(objectId, layout, args.ref)
-    // As of the answer: a build may have ended while the kernel was asked.
-    return json({ layout, ...ofBuild(deps, objectId), ...described })
+    // As of the answer: a build may have ended while the kernel was asked. Its centre and its box are where the part is shown.
+    return json({ layout, ...ofBuild(deps, objectId), ...described, ...movedForDisplay(checked.part, layout) })
   } catch (e) {
     return failure(messageOf(e))
   }

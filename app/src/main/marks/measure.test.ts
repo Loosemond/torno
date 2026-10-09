@@ -356,7 +356,7 @@ describe('adding a dimension', () => {
 
   it('says why one that was kept has no value, for whoever is told of it: the model was rebuilt, or the kernel did not answer; and nothing of one that has', async () => {
     const slow = await addDimensionTold({ ...kernel(() => { throw new KernelError('timeout', 'the query took longer than 30 s') }), marks: marks(), log: () => {} }, 'measures', hole())
-    expect(slow.unmeasured).toBe('unanswered')
+    expect(slow).toMatchObject({ unmeasured: 'unanswered', reason: 'the query took longer than 30 s' })
     expect(slow.mark).not.toHaveProperty('value')
     // A build lands while the kernel is asked.
     const k = kernel(() => ((k.world.revision = 4), EIGHT))
@@ -368,6 +368,36 @@ describe('adding a dimension', () => {
     // What is no dimension is the store's, and has nothing to be told of.
     const pin = await addDimensionTold({ ...kernel(() => EIGHT), marks: marks() }, 'measures', { ...hole(), kind: 'pin', anchor: (hole() as DimensionMark).a } as never)
     expect(pin).not.toHaveProperty('unmeasured')
+  })
+
+  describe('between two parts torno spread apart for display', () => {
+    const part = (name: string, arranged?: [number, number, number]) => ({ key: `print:${name}`, name, layout: 'print', ...(arranged ? { arranged } : {}) })
+    const spreadScene = { model: 'm.py', layouts: ['print'], parts: [part('tray'), part('lid', [25, 0, 0])], seconds: 0, output: '' } as unknown as Scene
+    const across = (more: object = {}): NewMark =>
+      distance({ layout: 'print', a: { point: [0, 0, 4], part: 'tray', ref: 'tray/F5' }, b: { point: [30, 0, 2], part: 'lid', ref: 'lid/F5' }, ...more })
+    const FULL =
+      "In layout print torno spread these parts apart for display (they overlapped as the model placed them), so the distance between tray and lid there is torno's, not the model's. This object has no layout that places its parts as assembled: check each part by itself."
+
+    it('a distance is not kept, for the person or the agent, and the kernel is not asked', async () => {
+      const k = { ...kernel(() => SIX), scene: () => ({ revision: 3, scene: spreadScene }) }
+      const store = marks()
+      await expect(addDimension({ ...k, marks: store }, 'spread', across())).rejects.toThrow(FULL)
+      await expect(addDimensionTold({ ...k, marks: store }, 'spread', across(), 'sent')).rejects.toThrow(FULL)
+      expect(k.asked).toEqual([])
+      expect(store.did).toEqual([])
+      // Within one part, and an angle between two, are what they are wherever the parts are put.
+      expect(await addDimension({ ...k, marks: store }, 'spread', across({ b: { point: [30, 0, 0], part: 'lid', ref: 'lid/F0' }, a: { point: [30, 0, 2], part: 'lid', ref: 'lid/F5' } }))).toMatchObject({ value: 6.000000000000001 })
+      expect(await addDimension({ ...k, marks: store }, 'spread', across({ measure: 'angle' }))).toMatchObject({ id: 'M2' })
+    })
+
+    it('one that is there already is not measurable on such a build, and says why in short', async () => {
+      const k = { ...kernel(() => SIX), scene: () => ({ revision: 3, scene: spreadScene }) }
+      expect(await onR3(k, 'spread', across() as DimensionMark)).toEqual({
+        measuredRevision: 3,
+        refused: 'torno spread tray and lid apart for display in layout print, so the distance between them there is not the model’s'
+      })
+      expect(k.asked).toEqual([])
+    })
   })
 
   it('is refused when it was placed on another build than the last: its refs are of that build, and the kernel is not asked', async () => {

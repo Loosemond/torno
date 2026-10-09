@@ -798,6 +798,23 @@ test('in a print layout torno spread, nothing between two parts is told as the m
     expect(refused).toMatchObject({ isError: true, text: `In layout print torno spread these parts apart for display (they overlapped as the model placed them), so ${what} ${a} and ${b} there is torno's, not the model's. ${where}` })
   }
   expect((await call(spread, 'measure', { kind: 'distance', a, b, layout: 'print' })).isError).toBe(true)
+  // Nor is a dimension between them kept as a check of the part: not the agent's, and not one the window asks for.
+  const sentence = `In layout print torno spread these parts apart for display (they overlapped as the model placed them), so the distance between ${a} and ${b} there is torno's, not the model's. ${where}`
+  const pinned = await call(spread, 'add_mark', { kind: 'dimension', note: '', measure: 'distance', a: `${a}/F0`, b: `${b}/F0`, layout: 'print', expected: 5 })
+  expect(pinned).toMatchObject({ isError: true, text: sentence })
+  const asked = await page.evaluate(
+    ([first, second]) => {
+      const s = window.__tornoTest!.state()
+      const end = (part: string) => ({ point: [0, 0, 0] as [number, number, number], part, ref: `${part}/F0` })
+      return window.torno.marks.add(s.objectId!, { kind: 'dimension', measure: 'distance', author: 'user', note: '', layout: 'print', revision: s.revision, camera: window.__tornoTest!.camera(), a: end(first), b: end(second) }).then(
+        () => 'kept',
+        (e: Error) => e.message
+      )
+    },
+    [a, b]
+  )
+  expect(asked).toBe(sentence)
+  expect((await state()).marks).toEqual([])
   // One part is the same wherever it is put: answered, with how far it was moved.
   const volume = JSON.parse((await call(spread, 'measure', { kind: 'volume', a: moved[0].name, layout: 'print' })).text)
   expect(volume).toMatchObject({ exact: true, arranged: moved[0].arranged })
