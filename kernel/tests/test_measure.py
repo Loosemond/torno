@@ -803,6 +803,15 @@ def said_digits(how: str) -> int:
     return int(found[1])
 
 
+def said_percent(how: str) -> float:
+    """By how much of itself an approximate area says its integrals differ, when it says no digits."""
+    import re
+
+    found = re.search(r", approximate: its integrals differ by (\d+(?:\.\d+)?) %$", how)
+    assert found, how
+    return float(found[1])
+
+
 def whole_surface_area(face, panels: int = 48) -> float:
     """The area of a face that is the whole of its surface, by Gauss-Legendre, without the kernel.
 
@@ -864,10 +873,8 @@ def test_the_area_of_an_ellipsoid_is_never_said_to_be_exact_and_is_as_near_as_it
     for target, how in (("assembly:egg", "surface of the part"), ("assembly:egg/F0", "of the face")):
         result = measure(made, "area", target)
         assert result["exact"] is False
-        assert result["how"].startswith(f"{how}, approximate, good to about ")
-        digits = said_digits(result["how"])
-        assert 2 <= digits <= 6
-        assert result["value"] == pytest.approx(true_area, rel=10**-digits)
+        # Its integrals are 0.36 % apart: too far for any digit to be vouched for.
+        assert result["how"] == f"{how}, approximate: its integrals differ by 0.36 %"
         # The integral told is the one that was nearest wherever it was checked: 3.3e-6 here.
         assert result["value"] == pytest.approx(true_area, rel=1e-5)
     for ref in ("assembly:egg", "assembly:egg/F0"):
@@ -930,8 +937,7 @@ def test_integrals_that_coincide_are_still_approximate_and_good_to_six_digits_at
         ((100.0, 100.0, 100.00000001), 6),  # 1e-10 apart: never more than six
         ((100.0, 100.0, 100.0001), 5),  # 1e-6 apart: one digit fewer than they agree to
         ((100.0, 100.00011, 100.0), 4),
-        ((100.0, 100.0, 100.2), 2),  # 2e-3 apart
-        ((100.0, 150.0, 100.0), 2),  # never fewer than two
+        ((100.0, 100.05, 100.0), 2),  # 5e-4 apart
     ],
 )
 def test_the_digits_said_of_an_area_are_one_fewer_than_all_its_integrals_agree_to(
@@ -947,6 +953,69 @@ def test_the_digits_said_of_an_area_are_one_fewer_than_all_its_integrals_agree_t
     # The value is that of the finest tolerance, wherever it lies among them.
     assert (result["value"], result["exact"]) == (integrals[2], False)
     assert said_digits(result["how"]) == digits
+
+
+@pytest.mark.parametrize(
+    "integrals, percent",
+    [
+        ((100.0, 100.0, 100.2), "0.2"),  # 2e-3 apart: two digits agree, and one fewer is no count
+        ((100.0, 102.13, 100.0), "2.1"),
+        ((100.0, 150.0, 100.0), "50"),
+        ((117.4, 100.0, 100.0), "17"),
+    ],
+)
+def test_an_area_whose_integrals_are_too_far_apart_says_by_how_much_and_no_digits(
+    monkeypatch, integrals, percent
+):
+    from torno_kernel import extent
+
+    made = {"assembly:horn": tuned_loft()}
+    [side] = refs(made, "assembly:horn", "F", "bspline")
+    by_tolerance = dict(zip((None, 1e-9, 1e-12), integrals, strict=True))
+    monkeypatch.setattr(extent, "_integrated", lambda face, tolerance: by_tolerance[tolerance])
+    assert extent.area(topo.faces(made["assembly:horn"])[int(side.rsplit("F", 1)[1])]).digits is None
+    result = measure(made, "area", side)
+    assert (result["value"], result["exact"]) == (integrals[2], False)
+    assert result["how"] == f"of the face, approximate: its integrals differ by {percent} %"
+
+
+def test_a_spline_prism_with_a_cross_hole_says_no_digits_of_its_side_but_a_percentage():
+    from build123d import Cylinder, Edge, Face, Pos, Rot, Vector, Wire, extrude
+
+    from torno_kernel import extent
+
+    through = [(20, 0), (14, 9), (0, 12), (-12, 8), (-15, -2), (-6, -11), (8, -9)]
+    outline = Edge.make_spline([Vector(*p) for p in through], periodic=True)
+    made = {"assembly:bored": extrude(Face(Wire([outline])), 30) - Pos(7, 0, 15) * Rot(0, 90, 20) * Cylinder(3, 60)}
+    [side] = refs(made, "assembly:bored", "F", "extrusion")
+    face = topo.faces(made["assembly:bored"])[int(side.rsplit("F", 1)[1])]
+    integrals = [extent._integrated(face, tolerance) for tolerance in (None, 1e-9, 1e-12)]
+    result = measure(made, "area", side)
+    # A face of this kind was 3.9e-2 out in the review, its integrals 17 % apart: here
+    # they are 0.71 % apart, and "about 2 significant digits" would be a promise.
+    assert extent.area(face).digits is None
+    assert result["exact"] is False
+    assert said_percent(result["how"]) == pytest.approx(100 * (max(integrals) - min(integrals)) / result["value"], rel=0.05)
+    assert 0.1 < said_percent(result["how"]) < 5
+    # The part's doubt is its faces', as a part of all its area.
+    whole = measure(made, "area", "assembly:bored")
+    assert whole["exact"] is False
+    assert said_percent(whole["how"]) == pytest.approx(100 * (max(integrals) - min(integrals)) / whole["value"], rel=0.05)
+    assert said_percent(whole["how"]) < said_percent(result["how"])
+    assert whole["how"].startswith("surface of the part, approximate: its integrals differ by ")
+
+
+def test_a_part_says_no_digits_when_one_of_its_faces_says_none(monkeypatch):
+    from torno_kernel import extent
+
+    doubted = iter([extent.Area(100.0, False, 5, 1e-4), extent.Area(50.0, False, None, 2.0), extent.Area(50.0, True)])
+    monkeypatch.setattr(extent, "_face_area", lambda face: next(doubted))
+    monkeypatch.setattr(extent.topo, "faces", lambda shape: [1, 2, 3])
+    # (1e-4 + 2) / 200: every face's spread, as a part of the whole.
+    assert extent.area(object()) == extent.Area(200.0, False, None, pytest.approx(2.0001))
+    counted = iter([extent.Area(100.0, False, 5, 1e-4), extent.Area(50.0, False, 3, 0.01), extent.Area(50.0, True)])
+    monkeypatch.setattr(extent, "_face_area", lambda face: next(counted))
+    assert extent.area(object())[:3] == (200.0, False, 3)
 
 
 def test_the_area_of_a_freeform_face_cut_on_the_slant_is_not_said_to_be_exact(spline_prism):
@@ -966,14 +1035,14 @@ def test_the_area_of_a_freeform_face_cut_on_the_slant_is_not_said_to_be_exact(sp
     result = measure(made, "area", side)
     # It is cut along its height, so it is not its curve's length times a height: not claimed.
     assert result["exact"] is False
-    assert result["how"].startswith("of the face, approximate, good to about ")
-    assert result["value"] == pytest.approx(true_area, rel=10 ** -said_digits(result["how"]))
+    # Of an extrusion that is cut, the integral at a fixed order is told: 5e-7 out here,
+    # where the one to 1e-12 is 1.9e-3 out. The three are 0.28 % apart, and that is said.
+    assert result["value"] == pytest.approx(true_area, rel=1e-4)
+    assert result["how"] == "of the face, approximate: its integrals differ by 0.28 %"
     whole = measure(made, "area", "assembly:wedge")
     assert whole["exact"] is False
-    # The part says no more digits than its weakest face.
-    assert whole["how"] == (
-        f"surface of the part, approximate, good to about {said_digits(result['how'])} significant digits"
-    )
+    # The part says no digits either: its faces' integrals differ by less of all its area.
+    assert 0 < said_percent(whole["how"]) < 0.28
     described = queries.describe(made, side)
     assert described["areaExact"] is False
     assert described["descriptor"] == f"extrusion, ≈ {number(result['value'])} mm²"
@@ -1029,7 +1098,7 @@ def test_a_density_too_large_for_a_float_is_refused(shapes):
 
 
 @pytest.mark.parametrize("turned", [(0, 0, 0), (45, 0, 0), (30, 40, 50)])
-def test_a_point_is_never_taken_further_off_a_face_than_a_quarter_of_the_wall_found(turned):
+def test_a_point_is_never_taken_further_off_a_face_than_half_the_wall_found(turned):
     import numpy as np
     from build123d import Box, Pos, Rot
 
@@ -1044,7 +1113,14 @@ def test_a_point_is_never_taken_further_off_a_face_than_a_quarter_of_the_wall_fo
         "bad_request",
         f"the point is 1 mm from {top}: give a point on the face",
     )
-    assert refused(made, "thickness", {"ref": top, "point": list(up * 0.2)})[0] == "bad_request"
+    # Half the wall is the most (it was a quarter, and 0.3 mm off was refused): 0.6 mm
+    # off is nearer the other side, 0.3 mm is not.
+    assert refused(made, "thickness", {"ref": top, "point": list(up * -0.1)}) == (
+        "bad_request",
+        f"the point is 0.6 mm from {top}: give a point on the face",
+    )
+    inside = measure(made, "thickness", {"ref": top, "point": list(up * 0.2)})
+    assert (inside["value"], inside["moved"]) == (pytest.approx(1), pytest.approx(0.3))
     near = measure(made, "thickness", {"ref": bottom, "point": list(up * -0.7)})
     assert (near["value"], near["moved"]) == (pytest.approx(1), pytest.approx(0.2))
     # Further than the mesh is off the part, a point is refused whatever the wall.
@@ -1052,6 +1128,43 @@ def test_a_point_is_never_taken_further_off_a_face_than_a_quarter_of_the_wall_fo
     [top] = refs(thick, "assembly:slab", "F", "plane, normal +Z")
     assert measure(thick, "thickness", {"ref": top, "point": [0, 0, 202]})["moved"] == pytest.approx(2)
     assert refused(thick, "thickness", {"ref": top, "point": [0, 0, 203]})[0] == "bad_request"
+
+
+@pytest.mark.parametrize("radius, wall", [(200, 0.5), (300, 0.6)])
+def test_a_thin_round_wall_is_measured_from_any_point_picked_on_its_mesh(radius, wall):
+    import numpy as np
+    from build123d import Cylinder
+
+    from torno_kernel import tess
+
+    kept: dict = {}
+    _, _, made = build_scene(
+        {"assembly": {"shell": Cylinder(radius, 100) - Cylinder(radius - wall, 100)}}, "shell.py", kept
+    )
+    [outer] = refs(made, "assembly:shell", "F", f"cylinder, radius {radius},")
+    vertices, triangles = tess.mesh_of(made["assembly:shell"])
+    centres = vertices[triangles].mean(axis=1)
+    off_axis = np.hypot(centres[:, 0], centres[:, 1])
+    # The middles of the triangles of the outer face: where a click on the mesh lands,
+    # up to 0.13 mm under the face of the 200 mm one, a quarter of its wall and more.
+    picks = centres[(off_axis > radius - wall / 2) & (np.abs(centres[:, 2]) < 49)]
+    assert len(picks) > 50
+    sag = radius - np.hypot(picks[:, 0], picks[:, 1])
+    assert wall / 4 < sag.max() < wall / 2
+    deepest = picks[np.argsort(sag)[-5:]]
+    for pick in [*picks[:: len(picks) // 40], *deepest]:
+        args = {"kind": "thickness", "a": {"ref": outer, "point": pick.tolist()}}
+        result = queries.run(made, "measure", args, kept)
+        assert result["value"] == pytest.approx(wall, abs=1e-9)
+        assert result["moved"] == pytest.approx(radius - math.hypot(pick[0], pick[1]), abs=1e-9)
+    # A point on the other side of the wall has moved all of it, and is not on this face.
+    across = {"kind": "thickness", "a": {"ref": outer, "point": [radius - wall, 0, 0]}}
+    with pytest.raises(queries.QueryError) as e:
+        queries.run(made, "measure", across, kept)
+    assert (e.value.kind, e.value.message) == (
+        "bad_request",
+        f"the point is {number(wall)} mm from {outer}: give a point on the face",
+    )
 
 
 def _at(made, ref: str, point) -> bool:

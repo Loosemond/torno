@@ -39,8 +39,10 @@ _OWN_FACE = 1e-6
 _ON_FACE = 0.05
 _ON_MESH = 1.5
 # Nor is it on the face when it is further from it than this part of the wall
-# measured there: it may as well be on the wall's other side.
-_OF_THE_WALL = 0.25
+# measured there: it is nearer the wall's other side. No less than half, or a
+# thin round wall cannot be measured from its mesh at all: the triangles of a
+# shell of 200 mm radius and 0.5 mm wall are 0.13 mm under its face.
+_OF_THE_WALL = 0.5
 # How far a ray is followed, mm.
 _REACH = 1e7
 PLA = 1.24  # g/cm³
@@ -94,15 +96,16 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     - ``thickness``: from a point of a face of a solid along its inward
       normal to where the same part ends. The point is on the face, or as
       near it as a pick on the mesh is: within 0.05 mm, or 1.5 times the
-      deflection the part is drawn with where that is more, up to a quarter
-      of the wall that is found there. It is laid on the face and ``moved``
+      deflection the part is drawn with where that is more, up to half the
+      wall that is found there. It is laid on the face and ``moved``
       says how far, mm; one further off is refused.
     - ``bbox`` of a part, a face or an edge, exact when all its faces are
       planes or cylinders and all its edges lines or circles; ``volume`` and
       ``mass`` of a part that is a solid; ``area`` of a part or a face,
       exact of planes, cylinders, cones, spheres, tori and curves extruded
       straight; of any other face it is approximate (``extent``), and ``how``
-      says about how many significant digits of it are good, six at most.
+      says about how many significant digits of it are good, two to six, or
+      by how much of it its integrals differ when they are too far apart for two.
 
     ``kept`` is the worker's (``queries.run``): what is measured of a whole
     part (its box, its volume, its area) is measured once.
@@ -379,8 +382,8 @@ def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
         raise QueryError("bad_request", "no opposite wall along the normal")
     wall = float(rays.WParameter(first))
     # A point as far off as the mesh is coarse may be on the other side of a
-    # thin wall: one further from the face than a quarter of the wall found is
-    # not taken for a point of it, unless it is a hair off.
+    # thin wall: one further from the face than half the wall found is not
+    # taken for a point of it, unless it is a hair off.
     if moved > max(_ON_FACE, wall * _OF_THE_WALL):
         raise refusal
     return {
@@ -475,8 +478,19 @@ def _extent(kind: str, target: _Target, kept: dict[Any, Any] | None) -> dict[str
     how = "surface of the part" if target.kind == "part" else "of the face"
     if not area.exact:
         # Of a freeform face OCC has no integral that is a proof: see extent.
-        how += f", approximate, good to about {area.digits} significant digits"
+        how += f", approximate{_doubt(area)}"
     return {"value": area.value, "unit": "mm2", "how": how, "exact": area.exact}
+
+
+def _doubt(area: extent.Area) -> str:
+    """How far an area that is not exact can be relied on, to follow "approximate" with."""
+    if area.digits is not None:
+        return f", good to about {area.digits} significant digits"
+    if not (math.isfinite(area.value) and math.isfinite(area.spread)) or area.value <= 0:
+        return ""
+    # Too far apart to vouch for two digits: how far, as a part of the area, to two digits.
+    percent = float(f"{100 * area.spread / area.value:.2g}")
+    return f": its integrals differ by {number(percent)} %"
 
 
 def _exactly(value: float, unit: str, how: str) -> dict[str, Any]:

@@ -15,7 +15,8 @@ the fourth digit on a face that ends in a spline, and still said as if exact.
   OCC offers converges on every freeform face, none says when it has not, and
   three of them have agreed to a millionth while all were further out than
   that. So such an area is told as approximate, with about how many digits
-  of it are good.
+  of it are good, or, when its integrals are too far apart for two, with how
+  far apart they are.
 """
 
 import math
@@ -27,8 +28,12 @@ from . import topo
 # How near its true value an area or a volume is integrated, as a part of it.
 EPSILON = 1e-9
 # The finer tolerance an area of no known kind is integrated to: the nearest
-# of the three integrals wherever it was checked.
+# of the three integrals wherever it was checked, but for the kinds below.
 _FINEST = 1e-12
+# Surfaces of which the integral at a fixed order was the nearest instead: on
+# 28 of 29 extrusions cut along their height and 16 of 16 offsets, the worst
+# 3.7e-3 out where the finest was 3.9e-2.
+_FIXED_ORDER = ("EXTRUSION", "OFFSET")
 # Lengths of a curve that agree this nearly, as a part of themselves, are one length.
 AGREED = 1e-6
 # Surfaces whose area the integral with a tolerance has right, to 1e-11 and better.
@@ -37,30 +42,40 @@ _STRAIGHT_OR_ROUND = ("LINE", "CIRCLE")
 # Heights along an extrusion closer than this, mm, are one height.
 _LEVEL = 1e-7
 # An area that is not exact is said to be good to about this many significant
-# digits, no fewer and no more, whatever its integrals say of each other.
+# digits, no more, whatever its integrals say of each other; and to none at
+# all when they vouch for fewer than FEWEST_DIGITS: of 51 faces said to be
+# good to two because that was the least said, 4 were more than 1e-2 out.
 FEWEST_DIGITS, MOST_DIGITS = 2, 6
 
 
 class Area(NamedTuple):
-    """An area in mm², whether it is exact, and if not about how many significant digits of it are good."""
+    """An area in mm², whether it is exact, and if not how far it can be relied on.
+
+    ``digits`` is about how many significant digits of it are good, None of
+    an exact one and of one whose integrals lie too far apart to say: then
+    ``spread``, mm², how far apart they lie, is what there is to tell.
+    """
 
     value: float
     exact: bool
     digits: int | None = None
+    spread: float = 0.0
 
 
 def area(shape: Any) -> Area:
     """The area of a face, or of all the faces of a part.
 
     Exact only if every face's is; otherwise good to about as many digits as
-    the face of which the fewest are.
+    the face of which the fewest are, and to none that can be said when that
+    is so of one of its faces. Its spread is the sum of its faces'.
     """
     each = [_face_area(face) for face in topo.faces(shape)]
-    doubted = [one.digits for one in each if one.digits is not None]
+    doubted = [one.digits for one in each if not one.exact]
     return Area(
         math.fsum(one.value for one in each),
-        all(one.exact for one in each),
-        min(doubted, default=None),
+        not doubted,
+        None if None in doubted else min(doubted, default=None),
+        math.fsum(one.spread for one in each if not one.exact),
     )
 
 
@@ -134,25 +149,29 @@ def _face_area(face: Any) -> Area:
     # Three integrals, none of them a proof, nor their agreement: on a spline
     # extruded and cut on the slant the two with a tolerance are out by up to
     # 2 %, on a sphere scaled to an ellipsoid the one without by 0.4 %, and on
-    # a loft all three were 1e-6 out while 1e-6 apart. The finest is told,
-    # which was the nearest wherever it was checked, and never as exact.
+    # a loft all three were 1e-6 out while 1e-6 apart. The one told is the one
+    # that was the nearest of its kind of face wherever it was checked, and
+    # never as exact.
     fixed, loose, finest = (_integrated(face, tolerance) for tolerance in (None, EPSILON, _FINEST))
-    return Area(finest, False, _digits(max(fixed, loose, finest) - min(fixed, loose, finest), finest))
+    told = fixed if type in _FIXED_ORDER else finest
+    spread = max(fixed, loose, finest) - min(fixed, loose, finest)
+    return Area(told, False, _digits(spread, told), spread)
 
 
-def _digits(spread: float, value: float) -> int:
+def _digits(spread: float, value: float) -> int | None:
     """About how many significant digits are good of an area whose integrals lie ``spread`` apart.
 
-    One fewer than they all agree to, since they may all be out on one side;
-    and between FEWEST_DIGITS and MOST_DIGITS whatever they say: integrals
-    that coincide have been out in the seventh digit.
+    One fewer than they all agree to, since they may all be out on one side,
+    and no more than MOST_DIGITS: integrals that coincide have been out in
+    the seventh digit. None when that is fewer than FEWEST_DIGITS: integrals
+    17 % apart have been 4 % out, and no count of digits says that.
     """
     if not (math.isfinite(spread) and math.isfinite(value)) or value <= 0:
-        return FEWEST_DIGITS
+        return None
     if spread <= 0:
         return MOST_DIGITS
-    agreed = math.floor(-math.log10(spread / value))
-    return max(FEWEST_DIGITS, min(MOST_DIGITS, agreed - 1))
+    digits = min(MOST_DIGITS, math.floor(-math.log10(spread / value)) - 1)
+    return digits if digits >= FEWEST_DIGITS else None
 
 
 def _integrated(face: Any, tolerance: float | None) -> float:
