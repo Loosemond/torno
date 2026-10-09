@@ -6,12 +6,13 @@ says what it does and how to run it; the design is
 
 - `app/`: the Electron app (pnpm, TypeScript, electron-vite). `src/main` is the
   shell, the kernel client, the sessions, the HTTP server with the MCP tools and
-  the hooks, and the marks (`src/main/marks`). `src/renderer` is the UI, the
+  the hooks, the marks (`src/main/marks`) and the scans (`src/main/scans`). `src/renderer` is the UI, the
   three.js viewport (`viewport/`) and the tools that point at it (`tools/`).
   `src/shared` holds the types both sides use; `shared/bridge.ts` is everything
   the renderer may ask of main.
 - `kernel/`: the Python package `torno_kernel` (uv). It loads build123d models
-  and tessellates them, in forked workers.
+  and tessellates them, in forked workers, and imports scans, in a process of
+  its own (`python -m torno_kernel.scans`).
 - `scripts/torno`: the launcher. It rebuilds the app when a source is newer
   than `app/out/.built`, which it touches only after a build that succeeded.
 
@@ -51,8 +52,8 @@ While iterating run the focused test; run all four suites before a commit.
 
 ## Marks
 
-- A mark is a pin, a pick, an arrow, a stroke, a shape or a dimension, with a
-  note (`app/src/shared/marks.ts`). Ids are `M1`, `M2`, … per object, never reused,
+- A mark is a pin, a pick, an arrow, a stroke, a shape, a dimension or a region
+  of a scan, with a note (`app/src/shared/marks.ts`). Ids are `M1`, `M2`, … per object, never reused,
   given by main only.
 - Main is the only writer of `<object>/.torno/marks.json`
   (`src/main/marks/store.ts`): one change at a time per object, written
@@ -171,15 +172,20 @@ While iterating run the focused test; run all four suites before a commit.
     that fails, sent or not.
 - The MCP tools (`src/main/mcp/tools.ts`, which holds every input schema and
   description; those that place and resolve marks in `mcp/markTools.ts`; those
-  that read the part in `mcp/readTools.ts`): `scene`, `look`, `marks`,
+  that read the part in `mcp/readTools.ts`; those that ask about scans in
+  `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `show`, `add_mark`, `resolve_mark`, `measure`,
-  `section`, `check`. `show` changes
+  `section`, `check`, `scans`, `scan_clash`, `scan_deviation`. `show` changes
   the view for now and is never saved to `scene.json`; it is refused while a
   button is held in the viewport. `marks`, `describe`, `add_mark`, `measure`,
-  `section` and `check` say which
+  `section`, `check` and the three scan tools say which
   revision they answer from, and that it is stale while a newer build runs or
   has failed. `scene` counts the unresolved dimensions held to a value
   (`dimensions: {pass, fail, notMeasured}`).
+  - Every tool is registered through `registerTools`, which refuses a key the
+    tool's schema in `TOOLS` does not name (`refusedKeys`, `mcp/keys.ts`),
+    naming the keys it takes: a dropped key would change what is measured. A
+    new argument goes into the schema, or it is refused.
   - The schemas of a plane and of an end of a measurement refuse nothing
     (`planeInput`, `endInput`: a union that ends in `z.unknown()`): whatever
     is given reaches the handler, which answers with what one looks like
@@ -210,15 +216,18 @@ While iterating run the focused test; run all four suites before a commit.
     without a value of the last build is answered `NOT MEASURED: …` first
     (`keptUnmeasured`), so that its line is not taken for a measurement.
 - `<object>/.torno/state.md` says the same as the tools, as text
-  (`src/main/statefile.ts`); its first line is when it was written.
+  (`src/main/statefile.ts`): the build, the parts, the scans with how each is
+  aligned in every layout, the open marks. Its first line is when it was
+  written.
 - User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and
   nothing else in the UI uses those colours. A picture for the agent draws
   every mark alike: no active mark, no selection, no hover, no gizmo. A mark
   on a part that is not drawn is not drawn either, on screen or in a picture.
 - Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `X`
   section, `M` measure (`T` there: the wall under the pointer as of the key,
-  picked anew where `Viewport.pointerAt` says the pointer is); `G`, `R`, `T`
-  for the gizmo of the active shape. A slider is no field to type in
+  picked anew where `Viewport.pointerAt` says the pointer is), `L` align a
+  scan (`G`, `R` there for its handles), `B` region of a scan (`[`, `]`, `E`,
+  `Z` there); `G`, `R`, `T` for the gizmo of the active shape. A slider is no field to type in
   (`ui/typing.ts`): the keys work with one in focus. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
@@ -250,6 +259,133 @@ While iterating run the focused test; run all four suites before a commit.
   kept in the store once, on release, to the millionth of a millimetre.
 - Numbers shown or told of a section go through `shared/format.ts`.
 
+## Scans
+
+- A scan is one mesh in millimetres and Z up, `<object>/.torno/scans/<id>/mesh.bin`
+  (layout: `kernel/src/torno_kernel/scanfile.py`, read alike by the kernel,
+  main and the window through `shared/scans.ts` `parseScanMesh`). What is
+  drawn is what is picked, painted and checked. A triangle's number is its
+  place in that file and never changes while the file is the same.
+- The source is only read: referenced by absolute path, size, modification
+  time and SHA-256, never copied, moved or written. The scan works from its
+  mesh when the source is gone (`sourceState`), and says what to do when the
+  mesh is gone too (`meshState`).
+- Import is a process of its own, `python -m torno_kernel.scans
+  import|convert` (`main/scans/importer.ts`, `kernel/client.ts`
+  `scanCommand`): never the supervisor, never a build worker, never the
+  window. trimesh and pillow are the extra `scans` of the kernel package,
+  asked for by that command only; the kernel starts without them. Its stdout
+  is one line of JSON, its last; stages go to stderr. It runs in a process
+  group of its own, and the group is killed on its timeout (300 s) and when
+  the workspace is left. One file at a time.
+- Unit and up axis are assumed from the format and the size (`scans.guess`),
+  shown on the row, and changed there by `convert`. Above 2,000,000 triangles
+  the import reduces the mesh and says so.
+- Main is the only writer of `.torno/scans.json` and of `.torno/scans/`
+  (`src/main/scans/store.ts`): one change at a time per object, written
+  atomically before it is told. Ids are `S1`, `S2`, … per object, never
+  reused, also when `scans.json` is lost and a folder `S<n>` is still there.
+  Visibility, opacity and colour mode are view state, in `scene.json`
+  (`scans`); what `show` sets of them never reaches that file.
+  - A conversion or a re-import writes a new file, `mesh.<n>.bin`, and the
+    record names it (`imported.mesh`; absent means `mesh.bin`): the write of
+    `scans.json` is the commit, the old file goes after it. Never build a
+    mesh's path by hand: `ScanStore.paths()`, after `list()`.
+  - What may be deleted under `.torno/scans/` is in `meshfiles.ts` `sweep`:
+    a folder only when it holds the `importing` marker of an import that
+    never ended, an unnamed mesh only while the named one is there, nothing
+    through a link, nothing beside a `scans.json` that was set aside.
+  - Main alone names a mesh or a mask file. The one path the window gives is
+    the source of an import, which main checks (`sourceOf`: absolute, one of
+    the five formats, not inside the object's `.torno/`) and only reads.
+- One transform per layout (`Scan.alignments`), scan frame to object frame,
+  `p' = s · R(q) · p + t`. No transform for a layout: "not aligned" there,
+  drawn where it was imported, and refused by `scan_clash`, `scan_deviation`,
+  `section`'s `scan`, a scan end of `measure` and `look`'s `scanColour`. The
+  maths is `shared/align.ts`, pure, for both sides.
+  - What only main says of an alignment (`ALIGNMENT_MAIN_ONLY`: `frame`,
+    `at`, `revision`, `fitRms`, `rough`, `sourceChanged`, `confirmed`,
+    `before`) is never taken from the window; residuals, `rms` and `rough`
+    are worked out by main (`reckoned`). Main refuses an alignment made on
+    another build than the last, one tied to a part torno moved
+    (`tiedToMoved`), and a rough or scaled one without the person's yes.
+  - What an alignment rests on is `basisOf`: a fit of `pairs`, a `floor`
+    only, or a `hand`, and whether a hand moved it afterwards. `rough` is of
+    a fit of pairs alone (fewer than 3, almost in a line, or `fitRms` over
+    5 mm), and a move by hand does not launder it.
+  - `ScanLayerState.transform` is where the window draws the scan, which may
+    be a preview. Nothing told to the agent or stored reads it.
+- After every build and every alignment the alignments are checked
+  (`main/scans/alignCheck.ts`): the model points an alignment is tied to
+  (ends clicked on a part, a floor laid on a face) are looked for on their
+  parts again with the kernel's `nearest`, and each part's `arranged` is
+  compared with what it was. What is found is told; nothing is ever
+  re-fitted. An alignment not checked against the last build is asked about
+  again every 30 s and whenever the scans are listed for a tool, the prompt
+  or the window (`keepChecking`, `recheckAlignments`), until it is. "Still
+  right" (`alignmentHolds`) holds the alignment against the model as it is
+  now (`confirmed.held`).
+- **One notion, one wording.** How an alignment stands is `standingOf(scan,
+  layout, revision)` in `shared/scans.ts` (`basis`, `rough`, `stale`,
+  `unchecked`, `waiting`, `failed`, `note`), for the row, the bar and the
+  picture's caption (`scansNote`). What main says of it to the agent is
+  `alignmentSaid` in `main/scans/said.ts`, and nothing else in main words an
+  alignment: the tools' `alignment`, the doubts that open a reading
+  (`first`), its closing sentence (`last`), the `Scans:` line of the prompt,
+  `state.md`. A tool reads it again once the kernel has answered (`saidNow`).
+- A part torno moved for display is refused by the scan checks
+  (`scanSpread`), naming the layouts that place it as the model does, or
+  `def assembly(p)`, and the parts it did not move; so is a part that stood
+  elsewhere when the scan was aligned (`scanFrame`). Other parts being spread
+  otherwise is a doubt, said first, not a refusal. Refusals are made in main
+  before the kernel is asked (`scanFor`).
+- The kernel's scan queries (`scanclash.py`: `scan_clash`, `scan_deviation`,
+  `scan_section`) run in the live build worker, which is given paths and
+  never looks for a file: inside or outside by ray parity on the part's own
+  tessellation, crossings by the edges of each mesh against the other's
+  triangles, distances from a `cKDTree` over that mesh sampled every
+  millimetre (scipy, from the workspace, imported when first needed), the
+  points an answer names taken again on the B-rep. At most 200,000
+  candidates, 32 points retaken, 8 clusters told, 10 s (`BUDGET`); a
+  deviation takes 100 to 20,000 samples within 0.1 to 200 mm; a section
+  tells 4,000 points, of which the tool's JSON keeps 2,000. What was thinned
+  or left undone is in `sampling`, and a reading never tells an unfinished
+  count as a no. A scan and its masks are kept by path, inode, times and
+  size: a file written anew is read anew.
+- **Nothing from a scan is ever said to be exact.** Every reply has `exact:
+  false`, `approximate` (`SCAN_APPROXIMATE`) and `≈`, the revision, the
+  layout and the alignment with its rms. `measure` with a scan end forces
+  `exact` false whatever the kernel says of the distance.
+- A region is a mark of kind `region` (`main/marks/regions.ts`): its
+  triangles are `<id>/<mark>.mask`, a bit each, of the triangle count of the
+  mesh it was painted on. The window sends the bits (`NewRegion.bits`), never
+  a path; main checks them against the mesh, works out its numbers
+  (`REGION_KEYS`, `shared/regions.ts`), held in the scan's own frame under
+  `local` and told in the object frame of its layout, and writes the mask. A
+  mask of another triangle count is never applied: the region is orphaned
+  when its scan is removed, when the scan is imported again and the mesh or
+  the source's hash changed, and when its mask is gone or does not fit
+  (`orphanLost`). A conversion keeps the triangles and restates the numbers.
+  `add_mark` has no such kind: only the person paints.
+- In the window a scan's bounds tree is built in a worker
+  (`viewport/scanBvh.worker.ts`), indirect, so triangle numbers hold; a scan
+  is drawn before it can be pointed at. A scan drawn at 95 % or more blocks
+  the pick of a part behind it; a thinner one does not. Nothing of a brush
+  stroke or of a drag of the gizmo goes through React or the store. A picture
+  coloured by distance is refused past 60,000 points or 1.5 s
+  (`scanDeviation.ts`): it is worked out on the window's thread.
+- What the window says of its scans (`ViewState.scans`) is sanitised in main
+  (`scansOf` in `main/look.ts`) before anything is told of it.
+- A scan and a picture coloured by distance use tokens of their own
+  (`--scan-plain`, `--deviation-*`); a region is a mark and is tinted in its
+  author's mark colour.
+- Tests make their scans in code (`kernel/tests/scanfix.py`,
+  `app/src/test/scanFixtures.ts`). No scan file is committed.
+- What must never happen: a number of a scan told as exact; a preview told
+  or stored as the alignment; a mask applied to another mesh than the one it
+  was painted on; a mesh or mask path taken from the window or from a tool's
+  arguments; a write outside `.torno/`, or to a scan's source.
+
 ## Exactness
 
 - Lengths are millimetres, angles degrees, areas mm², volumes mm³, masses
@@ -257,7 +393,8 @@ While iterating run the focused test; run all four suites before a commit.
   digits at most); numbers stored and returned as data are in full.
 - Every number told to the agent is the kernel's, from the B-rep. The mesh
   drives only the estimate read out at the pointer while a measurement is
-  pending (`≈`), which the kernel's value replaces.
+  pending (`≈`), which the kernel's value replaces. What is taken from a scan
+  is the one exception, and is never said to be exact (see Scans).
 - Areas and volumes are measured in one place, `kernel/src/torno_kernel/extent.py`.
   A volume is integrated by Gauss-Kronrod to 1e-9 of itself and given as
   exact. An area is exact of planes, cylinders, cones, spheres and tori, and
@@ -350,10 +487,15 @@ window on it.
   `.camera()`, `.pickAt(fx, fy)` for what a point of the canvas is on and
   `.project(point)` for where a point of the object is drawn (both in fractions
   of the canvas, to aim `page.mouse` with), `.markScreen(id)` for where a
-  mark's label is, `.timePicks(count)` for what a pick costs,
+  mark's label is, `.timePicks(count)` for what a pick costs and
+  `.timeFrames(count)` a frame, `.scans()` for the scans as the viewport has
+  them (`loaded`, `ready`, where each stands), `.pickScanAt(fx, fy)`,
+  `.projectScan(id, local)` and `.timeScanPicks(count)` as the same for
+  scans, `.regions()` for what is tinted,
   `window.__tornoTerm.text()` for what the terminal shows, and
   `globalThis.__tornoMain` in main (`app.evaluate`) for the MCP address, the
-  mark store (to leave the marks an agent would) and `marksChecks(objectId)`
+  mark store (to leave the marks an agent would), the scan store (`scans`) and
+  `marksChecks(objectId)`
   (started and finished counts: equal when no check of the marks is under way).
 - `page.mouse` and `page.keyboard` work on the hidden window: marks are placed
   in tests with real pointer events through the tools.
@@ -362,7 +504,8 @@ window on it.
 - Do not touch the clipboard.
 - Never click "Open folder" unless main runs with `TORNO_TEST=1`: only then is
   the folder dialog replaced by `globalThis.__tornoMain.pickFolder` (the folder
-  to answer with, or null), and `picks` counts the times it was asked.
+  to answer with, or null), and `picks` counts the times it was asked. The
+  same holds for "Import scan…": `pickFile` and `filePicks`.
 - `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
   side by side.
 

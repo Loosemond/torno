@@ -1,11 +1,12 @@
 import { join } from 'node:path'
 import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
-import type { ScanInfo } from '../shared/scans'
+import { type ScanInfo, importText } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { writeFileAtomic } from './atomic'
 import { describeMark, sizes } from './marks/describe'
+import { alignmentSaid } from './scans/said'
 
 const FOLDER = '.torno'
 const NAME = 'state.md'
@@ -15,16 +16,17 @@ export const STATE_DELAY_MS = 1000
 
 /**
  * `<object>/.torno/state.md`: how the build stands, the layouts and their parts
- * with sizes, and every mark that is not resolved, a line each. It is what an
- * agent without torno's tools can read to know what one with them is told.
- * Nothing in it changes unless the build or the marks do: no times, no camera.
+ * with sizes, the scans with how each is aligned, and every mark that is not
+ * resolved, a line each. It is what an agent without torno's tools can read to
+ * know what one with them is told.
+ * Nothing in it changes unless the build, the marks or the scans do: no times, no camera.
  * The file itself begins with `writtenLine`, before this.
  */
 export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[]): string {
   const lines = [
     `# ${obj.name}`,
     '',
-    'torno keeps this file: it is rewritten after every build and every change of the marks. Do not edit it.',
+    'torno keeps this file: it is rewritten after every build and every change of the marks or the scans. Do not edit it.',
     'Lengths are millimetres, Z up, in the frame of the layout named.',
     '',
     '## Build',
@@ -41,6 +43,10 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
       const parts = last.scene.parts.filter((p) => p.layout === layout)
       lines.push(`- ${layout}: ${parts.map((p) => `${p.name} ${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
     }
+  }
+  if (scans && scans.length > 0) {
+    lines.push('', '## Scans', '', 'A scan is a mesh of the real surroundings: nothing from it is exact.', '')
+    for (const scan of scans) lines.push(`- ${scanLine(scan, last)}`)
   }
   lines.push('', '## Marks', '')
   const open = marks.filter((m) => m.status !== 'resolved')
@@ -65,6 +71,24 @@ export function writtenLine(at: Date): string {
   return `Written by torno at ${at.toISOString()}; it is only current while torno is running.`
 }
 
+/**
+ * A scan in a line: what the `scans` tool says of it, and how it is aligned in
+ * every layout of the build, each in the words every tool uses of an alignment
+ * (`alignmentSaid`): what it rests on, and what puts it in doubt.
+ */
+function scanLine(scan: ScanInfo, last: { revision: number; scene: Scene } | undefined): string {
+  const source = `source ${scan.source.path}${scan.sourceState === 'missing' ? ' (missing)' : scan.sourceState === 'changed' ? ' (changed since it was read)' : ''}`
+  const head = `${scan.id} ${scan.name}: ${scan.meshState === 'ok' ? `${scan.imported.triangles.toLocaleString('en-US')} triangles` : 'MESH MISSING'}, ${importText(scan.imported)}; ${source}`
+  const alignedIn = Object.keys(scan.alignments)
+  // Before any build there is no layout to say it of, and nothing to check it against.
+  if (!last) return `${head}; ${alignedIn.length > 0 ? `aligned in: ${alignedIn.join(', ')}` : 'aligned in no layout'}.`
+  const layouts = last.scene.layouts
+  const aligned = layouts.filter((layout) => alignedIn.includes(layout)).map((layout) => alignmentSaid(scan, layout, last.revision).line)
+  const not = layouts.filter((layout) => !alignedIn.includes(layout))
+  const gone = alignedIn.filter((layout) => !layouts.includes(layout))
+  return `${[head, ...aligned, ...(not.length > 0 ? [`not aligned in ${not.join(', ')}`] : []), ...(gone.length > 0 ? [`aligned in ${gone.join(', ')}, which r${last.revision} does not have`] : [])].join('; ')}.`
+}
+
 /** To 0.01 mm, as the scene tool gives sizes: a bounding box comes from the mesh, which is that much off a round part. */
 function toHundredth(value: number): number {
   return Math.round(value * 100) / 100
@@ -87,7 +111,7 @@ export interface StateFileDeps {
   build(objectId: string): BuildState | undefined
   scene(objectId: string): { revision: number; scene: Scene } | undefined
   marks(objectId: string): Promise<Mark[]>
-  /** The scans of an object: a region of one is told where the scan's alignment puts it. */
+  /** The scans of an object: each is listed, and a region of one is told where the scan's alignment puts it. */
   scans?(objectId: string): Promise<ScanInfo[]>
   delayMs?: number
   write?(path: string, text: string): Promise<void>
@@ -109,7 +133,7 @@ export class StateFiles {
 
   constructor(private deps: StateFileDeps) {}
 
-  /** The build or the marks of an object changed. */
+  /** The build, the marks or the scans of an object changed. */
   changed(objectId: string): void {
     clearTimeout(this.timers.get(objectId))
     const timer = setTimeout(() => {
@@ -133,8 +157,8 @@ export class StateFiles {
     const obj = this.deps.object(objectId)
     if (!obj || !this.deps.build(objectId)) return
     const marks = await this.deps.marks(objectId)
-    // Only a region is told from the scans: without one they are not asked for.
-    const scans = marks.some((mark) => mark.kind === 'region') ? await this.deps.scans?.(objectId).catch(() => undefined) : undefined
+    // Scans that cannot be read are left out: the build and the marks are still told.
+    const scans = await this.deps.scans?.(objectId).catch(() => undefined)
     // As things are once the marks are read: a build may have ended meanwhile.
     const build = this.deps.build(objectId)
     if (!build || this.deps.object(objectId)?.dir !== obj.dir) return

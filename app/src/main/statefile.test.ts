@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
+import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import type { Part, Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { StateFiles, stateText, writtenLine } from './statefile'
@@ -20,6 +21,15 @@ const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds
 const CAMERA = { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const pin = (n: number, over: object = {}): Mark =>
   ({ id: `M${n}`, kind: 'pin', author: 'user', note: `note ${n}`, status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 3, camera: CAMERA, createdAt: 't', checkedRevision: 3, anchor: { point: [n, 0, 5], part: 'base', ref: 'base/F1' }, ...over }) as Mark
+
+// As in mcp/scanTools.test.ts: four pairs clicked on a part, so that a build can say whether the alignment holds.
+const pairs = [1.8, 3.4, 0.9, 1.2].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], part: 'base', residual }))
+const BY_PAIRS: ScanAlignment = { transform: { t: [1, 2, 3], q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs, rms: 2.1, frame: {}, at: '' }
+const TYPED: ScanAlignment = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' }
+const checkedOn = (alignments: Record<string, ScanAlignment>, revision = 3) => Object.fromEntries(Object.keys(alignments).map((layout) => [layout, { revision, of: 4, off: 0, worst: 0, moved: [] }]))
+const scan = (id: string, alignments: Record<string, ScanAlignment> = {}, more: Partial<ScanInfo> = {}): ScanInfo =>
+  ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 936823, triangles: 1607144, colours: 'texture', bbox: { min: [-1258.9, -1175.3, 0], max: [1258.9, 1175.3, 1493.6] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks: checkedOn(alignments), ...more }) as ScanInfo
+const REGION = { id: 'M7', kind: 'region', scan: 'S1', author: 'user', note: 'wiring loom', status: 'sent', anchorState: 'ok', layout: 'print', revision: 3, camera: CAMERA, createdAt: '', triangles: 4812, area: 31000, local: { centroid: [0, 0, 0], bbox: { min: [0, 0, 0], max: [1, 1, 1] }, plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 1 } } } as unknown as Mark
 
 let root: string
 let obj: ObjectInfo
@@ -41,7 +51,7 @@ describe('stateText', () => {
       [
         '# bracket',
         '',
-        'torno keeps this file: it is rewritten after every build and every change of the marks. Do not edit it.',
+        'torno keeps this file: it is rewritten after every build and every change of the marks or the scans. Do not edit it.',
         'Lengths are millimetres, Z up, in the frame of the layout named.',
         '',
         '## Build',
@@ -120,6 +130,50 @@ describe('stateText', () => {
     expect(text).toContain('## Marks\n\nNone.\n')
   })
 
+  it('lists the scans after the parts, each with how it is aligned in every layout, and tells regions with the marks', () => {
+    const text = stateText(obj, OK, { revision: 3, scene: SCENE }, [REGION], [scan('S1', { print: BY_PAIRS }), scan('S2')])
+    expect(text).toContain(
+      [
+        '## Scans',
+        '',
+        'A scan is a mesh of the real surroundings: nothing from it is exact.',
+        '',
+        '- S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S1.glb; aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm); not aligned in assembly.',
+        '- S2 S2.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S2.glb; not aligned in assembly, print.',
+        '',
+        '## Marks'
+      ].join('\n')
+    )
+    expect(text).toContain('- M7 region on scan S1: 4,812 triangles')
+    expect(text).toContain('it is rewritten after every build and every change of the marks or the scans.')
+    expect(text.indexOf('## Scans')).toBeGreaterThan(text.indexOf('## Layouts and parts'))
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [], [])).not.toContain('## Scans')
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('## Scans')
+  })
+
+  it('says of a scan what the tools say of it: a mesh or a source that is gone, and an alignment for what it is worth', () => {
+    const lines = (scans: ScanInfo[], revision = 3) => stateText(obj, OK, { revision, scene: SCENE }, [], scans).split('\n').filter((line) => line.startsWith('- S'))
+    expect(lines([scan('S1', {}, { sourceState: 'missing' })])).toEqual(['- S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S1.glb (missing); not aligned in assembly, print.'])
+    expect(lines([scan('S1', {}, { sourceState: 'changed', meshState: 'missing' })])[0]).toBe('- S1 S1.glb: MESH MISSING, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S1.glb (changed since it was read); not aligned in assembly, print.')
+    // What the model moved under, in the words every tool uses.
+    const off = scan('S1', { assembly: BY_PAIRS }, { checks: { assembly: { revision: 3, of: 4, off: 2, worst: 6.2, moved: [] } } })
+    expect(lines([off])[0]).toContain('; aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r3: check the alignment; not aligned in print.')
+    // Not checked against the build the parts are of: never told as holding.
+    expect(lines([scan('S1', { assembly: BY_PAIRS })], 4)[0]).toContain('; aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (not checked against r4); not aligned in print.')
+    // By hand, tied to no point of the model; and in both layouts: nothing is "not aligned".
+    const both = lines([scan('S1', { assembly: TYPED, print: BY_PAIRS })])[0]
+    expect(both).toContain('; aligned in assembly by hand (typed values) (tied to no point of the model: not checked against builds); aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm).')
+    expect(both).not.toContain('not aligned')
+    // An alignment in a layout the build no longer has is not passed over.
+    expect(lines([scan('S1', { old: BY_PAIRS })])[0]).toContain('; not aligned in assembly, print; aligned in old, which r3 does not have.')
+  })
+
+  it('lists the scans before anything is built, with the layouts each is aligned in', () => {
+    const building: BuildState = { objectId: 'bracket', status: 'building', revision: 0, startedAt: 1000, stale: true }
+    const text = stateText(obj, building, undefined, [], [scan('S1', { print: BY_PAIRS }), scan('S2')])
+    expect(text).toContain('- S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S1.glb; aligned in: print.\n- S2 S2.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed); source /dl/S2.glb; aligned in no layout.\n')
+  })
+
   it('says so while a build runs and before anything was built, with nothing that changes by itself', () => {
     const building: BuildState = { objectId: 'bracket', status: 'building', revision: 3, startedAt: 1000, stale: true }
     expect(stateText(obj, building, { revision: 3, scene: SCENE }, [])).toContain('A build is running. The parts below are those of r3, the last build that worked.')
@@ -154,6 +208,17 @@ describe('StateFiles', () => {
         return writeFileAtomic(file, text)
       }
     })
+  })
+
+  it('lists the scans of the object, whether or not a region is among the marks, and writes without them when they cannot be read', async () => {
+    const withScans = (scans: () => Promise<ScanInfo[]>) =>
+      new StateFiles({ object: () => obj, build: () => build, scene: () => ({ revision: 3, scene: SCENE }), marks: async () => marks, scans })
+    await withScans(async () => [scan('S1', { print: BY_PAIRS })]).write('bracket')
+    expect(readFileSync(path(), 'utf8')).toContain('## Scans\n\nA scan is a mesh of the real surroundings: nothing from it is exact.\n\n- S1 S1.glb: ')
+    await withScans(async () => Promise.reject(new Error('scans.json cannot be read'))).write('bracket')
+    const text = readFileSync(path(), 'utf8')
+    expect(text).not.toContain('## Scans')
+    expect(text).toContain('- M1 pin on base/F1')
   })
 
   it('writes the file whole, through a temp file that is gone afterwards', async () => {
