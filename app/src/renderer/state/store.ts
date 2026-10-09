@@ -37,6 +37,10 @@ export interface TornoState {
   marks: Mark[]
   /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
   marksProblem: string | null
+  /** The mark being worked on: the row lit in the panel and the label ringed in the viewport. Null for none. */
+  activeMark: string | null
+  /** Counts the times the camera was asked to go to the active mark's view. */
+  markFocus: number
   /**
    * What the person has picked: refs in the layout shown (`lid/F12`, `lid/E3`),
    * in the order picked. They name geometry of the revision on screen, so the
@@ -51,13 +55,14 @@ export interface TornoState {
 }
 
 const NOTHING_SELECTED: string[] = []
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, selection: NOTHING_SELECTED }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, activeMark: null, selection: NOTHING_SELECTED }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
   workspaceKnown: false,
   versions: {},
   ...NO_OBJECT,
+  markFocus: 0,
   ortho: false,
   edits: 0,
   sessions: {}
@@ -111,7 +116,9 @@ export const actions = {
   setLayout(layout: string): void {
     const s = store.getState()
     if (layout === s.layout || !s.scene?.layouts.includes(layout)) return
-    store.setState({ layout, edits: s.edits + 1, selection: NOTHING_SELECTED })
+    // A mark is of one layout: the active one does not follow to another.
+    const activeMark = s.marks.find((m) => m.id === s.activeMark)?.layout === layout ? s.activeMark : null
+    store.setState({ layout, edits: s.edits + 1, selection: NOTHING_SELECTED, activeMark })
   },
 
   /** Change some settings of one part; the others keep their values. */
@@ -122,12 +129,38 @@ export const actions = {
 
   /** The marks of an object, as loaded or as changed. Those of an object that is not the open one are not kept. */
   setMarks(m: { objectId: string; marks: Mark[] }): void {
-    if (m.objectId === store.getState().objectId) store.setState({ marks: m.marks })
+    const s = store.getState()
+    if (m.objectId !== s.objectId) return
+    // A mark that is gone is no longer the active one.
+    store.setState({ marks: m.marks, activeMark: m.marks.some((mark) => mark.id === s.activeMark) ? s.activeMark : null })
   },
 
-  /** Main said what was wrong with an object's marks file. It stays until another object is opened. */
+  /** Make a mark of the open object the active one, or none. */
+  setActiveMark(id: string | null): void {
+    const s = store.getState()
+    if (id !== s.activeMark && (id === null || s.marks.some((m) => m.id === id))) store.setState({ activeMark: id })
+  },
+
+  /**
+   * Make a mark the active one and go to the view it was placed from, in its
+   * own layout: the layout is switched first when it is another, so the
+   * column and the viewport follow.
+   */
+  focusMark(id: string): void {
+    const mark = store.getState().marks.find((m) => m.id === id)
+    if (!mark) return
+    actions.setLayout(mark.layout)
+    store.setState({ activeMark: id, markFocus: store.getState().markFocus + 1 })
+  },
+
+  /** Main said what was wrong with an object's marks file. It stays until it is dismissed or another object is opened. */
   setMarksProblem(m: { objectId: string; message: string }): void {
     if (m.objectId === store.getState().objectId) store.setState({ marksProblem: m.message })
+  },
+
+  /** The person has read what was wrong with the marks file. */
+  dismissMarksProblem(): void {
+    store.setState({ marksProblem: null })
   },
 
   /** Select these refs and no others; none to clear. */

@@ -56,7 +56,8 @@ function Icon({ children }: { children: ReactNode }) {
   )
 }
 
-const ICONS: Record<ToolName, ReactNode> = {
+/** The picture of each tool; the marks panel shows the same ones for what the tools leave. */
+export const ICONS: Record<ToolName, ReactNode> = {
   // A pointer.
   select: (
     <Icon>

@@ -53,7 +53,9 @@ const bridge: TornoBridge = {
     update: (objectId, id, patch) => invokePlain('marks:update', objectId, id, patch),
     remove: (objectId, id) => invokePlain('marks:remove', objectId, id),
     onChanged: (cb) => subscribe('marks:changed', cb),
-    onProblem: (cb) => subscribe('marks:problem', cb)
+    onProblem: (cb) => subscribe('marks:problem', cb),
+    problem: (objectId) => invokePlain('marks:problem', objectId),
+    dismissProblem: (objectId) => invokePlain('marks:dismissProblem', objectId)
   },
   geometry: {
     describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref)

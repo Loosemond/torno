@@ -38,7 +38,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       }
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true }
   })
   return { ...picture, ...drawn! }
 }
@@ -140,8 +140,13 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     else readout.hide()
   })
 
+  viewport.setMarks(store.getState().marks)
+  viewport.setActiveMark(store.getState().activeMark)
+
   const offStore = store.subscribe((s, prev) => {
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
+    if (s.marks !== prev.marks) viewport.setMarks(s.marks)
+    if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
     // What was pointed at belongs to the object, the layout and the build it was pointed at in.
     if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision || (s.build?.stale ?? false) !== (prev.build?.stale ?? false)) putDown()
     if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
@@ -154,6 +159,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.layout !== prev.layout) viewport.setLayout(s.layout)
     if (s.layers !== prev.layers) applyLayers(s)
     if (s.layout !== prev.layout || s.layers !== prev.layers) report()
+    // After the layout: a mark of another layout is gone to once that layout is shown.
+    if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
   })
 
   viewport.onCameraSettled((camera) => {
@@ -181,6 +188,11 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         const box = canvasBox(viewport)
         const [x, y] = viewport.project(point)
         return [(x - box.left) / box.width, (y - box.top) / box.height]
+      },
+      markScreen: (id) => {
+        const box = canvasBox(viewport)
+        const label = viewport.markLabel(id)
+        return label && { x: (label.x - box.left) / box.width, y: (label.y - box.top) / box.height, visible: label.visible }
       }
     }
   }

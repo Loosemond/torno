@@ -129,9 +129,11 @@ const toolDeps: ToolDeps = {
 /**
  * What a test needs of main that it cannot reach through the window. `pickFolder`
  * is what "Open folder" is answered with under test, where no dialog may be
- * shown; `picks` counts how often it was asked.
+ * shown; `picks` counts how often it was asked. `marks` is the store, through
+ * which a test leaves the marks an agent would: the window can only make the
+ * person's.
  */
-const testHooks = { requestLook, latestView, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0 }
+const testHooks = { requestLook, latestView, marks, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0 }
 
 /** Another torno was started: come to the front, and offer the folder it was given. */
 app.on('second-instance', (_event, _argv, _cwd, data) => {

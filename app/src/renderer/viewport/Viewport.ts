@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, ViewName } from '../../shared/view'
-import { Highlights, type HighlightLayer } from './highlight'
-import { PERSPECTIVE_NOTE, drawOverlay } from './overlay'
+import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
+import { MarkLayer } from './marks/MarkLayer'
+import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayUnit, type LabelStyle } from './overlay'
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickParts, pointerRay } from './picking'
@@ -27,6 +29,8 @@ interface Theme {
   muted: string
   accent: string
   agent: string
+  user: string
+  panel: string
 }
 
 type AnyCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
@@ -37,6 +41,8 @@ export interface ImageRequest {
   layout: string
   visibleKeys: string[]
   size?: number
+  /** Whether the marks of the layout are drawn, with their numbers. True when left out. */
+  marks?: boolean
 }
 
 export interface Picture {
@@ -63,7 +69,7 @@ export interface ViewportPointer {
 }
 
 /** The light values of styles/tokens.css, used where no stylesheet is loaded. */
-const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C' }
+const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C', user: '#CF3F2C', panel: '#FAF9F6' }
 
 /** A press released within this many pixels and milliseconds of where and when it was made is a click, not a drag. */
 const CLICK_PX = 4
@@ -79,6 +85,8 @@ const MAX_IMAGE = 2000
 const DEFAULT_IMAGE = 1280
 const MIN_IMAGE = 64
 const NAMED_ASPECT = 4 / 3
+/** How much larger the number of a mark is in a picture than on screen: a picture is read at a glance, and often scaled down first. */
+const PICTURE_CHIP = 1.3
 /** What `fit` and the named views frame when no part is shown. */
 const EMPTY_BOX = { min: [-50, -50, 0], max: [50, 50, 50] }
 
@@ -106,8 +114,9 @@ export class Viewport {
   private stale = false
   /** False until a scene with parts has been framed; after that the camera is the user's. */
   private framed = false
-  /** Everything drawn in the current layout, for the clip planes. */
+  /** Everything drawn in the current layout, for the clip planes: the parts and the grid (`groundExtent`), and the marks. */
   private extent = new THREE.Sphere(new THREE.Vector3(), 100)
+  private groundExtent = this.extent
 
   private theme: Theme = LIGHT_THEME
   private readonly scheme: MediaQueryList | null
@@ -120,6 +129,11 @@ export class Viewport {
   private disposed = false
 
   private readonly highlights = new Highlights()
+  private readonly marks = new MarkLayer(markColours(LIGHT_THEME))
+  /** The marks of the object as last given, resolved ones too: `focusMark` goes to any of them. */
+  private allMarks: Mark[] = []
+  /** Over the canvas, for the labels of the marks: drawn anew with every frame, never through React. */
+  private readonly labelCanvas: HTMLCanvasElement | null
   private pointerListener: ((e: ViewportPointer) => void) | null = null
   /** The left button's press, until it is released: where and when. */
   private press: { x: number; y: number; at: number } | null = null
@@ -147,7 +161,15 @@ export class Viewport {
     this.ground.material.depthWrite = false
     this.ground.renderOrder = -1
     this.ground.frustumCulled = false
-    this.scene.add(this.ground)
+    this.scene.add(this.ground, this.marks.group)
+
+    this.labelCanvas = canvas.parentElement ? document.createElement('canvas') : null
+    if (this.labelCanvas) {
+      this.labelCanvas.className = 'mark-labels'
+      canvas.after(this.labelCanvas)
+    }
+    // A label drawn before its face has loaded is in the fallback face: draw again once it is there.
+    void overlayFonts().then(() => this.invalidate())
 
     this.controls = new OrbitControls(this.perspective, canvas)
     this.controls.enableDamping = false
@@ -206,6 +228,43 @@ export class Viewport {
       this.setView('iso', false)
     }
     this.invalidate()
+  }
+
+  /**
+   * The marks of the object on show, of every layout: those of the layout
+   * shown that are not resolved are drawn, each with its number. A mark's
+   * objects are made once and again only when the mark itself changes.
+   */
+  setMarks(marks: Mark[]): void {
+    this.allMarks = marks
+    this.marks.setMarks(marks)
+    this.marks.show(this.layout)
+    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.tintPicks(this.layout)
+    this.invalidate()
+  }
+
+  /** The mark being worked on, or null: its label is ringed, its lines are wider, and a stroke shows its plane. */
+  setActiveMark(id: string | null): void {
+    this.marks.setActive(id)
+    this.invalidate()
+  }
+
+  /** Goes to the view a mark was placed from. The layout is the caller's to switch: this moves the camera only. */
+  focusMark(id: string): void {
+    const mark = this.allMarks.find((m) => m.id === id)
+    if (mark) this.setView(mark.camera, true)
+  }
+
+  /** Where the label of a mark of the layout shown is on the canvas, in client pixels, and whether it is in view; null for a mark that is not drawn. */
+  markLabel(id: string): { x: number; y: number; visible: boolean } | null {
+    const rect = this.canvas.getBoundingClientRect()
+    this.syncMatrices()
+    const size = { width: rect.width, height: rect.height }
+    const ctx = this.labelCanvas?.getContext('2d')
+    if (!ctx || size.width === 0 || size.height === 0) return null
+    const label = this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1)).find((l) => l.id === id)
+    return label ? { x: rect.left + label.box.x + label.box.w / 2, y: rect.top + label.box.y + label.box.h / 2, visible: label.visible } : null
   }
 
   /** Shows the parts of one layout. A layout the scene does not have is ignored. */
@@ -380,15 +439,29 @@ export class Viewport {
       viewName = 'custom'
     }
 
+    const withMarks = req.marks !== false
+    const unit = overlayUnit(width, height)
+    const otherLayout = req.layout !== this.layout
+
     // Everything from here to the end of `finally` is synchronous, so no frame on screen sees it.
     const before = new Map([...this.entries.values()].map((e) => [e, e.built.group.visible]))
-    this.highlights.setVisible(false) // a picture is of the parts, not of what the person points at
+    this.highlights.setVisible(false) // a picture is of the parts and the marks, not of what the person points at
     const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
+    // Fat lines take their width in pixels from the renderer's viewport, which is the
+    // canvas's whatever is being drawn to: for the picture it is the picture's size.
+    const onScreen = this.renderer.getViewport(new THREE.Vector4())
     let pixels: Uint8ClampedArray<ArrayBuffer>
     try {
+      this.renderer.setViewport(0, 0, width, height)
       for (const entry of this.entries.values()) entry.built.group.visible = false
       for (const entry of shown) entry.built.group.visible = true
-      const extent = req.layout === this.layout ? this.extent : this.rebuildGround(req.layout)
+      let extent = otherLayout ? this.rebuildGround(req.layout) : this.groundExtent
+      this.marks.show(withMarks ? req.layout : null)
+      if (withMarks) {
+        extent = this.marks.extend(extent.clone(), req.layout)
+        this.highlights.setVisible(true, MARK_LAYERS)
+        if (otherLayout) this.tintPicks(req.layout)
+      }
 
       camera.up.fromArray(view.up)
       camera.position.fromArray(view.position)
@@ -397,6 +470,8 @@ export class Viewport {
       camera.lookAt(target)
       setProjection(camera, target, view.fov, aspect, extent)
       this.aimKeyLight(camera, target)
+      // In the picture's own pixels: a dot is as large a share of a big picture as of a small one.
+      this.marks.update(camera, { width, height }, unit)
 
       const targets = this.targetsFor(width, height)
       this.renderer.setRenderTarget(targets.drawn)
@@ -405,10 +480,15 @@ export class Viewport {
       pixels = new Uint8ClampedArray(width * height * 4)
       this.renderer.readRenderTargetPixels(targets.encoded, 0, 0, width, height, pixels)
     } finally {
+      this.renderer.setViewport(onScreen)
       this.renderer.setRenderTarget(null)
       for (const [entry, visible] of before) entry.built.group.visible = visible
       this.highlights.setVisible(true)
-      if (req.layout !== this.layout) this.rebuildGround(this.layout)
+      this.marks.show(this.layout) // sized for the screen again by the next frame drawn
+      if (otherLayout) {
+        this.rebuildGround(this.layout)
+        if (withMarks) this.tintPicks(this.layout)
+      }
     }
 
     const picture = new OffscreenCanvas(width, height)
@@ -427,6 +507,11 @@ export class Viewport {
       muted: this.theme.muted,
       surface: this.theme.surface
     })
+    if (withMarks) {
+      // With the camera of the picture, which for a named view is not the one on screen.
+      const labels = this.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP))
+      drawLabels(ctx, labels, this.labelStyle(), unit * PICTURE_CHIP)
+    }
     const blob = await picture.convertToBlob({ type: 'image/png' })
     const png = new Uint8Array(await blob.arrayBuffer())
 
@@ -443,6 +528,10 @@ export class Viewport {
     if (width === 0 || height === 0) return
     this.renderer.setPixelRatio(window.devicePixelRatio)
     this.renderer.setSize(width, height, false)
+    if (this.labelCanvas) {
+      this.labelCanvas.width = Math.round(width * window.devicePixelRatio)
+      this.labelCanvas.height = Math.round(height * window.devicePixelRatio)
+    }
     this.aspect = width / height
     // Resizing clears the canvas: draw now rather than show a blank frame.
     this.draw()
@@ -462,6 +551,8 @@ export class Viewport {
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
     this.highlights.dispose()
+    this.marks.dispose()
+    this.labelCanvas?.remove()
     this.ground.geometry.dispose()
     this.ground.material.dispose()
     this.imageTargets?.drawn.dispose()
@@ -481,8 +572,28 @@ export class Viewport {
   /** Brings every part's look and the ground in line with the current layout, layers and theme. */
   private refresh(): void {
     for (const entry of this.entries.values()) this.applyLook(entry)
-    this.extent = this.rebuildGround(this.layout)
+    this.groundExtent = this.rebuildGround(this.layout)
+    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.marks.show(this.layout)
     this.highlights.apply(this.partNamed) // the refs may name other geometry now, or none
+    this.tintPicks(this.layout)
+  }
+
+  /**
+   * Tints what a layout's pick marks are on, in their authors' colours. A ref
+   * that names nothing in the scene as it is now (a face that is gone, a part
+   * that is) tints nothing: the mark is still drawn at its point.
+   */
+  private tintPicks(layout: string): void {
+    const refs = this.marks.pickRefs(layout)
+    const partNamed = (name: string): BuiltPart | undefined => this.entries.get(`${layout}:${name}`)?.built
+    this.highlights.set('userMark', refs.user)
+    this.highlights.set('agentMark', refs.agent)
+    for (const layer of MARK_LAYERS) this.highlights.apply(partNamed, layer)
+  }
+
+  private labelStyle(): LabelStyle {
+    return { user: this.theme.user, agent: this.theme.agent, paper: this.theme.panel, surface: this.theme.surface, ink: this.theme.ink }
   }
 
   private highlight(layer: HighlightLayer, refs: string[]): void {
@@ -606,9 +717,13 @@ export class Viewport {
       ink: read('--ink', LIGHT_THEME.ink),
       muted: read('--muted', LIGHT_THEME.muted),
       accent: read('--accent', LIGHT_THEME.accent),
-      agent: read('--agent-mark', LIGHT_THEME.agent)
+      agent: read('--agent-mark', LIGHT_THEME.agent),
+      user: read('--user-mark', LIGHT_THEME.user),
+      panel: read('--panel', LIGHT_THEME.panel)
     }
     this.highlights.setColors(this.theme)
+    this.marks.setColours(markColours(this.theme))
+    this.marks.show(this.layout)
     this.scene.background = new THREE.Color(this.theme.surface)
     this.ground.material.color.set(this.theme.hairline)
   }
@@ -733,7 +848,21 @@ export class Viewport {
     if (this.disposed) return
     setProjection(this.camera, this.controls.target, this.fov, this.aspect, this.extent)
     this.aimKeyLight(this.camera, this.controls.target)
+    const size = { width: this.canvas.clientWidth, height: this.canvas.clientHeight }
+    this.camera.updateMatrixWorld()
+    this.marks.update(this.camera, size)
     this.renderer.render(this.scene, this.camera)
+    this.drawLabels(size)
+  }
+
+  /** The labels of the marks, on the canvas that lies over the 3D one. */
+  private drawLabels(size: { width: number; height: number }): void {
+    const ctx = this.labelCanvas?.getContext('2d')
+    if (!this.labelCanvas || !ctx || size.width === 0 || size.height === 0) return
+    ctx.setTransform(this.labelCanvas.width / size.width, 0, 0, this.labelCanvas.height / size.height, 0, 0)
+    ctx.clearRect(0, 0, size.width, size.height)
+    const labels = this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1))
+    drawLabels(ctx, labels, this.labelStyle(), 1, this.marks.activeId)
   }
 
   private targetsFor(width: number, height: number): NonNullable<Viewport['imageTargets']> {
@@ -850,6 +979,10 @@ function boxOf(parts: Part[]): { min: number[]; max: number[] } | null {
     }
   }
   return { min, max }
+}
+
+function markColours(theme: Theme): { user: string; agent: string; reference: string } {
+  return { user: toHex(theme.user), agent: toHex(theme.agent), reference: toHex(theme.muted) }
 }
 
 /** Any CSS colour as #RRGGBB. */

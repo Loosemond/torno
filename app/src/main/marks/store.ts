@@ -4,7 +4,7 @@ import { loadMarksFile, sanitiseMark, saveMarksFile } from './file'
 interface MarkEvents {
   /** The marks of an object changed: the whole list, as it now is. */
   changed: { objectId: string; marks: Mark[] }
-  /** Something about an object's marks file the person should know, as a sentence. Said once. */
+  /** Something about an object's marks file the person should know, as a sentence. Said once; `problem()` answers it afterwards. */
   problem: { objectId: string; message: string }
 }
 
@@ -24,6 +24,12 @@ export class MarkStore {
   private files = new Map<string, MarksFile>()
   /** By object folder: the last thing asked of its marks, which the next waits for. */
   private turns = new Map<string, Promise<unknown>>()
+  /**
+   * By object folder: what was last found wrong with its marks file, until the
+   * person dismisses it. Kept across `forget`: it is a fact about the folder,
+   * whichever workspace was open when it was found.
+   */
+  private problems = new Map<string, string>()
   /** Counts `forget`: what was read before one is not kept after it. */
   private epoch = 0
   private listeners: { [E in keyof MarkEvents]: Array<(m: MarkEvents[E]) => void> } = { changed: [], problem: [] }
@@ -42,6 +48,22 @@ export class MarkStore {
 
   list(objectId: string): Promise<Mark[]> {
     return this.turn(objectId, (file) => structuredClone(file.marks))
+  }
+
+  /**
+   * What is wrong with the marks file of an object, as a sentence, or null. It
+   * is told once as a `problem` event, to whoever listens then; this is for
+   * whoever did not, and answers the same until `dismissProblem`.
+   */
+  problem(objectId: string): Promise<string | null> {
+    return this.turn(objectId, (_file, dir) => this.problems.get(dir) ?? null)
+  }
+
+  /** The person has read what was wrong with the marks file of an object. */
+  dismissProblem(objectId: string): Promise<void> {
+    return this.turn(objectId, (_file, dir) => {
+      this.problems.delete(dir)
+    })
   }
 
   add(objectId: string, mark: NewMark): Promise<Mark> {
@@ -148,6 +170,7 @@ export class MarkStore {
         if (!file) {
           const loaded = await loadMarksFile(dir, () => this.now())
           file = loaded.file
+          if (loaded.problem) this.problems.set(dir, loaded.problem)
           if (epoch === this.epoch) {
             this.files.set(dir, file)
             if (loaded.problem) this.emit('problem', { objectId, message: loaded.problem })

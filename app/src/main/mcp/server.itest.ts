@@ -62,7 +62,7 @@ describe('the MCP server', () => {
     expect(tools.map((t) => t.name).sort()).toEqual(['look', 'scene'])
     for (const tool of tools) expect(tool.description).toMatch(/^Returns /)
     const look = tools.find((t) => t.name === 'look')!
-    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['layout', 'parts', 'size', 'view'])
+    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['layout', 'marks', 'parts', 'size', 'view'])
     expect(look.inputSchema.required ?? []).toEqual([])
   })
 

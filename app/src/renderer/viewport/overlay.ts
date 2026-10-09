@@ -28,13 +28,21 @@ const AXES: { letter: string; axis: Vec3; color: string }[] = [
 ]
 
 /**
+ * How many pixels of a picture a nominal one is: sizes are in units of a
+ * picture 1280 pixels on its long edge, so what is drawn over a picture keeps
+ * its share of it.
+ */
+export function overlayUnit(width: number, height: number): number {
+  return Math.max(Math.max(width, height) / 1280, 0.5)
+}
+
+/**
  * Draws what a still picture needs to be read without the app around it: an
  * axis triad bottom left, and bottom right a scale bar in mm (orthographic) or a
  * note that there is none (perspective).
  */
 export function drawOverlay(ctx: Ctx, o: OverlayOptions): void {
-  // Sizes are in units of a 1280-pixel-wide picture, so the overlay keeps its proportions.
-  const unit = Math.max(Math.max(o.width, o.height) / 1280, 0.5)
+  const unit = overlayUnit(o.width, o.height)
   ctx.save()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -147,4 +155,97 @@ function formatLength(mm: number): string {
 
 function dot(a: Vec3, b: Vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/** The colours of the label chips: the two authors', and what is behind and on them. */
+export interface LabelStyle {
+  user: string
+  agent: string
+  /** What an agent's chip is filled with and a user's is lettered in: the colour of paper. */
+  paper: string
+  /** The background of the picture, for the hairline that sets a chip off what is under it. */
+  surface: string
+  ink: string
+}
+
+const CHIP = { height: 17, pad: 5, radius: 4, font: 11.5, border: 1.5, leader: 1.25, halo: 1.5 }
+
+/** How large the chip of a label is, for `place`. `unit` is the pixels of this canvas to a nominal one. */
+export function chipSize(ctx: Ctx, unit: number): (text: string) => { w: number; h: number } {
+  ctx.save()
+  ctx.font = chipFont(unit)
+  // The face is monospaced: every label is as wide as its letters are many.
+  const advance = ctx.measureText('M0').width / 2
+  ctx.restore()
+  return (text) => ({ w: Math.ceil(advance * text.length + 2 * CHIP.pad * unit), h: CHIP.height * unit })
+}
+
+function chipFont(unit: number): string {
+  return `600 ${CHIP.font * unit}px ${MONO}`
+}
+
+/**
+ * Draws the labels of the marks: each a small chip with the mark's number. The
+ * person's are filled with their colour; the agent's are outlined in its own,
+ * so that who made a mark shows without telling red from green. A chip that
+ * was moved off its point is tied to it by a hairline. `active` is the id of
+ * the mark being worked on, whose chip is ringed.
+ */
+export function drawLabels(
+  ctx: Ctx,
+  labels: Array<{ id: string; text: string; author: 'user' | 'agent'; x: number; y: number; visible: boolean; box: { x: number; y: number; w: number; h: number } }>,
+  style: LabelStyle,
+  unit: number,
+  active: string | null = null
+): void {
+  ctx.save()
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.font = chipFont(unit)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const shown = labels.filter((l) => l.visible)
+
+  // The ties first, so that no chip is crossed by another's.
+  for (const { x, y, box, author } of shown) {
+    const tx = Math.min(Math.max(x, box.x), box.x + box.w)
+    const ty = Math.min(Math.max(y, box.y), box.y + box.h)
+    if (Math.hypot(tx - x, ty - y) < 3 * unit) continue
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.lineTo(tx, ty)
+    ctx.strokeStyle = style[author]
+    ctx.lineWidth = CHIP.leader * unit
+    ctx.stroke()
+  }
+
+  for (const { id, text, author, box } of shown) {
+    const path = (grow: number) => {
+      ctx.beginPath()
+      ctx.roundRect(box.x - grow, box.y - grow, box.w + 2 * grow, box.h + 2 * grow, CHIP.radius * unit + grow)
+    }
+    // A hairline of the background around the chip, so it reads over a part of any colour.
+    path(CHIP.halo * unit)
+    ctx.fillStyle = style.surface
+    ctx.fill()
+    if (id === active) {
+      path(CHIP.halo * unit + 1.5 * unit)
+      ctx.fillStyle = style.ink
+      ctx.fill()
+      path(CHIP.halo * unit)
+      ctx.fillStyle = style.surface
+      ctx.fill()
+    }
+    const inset = (CHIP.border * unit) / 2
+    ctx.beginPath()
+    ctx.roundRect(box.x + inset, box.y + inset, box.w - 2 * inset, box.h - 2 * inset, CHIP.radius * unit - inset)
+    ctx.fillStyle = author === 'user' ? style.user : style.paper
+    ctx.fill()
+    ctx.strokeStyle = style[author]
+    ctx.lineWidth = CHIP.border * unit
+    ctx.stroke()
+    ctx.fillStyle = author === 'user' ? style.paper : style.agent
+    ctx.fillText(text, box.x + box.w / 2, box.y + box.h / 2 + 0.5 * unit)
+  }
+  ctx.restore()
 }

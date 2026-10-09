@@ -38,6 +38,9 @@ export interface TornoBridge {
     onChanged(cb: (m: { objectId: string; marks: Mark[] }) => void): () => void
     /** Something about an object's marks file the person should know, said once: a file that could not be read was set aside. */
     onProblem(cb: (m: { objectId: string; message: string }) => void): () => void
+    /** What `onProblem` last said of an object, for a window that was not listening then; null when nothing, or once dismissed. */
+    problem(objectId: string): Promise<string | null>
+    dismissProblem(objectId: string): Promise<void>
   }
   geometry: {
     describe(objectId: string, layout: string, ref: string): Promise<Described>   // rejects with a plain message

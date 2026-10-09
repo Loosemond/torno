@@ -175,6 +175,53 @@ describe('marks', () => {
     }
   }
 
+  it('one mark at a time is the active one: of the open object, until it is gone or another layout is shown', () => {
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), pin('M2', 'there')] })
+    expect(store.getState().activeMark).toBeNull()
+    actions.setActiveMark('M2')
+    expect(store.getState().activeMark).toBe('M2')
+    // A mark the object does not have is not made the active one.
+    actions.setActiveMark('M9')
+    expect(store.getState().activeMark).toBe('M2')
+    // A change to the marks leaves it; its removal does not.
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), pin('M2', 'changed')] })
+    expect(store.getState().activeMark).toBe('M2')
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here')] })
+    expect(store.getState().activeMark).toBeNull()
+
+    actions.setActiveMark('M1')
+    actions.setLayout('print')
+    expect(store.getState().activeMark).toBeNull()
+    actions.setActiveMark('M1')
+    actions.setActiveMark(null)
+    expect(store.getState().activeMark).toBeNull()
+    actions.setActiveMark('M1')
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().activeMark).toBeNull()
+  })
+
+  it('going to a mark makes it the active one, shows its layout, and asks for the camera each time', () => {
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), { ...pin('M2', 'on the bed'), layout: 'print' }] })
+    const asked = store.getState().markFocus
+    actions.focusMark('M1')
+    expect(store.getState()).toMatchObject({ activeMark: 'M1', layout: 'assembly', markFocus: asked + 1 })
+    // Again: the person may have looked elsewhere since.
+    actions.focusMark('M1')
+    expect(store.getState().markFocus).toBe(asked + 2)
+    actions.focusMark('M2')
+    expect(store.getState()).toMatchObject({ activeMark: 'M2', layout: 'print', markFocus: asked + 3 })
+    actions.focusMark('M9')
+    expect(store.getState()).toMatchObject({ activeMark: 'M2', markFocus: asked + 3 })
+  })
+
+  it('what was wrong with the marks file is put away when the person has read it', () => {
+    actions.setMarksProblem({ objectId: 'bracket', message: 'The marks file of this object could not be read.' })
+    actions.dismissMarksProblem()
+    expect(store.getState().marksProblem).toBeNull()
+  })
+
   it('an object opens with none, then has the ones main lists for it', () => {
     expect(store.getState().marks).toEqual([])
     const listed = [pin('M1', 'here'), pin('M2', 'and here')]

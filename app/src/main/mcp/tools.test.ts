@@ -183,6 +183,19 @@ describe('look', () => {
     ])
   })
 
+  it('draws the marks unless told not to: the choice is passed on, and left out when it was not made', async () => {
+    const deps = fake()
+    await lookTool(deps, 'bracket', { marks: false })
+    await lookTool(deps, 'bracket', { marks: true })
+    expect(deps.looks.map((l) => l.req)).toEqual([
+      { view: 'current', size: 1280, marks: false },
+      { view: 'current', size: 1280, marks: true }
+    ])
+    expect(TOOLS.look.inputSchema.marks.description).toBe("Draw the user's and your marks with their numbers. Default true.")
+    expect(TOOLS.look.inputSchema.marks.safeParse(undefined).success).toBe(true)
+    expect(TOOLS.look.inputSchema.marks.safeParse('yes').success).toBe(false)
+  })
+
   it('clamps the size to 256–2000', async () => {
     const deps = fake()
     for (const size of [10, 5000, 640.6, Number.NaN]) await lookTool(deps, 'bracket', { size })

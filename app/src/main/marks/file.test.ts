@@ -1,10 +1,18 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArrowMark, Mark, MarksFile, PickMark, PinMark, ShapeMark, StrokeMark } from '../../shared/marks'
 import { markAnchors } from '../../shared/marks'
+import * as atomic from '../atomic'
 import { loadMarksFile, MAX_NOTE, MAX_STROKE_POINTS, sanitiseMark, saveMarksFile } from './file'
+
+// The real writes, which a test can have fail once.
+vi.mock('../atomic', async (importActual) => {
+  const actual = await importActual<typeof import('../atomic')>()
+  return { ...actual, writeFileAtomic: vi.fn(actual.writeFileAtomic) }
+})
+const writes = vi.mocked(atomic.writeFileAtomic)
 
 const CAMERA = { position: [100, -100, 80], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 } as const
 
@@ -106,6 +114,19 @@ describe('marks file', () => {
     // The fresh file is written at once, so the ids are safe whatever happens next; the problem is told once.
     expect(JSON.parse(readFileSync(path(), 'utf8'))).toEqual({ next, marks: [] })
     expect(await loadMarksFile(dir, NOW)).toEqual({ file: { next, marks: [] } })
+  })
+
+  it('a corrupt file whose fresh file cannot be written is still there to be read again: its ids are not lost', async () => {
+    const text = '{"next": 7, "marks": ['
+    writeRaw(text)
+    writes.mockRejectedValueOnce(new Error('disk full'))
+    await expect(loadMarksFile(dir, NOW)).rejects.toThrow('disk full')
+    // The bad file is where it was, and a copy of it aside.
+    expect(readFileSync(path(), 'utf8')).toBe(text)
+    const loaded = await loadMarksFile(dir, NOW)
+    expect(loaded.file).toEqual({ next: 7, marks: [] })
+    expect(loaded.problem).toContain('.torno/marks.json.corrupt-2026-10-09T12-34-56-789Z')
+    expect(readFileSync(join(dir, '.torno', 'marks.json.corrupt-2026-10-09T12-34-56-789Z'), 'utf8')).toBe(text)
   })
 
   it('keeps the whole marks of a file that has others, sets the file as it was aside, and says how many were left out', async () => {

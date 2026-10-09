@@ -145,6 +145,9 @@ test('look returns the picture the window draws, and keeps a copy under .torno/v
 
   // The size is held to what the agent's CLI passes on unscaled.
   expect((await call(bracket, 'look', { view: 'front', size: 9000 })).text).toContain('2000×1500')
+  // Whether the marks are drawn is the agent's to say; here there are none either way.
+  expect((await call(bracket, 'look', { view: 'front', marks: false })).isError).toBe(false)
+  expect((await call(bracket, 'look', { view: 'front', marks: 'no' })).isError).toBe(true)
   expect((await call(bracket, 'look', { view: 'front', layout: 'print', parts: ['post'], size: 100 })).text).toContain('view front · layout print · parts post · orthographic · 256×192')
 })
 

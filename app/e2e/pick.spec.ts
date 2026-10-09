@@ -64,7 +64,7 @@ function pickOver(point: Vec3, opts?: { edges?: boolean }, p: Page = page): Prom
 /** Where a point of the object frame is drawn, in the page's pixels. */
 async function pageXY(point: Vec3, p: Page = page): Promise<[number, number]> {
   const [fx, fy] = await p.evaluate((at) => window.__tornoTest!.project(at), point)
-  const box = (await p.locator('.viewport-canvas canvas').boundingBox())!
+  const box = (await p.locator('.viewport-canvas canvas').first().boundingBox())!
   return [box.x + fx * box.width, box.y + fy * box.height]
 }
 
@@ -199,7 +199,7 @@ test('Shift adds to the selection, and takes out; Escape and a click on nothing 
   await clickOver(ON_POST)
   await expect.poll(async () => (await state()).selection).toEqual([post.ref])
   // Off the parts, in a corner of the canvas.
-  const box = (await page.locator('.viewport-canvas canvas').boundingBox())!
+  const box = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
   await page.mouse.move(box.x + box.width - 12, box.y + box.height - 60)
   await expect(readout()).toBeHidden()
   await page.mouse.down()
@@ -261,7 +261,7 @@ test('on a stale build nothing is picked, and the pointer is told why; the new b
   await page.mouse.down()
   await page.mouse.up()
   // Off the parts there is nothing to refuse, and a click there clears nothing either.
-  const box = (await page.locator('.viewport-canvas canvas').boundingBox())!
+  const box = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
   await page.mouse.move(box.x + box.width - 12, box.y + box.height - 60)
   await expect(readout()).toBeHidden()
   await page.mouse.down()

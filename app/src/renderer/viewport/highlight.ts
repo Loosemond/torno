@@ -5,14 +5,22 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import type { BuiltPart } from './partMesh'
 import { parseRef } from './picking'
 
-/** What is pointed at, what is selected, and what the agent points at. */
-export type HighlightLayer = 'hover' | 'selection' | 'agent'
+/** What is pointed at, what is selected, what the agent points at, and what the person's and the agent's pick marks are on. */
+export type HighlightLayer = 'hover' | 'selection' | 'agent' | 'userMark' | 'agentMark'
 
-const LAYERS: Record<HighlightLayer, { color: 'accent' | 'agent'; tint: number; line: number; order: number }> = {
-  hover: { color: 'accent', tint: 0.26, line: 2.5, order: 3 },
-  selection: { color: 'accent', tint: 0.42, line: 3.5, order: 2 },
-  agent: { color: 'agent', tint: 0.45, line: 3.5, order: 1 }
+/** The layers that belong to marks: they are in a picture when the marks are. */
+export const MARK_LAYERS: HighlightLayer[] = ['userMark', 'agentMark']
+
+// `order` is the order of drawing: a selection is drawn over the tint of a mark
+// on the same face, and both show, since each is see-through.
+const LAYERS: Record<HighlightLayer, { color: 'accent' | 'agent' | 'user'; tint: number; line: number; order: number }> = {
+  hover: { color: 'accent', tint: 0.26, line: 2.5, order: 5 },
+  selection: { color: 'accent', tint: 0.42, line: 3.5, order: 4 },
+  agent: { color: 'agent', tint: 0.45, line: 3.5, order: 3 },
+  userMark: { color: 'user', tint: 0.4, line: 3.5, order: 2 },
+  agentMark: { color: 'agent', tint: 0.4, line: 3.5, order: 1 }
 }
+const NAMES = Object.keys(LAYERS) as HighlightLayer[]
 
 interface Overlay {
   /** The part's own surface again, of which only the highlighted faces are drawn. */
@@ -35,7 +43,7 @@ interface LayerState {
  */
 export class Highlights {
   private readonly layers: Record<HighlightLayer, LayerState>
-  private visible = true
+  private readonly hidden = new Set<HighlightLayer>()
 
   constructor() {
     const make = (name: HighlightLayer): LayerState => ({
@@ -52,11 +60,11 @@ export class Highlights {
       line: new LineMaterial({ linewidth: LAYERS[name].line }),
       overlays: new Map()
     })
-    this.layers = { hover: make('hover'), selection: make('selection'), agent: make('agent') }
+    this.layers = Object.fromEntries(NAMES.map((name) => [name, make(name)])) as Record<HighlightLayer, LayerState>
   }
 
-  setColors(colors: { accent: string; agent: string }): void {
-    for (const name of Object.keys(this.layers) as HighlightLayer[]) {
+  setColors(colors: { accent: string; agent: string; user: string }): void {
+    for (const name of NAMES) {
       const color = colors[LAYERS[name].color]
       this.layers[name].tint.color.set(color)
       this.layers[name].line.color.set(color)
@@ -73,14 +81,15 @@ export class Highlights {
 
   /** Draws the layers anew. `partNamed` finds a part of the layout shown. */
   apply(partNamed: (name: string) => BuiltPart | undefined, only?: HighlightLayer): void {
-    for (const name of only ? [only] : (Object.keys(this.layers) as HighlightLayer[])) this.applyLayer(name, partNamed)
+    for (const name of only ? [only] : NAMES) this.applyLayer(name, partNamed)
   }
 
-  /** Hides everything, for a picture that is of the parts alone. */
-  setVisible(visible: boolean): void {
-    this.visible = visible
-    for (const state of Object.values(this.layers)) {
-      for (const overlay of state.overlays.values()) {
+  /** Hides or shows layers, all of them unless some are named: a picture is of the parts alone, or of the parts and the marks. */
+  setVisible(visible: boolean, layers: HighlightLayer[] = NAMES): void {
+    for (const name of layers) {
+      if (visible) this.hidden.delete(name)
+      else this.hidden.add(name)
+      for (const overlay of this.layers[name].overlays.values()) {
         overlay.faces.visible = visible && overlay.faces.geometry.groups.length > 0
         if (overlay.lines) overlay.lines.visible = visible
       }
@@ -95,7 +104,8 @@ export class Highlights {
       state.overlays.delete(built)
       built.group.remove(overlay.faces)
       this.dropLines(built, overlay)
-      // Not disposed: the geometry shares its buffers with the part's, which is freed with the part.
+      // The buffers are the part's, which is freed straight after; this frees what three.js keeps for the geometry itself.
+      overlay.faces.geometry.dispose()
     }
   }
 
@@ -136,14 +146,14 @@ export class Highlights {
       if (to === undefined || to <= from) continue
       const overlay = this.overlayFor(name, built)
       overlay.faces.geometry.addGroup(from, to - from, 0)
-      overlay.faces.visible = this.visible
+      overlay.faces.visible = !this.hidden.has(name)
     }
 
     for (const [built, positions] of segments) {
       const overlay = this.overlayFor(name, built)
       const lines = new LineSegments2(new LineSegmentsGeometry().setPositions(positions), state.line)
-      lines.renderOrder = LAYERS[name].order + 3
-      lines.visible = this.visible
+      lines.renderOrder = LAYERS[name].order + NAMES.length
+      lines.visible = !this.hidden.has(name)
       overlay.lines = lines
       built.group.add(lines)
     }

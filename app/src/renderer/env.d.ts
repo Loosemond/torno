@@ -16,6 +16,8 @@ declare global {
       pickAt(fx: number, fy: number, opts?: { edges?: boolean }): Hit | null
       /** Where a point of the object frame falls on the canvas, as such fractions. */
       project(point: [number, number, number]): [number, number]
+      /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */
+      markScreen(id: string): { x: number; y: number; visible: boolean } | null
     }
     /** Only with TORNO_TEST=1: what the terminal of the open object shows, as text. */
     __tornoTerm?: {

@@ -1,4 +1,4 @@
-import { copyFile, readFile, rename } from 'node:fs/promises'
+import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Anchor, Mark, MarksFile, Quat, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
@@ -16,7 +16,7 @@ export const MAX_STROKE_POINTS = 400
  * The marks of the object in `dir`. A missing file is an empty list, and
  * nothing is written. A file that cannot be read at all is an error.
  *
- * A file that is not a marks file is moved aside, as
+ * A file that is not a marks file is copied aside, as
  * `marks.json.corrupt-<time>` beside it, and an empty list started whose ids
  * go on from the highest the old file is seen to have given out. A file some
  * of whose marks are not marks this version can keep is copied aside, as
@@ -45,7 +45,8 @@ export async function loadMarksFile(dir: string, now: () => Date = () => new Dat
   const stamp = now().toISOString().replace(/[:.]/g, '-')
   if (!read) {
     const aside = `${NAME}.corrupt-${stamp}`
-    await rename(path, join(dir, FOLDER, aside))
+    // Copied, not moved: were the write below to fail, the next read must find the bad file again, and its ids with it.
+    await copyFile(path, join(dir, FOLDER, aside))
     const file: MarksFile = { next: salvagedNext(text, parsed), marks: [] }
     await writeFileAtomic(path, textOf(file))
     return { file, problem: `The marks file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started.` }

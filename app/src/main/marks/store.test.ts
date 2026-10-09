@@ -316,6 +316,32 @@ describe('what is on disk', () => {
     expect(problems).toEqual([])
   })
 
+  it('keeps what was wrong with a folder to be asked for, until it is dismissed', async () => {
+    mkdirSync(join(dirs.bracket, '.torno'))
+    writeFileSync(join(dirs.bracket, '.torno', 'marks.json'), 'not json')
+    // Asking is what reads the file, when nothing has yet.
+    const said = await store.problem('bracket')
+    expect(said).toContain('marks.json.corrupt-2026-10-09T12-00-00-000Z')
+    expect(problems).toEqual([{ objectId: 'bracket', message: said }])
+    // Whoever was not listening can still ask, any number of times, and of this folder only.
+    expect(await store.problem('bracket')).toBe(said)
+    expect(await store.problem('two')).toBeNull()
+    await store.dismissProblem('bracket')
+    expect(await store.problem('bracket')).toBeNull()
+    await expect(store.problem('ghost')).rejects.toThrow('no object named ghost')
+  })
+
+  it('a problem found while the workspace was being left is not told, and is still there to be asked for', async () => {
+    mkdirSync(join(dirs.two, '.torno'))
+    writeFileSync(join(dirs.two, '.torno', 'marks.json'), 'not json')
+    const listing = store.list('two')
+    store.forget()
+    await listing
+    expect(problems).toEqual([])
+    expect(await store.problem('two')).toContain('marks.json.corrupt-')
+    expect(problems).toEqual([])
+  })
+
   it('a write that fails changes nothing in memory, and the next one goes through', async () => {
     await store.add('bracket', pin())
     changes = []

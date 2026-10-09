@@ -23,7 +23,8 @@ import { scanWorkspace } from './workspace'
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:stop,
-//           marks:list, marks:add, marks:update, marks:remove, geometry:describe
+//           marks:list, marks:add, marks:update, marks:remove, marks:problem (also sent to the renderer),
+//           marks:dismissProblem, geometry:describe
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply,
 //           session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts),
@@ -269,6 +270,8 @@ export function registerIpc(
     requireMarks().update(String(objectId), String(id), patch)
   )
   ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))
+  ipcMain.handle('marks:problem', (_event, objectId: string) => requireMarks().problem(String(objectId)))
+  ipcMain.handle('marks:dismissProblem', (_event, objectId: string) => requireMarks().dismissProblem(String(objectId)))
 
   // What the kernel says of a part, a face or an edge of an object's last good build. `Builds.query`
   // has the object built again when the kernel no longer holds it.

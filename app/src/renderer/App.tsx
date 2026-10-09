@@ -4,6 +4,7 @@ import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
 import { Confirm } from './ui/Confirm'
 import { Layers } from './ui/Layers'
+import { MarksPanel } from './ui/MarksPanel'
 import { ObjectList } from './ui/ObjectList'
 import { SessionPane } from './ui/SessionPane'
 import { DatumMark, ViewportPane } from './ui/ViewportPane'
@@ -72,6 +73,9 @@ async function openObject(id: string): Promise<void> {
       (marks) => actions.setMarks({ objectId: id, marks }),
       (e: unknown) => actions.setMarksProblem({ objectId: id, message: e instanceof Error ? e.message : String(e) })
     )
+    // What main found wrong with the marks file is told once, and this window may not have been listening.
+    const problem = await window.torno.marks.problem(id).catch(() => null)
+    if (problem !== null) actions.setMarksProblem({ objectId: id, message: problem })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     actions.applyBuild({ objectId: id, status: 'failed', revision: 0, stale: false, error: { kind: 'open', message } })
@@ -210,7 +214,7 @@ export function App() {
         <ViewportPane onShowError={() => setErrorOpen(true)} />
       </main>
 
-      <aside className="left" data-region="left" aria-label="Objects and layers">
+      <aside className="left" data-region="left" aria-label="Objects, layers and marks">
         <header className="panel-head">
           <h1 className="workspace-name" title={workspace.root}>
             {basename(workspace.root)}
@@ -235,6 +239,7 @@ export function App() {
         )}
         <ObjectList onOpen={(id) => void openObject(id)} />
         <Layers />
+        <MarksPanel />
       </aside>
 
       <aside className="dock" data-region="session" aria-label="Session" hidden={!dockOpen}>

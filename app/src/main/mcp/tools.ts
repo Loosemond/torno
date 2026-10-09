@@ -57,7 +57,8 @@ const lookInput = {
     ),
   layout: z.string().optional().describe('The layout to draw, as listed by scene. Default: the one on screen.'),
   parts: z.array(z.string()).optional().describe('Names of the parts to draw. Default: the parts the user has switched on.'),
-  size: z.number().optional().describe(`Long edge of the image in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`)
+  size: z.number().optional().describe(`Long edge of the image in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`),
+  marks: z.boolean().optional().describe("Draw the user's and your marks with their numbers. Default true.")
 }
 
 export interface LookArgs {
@@ -65,6 +66,7 @@ export interface LookArgs {
   layout?: string
   parts?: string[]
   size?: number
+  marks?: boolean
 }
 
 type Vec3 = [number, number, number]
@@ -174,6 +176,7 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   const request: LookRequest = { view, size: clampSize(args.size) }
   if (args.layout !== undefined) request.layout = args.layout
   if (args.parts !== undefined) request.parts = args.parts
+  if (args.marks !== undefined) request.marks = args.marks
 
   let picture: LookResult
   try {
