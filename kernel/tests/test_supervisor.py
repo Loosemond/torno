@@ -751,6 +751,45 @@ def test_query_reply_that_cannot_be_serialised_is_an_exception_reply_and_the_nex
     assert read_frame(channel.written) is None  # nothing half written
 
 
+def test_a_request_the_worker_cannot_read_is_a_bad_request_and_the_next_is_answered(monkeypatch):
+    """An integer of more digits than Python reads: the frame is whole, its JSON is refused."""
+    from torno_kernel import queries, worker
+    from torno_kernel.frames import read_frame
+
+    monkeypatch.setattr(queries, "run", lambda shapes, name, args, kept: {"value": 2.0})
+    header = ('{"id":1,"name":"measure","args":{"density":' + "9" * 5000 + "}}").encode()
+    asked = io.BytesIO()
+    asked.write(len(header).to_bytes(4, "big") + (0).to_bytes(4, "big") + header)
+    write_frame(asked, {"id": 2, "name": "measure", "args": {}})
+    asked.seek(0)
+
+    class Channel:
+        def __init__(self) -> None:
+            self.written = io.BytesIO()
+            self.read, self.write, self.flush = asked.read, self.written.write, lambda: None
+
+    channel = Channel()
+    worker._serve(channel, {})
+    channel.written.seek(0)
+    first, _ = read_frame(channel.written)
+    assert (first["id"], first["ok"], first["error"]["kind"]) == (None, False, "bad_request")
+    assert read_frame(channel.written)[0] == {"id": 2, "ok": True, "result": {"value": 2.0}}
+
+
+def test_a_number_of_thousands_of_digits_is_a_bad_request_over_the_wire(bracket_kernel):
+    dir = str(BRACKET)
+    digits = "9" * 5000
+    bracket_kernel.send_raw(
+        f'{{"id":"big","op":"query","dir":"{dir}","name":"measure",'
+        f'"args":{{"kind":"mass","a":{{"ref":"assembly:base"}},"density":{digits}}}}}'
+    )
+    reply, _ = bracket_kernel.recv(5)
+    assert (reply["ok"], reply["error"]["kind"]) == (False, "bad_request")
+    huge = {"kind": "mass", "a": {"ref": "assembly:base"}, "density": 10**400}
+    assert bracket_kernel.query(BRACKET, "measure", huge)["error"]["kind"] == "bad_request"
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
+
+
 def test_coordinates_no_number_can_be_made_of_are_refused_and_the_worker_lives(bracket_kernel):
     far = {"layout": "assembly", "point": [0, 0, 1e308]}
     there = {"layout": "assembly", "point": [0, 1e308, 0]}

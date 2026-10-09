@@ -357,7 +357,7 @@ def test_coordinates_beyond_a_million_kilometres_are_refused(bracket):
 
 
 def test_the_area_of_a_spline_outline_is_that_of_the_spline(spline_prism):
-    prism, true_area = spline_prism
+    prism, true_area, _ = spline_prism
     [part] = section({"assembly:prism": prism}, [0, 0, 2], Z)["parts"]
     [loop] = part["loops"]
     assert (loop["areaExact"], part["areaExact"]) == (True, True)

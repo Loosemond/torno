@@ -82,7 +82,17 @@ def _serve(channel: Any, shapes: dict[str, Any]) -> None:
     # What a query works out of a part (its faces taken apart and boxed) is the
     # same for every later one: these shapes are the worker's for its life.
     kept: dict[str, Any] = {}
-    while (frame := read_frame(channel)) is not None:
+    while True:
+        try:
+            frame = read_frame(channel)
+        except ValueError as e:
+            # The frame was whole and its header was not JSON Python reads (an
+            # integer of thousands of digits): the next frame starts where it should.
+            unread = {"kind": "bad_request", "message": f"a request could not be read: {e}"}
+            write_frame(channel, {"id": None, "ok": False, "error": unread})
+            continue
+        if frame is None:
+            break
         request, _ = frame
         try:
             result = queries.run(shapes, request.get("name"), request.get("args"), kept)

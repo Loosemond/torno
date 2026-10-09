@@ -73,11 +73,21 @@ def mesh_of(shape: Any) -> tuple[np.ndarray, np.ndarray]:
 def deflection(shape: Any) -> float:
     """How far, in mm, the mesh a part is drawn with may be from its faces.
 
-    ocp-tessellate's rule: DEVIATION for a part whose box measures 300 mm
-    along its three sides together, and in proportion for any other.
+    Asked of ocp-tessellate itself, of the box it meshes the part by: the
+    part's own, before it is posed, so a part turned in its layout is drawn
+    as finely as one that is not. 0 for a part with no extent.
     """
-    box = shape.bounding_box()
-    return (box.size.X + box.size.Y + box.size.Z) / 300 * DEVIATION
+    from ocp_tessellate.convert import to_ocpgroup
+    from ocp_tessellate.ocp_utils import bounding_box
+    from ocp_tessellate.tessellator import compute_quality
+
+    _, instances = to_ocpgroup(shape, names=["part"])
+    try:
+        box = bounding_box(instances[0]["obj"], loc=None, optimal=False)
+        return float(compute_quality(box, deviation=DEVIATION))
+    except (ValueError, IndexError):
+        # A box with a side of no length has no logarithm to round it by.
+        return 0.0
 
 
 def _tessellate(named: dict[str, Any]) -> list[tuple[str, Any, dict, Any, str | None]]:

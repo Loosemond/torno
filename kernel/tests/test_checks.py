@@ -344,7 +344,7 @@ def test_vertices_are_one_within_a_tenth_of_a_micron_in_any_direction():
 def test_the_volume_shared_with_a_freeform_solid_is_exact_to_a_millionth(spline_prism):
     from build123d import Box
 
-    prism, true_area = spline_prism
+    prism, true_area, _ = spline_prism
     shapes = {"assembly:prism": prism, "assembly:block": Box(100, 100, 100)}
     # The block holds all of the prism, 5 mm high.
     assert check(shapes, "overlap", "prism", "block")["volume"] == pytest.approx(true_area * 5, rel=1e-6)

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from torno_kernel import queries, topo
+from torno_kernel.describe import number
 from torno_kernel.loader import load_scene
 from torno_kernel.tess import build_scene
 
@@ -646,16 +647,17 @@ def test_what_was_worked_out_of_a_part_is_kept_for_the_next_thickness(shapes):
     args = {"kind": "thickness", "a": {"ref": outside, "point": [0, -15, 1]}}
     first = queries.run(shapes, "measure", args, kept)
     held = dict(kept)
-    assert len(held) == 1
+    # What a line is cut with, and how far off the face a point may be.
+    assert set(held) == {("rays", PLATE), ("band", PLATE)}
     assert queries.run(shapes, "measure", args, kept) == first
-    assert all(kept[k] is held[k] for k in held) and len(kept) == 1
+    assert all(kept[k] is held[k] for k in held) and len(kept) == 2
 
 
 # Areas and volumes of what is not flat or round: exact to 1e-6 of themselves
 
 
 def test_area_and_volume_of_a_spline_prism_are_exact_to_a_millionth(spline_prism):
-    prism, true_area = spline_prism
+    prism, true_area, true_length = spline_prism
     made = {"assembly:prism": prism}
     [top] = refs(made, "assembly:prism", "F", "plane, normal +Z")
     assert measure(made, "area", top)["value"] == pytest.approx(true_area, rel=1e-6)
@@ -667,10 +669,21 @@ def test_area_and_volume_of_a_spline_prism_are_exact_to_a_millionth(spline_prism
     assert queries.describe(made, top)["area"] == pytest.approx(true_area, rel=1e-6)
     described = queries.describe(made, "assembly:prism")
     assert described["volume"] == pytest.approx(true_area * 5, rel=1e-6)
-    side = described["area"] - 2 * true_area
-    assert measure(made, "area", "assembly:prism")["value"] == pytest.approx(described["area"])
-    # The side is the outline's length times the height: longer than a circle of that area's.
-    assert side / 5 > 2 * math.sqrt(math.pi * true_area)
+    # Two ends, and a side as long as the outline and 5 mm high.
+    whole = 2 * true_area + true_length * 5
+    assert (described["area"], described["areaExact"]) == (pytest.approx(whole, rel=1e-6), True)
+    area = measure(made, "area", "assembly:prism")
+    assert (area["value"], area["exact"], area["how"]) == (
+        pytest.approx(whole, rel=1e-6),
+        True,
+        "surface of the part",
+    )
+    [side] = refs(made, "assembly:prism", "F", "extrusion")
+    alone = measure(made, "area", side)
+    assert (alone["value"], alone["exact"]) == (pytest.approx(true_length * 5, rel=1e-6), True)
+    face = queries.describe(made, side)
+    assert (face["area"], face["areaExact"]) == (pytest.approx(true_length * 5, rel=1e-6), True)
+    assert face["descriptor"] == f"extrusion, {number(true_length * 5)} mm²"
 
 
 def test_volume_and_area_of_an_ellipsoid_and_a_torus_are_exact_to_a_millionth():
@@ -736,3 +749,162 @@ def test_an_integer_too_large_for_a_float_is_no_coordinate(shapes, top):
     with pytest.raises(queries.QueryError) as e:
         queries.run(shapes, "nearest", {"layout": "assembly", "anchors": [{"part": "plate", "point": [10**400, 0, 0]}]})
     assert e.value.kind == "bad_request"
+
+
+# Areas of faces no integral of which can be trusted alone
+
+
+def said_digits(how: str) -> int:
+    """How many digits an approximate area says its integrations agree to."""
+    import re
+
+    found = re.search(r", approximate: integrations agree to (\d+) digits$", how)
+    assert found, how
+    return int(found[1])
+
+
+def ellipsoid_area(a: float, b: float, c: float) -> float:
+    """The area of an ellipsoid, by Gauss-Legendre quadrature, without the kernel.
+
+    The point at colatitude t and longitude p is (a sin t cos p, b sin t sin p,
+    c cos t); the area element there is
+    sin t · sqrt((bc sin t cos p)² + (ac sin t sin p)² + (ab cos t)²) dt dp.
+    For 5, 10, 15 it is 1222.0536575644…
+    """
+    import numpy as np
+
+    nodes, weights = np.polynomial.legendre.leggauss(300)
+    t, wt = (nodes + 1) * math.pi / 2, weights * math.pi / 2
+    p, wp = (nodes + 1) * math.pi, weights * math.pi
+    tt, pp = np.meshgrid(t, p, indexing="ij")
+    element = np.sin(tt) * np.sqrt(
+        (b * c * np.sin(tt) * np.cos(pp)) ** 2
+        + (a * c * np.sin(tt) * np.sin(pp)) ** 2
+        + (a * b * np.cos(tt)) ** 2
+    )
+    return float(wt @ element @ wp)
+
+
+def test_the_reference_for_the_ellipsoid_is_right_of_a_sphere():
+    assert ellipsoid_area(7, 7, 7) == pytest.approx(4 * math.pi * 49, rel=1e-12)
+    assert ellipsoid_area(5, 10, 15) == pytest.approx(1222.0536575644, rel=1e-12)
+
+
+def test_the_area_of_an_ellipsoid_is_exact_or_says_how_nearly():
+    from build123d import Sphere, scale
+
+    made = {"assembly:egg": scale(Sphere(5), by=(1, 2, 3))}
+    true_area = ellipsoid_area(5, 10, 15)
+    for target in ("assembly:egg", "assembly:egg/F0"):
+        result = measure(made, "area", target)
+        if result["exact"]:
+            assert result["value"] == pytest.approx(true_area, rel=1e-6)
+        else:
+            # Not claimed: and then as near as it says it is.
+            assert result["value"] == pytest.approx(true_area, rel=10 ** -said_digits(result["how"]))
+            assert said_digits(result["how"]) >= 3
+    described = queries.describe(made, "assembly:egg/F0")
+    assert described["areaExact"] is measure(made, "area", "assembly:egg/F0")["exact"]
+    assert ("≈" in described["descriptor"]) is not described["areaExact"]
+
+
+def test_the_area_of_a_freeform_face_cut_on_the_slant_is_not_said_to_be_exact(spline_prism):
+    import numpy as np
+    from build123d import Align, Box, Edge, Face, Pos, Rot, Vector, Wire, extrude
+
+    through = [(20, 0), (14, 9), (0, 12), (-12, 8), (-15, -2), (-6, -11), (8, -9)]
+    outline = Edge.make_spline([Vector(*p) for p in through], periodic=True)
+    block = Box(200, 200, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    # Cut by a plane through (0, 0, 8) tilted 15°: the side is as high as the plane is there.
+    made = {"assembly:wedge": extrude(Face(Wire([outline])), 20) - Pos(0, 0, 8) * Rot(0, 15, 0) * block}
+    points = np.array([tuple(outline.position_at(t))[:2] for t in np.linspace(0, 1, 20001)])
+    steps = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    middles = (points[1:] + points[:-1]) / 2
+    true_area = float(np.sum(steps * (8 - middles[:, 0] * math.tan(math.radians(15)))))
+    [side] = refs(made, "assembly:wedge", "F", "extrusion")
+    result = measure(made, "area", side)
+    # No two integrations of this face agree to a millionth: none is claimed.
+    assert result["exact"] is False
+    assert result["how"].startswith("of the face, approximate: integrations agree to ")
+    assert result["value"] == pytest.approx(true_area, rel=10 ** -said_digits(result["how"]))
+    whole = measure(made, "area", "assembly:wedge")
+    assert whole["exact"] is False
+    assert whole["how"].startswith("surface of the part, approximate: integrations agree to ")
+    described = queries.describe(made, side)
+    assert described["areaExact"] is False
+    assert described["descriptor"] == f"extrusion, ≈ {number(result['value'])} mm²"
+    assert queries.describe(made, "assembly:wedge")["areaExact"] is False
+
+
+def test_areas_of_round_and_swept_faces_are_exact_to_a_millionth():
+    import numpy as np
+    from build123d import Axis, Box, Circle, Cylinder, Edge, Ellipse, Face, Pos, Sphere, Vector, Wire, loft, revolve
+
+    profile = Edge.make_spline([Vector(5, 0, 0), Vector(9, 0, 6), Vector(4, 0, 12), Vector(7, 0, 20)])
+    closing = [
+        Edge.make_line(profile @ 1, (0, 0, 20)),
+        Edge.make_line((0, 0, 20), (0, 0, 0)),
+        Edge.make_line((0, 0, 0), profile @ 0),
+    ]
+    made = {
+        "assembly:box": Box(10, 20, 30),
+        "assembly:ball": Sphere(7),
+        "assembly:bush": Cylinder(10, 20) - Cylinder(4, 20),
+        "assembly:vase": revolve(Face(Wire([profile, *closing])), Axis.Z),
+        "assembly:horn": loft([Circle(10).face(), Pos(0, 0, 20) * Ellipse(6, 3).face()]),
+    }
+    # Pappus: a curve turned about an axis sweeps its length times the way its centre goes.
+    points = np.array([tuple(profile.position_at(t)) for t in np.linspace(0, 1, 20001)])
+    steps = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    swept = float(2 * math.pi * np.sum(steps * (points[1:, 0] + points[:-1, 0]) / 2))
+    expected = {
+        "assembly:box": 2 * (200 + 300 + 600),
+        "assembly:ball": 4 * math.pi * 49,
+        "assembly:bush": 2 * math.pi * (100 - 16) + 2 * math.pi * 14 * 20,
+        "assembly:vase": swept + math.pi * 25 + math.pi * 49,
+    }
+    for key, area in expected.items():
+        result = measure(made, "area", key)
+        assert (result["value"], result["exact"]) == (pytest.approx(area, rel=1e-6), True), key
+    [turned] = refs(made, "assembly:vase", "F", "revolution")
+    assert measure(made, "area", turned)["value"] == pytest.approx(swept, rel=1e-6)
+    # Of the loft there is no closed form: its ends are known, and its side is claimed.
+    horn = measure(made, "area", "assembly:horn")
+    assert horn["exact"] is True
+    assert horn["value"] > math.pi * 100 + math.pi * 18
+
+
+def test_a_density_too_large_for_a_float_is_refused(shapes):
+    assert refused(shapes, "mass", PLATE, density=10**400) == (
+        "bad_request",
+        "density is a positive number, in g/cm³",
+    )
+
+
+def test_the_band_a_point_is_taken_in_is_never_a_quarter_of_the_thinnest_side_of_the_part():
+    from build123d import Box
+
+    made = {"assembly:sheet": Box(2000, 2000, 1)}
+    [top] = refs(made, "assembly:sheet", "F", "plane, normal +Z")
+    [bottom] = refs(made, "assembly:sheet", "F", "plane, normal -Z")
+    # Drawn 1.3 mm coarse, but 1 mm thick: a point on the bottom is not on the top.
+    assert refused(made, "thickness", {"ref": top, "point": [0, 0, -0.5]}) == (
+        "bad_request",
+        f"the point is 1 mm from {top}: give a point on the face",
+    )
+    assert refused(made, "thickness", {"ref": top, "point": [0, 0, 0.2]})[0] == "bad_request"
+    near = measure(made, "thickness", {"ref": bottom, "point": [0, 0, -0.7]})
+    assert (near["value"], near["moved"]) == (pytest.approx(1), pytest.approx(0.2))
+
+
+def test_the_band_follows_the_mesh_the_part_is_drawn_with():
+    from build123d import Box, Rot
+
+    from torno_kernel import tess
+
+    # ocp-tessellate rounds each side of the box to three digits, and the sum again.
+    assert tess.deflection(Box(100.4, 100.4, 100.4)) == pytest.approx(0.1)
+    # Turned, the rod is drawn as finely as it is lying straight: its box is its own.
+    straight = tess.deflection(Box(3000, 10, 10))
+    assert tess.deflection(Rot(0, 0, 45) * Box(3000, 10, 10)) == pytest.approx(straight)
+    assert straight == pytest.approx(1.01, abs=0.01)

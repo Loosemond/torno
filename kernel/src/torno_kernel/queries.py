@@ -427,12 +427,14 @@ def _pick(items: list[Any], index: int, key: str, plural: str, letter: str) -> A
 
 def _describe_part(key: str, shape: Any) -> dict[str, Any]:
     box = shape.bounding_box()
+    area = extent.area(shape)
     facts = {
         "kind": "part",
         "key": key,
         "bbox": {"min": _xyz(box.min), "max": _xyz(box.max)},
         "volume": extent.volume(shape),
-        "area": extent.area(shape),
+        "area": area.value,
+        "areaExact": area.exact,
         "faceCount": len(topo.faces(shape)),
         "edgeCount": len(topo.edges(shape)),
         "valid": bool(shape.is_valid),
@@ -458,11 +460,13 @@ def _describe_face(ref: str, topods_face: Any) -> dict[str, Any]:
         axis = None if axis is None else _xyz(axis.direction)
     except Exception:
         axis = None
+    area = extent.area(topods_face)
     facts = {
         "kind": "face",
         "ref": ref,
         "type": face.geom_type.name.lower(),
-        "area": extent.area(topods_face),
+        "area": area.value,
+        "areaExact": area.exact,
         "center": _xyz(center),
         "normal": normal,
         "radius": None if radius is None else float(radius),

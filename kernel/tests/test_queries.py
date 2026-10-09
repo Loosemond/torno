@@ -108,6 +108,12 @@ def test_cylinder_gives_radius_and_axis():
     )
 
 
+def test_an_area_that_is_not_exact_is_said_as_about():
+    facts = {"type": "bspline", "area": 913.2, "areaExact": False, "radius": None}
+    assert descriptor("face", facts) == "bspline, ≈ 913.2 mm²"
+    assert descriptor("face", {**facts, "areaExact": True}) == "bspline, 913.2 mm²"
+
+
 def test_other_faces_give_their_type_and_area():
     assert descriptor("face", {"type": "bspline", "area": 913.2, "radius": None}) == "bspline, 913.2 mm²"
     assert descriptor("face", {"type": "sphere", "area": 201.06, "radius": 4.0}) == "sphere, 201.1 mm²"
@@ -193,11 +199,15 @@ def test_the_centre_of_an_edge_is_on_the_edge_also_of_a_circle(shapes):
     assert checked == 2
 
 
-def test_describe_keeps_the_fields_it_had(shapes):
+def test_describe_keeps_the_fields_it_had_and_says_whether_an_area_is_exact(shapes):
     edge = queries.describe(shapes, "assembly:base/E1")
     assert set(edge) == {"kind", "ref", "type", "length", "center", "descriptor"}
     face = queries.describe(shapes, "assembly:base/F0")
-    assert set(face) == {"kind", "ref", "type", "area", "center", "normal", "radius", "descriptor"}
+    assert set(face) == {
+        "kind", "ref", "type", "area", "areaExact", "center", "normal", "radius", "descriptor"
+    }  # fmt: skip
+    assert face["areaExact"] is True
+    assert queries.describe(shapes, "assembly:post")["areaExact"] is True
 
 
 def test_describe_tilted_plane():

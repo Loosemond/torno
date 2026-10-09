@@ -82,11 +82,14 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     - ``thickness``: from a point of a face of a solid along its inward
       normal to where the same part ends. The point is on the face, or as
       near it as a pick on the mesh is: within 0.05 mm, or 1.5 times the
-      deflection the part is drawn with where that is more. It is laid on
-      the face and ``moved`` says how far, mm; one further off is refused.
+      deflection the part is drawn with where that is more, up to a quarter
+      of the part's thinnest extent. It is laid on the face and ``moved``
+      says how far, mm; one further off is refused.
     - ``bbox`` of a part, a face or an edge, exact when all its faces are
       planes or cylinders and all its edges lines or circles; ``volume`` and
-      ``mass`` of a part that is a solid; ``area`` of a part or a face.
+      ``mass`` of a part that is a solid; ``area`` of a part or a face,
+      exact unless a face is freeform and its area cannot be confirmed
+      (``extent``): then ``how`` says to how many digits it can be relied on.
 
     ``kept`` is the worker's (``queries.run``).
     """
@@ -341,7 +344,7 @@ def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
         raise QueryError(
             "exception", f"no point of {target.ref} near the one given could be computed"
         )
-    if onto.Value() > max(_ON_FACE, _ON_MESH * tess.deflection(target.part)):
+    if onto.Value() > _band(target, kept):
         raise QueryError(
             "bad_request",
             f"the point is {number(onto.Value())} mm from {target.ref}: give a point on the face",
@@ -366,6 +369,22 @@ def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
         "moved": float(onto.Value()),
         "exact": True,
     }
+
+
+def _band(target: _Target, kept: dict[Any, Any]) -> float:
+    """How far off a face of the target's part a point may be given, mm.
+
+    As far as the mesh the part is drawn with is off it, and half as far
+    again; never so far as to reach the other side of the part's thinnest
+    extent (a quarter of it at most), and never less than _ON_FACE.
+    """
+    held = ("band", target.key)
+    if held not in kept:
+        size = target.part.bounding_box().size
+        thinnest = min(size.X, size.Y, size.Z)
+        of_mesh = min(_ON_MESH * tess.deflection(target.part), thinnest / 4)
+        kept[held] = max(_ON_FACE, of_mesh)
+    return kept[held]
 
 
 def _rays(target: _Target, kept: dict[Any, Any]) -> Any:
@@ -431,11 +450,14 @@ def _extent(kind: str, target: _Target) -> dict[str, Any]:
             raise QueryError("bad_request", f"volume is measured of a part; {target.what}")
         need_solid(target.shape, target.key)
         return _exactly(extent.volume(target.shape), "mm3", "of the solid")
-    if target.kind == "part":
-        return _exactly(extent.area(target.shape), "mm2", "surface of the part")
-    if target.kind == "face":
-        return _exactly(extent.area(target.shape), "mm2", "of the face")
-    raise QueryError("bad_request", f"area is measured of a part or a face; {target.what}")
+    if target.kind not in ("part", "face"):
+        raise QueryError("bad_request", f"area is measured of a part or a face; {target.what}")
+    area = extent.area(target.shape)
+    how = "surface of the part" if target.kind == "part" else "of the face"
+    if not area.exact:
+        # Of a freeform face OCC has no integral that can be relied on: see extent.
+        how += f", approximate: integrations agree to {area.digits} digits"
+    return {"value": area.value, "unit": "mm2", "how": how, "exact": area.exact}
 
 
 def _exactly(value: float, unit: str, how: str) -> dict[str, Any]:
@@ -445,12 +467,17 @@ def _exactly(value: float, unit: str, how: str) -> dict[str, Any]:
 def _mass(target: _Target, density: Any, default: bool) -> dict[str, Any]:
     if target.kind != "part":
         raise QueryError("bad_request", f"mass is measured of a part; {target.what}")
-    if (
-        not isinstance(density, (int, float))
-        or isinstance(density, bool)
-        or not math.isfinite(density)
-        or density <= 0
-    ):
+    try:
+        # An integer of hundreds of digits, which JSON may hold, is not finite to a float.
+        usable = (
+            isinstance(density, (int, float))
+            and not isinstance(density, bool)
+            and math.isfinite(density)
+            and density > 0
+        )
+    except OverflowError:
+        usable = False
+    if not usable:
         raise QueryError("bad_request", "density is a positive number, in g/cm³")
     need_solid(target.shape, target.key)
     volume = extent.volume(target.shape)

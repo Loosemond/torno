@@ -340,7 +340,7 @@ def _wire_area(plane: Any, wire: Any, outline: np.ndarray) -> tuple[float, bool]
 
 def _face_area(face: Any) -> float | None:
     """The exact area of a face, or None when none can be measured of it."""
-    area = extent.area(face)
+    area = extent.area(face).value
     return area if math.isfinite(area) and area > 0 else None
 
 

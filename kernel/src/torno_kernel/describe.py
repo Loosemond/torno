@@ -26,11 +26,14 @@ def descriptor(kind: str, facts: dict[str, Any]) -> str:
 
         plane, normal +Z, z = 20, 1180 mm²
         cylinder, radius 4, axis Z, 502.7 mm²
+        bspline, ≈ 913.2 mm²
         circle, radius 4, 25.13 mm
         part, 40 × 30 × 5 mm, 6000 mm³, 6 faces
     """
     if kind == "face":
-        return ", ".join([*_surface(facts), f"{number(facts['area'])} mm²"])
+        # An area that is not exact is said as about that much.
+        about = "≈ " if facts.get("areaExact") is False else ""
+        return ", ".join([*_surface(facts), f"{about}{number(facts['area'])} mm²"])
     if kind == "edge":
         return ", ".join([*_curve(facts), f"{number(facts['length'])} mm"])
     if kind == "part":
