@@ -1,10 +1,12 @@
 import type { BuildState } from '../shared/build'
 import { standingOf, unmetDimensions } from '../shared/dimension'
 import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
+import type { ScanInfo } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import { type ViewState, MAX_SELECTION_REPORTED } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import { describeMark } from './marks/describe'
+import { alignmentSaid, shownText } from './scans/said'
 
 /** The most the agent is given with a prompt, in characters. */
 export const CONTEXT_LIMIT = 6000
@@ -18,6 +20,8 @@ const MESSAGE_LIMIT = 400
 /** The most of it that says what is selected, and of that the most that is said of one ref. */
 const SELECTION_LIMIT = 1000
 const SELECTED_DESCRIPTOR_LIMIT = 100
+/** The most of it that says what scans the object has, in one line. */
+export const SCANS_LIMIT = 300
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
 const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
 const MARKS_DATA = '; call mcp__torno__marks for their data'
@@ -95,9 +99,13 @@ export interface PromptContext {
  * marks. Room for the head, the count of those left out and the count of
  * those that pass is kept before any draft is listed.
  *
+ * The scans of the object (`opts.scans`), when it has any, are said in one
+ * line after the selection: each with how it is aligned in the layout on
+ * screen (the first, of an object that is not open) and how it is shown.
+ *
  * It changes nothing: whoever delivers the text turns `sentMarkIds` into sent.
  */
-export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean } = {}): PromptContext {
+export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean; scans?: readonly ScanInfo[] } = {}): PromptContext {
   const revision = deps.scene(objectId)?.revision
   const drafts = marks.filter((m) => m.status === 'draft')
   const open = marks.filter((m) => m.status !== 'resolved' && !drafts.includes(m))
@@ -118,6 +126,9 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   if (lines[0] === '') return { text: '', sentMarkIds: [] }
   const selected = selection(deps, objectId)
   if (selected) lines.push(selected)
+  // Before the marks are given their room: the line is counted in what they have left.
+  const scanned = scansLine(deps, objectId, opts.scans ?? [])
+  if (scanned) lines.push(scanned)
   const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision)}` : ''
   const named = layoutNamed(deps, objectId)
   // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
@@ -206,6 +217,38 @@ function selection(deps: ContextDeps, objectId: string): string {
   const more = total > names.length ? ` and ${total - names.length} more` : ''
   // What is cut is what is said of the refs, never how many more there are.
   return `${cutEnd(`Selected: ${names.join(', ')}`, SELECTION_LIMIT - more.length)}${more}`
+}
+
+/**
+ * The scans of an object in one line of at most `SCANS_LIMIT` characters, or '' when it has none: each by its
+ * number and name, how it is aligned in the layout on screen (in the first, of an object that is not open, and in
+ * none before anything is built) with what puts that in doubt (`alignmentSaid`), and, of the object on screen,
+ * how the window last said it shows it. Those that do not fit are counted.
+ */
+function scansLine(deps: ContextDeps, objectId: string, scans: readonly ScanInfo[]): string {
+  if (scans.length === 0) return ''
+  const last = deps.scene(objectId)
+  const open = deps.openObjectId() === objectId
+  const view = open ? deps.view(objectId) : undefined
+  const layout = last ? layoutShown(view, last.scene) : ''
+  const said = scans.map((scan) => {
+    const shown = view?.scans?.find((one) => one.id === scan.id)
+    return [`${scan.id} ${scan.name}`, ...(layout ? [alignmentSaid(scan, layout, last?.revision).line] : []), ...(shown ? [shownText(shown)] : [])].join(', ')
+  })
+  const head = 'Scans: '
+  let text = ''
+  for (const [i, one] of said.entries()) {
+    const next = i === 0 ? one : `${text}; ${one}`
+    const after = said.length - i - 1
+    const rest = after > 0 ? ` and ${after} more` : ''
+    if (head.length + next.length + rest.length + 1 > SCANS_LIMIT) {
+      // Not even the first fits whole: what is cut is its end, never how many more there are.
+      if (i === 0) return `${head}${cutEnd(one, SCANS_LIMIT - head.length - rest.length - 1)}${rest}.`
+      return `${head}${text} and ${said.length - i} more.`
+    }
+    text = next
+  }
+  return `${head}${text}.`
 }
 
 /** The layout on screen of an object that is open in the window: the one asked for by the view, when the build has it. */

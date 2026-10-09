@@ -114,6 +114,8 @@ export class ScanLayer {
   /** Where a scan is drawn for now instead of where main has it, by id (`preview`). */
   private readonly previews = new Map<string, ScanTransform>()
   private accent = '#1D46B8'
+  /** The scan a picture draws in colours of its own, if one is: a mesh over the scan's own positions and triangles, in the scan's group. */
+  private coloured: { scan: string; mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; own: THREE.Mesh } | null = null
   /** The patch of a scan that is tinted, if one is: a mesh over the scan's own positions, in the scan's group. */
   private tint: { scan: string; mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; index: Uint32Array } | null = null
 
@@ -320,6 +322,49 @@ export class ScanLayer {
     this.redraw()
   }
 
+  /** The mesh of a scan as it was built; null for a scan that is not there, or whose mesh has not come. */
+  built(id: string): BuiltScan | null {
+    return this.entries.find((e) => e.info.id === id)?.built ?? null
+  }
+
+  /**
+   * Draws a scan in the colours given, r g b for each vertex in linear light (0 to 65535), until it is called with
+   * null: for one picture. They are drawn as they are, solid and unlit, by a mesh and a material of their own over
+   * the scan's own positions and triangles: neither the scan's own colours nor the shader they are drawn through
+   * (`BuiltScan.own`) are touched. Null puts the scan back as it was. Throws for a scan that is not there, whose
+   * mesh has not come, or for colours that are not one a vertex.
+   */
+  colourFor(id: string, colours: Uint16Array | null): void {
+    if (this.coloured) {
+      const { mesh, own } = this.coloured
+      mesh.removeFromParent()
+      // Its positions and its triangles are the scan's own, and stay: only what was made here is freed.
+      mesh.geometry.deleteAttribute('position')
+      mesh.geometry.setIndex(null)
+      mesh.geometry.dispose()
+      mesh.material.dispose()
+      own.visible = true
+      this.coloured = null
+    }
+    if (colours === null) return
+    const entry = this.entries.find((e) => e.info.id === id)
+    if (!entry) throw new Error(`no scan ${id}; scans: ${this.entries.map((e) => e.info.id).join(', ') || 'none'}`)
+    const built = entry.built
+    if (!built) throw new Error(`${id}'s mesh has not come to the window yet: look again in a moment`)
+    if (colours.length !== built.vertices * 3) throw new Error(`${id} has ${built.vertices} vertices, and ${colours.length / 3} colours were given`)
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', built.mesh.geometry.getAttribute('position'))
+    geometry.setIndex(built.mesh.geometry.index)
+    geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3, true))
+    geometry.boundingBox = built.mesh.geometry.boundingBox
+    geometry.boundingSphere = built.mesh.geometry.boundingSphere
+    const material = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: SCAN_OFFSET_FACTOR, polygonOffsetUnits: 2, clippingPlanes: this.planes })
+    const mesh = new THREE.Mesh(geometry, material)
+    built.mesh.visible = false
+    built.group.add(mesh)
+    this.coloured = { scan: id, mesh, own: built.mesh }
+  }
+
   /** How a scan is looked at; what is left out keeps its value. */
   setView(id: string, view: ScanView): void {
     this.views.set(id, { ...this.views.get(id), ...view })
@@ -342,6 +387,7 @@ export class ScanLayer {
   setClipping(planes: THREE.Plane[] | null): void {
     this.planes = planes
     if (this.tint) this.tint.mesh.material.clippingPlanes = planes
+    if (this.coloured) this.coloured.mesh.material.clippingPlanes = planes
     for (const entry of this.entries) this.apply(entry)
   }
 
@@ -420,6 +466,7 @@ export class ScanLayer {
     entry.stop = undefined
     if (entry.built) {
       if (this.tint?.scan === entry.info.id) this.untint()
+      if (this.coloured?.scan === entry.info.id) this.colourFor(entry.info.id, null)
       entry.built.mesh.geometry.boundsTree = undefined
       disposeScan(entry.built)
     }

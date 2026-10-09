@@ -35,11 +35,29 @@ export interface LookRequest {
   section?: SectionPlane | 'current' | null
   /** The scans drawn with the parts: `'current'` (and when absent) those switched on on screen, false for none, or those of these ids. */
   scans?: 'current' | false | string[]
+  /** One scan coloured by its distance to a part of the layout, for this picture only. */
+  scanColour?: ScanColouring
 }
+/**
+ * Colours one scan by its distance to a part of the layout, for a picture: from `--deviation-near` at 0 to
+ * `--deviation-far` at `range` mm and beyond; scan vertices inside the part in `--deviation-inside`. Worked out
+ * from the meshes on screen: a picture for the eye, whose numbers are `scan_deviation`'s.
+ */
+export interface ScanColouring { scan: string; part: string; range: number }
 /** A picture, and what the window drew to make it: the object it had open, that object's revision, and whether its parts were stale. */
 export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean }
 /** What the agent asks the window to show: an object, and of it a view, a layout, some parts (by name). */
-export interface ShowRequest { objectId: string; view?: ViewName | Camera; layout?: string; parts?: string[]; section?: SectionPlane | null /* a cut to put on screen, or null to take it away; absent leaves it */ }
+export interface ShowRequest {
+  objectId: string
+  view?: ViewName | Camera
+  layout?: string
+  parts?: string[]
+  section?: SectionPlane | null /* a cut to put on screen, or null to take it away; absent leaves it */
+  /** The scans left switched on, by id: every other scan of the object is hidden. Absent leaves them. */
+  scans?: string[]
+  /** How see-through the scans left on are drawn, `MIN_SCAN_OPACITY` to 1. Absent leaves it. */
+  scanOpacity?: number
+}
 /** What the window did for a `ShowRequest`: what it now shows, as the caption of a picture would say it, and of which object and build. */
 export interface ShowResult { caption: string; objectId: string; revision: number; stale: boolean }
 /** What the agent asks the window to point out to the person: refs of the layout shown, tinted in the agent's colour, with a note. */
@@ -119,7 +137,18 @@ export function cutText(part: Pick<SectionedPart, 'part' | 'area' | 'areaExact' 
  * of which object and layout, every part name of the build (a part's colour
  * goes by its place among them) and the long edge in pixels.
  */
-export interface SectionDrawingRequest { objectId: string; layout: string; section: Sectioned; names: string[]; size: number; spread?: boolean /* torno moved parts of this layout apart for display: the drawing says so */ }
+export interface SectionDrawingRequest {
+  objectId: string
+  layout: string
+  section: Sectioned
+  names: string[]
+  size: number
+  spread?: boolean /* torno moved parts of this layout apart for display: the drawing says so */
+  /** Where the same plane cuts a scan, in the plane's own axes: drawn as a hairline over the parts, and named as approximate. */
+  scan?: ScanOutline
+}
+/** A scan's polylines in a plane, as a drawing of a section is given them. */
+export interface ScanOutline { id: string; polylines: Array<{ points: [number, number][]; closed: boolean }> }
 /**
  * The drawing. `colours` says where the parts' colours are from: `window` when
  * the window has that object open, and they are as its 3D view has them, or

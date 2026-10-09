@@ -31,7 +31,19 @@ describe('the system prompt', () => {
     for (const said of ['≈, "approximate" or "exact": false marks one that is not', 'are refused: ask in a layout that places them as assembled, and if the model has none, add one (def assembly(p))', '"Dimensions (measured on rN):"', 'once scene says the build is ok, read them again with mcp__torno__marks']) expect(SYSTEM_PROMPT).toContain(said)
   })
 
+  it('says what a scan is, gives one example call each of the tools that ask about one, as JSON that parses, and what fit against one needs', () => {
+    for (const named of ['mcp__torno__scans', 'mcp__torno__scan_clash', 'mcp__torno__scan_deviation']) expect(SYSTEM_PROMPT).toContain(named)
+    for (const said of ['a mesh of the real thing', 'nothing taken from it is exact', 'in the frame of the layout once the user has aligned it there', 'def assembly(p)', 'no script that loads the scan', 'is said first in the reading']) expect(SYSTEM_PROMPT).toContain(said)
+    const calls = [...SYSTEM_PROMPT.matchAll(/mcp__torno__(scan_clash|scan_deviation) (\{[^}]*\})(?= says | how far )/g)].map((m) => [m[1], JSON.parse(m[2])])
+    expect(calls).toEqual([
+      ['scan_clash', { part: 'tub' }],
+      ['scan_deviation', { part: 'plate', faces: ['plate/F5'] }]
+    ])
+    expect(JSON.parse(SYSTEM_PROMPT.match(/measure takes (\{"scan".*?\}) as an end of a distance/)![1])).toEqual({ scan: 'S1', point: [10, 5, 6] })
+    expect(SYSTEM_PROMPT).toContain('fit against the surroundings needs a layout that places the parts as mounted')
+  })
+
   it('stays short', () => {
-    expect(SYSTEM_PROMPT.length).toBeLessThan(6000)
+    expect(SYSTEM_PROMPT.length).toBeLessThan(6500)
   })
 })

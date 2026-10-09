@@ -46,6 +46,46 @@ describe('ScanLayer', () => {
     layer.showOnly(null)()
   })
 
+  it('draws a scan in colours of its own for one picture, over its own positions, and puts it back as it was', () => {
+    const layer = new ScanLayer(() => {})
+    layer.set([scan('S1'), scan('S2')], 'print')
+    // With colours of its own: those are a shader's, and are not what the picture is drawn through.
+    layer.load('S1', meshBin(box(), Array.from({ length: 32 }, () => 200)))
+    layer.setView('S1', { opacity: 0.4 })
+    const plane = [new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)]
+    layer.setClipping(plane)
+    const group = layer.group.children[0]
+    const own = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.Material>
+    const was = { material: own.material, colour: own.geometry.getAttribute('color'), position: own.geometry.getAttribute('position'), index: own.geometry.index }
+    const colours = new Uint16Array(24).fill(65535)
+    layer.colourFor('S1', colours)
+    expect(group.children).toHaveLength(2)
+    const coloured = group.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+    expect(own.visible).toBe(false)
+    expect(coloured.geometry.getAttribute('position')).toBe(was.position)
+    expect(coloured.geometry.index).toBe(was.index)
+    expect(coloured.geometry.getAttribute('color').array).toBe(colours)
+    // Drawn as the colours are, whatever the scan's own look: unlit, solid, untouched by tone or by the scan's shader, and cut as the scan is.
+    expect(coloured.material).toMatchObject({ vertexColors: true, transparent: false, opacity: 1, toneMapped: false, side: THREE.DoubleSide, clippingPlanes: plane })
+    expect(coloured.material.onBeforeCompile).toBe(new THREE.MeshBasicMaterial().onBeforeCompile)
+    expect(coloured.material).not.toBe(was.material)
+    layer.colourFor('S1', null)
+    expect(group.children).toEqual([own])
+    expect(own.visible).toBe(true)
+    expect(own.material).toBe(was.material)
+    // The scan's own geometry is whole: what the picture borrowed was not freed with what it made.
+    expect(own.geometry.getAttribute('color')).toBe(was.colour)
+    expect(own.geometry.getAttribute('position')).toBe(was.position)
+    expect(own.geometry.index).toBe(was.index)
+    expect(coloured.geometry.getAttribute('position')).toBeUndefined()
+    expect(() => layer.colourFor('S2', colours)).toThrow("S2's mesh has not come to the window yet: look again in a moment")
+    expect(() => layer.colourFor('S9', colours)).toThrow('no scan S9; scans: S1, S2')
+    expect(() => layer.colourFor('S1', new Uint16Array(3))).toThrow('S1 has 8 vertices, and 1 colours were given')
+    layer.colourFor('S1', null)
+    expect(layer.built('S1')?.vertices).toBe(8)
+    expect(layer.built('S2')).toBeNull()
+  })
+
   it('is clipped by the section and never capped, and lets go of a scan that is removed', () => {
     const layer = new ScanLayer(() => {})
     layer.set([scan('S1')], 'print')

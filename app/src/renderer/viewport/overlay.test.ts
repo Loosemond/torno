@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chipSize, drawLabels, type LabelStyle } from './overlay'
+import { DEVIATION_RAMP, chipSize, drawDeviationLegend, drawLabels, type LabelStyle } from './overlay'
 
 /** A canvas context that keeps what was drawn on it: each text with how opaque it was, and each stroke with its colour and its moves. */
 function recorder() {
@@ -88,5 +88,48 @@ describe('the chip of a dimension’s value', () => {
     // A style that says both is asked nothing of the page.
     expect(draw(STYLE)).toBe('#c0392b')
     expect(read).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the legend of a scan drawn by its distance to a part', () => {
+  /** A context that keeps the rectangles filled, each with what it was filled with, the stops of its gradients, and the texts. */
+  function sheet() {
+    const fills: Array<{ style: unknown; x: number; y: number; w: number; h: number }> = []
+    const texts: string[] = []
+    const stops: Array<[number, string]> = []
+    const gradient = { addColorStop: (at: number, colour: string) => void stops.push([at, colour]) }
+    const ctx = {
+      fillStyle: '' as unknown,
+      strokeStyle: '',
+      font: '',
+      lineWidth: 1,
+      textAlign: '',
+      textBaseline: '',
+      save: () => {},
+      restore: () => {},
+      createLinearGradient: (x0: number, _y0: number, x1: number) => Object.assign(gradient, { from: x0, to: x1 }),
+      fillRect: (x: number, y: number, w: number, h: number) => void fills.push({ style: ctx.fillStyle, x, y, w, h }),
+      strokeText: () => {},
+      fillText: (text: string) => void texts.push(text)
+    }
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, fills, texts, stops, gradient: gradient as typeof gradient & { from: number; to: number } }
+  }
+  const SHEET = { width: 1280, height: 960, ink: '#22252a', surface: '#f1efea' }
+
+  it('is a ramp 120 px long from the colour at the part to the colour at the range, with 0 and the range, and a swatch of what is inside', () => {
+    const { ctx, fills, texts, stops, gradient } = sheet()
+    drawDeviationLegend(ctx, SHEET, { near: '#8A4594', far: '#D3D8DF', inside: '#22252A', range: 20, title: 'S1 to tub' })
+    expect(stops).toEqual([[0, '#8A4594'], [1, '#D3D8DF']])
+    expect(gradient.to - gradient.from).toBe(DEVIATION_RAMP)
+    expect(fills.find((fill) => fill.style === gradient)).toMatchObject({ w: 120 })
+    expect(fills.filter((fill) => fill.style === '#22252A')).toHaveLength(1)
+    expect(texts).toEqual(['S1 to tub', '0', '20 mm', 'inside'])
+  })
+
+  it('has no swatch for a part that is no solid, and keeps its share of a larger picture', () => {
+    const { ctx, fills, texts, gradient } = sheet()
+    drawDeviationLegend(ctx, { ...SHEET, width: 2000, height: 1500 }, { near: '#8A4594', far: '#D3D8DF', inside: null, range: 2.5, title: 'S1 to shell' })
+    expect(texts).toEqual(['S1 to shell', '0', '2.5 mm'])
+    expect(fills.find((fill) => fill.style === gradient)!.w).toBeCloseTo(187.5, 6)
   })
 })

@@ -97,10 +97,19 @@ function fake(says: (name: string, args: never) => unknown = () => ({}), over: P
       made.drawings.push(req)
       return { png: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), width: 1280, height: 1150, colours: 'window', vDown: false }
     },
+    scans: async () => [],
+    scansBusy: () => [],
+    scanPaths: (_objectId, id) => ({ mesh: `/ws/box/.torno/scans/${id}/mesh.bin`, mask: (mark) => `/ws/box/.torno/scans/${id}/${mark}.mask` }),
     ...over
   }
   return made
 }
+
+/** A scan aligned in the assembly layout by typed values, as main would tell it; `more` is laid over its alignment there. */
+const scanned = (more: object = {}, scan: object = {}) => ({
+  scans: async () => [{ id: 'S1', name: 'Micra.glb', alignments: { assembly: { transform: { t: [0, 0, 10], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '', ...more } }, meshState: 'ok', checks: {}, ...scan }] as never
+})
+const OUTLINE = { scan: 'S1', plane: CUT.plane, polylines: [{ points: [[-5, 2], [20, 2], [45, 3]], closed: false }], omitted: 0, segments: 2, pointsFound: 3, pointsTold: 3, thinned: false, bounds: { min: [-5, 2], max: [45, 3] }, exact: false }
 
 const text = (result: ToolResult): string => result.content.find((block) => block.type === 'text')!.text as string
 const data = (result: ToolResult): Record<string, never> => JSON.parse(text(result))
@@ -238,6 +247,44 @@ describe('measure', () => {
     const deps = fake(() => ({ kind: 'thickness', value: 6, unit: 'mm', how: 'wall, along the normal', points: [[0, 0, 3], [0, 0, -3]], moved: 0, exact: true }))
     expect(data(await measureTool(deps, 'box', { kind: 'thickness', a: 'tub/F5' })).reading).toBe('6 mm wall, along the normal, tub/F5 at (0, 0, 3)')
     expect(deps.queries[0].args).toEqual({ kind: 'thickness', a: { ref: 'assembly:tub/F5', point: [0, 0, 3] } })
+  })
+
+  it('takes a point of an aligned scan as an end, and then says nothing is exact', async () => {
+    const deps = fake(() => ({ kind: 'distance', value: 12.5, unit: 'mm', how: 'point to plane', points: [[0, 0, 15.5], [0, 0, 3]], exact: true }), scanned())
+    const result = await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 15.5] }, b: 'tub/F5' })
+    expect(deps.queries[0].args).toEqual({ kind: 'distance', a: { layout: 'assembly', point: [0, 0, 15.5] }, b: { ref: 'assembly:tub/F5' } })
+    expect(data(result)).toMatchObject({ exact: false, scan: 'S1', alignment: { state: 'aligned', by: 'by typed values' }, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact', reading: '≈ 12.5 mm point to plane, approximate (S1 is a scan), (0, 0, 15.5) on S1 to tub/F5. S1 is aligned by typed values.' })
+    expect(text(await measureTool(deps, 'box', { kind: 'angle', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('only a distance is measured to a point of a scan')
+    expect(text(await measureTool(fake(), 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
+    // A way that already says it is approximate is not followed by the word twice.
+    const rough = fake(() => ({ kind: 'distance', value: 1, unit: 'mm', how: 'minimum, approximate', exact: false }), scanned({ rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan' }))
+    expect(data(await measureTool(rough, 'box', { kind: 'distance', a: 'tub/F5', b: { scan: 'S1', point: [0, 0, 1] } })).reading).toBe(
+      'S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) on S1. S1 is aligned by typed values.'
+    )
+  })
+
+  it('takes a region of a scan for its centroid, where the scan stands in the layout', async () => {
+    const region = { ...MARK, id: 'M8', kind: 'region', scan: 'S1', note: 'loom', local: { centroid: [1, 2, 3] } } as unknown as Mark
+    const deps = fake(() => ({ kind: 'distance', value: 4, unit: 'mm', how: 'point to plane', exact: true }), { ...scanned(), marks: async () => [...MARKS, region] })
+    const said = data(await measureTool(deps, 'box', { kind: 'distance', a: 'M8', b: 'tub/F5' }))
+    expect(deps.queries[0].args).toMatchObject({ a: { layout: 'assembly', point: [1, 2, 13] } })
+    expect(said.reading).toBe('≈ 4 mm point to plane, approximate (S1 is a scan), the centroid of region M8 (S1) at (1, 2, 13) to tub/F5. S1 is aligned by typed values.')
+    expect(text(await measureTool(deps, 'box', { kind: 'radius', a: 'M8' }))).toBe('only a distance is measured to a point of a scan')
+  })
+
+  it('refuses a scan end where the scan is not aligned, against a part torno moved, and what is no such end', async () => {
+    const deps = fake(undefined, scanned())
+    expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5', layout: 'print' }))).toBe(
+      'S1 is not aligned in layout print (it is aligned in: assembly), so nothing is checked against it there: the user aligns it with the Align tool, or ask in that layout'
+    )
+    const END = 'a names nothing: a point of a scan is {"scan": "S1", "point": [x, y, z]}, in mm in the frame of the layout'
+    expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1' } as never, b: 'tub/F5' }))).toBe(END)
+    expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [1, 2] } as never, b: 'tub/F5' }))).toBe(END)
+    expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 7, point: [1, 2, 3] } as never, b: 'tub/F5' }))).toBe(END)
+    const moved = fake(undefined, { ...scanned(), scene: () => ({ revision: 4, scene: SPREAD }), scans: async () => [{ id: 'S1', name: 'Micra.glb', alignments: { print: { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' } }, meshState: 'ok', checks: {} }] as never })
+    expect(text(await measureTool(moved, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'lid/F5', layout: 'print' }))).toMatch(/^In layout print torno moved lid for display \(the parts overlapped as the model placed them\), so where the scan is against it there is torno's, not the model's\./)
+    expect(deps.queries).toEqual([])
+    expect(moved.queries).toEqual([])
   })
 
   it('carries the stale note while a newer build runs or has failed', async () => {
@@ -393,6 +440,43 @@ describe('section', () => {
     expect(deps.queries.map((q) => (q.args as { deflection?: number }).deflection)).toEqual([0.01, 0.01, 0.05])
     expect(deps.queries[1].args).toEqual({ layout: 'assembly', plane: { origin: [0, 0, 3], normal: [0, 0, 1] }, parts: ['tub'], deflection: 0.01 })
     expect(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, deflection: 'fine' as never })).toEqual(refused('deflection is a number of mm, 0.005 to 0.05: how far the outlines may stray from the true ones (default 0.01)'))
+  })
+
+  it('cuts a scan by the same plane when asked, after the parts: its lines go to the drawing and to the answer, as approximate', async () => {
+    const deps = fake((name) => (name === 'section' ? CUT : OUTLINE), scanned())
+    const result = await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S1' })
+    expect(deps.queries.map((q) => q.name)).toEqual(['section', 'scan_section'])
+    expect(deps.queries[1].args).toEqual({ layout: 'assembly', plane: { origin: [0, 0, 3], normal: [0, 0, 1] }, scan: { id: 'S1', path: '/ws/box/.torno/scans/S1/mesh.bin', transform: { t: [0, 0, 10], q: [0, 0, 0, 1], s: 1 }, ignore: [], only: null } })
+    const said = data(result) as any
+    expect(said.scan).toEqual({ id: 'S1', alignment: { state: 'aligned', by: 'by typed values', steps: ['typed'] }, polylines: [{ points: [[-5, 2], [20, 2], [45, 3]], closed: false }], points: 3, of: 3, bounds: { min: [-5, 2], max: [45, 3] }, exact: false, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
+    expect(said.reading).toBe('plane normal +Z at z = 3 · layout assembly: tub 1500 mm² in 2 loops; the cut is 40 × 40 mm. ≈ S1 (a scan, approximate) crosses the plane in 1 line. S1 is aligned by typed values.')
+    expect(deps.drawings[0].scan).toEqual({ id: 'S1', polylines: OUTLINE.polylines })
+    expect(result.content.some((block) => block.type === 'image')).toBe(true)
+  })
+
+  it('tells a scan cut in at most 2,000 points, and says of how many; draws it though no part is cut; says its doubt first', async () => {
+    const long = Array.from({ length: 3000 }, (_, i): [number, number] => [i / 10, Math.sin(i / 50) * 20])
+    const many = { ...OUTLINE, polylines: [{ points: long, closed: false }, { points: [[0, 0], [1, 0], [1, 1]], closed: true }], omitted: 2, pointsFound: 9000, pointsTold: 3003, thinned: true, bounds: { min: [0, -20], max: [299.9, 20] } }
+    const deps = fake((name) => (name === 'section' ? { ...CUT, parts: [{ ...CUT.parts[0], loops: [], area: 0 }], bounds: null } : many), scanned({}, { checks: { assembly: { revision: 4, of: 4, off: 1, worst: 3, moved: [] } } }))
+    const result = await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S1' })
+    const said = data(result) as any
+    const told = said.scan.polylines.reduce((sum: number, line: { points: unknown[] }) => sum + line.points.length, 0)
+    expect(told).toBeLessThanOrEqual(2000)
+    expect(said.scan).toMatchObject({ points: told, of: 9000, thinned: true, linesOmitted: 2 })
+    expect(said.reading).toBe(
+      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, and 2 more that are not told. S1 is aligned by typed values."
+    )
+    // The window is given every point the kernel told: the drawing is not made from the thinned ones.
+    expect(deps.drawings[0].scan!.polylines[0].points).toHaveLength(3000)
+    expect(deps.drawings[0].section.bounds).toEqual({ min: [0, -20], max: [299.9, 20] })
+  })
+
+  it('asks nothing of the kernel for a scan that is not aligned, or that is none', async () => {
+    const deps = fake(() => CUT, scanned())
+    expect(text(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S1', layout: 'print' }))).toMatch(/^S1 is not aligned in layout print/)
+    expect(text(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S4' }))).toBe('no scan S4; scans: S1')
+    expect(text(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 4 as never }))).toBe('scan is the number of a scan, as listed by scans: {"scan": "S1"}')
+    expect(deps.queries).toEqual([])
   })
 
   it('says of a part the plane misses that it does not cut it, not that it is cut in no loops', async () => {

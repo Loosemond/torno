@@ -4,6 +4,7 @@ import type { BuildState } from '../../shared/build'
 import type { Described } from '../../shared/geometry'
 import { type DimensionStanding, standingOf } from '../../shared/dimension'
 import type { DimensionMark, Mark, MarkPatch, MeasureKind, NewMark, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
+import { type ScanInfo, MIN_SCAN_OPACITY } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
 import {
   type AxisPlane,
@@ -24,9 +25,11 @@ import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, markData } from '../marks/describe'
 import type { Unmeasured } from '../marks/measure'
 import { movedForDisplay } from '../marks/spread'
+import { alignmentSaid } from '../scans/said'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { type EndArg, addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { type MeasureToolArgs, type SectionToolArgs, checkTool, measureTool, sectionTool } from './readTools'
+import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, NO_SCANS, scanClashTool, scanDeviationTool, scanFor, scanFrame, scanSpread, scansTool } from './scanTools'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -71,7 +74,13 @@ export interface ToolDeps {
    * Asks the kernel about the last successful build of an object: an exact measurement, what a plane cuts, a check
    * of two parts or of a mesh. Refs go with the layout in front. Rejects with a `KernelError`, whose kind says why.
    */
-  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check', args: object): Promise<T>
+  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section', args: object): Promise<T>
+  /** The scans of an object, as main keeps them. Rejects with a text. */
+  scans(objectId: string): Promise<ScanInfo[]>
+  /** Where a scan's mesh and a region's mask are on the disk, for the kernel: of the scans as `scans` last read them, so it is asked at once after. */
+  scanPaths(objectId: string, id: string): { mesh: string; mask(markId: string): string } | undefined
+  /** The numbers of the scans whose files an import or a conversion is writing now: nothing is read of those meanwhile. */
+  scansBusy(objectId: string): string[]
   /** A 2D drawing of what the kernel says a plane cuts, made by the window, whichever object it shows. Rejects with a text. */
   sectionDrawing(req: SectionDrawingRequest): Promise<SectionDrawingResult>
 }
@@ -109,6 +118,13 @@ const planeInput = z.union([z.object({ axis: z.enum(['x', 'y', 'z']), at: z.numb
 const planeHelp = '{"axis": "z", "at": 3} for the plane across x, y or z at that coordinate, its normal along +axis, or {"origin": [x, y, z], "normal": [x, y, z]}, a point of the plane and its normal, in mm in the frame of the layout'
 /** Said of a plane that is none. */
 export const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for the plane across x, y or z at that coordinate in mm, or {"origin": [x, y, z], "normal": [x, y, z]} with a normal that is not all zeros'
+/**
+ * An argument the schema names the shape of and refuses nothing for: whatever is given reaches the tool, which
+ * answers what is not one with what one looks like and an example, where the schema's own refusal would say only
+ * that the input is invalid.
+ */
+const loose = <T extends z.ZodType>(shape: T) => z.union([shape, z.unknown()])
+const scanText = 'The number of a scan (S1), as listed by scans. Default: the only scan of the object.'
 const cameraInput = z.object({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional() })
 
 const lookInput = {
@@ -126,7 +142,13 @@ const lookInput = {
     .union([z.literal('current'), planeInput])
     .nullable()
     .optional()
-    .describe(`The cut the parts are drawn with: 'current' (the default) is the user's own section, if they have one; null draws them whole; or a plane of your own, ${planeHelp}. What lies on the side the normal points to is not drawn: with {axis, at}, what is at a greater x, y or z than at is removed.`)
+    .describe(`The cut the parts are drawn with: 'current' (the default) is the user's own section, if they have one; null draws them whole; or a plane of your own, ${planeHelp}. What lies on the side the normal points to is not drawn: with {axis, at}, what is at a greater x, y or z than at is removed.`),
+  scans: loose(z.union([z.boolean(), z.array(z.string())]))
+    .optional()
+    .describe("Which scans are drawn: true or absent, those on the user's screen; false, none; or their numbers, [\"S1\"]."),
+  scanColour: loose(z.object({ part: z.string(), scan: z.string().optional(), range: z.number().optional() }))
+    .optional()
+    .describe('{"part": "tub"}, with scan and range when needed: colours one scan by its distance to a part, from 0 to range mm (default 20), with scan points inside the part marked: a picture for the eye, made from the meshes on screen; the numbers are scan_deviation\'s. The caption gives the colours.')
 }
 
 export type PlaneArg = SectionPlane | AxisPlane
@@ -138,6 +160,8 @@ export interface LookArgs {
   size?: number
   marks?: boolean
   section?: 'current' | PlaneArg | null
+  scans?: boolean | string[]
+  scanColour?: { part: string; scan?: string; range?: number }
 }
 
 type Vec3 = [number, number, number]
@@ -173,7 +197,9 @@ const showInput = {
   section: planeInput
     .nullable()
     .optional()
-    .describe(`A cut to put on the user's screen: ${planeHelp}; what lies on the side the normal points to is not drawn: with {axis, at}, what is at a greater x, y or z than at is removed. null takes their section away. Default: it stays as it is.`)
+    .describe(`A cut to put on the user's screen: ${planeHelp}; what lies on the side the normal points to is not drawn: with {axis, at}, what is at a greater x, y or z than at is removed. null takes their section away. Default: it stays as it is.`),
+  scans: loose(z.array(z.string())).optional().describe('The numbers of the scans to leave switched on, ["S1"]; every other scan is hidden, and [] hides them all. For now only: it is not what the user\'s saved view keeps. Default: no scan is switched.'),
+  scanOpacity: loose(z.number()).optional().describe('How see-through the scans left on are drawn, 0.05 to 1. For now only. Default: as they are.')
 }
 
 export const SHAPES = ['box', 'cylinder', 'sphere', 'plane'] as const
@@ -181,9 +207,12 @@ export const INTENTS = ['add', 'remove', 'keep-out', 'reference'] as const
 export const MEASURES = ['distance', 'angle', 'radius', 'diameter', 'thickness'] as const satisfies readonly MeasureKind[]
 
 /** An end of a measurement, as the agent names one. Like a plane, whatever is given reaches the tool, which says what an end is (`noEnd`). */
-const endInput = z.union([z.string(), z.object({ ref: z.string().optional(), point: vec3.optional() }), z.unknown()])
+// Strict: an object is given to the tool as it came. Were a key it does not name dropped, a point of a scan would pass for a bare point.
+const endInput = z.union([z.string(), z.strictObject({ scan: z.string(), point: vec3 }), z.strictObject({ ref: z.string().optional(), point: vec3.optional() }), z.unknown()])
 const endText =
   'A ref of a face or an edge ("lid/F12", "lid/E3"), the number of a mark ("M3": what that mark is on), {"point": [x, y, z]} in mm in the frame of the layout, or {"ref": "lid/F12", "point": [x, y, z]} for the feature the ref names, taken at that point of it.'
+const scanEndText =
+  'An end of a distance may also be a point of a scan, {"scan": "S1", "point": [x, y, z]} in mm in the frame of the layout, as scan_clash and scan_deviation give them, or the number of a region mark (its centroid): the reply is then approximate.'
 
 const addMarkInput = {
   kind: z
@@ -214,7 +243,7 @@ const measureInput = {
       'distance (between parallel planes, between axes, from a point to a plane, else the minimum) and angle are between a and b. radius and diameter are of a round face or a circular edge; thickness of a wall, from a point of a face along its inward normal; bbox of a part, a face or an edge; area of a part or a face; volume and mass of a part.'
     ),
   // Not required by the schema: left out, the tool says what an end is.
-  a: endInput.optional().describe(`What is measured, or its first end. ${endText} A whole part (lid) where the kind takes one.`),
+  a: endInput.optional().describe(`What is measured, or its first end. ${endText} A whole part (lid) where the kind takes one. ${scanEndText}`),
   b: endInput.optional().describe('The other end of a distance or an angle, given as a is.'),
   density: z.number().optional().describe('For mass: g/cm³. Default 1.24, PLA, and the reply says so.'),
   layout: z.string().optional().describe(layoutText)
@@ -226,7 +255,33 @@ const sectionInput = {
   parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to cut. Default: every part of the layout. With fewer parts each loop has more of the 4,000 points an answer holds.'),
   layout: z.string().optional().describe('The layout to cut, as listed by scene. Default: the one on screen.'),
   size: z.number().optional().describe(`Long edge of the drawing in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`),
-  deflection: z.unknown().optional().describe('How far the outlines may stray from the true ones, in mm, 0.005 to 0.05. Default 0.01.')
+  deflection: z.unknown().optional().describe('How far the outlines may stray from the true ones, in mm, 0.005 to 0.05. Default 0.01.'),
+  scan: loose(z.string()).optional().describe('The number of a scan (S1) to cut by the same plane: where it crosses the plane is added to the drawing as a dashed hairline and to the JSON under scan, in at most 2,000 points, approximate. Refused where the scan is not aligned.')
+}
+
+const scansInput = {
+  layout: z.string().optional().describe('The layout whose alignment is told, as listed by scene. Default: the one on screen.')
+}
+
+// Of the scan tools nothing is required by the schema, and no number is refused by it: left out or out of range,
+// the tool says what it takes, with an example.
+const scanClashInput = {
+  part: loose(z.string()).optional().describe('The name of a part, as listed by scene: "tub".'),
+  scan: loose(z.string()).optional().describe(scanText),
+  ignore: loose(z.array(z.string())).optional().describe('Region marks of the scan to leave out, by number: ["M7"].'),
+  margin: loose(z.number()).optional().describe('How far round the part scan points are looked at, in mm, 0 to 50. Default 5.'),
+  layout: z.string().optional().describe('The layout the part is in and the scan is aligned in, as listed by scene. Default: the one on screen.')
+}
+
+const scanDeviationInput = {
+  part: loose(z.string()).optional().describe('The name of a part, as listed by scene: "plate".'),
+  faces: loose(z.array(z.string())).optional().describe('Refs of faces of that part, ["plate/F5"]: only those are measured. Default: the whole part.'),
+  scan: loose(z.string()).optional().describe(scanText),
+  region: loose(z.string()).optional().describe('The number of a region mark of the scan ("M7"): only that part of the scan counts.'),
+  from: loose(z.enum(['part', 'scan'])).optional().describe('part (the default): points of the part, each to the nearest triangle of the scan. scan: vertices of the scan, each to the part.'),
+  within: loose(z.number()).optional().describe('How far from each point the other is looked for, in mm, 0.1 to 200. Default 50. Points with nothing that near are counted, not measured.'),
+  samples: loose(z.number()).optional().describe('How many points are measured, 100 to 20,000. Default 10,000.'),
+  layout: z.string().optional().describe('The layout the part is in and the scan is aligned in, as listed by scene. Default: the one on screen.')
 }
 
 const checkInput = {
@@ -258,6 +313,8 @@ export interface ShowArgs {
   layout?: string
   parts?: string[]
   section?: PlaneArg | null
+  scans?: string[]
+  scanOpacity?: number
 }
 export interface AddMarkArgs {
   kind: 'pin' | 'pick' | 'arrow' | 'shape' | 'dimension'
@@ -286,11 +343,11 @@ export interface ResolveMarkArgs {
 export const TOOLS = {
   scene: {
     description:
-      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision. Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
+      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with whether it is aligned in that layout (call scans for how). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
   },
   look: {
     description:
-      "Returns a PNG of the object drawn by the same viewport the user is looking at, with a caption naming the view, layout, parts, revision and whether the parts are stale. Call it with no arguments to see exactly what the user sees, or with a named view, a camera, a layout or a list of parts to check the shape after a change.",
+      "Returns a PNG of the object drawn by the same viewport the user is looking at, with a caption naming the view, layout, parts, the scans drawn with them (and of each whether it is aligned there), revision and whether the parts are stale. Call it with no arguments to see exactly what the user sees, or with a named view, a camera, a layout or a list of parts to check the shape after a change.",
     inputSchema: lookInput
   },
   marks: {
@@ -310,7 +367,7 @@ export const TOOLS = {
   },
   show: {
     description:
-      "Returns a caption of what the user's viewport shows after it was changed to the view, layout, parts or section you gave. It moves the user's own camera, hides the parts you leave out and cuts their view, so use it only to show them something, and say that you did; to see for yourself, call look.",
+      "Returns a caption of what the user's viewport shows after it was changed to the view, layout, parts, section or scans you gave. It moves the user's own camera, hides the parts and the scans you leave out and cuts their view, so use it only to show them something, and say that you did; to see for yourself, call look.",
     inputSchema: showInput
   },
   add_mark: {
@@ -325,24 +382,39 @@ export const TOOLS = {
   },
   measure: {
     description:
-      "Returns JSON with one measurement of the last build and a reading of it in a line: the distance or angle between two ends, the radius or diameter of a round face or edge, the thickness of a wall at a point of a face, or the bbox, volume, area or mass of a part, in mm, degrees, mm², mm³ and grams, with how it was taken (between planes, axis to axis, minimum). Values are exact, from the B-rep, unless the reply has exact false and the reading says approximate (≈): the area of a freeform face always is, and how then says about how many digits are good, or, with no digit count, by how much its integrals differ. Measure before you state a size or a fit, instead of working it out from the model's code or writing a script.",
+      "Returns JSON with one measurement of the last build and a reading of it in a line: the distance or angle between two ends, the radius or diameter of a round face or edge, the thickness of a wall at a point of a face, or the bbox, volume, area or mass of a part, in mm, degrees, mm², mm³ and grams, with how it was taken (between planes, axis to axis, minimum). Values are exact, from the B-rep, unless the reply has exact false and the reading says approximate (≈): the area of a freeform face always is, and how then says about how many digits are good, or, with no digit count, by how much its integrals differ; and so is any distance to a point of a scan, which is a mesh of the real thing and only as good as its alignment. Measure before you state a size or a fit, instead of working it out from the model's code or writing a script.",
     inputSchema: measureInput
   },
   section: {
     description:
-      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. A loop is a polyline within its deflection of the true outline (0.01 mm unless you give another, more when thinned: an answer holds at most 4,000 points in all, shared among the loops by their length, and says thinned, of and loopsOmitted when it left any out), and an area is the kernel's, exact only where areaExact is true. Use it to see inside a part and to check a wall or a fit across a cut; to see the cut in 3D as the user would, call look with a section.",
+      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. A loop is a polyline within its deflection of the true outline (0.01 mm unless you give another, more when thinned: an answer holds at most 4,000 points in all, shared among the loops by their length, and says thinned, of and loopsOmitted when it left any out), and an area is the kernel's, exact only where areaExact is true. Use it to see inside a part and to check a wall or a fit across a cut, with scan to see where that scan crosses the same plane (drawn dashed and given under scan, approximate); to see the cut in 3D as the user would, call look with a section.",
     inputSchema: sectionInput
   },
   check: {
     description:
       'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are. Overlap and clearance are exact, from the B-rep, unless the reply says approximate, and overlap and mesh can take seconds on large parts. Use it after changing parts that must fit together, and before saying a part is ready to print.',
     inputSchema: checkInput
+  },
+  scans: {
+    description:
+      'Returns JSON and a reading of the scans the user imported into this object: each with its number (S1), name, source file and whether that is still there, triangle count, size in mm with the unit and up axis it was read with, whether it is on screen and how see-through, its regions, and how it is aligned in the layout: by a floor, by pairs of points with their rms, by hand, or not at all, with why that is only rough or may no longer hold when the model has moved under it since. A scan is a mesh of the real surroundings, good to a few millimetres at best: nothing from it is exact. Call it before any check against a scan.',
+    inputSchema: scansInput
+  },
+  scan_clash: {
+    description:
+      "Returns JSON and a reading of what of a scan is inside a part of the last build: how many scan points, in which clusters (centre, box, count), the deepest of each with its depth and the face it is under, how many scan triangles cross the part's surface and where (crossings), and the scan point nearest to the part outside it; ignore leaves out regions by mark number. Counts are of scan vertices, decided on the mesh the part is drawn with, of those checked (the reading says when only every n-th was, or the time ran out), each depth and distance told is from that scan point to the part's B-rep, and all of it is approximate by nature: the scan is, and so is its alignment, whose rms the reply gives and whose doubts the reading says first. Refused where the scan is not aligned, and for a part torno moved for display; use it instead of a script that loads the scan.",
+    inputSchema: scanClashInput
+  },
+  scan_deviation: {
+    description:
+      "Returns JSON and a reading of how far a part, or some of its faces, lie from a scan: min, mean, max, rms and percentiles in mm over up to 20,000 sample points (samples is how many were measured, sampling.asked how many you asked for), signed where the part is a solid (+ where the scan is outside it, − where it is inside), the worst place, and how many samples had nothing within reach. from part samples the part and measures to the scan's triangles, from scan measures from the scan's vertices (of a region, if one is given) to the part; all of it is approximate, no better than the alignment, and refused where the scan is not aligned, and for a part torno moved for display. Use it to judge an alignment against a reference part the scan contains, or how close the surroundings come to a face.",
+    inputSchema: scanDeviationInput
   }
 }
 
 /** The tools of one object's MCP server. */
 export function registerTools(server: McpServer, deps: ToolDeps, objectId: string): void {
-  server.registerTool('scene', { description: TOOLS.scene.description }, async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined)))
+  server.registerTool('scene', { description: TOOLS.scene.description }, async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined)))
   server.registerTool('look', TOOLS.look, async (args) => lookTool(deps, objectId, args as LookArgs))
   server.registerTool('marks', TOOLS.marks, async (args) => marksTool(deps, objectId, args))
   server.registerTool('describe', TOOLS.describe, async (args) => describeTool(deps, objectId, args))
@@ -353,6 +425,9 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   server.registerTool('measure', TOOLS.measure, async (args) => measureTool(deps, objectId, args as MeasureToolArgs))
   server.registerTool('section', TOOLS.section, async (args) => sectionTool(deps, objectId, args as SectionToolArgs))
   server.registerTool('check', TOOLS.check, async (args) => checkTool(deps, objectId, args))
+  server.registerTool('scans', TOOLS.scans, async (args) => scansTool(deps, objectId, args as ScansArgs))
+  server.registerTool('scan_clash', TOOLS.scan_clash, async (args) => scanClashTool(deps, objectId, args as ScanClashArgs))
+  server.registerTool('scan_deviation', TOOLS.scan_deviation, async (args) => scanDeviationTool(deps, objectId, args as ScanDeviationArgs))
 }
 
 export function failure(text: string): ToolResult {
@@ -380,9 +455,11 @@ export function built(deps: ToolDeps, objectId: string): { obj: ObjectInfo; buil
  * `marks` are the object's, when they could be read: the unresolved
  * dimensions that have an expected value are then counted by how they stand
  * on the last build, so that the check after an edit says at once whether
- * the person's checks still hold.
+ * the person's checks still hold. `scans` are the object's, when they could
+ * be read: each is named, with whether it is aligned in the layout the answer
+ * is for (the one on screen, else the first).
  */
-export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[]): ToolResult {
+export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[], scans?: readonly ScanInfo[]): ToolResult {
   const found = built(deps, objectId)
   if ('content' in found) return found
   const { obj, build, scene, revision } = found
@@ -403,6 +480,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   const notes: string[] = []
   if (!open) notes.push(`${notOpen(obj, deps.openObjectId())}, so what is visible, the camera and the section are not known.`)
   if (scene.parts.some((p) => p.arranged)) notes.push(SPREAD_NOTE)
+  const scanLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
+  if (scans && scans.length > 0) notes.push(`Whether a scan is aligned is said for layout ${scanLayout}: call scans for how each is aligned.`)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -435,6 +514,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     section: view?.section ? sectionData(view.section) : null,
     // Of the last build that worked (`build.revision`): call marks for which, and why.
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
+    ...(scans && scans.length > 0 ? { scans: scans.map((scan) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles, aligned: scanLayout !== undefined && alignmentSaid(scan, scanLayout, revision).alignment !== null })) } : {}),
     ...(notes.length > 0 ? { note: notes.join(' ') } : {})
   }
   return { content: [{ type: 'text', text: JSON.stringify(result) }] }
@@ -449,7 +529,7 @@ function sectionData(plane: SectionPlane): object {
 export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs): Promise<ToolResult> {
   const found = built(deps, objectId)
   if ('content' in found) return found
-  const { obj } = found
+  const { obj, scene, revision } = found
   // The window draws whatever object it has open, and a request does not say
   // which is meant: asked for another, it would answer with the wrong one.
   const elsewhere = (open: string | null) => failure(`${notOpen(obj, open)}. Ask the user to open it.`)
@@ -466,6 +546,28 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
     const plane = planeOf(args.section)
     if (!plane) return failure(NO_PLANE)
     request.section = plane
+  }
+  if (args.scans === false) request.scans = false
+  else if (args.scans !== undefined && args.scans !== true) {
+    const ids = await scanIds(deps, objectId, args.scans, NO_LOOK_SCANS)
+    if ('content' in ids) return ids
+    request.scans = ids
+  }
+  if (args.scanColour !== undefined) {
+    const asked = args.scanColour as { part?: unknown; scan?: unknown; range?: unknown } | null
+    if (typeof asked !== 'object' || asked === null || typeof asked.part !== 'string' || asked.part === '' || (asked.scan !== undefined && typeof asked.scan !== 'string')) return failure(NO_SCAN_COLOUR)
+    if (asked.range !== undefined && !(typeof asked.range === 'number' && asked.range >= COLOUR_RANGE.least && asked.range <= COLOUR_RANGE.most)) return failure(NO_SCAN_COLOUR)
+    const layout = layoutFor(deps, objectId, scene, args.layout)
+    if (typeof layout !== 'string') return layout
+    const part = checkRef(scene, layout, asked.part)
+    if (typeof part === 'string') return failure(part)
+    if (part.target !== 'part') return failure(`a scan is coloured by its distance to a whole part, and ${asked.part} is ${part.target === 'face' ? 'a face' : 'an edge'}: give ${part.part.name}`)
+    // The colours say how far the scan is from the part: where it is not aligned, or the part is not where the model has it, they would say nothing.
+    const of = await scanFor(deps, objectId, layout, revision, asked.scan as string | undefined)
+    if ('content' in of) return of
+    const apart = scanSpread(scene, layout, part.part.name) ?? scanFrame(scene, layout, revision, part.part.name, of.scan.id, of.alignment)
+    if (apart !== null) return failure(apart)
+    request.scanColour = { scan: of.scan.id, part: part.part.name, range: asked.range ?? COLOUR_RANGE.usual }
   }
 
   let picture: LookResult
@@ -491,6 +593,27 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
       { type: 'text', text: `${picture.caption}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
     ]
   }
+}
+
+/** How far from a part a scan is coloured to, mm. */
+const COLOUR_RANGE = { least: 0.1, most: 1000, usual: 20 }
+const NO_LOOK_SCANS = 'scans is true for the scans on the user\'s screen, false for none, or a list of their numbers: {"scans": ["S1"]}'
+const NO_SHOW_SCANS = 'scans is a list of the numbers of the scans to leave switched on, [] to hide them all: {"scans": ["S1"]}'
+const NO_SCAN_COLOUR = `scanColour is {"part": "tub"}, the part a scan is coloured by its distance to, with "scan": "S1" when there are several and "range" in mm, ${COLOUR_RANGE.least} to ${COLOUR_RANGE.most} (default ${COLOUR_RANGE.usual})`
+const NO_SCAN_OPACITY = `scanOpacity is a number from ${MIN_SCAN_OPACITY} to 1, how see-through the scans left on are drawn: {"scans": ["S1"], "scanOpacity": 0.5}`
+
+/** The numbers of scans a tool was given, each a scan of the object, or the error to answer with: `help` for what is no list of them. */
+async function scanIds(deps: ToolDeps, objectId: string, given: unknown, help: string): Promise<string[] | ToolResult> {
+  if (!Array.isArray(given) || !given.every((id) => typeof id === 'string')) return failure(help)
+  let scans: ScanInfo[]
+  try {
+    scans = await deps.scans(objectId)
+  } catch (e) {
+    return failure(messageOf(e))
+  }
+  const unknown = (given as string[]).find((id) => !scans.some((scan) => scan.id === id))
+  if (unknown !== undefined) return failure(scans.length > 0 ? `no scan ${unknown}; scans: ${scans.map((scan) => scan.id).join(', ')}` : NO_SCANS)
+  return [...new Set(given as string[])]
 }
 
 /** What to say after the revision of a picture whose parts are not the latest build's. '' when they are. */
@@ -625,7 +748,7 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
   const found = onScreen(deps, objectId)
   if ('content' in found) return found
   const { obj, scene } = found
-  if (args.view === undefined && args.layout === undefined && args.parts === undefined && args.section === undefined) return failure('nothing to show: give a view, a layout, parts or a section')
+  if (args.view === undefined && args.layout === undefined && args.parts === undefined && args.section === undefined && args.scans === undefined && args.scanOpacity === undefined) return failure('nothing to show: give a view, a layout, parts, a section or scans')
   if (args.layout !== undefined && !scene.layouts.includes(args.layout)) return failure(`no layout '${args.layout}'; layouts: ${scene.layouts.join(', ')}`)
   if (args.parts?.length === 0) return failure('parts is empty: name the parts to leave switched on')
 
@@ -642,6 +765,15 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
     const plane = planeOf(args.section)
     if (!plane) return failure(NO_PLANE)
     request.section = plane
+  }
+  if (args.scans !== undefined) {
+    const ids = await scanIds(deps, objectId, args.scans, NO_SHOW_SCANS)
+    if ('content' in ids) return ids
+    request.scans = ids
+  }
+  if (args.scanOpacity !== undefined) {
+    if (!(typeof args.scanOpacity === 'number' && args.scanOpacity >= MIN_SCAN_OPACITY && args.scanOpacity <= 1)) return failure(NO_SCAN_OPACITY)
+    request.scanOpacity = args.scanOpacity
   }
 
   let shown: ShowResult

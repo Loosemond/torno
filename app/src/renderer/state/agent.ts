@@ -12,7 +12,9 @@ import {
   NOT_A_PLANE,
   sectionOf
 } from '../../shared/view'
+import { type ScanView, MIN_SCAN_OPACITY, alignmentOf, doubtOf } from '../../shared/scans'
 import { colorFor, colorsByName } from '../viewport/palette'
+import { scansNote } from '../viewport/picture'
 import { describeSection } from '../viewport/section'
 import { sectionPng } from '../viewport/sectionDrawing'
 import type { Viewport } from '../viewport/Viewport'
@@ -48,7 +50,8 @@ export function dismissHighlight(): void {
 /**
  * Change what the window shows of the open object as the agent asked: the
  * layout, which parts are switched on (those named, and no other of that
- * layout), the plane they are cut by (or none), the camera. Everything is checked before anything is changed, and
+ * layout), the plane they are cut by (or none), which scans are switched on (those named, and no other) and how
+ * thin those are drawn, the camera. Everything is checked before anything is changed, and
  * nothing is while a button is held in the viewport. The change is for now:
  * it is not what the scene file keeps. The answer says what is shown then, as
  * the caption of a picture would.
@@ -66,10 +69,24 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
 
   const section = req.section === undefined || req.section === null ? req.section : sectionOf(req.section)
   if (section === null && req.section !== null) throw new Error(NOT_A_PLANE)
+  for (const id of req.scans ?? []) {
+    if (!s.scans.some((scan) => scan.id === id)) throw new Error(`no scan ${id}; scans: ${s.scans.map((scan) => scan.id).join(', ') || 'none'}`)
+  }
+  const thin = req.scanOpacity
+  if (thin !== undefined && !(typeof thin === 'number' && thin >= MIN_SCAN_OPACITY && thin <= 1)) throw new Error(`scanOpacity is a number from ${MIN_SCAN_OPACITY} to 1`)
+  // Each scan is switched as named; how thin is of those left on: the ones named, or, when none is, the ones that are on.
+  let scans: Record<string, ScanView> | undefined
+  if (req.scans !== undefined || thin !== undefined) {
+    scans = {}
+    for (const { id } of s.scans) {
+      const on = req.scans ? req.scans.includes(id) : s.scanViews[id]?.visible !== false
+      scans[id] = { ...(req.scans ? { visible: on } : {}), ...(thin !== undefined && on ? { opacity: thin } : {}) }
+    }
+  }
 
   // The viewport follows the store as this is set, so the camera below is fitted to what it leaves on.
   // For now only: what the person had chosen stays what their scene file says.
-  actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {}, section)
+  actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {}, section, scans)
   if (req.view !== undefined) viewport.setView(req.view, true)
 
   const after = store.getState()
@@ -79,8 +96,12 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   const view = req.view === undefined ? 'current' : typeof req.view === 'string' ? req.view : 'custom'
   // Where the camera is going, not where it is on the way: a named view keeps the projection there is.
   const ortho = typeof req.view === 'object' ? req.view.ortho : viewport.getCamera().ortho
+  // The scans left on, as a picture's caption says them: from what main keeps of each, in the layout now shown.
+  const shown = after.scans
+    .filter((scan) => scan.meshState === 'ok' && after.scanViews[scan.id]?.visible !== false)
+    .map((scan) => ({ id: scan.id, opacity: after.scanViews[scan.id]?.opacity ?? 1, aligned: alignmentOf(scan, layout) !== null, stale: doubtOf(scan, layout), rough: alignmentOf(scan, layout)?.rough ?? null }))
   return {
-    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${after.section ? ` · ${describeSection(after.section)}` : ''} · ${ortho ? 'orthographic' : 'perspective'}`,
+    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,
     revision: after.revision,
     stale: after.build?.stale ?? false
@@ -219,7 +240,7 @@ export async function sectionDrawing(req: SectionDrawingRequest): Promise<Sectio
   const open = s.objectId === req.objectId
   const byName = colorsByName(req.names)
   const colourOf = (part: string): string => (open ? s.layers[part]?.color : undefined) ?? byName.get(part) ?? colorFor(part, -1)
-  const drawn = await sectionPng(req.section, req.spread ? `${req.layout} (parts spread for display)` : req.layout, colourOf, req.size)
+  const drawn = await sectionPng(req.section, req.spread ? `${req.layout} (parts spread for display)` : req.layout, colourOf, req.size, req.scan)
   if (!drawn) throw new Error('the plane cuts nothing')
   return { ...drawn, colours: open ? 'window' : 'palette' }
 }

@@ -1,9 +1,12 @@
 import * as THREE from 'three'
 import type { Part } from '../../shared/scene'
-import type { Camera, SectionPlane, ViewName } from '../../shared/view'
+import { number } from '../../shared/format'
+import type { Camera, ScanColouring, SectionPlane, ViewName } from '../../shared/view'
 import { MARK_LAYERS, type Highlights } from './highlight'
 import type { MarkLayer } from './marks/MarkLayer'
-import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayFonts, overlayUnit, type LabelStyle } from './overlay'
+import { PERSPECTIVE_NOTE, chipSize, drawDeviationLegend, drawLabels, drawOverlay, overlayFonts, overlayUnit, type LabelStyle } from './overlay'
+import type { BuiltPart } from './partMesh'
+import { deviationColours, type Rgb } from './scanDeviation'
 import { reaching, type ScanLayer, type ShownScan } from './scans'
 import { describeSection } from './section'
 import { visibleHeight } from './views'
@@ -20,6 +23,8 @@ export interface ImageRequest {
   section?: SectionPlane | 'current' | null
   /** The scans drawn with the parts: `'current'`, and when left out, those switched on on screen; false for none; or those of these ids. */
   scans?: 'current' | false | string[]
+  /** One scan drawn in colours that say how far it is from a part of the layout, for this picture. It is drawn whether or not it is among `scans`. */
+  scanColour?: ScanColouring
 }
 
 export interface Picture {
@@ -50,7 +55,7 @@ export interface PictureHost {
   readonly scene: THREE.Scene
   readonly marks: Pick<MarkLayer, 'activeId' | 'setActive' | 'show' | 'showDraft' | 'extend' | 'update' | 'labels'>
   readonly highlights: Pick<Highlights, 'setVisible'>
-  readonly scans: Pick<ScanLayer, 'showOnly' | 'shown' | 'box'>
+  readonly scans: Pick<ScanLayer, 'showOnly' | 'shown' | 'box' | 'built' | 'colourFor'>
   /** The viewport has been disposed of. */
   closed(): boolean
   /** The layouts of the scene on show, and the one on screen. */
@@ -108,6 +113,8 @@ export interface PictureState {
   notDrawn: ReadonlySet<string>
   width: number
   height: number
+  /** A scan drawn in colours of the picture's own, worked out once the scan stands where the picture's layout puts it. */
+  colour?: { scan: string; colours(): Uint16Array }
 }
 
 /**
@@ -138,6 +145,8 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     for (const p of state.shown) p.built.group.visible = true
     scansBack = host.scans.showOnly(state.scans, state.layout)
     host.cutBy(state.section, state.layout, false)
+    // Once the scan stands and is cut as the picture has it: its colours are of where it stands.
+    if (state.colour) host.scans.colourFor(state.colour.scan, state.colour.colours())
     let extent = otherLayout ? host.layGround(state.layout) : host.groundExtent()
     // A scan may stand far from the parts: the camera reaches what is drawn of it.
     const around = host.scans.box()
@@ -156,6 +165,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     host.renderer.setViewport(onScreen)
     host.renderer.setRenderTarget(null)
     for (const [p, visible] of before) p.built.group.visible = visible
+    if (state.colour) host.scans.colourFor(state.colour.scan, null)
     scansBack()
     host.cutBy(cut, host.layout(), true)
     showGizmo()
@@ -187,6 +197,30 @@ export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' 
     return `${scan.id}${thin}${where}`
   })
   return ` · scans ${said.join(', ')}`
+}
+
+/** The colours a scan is drawn in by its distance to a part, as the stylesheet says them: `--deviation-near`, `--deviation-far`, `--deviation-inside`. */
+export interface DeviationColours { near: string; far: string; inside: string }
+/** Those of the light theme (styles/tokens.css), for where there is no stylesheet to read. */
+const DEVIATION_LIGHT: DeviationColours = { near: '#8A4594', far: '#D3D8DF', inside: '#22252A' }
+
+function deviationTokens(): DeviationColours {
+  const css = typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null
+  const read = (name: string, fallback: string): string => `#${new THREE.Color(css?.getPropertyValue(name).trim() || fallback).getHexString().toUpperCase()}`
+  return { near: read('--deviation-near', DEVIATION_LIGHT.near), far: read('--deviation-far', DEVIATION_LIGHT.far), inside: read('--deviation-inside', DEVIATION_LIGHT.inside) }
+}
+
+/** `#8A4594` as three shares of sRGB. */
+const rgbOf = (hex: string): Rgb => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255) as Rgb
+
+/**
+ * What a picture's caption says of the scan it drew by distance: which, to which part, over what range, and the
+ * very colours: whoever reads the picture reads distances off them. Of a part that is no solid nothing is inside.
+ */
+export function colouringNote(colouring: ScanColouring, colours: DeviationColours, solid: boolean): string {
+  const range = number(colouring.range)
+  const key = `0 mm ${colours.near}, ${range} mm and beyond ${colours.far}`
+  return ` · scan ${colouring.scan} coloured by distance to ${colouring.part}: 0 to ${range} mm${solid ? `, inside the part marked (${key}, inside the part ${colours.inside})` : ` (${key}; ${colouring.part} is no solid, so nothing is marked as inside it)`}`
 }
 
 /**
@@ -234,14 +268,35 @@ export class PictureMaker {
 
     const withMarks = req.marks !== false
     // Those switched on on screen, unless the picture names its own or wants none.
-    const scans = req.scans === false ? null : Array.isArray(req.scans) ? req.scans : host.scans.shown().filter((scan) => scan.visible).map((scan) => scan.id)
+    const chosen = req.scans === false ? null : Array.isArray(req.scans) ? req.scans : host.scans.shown().filter((scan) => scan.visible).map((scan) => scan.id)
+    // A scan coloured by its distance to a part is drawn, whatever else is: it is what the picture was asked for.
+    const colouring = req.scanColour
+    const scans = colouring ? [...new Set([...(chosen ?? []), colouring.scan])] : chosen
+    const tokens = deviationTokens()
+    let colour: PictureState['colour']
+    let solid = false
+    if (colouring) {
+      // The part it is measured to need not be among those drawn: it is of the layout.
+      const against = [...host.parts()].find((p) => p.part.layout === req.layout && p.part.name === colouring.part)?.built as Pick<BuiltPart, 'group' | 'mesh' | 'solid'> | undefined
+      if (!against?.mesh) throw new Error(`unknown part '${colouring.part}' in layout ${req.layout}`)
+      solid = against.solid
+      const { scan, range } = colouring
+      colour = {
+        scan,
+        colours: () => {
+          const built = host.scans.built(scan)
+          if (!built) throw new Error(`${scan}'s mesh has not come to the window yet: look again in a moment`)
+          return deviationColours(built, against, range, { near: rgbOf(tokens.near), far: rgbOf(tokens.far), inside: rgbOf(tokens.inside) })
+        }
+      }
+    }
     const section = req.section === undefined || req.section === 'current' ? host.section() : req.section
     // A mark on a part the picture leaves out is left out with it.
     const notDrawn = host.hiddenParts(req.layout, wanted)
     const unit = overlayUnit(width, height)
 
     // Everything from here to the end of `asPictured` is synchronous, so no frame on screen sees it.
-    const { camera, pixels, drawn } = asPictured(host, { layout: req.layout, shown, withMarks, scans, section, notDrawn, width, height }, (extent) => {
+    const { camera, pixels, drawn } = asPictured(host, { layout: req.layout, shown, withMarks, scans, section, notDrawn, width, height, ...(colour ? { colour } : {}) }, (extent) => {
       const camera = host.cameraFor(view, aspect, extent)
       // In the picture's own pixels: a dot is as large a share of a big picture as of a small one.
       host.marks.update(camera, { width, height }, unit)
@@ -253,7 +308,8 @@ export class PictureMaker {
       const pixels = new Uint8ClampedArray(width * height * 4)
       host.renderer.readRenderTargetPixels(targets.encoded, 0, 0, width, height, pixels)
       // What was drawn of the scans: one whose mesh has not come is not in the picture, and is not said to be.
-      return { camera, pixels, drawn: host.scans.shown().filter((scan) => scan.visible) }
+      // The scan drawn by its distance is drawn solid, in colours that are read: not as thin as it is on screen.
+      return { camera, pixels, drawn: host.scans.shown().filter((scan) => scan.visible).map((scan) => (scan.id === colouring?.scan ? { ...scan, opacity: 1 } : scan)) }
     })
 
     const picture = new OffscreenCanvas(width, height)
@@ -273,6 +329,7 @@ export class PictureMaker {
       muted: colours.muted,
       surface: colours.surface
     })
+    if (colouring) drawDeviationLegend(ctx, { width, height, ink: colours.ink, surface: colours.surface }, { ...tokens, inside: solid ? tokens.inside : null, range: colouring.range, title: `${colouring.scan} to ${colouring.part}` })
     if (withMarks) {
       // With the camera of the picture, which for a named view is not the one on screen.
       const labels = host.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP), notDrawn)
@@ -284,7 +341,7 @@ export class PictureMaker {
     const names = shown.map((p) => p.part.name).join(', ') || 'none'
     const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
     const cutNote = section ? ` · ${describeSection(section)}` : ''
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${cutNote} · ${projection} · ${width}×${height}`
+    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote} · ${projection} · ${width}×${height}`
     return { png, width, height, caption }
   }
 

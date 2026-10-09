@@ -1,3 +1,4 @@
+import { apply } from '../../shared/align'
 import type { Described } from '../../shared/geometry'
 import { expectedText, offBy, standingOf, valueText } from '../../shared/dimension'
 import { type Anchor, type DimensionMark, type Mark, type NewMark, type Quat, isUnchecked, markAnchors } from '../../shared/marks'
@@ -8,6 +9,8 @@ import { MAX_NOTE } from '../marks/file'
 import type { Unmeasured } from '../marks/measure'
 import { spreadApart } from '../marks/spread'
 import { EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance } from '../marks/reanchor'
+import type { AlignmentSaid } from '../scans/said'
+import { type RegionOfScan, isRegion, scanFor } from './scanTools'
 import {
   type AddMarkArgs,
   type HighlightArgs,
@@ -63,8 +66,13 @@ export function checkRef(scene: Scene, layout: string, ref: string): CheckedRef 
   return { part, target: sub[2] === 'F' ? 'face' : 'edge' }
 }
 
-/** An end of a measurement as the agent names one: a ref, the number of a mark, a point, or a ref with a point. */
-export type EndArg = string | { ref?: string; point?: Vec3 }
+/** An end of a measurement as the agent names one: a ref, the number of a mark, a point, a ref with a point, or a point of a scan. */
+export type EndArg = string | { ref?: string; point?: Vec3 } | { scan: string; point: Vec3 }
+
+/** Said of an end that names a scan and is no point of one. */
+export const noScanEnd = (name: string): string => `${name} names nothing: a point of a scan is {"scan": "S1", "point": [x, y, z]}, in mm in the frame of the layout`
+
+const isPoint = (point: unknown): point is Vec3 => Array.isArray(point) && point.length === 3 && point.every((c) => typeof c === 'number' && Number.isFinite(c))
 
 /** Said of an end that is none, with what one looks like: whatever was given reaches the tool, so that this is the answer. */
 export const noEnd = (name: string): string => `${name} names nothing: give a ref ("lid/F12"), the number of a mark ("M3"), {"point": [x, y, z]} in mm, or {"ref": "lid/F12", "point": [x, y, z]}`
@@ -87,6 +95,8 @@ export interface End {
   /** The part the ref is of; none of a bare point. */
   part?: Part
   text: string
+  /** The end is a point of this scan, or the centroid of a region of it: where the scan's alignment in the layout puts it, and so approximate. */
+  scan?: { id: string; aligned: AlignmentSaid }
 }
 
 /**
@@ -96,7 +106,9 @@ export interface End {
  * and only when that is known to be of this build: one the build moved, one
  * whose part is gone, one not yet checked against it and one that is
  * resolved, which is no longer checked, are refused, since their refs may
- * name other geometry now.
+ * name other geometry now. A point of a scan, and a region of one (its
+ * centroid), are where the scan's alignment in the layout puts them: refused
+ * where it has none (`scanFor`).
  */
 export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, revision: number, layout: string, asked: Array<['a' | 'b', EndArg]>): Promise<End[] | ToolResult> {
   const ends: End[] = []
@@ -110,6 +122,15 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
       }
       const mark = marks.find((m) => m.id === arg)
       if (!mark) return noMark(arg, marks)
+      if (isRegion(mark)) {
+        const region = mark as unknown as RegionOfScan
+        const of = await scanFor(deps, objectId, layout, revision, region.scan)
+        if ('content' in of) return of
+        if (region.anchorState === 'orphaned' || !isPoint(region.local?.centroid)) return failure(`${arg} no longer fits the mesh of ${region.scan}: give a point of the scan, as {"scan": "${region.scan}", "point": [x, y, z]}`)
+        const point = tidy(apply(of.alignment.transform, region.local.centroid))
+        ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned }, text: `the centroid of region ${arg} (${of.scan.id}) at ${vector(point)}` })
+        continue
+      }
       // It has two ends, or is of one thing at a point: which is meant is not for torno to guess.
       if (mark.kind === 'dimension') return failure(`${arg} is a dimension: name the ref or point of the end you mean`)
       if (mark.layout !== layout) return failure(`${arg} is in layout ${mark.layout}, not ${layout}`)
@@ -126,6 +147,14 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
       const checked = checkRef(scene, layout, on.ref)
       if (typeof checked === 'string') return failure(`${arg} is on ${on.ref}, but ${checked}`)
       ends.push({ ref: on.ref, point: on.point, part: checked.part, text: `${on.ref} (${arg})` })
+      continue
+    }
+    if (typeof arg === 'object' && arg !== null && 'scan' in arg) {
+      const { scan, point } = arg as { scan?: unknown; point?: unknown }
+      if (typeof scan !== 'string' || scan === '' || !isPoint(point)) return failure(noScanEnd(name))
+      const of = await scanFor(deps, objectId, layout, revision, scan)
+      if ('content' in of) return of
+      ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned }, text: `${vector(point)} on ${of.scan.id}` })
       continue
     }
     const given = endOf(arg)

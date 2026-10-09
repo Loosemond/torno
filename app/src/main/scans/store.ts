@@ -534,6 +534,15 @@ export class ScanStore {
     }
   }
 
+  /**
+   * The ids whose files an import or a conversion is writing right now: a scan being converted or imported again,
+   * and a first import, which has its id and is no scan yet. Nothing is to be read of those meanwhile.
+   */
+  working(objectId: string): string[] {
+    const dir = this.deps.dirOf(objectId)
+    return dir === undefined ? [] : [...(this.busy.get(dir) ?? [])]
+  }
+
   private now(): Date {
     return this.deps.now?.() ?? new Date()
   }

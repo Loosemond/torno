@@ -186,6 +186,40 @@ describe('show', () => {
     expect(store.getState().section).toBeNull()
   })
 
+  describe('with scans', () => {
+    const scan = (id: string, alignments: object = {}) => ({ id, name: `${id}.stl`, imported: { triangles: 12 }, alignments, sourceState: 'present', meshState: 'ok', checks: {} }) as never
+    const typed = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' }
+    beforeEach(() => actions.setScans({ objectId: 'bracket', scans: [scan('S1', { assembly: typed }), scan('S2')] }))
+
+    it('leaves on the scans named and no other, as thin as asked, says so, and leaves the scene file as the person had it', () => {
+      actions.setScanView('S2', { opacity: 0.8 })
+      const edits = store.getState().edits
+      show({ scans: ['S1'], scanOpacity: 0.4 })
+      expect(store.getState().scanViews).toEqual({ S1: { visible: true, opacity: 0.4 }, S2: { opacity: 0.8, visible: false } })
+      expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · scans S1 at 40 % · perspective', objectId: 'bracket', revision: 3, stale: false } }])
+      expect(store.getState().edits).toBe(edits)
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, scans: { S2: { opacity: 0.8 } } })
+    })
+
+    it('hides them all for none, thins those that are on when no scan is named, and says of one that it is not aligned', () => {
+      show({ scans: [] })
+      expect(store.getState().scanViews).toEqual({ S1: { visible: false }, S2: { visible: false } })
+      expect((replies[0].result as { caption: string }).caption).toBe('view current · layout assembly · parts base, post · perspective')
+      show({ scans: ['S2'] })
+      show({ scanOpacity: 0.5 })
+      expect(store.getState().scanViews).toEqual({ S1: { visible: false }, S2: { opacity: 0.5 } })
+      expect((replies[2].result as { caption: string }).caption).toBe('view current · layout assembly · parts base, post · scans S2 at 50 % (not aligned in assembly: drawn where it was imported) · perspective')
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
+    })
+
+    it('refuses a scan the object has not, and an opacity no scan is drawn at, and changes nothing', () => {
+      show({ layout: 'print', scans: ['S9'] })
+      show({ scans: ['S1'], scanOpacity: 4 })
+      expect(replies.map((reply) => reply.result)).toEqual([{ error: 'no scan S9; scans: S1, S2' }, { error: 'scanOpacity is a number from 0.05 to 1' }])
+      expect(store.getState()).toMatchObject({ layout: 'assembly', scanViews: {} })
+    })
+  })
+
   it('refuses a section that is no plane, and changes nothing', () => {
     show({ layout: 'print', section: { origin: [0, 0, 1], normal: [0, 0, 0] } })
     expect(replies).toEqual([{ id: 9, result: { error: 'section is not a plane: give origin and normal as three numbers each, the normal not all zeros' } }])

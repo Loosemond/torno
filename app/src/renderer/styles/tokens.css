@@ -20,6 +20,11 @@
   --fail: #CF3F2C;
   /* A scan drawn without colours of its own: a paper grey a step from the ground, in no hue of the part palette. */
   --scan-plain: #B4AFA5;
+  /* A scan coloured by its distance to a part, in a picture for the agent: at the part, at the range and beyond, and
+     inside the part. None is a mark's colour or a part's; the picture's caption and legend give these very values. */
+  --deviation-near: #8A4594;
+  --deviation-far: #D3D8DF;
+  --deviation-inside: #22252A;
 
   /* The three axes, on the gizmo and beside the numbers it changes: the usual
      red, green and blue, toned to sit with the part palette and kept clear of
@@ -100,6 +105,9 @@
     --warn: #E0A94A;
     --fail: #F0705E;
     --scan-plain: #5A5E64;
+    --deviation-near: #C58BD0;
+    --deviation-far: #3A3F46;
+    --deviation-inside: #E9E7E2;
     --axis-x: #E886B0;
     --axis-y: #9CC56C;
     --axis-z: #82A6EA;

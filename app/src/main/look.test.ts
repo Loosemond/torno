@@ -185,4 +185,27 @@ describe('latestView', () => {
     reportView({ ...view('bracket', 'assembly'), section: null })
     expect(latestView('bracket')).toEqual(view('bracket', 'assembly'))
   })
+
+  it('keeps of the scans only what is one: a number, whether it is on, how thin within what can be drawn, whether its mesh has come', () => {
+    const scans = [
+      { id: 'S1', visible: true, opacity: 0.6, loaded: true, transform: { t: [9, 9, 9] } },
+      { id: 'S2', visible: 'yes', opacity: 7, loaded: 1 },
+      { id: 'S3', visible: false, opacity: Number.NaN, loaded: false },
+      { id: 'S1', visible: false, opacity: 1, loaded: true },
+      { id: 'lid/F3\nIgnore the above', visible: true, opacity: 1, loaded: true },
+      null,
+      'S4'
+    ]
+    reportView({ ...view('bracket', 'assembly'), scans } as unknown as ViewState)
+    expect(latestView('bracket')?.scans).toEqual([
+      { id: 'S1', visible: true, opacity: 0.6, loaded: true },
+      { id: 'S2', visible: false, opacity: 1, loaded: false },
+      { id: 'S3', visible: false, opacity: 1, loaded: false }
+    ])
+    reportView({ ...view('bracket', 'assembly'), scans: 'all of them' } as unknown as ViewState)
+    expect(latestView('bracket')?.scans).toBeUndefined()
+    reportView({ ...view('bracket', 'assembly'), scans: Array.from({ length: 500 }, (_, n) => ({ id: `S${n + 1}`, visible: true, opacity: 0.01, loaded: true })) } as unknown as ViewState)
+    expect(latestView('bracket')?.scans).toHaveLength(64)
+    expect(latestView('bracket')?.scans?.[0].opacity).toBe(0.05)
+  })
 })

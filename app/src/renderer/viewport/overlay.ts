@@ -140,6 +140,57 @@ function drawNote(ctx: Ctx, o: OverlayOptions, unit: number): void {
   haloText(ctx, PERSPECTIVE_NOTE, o.width - pad, o.height - pad, o.muted, o.surface, unit)
 }
 
+/** What the legend of a scan drawn by its distance to a part says: the two ends of the ramp, the colour of what is inside (null of a part that is no solid), the range in mm, and what it is of. */
+export interface DeviationLegend { near: string; far: string; inside: string | null; range: number; title: string }
+
+/** How long the ramp of the legend is, in nominal pixels. */
+export const DEVIATION_RAMP = 120
+
+/**
+ * Draws, top left, the key to a scan coloured by its distance to a part: what it is of, a ramp from the colour at
+ * the part to the colour at the range with `0` and the range under its ends, and a swatch of what is inside the
+ * part. In the very colours the scan is drawn in: distances are read off them.
+ */
+export function drawDeviationLegend(ctx: Ctx, o: Pick<OverlayOptions, 'width' | 'height' | 'ink' | 'surface'>, legend: DeviationLegend): void {
+  const unit = overlayUnit(o.width, o.height)
+  const pad = 26 * unit
+  const [length, thick] = [DEVIATION_RAMP * unit, 9 * unit]
+  ctx.save()
+  ctx.textBaseline = 'alphabetic'
+  ctx.textAlign = 'left'
+  ctx.font = `${Math.round(13 * unit)}px ${SANS}`
+  haloText(ctx, legend.title, pad, pad + 10 * unit, o.ink, o.surface, unit)
+  const top = pad + 20 * unit
+  const ramp = ctx.createLinearGradient(pad, 0, pad + length, 0)
+  ramp.addColorStop(0, legend.near)
+  ramp.addColorStop(1, legend.far)
+  // A hairline in the background's colour sets the ramp off whatever is drawn under it.
+  ctx.fillStyle = o.surface
+  ctx.fillRect(pad - 1.5 * unit, top - 1.5 * unit, length + 3 * unit, thick + 3 * unit)
+  ctx.fillStyle = ramp
+  ctx.fillRect(pad, top, length, thick)
+  ctx.font = `${Math.round(12 * unit)}px ${MONO}`
+  haloText(ctx, '0', pad, top + thick + 15 * unit, o.ink, o.surface, unit)
+  ctx.textAlign = 'right'
+  haloText(ctx, `${formatRange(legend.range)} mm`, pad + length, top + thick + 15 * unit, o.ink, o.surface, unit)
+  if (legend.inside !== null) {
+    const x = pad + length + 18 * unit
+    ctx.fillStyle = o.surface
+    ctx.fillRect(x - 1.5 * unit, top - 1.5 * unit, thick + 3 * unit, thick + 3 * unit)
+    ctx.fillStyle = legend.inside
+    ctx.fillRect(x, top, thick, thick)
+    ctx.textAlign = 'left'
+    ctx.font = `${Math.round(12 * unit)}px ${SANS}`
+    haloText(ctx, 'inside', x + thick + 6 * unit, top + thick, o.ink, o.surface, unit)
+  }
+  ctx.restore()
+}
+
+/** A range as it was asked for, without float noise: 20, 2.5. */
+function formatRange(mm: number): string {
+  return String(Number(mm.toPrecision(4)))
+}
+
 function haloText(ctx: Ctx, text: string, x: number, y: number, color: string, halo: string, unit: number): void {
   ctx.strokeStyle = halo
   ctx.lineWidth = 3.5 * unit

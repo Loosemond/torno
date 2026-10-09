@@ -65,7 +65,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       }
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, ...(req.scanColour ? { scanColour: req.scanColour } : {}) }
   })
   return { ...picture, ...drawn! }
 }

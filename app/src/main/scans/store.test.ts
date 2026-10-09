@@ -538,6 +538,29 @@ describe('ScanStore, after its review', () => {
     expect(await converting).toMatchObject({ name: 'engine bay', imported: { unit: 'cm', mesh: 'mesh.1.bin' } })
   })
 
+  it('says which scans have their files written right now: one being converted, and one whose first import has its number and is no scan yet', async () => {
+    const slow = held('convert')
+    const scans = store(slow.importer)
+    await scans.import('bracket', source)
+    expect(scans.working('bracket')).toEqual([])
+    const converting = scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
+    await slow.begun
+    expect(scans.working('bracket')).toEqual(['S1'])
+    expect(scans.working('no such')).toEqual([])
+    slow.release()
+    await converting
+    expect(scans.working('bracket')).toEqual([])
+    const first = held('import')
+    const other = store(first.importer)
+    const importing = other.import('bracket', source)
+    await first.begun
+    expect(other.working('bracket')).toEqual(['S2'])
+    expect((await other.list('bracket')).map((scan) => scan.id)).toEqual(['S1'])
+    first.release()
+    await importing
+    expect(other.working('bracket')).toEqual([])
+  })
+
   it('keeps nothing of a conversion whose scan was removed meanwhile', async () => {
     const slow = held('convert')
     const scans = store(slow.importer)

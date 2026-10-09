@@ -130,3 +130,67 @@ export interface SectionLoop {
 export interface CheckedOverlap { volume: number; bbox: { min: Vec3; max: Vec3 } | null }
 export interface CheckedClearance { distance: number; points: [Vec3, Vec3]; overlapping: boolean | null; how: string }
 export interface CheckedMesh { watertight: boolean; openEdges: number; where: Vec3[]; triangles: number }
+
+/**
+ * What the kernel says of a scan against a part (`kernel/src/torno_kernel/scanclash.py`). A scan is a mesh of the
+ * real thing, measured by a phone or a scanner: nothing here is exact, and every reply says so (`exact: false`).
+ * Points are in the object frame of the layout asked, where the scan's transform for that layout puts it.
+ */
+export interface ScanClashed {
+  part: string
+  scan: string
+  /** Scan vertices: all of them, those within the margin of the part's box, those judged (every n-th when thinned, fewer when the time ran out), those of regions left out, and those lying on the part's mesh, counted on neither side. */
+  points: { scan: number; candidates: number; checked: number; ignored: number; touching: number }
+  inside: {
+    /** Of the vertices checked. */
+    count: number
+    /** Scan triangles an edge of which goes through the part's mesh, or that an edge of the part's mesh goes through. At least that many when `crossingAtLeast`. */
+    crossing: number
+    crossingAtLeast: boolean
+    /** The largest clusters; a depth is there only when it could be taken on the B-rep in time. */
+    clusters: Array<{ count: number; centre: Vec3; bbox: { min: Vec3; max: Vec3 }; depth?: number; at?: Vec3; under?: string }>
+    clustersOmitted: number
+  }
+  /** Where the crossing triangles are. `every` above 1: only every n-th candidate triangle was tried. */
+  crossings: { triangles: { candidates: number; checked: number; every: number }; clusters: Array<{ count: number; centre: Vec3; bbox: { min: Vec3; max: Vec3 } }>; clustersOmitted: number }
+  deepest: { depth: number; at: Vec3; under: string } | null
+  nearest: { distance: number; at: Vec3; on: Vec3; face: string } | null
+  sampling: { every: number; cell: number; surface: number; deflection: number; retaken: number; retakesFailed: number; partial: boolean; seconds: number }
+  how: string
+  exact: false
+}
+
+export interface ScanDeviated {
+  part: string
+  faces: number[] | null
+  scan: string
+  from: 'part' | 'scan'
+  /** Points measured: fewer than `sampling.asked` when there are no more, or the time ran out (`sampling.partial`). */
+  samples: number
+  /** Of those, the ones with something of the other within reach, and the ones without. */
+  compared: number
+  beyond: number
+  /** Null when nothing was compared. */
+  distance: { min: number; mean: number; max: number; rms: number; p50: number; p90: number; p95: number } | null
+  /** + where the scan is outside the part, − where it is inside. Null of a part that is no solid, and when nothing was compared. */
+  signed: { min: number; mean: number; max: number; inside: number } | null
+  worst: { distance: number; at: Vec3; on: Vec3; face: string } | null
+  sampling: { deflection: number; retakesFailed: number; surface: number; scanSurface?: number; asked: number; partial: boolean; unsure: number; seconds: number }
+  how: string
+  exact: false
+}
+
+/** Where a plane cuts a scan: polylines in the plane's own axes, as `Sectioned` gives a part's loops. At most 4,000 points in all. */
+export interface ScanSectioned {
+  scan: string
+  plane: { origin: Vec3; normal: Vec3; x: Vec3; y: Vec3 }
+  polylines: Array<{ points: [number, number][]; closed: boolean }>
+  /** Polylines left out for want of room. */
+  omitted: number
+  segments: number
+  pointsFound: number
+  pointsTold: number
+  thinned: boolean
+  bounds: { min: [number, number]; max: [number, number] } | null
+  exact: false
+}

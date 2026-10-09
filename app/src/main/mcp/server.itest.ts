@@ -72,6 +72,9 @@ const deps: ToolDeps = {
   highlight: async (objectId, layout, refs) => ({ objectId, layout, refs, revision: 2 }),
   query: async <T,>(_objectId: string, name: string): Promise<T> => KERNEL[name] as T,
   sectionDrawing: async () => ({ png: PNG, width: 4, height: 3, colours: 'window', vDown: false }),
+  scans: async () => [],
+  scansBusy: () => [],
+  scanPaths: () => undefined,
   addDimension: async (_objectId, mark) => ({ mark: { ...mark, id: 'M3', status: 'sent', anchorState: 'ok', createdAt: PIN.createdAt } as Mark })
 }
 
@@ -98,7 +101,7 @@ afterEach(async () => {
 
 afterAll(() => http.close())
 
-const ALL = ['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scene', 'section', 'show']
+const ALL = ['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show']
 /** The least each tool can be called with. */
 const MINIMAL: Record<string, Record<string, unknown>> = {
   scene: {},
@@ -111,7 +114,10 @@ const MINIMAL: Record<string, Record<string, unknown>> = {
   resolve_mark: { id: 'M1' },
   measure: { kind: 'distance', a: 'base/F5', b: 'base/F0' },
   section: { plane: { axis: 'z', at: 2 } },
-  check: { kind: 'mesh', a: 'base' }
+  check: { kind: 'mesh', a: 'base' },
+  scans: {},
+  scan_clash: { part: 'base' },
+  scan_deviation: { part: 'base' }
 }
 
 describe('the MCP server', () => {
@@ -130,8 +136,50 @@ describe('the MCP server', () => {
     expect(inputs('marks').required ?? []).toEqual([])
     for (const tool of tools) expect(tool.description).toMatch(/^Returns /)
     const look = tools.find((t) => t.name === 'look')!
-    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['layout', 'marks', 'parts', 'section', 'size', 'view'])
+    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['layout', 'marks', 'parts', 'scanColour', 'scans', 'section', 'size', 'view'])
     expect(look.inputSchema.required ?? []).toEqual([])
+  })
+
+  it('lists the tools that ask about a scan, each with a description and a schema that requires nothing and names every argument', async () => {
+    const client = await connect('bracket')
+    const { tools } = await client.listTools()
+    const of = (name: string) => tools.find((t) => t.name === name)!
+    expect(Object.keys(of('scans').inputSchema.properties ?? {})).toEqual(['layout'])
+    expect(Object.keys(of('scan_clash').inputSchema.properties ?? {}).sort()).toEqual(['ignore', 'layout', 'margin', 'part', 'scan'])
+    expect(Object.keys(of('scan_deviation').inputSchema.properties ?? {}).sort()).toEqual(['faces', 'from', 'layout', 'part', 'region', 'samples', 'scan', 'within'])
+    for (const name of ['scans', 'scan_clash', 'scan_deviation']) {
+      expect(of(name).inputSchema.required ?? [], name).toEqual([])
+      expect(of(name).description, name).toMatch(/^Returns JSON and a reading /)
+      for (const [arg, schema] of Object.entries(of(name).inputSchema.properties ?? {})) expect((schema as { description?: string }).description, `${name}.${arg}`).toBeTruthy()
+    }
+    expect(Object.keys(of('show').inputSchema.properties ?? {}).sort()).toEqual(['layout', 'parts', 'scanOpacity', 'scans', 'section', 'view'])
+    expect(Object.keys(of('section').inputSchema.properties ?? {}).sort()).toEqual(['deflection', 'layout', 'parts', 'plane', 'scan', 'size'])
+  })
+
+  it('answers what is no argument of a scan tool with what one looks like, not with the schema\u2019s "Invalid input"', async () => {
+    const client = await connect('bracket')
+    const said = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      const result = await client.callTool({ name, arguments: args }).catch((e: Error) => ({ isError: true, content: [{ type: 'text', text: e.message }] }))
+      expect(result.isError, `${name} ${JSON.stringify(args)}`).toBe(true)
+      return (result.content as Content)[0].text!
+    }
+    expect(await said('scan_clash', {})).toBe('part is the name of a part, as listed by scene: {"part": "tub"}')
+    expect(await said('scan_clash', { part: 'base', margin: 'wide' })).toBe('margin is a number of mm from 0 to 50 (default 5), how far round the part scan points are looked at: {"part": "tub", "margin": 5}')
+    expect(await said('scan_clash', { part: 'base', ignore: 'M7' })).toBe('ignore is a list of the numbers of region marks to leave out: {"part": "tub", "ignore": ["M7"]}')
+    expect(await said('scan_deviation', { part: 'base', samples: 1e6 })).toBe('samples is a whole number from 100 to 20,000 (default 10,000), how many points are measured: {"part": "tub", "samples": 10000}')
+    expect(await said('scan_deviation', { part: 'base', within: '50' })).toBe('within is a number of mm from 0.1 to 200 (default 50), how far from each point the other is looked for: {"part": "tub", "within": 50}')
+    expect(await said('scan_deviation', { part: 'base', from: 'both' })).toBe('from is "part" (points of the part, each to the scan; the default) or "scan" (points of the scan, each to the part): {"part": "tub", "from": "scan"}')
+    expect(await said('scan_deviation', { part: 'base', faces: 'base/F5' })).toBe('faces is a list of refs of faces of the part: {"part": "tub", "faces": ["tub/F5"]}')
+    expect(await said('measure', { kind: 'distance', a: { scan: 'S1' }, b: 'base/F5' })).toBe('a names nothing: a point of a scan is {"scan": "S1", "point": [x, y, z]}, in mm in the frame of the layout')
+    // A point of a scan reaches the tool as one: it is not taken for a bare point of the layout, which would be measured as exact.
+    expect(await said('measure', { kind: 'distance', a: { scan: 'S1', point: [1, 2, 3] }, b: 'base/F5' })).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
+    expect(await said('look', { scans: 'S1' })).toBe('scans is true for the scans on the user\'s screen, false for none, or a list of their numbers: {"scans": ["S1"]}')
+    expect(await said('look', { scanColour: 'base' })).toMatch(/^scanColour is \{"part": "tub"\}/)
+    expect(await said('show', { scans: 'S1' })).toBe('scans is a list of the numbers of the scans to leave switched on, [] to hide them all: {"scans": ["S1"]}')
+    expect(await said('show', { scanOpacity: 'half' })).toMatch(/^scanOpacity is a number from 0.05 to 1/)
+    expect(await said('section', { plane: { axis: 'z', at: 2 }, scan: 1 })).toBe('scan is the number of a scan, as listed by scans: {"scan": "S1"}')
+    // A well-formed call of an object with no scans is answered in words too.
+    expect(await said('scan_clash', { part: 'base' })).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
   })
 
   it('answers scene with JSON of the object named in the address', async () => {

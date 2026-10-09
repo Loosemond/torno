@@ -206,6 +206,9 @@ const toolDeps: ToolDeps = {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
   },
   query: queryObject,
+  scans: (objectId) => scans.list(objectId),
+  scanPaths: (objectId, id) => scans.paths(objectId, id),
+  scansBusy: (objectId) => scans.working(objectId),
   sectionDrawing(req) {
     return theWindow().then((win) => requestSectionDrawing(win, req))
   }
@@ -264,7 +267,8 @@ void app.whenReady().then(async () => {
     http,
     adapter: claudeAdapter(process.env.TORNO_AGENT_CMD),
     // The marks of an object that cannot be read are not a reason to tell the agent nothing of its build.
-    contextFor: async (id, opts) => contextFor(toolDeps, id, await marks.list(id).catch(() => []), opts),
+    // Nor are scans that cannot be read.
+    contextFor: async (id, opts) => contextFor(toolDeps, id, await marks.list(id).catch(() => []), { ...opts, scans: await scans.list(id).catch(() => []) }),
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
     systemPrompt: SYSTEM_PROMPT,

@@ -92,8 +92,10 @@ export interface TornoState {
    * person's saved settings. A choice the person makes by hand afterwards is
    * theirs again, and is taken out of here. `section` is there when the agent
    * cut the parts otherwise: `theirs` is the person's plane, or null for none.
+   * `scans` holds, by scan id, how the person looked at each scan the agent
+   * shows otherwise (undefined for one they had never changed).
    */
-  shownByAgent: { layout?: string; visible: Record<string, boolean | undefined>; section?: { theirs: SectionPlane | null } } | null
+  shownByAgent: { layout?: string; visible: Record<string, boolean | undefined>; section?: { theirs: SectionPlane | null }; scans?: Record<string, ScanView | undefined> } | null
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
   sessions: Record<string, SessionView>
 }
@@ -207,9 +209,10 @@ export const actions = {
    * because the agent asked: for now, and not for keeps. With `section`, cut
    * them by that plane too, or by none for null. What the person had
    * chosen is remembered (`shownByAgent`) and is what the scene file goes on
-   * saying; this counts as no edit of theirs.
+   * saying; this counts as no edit of theirs. With `scans`, each scan named
+   * is looked at that way too (what is left out of one keeps its value).
    */
-  showForAgent(layout: string, visible: Record<string, boolean>, section?: SectionPlane | null): void {
+  showForAgent(layout: string, visible: Record<string, boolean>, section?: SectionPlane | null, scans?: Record<string, ScanView>): void {
     const s = store.getState()
     if (!s.scene?.layouts.includes(layout)) return
     const theirs = { ...s.shownByAgent, visible: { ...s.shownByAgent?.visible } }
@@ -232,8 +235,25 @@ export const actions = {
       if (!theirs.section) theirs.section = { theirs: s.section }
       else if (samePlane(theirs.section.theirs, section)) delete theirs.section // back to what they had
     }
-    const none = theirs.layout === undefined && Object.keys(theirs.visible).length === 0 && !theirs.section
-    store.setState({ ...next, layers, shownByAgent: none ? null : theirs })
+    let scanViews = s.scanViews
+    const had: Record<string, ScanView | undefined> = { ...theirs.scans }
+    for (const [id, view] of Object.entries(scans ?? {})) {
+      const shown = { ...scanViews[id], ...view }
+      if (sameScanView(shown, scanViews[id])) continue
+      if (!(id in had)) had[id] = scanViews[id]
+      else if (sameScanView(shown, had[id])) {
+        // Back to what they had: as they had it, to the letter, and nothing is left to remember of it.
+        const { [id]: theirsAgain, ...rest } = scanViews
+        scanViews = theirsAgain === undefined || had[id] === undefined ? rest : { ...rest, [id]: had[id] }
+        delete had[id]
+        continue
+      }
+      scanViews = { ...scanViews, [id]: shown }
+    }
+    if (Object.keys(had).length > 0) theirs.scans = had
+    else delete theirs.scans
+    const none = theirs.layout === undefined && Object.keys(theirs.visible).length === 0 && !theirs.section && !theirs.scans
+    store.setState({ ...next, layers, scanViews, shownByAgent: none ? null : theirs })
   },
 
   /** The marks of an object, as loaded or as changed. Those of an object that is not the open one are not kept. */
@@ -253,7 +273,9 @@ export const actions = {
     if (m.objectId !== s.objectId) return
     // How a scan that is gone was looked at goes with it: ids are never given again. Not the person's doing: no edit.
     const kept = Object.entries(s.scanViews).filter(([id]) => m.scans.some((scan) => scan.id === id))
-    store.setState({ scans: m.scans, scanViews: kept.length === Object.keys(s.scanViews).length ? s.scanViews : Object.fromEntries(kept) })
+    // And what was remembered of how the person had it, where the agent shows it otherwise.
+    const shownByAgent = withoutScans(s.shownByAgent, (id) => !m.scans.some((scan) => scan.id === id))
+    store.setState({ scans: m.scans, scanViews: kept.length === Object.keys(s.scanViews).length ? s.scanViews : Object.fromEntries(kept), shownByAgent })
   },
 
   /** A file was given to main to read as a scan of the open object: said from now, before the process has said anything. */
@@ -269,7 +291,8 @@ export const actions = {
   /** Change how one scan is looked at, by hand; what is left out keeps its value. It is what the scene file keeps. */
   setScanView(id: string, view: ScanView): void {
     const s = store.getState()
-    store.setState({ scanViews: { ...s.scanViews, [id]: { ...s.scanViews[id], ...view } }, edits: s.edits + 1 })
+    // The person's own choice from here on, whatever the agent had shown of that scan: what is on screen of it is theirs.
+    store.setState({ scanViews: { ...s.scanViews, [id]: { ...s.scanViews[id], ...view } }, edits: s.edits + 1, shownByAgent: withoutScans(s.shownByAgent, (one) => one === id) })
   },
 
   /** What the import of a scan into an object is doing; no stage when it is over. Of another object than the open one, nothing is kept. */
@@ -423,7 +446,26 @@ export function sceneFileOf(s: TornoState): SceneFile {
     else delete layers[name]
   }
   const section = s.shownByAgent?.section ? s.shownByAgent.section.theirs : s.section
-  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(s.scanViews).length > 0 ? { scans: s.scanViews } : {}) }
+  const scans = { ...s.scanViews }
+  for (const [id, theirs] of Object.entries(s.shownByAgent?.scans ?? {})) {
+    if (theirs === undefined) delete scans[id]
+    else scans[id] = theirs
+  }
+  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(scans).length > 0 ? { scans } : {}) }
+}
+
+/** Whether two ways of looking at a scan draw it the same: what is left out has its default (on, solid, in its own colours). */
+function sameScanView(a: ScanView | undefined, b: ScanView | undefined): boolean {
+  return (a?.visible !== false) === (b?.visible !== false) && (a?.opacity ?? 1) === (b?.opacity ?? 1) && (a?.colour ?? 'own') === (b?.colour ?? 'own')
+}
+
+/** What the agent has shown, without what was remembered of the scans `gone` says yes to; null when nothing of it is left. */
+function withoutScans(shown: TornoState['shownByAgent'], gone: (id: string) => boolean): TornoState['shownByAgent'] {
+  if (!shown?.scans || !Object.keys(shown.scans).some(gone)) return shown
+  const { scans, ...rest } = shown
+  const kept = Object.fromEntries(Object.entries(scans).filter(([id]) => !gone(id)))
+  if (Object.keys(kept).length > 0) return { ...rest, scans: kept }
+  return rest.layout === undefined && Object.keys(rest.visible).length === 0 && !rest.section ? null : rest
 }
 
 /** Whether two sections are the same: both none, or the same plane to the last digit. */

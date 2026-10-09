@@ -13,6 +13,7 @@ import {
   MAX_SELECTION_REPORTED,
   sectionOf
 } from '../shared/view'
+import { MIN_SCAN_OPACITY } from '../shared/scans'
 
 // What the agent asks of the window is done by the renderer, which owns the
 // viewport: a picture of it (`view:look`), a change of what it shows
@@ -112,13 +113,35 @@ const MAX_SELECTED_DESCRIPTOR = 200
  * is one is kept of it: a revision, at most eight refs on one line each, and
  * how many are selected in all. A total that is not a count, or is less than
  * the refs given, is taken to be as many as were given. Of a section only a
- * plane is kept, its normal a unit vector.
+ * plane is kept, its normal a unit vector. Of the scans, what `scansOf` keeps.
  */
 export function reportView(v: ViewState): void {
-  const { selection: said, section: cut, ...view } = v
+  const { selection: said, section: cut, scans: drawn, ...view } = v
   const selection = selectionOf(said)
   const section = sectionOf(cut)
-  views.set(v.objectId, { ...view, ...(selection ? { selection } : {}), ...(section ? { section } : {}) })
+  const scans = scansOf(drawn)
+  views.set(v.objectId, { ...view, ...(selection ? { selection } : {}), ...(section ? { section } : {}), ...(scans ? { scans } : {}) })
+}
+
+/** The most scans of a view that are kept. */
+const MAX_SCANS_REPORTED = 64
+
+/**
+ * How the window says it draws the scans, as far as that is told to the agent: for each a number (`S1`), once;
+ * whether it is switched on and whether its mesh has come, each only when it says so in so many words; and how
+ * thin it is drawn, within what a scan can be drawn at (1 for what is no number). Nothing else the window says of
+ * a scan is kept: where one stands is main's own to say, from the alignment it keeps. Undefined for what is no list.
+ */
+function scansOf(value: unknown): ViewState['scans'] {
+  if (!Array.isArray(value)) return undefined
+  const scans: NonNullable<ViewState['scans']> = []
+  for (const one of value as Array<{ id?: unknown; visible?: unknown; opacity?: unknown; loaded?: unknown } | null>) {
+    if (scans.length === MAX_SCANS_REPORTED) break
+    if (typeof one !== 'object' || one === null || typeof one.id !== 'string' || !/^S[1-9]\d{0,14}$/.test(one.id) || scans.some((kept) => kept.id === one.id)) continue
+    const opacity = typeof one.opacity === 'number' && Number.isFinite(one.opacity) ? Math.min(Math.max(one.opacity, MIN_SCAN_OPACITY), 1) : 1
+    scans.push({ id: one.id, visible: one.visible === true, opacity, loaded: one.loaded === true })
+  }
+  return scans
 }
 
 function selectionOf(value: unknown): SelectionReport | null {

@@ -8,6 +8,7 @@ import { describeMark } from '../src/main/marks/describe'
 import type { TornoState } from '../src/renderer/state/store'
 import type { PinMark } from '../src/shared/marks'
 import type { Camera } from '../src/shared/view'
+import { grid, stl } from '../src/test/scanFixtures'
 
 // What the agent is given, through the real path: the SDK's MCP client in this
 // process against the app's own server, answered by the window's renderer. The
@@ -117,7 +118,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scene', 'section', 'show'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -592,7 +593,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scene', 'section', 'show'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })
@@ -833,6 +834,114 @@ test('in a print layout torno spread, nothing between two parts is told as the m
   expect(cut.parts.find((p) => p.part === moved[0].name)?.arranged).toEqual(moved[0].arranged)
 })
 
+// ---- Scans, from the agent's side ----
+
+let hollow: Client
+const DEVIATION = { near: [0x8a, 0x45, 0x94], far: [0xd3, 0xd8, 0xdf], inside: [0x22, 0x25, 0x2a] }
+const near = (rgb: number[], to: number[]): boolean => rgb.every((c, i) => Math.abs(c - to[i]) <= 3)
+/** Where the sheet is put: as it was imported, by three pairs of points that are not in a line and that it leaves nothing apart. */
+const AS_IMPORTED = {
+  transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 },
+  steps: ['pairs'],
+  pairs: [[-9.5, -9.5, 1], [9.5, -9.5, 1], [0.5, 9.5, 1]].map((point) => ({ scan: point, model: point, residual: 0 })),
+  frame: { tub: [0, 0, 0], lid: [0, 0, 0] }
+}
+
+test('the agent lists a scan, is refused until it is aligned, and then reads a clash, a deviation, a distance and a cut of it', async () => {
+  await openObject('hollow')
+  hollow = await connect('hollow')
+  // A sheet in the tub's floor, which is 2 mm thick from z = 0: 400 vertices, each 1 mm deep.
+  const file = join(root, 'sheet.stl')
+  writeFileSync(file, stl(grid(20, 1, () => 1)))
+  await app.evaluate((_electron, file) => (globalThis as any).__tornoMain.scans.import('hollow', file), file)
+  const listed = JSON.parse((await call(hollow, 'scans')).text)
+  expect(listed.scans).toMatchObject([{ id: 'S1', name: 'sheet.stl', triangles: 722, mesh: 'ok', source: { state: 'present' }, alignment: { state: 'not aligned' }, alignedIn: [] }])
+  expect(listed.reading).toMatch(/^S1 sheet\.stl: 722 triangles, 19 × 19 × 0 mm, from mm, Z up \(assumed\), not aligned in assembly, /)
+  expect(JSON.parse((await call(hollow, 'scene')).text)).toMatchObject({ scans: [{ id: 'S1', name: 'sheet.stl', triangles: 722, aligned: false }], note: 'Whether a scan is aligned is said for layout assembly: call scans for how each is aligned.' })
+  const NOT_ALIGNED = 'S1 is not aligned in layout assembly (it is aligned in no layout), so nothing is checked against it there: the user aligns it with the Align tool'
+  for (const [name, args] of [['scan_clash', { part: 'tub' }], ['scan_deviation', { part: 'tub' }], ['measure', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'lid' }], ['section', { plane: { axis: 'x', at: 0.25 }, scan: 'S1' }], ['look', { scanColour: { part: 'tub' } }]] as const) {
+    expect(await call(hollow, name, args), name).toMatchObject({ isError: true, text: NOT_ALIGNED })
+  }
+  // The picture draws it all the same, and says that it is not where the model is.
+  await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.scans()))[0]?.loaded).toBe(true)
+  expect((await call(hollow, 'look', { view: 'front', size: 256 })).text).toContain('scans S1 (not aligned in assembly: drawn where it was imported)')
+
+  await app.evaluate((_electron, alignment) => (globalThis as any).__tornoMain.scans.align('hollow', 'S1', 'assembly', { ...alignment, at: new Date().toISOString() }), AS_IMPORTED)
+  const clash = JSON.parse((await call(hollow, 'scan_clash', { part: 'tub' })).text)
+  expect(clash).toMatchObject({ layout: 'assembly', scan: 'S1', exact: false, alignment: { state: 'aligned', by: 'by 3 pairs (rms 0 mm, worst 0 mm)', pairs: 3 }, inside: { count: 400, crossing: 0 }, points: { scan: 400, touching: 0 } })
+  expect(clash.deepest.depth).toBeCloseTo(1, 6)
+  expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(rms 0 mm, worst 0 mm\): a depth under that says nothing\.$/)
+  const lid = JSON.parse((await call(hollow, 'scan_clash', { part: 'lid' })).text)
+  expect(lid.inside.count).toBe(0)
+  expect(lid.reading).toContain('no scan point is within 5 mm of the part')
+  // The lid's underside is at z = 38: the sheet is 37 mm under it.
+  const far = JSON.parse((await call(hollow, 'scan_deviation', { part: 'lid', from: 'scan', within: 100 })).text)
+  expect(far.distance.min).toBeGreaterThanOrEqual(37 - 1e-6)
+  expect(far.distance.min).toBeLessThan(37.2)
+  expect(far).toMatchObject({ samples: 400, sampling: { asked: 10000, partial: false } })
+  expect(far.reading).toMatch(/^scan_deviation lid vs S1 \(assembly, r\d+\): ≈ 37 mm median, /)
+  const distance = JSON.parse((await call(hollow, 'measure', { kind: 'distance', a: { scan: 'S1', point: [0.5, 0.5, 1] }, b: 'lid' })).text)
+  expect(distance).toMatchObject({ exact: false, scan: 'S1', approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
+  expect(distance.value).toBeCloseTo(37, 6)
+  expect(distance.reading).toMatch(/^≈ 37 mm .*approximate \(S1 is a scan\), \(0\.5, 0\.5, 1\) on S1 to lid\. S1 is aligned by 3 pairs/)
+
+  const cut = await call(hollow, 'section', { plane: { axis: 'x', at: 0.25 }, scan: 'S1', size: 256 })
+  const cutData = JSON.parse(cut.text)
+  // Across 19 cells, each cut at its side and at its diagonal.
+  expect(cutData.scan).toMatchObject({ id: 'S1', exact: false, points: 39, of: 39 })
+  expect(cutData.scan.polylines).toHaveLength(1)
+  expect(cutData.reading).toContain('≈ S1 (a scan, approximate) crosses the plane in 1 line. S1 is aligned by 3 pairs')
+  expect(cut.content.some((block) => block.type === 'image')).toBe(true)
+  expect(cutData.image).toMatch(/^\d+×\d+, the parts in the colours the user sees them in/)
+})
+
+test('look draws the scans or leaves them out, and colours one by its distance to a part in the colours its caption gives', async () => {
+  const withScan = await call(hollow, 'look', { view: 'front', size: 256 })
+  const without = await call(hollow, 'look', { view: 'front', size: 256, scans: false })
+  expect(withScan.text).toContain(' · scans S1 · ')
+  expect(without.text).not.toContain('scans')
+  // From below, with the tub left out: the sheet is seen in front of the lid, and every point of it is in the tub's floor.
+  const inside = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'tub' } })
+  expect(inside.isError).toBe(false)
+  expect(inside.text).toContain(' · scans S1 · scan S1 coloured by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A) · ')
+  expect(near((await pixelAt(inside.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.inside)).toBe(true)
+  // Against the lid it is 37 mm away: beyond 20 mm it has the far colour, and within 74 mm it is half way along the ramp.
+  const beyond = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'lid' } })
+  expect(near((await pixelAt(beyond.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.far)).toBe(true)
+  const half = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'lid', range: 74 } })
+  expect(half.text).toContain('0 to 74 mm')
+  expect(near((await pixelAt(half.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.near.map((c, i) => Math.round((c + DEVIATION.far[i]) / 2)))).toBe(true)
+  // The scan is as it was on screen afterwards: in its own look, and where it stood.
+  const after = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'] })
+  expect(after.text).not.toContain('coloured')
+  expect(near((await pixelAt(after.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.inside)).toBe(false)
+  expect(await call(hollow, 'look', { scanColour: { part: 'cap' } })).toMatchObject({ isError: true, text: "no part 'cap' in layout assembly (parts: tub, lid)" })
+})
+
+test("show switches the scans for now, not in the user's saved view, and the prompt tells the agent of them in one line", async () => {
+  const thin = await call(hollow, 'show', { scans: ['S1'], scanOpacity: 0.5 })
+  expect(thin.isError).toBe(false)
+  expect(thin.text).toContain(' · scans S1 at 50 % · ')
+  await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.scans()))[0].opacity).toBe(0.5)
+  const shown = await call(hollow, 'show', { scans: [] })
+  expect(shown.isError).toBe(false)
+  expect(shown.text).not.toContain('scans')
+  await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.scans()))[0].visible).toBe(false)
+  // For now only: the person's scene file does not say the scan is hidden, nor thinned.
+  const sceneFile = join(root, 'hollow', '.torno', 'scene.json')
+  await page.waitForTimeout(700)
+  expect((existsSync(sceneFile) ? JSON.parse(readFileSync(sceneFile, 'utf8')) : {}).scans).toBeUndefined()
+  expect((await state()).shownByAgent?.scans).toEqual({ S1: undefined })
+  expect(await call(hollow, 'show', { scanOpacity: 3 })).toMatchObject({ isError: true })
+
+  await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+  await expect.poll(terminal).toContain('READY')
+  const argv: string[] = JSON.parse(/READY (\[.*\])/s.exec((await terminal()).replace(/\n/g, ''))![1])
+  for (const tool of ['scans', 'scan_clash', 'scan_deviation']) expect(argv[argv.indexOf('--append-system-prompt') + 1]).toContain(`mcp__torno__${tool}`)
+  await prompt()
+  await expect.poll(async () => times(await said(), 'Scans: S1 sheet.stl, aligned in assembly by 3 pairs (rms 0 mm, worst 0 mm), hidden.')).toBe(1)
+})
+
 // Set TORNO_SHOTS=<dir> to write the drawings the agent is given of a section there: the measures plate
 // cut across Z through its pocket (section-drawing-plate.png) and the hollow box cut through its cavity
 // (section-drawing-hollow.png).
@@ -843,6 +952,13 @@ test('design shots of the section drawing', async () => {
   const plate = await call(measures, 'section', { plane: { axis: 'z', at: 0 } })
   writeFileSync(join(dir!, 'section-drawing-plate.png'), Buffer.from(plate.content[0].data!, 'base64'))
   await openObject('hollow')
-  const hollow = await call(await connect('hollow'), 'section', { plane: { axis: 'y', at: 0 } })
-  writeFileSync(join(dir!, 'section-drawing-hollow.png'), Buffer.from(hollow.content[0].data!, 'base64'))
+  const cut = await call(hollow, 'section', { plane: { axis: 'y', at: 0 } })
+  writeFileSync(join(dir!, 'section-drawing-hollow.png'), Buffer.from(cut.content[0].data!, 'base64'))
+  // With the scan the same plane cuts, and the scan coloured by its distance to a part (the legend, top left).
+  const scanned = await call(hollow, 'section', { plane: { axis: 'y', at: 0.25 }, scan: 'S1' })
+  writeFileSync(join(dir!, 'section-drawing-scan.png'), Buffer.from(scanned.content[0].data!, 'base64'))
+  for (const [name, args] of [['inside', { part: 'tub' }], ['ramp', { part: 'lid', range: 74 }]] as const) {
+    const coloured = await call(hollow, 'look', { view: { position: [60, -90, -50], target: [0, 0, 15] }, parts: ['lid'], scanColour: args })
+    writeFileSync(join(dir!, `look-scan-coloured-${name}.png`), Buffer.from(coloured.content[0].data!, 'base64'))
+  }
 })

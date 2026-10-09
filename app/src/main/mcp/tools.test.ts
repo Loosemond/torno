@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Part, Scene } from '../../shared/scene'
+import type { ScanAlignment, ScanInfo } from '../../shared/scans'
 import type { Described } from '../../shared/geometry'
 import type { Anchor, Mark, MarkPatch, NewMark } from '../../shared/marks'
 import type { Camera, LookRequest, LookResult, ShowRequest, ViewState } from '../../shared/view'
@@ -153,6 +154,9 @@ function fake(over: Partial<ToolDeps> & { state?: BuildState | null; noScene?: b
     addDimension: async () => Promise.reject(new Error('no dimension was expected to be added')),
     query: async () => Promise.reject(new Error('the kernel was not expected to be asked')),
     sectionDrawing: async () => Promise.reject(new Error('no drawing was expected to be asked for')),
+    scans: async () => [],
+    scansBusy: () => [],
+    scanPaths: (_objectId, id) => ({ mesh: `/ws/bracket/.torno/scans/${id}/mesh.bin`, mask: (mark) => `/ws/bracket/.torno/scans/${id}/${mark}.mask` }),
     ...world(),
     ...over
   }
@@ -166,7 +170,7 @@ const textOf = (result: { content: Array<{ type: string; text?: string }> }): st
 
 describe('the tool descriptions', () => {
   it('say in two or three sentences each what the tool returns and when to use it', () => {
-    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark', 'measure', 'section', 'check'])
+    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'scans', 'scan_clash', 'scan_deviation'])
     for (const tool of Object.values(TOOLS)) {
       expect(tool.description).toMatch(/^Returns /)
       const sentences = tool.description.match(/[.?!]"?(\s|$)/g)!.length
@@ -717,7 +721,7 @@ describe('show', () => {
   })
 
   it.each([
-    [{}, 'nothing to show: give a view, a layout, parts or a section'],
+    [{}, 'nothing to show: give a view, a layout, parts, a section or scans'],
     [{ layout: 'exploded' }, "no layout 'exploded'; layouts: assembly, print"],
     [{ parts: [] }, 'parts is empty: name the parts to leave switched on'],
     [{ view: { position: [1, 1, 1], target: [1, 1, 1] } }, 'position and target are the same']
@@ -1110,5 +1114,71 @@ describe('resolve_mark', () => {
     }
     expect(deps.w.updates).toEqual([])
     expect(textOf(await resolveMarkTool(deps, 'nothing', { id: 'M1' }))).toBe('unknown object: nothing')
+  })
+})
+
+describe('scans in scene, look and show', () => {
+  const TYPED: ScanAlignment = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' }
+  const scan = (id: string, alignments: Record<string, ScanAlignment> = {}): ScanInfo =>
+    ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 9, triangles: 722, colours: 'none', bbox: { min: [0, 0, 0], max: [1, 1, 1] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks: {} }) as ScanInfo
+  const SCANS = [scan('S1', { assembly: TYPED }), scan('S2', { print: TYPED })]
+  const scanned = (over: Partial<ToolDeps> = {}): Fake => fake({ scans: async () => SCANS, ...over })
+  const said = async (result: Promise<{ isError?: boolean; content: Array<{ type: string; text?: string }> }>): Promise<string> => {
+    const answered = await result
+    expect(answered.isError).toBe(true)
+    return textOf(answered)
+  }
+
+  it('scene names the scans, each with whether it is aligned in the layout it answers for, and where to ask how', () => {
+    const scene = JSON.parse(textOf(sceneTool(scanned(), 'bracket', [], SCANS)))
+    expect(scene.scans).toEqual([{ id: 'S1', name: 'S1.glb', triangles: 722, aligned: true }, { id: 'S2', name: 'S2.glb', triangles: 722, aligned: false }])
+    expect(scene.note).toBe('Whether a scan is aligned is said for layout assembly: call scans for how each is aligned.')
+    const none = JSON.parse(textOf(sceneTool(scanned(), 'bracket', [], [])))
+    expect(none.scans).toBeUndefined()
+    expect(none.note).toBeUndefined()
+  })
+
+  it('look hands on which scans to draw, and refuses a number that is none or what is no list of them', async () => {
+    const deps = scanned()
+    await lookTool(deps, 'bracket', { scans: false })
+    await lookTool(deps, 'bracket', { scans: true })
+    await lookTool(deps, 'bracket', { scans: ['S1', 'S1'] })
+    expect(deps.looks.map((look) => look.req)).toEqual([{ view: 'current', size: 1280, scans: false }, { view: 'current', size: 1280 }, { view: 'current', size: 1280, scans: ['S1'] }])
+    expect(await said(lookTool(deps, 'bracket', { scans: ['S9'] }))).toBe('no scan S9; scans: S1, S2')
+    expect(await said(lookTool(deps, 'bracket', { scans: 'S1' as never }))).toBe('scans is true for the scans on the user\'s screen, false for none, or a list of their numbers: {"scans": ["S1"]}')
+    expect(await said(lookTool(fake(), 'bracket', { scans: ['S1'] }))).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
+    expect(deps.looks).toHaveLength(3)
+  })
+
+  it('look hands on a scan to colour by its distance to a part, 20 mm unless told, and refuses what cannot be coloured truly', async () => {
+    const deps = scanned()
+    await lookTool(deps, 'bracket', { scanColour: { scan: 'S1', part: 'base' } })
+    await lookTool(deps, 'bracket', { layout: 'print', scanColour: { scan: 'S2', part: 'post', range: 5 } })
+    expect(deps.looks.map((look) => look.req.scanColour)).toEqual([{ scan: 'S1', part: 'base', range: 20 }, { scan: 'S2', part: 'post', range: 5 }])
+    expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S1', part: 'cap' } }))).toBe("no part 'cap' in layout assembly (parts: base, post)")
+    expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S1', part: 'base/F1' } }))).toBe('a scan is coloured by its distance to a whole part, and base/F1 is a face: give base')
+    expect(await said(lookTool(deps, 'bracket', { scanColour: { part: 'base' } }))).toBe('name the scan: S1 (S1.glb), S2 (S2.glb)')
+    expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S2', part: 'base' } }))).toBe('S2 is not aligned in layout assembly (it is aligned in: print), so nothing is checked against it there: the user aligns it with the Align tool, or ask in that layout')
+    const HELP = 'scanColour is {"part": "tub"}, the part a scan is coloured by its distance to, with "scan": "S1" when there are several and "range" in mm, 0.1 to 1000 (default 20)'
+    expect(await said(lookTool(deps, 'bracket', { scanColour: 'base' as never }))).toBe(HELP)
+    expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S1', part: 'base', range: 0 } }))).toBe(HELP)
+    expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S1' } as never }))).toBe(HELP)
+    expect(deps.looks).toHaveLength(2)
+  })
+
+  it('show hands on the scans to leave on and how thin, and refuses a number that is none and an opacity no scan is drawn at', async () => {
+    const deps = scanned()
+    expect((await showTool(deps, 'bracket', { scans: ['S2'], scanOpacity: 0.4 })).isError).toBeUndefined()
+    expect((await showTool(deps, 'bracket', { scans: [] })).isError).toBeUndefined()
+    expect((await showTool(deps, 'bracket', { scanOpacity: 1 })).isError).toBeUndefined()
+    expect(deps.w.shows).toEqual([{ objectId: 'bracket', scans: ['S2'], scanOpacity: 0.4 }, { objectId: 'bracket', scans: [] }, { objectId: 'bracket', scanOpacity: 1 }])
+    const OPACITY = 'scanOpacity is a number from 0.05 to 1, how see-through the scans left on are drawn: {"scans": ["S1"], "scanOpacity": 0.5}'
+    expect(await said(showTool(deps, 'bracket', { scans: ['S1'], scanOpacity: 0 }))).toBe(OPACITY)
+    expect(await said(showTool(deps, 'bracket', { scanOpacity: 1.5 }))).toBe(OPACITY)
+    expect(await said(showTool(deps, 'bracket', { scanOpacity: '0.5' as never }))).toBe(OPACITY)
+    expect(await said(showTool(deps, 'bracket', { scans: ['S7'] }))).toBe('no scan S7; scans: S1, S2')
+    expect(await said(showTool(deps, 'bracket', { scans: 'S1' as never }))).toBe('scans is a list of the numbers of the scans to leave switched on, [] to hide them all: {"scans": ["S1"]}')
+    expect(await said(showTool(deps, 'bracket', {}))).toBe('nothing to show: give a view, a layout, parts, a section or scans')
+    expect(deps.w.shows).toHaveLength(3)
   })
 })

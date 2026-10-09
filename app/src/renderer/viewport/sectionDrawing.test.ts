@@ -37,6 +37,9 @@ function recorder() {
     rotate: () => {},
     fillRect: () => {},
     strokeRect: () => {},
+    rect: () => {},
+    clip: () => {},
+    setLineDash: () => {},
     measureText: (text: string) => ({ width: 7 * text.length }),
     beginPath: () => void (paths = []),
     moveTo: (x: number, y: number) => void paths.push({ points: [[x, y]], closed: false }),
@@ -210,6 +213,58 @@ describe('the drawing of a section', () => {
     const said = (text: string) => texts.find((t) => t.text === text)
     for (const figure of ['40 mm', '30 mm', '+Z', 'z', '=', '3', 'plate', '1100', 'mm²', '-20', '15', 'u (+X), mm', 'v (+Y), mm']) expect(said(figure)?.font, figure).toContain('IBM Plex Mono')
     for (const word of ['plane normal ', ' at ', 'layout assembly']) expect(said(word)?.font, word).toContain('IBM Plex Sans')
+  })
+
+  describe('with a scan the plane cuts', () => {
+    // The scan's surface 2 mm above the plate over its whole width and 60 mm beyond it on one side, and a wall of the room 3 m away.
+    const SCAN = { id: 'S1', polylines: [{ points: [[-80, 17], [0, 17.5], [20, 17]] as [number, number][], closed: false }, { points: rect(3000, 3000, 3010, 3010), closed: true }] }
+
+    it('has its line in the legend as a scan and as approximate, after the parts', () => {
+      const sheet = sectionSheet(PLATE, 'assembly', undefined, SCAN)!
+      expect(sheet.legend).toEqual([{ part: 'plate', text: ' 1100 mm²' }, { part: null, scan: 'S1', text: ' (scan, ≈)' }])
+      const { ctx, texts } = recorder()
+      drawSection(ctx, sheet, PLATE, colourOf, SCAN)
+      expect(texts.find((t) => t.text === 'S1')?.font).toContain('IBM Plex Mono')
+      expect(texts.map((t) => t.text).join('')).toContain('S1 (scan, ≈)')
+    })
+
+    it('widens the plot to hold what of the scan is near the cut, never so far that the parts are lost, and keeps the extents those of the parts', () => {
+      const plain = sectionSheet(PLATE, 'assembly')!
+      const sheet = sectionSheet(PLATE, 'assembly', undefined, SCAN)!
+      // The cut is 40 wide: the scan is shown as far as 40 beyond it, and its line 2 mm above the plate is all inside.
+      expect(sheet.shown.min[0]).toBeLessThanOrEqual(-60)
+      expect(sheet.shown.min[0]).toBeGreaterThan(-80)
+      expect(sheet.shown.max[1]).toBeGreaterThan(17.5)
+      expect(sheet.shown.max[0]).toBeLessThan(100)
+      expect(sheet.scale).toBeLessThan(plain.scale)
+      expect(sheet.bounds).toEqual(plain.bounds)
+      expect(sheet.extents).toEqual({ u: '40 mm', v: '30 mm' })
+      // Without a scan nothing is widened.
+      expect(sectionSheet(PLATE, 'assembly', undefined, { id: 'S1', polylines: [] })!.shown).toEqual(plain.shown)
+    })
+
+    it('draws it as a dashed hairline in the quiet ink, over the parts and within the plot', () => {
+      const dashes: number[][] = []
+      const clips: number[] = []
+      const { ctx, strokes, order } = recorder()
+      Object.assign(ctx, { setLineDash: (dash: number[]) => void dashes.push(dash), rect: () => {}, clip: () => void clips.push(strokes.length) })
+      const sheet = sectionSheet(PLATE, 'assembly', undefined, SCAN)!
+      drawSection(ctx, sheet, PLATE, colourOf, SCAN)
+      const lines = strokes.filter((stroke) => stroke.colour === SHEET.muted && stroke.paths === 2)
+      expect(lines).toEqual([{ colour: SHEET.muted, width: 1, paths: 2 }])
+      // Dashed for the scan (and its legend), solid again after each.
+      expect(dashes).toEqual([[4, 2], [], [4, 2], []])
+      // Clipped to the plot before it is drawn, and after the parts' own outlines.
+      expect(clips).toEqual([strokes.indexOf(lines[0])])
+      expect(order.indexOf(`stroke ${SHEET.muted} 1`)).toBeGreaterThan(order.indexOf('stroke #3E4A5A 1'))
+    })
+
+    it('is all there is to draw where the plane cuts no part: the sheet is laid out on the scan\'s own lines', () => {
+      const none: Sectioned = { ...PLATE, parts: [solid('plate', [])], bounds: { min: [-80, 17], max: [20, 17.5] } }
+      const sheet = sectionSheet(none, 'assembly', undefined, { id: 'S1', polylines: [SCAN.polylines[0]] })!
+      expect(sheet.bounds).toEqual({ min: [-80, 17], max: [20, 17.5] })
+      expect(sheet.legend).toEqual([{ part: 'plate', text: ', not cut' }, { part: null, scan: 'S1', text: ' (scan, ≈)' }])
+    })
   })
 
   it('is on the light sheet whatever the theme', () => {

@@ -4,6 +4,7 @@ import type { Part, Scene } from '../shared/scene'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import type { Mark } from '../shared/marks'
+import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import { CONTEXT_LIMIT, contextFor, type ContextDeps } from './context'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
@@ -608,5 +609,53 @@ describe('contextFor', () => {
       expect(contextFor(deps({ open: 'gear' }), 'bracket', [pin(1)]).sentMarkIds).toEqual(['M1'])
       expect(contextFor(deps({}), 'nothing', [pin(1)])).toEqual({ text: '', sentMarkIds: [] })
     })
+  })
+})
+
+describe('scans', () => {
+  const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 4, seconds: 0.8, stale: false }
+  const pairs = [1.8, 3.4, 0.9, 1.2].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual }))
+  const BY_PAIRS: ScanAlignment = { transform: { t: [1, 2, 3], q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs, rms: 2.1, frame: {}, at: '' }
+  const scan = (id: string, alignments: Record<string, ScanAlignment> = {}, more: Partial<ScanInfo> = {}): ScanInfo =>
+    ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 9, triangles: 9, colours: 'none', bbox: { min: [0, 0, 0], max: [1, 1, 1] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks: {}, ...more }) as ScanInfo
+
+  it('says the scans in one line after the status, and nothing when there are none', () => {
+    const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [], scans: [{ id: 'S1', visible: true, opacity: 0.6, loaded: true }, { id: 'S2', visible: false, opacity: 1, loaded: true }] }
+    const text = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS }), scan('S2')] }).text
+    expect(text.split('\n')[1]).toBe('Scans: S1 S1.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown at 60 %; S2 S2.glb, not aligned in print, hidden.')
+    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [] }).text).not.toContain('Scans:')
+    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', []).text).not.toContain('Scans:')
+  })
+
+  it('says it after what is selected, for the first layout and without what is on screen when the object is not open', () => {
+    const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [], scans: [{ id: 'S1', visible: true, opacity: 1, loaded: true }], selection: { revision: 4, total: 1, refs: [{ ref: 'base/F1' }] } }
+    const lines = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS })] }).text.split('\n')
+    expect(lines.slice(1)).toEqual(['Selected: base/F1', 'Scans: S1 S1.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown.'])
+    const elsewhere = contextFor(deps({ build: OK, scene: SCENE, view, open: 'other' }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS })] }).text
+    expect(elsewhere.split('\n')[1]).toBe('Scans: S1 S1.glb, not aligned in assembly.')
+    // Before anything is built there is no layout to say it of.
+    expect(contextFor(deps({ build: { ...OK, status: 'failed', revision: 0 } }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS })] }).text).toContain('\nScans: S1 S1.glb.')
+  })
+
+  it('says when the model has moved under one and when one is only rough, and keeps to its room', () => {
+    const stale = scan('S1', { print: BY_PAIRS }, { checks: { print: { revision: 4, of: 4, off: 2, worst: 6.2, moved: [] } } })
+    const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [] }
+    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [stale] }).text).toContain('aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r4: check the alignment')
+    const rough = scan('S1', { print: { ...BY_PAIRS, steps: ['typed'], pairs: undefined, rms: undefined, rough: 'it was placed by hand, with no pairs of points to say how well' } })
+    expect(contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [rough] }).text).toContain('Scans: S1 S1.glb, aligned roughly in print by typed values (it was placed by hand, with no pairs of points to say how well).')
+    const many = Array.from({ length: 30 }, (_, n) => scan(`S${n + 1}`))
+    const line = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [], { scans: many }).text.split('\n').find((l) => l.startsWith('Scans:'))!
+    expect(line.length).toBeLessThanOrEqual(300)
+    expect(line).toMatch(/ and \d+ more\.$/)
+    const long = scan('S1', { print: BY_PAIRS }, { name: 'x'.repeat(400) })
+    expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [], { scans: [long] }).text.split('\n')[1].length).toBeLessThanOrEqual(300)
+  })
+
+  it('counts the line in what the marks have room for', () => {
+    const marks = Array.from({ length: 400 }, (_, n) => ({ id: `M${n + 1}`, kind: 'pin', author: 'user', note: 'n'.repeat(60), status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4, anchor: { point: [0, 0, 0] } }) as Mark)
+    const text = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks, { scans: [scan('S1', { assembly: BY_PAIRS })] }).text
+    expect(text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+    expect(text).toContain('\nScans: S1 S1.glb, aligned in assembly by 4 pairs')
+    expect(text).toMatch(/… and \d+ more: call mcp__torno__marks/)
   })
 })

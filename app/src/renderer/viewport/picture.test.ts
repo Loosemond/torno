@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
-import { asPictured, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState } from './picture'
+import { asPictured, colouringNote, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState } from './picture'
 
 describe('the size of a picture', () => {
   it('is 1280 on its long edge when none is asked for, or what is asked for is no number', () => {
@@ -48,6 +48,14 @@ describe('the scans a picture has, in its caption', () => {
   })
 })
 
+describe('a scan coloured by its distance to a part, in the caption', () => {
+  const colours = { near: '#8A4594', far: '#D3D8DF', inside: '#22252A' }
+  it('says which scan, to which part, over what range, and the very colours it is drawn in', () => {
+    expect(colouringNote({ scan: 'S1', part: 'tub', range: 20 }, colours, true)).toBe(' · scan S1 coloured by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A)')
+    expect(colouringNote({ scan: 'S1', part: 'tub', range: 2.5 }, colours, false)).toBe(' · scan S1 coloured by distance to tub: 0 to 2.5 mm (0 mm #8A4594, 2.5 mm and beyond #D3D8DF; tub is no solid, so nothing is marked as inside it)')
+  })
+})
+
 /** The section the person has on screen. */
 const ON_SCREEN = { origin: [0, 0, 12], normal: [0, 0, 1] } satisfies PictureState['section']
 
@@ -90,7 +98,9 @@ function viewport(far: THREE.Box3 | null = null): { host: PictureHost; log: stri
         return () => log.push('scans as on screen')
       },
       shown: () => [],
-      box: () => far
+      box: () => far,
+      built: () => null,
+      colourFor: (id, colours) => void log.push(colours ? `colour ${id} by ${colours.length / 3} colours` : 'colours off')
     },
     highlights: { setVisible: (visible, layers) => log.push(`highlights ${visible ? 'on' : 'off'}${layers ? ` ${layers.join(',')}` : ''}`) },
     closed: () => false,
@@ -184,6 +194,24 @@ describe('what the scene is while a picture of it is drawn', () => {
     expect(log.slice(log.indexOf('tint print') + 1)).toEqual(['viewport 800×600', 'target null', 'scans as on screen', 'cut at z 12 across assembly, plane drawn', 'gizmo on', 'highlights on', 'active M2', 'marks as on screen', 'draft on', 'ground assembly', 'tint assembly'])
     expect(log).toContain('scans S1,S2 as in print')
     expect(visible()).toEqual([true, false, false])
+  })
+
+  it('colours a scan for the picture once it stands and is cut as the picture has it, and takes the colours off again, also when they cannot be worked out', () => {
+    const { host, log, parts } = viewport()
+    const state: PictureState = { layout: 'print', shown: [parts[2]], withMarks: false, scans: ['S1'], section: null, notDrawn: new Set(), width: 64, height: 48, colour: { scan: 'S1', colours: () => new Uint16Array(24) } }
+    asPictured(host, state, () => log.push('draw'))
+    expect(log.slice(log.indexOf('scans S1 as in print'), log.indexOf('draw') + 1)).toEqual(['scans S1 as in print', 'cut by nothing across print, plane not drawn', 'colour S1 by 8 colours', 'ground print', 'active null', 'marks null but on none', 'draft off', 'draw'])
+    expect(log.slice(log.indexOf('target null'), log.indexOf('target null') + 3)).toEqual(['target null', 'colours off', 'scans as on screen'])
+    const failing = viewport()
+    const refused = { ...state, shown: [failing.parts[2]], colour: { scan: 'S1', colours: () => { throw new Error('too many points') } } }
+    expect(() => asPictured(failing.host, refused, () => failing.log.push('draw'))).toThrow('too many points')
+    expect(failing.log).not.toContain('draw')
+    expect(failing.log).toContain('colours off')
+    expect(failing.visible()).toEqual([true, false, false])
+    // A picture with no scan coloured asks nothing of the colours.
+    const plain = viewport()
+    asPictured(plain.host, { ...state, shown: [plain.parts[2]], colour: undefined }, () => {})
+    expect(plain.log.filter((line) => line.startsWith('colour'))).toEqual([])
   })
 
   it('has the scans it draws within what the camera reaches, however far they stand from the parts', () => {

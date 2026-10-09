@@ -1,6 +1,6 @@
 import { number } from '../../shared/format'
 import type { Sectioned } from '../../shared/geometry'
-import { cutText, planeText } from '../../shared/view'
+import { type ScanOutline, cutText, planeText } from '../../shared/view'
 import { overlayFonts } from './overlay'
 import { edgeTint } from './palette'
 import { gridStep } from './views'
@@ -21,6 +21,8 @@ const SANS = "'IBM Plex Sans', system-ui, sans-serif"
 /** --surface, --ink, --muted and --hairline of the light theme (styles/tokens.css). */
 export const SHEET = { paper: '#F1EFEA', ink: '#22252A', muted: '#6C7178', hairline: '#DAD6CE' }
 
+/** How a scan's line is dashed on the sheet, in nominal pixels: drawn, then left. */
+const SCAN_DASH = [4, 2]
 /** Long edge of a drawing, in pixels: as of any picture for the agent. */
 const MAX_SIZE = 2000
 const MIN_SIZE = 256
@@ -66,8 +68,8 @@ export interface Sheet {
   extents: { u: string; v: string }
   /** The names of the two axes: `u (+X)`, `v (+Y)` across the world's axes, `u` and `v` otherwise. */
   axes: { u: string; v: string }
-  /** A line for each part: its name and what was cut of it. */
-  legend: Array<{ part: string | null; text: string }>
+  /** A line for each part: its name and what was cut of it; then one for a scan the plane cuts (`scan`: its number), as a scan and as approximate. */
+  legend: Array<{ part: string | null; text: string; scan?: string }>
 }
 
 /** A point of the plane, in mm, as a point of the sheet: `u` runs right, and `v` up unless the sheet is turned (`vDown`). */
@@ -82,12 +84,18 @@ export function toSheet(sheet: Sheet, [u, v]: readonly [number, number]): [numbe
  * millimetre is as many pixels along `u` as along `v`, with room around it
  * for the title, the legend, the numbers of the grid and the two extents.
  * Null when the plane cut nothing: there is nothing to lay out.
+ *
+ * With a scan the same plane cuts, the plot is widened to hold what of the
+ * scan's lines is near the cut (`nearCut`); the extents written stay those of
+ * the parts' cut.
  */
-export function sectionSheet(section: Sectioned, layout: string, size?: number): Sheet | null {
+export function sectionSheet(section: Sectioned, layout: string, size?: number, scan?: ScanOutline): Sheet | null {
   if (!section.bounds) return null
   const long = Math.round(Math.min(Math.max(typeof size === 'number' && Number.isFinite(size) ? size : DEFAULT_SIZE, MIN_SIZE), MAX_SIZE))
   const unit = Math.max(long / 1280, 0.5)
-  const { min, max } = section.bounds
+  const drawn = scan && scan.polylines.length > 0 ? scan : undefined
+  const { min, max } = drawn ? nearCut(section, drawn) : section.bounds
+  const cut = section.bounds
   const reach = [max[0] - min[0], max[1] - min[1]]
   // A cut with no width (a single line of an open outline) still has a millimetre to be drawn in.
   const free = Math.max(reach[0], reach[1], 1) * MARGIN
@@ -97,6 +105,7 @@ export function sectionSheet(section: Sectioned, layout: string, size?: number):
   const named = section.parts.slice(0, MAX_LEGEND)
   const legend: Sheet['legend'] = named.map((part) => ({ part: part.part, text: cutText(part).slice(part.part.length) }))
   if (section.parts.length > named.length) legend.push({ part: null, text: `and ${section.parts.length - named.length} more` })
+  if (drawn) legend.push({ part: null, scan: drawn.id, text: ' (scan, â‰ˆ)' })
 
   const pad = 28 * unit
   const header = pad + 24 * unit + legend.length * 19 * unit + 8 * unit
@@ -125,15 +134,42 @@ export function sectionSheet(section: Sectioned, layout: string, size?: number):
     plot,
     shown: { min: shownMin, max: [shownMin[0] + span[0], shownMin[1] + span[1]] },
     vDown: pointsDown(section.plane.y),
-    bounds: { min: [min[0], min[1]], max: [max[0], max[1]] },
+    bounds: { min: [cut.min[0], cut.min[1]], max: [cut.max[0], cut.max[1]] },
     step,
     labelEvery,
     title: planeText(section.plane),
     layout: `layout ${layout}`,
-    extents: { u: `${number(reach[0])} mm`, v: `${number(reach[1])} mm` },
+    extents: { u: `${number(cut.max[0] - cut.min[0])} mm`, v: `${number(cut.max[1] - cut.min[1])} mm` },
     axes: { u: axisName('u', section.plane.x), v: axisName('v', section.plane.y) },
     legend
   }
+}
+
+/**
+ * The box a drawing shows of a cut and of a scan the same plane cuts: the parts' cut, grown to hold the scan's lines
+ * as far as the cut's longer side beyond it and no further. A scan is the surroundings, often a room round a part
+ * the size of a hand: drawn whole, the part would be a dot. A line that only passes far away is not reached for.
+ * Where the plane cuts no part, the box given is the scan's own, and is kept.
+ */
+function nearCut(section: Sectioned, scan: ScanOutline): { min: [number, number]; max: [number, number] } {
+  const { min, max } = section.bounds!
+  if (section.parts.every((part) => part.loops.length === 0)) return { min: [min[0], min[1]], max: [max[0], max[1]] }
+  const far = Math.max(max[0] - min[0], max[1] - min[1], 1)
+  const low = [min[0] - far, min[1] - far]
+  const high = [max[0] + far, max[1] + far]
+  const box = { min: [min[0], min[1]] as [number, number], max: [max[0], max[1]] as [number, number] }
+  for (const line of scan.polylines) {
+    // Those of its points that are within reach, and where the others leave it: a line is drawn up to the edge of the plot.
+    if (!line.points.some(([u, v]) => u >= low[0] && u <= high[0] && v >= low[1] && v <= high[1])) continue
+    for (const point of line.points) {
+      for (const axis of [0, 1] as const) {
+        const c = Math.min(Math.max(point[axis], low[axis]), high[axis])
+        box.min[axis] = Math.min(box.min[axis], c)
+        box.max[axis] = Math.max(box.max[axis], c)
+      }
+    }
+  }
+  return box
 }
 
 /** Whether a direction of the plane points down in the world: against Z, or, when it has nothing of Z, against Y. */
@@ -160,8 +196,12 @@ const FIGURES = /(\(-?[\d.]+(?:, -?[\d.]+)*\)|[+-][XYZ]\b|\b[xyzuv] = -?[\d.]+|â
  * that are not closed (of a part that is no solid) bound nothing, and are
  * drawn as lines only. The outlines are drawn after every fill, so that a
  * part lying over another does not hide where the other ends.
+ *
+ * A scan the same plane cuts is drawn last, over the parts and within the
+ * plot: a dashed hairline in the quiet ink, since it is the surroundings, and
+ * approximate.
  */
-export function drawSection(ctx: Ctx, sheet: Sheet, section: Sectioned, colourOf: (part: string) => string): void {
+export function drawSection(ctx: Ctx, sheet: Sheet, section: Sectioned, colourOf: (part: string) => string, scan?: ScanOutline): void {
   const { unit } = sheet
   const at = (point: readonly [number, number]): [number, number] => toSheet(sheet, point)
   ctx.save()
@@ -202,6 +242,21 @@ export function drawSection(ctx: Ctx, sheet: Sheet, section: Sectioned, colourOf
     }
   }
 
+  if (scan && scan.polylines.length > 0) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(sheet.plot.x, sheet.plot.y, sheet.plot.width, sheet.plot.height)
+    ctx.clip()
+    ctx.beginPath()
+    for (const line of scan.polylines) if (line.points.length >= 2) trace(line.points, line.closed)
+    ctx.strokeStyle = SHEET.muted
+    ctx.lineWidth = unit
+    ctx.setLineDash(SCAN_DASH.map((length) => length * unit))
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.restore()
+  }
+
   drawExtents(ctx, sheet)
 
   // The title, the layout beside it, and under them what was cut of each part.
@@ -211,6 +266,23 @@ export function drawSection(ctx: Ctx, sheet: Sheet, section: Sectioned, colourOf
   words(ctx, sheet.layout, titleEnd + 16 * unit, pad + 14 * unit, { size: 13 * unit, colour: SHEET.muted })
   sheet.legend.forEach((line, i) => {
     const y = pad + 24 * unit + (i + 1) * 19 * unit - 4 * unit
+    if (line.scan !== undefined) {
+      // As the scan is drawn on the sheet: a dashed hairline, where a part has its swatch.
+      ctx.beginPath()
+      ctx.moveTo(pad, y - 4.5 * unit)
+      ctx.lineTo(pad + 13 * unit, y - 4.5 * unit)
+      ctx.strokeStyle = SHEET.muted
+      ctx.lineWidth = unit
+      ctx.setLineDash(SCAN_DASH.map((length) => length * unit))
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.font = `${12.5 * unit}px ${MONO}`
+      ctx.fillStyle = SHEET.ink
+      ctx.textAlign = 'left'
+      ctx.fillText(line.scan, pad + 18 * unit, y)
+      words(ctx, line.text, pad + 18 * unit + ctx.measureText(line.scan).width, y, { size: 12.5 * unit, colour: SHEET.muted })
+      return
+    }
     if (line.part === null) {
       words(ctx, line.text, pad + 18 * unit, y, { size: 12.5 * unit, colour: SHEET.muted })
       return
@@ -369,16 +441,17 @@ export async function sectionPng(
   section: Sectioned,
   layout: string,
   colourOf: (part: string) => string,
-  size?: number
+  size?: number,
+  scan?: ScanOutline
 ): Promise<{ png: Uint8Array; width: number; height: number; vDown: boolean } | null> {
-  const sheet = sectionSheet(section, layout, size)
+  const sheet = sectionSheet(section, layout, size, scan)
   if (!sheet) return null
   // A canvas does not wait for a web face: text drawn before it has come is in the fallback.
   await overlayFonts()
   const canvas = new OffscreenCanvas(sheet.width, sheet.height)
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('could not get a 2D canvas to draw the section on')
-  drawSection(ctx, sheet, section, colourOf)
+  drawSection(ctx, sheet, section, colourOf, scan)
   const blob = await canvas.convertToBlob({ type: 'image/png' })
   return { png: new Uint8Array(await blob.arrayBuffer()), width: sheet.width, height: sheet.height, vDown: sheet.vDown }
 }
