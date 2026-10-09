@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Described } from '../../shared/geometry'
-import type { Mark, NewMark, Vec3 } from '../../shared/marks'
+import type { Mark, NewMark, Replacement, Vec3 } from '../../shared/marks'
+import { endReplace, setTool, startReplace, toolStore } from '../state/tools'
 import type { Camera } from '../../shared/view'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
@@ -77,6 +78,93 @@ describe('anchorFromHit', () => {
     const anchor = anchorFromHit(hitAt([1, 2, 3]), () => new Promise(() => {}))
     await vi.advanceTimersByTimeAsync(DESCRIBE_WITHIN_MS)
     expect(await anchor).toEqual({ point: [1, 2, 3], normal: [0, 0, 1], part: 'base', ref: 'base/F5' })
+  })
+})
+
+describe('putting a mark somewhere else', () => {
+  function replacing(over: Partial<ToolContext> = {}) {
+    const moved: Array<{ id: string; placed: Replacement }> = []
+    let ended = 0
+    const made = fake({
+      replacing: 'M3',
+      replace: async (id, placed) => {
+        moved.push({ id, placed })
+        return { id } as Mark
+      },
+      endReplace: () => void (ended += 1),
+      ...over
+    })
+    return { ...made, moved, ended: () => ended }
+  }
+
+  it('the click on a part moves that mark there, places no pin, opens no note, and puts the tool down', async () => {
+    const { ctx, committed, noted, moved, ended, drafts } = replacing()
+    const hit = hitAt([14, 9, 2.5])
+    routePointer(pinTool(), pointer('click', 14, 2.5, { hit }), ctx)
+    await settled()
+    expect(moved).toEqual([{ id: 'M3', placed: { anchor: { point: [14, 9, 2.5], normal: [0, 0, 1], part: 'base', ref: 'base/F5', descriptor: FACE.descriptor }, revision: 7, camera: CAMERA } }])
+    expect(committed).toEqual([])
+    expect(noted).toEqual([])
+    expect(ended()).toBe(1)
+    expect(drafts).toEqual([{ kind: 'pin', point: [14, 9, 2.5], normal: [0, 0, 1] }, null])
+  })
+
+  it('a click beside the parts moves nothing and keeps the tool in hand; the pointer there says what to do', async () => {
+    const { ctx, moved, ended, said } = replacing()
+    const tool = pinTool()
+    routePointer(tool, pointer('click', 90, 90), ctx)
+    await settled()
+    expect(moved).toEqual([])
+    expect(ended()).toBe(0)
+    routePointer(tool, { ...pointer('move', 90, 90), buttons: 0 }, ctx)
+    expect(said).toEqual(['Click the part where M3 should be. Esc leaves it where it is'])
+  })
+
+  it('Escape leaves the mark where it is; without a mark to move the key is not the tool\'s', () => {
+    const { ctx, moved, ended } = replacing()
+    const escape = { key: 'Escape' } as KeyboardEvent
+    expect(pinTool().onKey!(escape, ctx)).toBe(true)
+    expect(ended()).toBe(1)
+    expect(moved).toEqual([])
+    expect(pinTool().onKey!({ key: 'x' } as KeyboardEvent, ctx)).toBe(false)
+    expect(pinTool().onKey!(escape, fake().ctx)).toBe(false)
+  })
+
+  it('puts the tool down also when main refuses, and a double click moves it once', async () => {
+    const refused = replacing({ replace: () => Promise.reject(new Error('M3 is resolved: reopen it first')) })
+    routePointer(pinTool(), pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), refused.ctx)
+    await settled()
+    expect(refused.ended()).toBe(1)
+    const twice = replacing()
+    const tool = pinTool()
+    const hit = hitAt([14, 9, 2.5])
+    routePointer(tool, pointer('click', 14, 2.5, { hit }), twice.ctx)
+    routePointer(tool, pointer('click', 14, 2.5, { hit }), twice.ctx)
+    await settled()
+    expect(twice.moved).toHaveLength(1)
+  })
+})
+
+describe('the tool in hand while a mark is put somewhere else', () => {
+  afterEach(() => toolStore.setState({ tool: 'select', replacing: null }))
+
+  it('is the pin tool, and afterwards the one that was in hand before', () => {
+    setTool('arrow')
+    startReplace('bracket', 'M3')
+    expect(toolStore.getState()).toMatchObject({ tool: 'pin', replacing: { objectId: 'bracket', id: 'M3', back: 'arrow' } })
+    // Another mark instead: still back to the arrow.
+    startReplace('bracket', 'M4')
+    expect(toolStore.getState().replacing).toEqual({ objectId: 'bracket', id: 'M4', back: 'arrow' })
+    endReplace()
+    expect(toolStore.getState()).toMatchObject({ tool: 'arrow', replacing: null })
+    endReplace() // nothing to end
+    expect(toolStore.getState().tool).toBe('arrow')
+  })
+
+  it('choosing a tool leaves the mark where it is: the pin tool chosen by hand places pins', () => {
+    startReplace('bracket', 'M3')
+    setTool('pin')
+    expect(toolStore.getState()).toMatchObject({ tool: 'pin', replacing: null })
   })
 })
 

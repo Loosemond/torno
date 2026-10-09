@@ -375,7 +375,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       if (shown) mount(t, shown)
       const started = await window.torno.session.start(objectId, { resume, cols: t.term.cols, rows: t.term.rows })
       t.sessionId = started.sessionId
-      actions.setSession(objectId, { sessionId: started.sessionId, status: 'starting' })
+      // As main has it: a session that was already running here is not starting, and may say nothing more for a while.
+      actions.setSession(objectId, { sessionId: started.sessionId, status: started.status })
       focusWanted.current = true
     } catch (e) {
       setProblem(reason(e))

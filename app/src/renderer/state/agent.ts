@@ -1,6 +1,6 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { HighlightRequest, HighlightResult, ShowRequest, ShowResult } from '../../shared/view'
+import type { HighlightRequest, HighlightResult, LookRequest, LookResult, ShowRequest, ShowResult } from '../../shared/view'
 import type { Viewport } from '../viewport/Viewport'
 import { actions, partsInLayout, store } from './store'
 
@@ -34,11 +34,15 @@ export function dismissHighlight(): void {
 /**
  * Change what the window shows of the open object as the agent asked: the
  * layout, which parts are switched on (those named, and no other of that
- * layout), the camera. Everything is checked before anything is changed. The
- * answer says what is shown then, as the caption of a picture would.
+ * layout), the camera. Everything is checked before anything is changed, and
+ * nothing is while a button is held in the viewport. The change is for now:
+ * it is not what the scene file keeps. The answer says what is shown then, as
+ * the caption of a picture would.
  */
-export function show(viewport: Pick<Viewport, 'setView' | 'getCamera'>, req: ShowRequest): ShowResult {
+export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointerBusy'>, req: ShowRequest): ShowResult {
   const s = openObject(req.objectId)
+  // The view is the person's while they are doing something in it: it is not pulled from under a stroke or a drag.
+  if (viewport.pointerBusy()) throw new Error('the user is in the middle of a stroke or drag; try again')
   const layout = req.layout ?? s.layout
   if (!s.scene.layouts.includes(layout)) throw new Error(`no layout '${layout}'; layouts: ${s.scene.layouts.join(', ')}`)
   const parts = partsInLayout(s, layout)
@@ -46,14 +50,9 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera'>, req: Sho
     if (!parts.some((p) => p.name === name)) throw new Error(`unknown part '${name}'; parts in layout ${layout}: ${parts.map((p) => p.name).join(', ')}`)
   }
 
-  // The viewport follows the store as each of these is set, so the camera below is fitted to what they leave on.
-  actions.setLayout(layout)
-  if (req.parts) {
-    for (const part of parts) {
-      const visible = req.parts.includes(part.name)
-      if ((store.getState().layers[part.name]?.visible !== false) !== visible) actions.setLayer(part.name, { visible })
-    }
-  }
+  // The viewport follows the store as this is set, so the camera below is fitted to what it leaves on.
+  // For now only: what the person had chosen stays what their scene file says.
+  actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {})
   if (req.view !== undefined) viewport.setView(req.view, true)
 
   const after = store.getState()
@@ -95,7 +94,7 @@ function missing(ref: string, parts: ReturnType<typeof partsInLayout>): string |
  * dismisses it, the object, the layout or the build changes, or a minute has
  * passed. Returns what undoes the joining.
  */
-export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'setAgentHighlight' | 'canvas'>): () => void {
+export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointerBusy' | 'setAgentHighlight' | 'canvas'>): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
   const clear = (): void => {
     clearTimeout(timer)
@@ -170,4 +169,36 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     viewport.canvas.removeEventListener('pointerdown', onDown)
     viewport.canvas.removeEventListener('pointerup', onUp)
   }
+}
+
+let draw: ((req: LookRequest) => Promise<LookResult>) | null = null
+
+/** The viewport says how a picture of it is made, while there is one; null when it is gone. */
+export function setPictures(of: ((req: LookRequest) => Promise<LookResult>) | null): void {
+  draw = of
+}
+
+/**
+ * A picture for the agent, or at once why there is none: no object is open in
+ * the window, or there is no viewport to draw it (no folder is open, or the
+ * 3D view could not start). Main never waits out its ten seconds for those.
+ */
+export function picture(req: LookRequest): Promise<LookResult> {
+  if (store.getState().objectId === null) return Promise.reject(new Error('no object open in the torno window'))
+  if (!draw) return Promise.reject(new Error('the torno window has no 3D view to draw it with'))
+  return draw(req)
+}
+
+/**
+ * Answer every request of main's for a picture. Joined once, by the app, for
+ * as long as the window lives: whatever the window shows, main is answered.
+ * Returns what undoes the joining.
+ */
+export function connectLook(): () => void {
+  return window.torno.view.onLook(({ id, request }) => {
+    picture(request).then(
+      (result) => window.torno.view.lookReply(id, result),
+      (e: unknown) => window.torno.view.lookReply(id, { error: e instanceof Error ? e.message : String(e) })
+    )
+  })
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Mark, MarkKind, MarkPatch } from '../../shared/marks'
-import { actions } from '../state/store'
+import { actions, store } from '../state/store'
+import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { labelText } from '../viewport/marks/labels'
 import { ShapeFields } from './ShapeFields'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
@@ -17,6 +18,8 @@ const ANCHOR_NOTE = {
 } as const
 /** What the row says of a mark the last build left off its surface, or without its part. */
 export const ANCHOR_BADGE = { drifted: 'moved: check it', orphaned: 'its part is gone' } as const
+/** What the row says of a mark whose layout the build no longer has: it cannot be shown, and going to it does nothing. */
+export const LAYOUT_GONE = 'its layout is gone'
 
 /**
  * One mark in the panel: its number, what kind it is, its note (click to
@@ -30,6 +33,7 @@ export function MarkRow({
   mark,
   active,
   elsewhere,
+  gone = false,
   change,
   remove
 }: {
@@ -37,6 +41,8 @@ export function MarkRow({
   active: boolean
   /** The mark is of a layout that is not the one shown. */
   elsewhere: boolean
+  /** The mark is of a layout the build no longer has. */
+  gone?: boolean
   /** Resolves when main has made the change; rejects when it refuses. */
   change: (patch: MarkPatch) => Promise<unknown>
   remove: () => void
@@ -46,6 +52,10 @@ export function MarkRow({
   const field = useRef<HTMLInputElement>(null)
   const resolved = mark.status === 'resolved'
   const label = labelText(mark)
+  const replacing = useReplacing() === mark.id
+  // Offered where it can be done: a pin, a pick or an arrow that the last build left off its surface or without
+  // its part, in the layout shown, where the next click on a part ties it again.
+  const replaceable = !resolved && !elsewhere && mark.anchorState !== 'ok' && (mark.kind === 'pin' || mark.kind === 'pick' || mark.kind === 'arrow')
 
   const writing = draft !== null
   useEffect(() => {
@@ -71,6 +81,7 @@ export function MarkRow({
       data-active={active ? '' : undefined}
       data-elsewhere={elsewhere ? '' : undefined}
       data-expanded={fields ? '' : undefined}
+      data-replacing={replacing ? '' : undefined}
       aria-current={active ? 'true' : undefined}
       onClick={() => actions.focusMark(mark.id)}
     >
@@ -116,10 +127,17 @@ export function MarkRow({
           }}
         />
       )}
-      {!resolved && mark.anchorState !== 'ok' && (
-        <span className="mark-anchor" data-state={mark.anchorState} title={ANCHOR_NOTE[mark.anchorState]}>
-          {ANCHOR_BADGE[mark.anchorState]}
+      {!resolved && gone ? (
+        <span className="mark-anchor" data-state="orphaned" title={`The build no longer has the layout ${mark.layout}, so this mark cannot be shown`}>
+          {LAYOUT_GONE}
         </span>
+      ) : (
+        !resolved &&
+        mark.anchorState !== 'ok' && (
+          <span className="mark-anchor" data-state={mark.anchorState} title={ANCHOR_NOTE[mark.anchorState]}>
+            {ANCHOR_BADGE[mark.anchorState]}
+          </span>
+        )
       )}
       {elsewhere && <span className="mark-layout num">{mark.layout}</span>}
       {!resolved && (
@@ -128,7 +146,26 @@ export function MarkRow({
         </span>
       )}
       <span className="mark-actions" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="icon-button" aria-label={`Go to ${mark.id}`} title="Go to its view" onClick={() => actions.focusMark(mark.id)}>
+        {replaceable && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Re-place ${mark.id}`}
+            aria-pressed={replacing}
+            title={replacing ? 'Click the part where it should be. Esc leaves it where it is' : 'Re-place: put it somewhere else on the part with a click'}
+            onClick={() => {
+              const objectId = store.getState().objectId
+              if (replacing) endReplace()
+              else if (objectId) {
+                actions.setActiveMark(mark.id)
+                startReplace(objectId, mark.id)
+              }
+            }}
+          >
+            <ReplaceIcon />
+          </button>
+        )}
+        <button type="button" className="icon-button" aria-label={`Go to ${mark.id}`} title={gone ? LAYOUT_GONE : 'Go to its view'} disabled={gone} onClick={() => actions.focusMark(mark.id)}>
           <FocusIcon />
         </button>
         {resolved ? (
@@ -154,6 +191,16 @@ function Glyph({ children }: { children: ReactNode }) {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {children}
     </svg>
+  )
+}
+
+/** A pin, and under it an arrow both ways: put it somewhere else. */
+function ReplaceIcon() {
+  return (
+    <Glyph>
+      <circle cx="8" cy="4.5" r="2.5" />
+      <path d="M8 7v3M2.75 12.75h10.5M4.5 11 2.75 12.75 4.5 14.5M11.5 11l1.75 1.75-1.75 1.75" />
+    </Glyph>
   )
 }
 

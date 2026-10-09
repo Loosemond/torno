@@ -509,6 +509,15 @@ button {
   color: var(--accent);
 }
 
+.icon-button:disabled {
+  opacity: 0.4;
+}
+
+.icon-button:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
 .icon-button svg {
   width: 16px;
   height: 16px;
@@ -843,13 +852,20 @@ button {
 }
 
 .mark-row:hover .mark-actions,
-.mark-row:focus-within .mark-actions {
+.mark-row:focus-within .mark-actions,
+.mark-row[data-replacing] .mark-actions {
   opacity: 1;
   pointer-events: auto;
 }
 
 .mark-actions .icon-button:hover {
   background: var(--panel);
+}
+
+/* The mark the pin tool is in hand to put somewhere else. */
+.mark-actions .icon-button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
 }
 
 /* ---- A shape's numbers: its row, opened out while it is the active mark ---- */

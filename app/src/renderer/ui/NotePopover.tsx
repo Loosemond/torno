@@ -37,6 +37,18 @@ export function subject(mark: Mark): { ref: string; detail: string; state: Ancho
 }
 
 /**
+ * What to keep of a note when its card goes away without the person having
+ * ended the writing (the layout was changed under it by the agent, another
+ * mark took its place): the text as it was typed, when it is not what the mark
+ * already says. Null when there is nothing to keep, or the writing was ended:
+ * saved, left for later with Escape, or the mark deleted.
+ */
+export function unsavedNote(typed: string, kept: string, ended: boolean): string | null {
+  const note = typed.trim()
+  return ended || note === kept ? null : note
+}
+
+/**
  * The note of the mark just made, as a small card beside it over the
  * viewport. It appears when a tool has placed a mark and goes when the note
  * is saved or left, when the mark is deleted, and when another object or
@@ -58,11 +70,26 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
   const { id } = mark
 
   const refused = (e: unknown): void => actions.setMarksProblem({ objectId, message: e instanceof Error ? e.message : String(e) })
+  /** What is typed and what the mark says, as of the last render; and whether the person ended the writing. */
+  const latest = useRef({ text, kept: mark.note, ended: false })
+  latest.current.text = text
+  latest.current.kept = mark.note
   const save = (): void => {
     const note = text.trim()
+    latest.current.ended = true
     if (note !== mark.note) window.torno.marks.update(objectId, id, { note }).catch(refused)
     actions.closeNote()
   }
+  // The card can go without a press or a key: the agent shows another layout, another mark's note opens.
+  // What was typed is not lost with it.
+  useEffect(
+    () => () => {
+      const { text: typed, kept, ended } = latest.current
+      const note = unsavedNote(typed, kept, ended)
+      if (note !== null) window.torno.marks.update(objectId, id, { note }).catch(() => {}) // the mark may be gone: that is why the card went
+    },
+    [objectId, id]
+  )
   // What a press outside saves: the text as it is then, not as it was when the listener was made.
   const saveRef = useRef(save)
   saveRef.current = save
@@ -124,6 +151,7 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
           aria-label={`Delete mark ${id}`}
           title="Delete this mark"
           onClick={() => {
+            latest.current.ended = true
             window.torno.marks.remove(objectId, id).catch(refused)
             actions.closeNote()
           }}
@@ -149,8 +177,10 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) save()
-          else if (e.key === 'Escape') actions.closeNote()
-          else return
+          else if (e.key === 'Escape') {
+            latest.current.ended = true
+            actions.closeNote()
+          } else return
           e.preventDefault()
           e.stopPropagation()
         }}

@@ -114,6 +114,13 @@ test('the object list shows the objects; one that cannot be built is muted, with
   await expect(page.locator('[data-region="viewport"]')).toContainText('No object open')
 })
 
+test('asked for a picture with no object open, the window says so at once', async () => {
+  const started = Date.now()
+  expect(await mainLook({ view: 'iso' })).toEqual({ error: 'no object open in the torno window' })
+  // Not the ten seconds main would wait for an answer.
+  expect(Date.now() - started).toBeLessThan(3000)
+})
+
 test('clicking an object builds it: status ok, revision 1, its parts as layers', async () => {
   await page.getByRole('button', { name: 'bracket', exact: true }).click()
   await expect.poll(async () => (await state()).build?.status, { timeout: 20_000 }).toBe('ok')
@@ -230,6 +237,25 @@ test('dragging orbits the camera, and main is told where it came to rest', async
     visible: ['assembly:base', 'assembly:post']
   })
   expect(await mainView('nope')).toBeUndefined()
+})
+
+test('clicking the object that is already open does nothing: its parts, its camera and its build stay as they are', async () => {
+  const before = { camera: await camera(), state: await state() }
+  expect(before.state.scene).not.toBeNull()
+  await page.evaluate(() => {
+    // Told of every state the window passes through from here on: opening an object empties it first.
+    const w = window as unknown as { __emptied: number }
+    w.__emptied = 0
+    const seen = setInterval(() => {
+      if (window.__tornoTest!.state().scene === null) w.__emptied += 1
+    }, 5)
+    setTimeout(() => clearInterval(seen), 1500)
+  })
+  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await page.waitForTimeout(600)
+  expect(await page.evaluate(() => (window as unknown as { __emptied: number }).__emptied)).toBe(0)
+  expect(await camera()).toEqual(before.camera)
+  expect(await state()).toMatchObject({ objectId: 'bracket', revision: before.state.revision, layout: before.state.layout, build: { status: 'ok', revision: before.state.revision } })
 })
 
 test('main gets a picture through requestLook; an unknown part or layout is refused by name', async () => {

@@ -221,6 +221,9 @@ export class Viewport {
 
     for (const type of POINTER_EVENTS) canvas.addEventListener(type, this.onPointerEvent)
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    // A button let go beside the canvas, or the window left mid-drag: the canvas is told of neither.
+    window.addEventListener('pointerup', this.onReleasedAnywhere)
+    window.addEventListener('blur', this.onReleasedAnywhere)
 
     // Without preventDefault the browser never restores a lost context.
     canvas.addEventListener('webglcontextlost', this.onContextLost)
@@ -306,7 +309,7 @@ export class Viewport {
     this.invalidate()
   }
 
-  /** The mark being worked on, or null: its label is ringed, its lines are wider, and a stroke shows its plane. */
+  /** The mark being worked on, or null: its label is ringed, its lines are wider, and a stroke shows its plane. On screen only: a picture for the agent draws every mark alike. */
   setActiveMark(id: string | null): void {
     this.marks.setActive(id)
     this.invalidate()
@@ -520,6 +523,15 @@ export class Viewport {
     if (!enabled || !this.held) this.controls.enabled = enabled
   }
 
+  /**
+   * Whether the person has a button down in the viewport: turning the camera,
+   * dragging an arrow, a stroke or a handle of the gizmo. What would change
+   * the view under them waits.
+   */
+  pointerBusy(): boolean {
+    return this.held || this.gizmo.dragging
+  }
+
   /** Calls back 150 ms after the camera stops moving, however it was moved. */
   onCameraSettled(cb: (c: Camera) => void): void {
     this.settledListeners.push(cb)
@@ -577,6 +589,7 @@ export class Viewport {
     const before = new Map([...this.entries.values()].map((e) => [e, e.built.group.visible]))
     this.highlights.setVisible(false) // a picture is of the parts and the marks, not of what the person points at
     const showGizmo = this.gizmo.hide() // nor of what they hold a shape by
+    const active = this.marks.activeId // nor of which mark they are working on: every mark is drawn alike
     const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
     // Fat lines take their width in pixels from the renderer's viewport, which is the
     // canvas's whatever is being drawn to: for the picture it is the picture's size.
@@ -587,6 +600,7 @@ export class Viewport {
       for (const entry of this.entries.values()) entry.built.group.visible = false
       for (const entry of shown) entry.built.group.visible = true
       let extent = otherLayout ? this.rebuildGround(req.layout) : this.groundExtent
+      this.marks.setActive(null)
       this.marks.show(withMarks ? req.layout : null)
       this.marks.showDraft(false) // not a mark yet
       if (withMarks) {
@@ -617,6 +631,7 @@ export class Viewport {
       for (const [entry, visible] of before) entry.built.group.visible = visible
       showGizmo()
       this.highlights.setVisible(true)
+      this.marks.setActive(active)
       this.marks.show(this.layout) // sized for the screen again by the next frame drawn
       this.marks.showDraft(true)
       if (otherLayout) {
@@ -680,6 +695,8 @@ export class Viewport {
     this.pointerListener = null
     for (const type of POINTER_EVENTS) this.canvas.removeEventListener(type, this.onPointerEvent)
     this.canvas.removeEventListener('wheel', this.onWheel)
+    window.removeEventListener('pointerup', this.onReleasedAnywhere)
+    window.removeEventListener('blur', this.onReleasedAnywhere)
     this.scheme?.removeEventListener('change', this.onSchemeChange)
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored)
@@ -786,6 +803,10 @@ export class Viewport {
     cb({ type: kind, ...event })
     const still = press && e.button === 0 && Math.hypot(e.clientX - press.x, e.clientY - press.y) <= CLICK_PX && e.timeStamp - press.at <= CLICK_MS
     if (kind === 'up' && still) cb({ type: 'click', ...event })
+  }
+
+  private readonly onReleasedAnywhere = (e: Event): void => {
+    if (e.type === 'blur' || (e as PointerEvent).buttons === 0) this.held = false
   }
 
   /**

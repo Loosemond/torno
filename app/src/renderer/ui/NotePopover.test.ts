@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ArrowMark, PickMark, PinMark, StrokeMark, Vec3 } from '../../shared/marks'
-import { subject } from './NotePopover'
+import { subject, unsavedNote } from './NotePopover'
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
@@ -29,5 +29,17 @@ describe('what the note says its mark is on', () => {
   it('for a mark whose part is gone, says so', () => {
     expect(subject({ ...pick, anchorState: 'orphaned' })).toEqual({ ref: 'plate/E1', detail: 'its part is gone', state: 'orphaned' })
     expect(subject({ ...arrow, anchorState: 'orphaned' })).toEqual({ ref: '12.0 mm', detail: 'from plate/E1, its part is gone', state: 'orphaned' })
+  })
+})
+
+describe('what is kept of a note whose card went away by itself', () => {
+  it('is what was typed, trimmed, when the mark does not say it yet', () => {
+    expect(unsavedNote('  make this 8 mm ', '', false)).toBe('make this 8 mm')
+    expect(unsavedNote('', 'old note', false)).toBe('')
+  })
+
+  it('is nothing when nothing was changed, or the person ended the writing themselves', () => {
+    expect(unsavedNote('same ', 'same', false)).toBeNull()
+    expect(unsavedNote('typed', '', true)).toBeNull()
   })
 })

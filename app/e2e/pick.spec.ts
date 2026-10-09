@@ -255,7 +255,7 @@ test('Insert puts the selected refs in the prompt of the running session, and do
   expect((await state()).selection).toEqual([base.ref, post.ref])
 })
 
-test('on a stale build nothing is picked, and the pointer is told why; the new build empties the selection', async () => {
+test('on a stale build nothing is picked, and the pointer is told why; a build that changes a part empties the selection, one of the same parts keeps it', async () => {
   const before = await state()
   expect(before.selection).toHaveLength(2)
   const source = readFileSync(model(), 'utf8')
@@ -277,7 +277,9 @@ test('on a stale build nothing is picked, and the pointer is told why; the new b
   expect((await state()).selection).toEqual(before.selection)
 
   // A model that takes its time: while it is built, the parts on screen are still the old ones.
-  writeFileSync(model(), `${source}\nimport time\n\ntime.sleep(2)\n`)
+  // And it changes a part: the base is a millimetre thicker.
+  expect(source).toContain('Box(40, 30, 5)')
+  writeFileSync(model(), `${source.replace('Box(40, 30, 5)', 'Box(40, 30, 6)')}\nimport time\n\ntime.sleep(2)\n`)
   await expect.poll(async () => (await state()).build, { timeout: 20_000 }).toMatchObject({ status: 'building', stale: true })
   await page.mouse.move(x + 1, y)
   await expect(readout()).toHaveText(REBUILDING)
@@ -291,6 +293,13 @@ test('on a stale build nothing is picked, and the pointer is told why; the new b
   await clickOver(ON_BASE)
   await expect.poll(async () => (await state()).selection).toHaveLength(1)
   await expect(readout()).not.toHaveText(/picks wait/)
+
+  // A build that makes the very same parts numbers their faces as before: what is selected still names it.
+  const selected = (await state()).selection
+  writeFileSync(model(), `${source}\n# the same parts\n`)
+  await expect.poll(async () => (await state()).build, { timeout: 20_000 }).toMatchObject({ status: 'ok', stale: false, revision: before.revision + 3 })
+  expect((await state()).selection).toEqual(selected)
+  await expect(page.locator('.selection-chip')).toHaveCount(1)
 })
 
 test('the selection is of the layout shown: another layout empties it', async () => {

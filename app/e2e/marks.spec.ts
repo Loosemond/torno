@@ -209,6 +209,27 @@ test('clicking a row makes its mark the active one and goes to the view it was p
     .toBeLessThan(1e-6)
 })
 
+test('the mark being worked on is drawn like any other in the picture the agent gets', async () => {
+  // M2, the arrow, is the active one: on screen its lines are wider.
+  expect((await state()).activeMark).toBe('M2')
+  const picture = (): Promise<string> =>
+    page.evaluate(async () => {
+      const { png } = await window.__tornoTest!.look({ view: 'iso', size: 640 })
+      let binary = ''
+      for (let i = 0; i < png.length; i += 0x8000) binary += String.fromCharCode(...png.subarray(i, i + 0x8000))
+      return btoa(binary)
+    })
+  const withArrowActive = await picture()
+  await row('M1').locator('.mark-chip').click()
+  await expect.poll(async () => (await state()).activeMark).toBe('M1')
+  const withPinActive = await picture()
+  expect(withPinActive).toBe(withArrowActive)
+  // And it is still the active one on screen afterwards.
+  expect((await state()).activeMark).toBe('M1')
+  await row('M2').locator('.mark-chip').click()
+  await expect.poll(async () => (await state()).activeMark).toBe('M2')
+})
+
 test('a pick mark tints its face, also when that face is selected; a ref that names nothing is drawn at its point', async () => {
   // What is drawn there, which from this view is the post: the mark is of that face, at the point of it that was hit.
   const hit = await page.evaluate((at) => {

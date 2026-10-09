@@ -31,6 +31,11 @@ function scene(layouts: Record<string, string[]>): Scene {
 
 const BRACKET = scene({ assembly: ['base', 'post'], print: ['base', 'post'] })
 
+/** The scene as a build that changed one part leaves it. */
+function rebuilt(from: Scene, key: string): Scene {
+  return { ...from, parts: from.parts.map((p) => (p.key === key ? { ...p, hash: `${p.hash}'` } : p)) }
+}
+
 function build(over: Partial<BuildState>): BuildState {
   return { objectId: 'bracket', status: 'ok', revision: 1, stale: false, ...over }
 }
@@ -120,6 +125,55 @@ describe('layouts and layers', () => {
     actions.setLayout('print')
     actions.setLayer('base', { visible: false })
     expect(sceneFileOf(store.getState())).toEqual({ layout: 'print', layers: { base: { visible: false } } })
+  })
+
+  describe('what the agent has shown', () => {
+    it('is on screen, counts as no edit, and is not what the scene file keeps', () => {
+      actions.setLayer('base', { visible: false, color: '#123456' })
+      const edits = store.getState().edits
+      actions.showForAgent('print', { base: true })
+      expect(store.getState()).toMatchObject({ layout: 'print', layers: { base: { visible: true, color: '#123456' } }, edits })
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: { base: { visible: false, color: '#123456' } } })
+    })
+
+    it('leaves the scene file without a setting the person never made', () => {
+      actions.showForAgent('assembly', { post: false })
+      expect(visibleKeys(store.getState())).toEqual(['assembly:base'])
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
+    })
+
+    it('stays out of the scene file when the person then changes something else by hand', () => {
+      actions.showForAgent('assembly', { post: false })
+      actions.setLayer('base', { opacity: 0.5 })
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: { base: { opacity: 0.5 } } })
+      expect(store.getState().layers.post).toEqual({ visible: false })
+    })
+
+    it('is the person\'s again once they set it by hand: that part, or the layout', () => {
+      actions.showForAgent('print', { base: false })
+      actions.setLayer('base', { visible: false })
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: { base: { visible: false } } })
+      actions.setLayout('assembly')
+      actions.showForAgent('print', {})
+      actions.setLayout('assembly')
+      actions.setLayout('print')
+      expect(sceneFileOf(store.getState())).toEqual({ layout: 'print', layers: { base: { visible: false } } })
+    })
+
+    it('is forgotten when the agent shows again what the person had, and with the object', () => {
+      actions.showForAgent('print', { base: false })
+      actions.showForAgent('assembly', { base: true })
+      expect(store.getState().shownByAgent).toBeNull()
+      actions.showForAgent('print', {})
+      actions.openObject('gear', { layers: {} })
+      expect(store.getState().shownByAgent).toBeNull()
+    })
+
+    it('empties the selection and closes the note when it changes the layout, as any change of layout does', () => {
+      actions.setSelection(['base/F5'])
+      actions.showForAgent('print', {})
+      expect(store.getState().selection).toEqual([])
+    })
   })
 })
 
@@ -216,6 +270,16 @@ describe('marks', () => {
     expect(store.getState()).toMatchObject({ activeMark: 'M2', markFocus: asked + 3 })
   })
 
+  it('going to a mark whose layout the build no longer has does nothing: it is not made active, and the camera is not asked for', () => {
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), { ...pin('M2', 'on the bed'), layout: 'print' }] })
+    actions.focusMark('M1')
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: scene({ assembly: ['base', 'post'] }) })
+    const asked = store.getState().markFocus
+    actions.focusMark('M2')
+    expect(store.getState()).toMatchObject({ activeMark: 'M1', layout: 'assembly', markFocus: asked })
+  })
+
   it('what was wrong with the marks file is put away when the person has read it', () => {
     actions.setMarksProblem({ objectId: 'bracket', message: 'The marks file of this object could not be read.' })
     actions.dismissMarksProblem()
@@ -302,7 +366,22 @@ describe('the selection', () => {
     actions.setSelection(['base/F5'])
     expect(actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })).toBe(false)
     expect(store.getState().selection).toEqual(['base/F5'])
-    actions.applyScene({ objectId: 'bracket', revision: 2, scene: BRACKET })
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: rebuilt(BRACKET, 'assembly:post') })
+    expect(store.getState().selection).toEqual([])
+  })
+
+  it('is kept by a new revision of the very same parts: the kernel built the same sources again', () => {
+    const at = { point: [1, 0, 2.5] as [number, number, number], normal: null }
+    actions.setSelection(['base/F5'], { 'base/F5': at })
+    const before = store.getState().selection
+    expect(actions.applyScene({ objectId: 'bracket', revision: 2, scene: structuredClone(BRACKET) })).toBe(true)
+    expect(store.getState()).toMatchObject({ revision: 2, picked: { 'base/F5': at } })
+    expect(store.getState().selection).toBe(before)
+    // Not when a part came or went, though the others are the same.
+    actions.applyScene({ objectId: 'bracket', revision: 3, scene: scene({ assembly: ['base', 'post', 'cap'], print: ['base', 'post'] }) })
+    expect(store.getState().selection).toEqual([])
+    actions.setSelection(['base/F5'])
+    actions.applyScene({ objectId: 'bracket', revision: 4, scene: scene({ assembly: ['base', 'post'], print: ['base', 'post'] }) })
     expect(store.getState().selection).toEqual([])
   })
 
@@ -345,7 +424,7 @@ describe('where the selection was clicked', () => {
     actions.setLayout('print')
     expect(store.getState().picked).toEqual({})
     actions.setSelection(['base/F5'], { 'base/F5': at(1) })
-    actions.applyScene({ objectId: 'bracket', revision: 2, scene: BRACKET })
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: rebuilt(BRACKET, 'assembly:base') })
     expect(store.getState().picked).toEqual({})
   })
 })

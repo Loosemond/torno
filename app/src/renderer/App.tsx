@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { WorkspaceInfo } from '../shared/workspace'
+import { connectLook } from './state/agent'
 import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
 import { Confirm } from './ui/Confirm'
@@ -61,6 +62,8 @@ let opening = 0
 /** Show an object as its scene file left it, and have main watch and build it. */
 async function openObject(id: string): Promise<void> {
   const turn = ++opening
+  // The one already open stays as it is: its selection, its camera, the note being written.
+  if (store.getState().objectId === id) return
   const file = await window.torno.object.loadSceneFile(id).catch(() => ({ layers: {} }))
   if (turn !== opening) return // another object was chosen meanwhile
   actions.openObject(id, file)
@@ -95,6 +98,8 @@ function useMain(): void {
     const offBuild = window.torno.object.onBuild(actions.applyBuild)
     const offMarks = window.torno.marks.onChanged(actions.setMarks)
     const offMarksProblem = window.torno.marks.onProblem(actions.setMarksProblem)
+    // Whatever the window shows, even nothing: a picture asked for is answered, or said at once to be none.
+    const offLook = connectLook()
 
     // Layer and layout changes are written to <object>/.torno/scene.json, once they stop coming.
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -126,6 +131,7 @@ function useMain(): void {
       offBuild()
       offMarks()
       offMarksProblem()
+      offLook()
       offStore()
       window.removeEventListener('pagehide', flush)
       flush()

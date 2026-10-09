@@ -67,6 +67,15 @@ export interface TornoState {
   lockedView: ViewName | null
   /** Counts changes of layout and layers made by hand: what the scene file is saved for. */
   edits: number
+  /**
+   * What the person had chosen where the agent's `show` now shows something
+   * else: their layout, and by part name whether they had it switched on
+   * (undefined for a part they had never switched). It is what the scene file
+   * keeps (`sceneFileOf`): an agent that changes the view does not rewrite the
+   * person's saved settings. A choice the person makes by hand afterwards is
+   * theirs again, and is taken out of here.
+   */
+  shownByAgent: { layout?: string; visible: Record<string, boolean | undefined> } | null
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
   sessions: Record<string, SessionView>
 }
@@ -74,7 +83,7 @@ export interface TornoState {
 const NOTHING_SELECTED: string[] = []
 const NOTHING_PICKED: Record<string, PickedAt> = {}
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, activeMark: null, noting: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -120,6 +129,11 @@ export const actions = {
    * A build of the open object succeeded. False when there is nothing new to
    * show: a scene of another object, or the revision already here (main sends
    * the last scene again when an object is opened).
+   *
+   * The selection names faces and edges by number, and a build numbers them
+   * anew: it is emptied, unless every part of the new scene is the part the
+   * old one had under that key (the same hash), as when main had the same
+   * sources built again for the kernel's sake.
    */
   applyScene(m: { objectId: string; revision: number; scene: Scene }): boolean {
     const s = store.getState()
@@ -129,23 +143,56 @@ export const actions = {
     const names = new Set(m.scene.parts.map((p) => p.name))
     const kept = Object.entries(s.layers).filter(([name]) => names.has(name))
     const layers = kept.length === Object.keys(s.layers).length ? s.layers : Object.fromEntries(kept)
-    store.setState({ scene: m.scene, revision: m.revision, layout, layers, ...NO_SELECTION })
+    const same = s.scene !== null && layout === s.layout && sameParts(s.scene, m.scene)
+    store.setState({ scene: m.scene, revision: m.revision, layout, layers, ...(same ? {} : NO_SELECTION) })
     return true
   },
 
   setLayout(layout: string): void {
     const s = store.getState()
     if (layout === s.layout || !s.scene?.layouts.includes(layout)) return
-    // A mark is of one layout: the active one does not follow to another.
-    const activeMark = s.marks.find((m) => m.id === s.activeMark)?.layout === layout ? s.activeMark : null
-    // A note is written where its mark can be seen: it closes.
-    store.setState({ layout, edits: s.edits + 1, ...NO_SELECTION, activeMark, noting: null })
+    // The person's own choice from here on, whatever the agent had shown.
+    const shownByAgent = s.shownByAgent && { visible: s.shownByAgent.visible }
+    store.setState({ ...layoutChange(s, layout), edits: s.edits + 1, shownByAgent })
   },
 
   /** Change some settings of one part; the others keep their values. */
   setLayer(name: string, settings: LayerSettings): void {
     const s = store.getState()
-    store.setState({ layers: { ...s.layers, [name]: { ...s.layers[name], ...settings } }, edits: s.edits + 1 })
+    let shownByAgent = s.shownByAgent
+    if (shownByAgent && settings.visible !== undefined && name in shownByAgent.visible) {
+      const { [name]: _theirsAgain, ...visible } = shownByAgent.visible
+      shownByAgent = { ...shownByAgent, visible }
+    }
+    store.setState({ layers: { ...s.layers, [name]: { ...s.layers[name], ...settings } }, edits: s.edits + 1, shownByAgent })
+  },
+
+  /**
+   * Show a layout, and of its parts those switched on in `visible` (by name),
+   * because the agent asked: for now, and not for keeps. What the person had
+   * chosen is remembered (`shownByAgent`) and is what the scene file goes on
+   * saying; this counts as no edit of theirs.
+   */
+  showForAgent(layout: string, visible: Record<string, boolean>): void {
+    const s = store.getState()
+    if (!s.scene?.layouts.includes(layout)) return
+    const theirs = { ...s.shownByAgent, visible: { ...s.shownByAgent?.visible } }
+    let next: Partial<TornoState> = {}
+    if (layout !== s.layout) {
+      next = layoutChange(s, layout)
+      if (theirs.layout === undefined) theirs.layout = s.layout
+      if (theirs.layout === layout) delete theirs.layout // back to what they had
+    }
+    let layers = s.layers
+    for (const [name, on] of Object.entries(visible)) {
+      const was = layers[name]?.visible
+      if ((was !== false) === on) continue
+      if (!(name in theirs.visible)) theirs.visible[name] = was
+      else if ((theirs.visible[name] !== false) === on) delete theirs.visible[name]
+      layers = { ...layers, [name]: { ...layers[name], visible: on } }
+    }
+    const none = theirs.layout === undefined && Object.keys(theirs.visible).length === 0
+    store.setState({ ...next, layers, shownByAgent: none ? null : theirs })
   },
 
   /** The marks of an object, as loaded or as changed. Those of an object that is not the open one are not kept. */
@@ -183,11 +230,14 @@ export const actions = {
   /**
    * Make a mark the active one and go to the view it was placed from, in its
    * own layout: the layout is switched first when it is another, so the
-   * column and the viewport follow.
+   * column and the viewport follow. Nothing for a mark whose layout the
+   * build no longer has.
    */
   focusMark(id: string): void {
-    const mark = store.getState().marks.find((m) => m.id === id)
-    if (!mark) return
+    const before = store.getState()
+    const mark = before.marks.find((m) => m.id === id)
+    // A mark of a layout the build no longer has cannot be shown: nothing is made of it, and the row says why.
+    if (!mark || (before.scene !== null && !before.scene.layouts.includes(mark.layout))) return
     actions.setLayout(mark.layout)
     const s = store.getState()
     store.setState({ activeMark: id, markFocus: s.markFocus + 1, noting: s.noting === id ? id : null })
@@ -268,7 +318,34 @@ export function visibleKeys(s: TornoState, layout = s.layout): string[] {
     .map((p) => p.key)
 }
 
-/** What `<object>/.torno/scene.json` should hold for the open object. */
+/**
+ * What `<object>/.torno/scene.json` should hold for the open object: the
+ * layout and the layers as the person chose them. Where the agent's `show`
+ * has something else on screen, it is the person's choice that is kept.
+ */
 export function sceneFileOf(s: TornoState): SceneFile {
-  return { ...(s.layout ? { layout: s.layout } : {}), layers: s.layers }
+  const layout = s.shownByAgent?.layout ?? s.layout
+  const layers = { ...s.layers }
+  for (const [name, visible] of Object.entries(s.shownByAgent?.visible ?? {})) {
+    const { visible: _theAgents, ...rest } = layers[name] ?? {}
+    const theirs = visible === undefined ? rest : { ...rest, visible }
+    if (Object.keys(theirs).length > 0) layers[name] = theirs
+    else delete layers[name]
+  }
+  return { ...(layout ? { layout } : {}), layers }
+}
+
+/** What changes with the layout shown: the selection and the note go, and the active mark unless it is of that layout. */
+function layoutChange(s: TornoState, layout: string): Partial<TornoState> {
+  // A mark is of one layout: the active one does not follow to another.
+  const activeMark = s.marks.find((m) => m.id === s.activeMark)?.layout === layout ? s.activeMark : null
+  // A note is written where its mark can be seen: it closes.
+  return { layout, ...NO_SELECTION, activeMark, noting: null }
+}
+
+/** Whether two scenes hold the same parts: the same keys, each with the same hash. */
+function sameParts(a: Scene, b: Scene): boolean {
+  if (a.parts.length !== b.parts.length) return false
+  const hashes = new Map(a.parts.map((p) => [p.key, p.hash]))
+  return b.parts.every((p) => hashes.get(p.key) === p.hash)
 }

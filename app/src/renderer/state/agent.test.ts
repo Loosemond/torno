@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Part, Scene } from '../../shared/scene'
-import type { Camera, HighlightRequest, ShowRequest } from '../../shared/view'
-import { agentStore, connectAgent, dismissHighlight, HIGHLIGHT_FOR_MS } from './agent'
-import { actions, store } from './store'
+import type { Camera, HighlightRequest, LookRequest, LookResult, ShowRequest } from '../../shared/view'
+import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, setPictures } from './agent'
+import { actions, sceneFileOf, store } from './store'
 
 const part = (layout: string, name: string): Part => ({ key: `${layout}:${name}`, name, layout, faceCount: 6, edgeCount: 12 }) as Part
 const SCENE: Scene = { model: 'bracket.py', layouts: ['assembly', 'print'], parts: [part('assembly', 'base'), part('assembly', 'post'), part('print', 'base'), part('print', 'post')], seconds: 1, output: '' }
@@ -10,6 +10,7 @@ const CAMERA: Camera = { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], 
 
 let onShow: (m: { id: number; request: ShowRequest }) => void
 let onHighlight: (m: { id: number; request: HighlightRequest }) => void
+let onLook: (m: { id: number; request: LookRequest }) => void
 let replies: Array<{ id: number; result: unknown }>
 let tinted: string[][]
 let views: unknown[]
@@ -18,10 +19,13 @@ let canvasEvents: Record<string, (e: { clientX: number; clientY: number; button:
 const press = (x = 100, y = 100, button = 0): void => canvasEvents.pointerdown({ clientX: x, clientY: y, button })
 const release = (x = 100, y = 100, button = 0): void => canvasEvents.pointerup({ clientX: x, clientY: y, button })
 let disconnect: () => void
+/** Whether the person has a button down in the viewport. */
+let busy: boolean
 
 beforeEach(() => {
   vi.useFakeTimers()
   replies = []
+  busy = false
   canvasEvents = {}
   tinted = []
   views = []
@@ -31,6 +35,8 @@ beforeEach(() => {
       view: {
         onShow: (cb: typeof onShow) => ((onShow = cb), off),
         onHighlight: (cb: typeof onHighlight) => ((onHighlight = cb), off),
+        onLook: (cb: typeof onLook) => ((onLook = cb), off),
+        lookReply: (id: number, result: unknown) => replies.push({ id, result }),
         showReply: (id: number, result: unknown) => replies.push({ id, result }),
         highlightReply: (id: number, result: unknown) => replies.push({ id, result })
       }
@@ -42,6 +48,7 @@ beforeEach(() => {
   disconnect = connectAgent({
     setView: (view) => views.push(view),
     getCamera: () => CAMERA,
+    pointerBusy: () => busy,
     setAgentHighlight: (refs) => tinted.push(refs),
     canvas: { addEventListener: (type: string, cb: (typeof canvasEvents)[string]) => (canvasEvents[type] = cb), removeEventListener: () => {} } as unknown as HTMLCanvasElement
   })
@@ -154,6 +161,27 @@ describe('show', () => {
     expect(replies).toEqual([{ id: 9, result: { caption: 'view top · layout print · parts post · perspective', objectId: 'bracket', revision: 3, stale: false } }])
   })
 
+  it('is not an edit of the person\'s: the scene file goes on saying what they had chosen', () => {
+    actions.setLayer('post', { opacity: 0.5 })
+    const edits = store.getState().edits
+    const theirs = sceneFileOf(store.getState())
+    show({ view: 'top', layout: 'print', parts: ['post'] })
+    expect(store.getState().edits).toBe(edits)
+    expect(sceneFileOf(store.getState())).toEqual(theirs)
+    expect(theirs).toEqual({ layout: 'assembly', layers: { post: { opacity: 0.5 } } })
+  })
+
+  it('is refused while the person has a button down in the viewport, and changes nothing', () => {
+    busy = true
+    show({ view: 'top', layout: 'print', parts: ['post'] })
+    expect(replies).toEqual([{ id: 9, result: { error: 'the user is in the middle of a stroke or drag; try again' } }])
+    expect(store.getState()).toMatchObject({ layout: 'assembly', layers: {} })
+    expect(views).toEqual([])
+    busy = false
+    show({ view: 'top' })
+    expect(views).toEqual(['top'])
+  })
+
   it('switches a hidden part back on when it is named', () => {
     actions.setLayer('post', { visible: false })
     show({ parts: ['post', 'base'] })
@@ -178,5 +206,47 @@ describe('show', () => {
     expect(replies).toEqual([{ id: 9, result: { error } }])
     expect(store.getState()).toMatchObject({ layout: 'assembly', layers: {} })
     expect(views).toEqual([])
+  })
+})
+
+describe('look, joined by the app', () => {
+  const PICTURE = { png: new Uint8Array([1]), width: 4, height: 3, caption: 'view iso', objectId: 'bracket', revision: 3, stale: false } satisfies LookResult
+  let off: () => void
+  beforeEach(() => {
+    off = connectLook()
+  })
+  afterEach(() => {
+    off()
+    setPictures(null)
+  })
+  const settle = () => vi.advanceTimersByTimeAsync(0)
+
+  it('answers with the picture the viewport makes', async () => {
+    const asked: LookRequest[] = []
+    setPictures(async (req) => (asked.push(req), PICTURE))
+    onLook({ id: 3, request: { view: 'front' } })
+    await settle()
+    expect(asked).toEqual([{ view: 'front' }])
+    expect(replies).toEqual([{ id: 3, result: PICTURE }])
+  })
+
+  it('says at once that no object is open, with or without a viewport', async () => {
+    actions.setWorkspace(null)
+    onLook({ id: 4, request: {} })
+    setPictures(async () => PICTURE)
+    onLook({ id: 5, request: {} })
+    await settle()
+    expect(replies).toEqual([4, 5].map((id) => ({ id, result: { error: 'no object open in the torno window' } })))
+  })
+
+  it('says so when there is no viewport to draw it, and passes on why a picture could not be made', async () => {
+    onLook({ id: 6, request: {} })
+    setPictures(() => Promise.reject(new Error('no build yet')))
+    onLook({ id: 7, request: {} })
+    await settle()
+    expect(replies).toEqual([
+      { id: 6, result: { error: 'the torno window has no 3D view to draw it with' } },
+      { id: 7, result: { error: 'no build yet' } }
+    ])
   })
 })

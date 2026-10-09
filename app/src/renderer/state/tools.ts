@@ -38,10 +38,16 @@ interface ToolState {
   shape: ShapeKind
   /** What the gizmo on the active shape does. */
   gizmo: GizmoMode
+  /**
+   * The mark being put somewhere else: the pin tool is in hand for it, its
+   * next click on a part moves that mark there instead of leaving a pin, and
+   * `back` is the tool that is taken up again afterwards. Null for none.
+   */
+  replacing: { objectId: string; id: string; back: ToolName } | null
 }
 
 /** What the pointer does in the viewport. It changes on a click or a key, never on a pointer move. */
-export const toolStore = createStore<ToolState>(() => ({ tool: 'select', shape: 'box', gizmo: 'translate' }))
+export const toolStore = createStore<ToolState>(() => ({ tool: 'select', shape: 'box', gizmo: 'translate', replacing: null }))
 
 export function useTool(): ToolName {
   return useZustand(toolStore, (s) => s.tool)
@@ -65,7 +71,24 @@ export function setGizmo(gizmo: GizmoMode): void {
   toolStore.setState({ gizmo })
 }
 
-/** Choose a tool. One that is not ready is not chosen. */
+/** Choose a tool. One that is not ready is not chosen. A mark that was being put somewhere else is left where it is. */
 export function setTool(tool: ToolName): void {
-  if (TOOLS.find((t) => t.name === tool)?.ready) toolStore.setState({ tool })
+  if (TOOLS.find((t) => t.name === tool)?.ready) toolStore.setState({ tool, replacing: null })
+}
+
+/** The mark being put somewhere else, by its number; null for none. */
+export function useReplacing(): string | null {
+  return useZustand(toolStore, (s) => s.replacing?.id ?? null)
+}
+
+/** Take up the pin tool to put a mark of an object somewhere else with the next click on a part. */
+export function startReplace(objectId: string, id: string): void {
+  const { tool, replacing } = toolStore.getState()
+  toolStore.setState({ tool: 'pin', replacing: { objectId, id, back: replacing?.back ?? tool } })
+}
+
+/** The mark has been put somewhere else, or is left where it is: back to the tool that was in hand. */
+export function endReplace(): void {
+  const { replacing } = toolStore.getState()
+  if (replacing) toolStore.setState({ tool: replacing.back, replacing: null })
 }

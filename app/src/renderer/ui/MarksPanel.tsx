@@ -14,6 +14,7 @@ export function MarksPanel() {
   const objectId = useStore((s) => s.objectId)
   const marks = useStore((s) => s.marks)
   const layout = useStore((s) => s.layout)
+  const layouts = useStore((s) => s.scene?.layouts)
   const active = useStore((s) => s.activeMark)
   const problem = useStore((s) => s.marksProblem)
   const [showResolved, setShowResolved] = useState(false)
@@ -39,6 +40,7 @@ export function MarksPanel() {
       mark={mark}
       active={mark.id === active}
       elsewhere={mark.layout !== layout}
+      gone={layouts !== undefined && !layouts.includes(mark.layout)}
       change={(patch: MarkPatch) => {
         const call = window.torno.marks.update(objectId, mark.id, patch)
         done(call)

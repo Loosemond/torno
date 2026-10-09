@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Scene } from '../../shared/scene'
 import type { LookRequest, LookResult } from '../../shared/view'
-import { connectAgent } from '../state/agent'
+import { connectAgent, picture, setPictures } from '../state/agent'
 import { describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
-import { setTool, toolStore, type ToolName } from '../state/tools'
+import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { arrowTool } from '../tools/arrowTool'
 import { drawTool } from '../tools/drawTool'
-import { commitMark } from '../tools/pickMarks'
+import { commitMark, replaceMark } from '../tools/pickMarks'
 import { pinTool } from '../tools/pinTool'
 import { selectTool } from '../tools/selectTool'
 import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
@@ -51,6 +51,17 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
     return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true }
   })
   return { ...picture, ...drawn! }
+}
+
+/**
+ * The mark the pin tool is in hand to put somewhere else, when it can be: a
+ * mark of the open object that is not resolved, in the layout shown. Null otherwise.
+ */
+function replacingIn(s: TornoState): string | null {
+  const replacing = toolStore.getState().replacing
+  if (!replacing || replacing.objectId !== s.objectId) return null
+  const mark = s.marks.find((m) => m.id === replacing.id)
+  return mark && mark.status !== 'resolved' && mark.layout === s.layout ? mark.id : null
 }
 
 /** Join a viewport to the store and to main. Returns what undoes it. */
@@ -99,7 +110,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       descriptor: (ref) => descriptorOf(objectId, revision, layout, ref),
       describe: (ref) => describeWhole(objectId, revision, layout, ref),
       commit: (mark) => commitMark(objectId, mark),
-      openNote: (mark) => actions.openNote({ objectId, layout: mark.layout, id: mark.id })
+      openNote: (mark) => actions.openNote({ objectId, layout: mark.layout, id: mark.id }),
+      replacing: replacingIn(s),
+      replace: (id, placed) => replaceMark(objectId, id, placed),
+      endReplace
     }
   }
 
@@ -141,6 +155,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const offShape = connectShapeEdit(viewport)
 
   const offStore = store.subscribe((s, prev) => {
+    // A mark that can no longer be put somewhere else here (it is gone, resolved, or of another layout or object) is left be.
+    if (toolStore.getState().replacing && replacingIn(s) === null) endReplace()
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
     if (s.marks !== prev.marks) viewport.setMarks(s.marks)
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
@@ -169,17 +185,13 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   // What the agent asks of the window besides pictures: to show something, and to point something out.
   const offAgent = connectAgent(viewport)
 
-  const offLook = window.torno.view.onLook(({ id, request }) => {
-    look(viewport, request).then(
-      (result) => window.torno.view.lookReply(id, result),
-      (e: unknown) => window.torno.view.lookReply(id, { error: e instanceof Error ? e.message : String(e) })
-    )
-  })
+  // Main's requests for a picture are answered by the app (`connectLook`), with this viewport while it is there.
+  setPictures((request) => look(viewport, request))
 
   if (new URLSearchParams(location.search).has('test')) {
     window.__tornoTest = {
       state: () => store.getState(),
-      look: (req) => look(viewport, req),
+      look: (req) => picture(req),
       camera: () => viewport.getCamera(),
       pickAt: (fx, fy, opts) => {
         const box = canvasBox(viewport)
@@ -189,6 +201,22 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         const box = canvasBox(viewport)
         const [x, y] = viewport.project(point)
         return [(x - box.left) / box.width, (y - box.top) / box.height]
+      },
+      timePicks: (count = 200, opts) => {
+        // What a pointer move costs: the same call, at points spread over the canvas in a grid.
+        const box = canvasBox(viewport)
+        const side = Math.ceil(Math.sqrt(count))
+        let worst = 0
+        let hits = 0
+        const started = performance.now()
+        for (let i = 0; i < count; i++) {
+          const fx = ((i % side) + 0.5) / side
+          const fy = (Math.floor(i / side) + 0.5) / side
+          const before = performance.now()
+          if (viewport.pick(box.left + fx * box.width, box.top + fy * box.height, opts)) hits += 1
+          worst = Math.max(worst, performance.now() - before)
+        }
+        return { count, hits, meanMs: (performance.now() - started) / count, worstMs: worst }
       },
       markScreen: (id) => {
         const box = canvasBox(viewport)
@@ -205,7 +233,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offScene()
     offStore()
     offShape()
-    offLook()
+    setPictures(null)
     offAgent()
     delete window.__tornoTest
   }

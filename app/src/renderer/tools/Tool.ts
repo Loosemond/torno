@@ -1,6 +1,6 @@
 import type { BuildState } from '../../shared/build'
 import type { Described } from '../../shared/geometry'
-import type { Anchor, Mark, NewMark, Vec3 } from '../../shared/marks'
+import type { Anchor, Mark, NewMark, Replacement, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import type { Readout } from '../viewport/highlight'
 import type { Hit } from '../viewport/picking'
@@ -50,6 +50,12 @@ export interface ToolContext {
   commit(mark: NewMark): Promise<Mark>
   /** Opens the note of a mark just made, for the person to write it. */
   openNote(mark: Mark): void
+  /** The mark of the layout shown that the next click on a part puts there, by its number; null or absent for none. */
+  replacing?: string | null
+  /** Has main put a mark somewhere else: the same mark, tied where it was clicked. Rejects when main refuses, having said so. */
+  replace?(id: string, placed: Replacement): Promise<Mark>
+  /** The mark is put, or is left where it is: the tool that was in hand before is taken up again. */
+  endReplace?(): void
 }
 
 /**

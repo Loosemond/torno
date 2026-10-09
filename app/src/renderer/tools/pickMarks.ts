@@ -1,5 +1,5 @@
 import type { Described } from '../../shared/geometry'
-import type { Anchor, Mark, NewMark, PickMark, Vec3 } from '../../shared/marks'
+import type { Anchor, Mark, NewMark, PickMark, Replacement, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import { describeWhole } from '../state/descriptors'
 import { actions, store, type PickedAt } from '../state/store'
@@ -16,6 +16,24 @@ export function commitMark(objectId: string, mark: NewMark): Promise<Mark> {
     actions.setMarksProblem({ objectId, message: `The mark was not kept: ${e instanceof Error ? e.message : String(e)}` })
     throw e
   })
+}
+
+/**
+ * Has main put a mark of the person's somewhere else. It comes back as it now
+ * is, and becomes the active one. When main refuses, the marks panel says so,
+ * and the promise is rejected.
+ */
+export function replaceMark(objectId: string, id: string, placed: Replacement): Promise<Mark> {
+  return window.torno.marks.replace(objectId, id, placed).then(
+    (mark) => {
+      actions.setActiveMark(mark.id)
+      return mark
+    },
+    (e: unknown) => {
+      actions.setMarksProblem({ objectId, message: `${id} was not moved: ${e instanceof Error ? e.message : String(e)}` })
+      throw e
+    }
+  )
 }
 
 /** The middle of what the kernel described, where a mark on it goes when nobody clicked a point of it. */
