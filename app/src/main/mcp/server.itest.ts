@@ -71,7 +71,8 @@ const deps: ToolDeps = {
   show: async (objectId, req) => ({ caption: `view ${String(req.view)} · layout main`, objectId, revision: 2, stale: false }),
   highlight: async (objectId, layout, refs) => ({ objectId, layout, refs, revision: 2 }),
   query: async <T,>(_objectId: string, name: string): Promise<T> => KERNEL[name] as T,
-  sectionDrawing: async () => ({ png: PNG, width: 4, height: 3, colours: 'window' })
+  sectionDrawing: async () => ({ png: PNG, width: 4, height: 3, colours: 'window', vDown: false }),
+  addDimension: async (_objectId, mark) => ({ mark: { ...mark, id: 'M3', status: 'sent', anchorState: 'ok', createdAt: PIN.createdAt } as Mark })
 }
 
 async function connect(objectId: string): Promise<Client> {

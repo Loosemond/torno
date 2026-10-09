@@ -578,7 +578,7 @@ interface CutJson {
   layout: string
   revision: number
   plane: { origin: number[]; normal: number[]; x: number[]; y: number[]; axis?: string; at?: number }
-  parts: Array<{ part: string; area: number; areaExact: boolean; open: number; how: string; loops: Loop[] }>
+  parts: Array<{ part: string; area: number; areaExact: boolean; open: number; how: string; loops: Loop[]; arranged?: number[] }>
   bounds: { min: [number, number]; max: [number, number] }
   extent: [number, number]
   reading: string
@@ -649,10 +649,10 @@ test('section answers with a drawing of the outlines the kernel cut, and with th
   const size = await pixelAt(image.data!, 0.5, 0.5)
   expect(Math.max(size.width, size.height)).toBe(1280)
   const fractions = await findOnSheet(image.data!)
-  // The plate's colour is the first of the palette (#7B93B4); the sheet is --surface (#F1EFEA).
+  // The sheet is --surface (#F1EFEA); the plate is the first colour of the palette (#7B93B4) laid on it four fifths opaque.
   expect(fractions.plate).toBeGreaterThan(0.2)
   for (const hole of fractions.holes) expect(hole).toEqual([0xf1, 0xef, 0xea])
-  expect(fractions.solid).toEqual([0x7b, 0x93, 0xb4])
+  fractions.solid.forEach((channel, i) => expect(Math.abs(channel - [147, 165, 191][i])).toBeLessThanOrEqual(2))
 
   // One part alone is given in full, and a plane that misses the part cuts nothing, with no drawing.
   const missed = await call(measures, 'section', { plane: { axis: 'z', at: 50 }, parts: ['plate'] })
@@ -677,7 +677,8 @@ function findOnSheet(base64: string): Promise<{ plate: number; holes: number[][]
     ctx.drawImage(bitmap, 0, 0)
     const { width, height } = bitmap
     const pixels = ctx.getImageData(0, 0, width, height).data
-    const isPlate = (i: number): boolean => pixels[i] === 0x7b && pixels[i + 1] === 0x93 && pixels[i + 2] === 0xb4
+    // #7B93B4 at 80 % over the sheet, or over a line of the grid, which shows faintly through it.
+    const isPlate = (i: number): boolean => [147, 165, 191].every((value, channel) => Math.abs(pixels[i + channel] - value) <= 8)
     let [x0, y0, x1, y1, count] = [width, height, 0, 0, 0]
     // Below the legend, whose swatch is in the same colour.
     for (let y = Math.round(height * 0.15); y < height; y += 1) {
@@ -696,7 +697,7 @@ function findOnSheet(base64: string): Promise<{ plate: number; holes: number[][]
       const y = Math.round(y1 - ((v + 15) / 30) * (y1 - y0))
       return [...pixels.slice((y * width + x) * 4, (y * width + x) * 4 + 3)]
     }
-    return { plate: count / (width * height), holes: [at(-11.2, 6.3), at(8.8, 6.3)], solid: at(0, 5.6) }
+    return { plate: count / (width * height), holes: [at(-11.2, 6.3), at(8.8, 6.3)], solid: at(1.3, 5.6) }
   }, base64)
 }
 
@@ -781,6 +782,32 @@ test("show with a section cuts the user's view, look draws it or another, and sc
 
   expect((await call(measures, 'show', { section: null })).isError).toBe(false)
   expect((await state()).section).toBeNull()
+})
+
+test('in a print layout torno spread, nothing between two parts is told as the model\'s, and a section says where its parts were moved', async () => {
+  await openObject('spread')
+  const spread = await connect('spread')
+  const scene = JSON.parse((await call(spread, 'scene')).text) as { layouts: string[]; parts: Array<{ name: string; layout: string; arranged?: number[] }> }
+  const moved = scene.parts.filter((p) => p.layout === 'print' && p.arranged)
+  expect(moved.length).toBeGreaterThan(0)
+  const [a, b] = scene.parts.filter((p) => p.layout === 'print').map((p) => p.name)
+  const others = scene.layouts.filter((l) => l !== 'print')
+  const where = others.length > 0 ? `Ask in a layout that places the parts as assembled (layouts: ${others.join(', ')}), or check each part by itself.` : 'This object has no layout that places its parts as assembled: check each part by itself.'
+  for (const [kind, what] of [['overlap', 'what is shared between'], ['clearance', 'the distance between']] as const) {
+    const refused = await call(spread, 'check', { kind, a, b, layout: 'print' })
+    expect(refused).toMatchObject({ isError: true, text: `In layout print torno spread these parts apart for display (they overlapped as the model placed them), so ${what} ${a} and ${b} there is torno's, not the model's. ${where}` })
+  }
+  expect((await call(spread, 'measure', { kind: 'distance', a, b, layout: 'print' })).isError).toBe(true)
+  // One part is the same wherever it is put: answered, with how far it was moved.
+  const volume = JSON.parse((await call(spread, 'measure', { kind: 'volume', a: moved[0].name, layout: 'print' })).text)
+  expect(volume).toMatchObject({ exact: true, arranged: moved[0].arranged })
+  const mesh = await call(spread, 'check', { kind: 'mesh', a: moved[0].name, layout: 'print' })
+  expect(mesh.isError).toBe(false)
+
+  const cut = JSON.parse((await call(spread, 'section', { plane: { axis: 'z', at: 1 }, layout: 'print' })).text) as CutJson & { note?: string }
+  expect(cut.note).toBe('The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.')
+  expect(cut.reading).toContain('· layout print (parts spread for display): ')
+  expect(cut.parts.find((p) => p.part === moved[0].name)?.arranged).toEqual(moved[0].arranged)
 })
 
 // Set TORNO_SHOTS=<dir> to write the drawings the agent is given of a section there: the measures plate

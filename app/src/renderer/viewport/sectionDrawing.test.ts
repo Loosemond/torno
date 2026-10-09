@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SectionLoop, Sectioned, SectionedPart } from '../../shared/geometry'
-import { SHEET, drawSection, sectionSheet, toSheet } from './sectionDrawing'
+import { FILL_ALPHA, SHEET, drawSection, sectionSheet, toSheet } from './sectionDrawing'
 
 const loop = (points: [number, number][], area: number | null, closed = true): SectionLoop => ({ points, closed, area, areaExact: true, deflection: 0.05 })
 const rect = (u0: number, v0: number, u1: number, v1: number): [number, number][] => [[u0, v0], [u1, v0], [u1, v1], [u0, v1]]
@@ -15,8 +15,10 @@ const PLATE: Sectioned = {
 
 /** A canvas context that keeps what was drawn on it: each fill of a path with its colour, its rule and its sub-paths, each stroke, and each text. */
 function recorder() {
-  const fills: Array<{ colour: string; rule: string | undefined; paths: Array<{ points: Array<[number, number]>; closed: boolean }> }> = []
-  const strokes: Array<{ colour: string; width: number; paths: number }> = []
+  const fills: Array<{ colour: string; rule: string | undefined; alpha: number; paths: Array<{ points: Array<[number, number]>; closed: boolean }> }> = []
+  const strokes: Array<{ colour: string; width: number; paths: number; alpha?: number }> = []
+  /** Every fill of a part and every stroke of an outline, in the order they were drawn. */
+  const order: string[] = []
   const texts: Array<{ text: string; font: string; x: number; y: number }> = []
   let paths: Array<{ points: Array<[number, number]>; closed: boolean }> = []
   const ctx = {
@@ -40,11 +42,18 @@ function recorder() {
     moveTo: (x: number, y: number) => void paths.push({ points: [[x, y]], closed: false }),
     lineTo: (x: number, y: number) => void paths.at(-1)!.points.push([x, y]),
     closePath: () => void (paths.at(-1)!.closed = true),
-    fill: (rule?: string) => void fills.push({ colour: ctx.fillStyle, rule, paths }),
-    stroke: () => void strokes.push({ colour: ctx.strokeStyle, width: ctx.lineWidth, paths: paths.length }),
+    fill: (rule?: string) => {
+      fills.push({ colour: ctx.fillStyle, rule, alpha: ctx.globalAlpha, paths })
+      order.push(`fill ${ctx.fillStyle} ${ctx.globalAlpha}`)
+    },
+    stroke: () => {
+      strokes.push({ colour: ctx.strokeStyle, width: ctx.lineWidth, paths: paths.length })
+      if (ctx.globalAlpha === 1 && ctx.lineWidth !== 1) return
+      order.push(`stroke ${ctx.strokeStyle} ${ctx.globalAlpha}`)
+    },
     fillText: (text: string, x: number, y: number) => void texts.push({ text, font: ctx.font, x, y })
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, fills, strokes, texts }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, fills, strokes, texts, order }
 }
 
 describe('the sheet a section is laid out on', () => {
@@ -177,11 +186,29 @@ describe('the drawing of a section', () => {
     ])
   })
 
+  it('fills each part a little short of opaque, so that two parts lying over each other show as a darker region, and draws every outline after, in full', () => {
+    // A lid pressed 2 mm into a tub: an interference.
+    const two: Sectioned = { ...PLATE, parts: [solid('plate', [loop(rect(-20, -15, 20, 0), 600)]), solid('lid', [loop(rect(-20, -2, 20, 15), 680)])] }
+    const { ctx, order } = recorder()
+    drawSection(ctx, sectionSheet(two, 'assembly')!, two, colourOf)
+    const parts = order.filter((step) => /#7B93B4|#C28B6C|#3E4A5A|#614636/.test(step))
+    expect(FILL_ALPHA).toBe(0.8)
+    expect(parts).toEqual(['fill #7B93B4 0.8', 'fill #C28B6C 0.8', 'stroke #3E4A5A 1', 'stroke #614636 1'])
+  })
+
+  it('says on the sheet when the parts were spread for display, and which way v runs when that is down', () => {
+    const { ctx, texts } = recorder()
+    const down = { ...PLATE, plane: { ...PLATE.plane, normal: [0, 1, 0] as [number, number, number], y: [0, 0, -1] as [number, number, number] } }
+    drawSection(ctx, sectionSheet(down, 'print (parts spread for display)')!, down, colourOf)
+    expect(texts.map((t) => t.text)).toContain('v (-Z) ↓, mm')
+    expect(texts.map((t) => t.text).join('')).toContain('layout print (parts spread for display)')
+  })
+
   it('writes the title, the two extents and the legend, every number in the mono face', () => {
     const { ctx, texts } = recorder()
     drawSection(ctx, sectionSheet(PLATE, 'assembly')!, PLATE, colourOf)
     const said = (text: string) => texts.find((t) => t.text === text)
-    for (const figure of ['40 mm', '30 mm', '+Z', 'z = 3', 'plate', '1100 mm²', '-20', '15', 'u (+X), mm', 'v (+Y), mm']) expect(said(figure)?.font, figure).toContain('IBM Plex Mono')
+    for (const figure of ['40 mm', '30 mm', '+Z', 'z', '=', '3', 'plate', '1100', 'mm²', '-20', '15', 'u (+X), mm', 'v (+Y), mm']) expect(said(figure)?.font, figure).toContain('IBM Plex Mono')
     for (const word of ['plane normal ', ' at ', 'layout assembly']) expect(said(word)?.font, word).toContain('IBM Plex Sans')
   })
 

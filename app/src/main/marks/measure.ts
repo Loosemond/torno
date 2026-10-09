@@ -191,9 +191,38 @@ type Marks = Pick<MarkStore, 'add' | 'measured' | 'remove' | 'list'>
  * and says it is not measured until the check of the marks, which every new
  * mark sets off and which is tried again, has measured it (`remeasureAll`).
  */
-export async function addDimension(deps: MeasureDeps & { marks: Marks; log?(message: string): void }, objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft'): Promise<Mark> {
+export function addDimension(deps: MeasureDeps & { marks: Marks; log?(message: string): void }, objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft'): Promise<Mark> {
+  return addDimensionTold(deps, objectId, mark, status).then((added) => added.mark)
+}
+
+/**
+ * Why a dimension that was kept has no value of the last build: `rebuilt`
+ * when another build landed while it was measured, so that its refs are not
+ * of the build there is; `unanswered` when the kernel could not be asked or
+ * did not answer in time.
+ */
+export type Unmeasured = 'rebuilt' | 'unanswered'
+
+/**
+ * `addDimension`, for whoever must say what came of it: the mark as it was
+ * kept, and, when it was kept without a value of the last build, why
+ * (`unmeasured`). Whoever is told of the mark is then not left to take
+ * "not measured" for a measurement.
+ */
+export async function addDimensionTold(
+  deps: MeasureDeps & { marks: Marks; log?(message: string): void },
+  objectId: string,
+  mark: NewMark,
+  status: 'draft' | 'sent' = 'draft'
+): Promise<{ mark: Mark; unmeasured?: Unmeasured }> {
   const probe = sanitiseMark({ ...Object(mark), id: 'M1', status: 'draft', anchorState: 'ok', createdAt: '' })
-  if (probe?.kind !== 'dimension') return deps.marks.add(objectId, mark, status)
+  if (probe?.kind !== 'dimension') return { mark: await deps.marks.add(objectId, mark, status) }
+  /** The mark as it was kept, and why it has no value of the build there now is, if it has none. */
+  const told = (kept: Mark): { mark: Mark; unmeasured?: Unmeasured } => {
+    const now = deps.scene(objectId)?.revision
+    if (kept.kind !== 'dimension' || (now !== undefined && kept.measuredRevision === now)) return { mark: kept }
+    return { mark: kept, unmeasured: now !== probe.revision ? 'rebuilt' : 'unanswered' }
+  }
   const built = deps.scene(objectId)?.revision
   if (built === undefined) throw new Error(`there is no build of ${objectId} to measure on`)
   if (probe.revision !== built) throw new Error(`it was placed on r${probe.revision}, and the part has been built again since (r${built}): measure it again`)
@@ -214,7 +243,7 @@ export async function addDimension(deps: MeasureDeps & { marks: Marks; log?(mess
   let timer: NodeJS.Timeout | undefined
   const quick = await Promise.race([measuring.then((measured) => ({ measured })), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), APPEARS_AFTER_MS)))])
   clearTimeout(timer)
-  if (quick) return deps.marks.add(objectId, mark, status, kept(quick.measured))
+  if (quick) return told(await deps.marks.add(objectId, mark, status, kept(quick.measured)))
 
   const added = await deps.marks.add(objectId, mark, status)
   let measured: Measurement | undefined
@@ -226,7 +255,7 @@ export async function addDimension(deps: MeasureDeps & { marks: Marks; log?(mess
   }
   const written = measured ? await deps.marks.measured(objectId, added.id, probe, measured) : null
   // Not written: the check of the marks has refreshed its ends or measured it meanwhile. As it is now, then.
-  return written ?? (await deps.marks.list(objectId)).find((m) => m.id === added.id) ?? added
+  return told(written ?? (await deps.marks.list(objectId)).find((m) => m.id === added.id) ?? added)
 }
 
 /**

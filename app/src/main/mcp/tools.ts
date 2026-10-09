@@ -21,6 +21,7 @@ import {
 } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, markData } from '../marks/describe'
+import type { Unmeasured } from '../marks/measure'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { type EndArg, addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { checkTool, measureTool, sectionTool } from './readTools'
@@ -46,6 +47,11 @@ export interface ToolDeps {
   marks(objectId: string): Promise<Mark[]>
   /** Keeps a mark of the agent's and gives it its number. Rejects with a text for the agent. */
   addMark(objectId: string, mark: NewMark): Promise<Mark>
+  /**
+   * Keeps a dimension of the agent's, measured by the kernel as it is kept. Rejects with the kernel's reason when it
+   * cannot be measured, and nothing is kept. One kept without a value of the last build says why (`unmeasured`).
+   */
+  addDimension(objectId: string, mark: NewMark): Promise<{ mark: Mark; unmeasured?: Unmeasured }>
   /** Changes a mark. Rejects with a text that names the marks there are when there is none of that id. */
   updateMark(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
   /** What the kernel says of a part, a face or an edge of the last successful build, in a layout. Rejects with a text. */
@@ -83,14 +89,17 @@ const TRACEBACK_LINES = 30
 // The field of view of the viewport's own camera: DEFAULT_FOV in src/renderer/viewport/views.ts.
 export const FOV = 35
 
-const SPREAD_NOTE =
+/** The most part names a tool takes in one call. */
+const MAX_PARTS = 64
+
+export const SPREAD_NOTE =
   'The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
 
 const VIEW_NAMES = ['iso', 'front', 'back', 'left', 'right', 'top', 'bottom'] as const
-export const vec3 = z.tuple([z.number(), z.number(), z.number()])
+const vec3 = z.tuple([z.number(), z.number(), z.number()])
 /** A plane, in either form the agent may give one in. */
-export const planeInput = z.union([z.object({ origin: vec3, normal: vec3 }), z.object({ axis: z.enum(['x', 'y', 'z']), at: z.number() })])
-export const planeText = '{origin, normal}, a point of the plane and its normal in mm in the frame of the layout, or {axis, at} for the plane across x, y or z at that coordinate'
+const planeInput = z.union([z.object({ origin: vec3, normal: vec3 }), z.object({ axis: z.enum(['x', 'y', 'z']), at: z.number() })])
+const planeHelp = '{origin, normal}, a point of the plane and its normal in mm in the frame of the layout, or {axis, at} for the plane across x, y or z at that coordinate, its normal along +axis'
 /** Said of a plane that is none. */
 export const NO_PLANE = 'that is not a plane: give {origin: [x, y, z], normal: [x, y, z]} with a normal that is not all zeros, or {axis: "x" | "y" | "z", at: number}'
 const cameraInput = z.object({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional() })
@@ -103,14 +112,14 @@ const lookInput = {
       "'current' (the default) is the user's own camera. iso, front, back, left, right, top and bottom are orthographic views fitted to the parts. Or a camera: {position, target, up?, ortho?} in mm, Z up."
     ),
   layout: z.string().optional().describe('The layout to draw, as listed by scene. Default: the one on screen.'),
-  parts: z.array(z.string()).optional().describe('Names of the parts to draw. Default: the parts the user has switched on.'),
+  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to draw. Default: the parts the user has switched on.'),
   size: z.number().optional().describe(`Long edge of the image in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`),
   marks: z.boolean().optional().describe("Draw the user's and your marks with their numbers. Default true."),
   section: z
     .union([z.literal('current'), planeInput])
     .nullable()
     .optional()
-    .describe(`The cut the parts are drawn with: 'current' (the default) is the user's own section, if they have one; null draws them whole; or a plane of your own, ${planeText}. What lies on the side the normal points to, or beyond the coordinate along the axis, is not drawn.`)
+    .describe(`The cut the parts are drawn with: 'current' (the default) is the user's own section, if they have one; null draws them whole; or a plane of your own, ${planeHelp}. What lies on the side the normal points to is not drawn: with {axis, at}, what is at a greater x, y or z than at is removed.`)
 }
 
 export type PlaneArg = SectionPlane | AxisPlane
@@ -126,8 +135,8 @@ export interface LookArgs {
 
 type Vec3 = [number, number, number]
 
-export const refText = 'A ref names a part (lid), one of its faces (lid/F12) or edges (lid/E3), as given by marks, scene and describe.'
-export const layoutText = 'The layout the refs are of, as listed by scene. Default: the one on screen.'
+const refText = 'A ref names a part (lid), one of its faces (lid/F12) or edges (lid/E3), as given by marks, scene and describe.'
+const layoutText = 'The layout the refs are of, as listed by scene. Default: the one on screen.'
 
 const marksInput = {
   status: z
@@ -153,11 +162,11 @@ const showInput = {
     .optional()
     .describe('iso, front, back, left, right, top or bottom, fitted to the parts shown; or a camera: {position, target, up?, ortho?} in mm, Z up. Default: the camera stays.'),
   layout: z.string().optional().describe('The layout to switch to, as listed by scene. Default: the one on screen stays.'),
-  parts: z.array(z.string()).optional().describe('Names of the parts to leave switched on; every other part of the layout is hidden. Default: no part is switched.'),
+  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to leave switched on; every other part of the layout is hidden. Default: no part is switched.'),
   section: planeInput
     .nullable()
     .optional()
-    .describe(`A cut to put on the user's screen: ${planeText}; what lies on the side the normal points to, or beyond the coordinate along the axis, is not drawn. null takes their section away. Default: it stays as it is.`)
+    .describe(`A cut to put on the user's screen: ${planeHelp}; what lies on the side the normal points to is not drawn: with {axis, at}, what is at a greater x, y or z than at is removed. null takes their section away. Default: it stays as it is.`)
 }
 
 export const SHAPES = ['box', 'cylinder', 'sphere', 'plane'] as const
@@ -165,8 +174,8 @@ export const INTENTS = ['add', 'remove', 'keep-out', 'reference'] as const
 export const MEASURES = ['distance', 'angle', 'radius', 'diameter', 'thickness'] as const satisfies readonly MeasureKind[]
 
 /** An end of a measurement, as the agent names one. */
-export const endInput = z.union([z.string(), z.object({ ref: z.string().optional(), point: vec3.optional() })])
-export const endText =
+const endInput = z.union([z.string(), z.object({ ref: z.string().optional(), point: vec3.optional() })])
+const endText =
   'A ref of a face or an edge (lid/F12, lid/E3), the number of a mark (M3: what that mark is on), {point: [x, y, z]} in mm in the frame of the layout, or {ref, point} for the feature the ref names, taken at that point of it.'
 
 const addMarkInput = {
@@ -204,8 +213,8 @@ const measureInput = {
 }
 
 const sectionInput = {
-  plane: z.union([z.literal('current'), planeInput]).describe(`The plane to cut by: ${planeText}; or 'current' for the user's own section.`),
-  parts: z.array(z.string()).optional().describe('Names of the parts to cut. Default: every part of the layout. Name one part to get its outline in full, up to 2,000 points a loop.'),
+  plane: z.union([z.literal('current'), planeInput]).describe(`The plane to cut by: ${planeHelp}; or 'current' for the user's own section.`),
+  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to cut. Default: every part of the layout. Name one part to get its outline in full, up to 2,000 points a loop.'),
   layout: z.string().optional().describe('The layout to cut, as listed by scene. Default: the one on screen.'),
   size: z.number().optional().describe(`Long edge of the drawing in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`)
 }
@@ -311,7 +320,7 @@ export const TOOLS = {
   },
   section: {
     description:
-      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its exact outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. The drawing has each part filled in its colour over a millimetre grid, and loops in the JSON are thinned to 200 points each unless you ask for one part. Use it to see inside a part and to check a wall or a fit across a cut; to see the cut in 3D as the user would, call look with a section.",
+      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. A loop is a polyline within its deflection of the true outline (0.05 mm, more when thinned: loops are thinned to 200 points each unless you ask for one part), and an area is exact only where areaExact is true. Use it to see inside a part and to check a wall or a fit across a cut; to see the cut in 3D as the user would, call look with a section.",
     inputSchema: sectionInput
   },
   check: {
@@ -412,7 +421,7 @@ export function sceneTool(deps: ToolDeps, objectId: string): ToolResult {
 }
 
 /** A section as the agent is told it: its point and its normal, and, when it is across an axis, also in the short form it may give one in. */
-export function sectionData(plane: SectionPlane): object {
+function sectionData(plane: SectionPlane): object {
   const along = axisForm(plane)
   return { origin: plane.origin.map(round), normal: tidy(plane.normal), ...(along && along.sign > 0 ? { axis: along.axis, at: round(along.at) } : {}) }
 }
@@ -465,7 +474,7 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
 }
 
 /** What to say after the revision of a picture whose parts are not the latest build's. '' when they are. */
-export function staleNote(deps: ToolDeps, objectId: string, picture: { revision: number; stale: boolean }): string {
+function staleNote(deps: ToolDeps, objectId: string, picture: { revision: number; stale: boolean }): string {
   const latest = deps.scene(objectId)?.revision ?? picture.revision
   if (latest > picture.revision) return `, stale: r${latest} was built while this picture was made; look again to see it`
   if (!picture.stale) return ''
@@ -497,7 +506,7 @@ export function tidy<T>(value: T): T {
   return value
 }
 
-export const json = (value: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(tidy(value)) }] })
+const json = (value: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(tidy(value)) }] })
 export const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 export const MARK_ID = /^M\d+$/
 

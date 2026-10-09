@@ -3,7 +3,7 @@ import type { Anchor, DimensionMark, Mark, Measurement, NewMark } from '../../sh
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import { sanitiseMark } from './file'
-import { addDimension, dueAfterEdit, measure, measureDimension, measureRequest, remeasure } from './measure'
+import { addDimension, addDimensionTold, dueAfterEdit, measure, measureDimension, measureRequest, remeasure } from './measure'
 
 const CAMERA = { position: [100, -100, 80], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', layout: 'assembly', revision: 3, camera: CAMERA } as const
@@ -352,6 +352,22 @@ describe('adding a dimension', () => {
     expect(k.asked).toHaveLength(1)
     expect(logged).toEqual(['cannot measure a new dimension of measures yet: measures was built again (r4) since its ends were found on r3'])
     vi.useRealTimers()
+  })
+
+  it('says why one that was kept has no value, for whoever is told of it: the model was rebuilt, or the kernel did not answer; and nothing of one that has', async () => {
+    const slow = await addDimensionTold({ ...kernel(() => { throw new KernelError('timeout', 'the query took longer than 30 s') }), marks: marks(), log: () => {} }, 'measures', hole())
+    expect(slow.unmeasured).toBe('unanswered')
+    expect(slow.mark).not.toHaveProperty('value')
+    // A build lands while the kernel is asked.
+    const k = kernel(() => ((k.world.revision = 4), EIGHT))
+    const landed = await addDimensionTold({ ...k, marks: marks(), log: () => {} }, 'measures', hole())
+    expect(landed.unmeasured).toBe('rebuilt')
+    expect(landed.mark).not.toHaveProperty('value')
+    const measured = await addDimensionTold({ ...kernel(() => EIGHT), marks: marks() }, 'measures', hole())
+    expect(measured).toEqual({ mark: expect.objectContaining({ value: 8, measuredRevision: 3 }) })
+    // What is no dimension is the store's, and has nothing to be told of.
+    const pin = await addDimensionTold({ ...kernel(() => EIGHT), marks: marks() }, 'measures', { ...hole(), kind: 'pin', anchor: (hole() as DimensionMark).a } as never)
+    expect(pin).not.toHaveProperty('unmeasured')
   })
 
   it('is refused when it was placed on another build than the last: its refs are of that build, and the kernel is not asked', async () => {

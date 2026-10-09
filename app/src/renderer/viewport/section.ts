@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { MeshBVH } from 'three-mesh-bvh'
 import { number } from '../../shared/format'
-import type { SectionPlane } from '../../shared/view'
+import { type SectionPlane, axisForm } from '../../shared/view'
 import type { BuiltPart } from './partMesh'
 
 type Vec3 = [number, number, number]
@@ -71,8 +71,8 @@ export function atOffset(plane: SectionPlane, box: Box, mm: number): SectionPlan
 
 /** The axis a normal runs along and which way, or null for a plane across none. */
 export function axisOf(normal: Vec3): { axis: Axis; sign: 1 | -1 } | null {
-  const i = normal.findIndex((c) => Math.abs(c) > 1 - 1e-9)
-  return i < 0 ? null : { axis: AXES[i], sign: normal[i] > 0 ? 1 : -1 }
+  const along = axisForm({ origin: [0, 0, 0], normal })
+  return along && { axis: along.axis, sign: along.sign }
 }
 
 /** A section in words, for the caption of a picture: where the plane is, and which side of it is not drawn. */

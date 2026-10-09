@@ -150,6 +150,7 @@ function fake(over: Partial<ToolDeps> & { state?: BuildState | null; noScene?: b
       return `/ws/${objectId}/.torno/views/${saved.length}.png`
     },
     // The kernel's own queries and the drawing of a section are the read tools': see readTools.test.ts.
+    addDimension: async () => Promise.reject(new Error('no dimension was expected to be added')),
     query: async () => Promise.reject(new Error('the kernel was not expected to be asked')),
     sectionDrawing: async () => Promise.reject(new Error('no drawing was expected to be asked for')),
     ...world(),

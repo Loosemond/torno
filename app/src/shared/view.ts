@@ -108,13 +108,20 @@ export function cutText(part: Pick<SectionedPart, 'part' | 'area' | 'areaExact' 
  * of which object and layout, every part name of the build (a part's colour
  * goes by its place among them) and the long edge in pixels.
  */
-export interface SectionDrawingRequest { objectId: string; layout: string; section: Sectioned; names: string[]; size: number }
+export interface SectionDrawingRequest { objectId: string; layout: string; section: Sectioned; names: string[]; size: number; spread?: boolean /* torno moved parts of this layout apart for display: the drawing says so */ }
 /**
  * The drawing. `colours` says where the parts' colours are from: `window` when
  * the window has that object open, and they are as its 3D view has them, or
  * `palette`, the colours the parts have until the person changes one.
  */
-export interface SectionDrawingResult { png: Uint8Array; width: number; height: number; colours: 'window' | 'palette' }
+export interface SectionDrawingResult {
+  png: Uint8Array
+  width: number
+  height: number
+  colours: 'window' | 'palette'
+  /** `v` runs down the sheet, not up: the plane's `y` points down in the world, and the sheet keeps the world's up. */
+  vDown: boolean
+}
 
 /** Said to the agent of a section that is no plane. */
 export const NOT_A_PLANE = 'section is not a plane: give origin and normal as three numbers each, the normal not all zeros'

@@ -1,13 +1,13 @@
 import { valueText } from '../../shared/dimension'
 import type { CheckedClearance, CheckedMesh, CheckedOverlap, Measured, MeasuredValue, SectionLoop, Sectioned } from '../../shared/geometry'
-import type { Scene } from '../../shared/scene'
+import type { Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeOf, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
 import { KernelError } from '../kernel/client'
 import { number, sizes, vector } from '../marks/describe'
 import { plain, wire } from '../marks/measure'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
-import { type PlaneArg, type ToolDeps, type ToolResult, NO_PLANE, built, clampSize, failure, layoutFor, messageOf, notOpen, ofBuild, tidy } from './tools'
+import { type PlaneArg, type ToolDeps, type ToolResult, NO_PLANE, SPREAD_NOTE, built, clampSize, failure, layoutFor, messageOf, notOpen, ofBuild, tidy } from './tools'
 
 // The tools the agent reads the part with: `measure`, `section` and `check`.
 // Each asks the kernel about the last build that worked, and answers with what
@@ -77,6 +77,40 @@ function clean<T>(value: T): T {
 
 const reply = (value: object): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value) }] })
 
+// A `print` layout whose parts overlapped as the model placed them is spread along X before anything is drawn
+// (`Part.arranged`), and the kernel answers of the parts where they are shown. What is of one part is the same
+// wherever the part is put; what is between two parts is then of torno's arrangement, and is not told as the model's.
+
+/** Whether torno moved this part to set it beside the others: only a part that was moved says how far (the first of a row stays). */
+const isSpread = (part: Part | undefined): boolean => part?.arranged !== undefined
+
+/**
+ * The refusal of a question about two parts that torno spread apart, or null
+ * when they are where the model placed them. `what` is what was asked of
+ * them: `the distance between`. It names the layouts that have both parts
+ * as placed, if any.
+ */
+function spreadApart(scene: Scene, layout: string, a: Part | undefined, b: Part | undefined, what: string): ToolResult | null {
+  if (!a || !b || a.name === b.name || !(isSpread(a) || isSpread(b))) return null
+  const placed = (name: string, of: string): boolean => {
+    const part = scene.parts.find((p) => p.layout === of && p.name === name)
+    return part !== undefined && !isSpread(part)
+  }
+  const assembled = scene.layouts.filter((of) => of !== layout && placed(a.name, of) && placed(b.name, of))
+  const where =
+    assembled.length > 0
+      ? `Ask in a layout that places the parts as assembled (layouts: ${assembled.join(', ')}), or check each part by itself.`
+      : 'This object has no layout that places its parts as assembled: check each part by itself.'
+  return failure(
+    `In layout ${layout} torno spread these parts apart for display (they overlapped as the model placed them), so ${what} ${a.name} and ${b.name} there is torno's, not the model's. ${where}`
+  )
+}
+
+/** How far torno moved the one part an answer is of, for its points to be put back by; nothing of a part that was not moved. */
+function movedBy(part: Part | undefined): { arranged?: Vec3 } {
+  return part?.arranged?.some((c) => c !== 0) ? { arranged: part.arranged } : {}
+}
+
 const BETWEEN = ['distance', 'angle']
 
 export async function measureTool(deps: ToolDeps, objectId: string, args: MeasureToolArgs): Promise<ToolResult> {
@@ -90,6 +124,9 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
     const ends = await endsOf(deps, objectId, found.scene, found.revision, layout, [['a', args.a], ...(args.b === undefined ? [] : ([['b', args.b]] as Array<['b', EndArg]>))])
     if ('content' in ends) return ends
     const [a, b] = ends
+    // An angle is the same wherever the parts are put: they are moved, never turned. A distance is not.
+    const apart = args.kind === 'distance' ? spreadApart(found.scene, layout, a.part, b?.part, 'the distance between') : null
+    if (apart) return apart
     try {
       // A wall is measured at a point of its face: with none given, at the centre of the face, which the kernel refuses when it is not on it.
       if (args.kind === 'thickness' && a.ref !== undefined && a.point === undefined) {
@@ -107,7 +144,9 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const { layout, a, b, measured } = asked.got
   const reading = measureReading(measured, a, b)
   if (reading === null) return failure('the kernel did not answer with a measurement')
-  return reply({ layout, ...ofBuild(deps, objectId), ...clean(measured), reading })
+  // Of one part: its points are where the part is shown.
+  const one = !b || b.part === undefined || b.part.name === a.part?.name ? a.part : undefined
+  return reply({ layout, ...ofBuild(deps, objectId), ...clean(measured), ...movedBy(one), reading })
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -127,7 +166,9 @@ export function measureReading(measured: Measured, a: End, b?: End): string | nu
   const roughly = exact || /approximate/.test(how) ? '' : ', approximate'
   if (measured?.kind === 'bbox') {
     if (!isVec(measured.size) || !isVec(measured.min) || !isVec(measured.max)) return null
-    return `bbox ${about}${sizes(measured.size)} mm, from ${vector(measured.min)} to ${vector(measured.max)}, ${how}${roughly}, ${ends}`
+    // A way that says nothing leaves no comma behind.
+    const taken = [how, roughly.replace(/^, /, '')].filter(Boolean).join(', ')
+    return [`bbox ${about}${sizes(measured.size)} mm`, `from ${vector(measured.min)} to ${vector(measured.max)}`, taken, ends].filter(Boolean).join(', ')
   }
   if (!finite(measured?.value)) return null
   const { kind, value } = measured
@@ -144,7 +185,8 @@ export function measureReading(measured: Measured, a: End, b?: End): string | nu
     }
     case 'thickness': {
       const at = isVec(measured.points?.[0]) ? measured.points[0] : a.point
-      return `${about}${number(value)} mm ${how}${roughly}, ${a.ref ?? ''}${at ? ` at ${vector(at)}` : ''}${moved(measured)}`
+      // Of a face, at a point of it; whatever else was named is said as it was named.
+      return `${about}${number(value)} mm ${how}${roughly}, ${a.ref !== undefined && at ? `${a.text} at ${vector(at)}` : a.text}${moved(measured)}`
     }
     case 'volume':
       return `volume ${about}${number(value)} mm³ ${how}${roughly}, ${ends}`
@@ -170,22 +212,27 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     const layout = layoutFor(deps, objectId, found.scene, args.layout)
     if (typeof layout !== 'string') return layout
+    const parts: Part[] = []
     for (const name of two ? [args.a, args.b!] : [args.a]) {
       const checked = checkRef(found.scene, layout, name)
       if (typeof checked === 'string') return failure(checked)
       if (checked.target !== 'part') return failure(`check ${args.kind} is of whole parts, and ${name} is ${checked.target === 'face' ? 'a face' : 'an edge'}: give ${checked.part.name}`)
+      parts.push(checked.part)
     }
+    const apart = two ? spreadApart(found.scene, layout, parts[0], parts[1], args.kind === 'overlap' ? 'what is shared between' : 'the distance between') : null
+    if (apart) return apart
     try {
-      return { got: { layout, checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, a: args.a, ...(two ? { b: args.b } : {}) }) } }
+      return { got: { layout, part: parts[0], checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, a: args.a, ...(two ? { b: args.b } : {}) }) } }
     } catch (e) {
       return refusal(e, layout, 'check')
     }
   })
   if ('content' in asked) return asked
-  const { layout, checked } = asked.got
+  const { layout, part, checked } = asked.got
   const reading = checkReading(args, checked)
   if (reading === null) return failure('the kernel did not answer with a check')
-  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), reading })
+  // Where the open edges of a mesh are is where its part is shown.
+  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two ? {} : movedBy(part)), reading })
 }
 
 /** A check in a line. Null for a reply that is none. */
@@ -223,7 +270,7 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     const layout = layoutFor(deps, objectId, found.scene, args.layout)
     if (typeof layout !== 'string') return layout
-    const plane = planeAsked(deps, objectId, found.obj, args.plane)
+    const plane = planeAsked(deps, objectId, found.obj, args.plane, layout)
     if ('content' in plane) return plane
     for (const name of args.parts ?? []) {
       const checked = checkRef(found.scene, layout, name)
@@ -241,12 +288,18 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   if ('content' in asked) return asked
   const { layout, cut } = asked.got
   const { found } = asked
+  // The build the outlines were cut on, said now: drawing them takes a while, and another build may land meanwhile.
+  const of = { ...ofBuild(deps, objectId), revision: found.revision }
+  const inLayout = (name: string): Part | undefined => found.scene.parts.find((p) => p.layout === layout && p.name === name)
+  // Torno moved parts of this layout apart: the cut is of them where they are shown.
+  const spread = cut.parts.some((part) => isSpread(inLayout(part.part)))
 
   // One part is given in full; of several, each loop in no more points than can be read.
   const full = args.parts?.length === 1
   let thinnedAny = false
   const parts = cut.parts.map((part) => ({
     ...clean({ ...part, loops: undefined }),
+    ...(spread ? { arranged: inLayout(part.part)?.arranged ?? [0, 0, 0] } : {}),
     loops: part.loops.map((loop) => {
       const kept = full ? null : thinned(loop, MAX_LOOP_POINTS)
       if (kept) thinnedAny = true
@@ -256,19 +309,22 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   }))
   const extent = cut.bounds ? ([cut.bounds.max[0] - cut.bounds.min[0], cut.bounds.max[1] - cut.bounds.min[1]] as [number, number]) : null
   const along = axisForm(cut.plane)
-  const title = `${planeText(cut.plane)} · layout ${layout}`
-  const reading = extent
+  const title = `${planeText(cut.plane)} · layout ${layout}${spread ? ' (parts spread for display)' : ''}`
+  const read = extent
     ? `${title}: ${cut.parts.map((part) => `${cutText(part)} in ${part.loops.length} loop${part.loops.length === 1 ? '' : 's'}`).join('; ')}; the cut is ${sizes(extent)} mm`
     : `${title}: the plane cuts ${args.parts ? 'none of these parts' : 'nothing'}`
+  const reading = spread ? `${read}. ${SPREAD_NOTE}` : read
 
   const content: ToolResult['content'] = []
   let image: string
   if (!extent) image = 'not drawn: there is nothing to draw'
   else {
     try {
-      const drawing = await deps.sectionDrawing({ objectId, layout, section: cut, names: found.scene.parts.map((p) => p.name), size: clampSize(args.size) })
+      const drawing = await deps.sectionDrawing({ objectId, layout, section: cut, names: found.scene.parts.map((p) => p.name), size: clampSize(args.size), spread })
       content.push({ type: 'image', data: Buffer.from(drawing.png).toString('base64'), mimeType: 'image/png' })
-      image = `${drawing.width}×${drawing.height}, ${coloursText(drawing, found.obj)}, ${await saved(deps, objectId, drawing.png)}`
+      // The points are [u, v] whichever way the sheet is turned: where v runs down it, that is said.
+      const turned = drawing.vDown ? ', v runs down the sheet so that what is up in the world is up on it' : ''
+      image = `${drawing.width}×${drawing.height}, ${coloursText(drawing, found.obj)}${turned}, ${await saved(deps, objectId, drawing.png)}`
     } catch (e) {
       // The outlines are the answer: they are given whether or not they could be drawn.
       image = `not drawn: ${messageOf(e)}`
@@ -278,7 +334,8 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
     type: 'text',
     text: JSON.stringify({
       layout,
-      ...ofBuild(deps, objectId),
+      ...of,
+      ...(spread ? { note: SPREAD_NOTE } : {}),
       plane: { ...clean(cut.plane), ...(along && along.sign > 0 ? { axis: along.axis, at: clean(along.at) } : {}) },
       parts,
       bounds: clean(cut.bounds),
@@ -304,11 +361,15 @@ function coloursText(drawing: SectionDrawingResult, obj: ObjectInfo): string {
 }
 
 /** The plane a section is asked by: the user's own for `'current'`, which only the object on screen has. */
-function planeAsked(deps: ToolDeps, objectId: string, obj: ObjectInfo, asked: SectionToolArgs['plane']): SectionPlane | ToolResult {
+function planeAsked(deps: ToolDeps, objectId: string, obj: ObjectInfo, asked: SectionToolArgs['plane'], layout: string): SectionPlane | ToolResult {
   if (asked !== 'current') return planeOf(asked) ?? failure(NO_PLANE)
   const open = deps.openObjectId()
   if (open !== objectId) return failure(`${notOpen(obj, open)}, so the user's section of it is not known: give a plane`)
-  return deps.view(objectId)?.section ?? failure('the user has no section on screen: give a plane, as {origin, normal} or {axis, at}')
+  const view = deps.view(objectId)
+  if (!view?.section) return failure('the user has no section on screen: give a plane, as {origin, normal} or {axis, at}')
+  // Their plane is laid across the parts they are looking at: in another layout it would cut somewhere they never chose.
+  if (view.layout !== layout) return failure(`the user's section is of layout ${view.layout}, the one they are viewing, not of ${layout}: leave layout out, or give a plane`)
+  return view.section
 }
 
 /**

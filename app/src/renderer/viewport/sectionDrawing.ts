@@ -29,6 +29,11 @@ const DEFAULT_SIZE = 1280
 const MAX_LEGEND = 8
 /** The cut is drawn with this share of its longer side left free around it. */
 const MARGIN = 0.08
+/**
+ * How opaque a part's cut is filled: not wholly, so that where two parts lie over each other (an interference)
+ * the sheet shows a darker region, of both colours, where one alone would hide the other.
+ */
+export const FILL_ALPHA = 0.8
 /** The shorter edge of the sheet is at least this share of the longer: a cut that is a sliver is not drawn on one. */
 const LEAST_ASPECT = 0.45
 
@@ -143,7 +148,7 @@ function axisName(name: string, along: Vec3): string {
 }
 
 /** What is set in the mono face in a line of words: numbers with their units, coordinates, the letters of axes. */
-const FIGURES = /(\([^)]*\)|[+-][XYZ]\b|\b[xyzuv] = -?[\d.]+|≈ ?-?[\d.,]+(?: mm²| mm|°)?|-?\d[\d.,]*(?: mm²| mm|°)?)/
+const FIGURES = /(\(-?[\d.]+(?:, -?[\d.]+)*\)|[+-][XYZ]\b|\b[xyzuv] = -?[\d.]+|≈ ?-?[\d.,]+(?: mm²| mm|°)?|-?\d[\d.,]*(?: mm²| mm|°)?)/
 
 /**
  * Draws a section on a sheet laid out for it (`sectionSheet`): the grid, each
@@ -181,7 +186,9 @@ export function drawSection(ctx: Ctx, sheet: Sheet, section: Sectioned, colourOf
     ctx.beginPath()
     for (const loop of closed) trace(loop.points, true)
     ctx.fillStyle = colourOf(part.part)
+    ctx.globalAlpha = FILL_ALPHA
     ctx.fill('evenodd')
+    ctx.globalAlpha = 1
   }
   for (const part of section.parts) {
     ctx.strokeStyle = edgeTint(colourOf(part.part))
@@ -209,8 +216,11 @@ export function drawSection(ctx: Ctx, sheet: Sheet, section: Sectioned, colourOf
       return
     }
     const swatch = 9 * unit
+    // As the part is filled on the sheet.
     ctx.fillStyle = colourOf(line.part)
+    ctx.globalAlpha = FILL_ALPHA
     ctx.fillRect(pad, y - swatch, swatch, swatch)
+    ctx.globalAlpha = 1
     ctx.strokeStyle = edgeTint(colourOf(line.part))
     ctx.lineWidth = unit
     ctx.strokeRect(pad + unit / 2, y - swatch + unit / 2, swatch - unit, swatch - unit)
@@ -273,8 +283,8 @@ function drawGrid(ctx: Ctx, sheet: Sheet): void {
   ctx.textAlign = 'right'
   ctx.fillText(`${sheet.axes.u}, mm`, right, bottom + 34 * unit)
   ctx.textAlign = 'left'
-  // At the end of the axis the numbers grow towards.
-  ctx.fillText(`${sheet.axes.v}, mm`, plot.x - 44 * unit, sheet.vDown ? bottom + 34 * unit : plot.y - 12 * unit)
+  // Above the numbers of `v`, clear of those of `u`, whichever way `v` runs: an arrow says when that is down.
+  ctx.fillText(`${sheet.axes.v}${sheet.vDown ? ' ↓' : ''}, mm`, plot.x - 44 * unit, plot.y - 12 * unit)
 }
 
 /** How far the whole cut reaches: a dimension line above it, along `u`, and one to its right, along `v`, each with its length. */
@@ -332,10 +342,20 @@ function words(ctx: Ctx, text: string, x: number, y: number, style: { size: numb
   let at = x
   text.split(FIGURES).forEach((run, i) => {
     if (run === '') return
-    // The mono face is wider: a touch smaller, it sits level with the words beside it.
-    ctx.font = i % 2 === 1 ? `${style.size * 0.94}px ${MONO}` : `${style.size}px ${SANS}`
-    ctx.fillText(run, at, y)
-    at += ctx.measureText(run).width
+    if (i % 2 === 0) {
+      ctx.font = `${style.size}px ${SANS}`
+      ctx.fillText(run, at, y)
+      at += ctx.measureText(run).width
+      return
+    }
+    // The mono face is wider: a touch smaller, it sits level with the words beside it. Its space is as wide as
+    // a letter, which reads as a gap in a line of words: the pieces of a figure are set a word's space apart.
+    ctx.font = `${style.size * 0.94}px ${MONO}`
+    for (const [n, piece] of run.split(' ').entries()) {
+      if (n > 0) at += style.size * 0.28
+      ctx.fillText(piece, at, y)
+      at += ctx.measureText(piece).width
+    }
   })
   return at
 }
@@ -345,7 +365,12 @@ function words(ctx: Ctx, text: string, x: number, y: number, style: { size: numb
  * on a canvas of its own: nothing on screen is touched, and it works while
  * the window is hidden.
  */
-export async function sectionPng(section: Sectioned, layout: string, colourOf: (part: string) => string, size?: number): Promise<{ png: Uint8Array; width: number; height: number } | null> {
+export async function sectionPng(
+  section: Sectioned,
+  layout: string,
+  colourOf: (part: string) => string,
+  size?: number
+): Promise<{ png: Uint8Array; width: number; height: number; vDown: boolean } | null> {
   const sheet = sectionSheet(section, layout, size)
   if (!sheet) return null
   // A canvas does not wait for a web face: text drawn before it has come is in the fallback.
@@ -355,5 +380,5 @@ export async function sectionPng(section: Sectioned, layout: string, colourOf: (
   if (!ctx) throw new Error('could not get a 2D canvas to draw the section on')
   drawSection(ctx, sheet, section, colourOf)
   const blob = await canvas.convertToBlob({ type: 'image/png' })
-  return { png: new Uint8Array(await blob.arrayBuffer()), width: sheet.width, height: sheet.height }
+  return { png: new Uint8Array(await blob.arrayBuffer()), width: sheet.width, height: sheet.height, vDown: sheet.vDown }
 }

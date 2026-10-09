@@ -219,7 +219,7 @@ export async function sectionDrawing(req: SectionDrawingRequest): Promise<Sectio
   const open = s.objectId === req.objectId
   const byName = colorsByName(req.names)
   const colourOf = (part: string): string => (open ? s.layers[part]?.color : undefined) ?? byName.get(part) ?? colorFor(part, -1)
-  const drawn = await sectionPng(req.section, req.layout, colourOf, req.size)
+  const drawn = await sectionPng(req.section, req.spread ? `${req.layout} (parts spread for display)` : req.layout, colourOf, req.size)
   if (!drawn) throw new Error('the plane cuts nothing')
   return { ...drawn, colours: open ? 'window' : 'palette' }
 }
