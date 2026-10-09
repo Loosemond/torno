@@ -15,7 +15,8 @@ import type { Camera } from '../src/shared/view'
 const appDir = resolve(__dirname, '..')
 const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
 const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
-const STALE = 'Rebuilding: picks wait for the new build'
+const REBUILDING = 'Rebuilding: picks wait for the new build'
+const FAILED = 'The last build failed: picks wait for a build that works'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -136,6 +137,11 @@ test('an edge within reach wins over the face under it, unless only faces are as
   const said = await page.evaluate((ref) => window.torno.geometry.describe('bracket', 'assembly', ref), edge.ref)
   expect(said).toMatchObject({ kind: 'edge', type: 'line', length: 30 })
   expect(said.descriptor).toBe('line, 30 mm')
+  // Four edges of the base are lines of 30 mm. The kernel's is the one that was picked: a straight edge
+  // along Y through the point picked, so its middle is that point brought to the middle of the base's
+  // width, which is about y = 0.
+  if (said.kind !== 'edge') throw new Error('not an edge')
+  for (const [i, c] of [edge.point[0], 0, edge.point[2]].entries()) expect(said.center[i]).toBeCloseTo(c, 2)
 
   expect(await pickOver([19.7, 9, 2.5], { edges: false })).toMatchObject({ part: 'base', kind: 'face' })
   // Nothing beside the parts.
@@ -257,7 +263,8 @@ test('on a stale build nothing is picked, and the pointer is told why; the new b
 
   const [x, y] = await pageXY([-14, -9, 2.5])
   await page.mouse.move(x, y)
-  await expect(readout()).toHaveText(STALE)
+  // Nothing is being built: the sentence does not say that something is.
+  await expect(readout()).toHaveText(FAILED)
   await page.mouse.down()
   await page.mouse.up()
   // Off the parts there is nothing to refuse, and a click there clears nothing either.
@@ -268,15 +275,21 @@ test('on a stale build nothing is picked, and the pointer is told why; the new b
   await page.mouse.up()
   expect((await state()).selection).toEqual(before.selection)
 
-  writeFileSync(model(), source)
+  // A model that takes its time: while it is built, the parts on screen are still the old ones.
+  writeFileSync(model(), `${source}\nimport time\n\ntime.sleep(2)\n`)
+  await expect.poll(async () => (await state()).build, { timeout: 20_000 }).toMatchObject({ status: 'building', stale: true })
+  await page.mouse.move(x + 1, y)
+  await expect(readout()).toHaveText(REBUILDING)
   await expect.poll(async () => (await state()).build, { timeout: 20_000 }).toMatchObject({ status: 'ok', stale: false, revision: before.revision + 1 })
   expect((await state()).selection).toEqual([])
   await expect(page.locator('.selection')).toHaveCount(0)
+  writeFileSync(model(), source)
+  await expect.poll(async () => (await state()).build, { timeout: 20_000 }).toMatchObject({ status: 'ok', stale: false, revision: before.revision + 2 })
 
   // And picking works again, on the new build.
   await clickOver(ON_BASE)
   await expect.poll(async () => (await state()).selection).toHaveLength(1)
-  await expect(readout()).not.toHaveText(STALE)
+  await expect(readout()).not.toHaveText(/picks wait/)
 })
 
 test('the selection is of the layout shown: another layout empties it', async () => {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { BuildState } from '../../shared/build'
 import type { Scene } from '../../shared/scene'
 import type { LookRequest, LookResult } from '../../shared/view'
 import { describe, descriptorOf } from '../state/descriptors'
@@ -45,8 +46,14 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
 
 /** How long the pointer rests on a face or an edge before the kernel is asked what it is. */
 const DESCRIBE_AFTER_MS = 150
-/** Said at the pointer while the parts on screen are older than the model: their refs would name the wrong geometry. */
-const STALE_MESSAGE = 'Rebuilding: picks wait for the new build'
+/**
+ * Said at the pointer while the parts on screen are older than the model:
+ * their refs would name the wrong geometry. Which sentence depends on whether
+ * a build is on its way or the last one failed and nothing is.
+ */
+function staleMessage(status: BuildState['status'] | undefined): string {
+  return status === 'failed' ? 'The last build failed: picks wait for a build that works' : 'Rebuilding: picks wait for the new build'
+}
 
 /**
  * The select tool: what is under the pointer is marked and named beside it,
@@ -136,7 +143,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (!s.scene) return
     if (!s.build?.stale) return tool?.pointer(e)
     // Refs of the old build would name other faces in the new one: nothing is picked.
-    if (e.hit) readout.say(e.client, STALE_MESSAGE)
+    if (e.hit) readout.say(e.client, staleMessage(s.build.status))
     else readout.hide()
   })
 
