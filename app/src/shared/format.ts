@@ -27,6 +27,14 @@ export function fitNumber(mm: number): string {
   return number(Math.round(mm * 1000) / 1000)
 }
 
+/**
+ * A length or a coordinate taken from a scan, in millimetres: to the tenth, and never -0. A scan is true to a
+ * few millimetres at best; `0.008139 mm` of one says nothing `0 mm` does not, and reads as if it did.
+ */
+export function scanNumber(mm: number): string {
+  return number(Math.round(mm * 10) / 10 + 0)
+}
+
 /** How many of something: a whole number with its thousands set apart, `1,598,472`. */
 export function count(n: number): string {
   return n.toLocaleString('en-US')

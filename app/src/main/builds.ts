@@ -266,6 +266,11 @@ export class Builds {
     } catch (e) {
       const gone = e instanceof KernelError && e.kind === 'no_build'
       if (!gone || this.entries.get(objectId) !== entry) throw e
+      // Let go to make room for another object's build: the status says so until a build of this one lands.
+      if (e.reason === 'memory' && !entry.letGo) {
+        entry.letGo = true
+        this.set(entry, { ...entry.state })
+      }
     }
     if (opts?.restore === false) throw new KernelError('no_build', NOT_HELD)
     // A build of it that is running or waiting may be of sources that changed since: that one is waited for.

@@ -1,4 +1,4 @@
-import { count as counted, number } from '../../shared/format'
+import { count as counted, number, scanNumber } from '../../shared/format'
 import { expectedText, lastValue, measuredValue, notMeasuredText, offBy, onBuild, standingOf, valueText } from '../../shared/dimension'
 import { type Anchor, type DimensionMark, type Mark, type RegionMark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
 import { isFlat, regionInLayout } from '../../shared/regions'
@@ -14,6 +14,10 @@ export { number }
 export function vector(v: readonly number[]): string {
   return `(${v.map(number).join(', ')})`
 }
+
+/** A point or a size taken from a scan, to the tenth of a millimetre (`scanNumber`): `(12, 40.5, 20)`, `40 × 30.1 × 5`. */
+export const scanVector = (v: readonly number[]): string => `(${v.map(scanNumber).join(', ')})`
+const scanSizes = (v: readonly number[]): string => v.map(scanNumber).join(' × ')
 
 /** `40 × 30 × 5` */
 export function sizes(v: readonly number[]): string {
@@ -147,7 +151,7 @@ function direction(axis: readonly number[]): string {
 /** `≈ 200 × 10 × 2 mm, its long side along (0.71, 0.71, 0)`: the size a region has along its own axes, and which way its longest runs when one is. */
 function ownSize(box: RegionMark['local']['box'], directed: boolean): string {
   const [long, middle] = box.half
-  return `≈ ${sizes(box.half.map((half) => 2 * half))} mm${directed && long > 1.2 * middle ? `, its long side along ${direction(box.axes[0])}` : ''}`
+  return `≈ ${scanSizes(box.half.map((half) => 2 * half))} mm${directed && long > 1.2 * middle ? `, its long side along ${direction(box.axes[0])}` : ''}`
 }
 
 /** Why an orphaned region is one: its scan is gone, or is another mesh; which of the two only when the scans are known. */
@@ -173,9 +177,9 @@ function region(mark: RegionMark, opts: { layout?: string; scans?: readonly Scan
   const placed = placeOf(mark, layout, opts.scans)
   if (!placed) return `${head} (not aligned in ${layout}, so it has no place in the model’s frame): ${size(mark.area)}, ${ownSize(mark.local.box, false)}, ${isFlat(mark.local.box) ? 'flat' : 'not flat'}`
   const { there } = placed
-  const within = sizes(there.bbox.max.map((c, axis) => c - there.bbox.min[axis]))
+  const within = scanSizes(there.bbox.max.map((c, axis) => c - there.bbox.min[axis]))
   const plane = there.flat ? `flat about a plane with normal ≈ ${direction(there.box.axes[2])}` : 'not flat'
-  return `${head}: ${size(there.area)}, centre ≈ ${vector(there.centroid)}, ${ownSize(there.box, true)}, within a box of ≈ ${within} mm, ${plane}`
+  return `${head}: ${size(there.area)}, centre ≈ ${scanVector(there.centroid)}, ${ownSize(there.box, true)}, within a box of ≈ ${within} mm, ${plane}`
 }
 
 /** Said after a region whose place rests on an alignment that is rough, in doubt or not checked against the build: where it is told is only as good as that. */

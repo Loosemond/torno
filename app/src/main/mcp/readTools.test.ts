@@ -123,7 +123,7 @@ describe('the descriptions of the tools that read the part', () => {
   it('say what is returned, in what units, when to use each, and that values are exact unless the reply says approximate', () => {
     for (const tool of [TOOLS.measure, TOOLS.check]) expect(tool.description).toMatch(/exact, from the B-rep, unless the reply .* approximate/)
     expect(TOOLS.measure.description).toContain('mm, degrees, mm², mm³ and grams')
-    expect(TOOLS.section.description).toContain('an answer holds at most 4,000 points in all')
+    expect(TOOLS.section.description).toContain('an answer holds at most 1,500 points in all')
     expect(TOOLS.add_mark.description).toContain('becomes a pinned check the user sees')
   })
 })
@@ -263,7 +263,7 @@ describe('measure', () => {
     // A way that already says it is approximate is not followed by the word twice.
     const rough = fake(() => ({ kind: 'distance', value: 1, unit: 'mm', how: 'minimum, approximate', exact: false }), scanned(TWO_PAIRS, { checks: { assembly: { revision: 4, of: 2, off: 0, worst: 0, moved: [] } } }))
     expect(data(await measureTool(rough, 'box', { kind: 'distance', a: 'tub/F5', b: { scan: 'S1', point: [0, 0, 1] } })).reading).toBe(
-      'S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) given as a point of S1. S1 is aligned by 2 pairs (rms 0 mm, worst 0 mm).'
+      'S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) given as a point of S1. S1 is aligned by 2 pairs (rms 0 mm, worst 0 mm): that rms is of the clicked points, and says nothing of how true the scan is.'
     )
   })
 
@@ -287,7 +287,7 @@ describe('measure', () => {
   it('refuses a scan end where the scan is not aligned, against a part torno moved, and what is no such end', async () => {
     const deps = fake(undefined, scanned())
     expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5', layout: 'print' }))).toBe(
-      'S1 is not aligned in layout print (it is aligned in: assembly), so nothing is checked against it there: the user aligns it with the Align tool, or ask in that layout'
+      'S1 is not aligned in layout print (it is aligned in: assembly), so nothing is checked against it there: the user aligns it in print with the Align tool (an alignment is of one layout), or ask in assembly'
     )
     const END = 'a names nothing: a point of a scan is {"scan": "S1", "point": [x, y, z]}, in mm in the frame of the layout'
     expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1' } as never, b: 'tub/F5' }))).toBe(END)
@@ -397,7 +397,7 @@ describe('section', () => {
     )
   })
 
-  it('holds at most 4,000 points in all, shared among the loops by their length, whether or not one part is named, and says so', async () => {
+  it('holds at most 1,500 points in all, shared among the loops by their length, whether or not one part is named, and says so', async () => {
     const circle = (r: number, n: number): [number, number][] => Array.from({ length: n }, (_, i): [number, number] => [r * Math.cos((i * 2 * Math.PI) / n), r * Math.sin((i * 2 * Math.PI) / n)])
     // Under the budget nothing is thinned, however many points one loop has.
     const few: Sectioned = { ...CUT, parts: [{ ...CUT.parts[0], loops: [loop(circle(20, 1000), 1256.6), loop(square(4), -16)], area: 1240.6 }], bounds: { min: [-20, -20], max: [20, 20] } }
@@ -429,16 +429,16 @@ describe('section', () => {
     }
   })
 
-  it('leaves out the smallest loops when there are more than 500, and counts them', async () => {
+  it('leaves out the smallest loops when there are more than 187, and counts them', async () => {
     const ring = (r: number): [number, number][] => Array.from({ length: 12 }, (_, i): [number, number] => [r * Math.cos((i * Math.PI) / 6), r * Math.sin((i * Math.PI) / 6)])
     const loops = Array.from({ length: 620 }, (_, i) => loop(ring(1 + i), -1))
     const sieve: Sectioned = { ...CUT, parts: [{ ...CUT.parts[0], loops: loops.slice(0, 600) }, { ...CUT.parts[0], part: 'lid', loops: loops.slice(600) }] }
     const told = data(await sectionTool(fake(() => sieve), 'box', { plane: { axis: 'z', at: 3 } })) as never as { thinned: boolean; points: number; of: number; loopsOmitted: number; reading: string; parts: Array<{ loopsOmitted?: number; loops: SectionLoop[] }> }
-    expect(told).toMatchObject({ thinned: true, of: 620 * 12, loopsOmitted: 120 })
+    expect(told).toMatchObject({ thinned: true, of: 620 * 12, loopsOmitted: 433 })
     expect(told.points).toBeLessThanOrEqual(MAX_SECTION_POINTS)
-    expect(told.parts.map((p) => [p.loops.length, p.loopsOmitted])).toEqual([[480, 120], [20, undefined]])
+    expect(told.parts.map((p) => [p.loops.length, p.loopsOmitted])).toEqual([[167, 433], [20, undefined]])
     // The smallest are the ones left out, and each kept has eight points at least.
-    expect(Math.hypot(...told.parts[0].loops[0].points[0])).toBeCloseTo(121)
+    expect(Math.hypot(...told.parts[0].loops[0].points[0])).toBeCloseTo(434)
     expect(Math.min(...told.parts.flatMap((p) => p.loops.map((l) => l.points.length)))).toBeGreaterThanOrEqual(8)
     // The reading counts the loops the kernel cut.
     expect(told.reading).toContain('in 600 loops')
@@ -458,30 +458,61 @@ describe('section', () => {
     const deps = fake((name) => (name === 'section' ? CUT : OUTLINE), scanned())
     const result = await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S1' })
     expect(deps.queries.map((q) => q.name)).toEqual(['section', 'scan_section'])
-    expect(deps.queries[1].args).toEqual({ layout: 'assembly', plane: { origin: [0, 0, 3], normal: [0, 0, 1] }, scan: { id: 'S1', path: '/ws/box/.torno/scans/S1/mesh.bin', transform: { t: [0, 0, 10], q: [0, 0, 0, 1], s: 1 }, ignore: [], only: null } })
+    expect(deps.queries[1].args).toEqual({ layout: 'assembly', plane: { origin: [0, 0, 3], normal: [0, 0, 1] }, points: 1500, scan: { id: 'S1', path: '/ws/box/.torno/scans/S1/mesh.bin', transform: { t: [0, 0, 10], q: [0, 0, 0, 1], s: 1 }, ignore: [], only: null } })
     const said = data(result) as any
-    expect(said.scan).toEqual({ id: 'S1', alignment: { state: 'aligned', basis: 'hand', by: 'by hand (typed values)', steps: ['typed'], tied: 0, note: 'tied to no point of the model: not checked against builds' }, polylines: [{ points: [[-5, 2], [20, 2], [45, 3]], closed: false }], points: 3, of: 3, bounds: { min: [-5, 2], max: [45, 3] }, exact: false, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
+    expect(said.scan).toEqual({ id: 'S1', alignment: { state: 'aligned', basis: 'hand', by: 'by hand (typed values)', steps: ['typed'], tied: 0 }, polylines: [{ points: [[-5, 2], [20, 2], [45, 3]], closed: false }], points: 3, of: 3, bounds: { min: [-5, 2], max: [45, 3] }, exact: false, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
     expect(said.reading).toBe('plane normal +Z at z = 3 · layout assembly: tub 1500 mm² in 2 loops; the cut is 40 × 40 mm. S1 was placed by hand: no fit says how well. ≈ S1 (a scan, approximate) crosses the plane in 1 line. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).')
     expect(deps.drawings[0].scan).toEqual({ id: 'S1', polylines: OUTLINE.polylines })
     expect(result.content.some((block) => block.type === 'image')).toBe(true)
   })
 
-  it('tells a scan cut in at most 2,000 points, and says of how many; draws it though no part is cut; says its doubt first', async () => {
-    const long = Array.from({ length: 3000 }, (_, i): [number, number] => [i / 10, Math.sin(i / 50) * 20])
-    const many = { ...OUTLINE, polylines: [{ points: long, closed: false }, { points: [[0, 0], [1, 0], [1, 1]], closed: true }], omitted: 2, pointsFound: 9000, pointsTold: 3003, thinned: true, bounds: { min: [0, -20], max: [299.9, 20] } }
-    const deps = fake((name) => (name === 'section' ? { ...CUT, parts: [{ ...CUT.parts[0], loops: [], area: 0 }], bounds: null } : many), scanned(FOUR_PAIRS, { checks: { assembly: { revision: 4, of: 4, off: 1, worst: 3, moved: [] } } }))
+  // Final fix wave (I9): one budget for the whole reply, and the kernel is told how many points of the scan to tell.
+  /** What the kernel says of a scan cut in a wavy line 300 mm long with 9,000 points found: as many of them as it was asked for. */
+  const waved = (args: { points?: number }) => {
+    const told = Math.min(args.points ?? 2000, 9000)
+    return { ...OUTLINE, polylines: [{ points: Array.from({ length: told - 3 }, (_, i): [number, number] => [(i * 300) / (told - 4), Math.sin(i / 50) * 2]), closed: false }, { points: [[0, 0], [1, 0], [1, 1]], closed: true }], omitted: 2, pointsFound: 9000, pointsTold: told, thinned: true, bounds: { min: [0, -20], max: [300, 20] } }
+  }
+
+  it('tells a scan cut in as many points as the reply has room for, asked of the kernel, and says of how many; draws it though no part is cut; says its doubt first', async () => {
+    const deps = fake((name, args) => (name === 'section' ? { ...CUT, parts: [{ ...CUT.parts[0], loops: [], area: 0 }], bounds: null } : waved(args)), scanned(FOUR_PAIRS, { checks: { assembly: { revision: 4, of: 4, off: 1, worst: 3, moved: [] } } }))
     const result = await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S1' })
     const said = data(result) as any
     const told = said.scan.polylines.reduce((sum: number, line: { points: unknown[] }) => sum + line.points.length, 0)
-    expect(told).toBeLessThanOrEqual(2000)
+    expect(told).toBe(1500)
+    // Asked once: the kernel thinned them, and nothing is thinned again here.
+    expect(deps.queries.map((q) => [q.name, (q.args as { points?: number }).points])).toEqual([['section', undefined], ['scan_section', 1500]])
     expect(said.scan).toMatchObject({ points: told, of: 9000, thinned: true, linesOmitted: 2 })
-    expect(said.reading).toContain(`crosses the plane in 2 lines, told in ${told.toLocaleString('en-US')} of the 9,000 points found, and 2 more that are not told`)
     expect(said.reading).toBe(
-      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, told in " + told.toLocaleString('en-US') + " of the 9,000 points found, and 2 more that are not told. S1 is aligned by 4 pairs (rms 0 mm, worst 0 mm)."
+      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, told in 1,500 of the 9,000 points found, and 2 more that are not told. S1 is aligned by 4 pairs (rms 0 mm, worst 0 mm): that rms is of the clicked points, and says nothing of how true the scan is."
     )
-    // The window is given every point the kernel told: the drawing is not made from the thinned ones.
-    expect(deps.drawings[0].scan!.polylines[0].points).toHaveLength(3000)
-    expect(deps.drawings[0].section.bounds).toEqual({ min: [0, -20], max: [299.9, 20] })
+    expect(deps.drawings[0].scan!.polylines[0].points).toHaveLength(1497)
+    expect(deps.drawings[0].section.bounds).toEqual({ min: [0, -20], max: [300, 20] })
+  })
+
+  it('has one budget of 1,500 points for the parts and the scan together, shared by length, and says what was thinned', async () => {
+    const circle = (r: number, n: number): [number, number][] => Array.from({ length: n }, (_, i): [number, number] => [r * Math.cos((i * 2 * Math.PI) / n), r * Math.sin((i * 2 * Math.PI) / n)])
+    // An outline of the part about as long as the scan's line (2π × 48 ≈ 300 mm), in 4,000 points.
+    const round: Sectioned = { ...CUT, parts: [{ ...CUT.parts[0], loops: [loop(circle(48, 4000), 7238)], area: 7238 }], bounds: { min: [-48, -48], max: [48, 48] } }
+    const deps = fake((name, args) => (name === 'section' ? round : waved(args)), scanned())
+    const said = data(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S1' })) as any
+    const ofParts = said.parts[0].loops[0].points.length
+    const ofScan = said.scan.polylines.reduce((sum: number, line: { points: unknown[] }) => sum + line.points.length, 0)
+    expect(ofParts + ofScan).toBeLessThanOrEqual(1500)
+    expect(ofParts + ofScan).toBeGreaterThan(1480)
+    // About half each: they are about as long.
+    expect(ofParts / ofScan).toBeGreaterThan(0.8)
+    expect(ofParts / ofScan).toBeLessThan(1.25)
+    // The scan's share is asked of the kernel: its lines are thinned once, by it.
+    expect(deps.queries.map((q) => [q.name, (q.args as { points?: number }).points])).toEqual([['section', undefined], ['scan_section', 1500], ['scan_section', ofScan]])
+    expect(said).toMatchObject({ thinned: true, points: ofParts, of: 4000, budget: 1500 })
+    expect(said.scan).toMatchObject({ points: ofScan, of: 9000, thinned: true })
+    expect(said.reading).toContain(`; the cut is 96 × 96 mm, its outlines told in ${ofParts.toLocaleString('en-US')} of the 4,000 points cut (a reply holds 1,500 in all)`)
+    expect(said.reading).toContain(`told in ${ofScan.toLocaleString('en-US')} of the 9,000 points found`)
+    // The drawing is made from all the kernel first told.
+    expect(deps.drawings[0].section.parts[0].loops[0].points).toHaveLength(4000)
+    expect(deps.drawings[0].scan!.polylines[0].points).toHaveLength(1497)
+    expect(TOOLS.section.description).toContain('at most 1,500 points in all')
+    expect(MAX_SECTION_POINTS).toBe(1500)
   })
 
   it('asks nothing of the kernel for a scan that is not aligned, or that is none', async () => {

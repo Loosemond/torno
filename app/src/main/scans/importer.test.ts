@@ -52,6 +52,21 @@ describe('the import process', () => {
     }
   })
 
+  // Final fix wave (K10): the paths come after `--`, so that none is ever read as a flag.
+  it('gives the process its flags, then two dashes, then the paths', async () => {
+    const asked: string[][] = []
+    const answer = "console.log(JSON.stringify({ ok: true, unit: 'mm' }))"
+    const one = processImporter((args) => (asked.push(args), ['node', '-e', answer]), process.cwd())
+    await one.import('/a.stl', '/out.bin', { unit: 'm', up: 'y' })
+    await one.import('-odd.stl', '/out.bin', {})
+    await one.convert('/m.bin', { unit: 'mm', up: 'z' }, { unit: 'm', up: 'y' })
+    expect(asked).toEqual([
+      ['import', '--unit', 'm', '--up', 'y', '--', '/a.stl', '/out.bin'],
+      ['import', '--', '-odd.stl', '/out.bin'],
+      ['convert', '--from-unit', 'mm', '--to-unit', 'm', '--from-up', 'z', '--to-up', 'y', '--', '/m.bin']
+    ])
+  })
+
   it('runs one at a time, and starts nothing that was asked for before the workspace was left', async () => {
     const started: string[] = []
     const answer = "setTimeout(() => console.log(JSON.stringify({ ok: true, unit: 'mm' })), 150)"

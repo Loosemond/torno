@@ -282,7 +282,7 @@ const sectionInput = {
   layout: z.string().optional().describe('The layout to cut, as listed by scene. Default: the one on screen.'),
   size: z.number().optional().describe(`Long edge of the drawing in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`),
   deflection: z.unknown().optional().describe('How far the outlines may stray from the true ones, in mm, 0.005 to 0.05. Default 0.01.'),
-  scan: loose(z.string()).optional().describe('The number of a scan (S1) to cut by the same plane: where it crosses the plane is added to the drawing as a dashed hairline and to the JSON under scan, in at most 2,000 points, approximate. Refused where the scan is not aligned.')
+  scan: loose(z.string()).optional().describe('The number of a scan (S1) to cut by the same plane: where it crosses the plane is added to the drawing as a dashed hairline and to the JSON under scan, to 0.1 mm, in its share of the 1,500 points an answer holds, approximate. Refused where the scan is not aligned.')
 }
 
 const scansInput = {
@@ -414,7 +414,7 @@ export const TOOLS = {
   },
   section: {
     description:
-      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. A loop is a polyline within its deflection of the true outline (0.01 mm unless you give another, more when thinned: an answer holds at most 4,000 points in all, shared among the loops by their length, and says thinned, of and loopsOmitted when it left any out), and an area is the kernel's, exact only where areaExact is true. Use it to see inside a part and to check a wall or a fit across a cut, with scan to see where that scan crosses the same plane (drawn dashed and given under scan, approximate); to see the cut in 3D as the user would, call look with a section.",
+      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. A loop is a polyline within its deflection of the true outline (0.01 mm unless you give another, more when thinned: an answer holds at most 1,500 points in all, the parts' outlines and a scan's lines together, shared by their length, and says thinned, points, of and loopsOmitted when it left any out), and an area is the kernel's, exact only where areaExact is true. Use it to see inside a part and to check a wall or a fit across a cut, with scan to see where that scan crosses the same plane (drawn dashed and given under scan, approximate); to see the cut in 3D as the user would, call look with a section.",
     inputSchema: sectionInput
   },
   check: {

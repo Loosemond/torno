@@ -87,10 +87,11 @@ export function processImporter(command: (args: string[]) => string[], cwd: stri
 
   return {
     import(source, out, opts, onStage) {
-      return run(['import', source, out, ...(opts.unit ? ['--unit', opts.unit] : []), ...(opts.up ? ['--up', opts.up] : [])], onStage)
+      // Flags, then `--`, then the paths: a path is a path whatever it begins with.
+      return run(['import', ...(opts.unit ? ['--unit', opts.unit] : []), ...(opts.up ? ['--up', opts.up] : []), '--', source, out], onStage)
     },
     convert(mesh, from, to) {
-      return run(['convert', mesh, '--from-unit', from.unit, '--to-unit', to.unit, '--from-up', from.up, '--to-up', to.up])
+      return run(['convert', '--from-unit', from.unit, '--to-unit', to.unit, '--from-up', from.up, '--to-up', to.up, '--', mesh])
     },
     stop() {
       stopped = true

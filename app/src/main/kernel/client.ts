@@ -14,7 +14,9 @@ export type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false
 export class KernelError extends Error {
   constructor(
     readonly kind: string,
-    message: string
+    message: string,
+    /** Of a `no_build`: `memory` when the kernel let the build go to make room for another, and holds none until one of it succeeds. */
+    readonly reason?: string
   ) {
     super(message)
     this.name = 'KernelError'
@@ -246,7 +248,7 @@ class Kernel implements KernelClient {
     } else if (header.ok) {
       request.resolve(header.result)
     } else {
-      request.reject(new KernelError(header.error?.kind ?? 'crash', header.error?.message ?? 'the query failed'))
+      request.reject(new KernelError(header.error?.kind ?? 'crash', header.error?.message ?? 'the query failed', typeof header.error?.reason === 'string' ? header.error.reason : undefined))
     }
   }
 

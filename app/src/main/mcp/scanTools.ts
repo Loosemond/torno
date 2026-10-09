@@ -4,9 +4,10 @@ import type { Mark, RegionMark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import { type ScanAlignment, type ScanInfo, type ScanTransform, MIN_SCAN_OPACITY, importText } from '../../shared/scans'
 import type { ScanColouring } from '../../shared/view'
-import { number, vector } from '../marks/describe'
+import { scanNumber } from '../../shared/format'
+import { number, scanVector, vector } from '../marks/describe'
 import { maskStem } from '../../shared/regions'
-import { type AlignmentSaid, alignmentSaid, shownText } from '../scans/said'
+import { type AlignmentSaid, alignmentSaid, notAligned, shownText } from '../scans/said'
 import { checkRef } from './markTools'
 import { clean, ofOneBuild, refusal } from './readTools'
 import { unknownKeys } from './keys'
@@ -44,6 +45,8 @@ const NO_FACES = 'faces is a list of refs of faces of the part: {"part": "tub", 
 const NO_REGION = 'region is the number of one region mark of the scan: {"part": "tub", "region": "M7"}'
 
 const count = (n: number): string => n.toLocaleString('en-US')
+/** A distance or a depth taken from a scan, with its unit: to the tenth, and of less than half of one that it is under a tenth, never `0 mm`. */
+const scanMm = (mm: number): string => (Math.abs(mm) < 0.05 ? 'under 0.1 mm' : `${scanNumber(mm)} mm`)
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const between = (value: unknown, range: { least: number; most: number }): value is number => finite(value) && value >= range.least && value <= range.most
 const isVec = (value: unknown): value is Vec3 => Array.isArray(value) && value.length === 3 && value.every(finite)
@@ -81,9 +84,11 @@ export interface ScanAsked {
  * The scan a tool is asked about (the only one, when none is named), aligned in the layout, as the kernel is given
  * it; or the refusal, each with what to do: there are no scans, several and none named, none of that number, one
  * whose files are being written, one whose mesh is gone, one that is not aligned in that layout. The scans are read
- * here and their paths taken at once after (`ScanStore.paths` is of the scans as last read).
+ * here and their paths taken at once after (`ScanStore.paths` is of the scans as last read). `against` is what
+ * the scan is asked about: a layout it is aligned in is offered only when that would answer for the part, and
+ * not send the agent on to the next refusal.
  */
-export async function scanFor(deps: ToolDeps, objectId: string, layout: string, revision: number, asked: string | undefined): Promise<ScanAsked | ToolResult> {
+export async function scanFor(deps: ToolDeps, objectId: string, layout: string, revision: number, asked: string | undefined, against?: { scene: Scene; part?: string }): Promise<ScanAsked | ToolResult> {
   if (asked !== undefined && (typeof asked !== 'string' || asked === '')) return failure(NO_SCAN_ID)
   const scans = await scansOf(deps, objectId)
   if ('content' in scans) return scans
@@ -101,7 +106,11 @@ export async function scanFor(deps: ToolDeps, objectId: string, layout: string, 
   if (!paths) return failure(`${scan.id} was removed while this was asked: call scans for those there are`)
   if (scan.meshState !== 'ok') return failure(`${scan.id}'s mesh is gone from ${paths.mesh}: the user imports it again from its row in the Scans panel`)
   const aligned = alignmentSaid(scan, layout, revision)
-  if (aligned.refused !== null || !aligned.alignment) return failure(aligned.refused ?? `${scan.id} is not aligned in layout ${layout}`)
+  if (aligned.refused !== null || !aligned.alignment) {
+    // Only the layouts the build has, in which what is asked about is where the model places it.
+    const askIn = against ? Object.keys(scan.alignments).filter((of) => against.scene.layouts.includes(of) && (against.part === undefined || scanSpread(against.scene, of, against.part) === null)) : undefined
+    return failure(notAligned(scan, layout, askIn))
+  }
   const { alignment } = aligned
   return { scan, alignment, aligned, wire: { id: scan.id, path: paths.mesh, transform: alignment.transform }, mask: (stem) => paths.mask(stem) }
 }
@@ -127,17 +136,23 @@ const inLayout = (scene: Scene, layout: string): Part[] => scene.parts.filter((p
  * model's frame has it, and a part torno moved for display is not there. Names the layouts that place the part
  * as the model does, or says to add one, and the parts of this layout that were not moved.
  */
-export function scanSpread(scene: Scene, layout: string, part: string): string | null {
+export function scanSpread(scene: Scene, layout: string, part: string, scan?: Pick<ScanInfo, 'id' | 'alignments'>): string | null {
   const parts = inLayout(scene, layout)
   if (!movedBy(parts.find((p) => p.name === part))) return null
   const placed = scene.layouts.filter((of) => of !== layout && scene.parts.some((p) => p.layout === of && p.name === part && !movedBy(p)))
   const still = parts.filter((p) => !movedBy(p)).map((p) => p.name)
-  const others = still.length > 0 ? `, or check a part torno did not move (${still.join(', ')})` : ''
+  const others = still.length > 0 ? ` Or check a part torno did not move (${still.join(', ')}).` : ''
+  // The whole way, said before it is walked: an alignment is of one layout, and the scan has none in a layout the model does not have yet.
+  const id = scan?.id ?? 'the scan'
+  const there = scan ? placed.filter((of) => Object.hasOwn(scan.alignments, of)) : []
+  const aligns = `the user then aligns ${id} in that layout with the Align tool (an alignment is of one layout: the one in ${layout} is not carried over)`
   const where =
-    placed.length > 0
-      ? `Ask in a layout that places ${part} as the model does (layouts: ${placed.join(', ')})${others}.`
-      : `This object has no layout that places ${part} as it is mounted: add one to the model (def assembly(p))${others}.`
-  return `In layout ${layout} torno moved ${part} for display (the parts overlapped as the model placed them), so where the scan is against it there is torno's, not the model's. ${where}`
+    placed.length === 0
+      ? `This object has no layout that places ${part} as it is mounted: add one to the model (def assembly(p)) and let it build; ${aligns}, and only then is this answered there.`
+      : there.length > 0
+        ? `Ask in a layout that places ${part} as the model does and in which ${id} is aligned (${there.join(', ')}).`
+        : `A layout that places ${part} as the model does is there (${placed.join(', ')}), but ${id} is not aligned in it: ${aligns}, and only then is this answered there.`
+  return `In layout ${layout} torno moved ${part} for display (the parts overlapped as the model placed them), so where the scan is against it there is torno's, not the model's. ${where}${others}`
 }
 
 /**
@@ -270,9 +285,9 @@ export async function scanClashTool(deps: ToolDeps, objectId: string, args: Scan
     if (typeof layout !== 'string') return layout
     const part = partFor(found.scene, layout, args.part, 'scan_clash')
     if ('content' in part) return part
-    const of = await scanFor(deps, objectId, layout, found.revision, args.scan)
+    const of = await scanFor(deps, objectId, layout, found.revision, args.scan, { scene: found.scene, part: part.name })
     if ('content' in of) return of
-    const apart = scanSpread(found.scene, layout, part.name) ?? scanFrame(found.scene, layout, found.revision, part.name, of.scan.id, of.alignment)
+    const apart = scanSpread(found.scene, layout, part.name, of.scan) ?? scanFrame(found.scene, layout, found.revision, part.name, of.scan.id, of.alignment)
     if (apart !== null) return failure(apart)
     const masks = await masksOf(deps, objectId, of, ignore)
     if ('content' in masks) return masks
@@ -321,12 +336,12 @@ export function clashReading(part: string, layout: string, revision: number, sca
     ...(sampling?.retakesFailed > 0 ? [`${count(sampling.retakesFailed)} ${sampling.retakesFailed === 1 ? 'point' : 'points'} could not be taken on the B-rep`] : [])
   ]
   const head = `scan_clash ${part} vs ${scan} (${layout}, r${revision}): ${aligned.first}`
-  const tail = (said: string, under: string): string => `${head}${said}${after.map((one) => `, ${one}`).join('')}. ${aligned.last(under)}`
+  const tail = (said: string): string => `${head}${said}${after.map((one) => `, ${one}`).join('')}. ${aligned.last()}`
 
   if (inside.count === 0) {
-    if (points.candidates === 0) return tail(`no scan point is within ${margin} mm of the part${crossing ? `, but ${crossing}` : ''}`, 'a distance')
+    if (points.candidates === 0) return tail(`no scan point is within ${margin} mm of the part${crossing ? `, but ${crossing}` : ''}`)
     const checked = `(≈ ${count(points.checked)} checked within ${margin} mm of it)`
-    const nearest = said.nearest ? `nearest${sampled ? ' of those checked' : ''} ${number(said.nearest.distance)} mm from ${said.nearest.face}` : points.checked > 0 ? 'the nearest was not taken on the B-rep' : ''
+    const nearest = said.nearest ? `nearest${sampled ? ' of those checked' : ''} ${scanMm(said.nearest.distance)} from ${said.nearest.face}` : points.checked > 0 ? 'the nearest was not taken on the B-rep' : ''
     // A count that was thinned, or that the time cut short, is no "no scan point": what was really checked comes first.
     const unfinished = points.checked < due
     const of = `(${every > 1 ? `every ${nth(every)} of the` : 'of the'} ${count(points.candidates)} within ${margin} mm of the part${every > 1 && unfinished ? ', until the time ran out' : ''})`
@@ -335,15 +350,17 @@ export function clashReading(part: string, layout: string, revision: number, sca
       : `no scan point is inside the part ${checked}${crossing ? `, but ${crossing}` : ` and ${noCrossing}`}`
     const pieces = [none, touching, nearest].filter(Boolean)
     // The thinning is said with the count: not once more after it.
-    return `${head}${pieces.join('; ')}${after.filter((one) => !one.startsWith('every ')).map((one) => `, ${one}`).join('')}. ${aligned.last('a distance')}`
+    return `${head}${pieces.join('; ')}${after.filter((one) => !one.startsWith('every ')).map((one) => `, ${one}`).join('')}. ${aligned.last()}`
   }
   const clusters = inside.clusters.length + (inside.clustersOmitted ?? 0)
   const told = inside.clustersOmitted > 0 ? ` (the ${inside.clusters.length} largest ${inside.clusters.length === 1 ? 'is' : 'are'} told)` : ''
-  const deepest = said.deepest ? `deepest ${number(said.deepest.depth)} mm at ${vector(said.deepest.at)} under ${said.deepest.under}` : 'how deep was not taken on the B-rep'
+  // The time ran out before every point was measured to the part: the deepest and the nearest are of those that were.
+  const some = finite(sampling?.measured) && sampling.measured < points.checked ? ` (of the ${count(sampling.measured)} points measured to the part before the time ran out: others may be deeper)` : ''
+  const deepest = said.deepest ? `deepest ${scanMm(said.deepest.depth)} at ${scanVector(said.deepest.at)} under ${said.deepest.under}${some}` : some ? `how deep was not taken${some.replace(': others may be deeper', '')}` : 'how deep was not taken on the B-rep'
   const counted = sampled ? `≈ ${count(inside.count)} of the scan points checked are inside the part` : `≈ ${count(inside.count)} scan ${inside.count === 1 ? 'point' : 'points'} inside the part`
-  const nearest = said.nearest ? `nearest scan point outside ${number(said.nearest.distance)} mm from ${said.nearest.face}` : ''
+  const nearest = said.nearest ? `nearest scan point outside ${scanMm(said.nearest.distance)} from ${said.nearest.face}` : ''
   const pieces = [`${counted} in ${count(clusters)} cluster${clusters === 1 ? '' : 's'}${told}, ${deepest}`, crossing || noCrossing, touching, nearest].filter(Boolean)
-  return tail(pieces.join('; '), 'a depth')
+  return tail(pieces.join('; '))
 }
 
 /** The numbers of the faces named, each a face of that part, or the refusal. */
@@ -376,9 +393,9 @@ export async function scanDeviationTool(deps: ToolDeps, objectId: string, args: 
     if ('content' in part) return part
     const faces = args.faces ? facesOf(found.scene, layout, part, args.faces) : null
     if (faces !== null && 'content' in faces) return faces
-    const of = await scanFor(deps, objectId, layout, found.revision, args.scan)
+    const of = await scanFor(deps, objectId, layout, found.revision, args.scan, { scene: found.scene, part: part.name })
     if ('content' in of) return of
-    const apart = scanSpread(found.scene, layout, part.name) ?? scanFrame(found.scene, layout, found.revision, part.name, of.scan.id, of.alignment)
+    const apart = scanSpread(found.scene, layout, part.name, of.scan) ?? scanFrame(found.scene, layout, found.revision, part.name, of.scan.id, of.alignment)
     if (apart !== null) return failure(apart)
     const masks = await masksOf(deps, objectId, of, args.region === undefined ? [] : [args.region])
     if ('content' in masks) return masks
@@ -427,7 +444,7 @@ function facesText(part: string, faces: number[]): string {
 export function deviationReading(of: string, layout: string, revision: number, scan: string, aligned: AlignmentSaid, said: ScanDeviated, asked: { within?: number } = {}): string {
   const within = number(asked.within ?? WITHIN.usual)
   const head = `scan_deviation ${of} vs ${scan} (${layout}, r${revision}): ${aligned.first}`
-  const last = (under?: string): string => ` ${aligned.last(under)}`
+  const last = (): string => ` ${aligned.last()}`
   const { sampling } = said
   if (said.samples === 0 && sampling.partial) return `${head}the time ran out before any point was measured: ask for fewer samples or a smaller within.${last()}`
   const fromPart = said.from !== 'scan'
@@ -441,26 +458,28 @@ export function deviationReading(of: string, layout: string, revision: number, s
     !sampling.partial && sampling.asked > said.samples ? ` (${count(sampling.asked)} were asked: ${fromPart ? `the part has no more, ${number(sampling.surface)} mm apart` : `no more are within ${within} mm of it`})` : ''
   // By how much, when the kernel says: its own words hold the figure (`how`), which is no field of the reply.
   const told = Number(/may be told up to ([\d.]+) mm too far/.exec(said.how ?? '')?.[1])
-  const bound = Number.isFinite(told) ? number(told) : null
+  const bound = Number.isFinite(told) ? scanNumber(told) : null
   const spacing = fromPart ? sampling.scanSurface : sampling.surface
   const unsure =
     sampling.unsure > 0
-      ? `${count(sampling.unsure)} of the distances may be told ${bound ? `up to ${bound} mm too far` : `too far, by less than the spacing of the points that stand for ${fromPart ? 'the scan' : "the part's mesh"}${finite(spacing) ? ` (${number(spacing)} mm)` : ''}`}`
+      ? `${count(sampling.unsure)} of the distances may be told ${bound ? `up to ${bound} mm too far` : `too far, by less than the spacing of the points that stand for ${fromPart ? 'the scan' : "the part's mesh"}${finite(spacing) ? ` (${scanNumber(spacing)} mm)` : ''}`}`
       : ''
   const side = !said.signed ? 'the part is no solid, so no side is told' : fromPart ? `the scan is inside the part at ${said.signed.inside > 0 ? count(said.signed.inside) : 'none'} of them` : `${said.signed.inside > 0 ? count(said.signed.inside) : 'none'} of them ${said.signed.inside === 1 ? 'is' : 'are'} inside the part`
   const furthest = said.worst
-    ? `furthest at ${vector(said.worst.at)} ${fromPart ? 'on' : 'from'} ${said.worst.face}${sampling.retakesFailed > 0 ? ", which could not be taken on the B-rep: its distance is to the part's mesh" : ''}`
+    ? `furthest at ${scanVector(said.worst.at)} ${fromPart ? 'on' : 'from'} ${said.worst.face}${sampling.retakesFailed > 0 ? ", which could not be taken on the B-rep: its distance is to the part's mesh" : ''}`
     : ''
-  const { p50, mean, max, p95 } = said.distance
+  const { min, p50, mean, max, p95 } = said.distance
+  // The least is what "how near does it come" asks. The rest are of the points that have the other within reach: `within` is where
+  // the looking stops, not the greatest distance there is.
   const pieces = [
-    `≈ ${number(p50)} mm median, ${number(mean)} mm mean, ${number(max)} mm at most (95 % within ${number(p95)} mm), from ${count(said.compared)} ${fromPart ? 'points of the part to the scan' : 'scan points to the part'}${fewer}`,
+    `${finite(min) ? `${Math.abs(min) < 0.05 ? 'within 0.1 mm' : `≈ ${scanNumber(min)} mm`} at the nearest; ` : ''}of the ${count(said.compared)} ${fromPart ? 'points of the part that have the scan' : 'scan points that have the part'} within ${within} mm (further is not looked at): ≈ ${scanNumber(p50)} mm median, ${scanNumber(mean)} mm mean, ${scanNumber(max)} mm the furthest, 95 % within ${scanNumber(p95)} mm${fewer}`,
     ...(sampling.partial ? [`the time ran out: ${count(said.samples)} of the ${count(sampling.asked)} asked were measured`] : []),
     unsure,
     side,
     ...(said.beyond > 0 ? [`${count(said.beyond)} more had no ${fromPart ? 'scan' : 'part'} within ${within} mm`] : []),
     furthest
   ].filter(Boolean)
-  return `${head}${pieces.join('; ')}.${last('a distance')}`
+  return `${head}${pieces.join('; ')}.${last()}`
 }
 
 // What `look` and `show` take of scans: which are drawn, one coloured by its distance to a part, how thin.
@@ -499,9 +518,9 @@ export async function scanColourFor(deps: ToolDeps, objectId: string, scene: Sce
   const part = checkRef(scene, layout, asked.part)
   if (typeof part === 'string') return failure(part)
   if (part.target !== 'part') return failure(`a scan is coloured by its distance to a whole part, and ${asked.part} is ${part.target === 'face' ? 'a face' : 'an edge'}: give ${part.part.name}`)
-  const of = await scanFor(deps, objectId, layout, revision, asked.scan as string | undefined)
+  const of = await scanFor(deps, objectId, layout, revision, asked.scan as string | undefined, { scene, part: part.part.name })
   if ('content' in of) return of
-  const apart = scanSpread(scene, layout, part.part.name) ?? scanFrame(scene, layout, revision, part.part.name, of.scan.id, of.alignment)
+  const apart = scanSpread(scene, layout, part.part.name, of.scan) ?? scanFrame(scene, layout, revision, part.part.name, of.scan.id, of.alignment)
   if (apart !== null) return failure(apart)
   return { scan: of.scan.id, part: part.part.name, range: asked.range ?? COLOUR_RANGE.usual }
 }

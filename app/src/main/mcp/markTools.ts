@@ -4,12 +4,13 @@ import { expectedText, offBy, standingOf, valueText } from '../../shared/dimensi
 import { type Anchor, type DimensionMark, type Mark, type NewMark, type Quat, isUnchecked, markAnchors } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, HighlightResult } from '../../shared/view'
-import { describeMark, number, vector } from '../marks/describe'
+import { describeMark, number, scanVector, vector } from '../marks/describe'
 import { MAX_NOTE } from '../marks/file'
 import type { Unmeasured } from '../marks/measure'
 import { spreadApart } from '../marks/spread'
 import { EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance } from '../marks/reanchor'
 import { onlyKeysWrong, unknownKeys } from './keys'
+import type { ScanInfo } from '../../shared/scans'
 import type { AlignmentSaid } from '../scans/said'
 import { regionLost, scanFor } from './scanTools'
 import {
@@ -103,7 +104,7 @@ export interface End {
   part?: Part
   text: string
   /** The end is a point of this scan, or the centroid of a region of it: where the scan's alignment in the layout puts it, and so approximate. */
-  scan?: { id: string; aligned: AlignmentSaid }
+  scan?: { id: string; aligned: AlignmentSaid; alignments: ScanInfo['alignments'] }
 }
 
 /**
@@ -135,7 +136,7 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
         if ('content' in of) return of
         if (region.anchorState === 'orphaned' || !isPoint(region.local?.centroid)) return failure(`${regionLost(arg, region.scan)}, or give a point of the scan, as {"scan": "${region.scan}", "point": [x, y, z]}`)
         const point = tidy(apply(of.alignment.transform, region.local.centroid))
-        ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned }, text: `the centroid of region ${arg} (${of.scan.id}) at ${vector(point)}` })
+        ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned, alignments: of.scan.alignments }, text: `the centroid of region ${arg} (${of.scan.id}) at ${scanVector(point)}` })
         continue
       }
       // It has two ends, or is of one thing at a point: which is meant is not for torno to guess.
@@ -165,7 +166,7 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
       if (typeof scan !== 'string' || scan === '' || !isPoint(point)) return failure(noScanEnd(name))
       const of = await scanFor(deps, objectId, layout, revision, scan)
       if ('content' in of) return of
-      ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned }, text: `${vector(point)} given as a point of ${of.scan.id}` })
+      ends.push({ point, scan: { id: of.scan.id, aligned: of.aligned, alignments: of.scan.alignments }, text: `${vector(point)} given as a point of ${of.scan.id}` })
       continue
     }
     const given = endOf(arg)

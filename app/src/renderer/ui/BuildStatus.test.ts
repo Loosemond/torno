@@ -107,5 +107,6 @@ describe('a build the kernel let go to make room', () => {
     expect(letGoText({ status: 'failed', letGo: 'memory' })).toBe('The last build was let go to make room (memory) and this one failed: tools answer once the model builds again.')
     expect(letGoText({ status: 'building' })).toBeNull()
     expect(letGoText({ status: 'ok' })).toBeNull()
+    expect(letGoText({ status: 'ok', letGo: 'memory' })).toBe('This build was let go to make room (memory): it is built again when something is asked of it.')
   })
 })

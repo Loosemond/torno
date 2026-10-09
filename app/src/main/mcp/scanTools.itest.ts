@@ -125,12 +125,12 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
     expect(far.isError).toBe(false)
     expect(far.data).toMatchObject({ layout: 'assembly', revision: 1, scan: 'S1', part: 'lid', from: 'scan', exact: false, samples: 400, compared: 400, beyond: 0, sampling: { asked: 10000, partial: false, unsure: 0 } })
     expect(far.data.distance.min).toBeCloseTo(37, 3)
-    expect(far.data.reading).toMatch(/^scan_deviation lid vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. ≈ 37 mm median, 37 mm mean, 37 mm at most \(95 % within 37 mm\), from 400 scan points to the part \(10,000 were asked: no more are within 100 mm of it\); none of them are inside the part; furthest at \(.*\) from lid\/F\d+\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
+    expect(far.data.reading).toMatch(/^scan_deviation lid vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. ≈ 37 mm at the nearest; of the 400 scan points that have the part within 100 mm \(further is not looked at\): ≈ 37 mm median, 37 mm mean, 37 mm the furthest, 95 % within 37 mm \(10,000 were asked: no more are within 100 mm of it\); none of them are inside the part; furthest at \(.*\) from lid\/F\d+\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
     // Within 10 mm only: most of the tub is further from the sheet in its floor than that.
     const near = await call('scan_deviation', { part: 'tub', samples: 500, within: 10 })
     expect(near.data).toMatchObject({ from: 'part', samples: 500, sampling: { asked: 500 } })
     expect(near.data.beyond).toBeGreaterThan(0)
-    expect(near.data.reading).toMatch(/^scan_deviation tub vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. ≈ [\d.]+ mm median, .* from \d+ points of the part to the scan; the scan is inside the part at \d+ of them; \d+ more had no scan within 10 mm; furthest at /)
+    expect(near.data.reading).toMatch(/^scan_deviation tub vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. (≈ [\d.]+|within 0\.1) mm at the nearest; of the [\d,]+ points of the part that have the scan within 10 mm \(further is not looked at\): ≈ [\d.]+ mm median, .*; the scan is inside the part at \d+ of them; \d+ more had no scan within 10 mm; furthest at /)
     // The lid's underside alone: the kernel is asked by the face's number, which describe gives.
     const faces = scene.parts.find((p) => p.key === 'assembly:lid')!.faceCount
     let under = -1
@@ -167,7 +167,7 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
   it('refuses a scan that is not aligned in the layout, and one whose mesh the kernel cannot read says so in the kernel’s words', async () => {
     scans = [record({})]
     const unaligned = await call('scan_clash', { part: 'tub' })
-    expect(unaligned).toMatchObject({ isError: true, text: 'S1 is not aligned in layout assembly (it is aligned in no layout), so nothing is checked against it there: the user aligns it with the Align tool' })
+    expect(unaligned).toMatchObject({ isError: true, text: 'S1 is not aligned in layout assembly (it is aligned in no layout), so nothing is checked against it there: the user aligns it in assembly with the Align tool (an alignment is of one layout)' })
     expect((await call('scan_deviation', { part: 'tub' })).text).toBe(unaligned.text)
     expect((await call('section', { plane: { axis: 'x', at: 0 }, scan: 'S1' })).text).toBe(unaligned.text)
     expect((await call('measure', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'lid' })).text).toBe(unaligned.text)

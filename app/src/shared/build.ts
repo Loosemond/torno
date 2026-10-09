@@ -17,5 +17,6 @@ export function letGoText(state: Pick<BuildState, 'status' | 'letGo'>): string |
   if (state.letGo !== 'memory') return null
   if (state.status === 'building') return 'The last build was let go to make room (memory): tools answer when this one lands.'
   if (state.status === 'failed') return 'The last build was let go to make room (memory) and this one failed: tools answer once the model builds again.'
-  return null
+  // Let go for another object's build, with none of its own on the way: one is started when a tool or the person asks something of it.
+  return 'This build was let go to make room (memory): it is built again when something is asked of it.'
 }

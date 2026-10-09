@@ -1200,7 +1200,7 @@ describe('scans in scene, look and show', () => {
     expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S1', part: 'cap' } }))).toBe("no part 'cap' in layout assembly (parts: base, post)")
     expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S1', part: 'base/F1' } }))).toBe('a scan is coloured by its distance to a whole part, and base/F1 is a face: give base')
     expect(await said(lookTool(deps, 'bracket', { scanColour: { part: 'base' } }))).toBe('name the scan: S1 (S1.glb), S2 (S2.glb)')
-    expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S2', part: 'base' } }))).toBe('S2 is not aligned in layout assembly (it is aligned in: print), so nothing is checked against it there: the user aligns it with the Align tool, or ask in that layout')
+    expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S2', part: 'base' } }))).toBe('S2 is not aligned in layout assembly (it is aligned in: print), so nothing is checked against it there: the user aligns it in assembly with the Align tool (an alignment is of one layout), or ask in print')
     const HELP = 'scanColour is {"part": "tub"}, the part a scan is coloured by its distance to, with "scan": "S1" when there are several and "range" in mm, 0.1 to 1000 (default 20)'
     expect(await said(lookTool(deps, 'bracket', { scanColour: 'base' as never }))).toBe(HELP)
     expect(await said(lookTool(deps, 'bracket', { scanColour: { scan: 'S1', part: 'base', range: 0 } }))).toBe(HELP)

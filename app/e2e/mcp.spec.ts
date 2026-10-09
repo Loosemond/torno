@@ -875,7 +875,7 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
   const clash = JSON.parse((await call(hollow, 'scan_clash', { part: 'tub' })).text)
   expect(clash).toMatchObject({ layout: 'assembly', scan: 'S1', exact: false, alignment: { state: 'aligned', by: 'by 3 pairs (rms 0 mm, worst 0 mm)', pairs: 3 }, inside: { count: 400, crossing: 0 }, points: { scan: 400, touching: 0 } })
   expect(clash.deepest.depth).toBeCloseTo(1, 6)
-  expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(rms 0 mm, worst 0 mm\): a depth under that says nothing \(tied to no point of the model: not checked against builds\)\.$/)
+  expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(rms 0 mm, worst 0 mm\): that rms is of the clicked points, and says nothing of how true the scan is \(tied to no point of the model: not checked against builds\)\.$/)
   // What was applied is said back, and a key the tool does not take is refused by name, never dropped.
   expect(clash.ignore).toEqual([])
   expect(await call(hollow, 'scan_clash', { part: 'tub', ignored: ['M7'] })).toMatchObject({ isError: true, text: 'scan_clash takes no "ignored": did you mean ignore? An unknown key is not ignored: nothing was done. It takes: part, scan, ignore, margin, layout.' })
@@ -887,7 +887,7 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
   expect(far.distance.min).toBeGreaterThanOrEqual(37 - 1e-6)
   expect(far.distance.min).toBeLessThan(37.2)
   expect(far).toMatchObject({ samples: 400, sampling: { asked: 10000, partial: false } })
-  expect(far.reading).toMatch(/^scan_deviation lid vs S1 \(assembly, r\d+\): ≈ 37 mm median, /)
+  expect(far.reading).toMatch(/^scan_deviation lid vs S1 \(assembly, r\d+\): ≈ 37 mm at the nearest; of the 400 scan points that have the part within 100 mm \(further is not looked at\): ≈ 37 mm median, /)
   const distance = JSON.parse((await call(hollow, 'measure', { kind: 'distance', a: { scan: 'S1', point: [0.5, 0.5, 1] }, b: 'lid' })).text)
   expect(distance).toMatchObject({ exact: false, scan: 'S1', approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
   expect(distance.value).toBeCloseTo(37, 6)

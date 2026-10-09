@@ -150,6 +150,20 @@ export function meshesOf(scans: Pick<ScanStore, 'list' | 'problem'>): (objectId:
   }
 }
 
+/** Whether the mask of a region reads as one of the mesh its scan has now, for the marks to bring back a region whose cause for being orphaned has passed (`MarkStore`'s `maskReads`). */
+export function maskReadsOf(scans: Pick<ScanStore, 'list' | 'mask'>): (objectId: string, scan: string, stem: string) => Promise<boolean> {
+  return async (objectId, scan, stem) => {
+    try {
+      const info = (await scans.list(objectId)).find((one) => one.id === scan)
+      if (!info || info.meshState !== 'ok') return false
+      maskBits(await scans.mask(objectId, scan, stem), info.imported.triangles)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
 /**
  * Sees to the regions and the masks of an object, as when its scans are first listed: a region whose mask is
  * gone, or is of another triangle count than its scan's mesh, is orphaned; a mask no mark names (a keep that

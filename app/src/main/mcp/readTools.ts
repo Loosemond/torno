@@ -4,6 +4,7 @@ import type { Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
 import { KernelError, isBusy } from '../kernel/client'
+import { scanNumber } from '../../shared/format'
 import { number, sizes, vector } from '../marks/describe'
 import { plain, wire } from '../marks/measure'
 import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
@@ -41,17 +42,19 @@ export interface CheckToolArgs {
   layout?: string
 }
 
-/** The most points of a scan's lines in a plane that the JSON of a section holds: the drawing is made from all the kernel told. */
-export const MAX_SCAN_LINE_POINTS = 2000
 /** Said of an end that is a point of a scan, asked for anything but a distance. */
 const SCAN_END_DISTANCE = 'only a distance is measured to a point of a scan'
 const isScanEnd = (arg: unknown): boolean => typeof arg === 'object' && arg !== null && 'scan' in arg
 
-/** The most points the JSON of a section holds in all, whatever was asked for: what a tool's answer has room for. */
-export const MAX_SECTION_POINTS = 4000
+/**
+ * The most points the JSON of a section holds in all, whatever was asked for: the outlines of the parts and
+ * the lines of a scan together, each its share by its length. It is what a tool's answer has room for: on a
+ * real scan 4,000 and 2,000 more made 49 KB of one reply.
+ */
+export const MAX_SECTION_POINTS = 1500
 /** The fewest points a loop is thinned to, and so the most loops that are told: the smallest beyond them are counted. */
 export const MIN_LOOP_POINTS = 8
-export const MAX_SECTION_LOOPS = MAX_SECTION_POINTS / MIN_LOOP_POINTS
+export const MAX_SECTION_LOOPS = Math.floor(MAX_SECTION_POINTS / MIN_LOOP_POINTS)
 /** How far the outlines asked of the kernel may stray from the true ones, mm, unless the agent says: fine enough for a round hole to be drawn round. */
 export const SECTION_DEFLECTION = 0.01
 const NO_DEFLECTION = `deflection is a number of mm, 0.005 to 0.05: how far the outlines may stray from the true ones (default ${SECTION_DEFLECTION})`
@@ -123,7 +126,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
     // A scan stands where the model's frame has it: against a part torno moved, or one that stood elsewhere when the scan was aligned, nothing is the model's.
     for (const end of ofScan ? ends : []) {
       const scan = ofScan!.scan!
-      const against = end.part ? (scanSpread(found.scene, layout, end.part.name) ?? scanFrame(found.scene, layout, found.revision, end.part.name, scan.id, scan.aligned.alignment!)) : null
+      const against = end.part ? (scanSpread(found.scene, layout, end.part.name, { id: scan.id, alignments: scan.alignments }) ?? scanFrame(found.scene, layout, found.revision, end.part.name, scan.id, scan.aligned.alignment!)) : null
       if (against !== null) return failure(against)
     }
     // An angle is the same wherever the parts are put: they are moved, never turned. A distance is not.
@@ -191,7 +194,8 @@ export function measureReading(measured: Measured, a: End, b?: End, ofScan?: str
   const { kind, value } = measured
   switch (kind) {
     case 'distance':
-      return `${about}${number(value)} mm ${how}${roughly}, ${ends}`
+      // To a point of a scan: to the tenth, which is finer than any scan is true.
+      return `${about}${ofScan ? (Math.abs(value) < 0.05 ? 'under 0.1' : scanNumber(value)) : number(value)} mm ${how}${roughly}, ${ends}`
     case 'angle':
       return `${about}${number(value)}° ${how}${roughly}, ${ends}`
     case 'radius':
@@ -288,7 +292,7 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   // The kernel keeps it between 0.005 and 0.05.
   const deflection = args.deflection ?? SECTION_DEFLECTION
   if (args.scan !== undefined && (typeof args.scan !== 'string' || args.scan === '')) return failure('scan is the number of a scan, as listed by scans: {"scan": "S1"}')
-  const asked = await ofOneBuild<{ layout: string; cut: Sectioned; scan?: { of: ScanAsked; lines: ScanSectioned } }>(deps, objectId, async (found) => {
+  const asked = await ofOneBuild<{ layout: string; cut: Sectioned; scan?: { of: ScanAsked; lines: ScanSectioned; drawn: ScanSectioned } }>(deps, objectId, async (found) => {
     const layout = layoutFor(deps, objectId, found.scene, args.layout)
     if (typeof layout !== 'string') return layout
     const plane = planeAsked(deps, objectId, found.obj, args.plane, layout)
@@ -310,9 +314,18 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
       if (!Array.isArray(cut?.parts) || !isVec(cut.plane?.origin) || !isVec(cut.plane.normal)) return failure('the kernel did not answer with a section')
       if (!of) return { got: { layout, cut } }
       // By the plane as it was given, as the parts were: the two answers are in the same axes.
-      const lines = await deps.query<ScanSectioned>(objectId, 'scan_section', { layout, plane, scan: { ...of.wire, ignore: [], only: null } })
-      if (!Array.isArray(lines?.polylines)) return failure('the kernel did not answer with where the plane cuts the scan')
-      return { got: { layout, cut, scan: { of: { ...of, aligned: await saidNow(deps, objectId, layout, found.revision, of.scan.id, of.aligned) }, lines } } }
+      // The kernel is told how many points to tell: first as many as a reply holds, which the drawing is made from;
+      // then, when the parts' outlines need room too, the scan's share of it by length. Its lines are thinned by it, once.
+      const cutScan = async (points: number): Promise<ScanSectioned | ToolResult> => {
+        const lines = await deps.query<ScanSectioned>(objectId, 'scan_section', { layout, plane, points, scan: { ...of.wire, ignore: [], only: null } })
+        return Array.isArray(lines?.polylines) ? lines : failure('the kernel did not answer with where the plane cuts the scan')
+      }
+      const drawn = await cutScan(MAX_SECTION_POINTS)
+      if ('content' in drawn) return drawn
+      const share = scanShare(cut, drawn)
+      const lines = share === null ? drawn : share < MIN_SCAN_POINTS ? { ...drawn, polylines: [], omitted: (finite(drawn.omitted) ? drawn.omitted : 0) + drawn.polylines.length, thinned: true } : await cutScan(share)
+      if ('content' in lines) return lines
+      return { got: { layout, cut, scan: { of: { ...of, aligned: await saidNow(deps, objectId, layout, found.revision, of.scan.id, of.aligned) }, lines, drawn } } }
     } catch (e) {
       return refusal(e, layout, 'section')
     }
@@ -326,8 +339,9 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   // Torno moved parts of this layout apart: the cut is of them where they are shown.
   const spread = cut.parts.some((part) => isMoved(inLayout(part.part)))
 
-  // The outlines in no more points than an answer has room for: each loop its share of them, by its length.
-  const most = pointsFor(cut.parts.flatMap((part) => part.loops))
+  // The outlines in no more points than the answer has room for beside the scan's lines: each loop its share of them, by its length.
+  const ofScanPoints = scan ? scan.lines.polylines.reduce((sum, line) => sum + line.points.length, 0) : 0
+  const most = pointsFor(cut.parts.flatMap((part) => part.loops), Math.max(0, MAX_SECTION_POINTS - ofScanPoints))
   const count = { kept: 0, of: 0, omitted: 0 }
   const parts = cut.parts.map((part) => {
     const told = part.loops.filter((loop) => most.get(loop) !== 0)
@@ -348,20 +362,23 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   const extent = cut.bounds ? ([cut.bounds.max[0] - cut.bounds.min[0], cut.bounds.max[1] - cut.bounds.min[1]] as [number, number]) : null
   const along = axisForm(cut.plane)
   const title = `${planeText(cut.plane)} · layout ${layout}${spread ? ' (parts spread for display)' : ''}`
+  // What was thinned is said: the drawing and the areas are of the outlines in full, the points told are not all of them.
+  const fewer = count.kept < count.of ? `, its outlines told in ${count.kept.toLocaleString('en-US')} of the ${count.of.toLocaleString('en-US')} points cut (a reply holds ${MAX_SECTION_POINTS.toLocaleString('en-US')} in all)` : ''
   const read = extent
-    ? `${title}: ${cut.parts.map((part) => (part.loops.length === 0 ? `the plane does not cut ${part.part}` : `${cutText(part)} in ${part.loops.length} loop${part.loops.length === 1 ? '' : 's'}`)).join('; ')}; the cut is ${sizes(extent)} mm`
+    ? `${title}: ${cut.parts.map((part) => (part.loops.length === 0 ? `the plane does not cut ${part.part}` : `${cutText(part)} in ${part.loops.length} loop${part.loops.length === 1 ? '' : 's'}`)).join('; ')}; the cut is ${sizes(extent)} mm${fewer}`
     : `${title}: the plane cuts ${args.parts ? 'none of these parts' : scan ? 'nothing of the parts' : 'nothing'}`
   const ofScan = scan ? scanLines(scan.of, scan.lines, layout, spread ? cut.parts.filter((part) => isMoved(inLayout(part.part))).map((part) => part.part) : []) : null
-  const reading = `${spread ? `${read}. ${SPREAD_NOTE}` : read}${ofScan ? `. ${ofScan.reading}` : ''}`
+  // The note ends in its own full stop.
+  const reading = `${spread ? `${read}. ${ofScan ? SPREAD_NOTE.replace(/\.$/, '') : SPREAD_NOTE}` : read}${ofScan ? `. ${ofScan.reading}` : ''}`
   // What there is to draw: the parts' cut, or, where the plane cuts none of them, the scan's lines alone.
-  const drawn: Sectioned | null = extent ? cut : scan?.lines.bounds && scan.lines.polylines.length > 0 ? { ...cut, bounds: scan.lines.bounds } : null
+  const drawn: Sectioned | null = extent ? cut : scan?.drawn.bounds && scan.drawn.polylines.length > 0 ? { ...cut, bounds: scan.drawn.bounds } : null
 
   const content: ToolResult['content'] = []
   let image: string
   if (!drawn) image = 'not drawn: there is nothing to draw'
   else {
     try {
-      const outline = scan && scan.lines.polylines.length > 0 ? { scan: { id: scan.of.scan.id, polylines: scan.lines.polylines } } : {}
+      const outline = scan && scan.drawn.polylines.length > 0 ? { scan: { id: scan.of.scan.id, polylines: scan.drawn.polylines } } : {}
       const drawing = await deps.sectionDrawing({ objectId, layout, section: drawn, names: found.scene.parts.map((p) => p.name), size: clampSize(args.size), spread, ...outline })
       content.push({ type: 'image', data: Buffer.from(drawing.png).toString('base64'), mimeType: 'image/png' })
       // The points are [u, v] whichever way the sheet is turned: where v runs down it, that is said.
@@ -383,7 +400,7 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
       bounds: clean(cut.bounds),
       extent: clean(extent),
       // Fewer points than the kernel gave: how many of how many, and how many loops were left out altogether.
-      ...(count.kept < count.of ? { thinned: true, points: count.kept, of: count.of, ...(count.omitted > 0 ? { loopsOmitted: count.omitted } : {}) } : {}),
+      ...(count.kept < count.of ? { thinned: true, points: count.kept, of: count.of, budget: MAX_SECTION_POINTS, ...(count.omitted > 0 ? { loopsOmitted: count.omitted } : {}) } : {}),
       ...(ofScan ? { scan: ofScan.data } : {}),
       reading,
       image
@@ -392,27 +409,43 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   return { content }
 }
 
+/** The fewest points the kernel tells a scan's lines in. */
+const MIN_SCAN_POINTS = 2
+
 /**
- * Where a plane cuts a scan, as a section tells it: the lines in no more points than an answer has room for
- * (`MAX_SCAN_LINE_POINTS`, each line its share by its length), how many the kernel found, how the scan is aligned,
- * and a sentence of it. Nothing of it is exact. `moved` are the parts cut that torno moved for display: the scan is
- * not where it is against those.
+ * How many points a scan's lines get of what a section's answer holds, when they and the parts' outlines
+ * together have more than that: its lines' share by their length, as every loop has its own (`pointsFor`).
+ * Null when all of it fits as the kernel told it.
+ */
+function scanShare(cut: Sectioned, lines: ScanSectioned): number | null {
+  const ofScan = lines.polylines.map((line): SectionLoop => ({ points: line.points, closed: line.closed, area: null, areaExact: false, deflection: 0 }))
+  const most = pointsFor([...cut.parts.flatMap((part) => part.loops), ...ofScan])
+  if (most.size === 0) return null
+  const share = ofScan.reduce((sum, loop) => sum + (most.get(loop) ?? loop.points.length), 0)
+  return share < ofScan.reduce((sum, loop) => sum + loop.points.length, 0) ? share : null
+}
+
+/**
+ * Where a plane cuts a scan, as a section tells it: the lines as the kernel told them, in as many points as it
+ * was asked for (the scan's share of what the answer holds), to the tenth of a millimetre; how many it found,
+ * how the scan is aligned, and a sentence of it. Nothing of it is exact. `moved` are the parts cut that torno
+ * moved for display: the scan is not where it is against those.
  */
 function scanLines(of: ScanAsked, lines: ScanSectioned, layout: string, moved: string[]): { data: object; reading: string } {
   const id = of.scan.id
-  const loops = lines.polylines.map((line): SectionLoop => ({ points: line.points, closed: line.closed, area: null, areaExact: false, deflection: 0 }))
-  const most = pointsFor(loops, MAX_SCAN_LINE_POINTS)
-  const told = loops.filter((loop) => most.get(loop) !== 0)
-  const polylines = told.map((loop) => ({ points: tidy(thinned(loop, most.get(loop) ?? loop.points.length)?.points ?? loop.points), closed: loop.closed }))
+  const polylines = lines.polylines.map((line) => ({ points: tidy(line.points), closed: line.closed }))
   const points = polylines.reduce((sum, line) => sum + line.points.length, 0)
-  const found = finite(lines.pointsFound) ? lines.pointsFound : loops.reduce((sum, loop) => sum + loop.points.length, 0)
-  const omitted = (finite(lines.omitted) ? lines.omitted : 0) + loops.length - told.length
+  const found = finite(lines.pointsFound) ? lines.pointsFound : points
+  const omitted = finite(lines.omitted) ? lines.omitted : 0
   const against = moved.length > 0 ? `torno moved ${moved.join(', ')} for display in layout ${layout}: the scan is not where it is against ${moved.length === 1 ? 'that part' : 'those parts'}` : null
   const notes = [...(noteOf(of.aligned, layout).note ? [noteOf(of.aligned, layout).note!] : []), ...(against ? [against] : [])]
+  const untold = omitted > 0 ? `${omitted} ${polylines.length > 0 ? 'more ' : ''}that ${omitted === 1 ? 'is' : 'are'} not told` : ''
   const crosses =
     polylines.length === 0
-      ? `${id} (a scan) does not cross the plane`
-      : `≈ ${id} (a scan, approximate) crosses the plane in ${polylines.length} line${polylines.length === 1 ? '' : 's'}${points < found ? `, told in ${points.toLocaleString('en-US')} of the ${found.toLocaleString('en-US')} points found` : ''}${omitted > 0 ? `, and ${omitted} more that ${omitted === 1 ? 'is' : 'are'} not told` : ''}`
+      ? omitted > 0
+        ? `≈ ${id} (a scan, approximate) crosses the plane in ${omitted} line${omitted === 1 ? '' : 's'} ${untold.replace(/^\d+ /, '')}: the parts' outlines took the room, ask for it with fewer parts`
+        : `${id} (a scan) does not cross the plane`
+      : `≈ ${id} (a scan, approximate) crosses the plane in ${polylines.length} line${polylines.length === 1 ? '' : 's'}${points < found ? `, told in ${points.toLocaleString('en-US')} of the ${found.toLocaleString('en-US')} points found` : ''}${untold ? `, and ${untold}` : ''}`
   return {
     data: {
       id,

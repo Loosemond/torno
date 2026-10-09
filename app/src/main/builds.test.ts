@@ -55,9 +55,11 @@ class FakeKernel implements KernelClient {
   queryError: KernelError | null = null
   /** Folders whose worker the kernel has retired: a query there is `no_build` until the folder is built again. */
   retired = new Set<string>()
+  /** Why: `memory` when the kernel says it let them go to make room. */
+  retiredFor: string | undefined
   query<T>(dir: string, name: string, args: object): Promise<T> {
     this.queries.push({ dir, name, args })
-    if (this.retired.has(dir)) return Promise.reject(new KernelError('no_build', `no build of ${dir} to ask`))
+    if (this.retired.has(dir)) return Promise.reject(new KernelError('no_build', `no build of ${dir} to ask`, this.retiredFor))
     return this.queryError ? Promise.reject(this.queryError) : Promise.resolve({ dir, name, args } as T)
   }
   cancel(): void {
@@ -267,6 +269,27 @@ describe('Builds.query', () => {
     kernel.succeed(2)
     await flush()
     expect(builds.state('bracket')).toMatchObject({ status: 'ok' })
+    expect(builds.state('bracket')!.letGo).toBeUndefined()
+  })
+
+  it('says so of an object whose build the kernel let go for another object\'s, once a query finds it gone for that reason', async () => {
+    const { kernel, builds, states } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    kernel.retired.add('/ws/bracket')
+    kernel.retiredFor = 'memory'
+    // A check by itself: nothing is built, and the status says why nothing answers.
+    await expect(builds.query('bracket', 'nearest', {}, { restore: false })).rejects.toMatchObject({ kind: 'no_build' })
+    expect(builds.state('bracket')).toMatchObject({ status: 'ok', letGo: 'memory' })
+    expect(states.at(-1)).toMatchObject({ status: 'ok', letGo: 'memory' })
+    expect(kernel.calls).toHaveLength(1)
+    // Something is asked of it: it is built again, and the status says nothing more of it once that lands.
+    const answer = builds.query('bracket', 'describe', {})
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', letGo: 'memory', stale: false })
+    kernel.succeed(1)
+    await answer
     expect(builds.state('bracket')!.letGo).toBeUndefined()
   })
 

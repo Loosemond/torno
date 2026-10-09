@@ -8,7 +8,7 @@ import type { ImportReply, Importer } from '../scans/importer'
 import { ScanStore } from '../scans/store'
 import { MarkStore } from './store'
 import { UNIT_MM } from '../../shared/scans'
-import { type RegionDeps, addRegion, convertScan, meshesOf, removeMark, repaintRegion, restateRegions, tendRegions } from './regions'
+import { type RegionDeps, addRegion, convertScan, maskReadsOf, meshesOf, removeMark, repaintRegion, restateRegions, tendRegions } from './regions'
 
 // A region is kept by main from what the window painted: against the real stores, in a folder of the test's own.
 
@@ -53,7 +53,7 @@ beforeEach(async () => {
   source = join(root, 'sheet.stl')
   writeFileSync(source, stl(sheet))
   scans = new ScanStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), importer: () => importer })
-  marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans) })
+  marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans), maskReads: maskReadsOf(scans) })
   told = []
   marks.on('changed', (m) => told.push(m.marks))
   await scans.import('bracket', source)
@@ -198,6 +198,50 @@ describe('a region goes with the mesh it was painted on (M5)', () => {
     expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
   })
 
+  // Final fix wave (I7): orphaning is undone when its cause passes.
+  it('is back when its scan is there again with the mesh it was painted on and its mask reads, and that is said once', async () => {
+    await addRegion(deps(), 'bracket', region())
+    const file = join(dir, '.torno', 'scans.json')
+    const good = readFileSync(file, 'utf8')
+    writeFileSync(file, 'not json')
+    scans.forget()
+    await scans.list('bracket')
+    await scans.dismissProblem('bracket')
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+    // The person puts the file back (from git, from the copy torno set aside): the mesh and the mask never went.
+    writeFileSync(file, good)
+    scans.forget()
+    const problems: string[] = []
+    marks.on('problem', (m) => problems.push(m.message))
+    expect((await marks.list('bracket'))[0]).toMatchObject({ id: 'M1', anchorState: 'ok', status: 'draft' })
+    expect(told[told.length - 1][0].anchorState).toBe('ok')
+    expect(problems).toEqual(['M1 is back: its scan S1 is there again, with the mesh it was painted on.'])
+    await marks.list('bracket')
+    expect(problems).toHaveLength(1)
+  })
+
+  it('stays orphaned while its mask does not read, or its scan has another mesh than it was painted on', async () => {
+    await addRegion(deps(), 'bracket', region())
+    await addRegion(deps(), 'bracket', region({ bits: bits([4]) }))
+    const mask = readFileSync(maskOf('M1'))
+    rmSync(maskOf('M1'))
+    await tendRegions(deps(), 'bracket')
+    expect((await marks.list('bracket')).map((mark) => mark.anchorState)).toEqual(['orphaned', 'ok'])
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+    // Of another triangle count: no region of this mesh.
+    writeFileSync(maskOf('M1'), Buffer.concat([mask.subarray(0, 16), Buffer.alloc(9)]))
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+    writeFileSync(maskOf('M1'), mask)
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
+    // Orphaned because the scan was read again from a changed source: the mesh it records is not the scan's.
+    await marks.orphanRegions('bracket', 'S1', ['M2'])
+    const file = JSON.parse(readFileSync(join(dir, '.torno', 'marks.json'), 'utf8'))
+    file.marks[1].mesh = `${'ef'.repeat(32)}|25|32|mm|z`
+    writeFileSync(join(dir, '.torno', 'marks.json'), JSON.stringify(file))
+    marks.forget()
+    expect((await marks.list('bracket'))[1].anchorState).toBe('orphaned')
+  })
+
   it('leaves a mark from before meshes were recorded as it is, while its scan is there', async () => {
     await addRegion(deps(), 'bracket', region())
     const file = JSON.parse(readFileSync(join(dir, '.torno', 'marks.json'), 'utf8'))
@@ -285,6 +329,8 @@ describe('painting a kept region again', () => {
     expect([existsSync(maskOf('M1')), existsSync(maskOf('M1.1'))]).toEqual([true, false])
     expect((await marks.list('bracket'))[0]).toMatchObject({ triangles: 2 })
     rmSync(join(dir, '.torno', `marks.json.${process.pid}.tmp`), { recursive: true })
+    // Orphaned for a cause that has not passed: its triangles are gone.
+    rmSync(maskOf('M1'))
     await marks.orphanRegions('bracket', 'S1')
     await expect(repaintRegion(deps(), 'bracket', 'M1', bits([1]))).rejects.toThrow('M1 is of a scan that is gone or was read again')
   })

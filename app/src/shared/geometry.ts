@@ -155,7 +155,8 @@ export interface ScanClashed {
   crossings: { triangles: { candidates: number; checked: number; every: number }; clusters: Array<{ count: number; centre: Vec3; bbox: { min: Vec3; max: Vec3 } }>; clustersOmitted: number }
   deepest: { depth: number; at: Vec3; under: string } | null
   nearest: { distance: number; at: Vec3; on: Vec3; face: string } | null
-  sampling: { every: number; cell: number; surface: number; deflection: number; retaken: number; retakesFailed: number; partial: boolean; seconds: number }
+  /** `measured`: how many of the points checked were measured to the part's mesh; when fewer than were checked, the deepest, each cluster's depth and the nearest are of those only. `loading`: seconds of work done once before the clock. */
+  sampling: { every: number; cell: number; surface: number; deflection: number; retaken: number; retakesFailed: number; partial: boolean; seconds: number; measured?: number; loading?: number }
   how: string
   exact: false
 }
@@ -180,7 +181,7 @@ export interface ScanDeviated {
   exact: false
 }
 
-/** Where a plane cuts a scan: polylines in the plane's own axes, as `Sectioned` gives a part's loops. At most 4,000 points in all. */
+/** Where a plane cuts a scan: polylines in the plane's own axes, as `Sectioned` gives a part's loops, each point to 0.1 mm; in as many points as were asked for (`points`), each line its share by its length. */
 export interface ScanSectioned {
   scan: string
   plane: { origin: Vec3; normal: Vec3; x: Vec3; y: Vec3 }

@@ -32,8 +32,8 @@ export interface AlignmentData {
   unchecked?: boolean
   /** How many points of the model it is tied to: with none, no build can say whether it still holds. */
   tied?: number
-  /** What else is to be known of it: that it is tied to no point of the model, that the user confirmed it. */
-  note?: string
+  /** The user looked and said it still holds, and nothing has put it in doubt since. */
+  confirmed?: true
 }
 
 export interface AlignmentSaid {
@@ -52,8 +52,27 @@ export interface AlignmentSaid {
   first: string
   /** What is said beside an answer when the alignment may no longer hold; undefined otherwise. */
   note?: string
-  /** What closes a reading: how the scan is aligned, and, of a fit of pairs, that `under` (`a depth`) below its rms says nothing. '' when it is not aligned. */
-  last(under?: string): string
+  /**
+   * What closes a reading: how the scan is aligned, with what else is to be known of it (that it is tied to no
+   * point of the model, that the user confirmed it), said here once a reply; and, of a fit of pairs, that its
+   * rms is of the clicked points: it is no measure of the scan. '' when it is not aligned.
+   */
+  last(): string
+}
+
+/** Said after the rms of a fit of pairs wherever a reading closes with it: a few clicked points fitted to the micron say nothing of a scan true to millimetres. */
+export const RMS_OF_CLICKS = 'that rms is of the clicked points, and says nothing of how true the scan is'
+
+/**
+ * Said of a scan that is not aligned in the layout asked: where it is, what the user does, and, when some layout
+ * it is aligned in would answer what is asked (`askIn`: all of them unless said otherwise), that one. An
+ * alignment is of one layout: none is carried from another.
+ */
+export function notAligned(scan: Pick<ScanInfo, 'id' | 'alignments'>, layout: string, askIn?: string[]): string {
+  const elsewhere = Object.keys(scan.alignments)
+  const where = elsewhere.length > 0 ? `it is aligned in: ${elsewhere.join(', ')}` : 'it is aligned in no layout'
+  const usable = askIn ?? elsewhere
+  return `${scan.id} is not aligned in layout ${layout} (${where}), so nothing is checked against it there: the user aligns it in ${layout} with the Align tool (an alignment is of one layout)${usable.length > 0 ? `, or ask in ${usable.join(', ')}` : ''}`
 }
 
 /**
@@ -64,10 +83,7 @@ export interface AlignmentSaid {
 export function alignmentSaid(scan: Pick<ScanInfo, 'id' | 'alignments' | 'checks'>, layout: string, revision?: number): AlignmentSaid {
   const alignment = alignmentOf(scan, layout)
   if (!alignment) {
-    const elsewhere = Object.keys(scan.alignments)
-    const where = elsewhere.length > 0 ? `it is aligned in: ${elsewhere.join(', ')}` : 'it is aligned in no layout'
-    const refused = `${scan.id} is not aligned in layout ${layout} (${where}), so nothing is checked against it there: the user aligns it with the Align tool${elsewhere.length > 0 ? ', or ask in that layout' : ''}`
-    return { alignment: null, state: 'not aligned', reasons: [], refused, data: { state: 'not aligned' }, line: `not aligned in ${layout}`, first: '', last: () => '' }
+    return { alignment: null, state: 'not aligned', reasons: [], refused: notAligned(scan, layout), data: { state: 'not aligned' }, line: `not aligned in ${layout}`, first: '', last: () => '' }
   }
   const standing = standingOf(scan, layout, revision)
   const doubt = standing.stale
@@ -94,7 +110,7 @@ export function alignmentSaid(scan: Pick<ScanInfo, 'id' | 'alignments' | 'checks
     ...(doubt ? { stale: doubt } : {}),
     ...(standing.unchecked ? { unchecked: true } : {}),
     tied,
-    ...(standing.note ? { note: standing.note } : {})
+    ...(alignment.confirmed && standing.note?.includes('confirmed by the user') ? { confirmed: true as const } : {})
   }
   // What is beside the point of how it is aligned, and still to be known: in brackets, after it.
   const aside = [...(onlyUnchecked ? [standing.failed ? doubt!.replace(/^it /, '') : `not checked against r${revision}`] : []), ...(standing.note ? [standing.note] : [])]
@@ -110,7 +126,7 @@ export function alignmentSaid(scan: Pick<ScanInfo, 'id' | 'alignments' | 'checks
     line: `aligned ${rough ? 'roughly ' : ''}in ${layout} ${by}${rough ? ` (${rough})` : ''}${doubt && !onlyUnchecked ? ` but ${doubt}` : ''}${aside.length > 0 ? ` (${aside.join('; ')})` : ''}`,
     first: `${rests}${holds ? `${holds}. ` : ''}${rough ? `${scan.id} is only roughly aligned: ${rough}. ` : ''}`,
     ...(holds ? { note: holds } : {}),
-    last: (under) => `${scan.id} is aligned ${by}${fitted && !movedByHand && under ? `: ${under} under that says nothing` : ''}${standing.note ? ` (${standing.note})` : ''}.`
+    last: () => `${scan.id} is aligned ${by}${fitted && !movedByHand ? `: ${RMS_OF_CLICKS}` : ''}${standing.note ? ` (${standing.note})` : ''}.`
   }
 }
 

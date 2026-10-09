@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type Measurement, type NewMark, type Replacement, type RegionMark, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, REGION_KEYS, markAnchors, translated } from '../../shared/marks'
-import type { RegionStats } from '../../shared/regions'
+import { type RegionStats, maskStem } from '../../shared/regions'
 
 /** What main says of a region: what it is, which mesh of its scan it is of, and which painting of it its mask holds. */
 export type RegionSaid = RegionStats & { mesh?: string; mask?: number }
@@ -87,7 +87,7 @@ export class MarkStore {
    * `meshes` says which mesh each scan of an object has now (`meshIdentity`, by scan id), or null when that is
    * not known: a region is held against it whenever the marks are listed.
    */
-  constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date; meshes?(objectId: string): Promise<Map<string, string> | null> }) {}
+  constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date; meshes?(objectId: string): Promise<Map<string, string> | null>; maskReads?(objectId: string, scan: string, stem: string): Promise<boolean> }) {}
 
   on<E extends keyof MarkEvents>(event: E, cb: (m: MarkEvents[E]) => void): void {
     this.listeners[event].push(cb)
@@ -117,16 +117,41 @@ export class MarkStore {
    * the object's, or has another mesh than the mark records, is orphaned here, before it is told to anyone.
    * So nothing that lists the marks is given a region of another mesh as if it were of this one, whatever
    * was cut short between the scan changing and its regions being seen to.
+   *
+   * And the other way: an orphaned region whose scan is there again with the very mesh the mark records, and
+   * whose mask reads for it (`maskReads`), is of that scan as it ever was. Its cause has passed (a scans file
+   * that was lost and put back, a mask restored): it is back, and that is said once.
    */
   async list(objectId: string): Promise<Mark[]> {
     const marks = await this.turn(objectId, (file) => structuredClone(file.marks))
-    const regions = marks.filter((mark): mark is RegionMark => mark.kind === 'region' && mark.anchorState !== 'orphaned')
-    const meshes = regions.length > 0 ? await this.deps.meshes?.(objectId).catch(() => null) : null
+    const all = marks.filter((mark): mark is RegionMark => mark.kind === 'region')
+    const meshes = all.length > 0 ? await this.deps.meshes?.(objectId).catch(() => null) : null
     if (!meshes) return marks
-    const lost = regions.filter((mark) => !meshes.has(mark.scan) || (mark.mesh !== undefined && meshes.get(mark.scan) !== mark.mesh)).map((mark) => mark.id)
-    if (lost.length === 0) return marks
-    await this.orphaned(objectId, lost)
+    const lost = all.filter((mark) => mark.anchorState !== 'orphaned' && (!meshes.has(mark.scan) || (mark.mesh !== undefined && meshes.get(mark.scan) !== mark.mesh))).map((mark) => mark.id)
+    const back: RegionMark[] = []
+    for (const mark of all) {
+      if (mark.anchorState !== 'orphaned' || mark.mesh === undefined || meshes.get(mark.scan) !== mark.mesh || !this.deps.maskReads) continue
+      if (await this.deps.maskReads(objectId, mark.scan, maskStem(mark)).catch(() => false)) back.push(mark)
+    }
+    if (lost.length === 0 && back.length === 0) return marks
+    if (lost.length > 0) await this.orphaned(objectId, lost)
+    if (back.length > 0) await this.restored(objectId, back)
     return this.turn(objectId, (file) => structuredClone(file.marks))
+  }
+
+  /** Regions that were orphaned and are of their scan's mesh again: no longer orphaned, and said once. Each only while it is still the orphaned mark of that mesh it was seen to be. */
+  private async restored(objectId: string, regions: readonly RegionMark[]): Promise<void> {
+    const back: string[] = []
+    await this.change(objectId, (file) => {
+      for (const mark of file.marks) {
+        const was = regions.find((one) => one.id === mark.id)
+        if (!was || mark.kind !== 'region' || mark.anchorState !== 'orphaned' || mark.mesh !== was.mesh || mark.mask !== was.mask) continue
+        mark.anchorState = 'ok'
+        back.push(`${mark.id} is back: its scan ${mark.scan} is there again, with the mesh it was painted on.`)
+      }
+      return back.length > 0 ? undefined : UNCHANGED
+    })
+    if (back.length > 0) await this.report(objectId, back.join(' '))
   }
 
   /** Says something about an object's marks the person should know, as `problem` does of its file: once, and until it is dismissed. */
