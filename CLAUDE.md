@@ -62,22 +62,44 @@ While iterating run the focused test; run all four suites before a commit.
   is sent with the layout in front (`assembly:lid/F12`).
 - After every successful build, and when a mark is added, reopened or put
   somewhere else, the marks are checked against the build
-  (`src/main/marks/reanchor.ts`, one `nearest` query per layout). A mark's
-  point never moves; its ref and descriptor are refreshed; `anchorState` says
-  `drifted` or `orphaned`. Whatever reports a mark says so: the agent is told
-  nothing it cannot rely on.
+  (`src/main/marks/reanchor.ts`, one `nearest` query per layout). A mark stays
+  where it was put on its part; its ref and descriptor are refreshed;
+  `anchorState` says `drifted` or `orphaned`. Whatever reports a mark says so:
+  the agent is told nothing it cannot rely on.
+  - The one way a mark moves: its anchor records how far its part was spread
+    for display (`Anchor.arranged`), and when a build spreads the part
+    otherwise, everything the mark holds moves by the difference before it is
+    judged. Main sets `arranged` (`asPlaced`), never the window.
+  - A check writes what it judged each mark from; `MarkStore.reanchor` passes
+    over a mark whose anchors are no longer those (it was put somewhere else
+    meanwhile).
+  - `checkedRevision` is the build a mark was last checked against. An open
+    mark with a lower one is unchecked (`isUnchecked`), and every report of it
+    says so. A check that could not say of every mark is tried again after 2,
+    10 and 30 s (`retrying`).
+  - A pin whose point is on an edge is on that edge (`judgePin`): its anchor
+    has `edge` and, when two faces meet there, `between`.
 - Status: `draft` until a `UserPromptSubmit` hook has carried the mark to the
   agent of its own object (`src/main/context.ts`; turned `sent` only once the
-  answer has left), then `resolved`. No other hook consumes drafts.
+  answer has left), then `resolved`. No other hook consumes drafts. A sent
+  mark of the person's whose note or shape changes is a draft again
+  (`sentBefore`: told as `(changed)`).
+- What only main says of a mark (`MAIN_ONLY_KEYS` in `shared/marks.ts`:
+  `resolvedBy`, `acknowledged`, `sentBefore`, `checkedRevision`) is never
+  taken from the window or from a tool's arguments. A mark the agent resolved
+  stays in the panel's main list until the person acknowledges it.
 - The MCP tools (`src/main/mcp/tools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `show`, `add_mark`, `resolve_mark`. `show` changes
   the view for now and is never saved to `scene.json`; it is refused while a
-  button is held in the viewport.
+  button is held in the viewport. `marks`, `describe` and `add_mark` say which
+  revision they answer from, and that it is stale while a newer build runs or
+  has failed.
 - `<object>/.torno/state.md` says the same as the tools, as text
   (`src/main/statefile.ts`); its first line is when it was written.
 - User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and
   nothing else in the UI uses those colours. A picture for the agent draws
-  every mark alike: no active mark, no selection, no hover, no gizmo.
+  every mark alike: no active mark, no selection, no hover, no gizmo. A mark
+  on a part that is not drawn is not drawn either, on screen or in a picture.
 - Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape; `G`,
   `R`, `T` for the gizmo of the active shape. A tool is a `Tool`
   (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
@@ -95,7 +117,8 @@ While iterating run the focused test; run all four suites before a commit.
   folder, the last one that succeeded stays alive to answer queries about that
   object, and is replaced when the next build of that folder succeeds. At most
   four stay alive: a fifth folder retires the one least recently built or
-  queried, whose queries are then `no_build`. A query names its folder (`dir`)
+  queried, whose queries are then `no_build`. A worker keeps what `nearest`
+  worked out of each part it was asked about. A query names its folder (`dir`)
   and has 30 s, after which it is answered `timeout` and the worker left alone.
   Until that worker has answered every query that was given up on, new queries
   to it are answered `timeout` at once: it answers one at a time, and is still

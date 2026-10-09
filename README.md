@@ -63,6 +63,12 @@ already open to the front and says so on stderr; given a folder, that window
 opens it, asking first if a session there is in the middle of its work.
 
 For work on torno itself, `pnpm dev` runs the app from the Vite dev server.
+`F12` and `Ctrl+Shift+I` open the developer tools whenever torno runs from the
+repository; `F5` and `Ctrl+R` reload the window under `pnpm dev` only, because
+in the app itself those keys belong to the agent's CLI.
+
+Torno has no menu. The window is closed through the window manager, which
+ends torno; `Ctrl+Q`, `Ctrl+W`, `F11` and the zoom shortcuts do not exist.
 
 ## The window
 
@@ -115,7 +121,15 @@ The tools, each with its key:
 | `S` | Shape | Click places a box, cylinder, sphere or plane, to add, remove, keep out or refer to. A gizmo moves it (`G`), turns it (`R`) or sizes it (`T`), and its row has the exact numbers. |
 
 `Esc` drops what is being dragged, then puts the tool down for Select. In a
-note, `Enter` saves and `Esc` leaves it for later.
+note, `Enter` saves and `Esc` leaves it for later. A note is also kept when
+you leave it any other way, such as `Ctrl+\`` to the terminal: what you typed
+goes with the prompt you type next.
+
+A pin on an edge is a pin on that edge: the pointer snaps to an edge within
+reach, and the agent is told which edge it is and the two faces that meet
+there. A mark on a part that is switched off in the layers is not drawn, in
+the window or in the agent's pictures; its row stays and says "its part is
+hidden".
 
 Every mark has a number (`M1`, `M2`, never reused), a note, and a row in the
 marks panel. Yours are drawn in red, the agent's in green. A mark is a
@@ -123,12 +137,33 @@ marks panel. Yours are drawn in red, the agent's in green. A mark is a
 **resolved** by you or by the agent, with a line on what was done. Clicking a
 row goes to the view the mark was placed from.
 
+A mark you change after it was sent (its note, or a shape's place, size, kind
+or intent) is a draft again, and the next prompt carries it once more, marked
+`(changed)`.
+
+A mark the agent resolves does not vanish: it stays in the list, its row
+saying "Resolved by the agent" with the agent's line on what it did, until you
+press **OK** (it goes under "Resolved") or **Reopen** (it is a draft again). A
+mark of the agent's that you reopen is told to it with the next prompt as
+`(yours, reopened by the user)`.
+
 After every build each mark is checked against the new geometry. It stays at
 its point; its ref is refreshed to the face now there. When the surface has
 moved away from it the row says "moved: check it", and when its part is gone,
-"its part is gone"; the agent is told the same. Such a pin, pick or arrow
-offers **Re-place** in its row: the next click on a part puts that mark there,
-with its number and note, and `Esc` leaves it where it is.
+"its part is gone"; the agent is told the same. Such a pin, pick or arrow of
+yours offers **Re-place** in its row: the next click on a part puts that mark
+there, with its number and note, and `Esc` leaves it where it is.
+
+In a `print` layout that torno spread along X (see below), a part that grows
+pushes the parts after it along. A mark on one of those moves with its part,
+by as much as the part was moved, and is checked there: it stays where you
+put it on the part.
+
+When a check cannot be made (the kernel did not answer in time, or could not
+say where a point is), the marks it was about keep what the last check found
+and say "not checked against r12", in their rows and wherever the agent reads
+them, until a check succeeds. Torno tries again after 2, 10 and 30 seconds,
+and at the next build.
 
 ### How a model is read
 
@@ -176,7 +211,8 @@ them.
   caption names the revision that was drawn, and says when it is stale.
 - **`mcp__torno__marks`**, **`mcp__torno__describe`**: your marks and the
   agent's as data, and the exact geometry of a part, a face or an edge
-  (`lid`, `lid/F12`, `lid/E3`).
+  (`lid`, `lid/F12`, `lid/E3`). Both say which revision they answer from, and
+  say so when a newer build is running or has failed; `add_mark` does too.
 - **`mcp__torno__highlight`**, **`mcp__torno__show`**: the agent tints faces
   or edges in your viewport with a note, to ask "this one?", until you click
   or a minute passes; or changes your camera, layout and visible parts to show
@@ -184,15 +220,23 @@ them.
   chose stay what `.torno/scene.json` keeps. While you hold a button in the
   viewport, `show` is refused and the agent is told to try again.
 - **`mcp__torno__add_mark`**, **`mcp__torno__resolve_mark`**: the agent leaves
-  marks of its own, in green, and resolves yours with a line on what it did.
+  marks of its own, in green, and resolves yours with a line on what it did,
+  which you then confirm or reopen.
 - **A few lines with every prompt**, added by a `UserPromptSubmit` hook:
   `[torno] bracket · build ok · r3 (1.2 s) · layout assembly · parts: base, post.`
   For a failed build it carries the error. For an object that is not the one
-  open in the window it says so, and names no layout. Then each mark you left
-  since the last prompt, a line each, such as
-  `M3 pin on lid/F12 (plane, normal +Z, z = 20, 1180 mm²) at (12, 40.5, 20): "this edge is ugly"`,
-  and the numbers of the marks still open. A mark is told this way once: it
-  then shows as sent. A mark you put somewhere else is a draft again.
+  open in the window it says so, and names no layout. Then what you have
+  selected, when the parts on screen are those of the last build:
+  `Selected: base/F5 (plane, normal +Z, z = 2.5, 1200 mm²), base/E5 (line, 30 mm)`,
+  eight refs at most. Then each mark you left since the last prompt, a line
+  each, such as
+  `M3 pin on the edge lid/E40 between lid/F12 and lid/F40 (line, 40 mm) at (12, 40.5, 20): "this edge is ugly"`,
+  and the numbers of the marks still open, each with what the last build did
+  to it: `Open marks: M1 (moved), M4 (part gone), M6 (unchecked)`. A mark is
+  told this way once: it then shows as sent. A mark you put somewhere else, or
+  changed, is a draft again and is told again, the changed one as
+  `(changed) M3 …`. After `/clear`, the first prompt of the new conversation
+  lists your open marks once more, since it has seen none of them.
 
 The session's status follows the hooks Claude Code posts to torno:
 `UserPromptSubmit`, `PreToolUse` and `PostToolUse` mean working, `Stop` idle,
