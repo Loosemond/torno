@@ -1,10 +1,7 @@
 import type { AgentAdapter } from './adapter'
+import { HOOK_EVENTS } from './status'
 
-/**
- * The hooks torno listens to. `SessionStart` is absent on purpose: Claude Code
- * does not fire it as an http hook.
- */
-export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'SessionEnd']
+export { HOOK_EVENTS }
 
 const HOOK_TIMEOUT_S = 5
 

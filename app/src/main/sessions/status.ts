@@ -1,6 +1,12 @@
 import type { SessionStatus } from '../../shared/bridge'
 
 /**
+ * The hooks torno listens to. `SessionStart` is absent on purpose: Claude Code
+ * does not fire it as an http hook.
+ */
+export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'SessionEnd']
+
+/**
  * The status of a session after an event: the name of a hook the agent posted,
  * or what the PTY did (`output`, `exit`). An event that says nothing about the
  * status leaves it as it is, and nothing follows `exited`.

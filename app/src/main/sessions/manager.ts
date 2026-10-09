@@ -7,7 +7,7 @@ import type { SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import type { AgentAdapter } from './adapter'
-import { reduceStatus } from './status'
+import { HOOK_EVENTS, reduceStatus } from './status'
 
 const FOLDER = '.torno'
 const FILE = 'session.json'
@@ -92,7 +92,7 @@ export class Sessions {
       systemPrompt: this.deps.systemPrompt
     })
     if (this.deps.debug) console.error(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`)
-    const env = cleanEnv({ ...process.env, ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id })
+    const env: Record<string, string> = { ...agentEnv(process.env), ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id }
     // node-pty reports a command that does not exist only as a process that exits at once.
     if (!findCommand(launch.command, env.PATH)) throw new Error(`cannot start the agent: '${launch.command}' was not found on PATH`)
 
@@ -198,6 +198,8 @@ export class Sessions {
     const [sessionId, event] = rest
     const session = rest.length === 2 ? this.sessions.get(sessionId) : undefined
     if (!session) return sendJson(res, 404, { error: 'no such session' })
+    // Only what the agent posts: `exit` and `output` are the PTY's to say, and would end a live session.
+    if (!HOOK_EVENTS.includes(event)) return sendJson(res, 404, { error: 'no such hook' })
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' })
 
     let body: unknown
@@ -242,8 +244,18 @@ function signal(child: pty.IPty, name: string): void {
   }
 }
 
-function cleanEnv(env: Record<string, string | undefined>): Record<string, string> {
-  return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined))
+/** torno's own switches (src/main/index.ts, e2e/): they mean nothing to the agent, or mislead what it starts. */
+const OWN_VARIABLES = new Set(['TORNO_TEST', 'TORNO_AGENT_CMD', 'TORNO_CONFIG', 'TORNO_WORKSPACE', 'TORNO_DEBUG', 'TORNO_SHOTS'])
+
+/**
+ * The environment an agent inherits: torno's, without torno's own switches and
+ * without what a Claude Code session sets for its children. torno may have been
+ * started from inside one, and the agent would then take itself for a child of
+ * that session.
+ */
+function agentEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const kept = (name: string): boolean => !OWN_VARIABLES.has(name) && name !== 'CLAUDECODE' && !name.startsWith('CLAUDE_CODE_')
+  return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined && kept(entry[0])))
 }
 
 /** The file a command names: itself when it is a path, else the first match on PATH. */

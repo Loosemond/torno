@@ -204,6 +204,39 @@ describe('a session', () => {
     }
   })
 
+  it('gives the agent torno\'s environment without what is torno\'s own or another Claude Code\'s', async () => {
+    const mine: Record<string, string> = {
+      TORNO_TEST: '1',
+      TORNO_AGENT_CMD: 'x',
+      TORNO_CONFIG: '/x',
+      TORNO_WORKSPACE: '/x',
+      TORNO_DEBUG: '1',
+      TORNO_SHOTS: '/x',
+      CLAUDECODE: '1',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      CLAUDE_CODE_SSE_PORT: '1',
+      CLAUDE_CONFIG_DIR: '/kept',
+      ANTHROPIC_KEPT_FOR_TEST: 'kept'
+    }
+    const before = Object.fromEntries(Object.keys(mine).map((name) => [name, process.env[name]]))
+    Object.assign(process.env, mine)
+    try {
+      const { sessionId } = sessions.start(object('bracket'), {})
+      sessions.write(sessionId, 'env\r')
+      await expect.poll(() => said(sessionId)).toMatch(/env: (\[.*?\])\r?\n/)
+      const names: string[] = JSON.parse(/env: (\[.*?\])\r?\n/.exec(said(sessionId))![1])
+      expect(names.filter((name) => name.startsWith('TORNO'))).toEqual(['TORNO_OBJECT', 'TORNO_SESSION_ID'])
+      expect(names.filter((name) => name === 'CLAUDECODE' || name.startsWith('CLAUDE_CODE_'))).toEqual([])
+      // Everything else is passed on.
+      for (const name of ['ANTHROPIC_KEPT_FOR_TEST', 'CLAUDE_CONFIG_DIR', 'HOME', 'PATH']) expect(names).toContain(name)
+    } finally {
+      for (const [name, value] of Object.entries(before)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  })
+
   it('says so when the agent command is not installed', () => {
     const none = make('torno-no-such-agent')
     expect(() => none.start(object('bracket'), {})).toThrow(/torno-no-such-agent.*not found/)
@@ -224,6 +257,21 @@ describe('the hook endpoint', () => {
     expect(fine.headers.get('content-type')).toBe('application/json')
     expect(await fine.json()).toEqual({})
     expect((await fetch(http.url('/elsewhere'), { method: 'POST', body: '{}' })).status).toBe(404)
+  })
+
+  it('knows only the hooks of the agent: no other name moves the status', async () => {
+    const { sessionId } = sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    // `exit` and `output` are what the PTY tells the session, not hooks.
+    for (const name of ['exit', 'output', 'SessionStart', 'stop']) {
+      const reply = await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}' })
+      expect(reply.status).toBe(404)
+    }
+    expect(statuses.get(sessionId)).toEqual(['starting', 'idle'])
+    expect(sessions.current('bracket')?.status).toBe('idle')
+    for (const name of ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'SessionEnd']) {
+      expect((await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}' })).status).toBe(200)
+    }
   })
 
   it('refuses a body over 1 MB', async () => {

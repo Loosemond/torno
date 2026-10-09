@@ -6,6 +6,8 @@
 //     in its --settings argument and prints the additionalContext it is given;
 //     `hook <Event> [session id]` posts another event, or as another conversation;
 //   - on the line `size`, prints the size of its terminal;
+//   - on the line `env`, prints the names of its HOME, PATH, TORNO*, CLAUDE*
+//     and ANTHROPIC* variables, sorted, as JSON;
 //   - on the line `palette`, prints the sixteen ANSI colours;
 //   - on the line `exit`, exits.
 // With FAKE_AGENT_STUBBORN=1 it ignores SIGHUP, like a process that has hung.
@@ -46,6 +48,7 @@ lines.on('line', (line) => {
   const [word, event, sessionId] = line.trim().split(/\s+/)
   if (word === 'hook') void hook(event ?? 'UserPromptSubmit', sessionId ?? conversation).catch((e) => console.log(`hook failed: ${e.message}`))
   else if (word === 'size') console.log(`size: ${process.stdout.columns}x${process.stdout.rows}`)
+  else if (word === 'env') console.log(`env: ${JSON.stringify(Object.keys(process.env).filter((name) => /^(HOME$|PATH$|TORNO|CLAUDE|ANTHROPIC)/.test(name)).sort())}`)
   else if (word === 'palette') palette()
   else if (word === 'exit') process.exit(0)
 })
