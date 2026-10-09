@@ -157,8 +157,9 @@ export class MarkStore {
       if (asked.status === undefined && mark.status === 'sent' && mark.author === 'user' && CONTENT_KEYS.some((key) => !isDeepStrictEqual(said[key], before[key]))) {
         changed.status = 'draft'
       }
-      // Resolved, and a draft again: whoever resolved it is told that the person did not take it.
-      if (mark.status === 'resolved' && changed.status === 'draft' && by === 'user') changed.reopened = true
+      // Resolved, and a draft again: the agent is told that the person did not take it, when it knows of the
+      // mark or of its resolution. One the person resolved before it was ever sent is news to it, and no more.
+      if (mark.status === 'resolved' && changed.status === 'draft' && by === 'user' && (mark.sentBefore === true || mark.resolvedBy === 'agent')) changed.reopened = true
       if (changed.status !== 'resolved') {
         delete changed.resolvedBy
         delete changed.acknowledged

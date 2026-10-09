@@ -267,14 +267,27 @@ describe('changing a mark the agent has been sent', () => {
     expect(await store.update('bracket', 'M1', { note: 'thicker by 3 mm' })).not.toHaveProperty('reopened')
   })
 
-  it('says it of one the person had resolved themselves too, and of none that is resolved again before it is sent', async () => {
+  it('says it of one the person had resolved themselves once it had been sent, and of none that is resolved again before it is sent', async () => {
     await store.add('bracket', pin('here'))
+    await store.markSent('bracket')
     await store.update('bracket', 'M1', { status: 'resolved' })
     expect(await store.update('bracket', 'M1', { status: 'draft' })).toMatchObject({ status: 'draft', reopened: true })
     expect(await store.update('bracket', 'M1', { status: 'resolved' })).not.toHaveProperty('reopened')
     // Nor of a draft that was never resolved.
     await store.add('bracket', pin('there'))
     expect(await store.update('bracket', 'M2', { status: 'draft', note: 'there, then' })).not.toHaveProperty('reopened')
+  })
+
+  it('does not say it of a mark the agent never saw: one the person resolved before it was sent, and reopened', async () => {
+    await store.add('bracket', pin('here'))
+    await store.update('bracket', 'M1', { status: 'resolved' })
+    const again = await store.update('bracket', 'M1', { status: 'draft' })
+    expect(again).toMatchObject({ status: 'draft' })
+    expect(again).not.toHaveProperty('reopened')
+    // One the agent resolved was seen by it, sent before or not.
+    await store.add('bracket', pin('there'))
+    await store.update('bracket', 'M2', { status: 'resolved' }, 'agent')
+    expect(await store.update('bracket', 'M2', { status: 'draft' })).toMatchObject({ status: 'draft', reopened: true })
   })
 
   it('takes neither from whoever adds or patches a mark: only sending says a mark was sent', async () => {

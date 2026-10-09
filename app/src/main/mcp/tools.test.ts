@@ -719,7 +719,7 @@ describe('add_mark', () => {
     const deps = fake({ nearest: answers({}) })
     const result = await addMarkTool(deps, 'bracket', { kind: 'pin', note: 'up here', point: [0, 0, 80] })
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toBe('the kernel could not say whether (0, 0, 80) is on base: the point of assembly:base nearest to the anchor is on none of its faces. No mark was placed: try again, or give a ref.')
+    expect(textOf(result)).toBe('the kernel could not say whether (0, 0, 80) is on base: the point of assembly:base nearest to the anchor is on none of its faces. No mark was placed: give a ref.')
     expect(deps.w.added).toEqual([])
 
     // On a part it could answer for, the point is on that part whatever was not said of the others.
@@ -802,6 +802,19 @@ describe('add_mark', () => {
       'the point (10, 12, 2.5) is 3.21 mm from base/E7: give a point on the edge, or leave the point out to use its middle'
     )
     expect(deps.w.added).toHaveLength(2)
+  })
+
+  it('says so when a pin named by an edge and a point lands on another edge than the one named', async () => {
+    const deps = fake()
+    deps.w.near = { support: 'edge', edgeUnder: 'base/E7', edgeUnderDescriptor: 'line, 40 mm', between: ['base/F2', 'base/F5'] }
+    const result = await addMarkTool(deps, 'bracket', { kind: 'pin', note: 'here', ref: 'base/E5', point: [20, 15, 2.5] })
+    expect(deps.w.added[0]).toMatchObject({ anchor: { ref: 'base/E7', edge: 'base/E7' } })
+    expect(said(result)).toBe(
+      'placed in layout assembly: (yours) M5 pin on the edge base/E7 between base/F2 and base/F5 (line, 40 mm) at (20, 15, 2.5): "here"\nThe pin is placed on base/E7, the edge under that point, not base/E5.'
+    )
+    // On the edge named, nothing more is said.
+    const same = await addMarkTool(deps, 'bracket', { kind: 'pin', note: '', ref: 'base/E7', point: [10, 15, 2.5] })
+    expect(said(same)).not.toContain('not base/')
   })
 
   it('says a pin is on an edge when the kernel finds its point on one, whatever named the point', async () => {

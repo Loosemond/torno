@@ -71,3 +71,16 @@ describe('the marks of a part that is switched off', () => {
     expect(drawn()).toEqual(['M1', 'M3', 'M6'])
   })
 })
+
+describe('what a mark is drawn as', () => {
+  it('is not made again for what does not change how it looks: a note, being sent, having been reopened', () => {
+    const marks = new MarkLayer(COLOURS)
+    marks.setMarks([{ ...onBase, reopened: true }])
+    const drawn = marks.group.children[0]
+    marks.setMarks([{ ...onBase, status: 'sent', sentBefore: true, note: 'thicker', checkedRevision: 4 }])
+    expect(marks.group.children[0]).toBe(drawn)
+    // Somewhere else, it is.
+    marks.setMarks([{ ...onBase, anchor: { ...onBase.anchor, point: [5, 5, 2.5] } }])
+    expect(marks.group.children[0]).not.toBe(drawn)
+  })
+})

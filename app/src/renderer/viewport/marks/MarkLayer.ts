@@ -222,7 +222,7 @@ export function onHidden(mark: Mark, hidden: ReadonlySet<string>): boolean {
 
 /** Everything of a mark that changes how it is drawn, as one string: a note or a status does not. */
 function drawnAsOf(mark: Mark): string {
-  const { note: _note, status: _status, resolvedNote: _resolvedNote, createdAt: _createdAt, camera: _camera, revision: _revision, sentBefore: _sentBefore, checkedRevision: _checkedRevision, ...drawn } = mark
+  const { note: _note, status: _status, resolvedNote: _resolvedNote, createdAt: _createdAt, camera: _camera, revision: _revision, sentBefore: _sentBefore, reopened: _reopened, checkedRevision: _checkedRevision, ...drawn } = mark
   return JSON.stringify(drawn)
 }
 

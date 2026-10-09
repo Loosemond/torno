@@ -155,7 +155,7 @@ async function anchorFor(
       // A part the kernel could say nothing of may be the one the point is on: it is not said to be on none.
       const failed = found.find((one) => one.found && one.error !== undefined)
       if (failed?.found && failed.error !== undefined) {
-        return failure(`the kernel could not say whether ${vector(point)} is on ${failed.part}: ${failed.error}. No mark was placed: try again, or give a ref.`)
+        return failure(`the kernel could not say whether ${vector(point)} is on ${failed.part}: ${failed.error}. No mark was placed: give a ref.`)
       }
       return { anchor: { point }, said: 'The point is on no part of this layout, so the mark is tied to none.' }
     }
@@ -180,7 +180,11 @@ async function anchorFor(
       // Off its edge, the mark would be said to have drifted at once. An edge has no one normal.
       if (near.edgeFound !== true) return failure(`the kernel did not say how far the point ${vector(base.point)} is from ${ref}: leave the point out to use the middle of the edge`)
       if (near.edgeDistance > EDGE_TOLERANCE_MM) return failure(`the point ${vector(base.point)} is ${number(near.edgeDistance)} mm from ${ref}: give a point on the edge, or leave the point out to use its middle`)
-      return { anchor: pin ? judgePin({ ...base, edge: ref }, near, Infinity).anchor : base, target }
+      if (!pin) return { anchor: base, target }
+      // Two edges may both be within reach of the point (those of a narrow chamfer): the pin is on the one the kernel found it on.
+      const onIt = judgePin({ ...base, edge: ref }, near, Infinity).anchor
+      const other = onIt.edge !== undefined && onIt.edge !== ref
+      return { anchor: onIt, target, ...(other ? { said: `The pin is placed on ${onIt.edge}, the edge under that point, not ${ref}.` } : {}) }
     }
     if (point && near.distance > tolerance(part.bbox)) {
       return failure(`the point ${vector(point)} is ${number(near.distance)} mm from the surface of ${part.name}: give a point on it, or leave the point out to use the centre of ${ref}`)
