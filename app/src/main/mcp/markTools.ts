@@ -344,7 +344,7 @@ export async function resolveMarkTool(deps: ToolDeps, objectId: string, args: Re
   const note = args.note?.trim().slice(0, MAX_NOTE)
   try {
     const mark = await deps.updateMark(objectId, args.id, { status: 'resolved', ...(note ? { resolvedNote: note } : {}) })
-    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark)}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}` }] }
+    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision: deps.scene(objectId)?.revision })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}` }] }
   } catch (e) {
     return failure(messageOf(e))
   }

@@ -337,6 +337,176 @@ test('a dimension is given to the agent with the next prompt like any mark, and 
   expect(dimension(root, 'M1')).toMatchObject({ status: 'draft', sentBefore: true, expected: 6, verdict: 'pass' })
 })
 
+// Dimensions as checks of the part (review focus 1 and 2), on the fixture
+// `gauge`: a plate 40 × 30 standing on z = 0 with a hole at (10, 0), 6 mm
+// thick with a Ø8 hole when `variant.txt` says `a`, 5 mm with a Ø9 hole when
+// it says `b`. The agent is the stand-in, whose `hook` line prints what it
+// would be given with a prompt.
+const gaugeMarks = (): DimensionMark[] => {
+  try {
+    return JSON.parse(readFileSync(join(root, 'gauge', '.torno', 'marks.json'), 'utf8')).marks
+  } catch {
+    return []
+  }
+}
+const gauge = (id: string): DimensionMark | undefined => gaugeMarks().find((m) => m.id === id)
+const terminal = async (): Promise<string> => (await page.evaluate(() => window.__tornoTerm!.text())).replace(/\s+/g, '')
+const statusLine = () => page.locator('[data-region="status"]')
+
+/** Has the stand-in agent post the hook of a prompt, and answers with what it was given, without white space. */
+async function prompted(): Promise<string> {
+  const before = (await terminal()).split('context:').length
+  await page.locator('.session-term textarea').focus()
+  await page.keyboard.type('hook')
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await terminal()).split('context:').length).toBeGreaterThan(before)
+  // What it prints arrives in pieces: until it has stopped growing.
+  let last = ''
+  await expect
+    .poll(
+      async () => {
+        const now = await terminal()
+        const still = now === last
+        last = now
+        return still
+      },
+      { intervals: [150] }
+    )
+    .toBe(true)
+  return last.slice(last.lastIndexOf('context:'))
+}
+
+/** Builds the other variant of the gauge, and waits until its marks have been checked and its dimensions measured on that build. */
+async function buildVariant(variant: 'a' | 'b', revision: number): Promise<void> {
+  writeFileSync(join(root, 'gauge', 'variant.txt'), `${variant}\n`)
+  await expect.poll(async () => (await state(page)).build, { timeout: 60_000 }).toMatchObject({ status: 'ok', revision, stale: false })
+  await expect.poll(() => gaugeMarks().map((m) => m.measuredRevision), { timeout: 30_000 }).toEqual([revision, revision])
+}
+
+const GAUGE_TOP: Vec3 = [-10, 5, 6]
+const GAUGE_HOLE: Vec3 = [10 - 2.83, 2.83, 4.6]
+
+test('on the gauge, the thickness of the plate and the diameter of its hole are measured, and what they should be is typed', async () => {
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+  await page.getByRole('button', { name: 'gauge', exact: true }).click()
+  await expect.poll(async () => (await state(page)).build, { timeout: 90_000 }).toMatchObject({ objectId: 'gauge', status: 'ok', revision: 1 })
+  await expect.poll(async () => (await state(page)).scene !== null).toBe(true)
+  await atRest(page)
+
+  await page.keyboard.press('m')
+  expect(await pickOver(GAUGE_TOP, page)).toMatchObject({ kind: 'face', normal: [0, 0, 1] })
+  await page.mouse.move(...(await pageXY(GAUGE_TOP, page)))
+  await page.keyboard.press('t')
+  await expect.poll(() => gauge('M1')?.value).toBeCloseTo(6, 9)
+  expect(await pickOver(GAUGE_HOLE, page)).toMatchObject({ kind: 'face', part: 'plate' })
+  await clickOver(GAUGE_HOLE, page, 2)
+  await expect.poll(() => gauge('M2')?.value).toBeCloseTo(8, 9)
+  expect(gauge('M1')).toMatchObject({ measure: 'thickness', measuredRevision: 1 })
+  expect(gauge('M2')).toMatchObject({ measure: 'diameter', measuredRevision: 1 })
+  await page.keyboard.press('Escape')
+
+  for (const [id, expected] of [['M1', '6'], ['M2', '8']] as const) {
+    await row(id, page).click()
+    const field = row(id, page).locator('.dimension-fields').getByRole('textbox', { name: 'Expected' })
+    await field.fill(expected)
+    await field.press('Enter')
+    await expect(row(id, page).locator('.dimension-verdict')).toHaveText('Passes')
+  }
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+  await expect(statusLine().locator('.status-dimensions')).toHaveCount(0)
+})
+
+test('given to the agent they are pinned: the next prompt says only how many pass', async () => {
+  await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+  await expect.poll(terminal).toContain('READY')
+  // New to the agent: told as marks, with their values and verdicts.
+  const first = await prompted()
+  expect(first).toMatch(/M1thickness6mmwall,alongthenormal,plate\/F\d+at\(-10,5,6\)\(expected6±0\.05:pass\)/)
+  expect(first).toMatch(/M2diameter8mm,plate\/F\d+\(expected8±0\.05:pass\)/)
+  expect(first).not.toContain('Dimensions:')
+  await expect(row('M1', page).locator('.mark-status')).toHaveText('pinned')
+  await expect(row('M2', page).locator('.mark-status')).toHaveText('pinned')
+  // From then on: nothing of them but the count, while they pass.
+  const second = await prompted()
+  expect(second).toMatch(/Dimensions:2pinneddimensionspassOpenmarks:M1,M2$/)
+  expect(second).not.toContain('thickness')
+})
+
+test('a build that makes the plate 5 mm thick fails them: the rows, the status line and every prompt say so', async () => {
+  await buildVariant('b', 2)
+  // Measured on r2, between what is under their ends now: the top of the plate is 1 mm lower than where M1 was put.
+  const thickness = gauge('M1')!
+  expect(thickness.value).toBeCloseTo(5, 9)
+  expect(thickness).toMatchObject({ verdict: 'fail', anchorState: 'drifted', checkedRevision: 2, status: 'sent', expected: 6 })
+  expect(thickness.a.point[2]).toBeCloseTo(6, 6)
+  expect(thickness.points![0][2]).toBeCloseTo(5, 9)
+  const hole = gauge('M2')!
+  expect(hole.value).toBeCloseTo(9, 9)
+  expect(hole).toMatchObject({ verdict: 'fail', status: 'sent' })
+
+  await expect(row('M1', page).locator('.mark-value')).toHaveText('5 mm')
+  await expect(row('M1', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'fail')
+  await expect(row('M1', page).locator('.mark-anchor')).toHaveText('moved: check it')
+  await expect(row('M2', page).locator('.mark-value')).toHaveText('⌀ 9 mm')
+  await row('M2', page).click()
+  await expect(row('M2', page).locator('.dimension-verdict')).toHaveText('Fails: 1 over')
+
+  // The status line counts them, in the colour of failure, and goes to the first.
+  const failing = statusLine().locator('.status-dimensions[data-state="fail"]')
+  await expect(failing).toHaveText('2 dimensions fail')
+  const colours = await page.evaluate(() => {
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--fail)'
+    document.body.append(probe)
+    const token = getComputedStyle(probe).color
+    probe.remove()
+    return { drawn: getComputedStyle(document.querySelector('.status-dimensions[data-state="fail"]')!).color, token }
+  })
+  expect(colours.drawn).toBe(colours.token)
+  await expect(row('M2', page)).toHaveAttribute('data-active', '')
+  await failing.click()
+  await expect(row('M1', page)).toHaveAttribute('data-active', '')
+  await expect(row('M1', page)).toBeInViewport()
+  await expect(row('M1', page).locator('.dimension-verdict')).toHaveText('Fails: 1 under')
+  await expect(row('M1', page).locator('.dimension-how')).toHaveText('wall, along the normal, measured from what is under its ends now')
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+
+  // The agent is told of both with the prompt, and with the one after: they are not news that is told once.
+  for (const _again of [1, 2]) {
+    const context = await prompted()
+    expect(context).toMatch(/Dimensions:M1thickness5mmwall,alongthenormal,plate\/F\d+at\(-10,5,6\)\(expected6±0\.05:FAIL,1under\)\[movedsinceitwasplaced:checkit\]M2diameter9mm,plate\/F\d+\(expected8±0\.05:FAIL,1over\)(\[movedsinceitwasplaced:checkit\])?$/)
+    expect(context).not.toContain('pinneddimension')
+    // Each has its line: neither is named again among the open marks.
+    expect(context).not.toContain('Openmarks:')
+  }
+  expect(gaugeMarks().map((m) => m.status)).toEqual(['sent', 'sent'])
+
+  // The state file says the same.
+  // It is written a second after the last change.
+  const stateFile = (): string => {
+    try {
+      return readFileSync(join(root, 'gauge', '.torno', 'state.md'), 'utf8')
+    } catch {
+      return ''
+    }
+  }
+  await expect.poll(stateFile, { timeout: 10_000 }).toMatch(/- M1 thickness 5 mm wall, along the normal, plate\/F\d+ at \(-10, 5, 6\) \(expected 6 ± 0\.05: FAIL, 1 under\) \[moved since it was placed: check it\]\n- M2 diameter 9 mm, plate\/F\d+ \(expected 8 ± 0\.05: FAIL, 1 over\)/)
+})
+
+test('built as it should be again, they pass: the status line is clear, and the prompt says only the count', async () => {
+  await buildVariant('a', 3)
+  expect(gauge('M1')!.value).toBeCloseTo(6, 9)
+  expect(gauge('M1')).toMatchObject({ verdict: 'pass', anchorState: 'ok' })
+  expect(gauge('M2')!.value).toBeCloseTo(8, 9)
+  expect(gauge('M2')).toMatchObject({ verdict: 'pass', anchorState: 'ok' })
+  await expect(row('M1', page).locator('.mark-value')).toHaveText('6 mm')
+  await expect(row('M1', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'pass')
+  await expect(statusLine().locator('.status-dimensions')).toHaveCount(0)
+  const context = await prompted()
+  expect(context).toMatch(/Dimensions:2pinneddimensionspassOpenmarks:M1,M2$/)
+  expect(context).not.toContain('FAIL')
+})
+
 // Set TORNO_SHOTS=<dir> to write measure-light.png, measure-dark.png (the
 // window: an axis distance, a diameter that fails, an angle and a wall that
 // passes, with the failing one's numbers open) and measure-look.png (the

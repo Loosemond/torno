@@ -5,7 +5,7 @@ import type { Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
 import { sanitiseMark } from './file'
-import type { MarkStore } from './store'
+import type { MarkStore, Remeasured } from './store'
 
 /** How long a new dimension waits for its value before it appears without one, to be given it when it comes. */
 export const APPEARS_AFTER_MS = 300
@@ -59,6 +59,10 @@ const isPoint = (value: unknown): value is Vec3 => Array.isArray(value) && value
  * thickness is asked at the point of the face nearest to the end (`onItsFace`);
  * the end itself stays where it was put.
  *
+ * A dimension is measured from its ends as they are, whatever the last check
+ * said of them: one whose end the build moved is measured from the feature
+ * its end names now. Whether its part is still there is the caller's to know.
+ *
  * When the kernel says the thing cannot be measured (an end names nothing in
  * this build, or the kind of measurement is not one of such ends), there is
  * no value, and `refused` is why. Anything else that goes wrong (no build, a
@@ -69,7 +73,7 @@ export async function measureDimension(
   deps: MeasureDeps,
   objectId: string,
   mark: Pick<DimensionMark, 'measure' | 'layout' | 'a' | 'b' | 'expected' | 'tolerance'>
-): Promise<Measurement & { refused?: string }> {
+): Promise<Measurement> {
   // A build that lands while the kernel is asked leaves it unsaid which the answer is of: asked again, once.
   for (let tries = 0; ; tries++) {
     const before = deps.scene(objectId)?.revision
@@ -115,7 +119,7 @@ async function onItsFace(deps: Pick<MeasureDeps, 'query'>, objectId: string, lay
   }
 }
 
-type Marks = Pick<MarkStore, 'add' | 'measured' | 'remove'>
+type Marks = Pick<MarkStore, 'add' | 'measured' | 'remove' | 'list'>
 
 /**
  * Keeps a new dimension, measured: the kernel is asked at once, and when it
@@ -123,55 +127,147 @@ type Marks = Pick<MarkStore, 'add' | 'measured' | 'remove'>
  * one change. When it takes longer the dimension appears without one, and is
  * given it when it comes. Resolves with the mark as it then is.
  *
- * A dimension the kernel cannot measure is not kept (one that had appeared is
- * taken away again), and the promise rejects with the kernel's reason: two
- * ends that have no angle between them, a face with no radius. What is no
- * dimension at all is the store's to refuse, and the kernel is not asked.
+ * A dimension placed on another build than the last is refused before
+ * anything is asked: its refs are of that build, and the kernel would measure
+ * whatever has those numbers now. A dimension the kernel cannot measure is
+ * not kept either (one that had appeared is taken away again), and the
+ * promise rejects with the kernel's reason: two ends that have no angle
+ * between them, a face with no radius. What is no dimension at all is the
+ * store's to refuse, and the kernel is not asked.
+ *
+ * When the kernel could not be asked (it did not answer in time, or another
+ * build landed), the dimension is kept without a value: it is the person's,
+ * and says it is not measured until the check of the marks, which every new
+ * mark sets off and which is tried again, has measured it (`remeasureAll`).
  */
-export async function addDimension(deps: MeasureDeps & { marks: Marks }, objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft'): Promise<Mark> {
+export async function addDimension(deps: MeasureDeps & { marks: Marks; log?(message: string): void }, objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft'): Promise<Mark> {
   const probe = sanitiseMark({ ...Object(mark), id: 'M1', status: 'draft', anchorState: 'ok', createdAt: '' })
   if (probe?.kind !== 'dimension') return deps.marks.add(objectId, mark, status)
+  const built = deps.scene(objectId)?.revision
+  if (built === undefined) throw new Error(`there is no build of ${objectId} to measure on`)
+  if (probe.revision !== built) throw new Error(`it was placed on r${probe.revision}, and the part has been built again since (r${built}): measure it again`)
 
-  type Outcome = { measured: Measurement & { refused?: string } } | { failed: Error }
-  const measuring: Promise<Outcome> = measureDimension(deps, objectId, probe).then(
-    (measured) => ({ measured }),
-    (e: unknown) => ({ failed: e instanceof Error ? e : new Error(String(e)) })
+  /** What the kernel said; null when it could not be asked. Throws its reason when it refused. */
+  const measuring: Promise<Measurement | null> = measureDimension(deps, objectId, probe).then(
+    (measured) => measured,
+    (e: unknown) => {
+      ;(deps.log ?? console.error)(`cannot measure a new dimension of ${objectId} yet: ${e instanceof Error ? e.message : String(e)}`)
+      return null
+    }
   )
-  const kept = (outcome: Outcome): Measurement => {
-    if ('failed' in outcome) throw outcome.failed
-    const { refused, ...measured } = outcome.measured
-    if (refused !== undefined) throw new Error(refused)
-    return measured
+  const kept = (measured: Measurement | null): Measurement | undefined => {
+    if (measured?.refused !== undefined) throw new Error(measured.refused)
+    return measured ?? undefined
   }
 
   let timer: NodeJS.Timeout | undefined
-  const quick = await Promise.race([measuring, new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), APPEARS_AFTER_MS)))])
+  const quick = await Promise.race([measuring.then((measured) => ({ measured })), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), APPEARS_AFTER_MS)))])
   clearTimeout(timer)
-  if (quick) return deps.marks.add(objectId, mark, status, kept(quick))
+  if (quick) return deps.marks.add(objectId, mark, status, kept(quick.measured))
 
   const added = await deps.marks.add(objectId, mark, status)
-  let measured: Measurement
+  let measured: Measurement | undefined
   try {
     measured = kept(await measuring)
   } catch (e) {
     await deps.marks.remove(objectId, added.id).catch(() => {})
     throw e
   }
-  return (await deps.marks.measured(objectId, added.id, probe, measured)) ?? added
+  const written = measured ? await deps.marks.measured(objectId, added.id, probe, measured) : null
+  // Not written: the check of the marks has refreshed its ends or measured it meanwhile. As it is now, then.
+  return written ?? (await deps.marks.list(objectId)).find((m) => m.id === added.id) ?? added
+}
+
+/**
+ * Whether a dimension is to be measured at once after a change of what it
+ * should be (`expected`, `tolerance`): when it has no value of the last
+ * build, `revision`, to be judged anew from. Only one whose ends the check of
+ * that build has judged, and found their parts: until then its refs are of
+ * an older build, where the kernel would measure whatever has those numbers
+ * now, and the check, still to come or being tried again, measures it
+ * itself (`remeasureAll`).
+ */
+export function dueAfterEdit(patch: unknown, changed: Mark, revision: number | undefined): changed is DimensionMark {
+  const asked = typeof patch === 'object' && patch !== null ? (patch as { expected?: unknown; tolerance?: unknown }) : {}
+  if (asked.expected === undefined && asked.tolerance === undefined) return false
+  if (changed.kind !== 'dimension' || changed.status === 'resolved' || changed.anchorState === 'orphaned') return false
+  return revision !== undefined && changed.measuredRevision !== revision && changed.checkedRevision === revision
 }
 
 /**
  * Measures a dimension again and writes what the kernel says now: its value,
- * or that it is not measurable. When the kernel could not be asked, the
- * dimension is left as it is, and that is logged.
+ * or that it is not measurable and why. When the kernel could not be asked,
+ * the dimension is left as it is, and that is logged.
  */
 export async function remeasure(deps: MeasureDeps & { marks: Pick<MarkStore, 'measured'>; log?(message: string): void }, objectId: string, mark: DimensionMark): Promise<void> {
   try {
-    const { refused: _why, ...measured } = await measureDimension(deps, objectId, mark)
-    await deps.marks.measured(objectId, mark.id, mark, measured)
+    await deps.marks.measured(objectId, mark.id, mark, await measureDimension(deps, objectId, mark))
   } catch (e) {
     ;(deps.log ?? console.error)(`cannot measure ${mark.id} of ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
   }
+}
+
+export interface RemeasureDeps extends MeasureDeps {
+  marks: Pick<MarkStore, 'list' | 'remeasured'>
+  /** Told, once per call, what could not be measured. */
+  log?(message: string): void
+}
+
+/**
+ * Measures every unresolved dimension of an object on its last successful
+ * build, in every layout, and writes what the kernel said in one write: they
+ * are the person's checks of the part, and each build is held against them.
+ * It follows the check of the marks against that build (`reanchorAll`), and
+ * measures from the ends as that left them: a dimension whose end the build
+ * moved is measured between the features its ends name now, and says that
+ * it moved. Resolves false when some dimension could not be measured that
+ * should have been.
+ *
+ * - One whose ends that check could not judge (`checkedRevision` is of
+ *   another build) is not measured: its refs may name other faces by now.
+ *   It stays not measured on this build, as that check has already reported.
+ * - One already measured on this build is not asked about again.
+ * - One that lost the part of an end is not measurable, and the kernel is not
+ *   asked; nor is one the kernel refuses, which keeps the kernel's reason.
+ *   Either has no value from then on.
+ * - One the kernel could not be asked about (no answer, a timeout) keeps the
+ *   value it had, which stays that of the build it was measured on: it is
+ *   then not measured on this one. That is logged, once for the whole call.
+ *
+ * When a newer build arrives meanwhile (`scene` answers another) everything
+ * is dropped: that build has its own call. What is written says what each
+ * dimension was measured from, and the store passes over one that changed
+ * underneath.
+ */
+export async function remeasureAll(deps: RemeasureDeps, objectId: string): Promise<boolean> {
+  const last = deps.scene(objectId)
+  if (!last) return true
+  const { scene, revision } = last
+  const superseded = (): boolean => deps.scene(objectId)?.scene !== scene
+  const due = (await deps.marks.list(objectId)).filter(
+    (mark): mark is DimensionMark => mark.kind === 'dimension' && mark.status !== 'resolved' && mark.checkedRevision === revision && mark.measuredRevision !== revision
+  )
+  const changes: Remeasured[] = []
+  const failures: string[] = []
+  for (const mark of due) {
+    if (superseded()) return true
+    const of = { measure: mark.measure, a: mark.a, ...(mark.b ? { b: mark.b } : {}), ...(mark.expected === undefined ? {} : { expected: mark.expected }), ...(mark.tolerance === undefined ? {} : { tolerance: mark.tolerance }) }
+    if (mark.anchorState === 'orphaned') {
+      changes.push({ id: mark.id, of, result: { measuredRevision: revision } })
+      continue
+    }
+    try {
+      const result = await measureDimension(deps, objectId, mark)
+      // Of another build than this call is for: that build's own call measures it.
+      if (result.measuredRevision === revision) changes.push({ id: mark.id, of, result })
+    } catch (e) {
+      failures.push(`${mark.id}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  if (superseded()) return true
+  if (changes.length > 0) await deps.marks.remeasured(objectId, changes)
+  if (failures.length > 0) (deps.log ?? console.error)(`cannot measure the dimensions of ${objectId} on its last build: ${failures.join('; ')}`)
+  return failures.length === 0
 }
 
 /**

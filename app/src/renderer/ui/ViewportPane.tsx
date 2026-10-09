@@ -183,7 +183,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   }
   window.addEventListener('keydown', onKey)
 
-  viewport.setMarks(store.getState().marks)
+  /** The build on show, as the dimensions' values are held against it: none until there is a scene. */
+  const shown = (s: ReturnType<typeof store.getState>): number => (s.scene ? s.revision : 0)
+  viewport.setMarks(store.getState().marks, shown(store.getState()))
   viewport.setActiveMark(store.getState().activeMark)
   viewport.setSection(store.getState().section)
   // The gizmo on the active mark while it is a shape, and the keys that say what it does.
@@ -196,7 +198,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // The cut is of the object: another object has its own, or none.
     if (s.section !== prev.section) viewport.setSection(s.section)
     if (s.selection !== prev.selection && s.objectId === prev.objectId && s.scene === prev.scene && s.layout === prev.layout) reportSelection(s)
-    if (s.marks !== prev.marks) viewport.setMarks(s.marks)
+    if (s.marks !== prev.marks || shown(s) !== shown(prev)) viewport.setMarks(s.marks, shown(s))
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
     // What was pointed at belongs to the object, the layout and the build it was pointed at in.
     if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision || (s.build?.stale ?? false) !== (prev.build?.stale ?? false)) putDown()

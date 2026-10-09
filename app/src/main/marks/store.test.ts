@@ -691,13 +691,92 @@ describe('a dimension', () => {
     const gone = await store.measured('bracket', 'M1', added, { measuredRevision: 3 })
     expect(gone).toMatchObject({ measuredRevision: 3, expected: 8.5 })
     for (const key of ['value', 'how', 'points', 'verdict']) expect(gone).not.toHaveProperty(key)
-    // Its ends refreshed by a check meanwhile are still its ends: the points are the same.
-    await store.reanchor('bracket', [{ id: 'M1', judged: [added.a], anchors: [{ ...added.a, ref: 'plate/F11', descriptor: 'cylinder, radius 4' }], anchorState: 'ok', checkedRevision: 3 }])
-    expect(await store.measured('bracket', 'M1', added, EIGHT)).toMatchObject({ value: 8, a: { ref: 'plate/F11' } })
+    // A check that says more of its ends and leaves them on the same refs leaves them the ends that were measured.
+    await store.reanchor('bracket', [{ id: 'M1', judged: [added.a], anchors: [{ ...added.a, descriptor: 'cylinder, radius 4' }], anchorState: 'ok', checkedRevision: 3 }])
+    expect(await store.measured('bracket', 'M1', added, EIGHT)).toMatchObject({ value: 8, a: { ref: 'plate/F9', descriptor: 'cylinder, radius 4' } })
     // A mark that is gone, or is no dimension, is passed over.
     await store.add('bracket', pin())
     expect(await store.measured('bracket', 'M2', added, EIGHT)).toBeNull()
     expect(await store.measured('bracket', 'M9', added, EIGHT)).toBeNull()
+  })
+
+  it('does not keep a value that was measured through a ref the check has since replaced', async () => {
+    // The kernel measures the feature a ref names: plate/F9 was the hole, and after the build that renumbered the
+    // faces it is something else. What was measured through it is not the value of the mark that now says plate/F11.
+    const added = (await store.add('bracket', hole({ expected: 8 }))) as DimensionMark
+    await store.reanchor('bracket', [{ id: 'M1', judged: [added.a], anchors: [{ ...added.a, ref: 'plate/F11' }], anchorState: 'ok', checkedRevision: 3 }])
+    changes = []
+    expect(await store.measured('bracket', 'M1', added, { ...EIGHT, value: 30, measuredRevision: 3 })).toBeNull()
+    expect(changes).toEqual([])
+    const [kept] = (await store.list('bracket')) as DimensionMark[]
+    for (const key of ['value', 'measuredRevision', 'verdict']) expect(kept).not.toHaveProperty(key)
+    // Measured through the ref it has now, it is kept.
+    expect(await store.measured('bracket', 'M1', kept, { ...EIGHT, measuredRevision: 3 })).toMatchObject({ value: 8, verdict: 'pass', a: { ref: 'plate/F11' } })
+  })
+
+  describe('measured again after a build, all of them in one write', () => {
+    const of = (m: DimensionMark) => ({ measure: m.measure, a: m.a, ...(m.b ? { b: m.b } : {}), ...(m.expected === undefined ? {} : { expected: m.expected }), ...(m.tolerance === undefined ? {} : { tolerance: m.tolerance }) })
+    const NINE = { ...EIGHT, value: 9, measuredRevision: 3 }
+    const FIVE = { value: 5, how: 'between planes', points: [[5, 3, 2], [5, 3, -3]] as [[number, number, number], [number, number, number]], measuredRevision: 3 }
+
+    it('gives each its value and its verdict, writes once, and is not news of any mark', async () => {
+      const first = (await store.add('bracket', hole({ expected: 8 }), 'draft', EIGHT)) as DimensionMark
+      const second = (await store.add('bracket', distance({ expected: 6 }), 'draft', { ...FIVE, value: 6, measuredRevision: 2 })) as DimensionMark
+      await store.markSent('bracket')
+      const [a, b] = (await store.list('bracket')) as DimensionMark[]
+      expect([first.verdict, second.verdict, a.status, b.status]).toEqual(['pass', 'pass', 'sent', 'sent'])
+      changes = []
+      const written = saves.mock.calls.length
+      await store.remeasured('bracket', [{ id: 'M1', of: of(a), result: NINE }, { id: 'M2', of: of(b), result: FIVE }])
+      expect(saves.mock.calls.length).toBe(written + 1)
+      expect(changes).toHaveLength(1)
+      const now = (await store.list('bracket')) as DimensionMark[]
+      expect(now[0]).toMatchObject({ value: 9, measuredRevision: 3, verdict: 'fail', status: 'sent', sentBefore: true })
+      expect(now[1]).toMatchObject({ value: 5, measuredRevision: 3, verdict: 'fail', status: 'sent', points: FIVE.points })
+      expect(onDisk('bracket').marks).toEqual(now)
+    })
+
+    it('one with no value on that build loses the one it had, with the verdict, and keeps the reason', async () => {
+      const added = (await store.add('bracket', hole({ expected: 8 }), 'draft', EIGHT)) as DimensionMark
+      await store.remeasured('bracket', [{ id: 'M1', of: of(added), result: { measuredRevision: 3, refused: 'plate/F9 is a plane face: it has no diameter' } }])
+      const [now] = (await store.list('bracket')) as DimensionMark[]
+      expect(now).toMatchObject({ measuredRevision: 3, expected: 8, refused: 'plate/F9 is a plane face: it has no diameter' })
+      for (const key of ['value', 'how', 'points', 'verdict']) expect(now).not.toHaveProperty(key)
+      // Measurable again: the reason is gone with it.
+      await store.remeasured('bracket', [{ id: 'M1', of: of(now), result: { ...EIGHT, measuredRevision: 4 } }])
+      const [again] = (await store.list('bracket')) as DimensionMark[]
+      expect(again).toMatchObject({ value: 8, verdict: 'pass' })
+      expect(again).not.toHaveProperty('refused')
+    })
+
+    it('passes over a mark that changed underneath: its ends, what it should be, resolved, gone or no dimension', async () => {
+      const moved = (await store.add('bracket', hole(), 'draft', EIGHT)) as DimensionMark // M1
+      const expects = (await store.add('bracket', hole({ expected: 8 }), 'draft', EIGHT)) as DimensionMark // M2
+      const done = (await store.add('bracket', hole(), 'draft', EIGHT)) as DimensionMark // M3
+      const gone = (await store.add('bracket', hole(), 'draft', EIGHT)) as DimensionMark // M4
+      await store.add('bracket', pin()) // M5
+      const fine = (await store.add('bracket', hole(), 'draft', EIGHT)) as DimensionMark // M6
+      // Meanwhile: a check gave M1 another ref, the person changed what M2 should be, resolved M3 and deleted M4.
+      await store.reanchor('bracket', [{ id: 'M1', judged: [moved.a], anchors: [{ ...moved.a, ref: 'plate/F11' }], anchorState: 'ok', checkedRevision: 3 }])
+      await store.update('bracket', 'M2', { expected: 9 })
+      await store.update('bracket', 'M3', { status: 'resolved' })
+      await store.remove('bracket', 'M4')
+      await store.remeasured('bracket', [moved, expects, done, gone, { ...fine, id: 'M5' }, fine, { ...fine, id: 'M9' }].map((m) => ({ id: m.id, of: of(m), result: NINE })))
+      const now = Object.fromEntries((await store.list('bracket')).map((m) => [m.id, m])) as Record<string, DimensionMark>
+      expect([now.M1.value, now.M2.value, now.M3.value, now.M6.value]).toEqual([8, 8, 8, 9])
+      expect(now.M2).toMatchObject({ expected: 9, verdict: 'fail', measuredRevision: 2 })
+      expect(now.M5.kind).toBe('pin')
+    })
+
+    it('writes and tells nothing when nothing changed', async () => {
+      const added = (await store.add('bracket', hole(), 'draft', EIGHT)) as DimensionMark
+      changes = []
+      const written = saves.mock.calls.length
+      await store.remeasured('bracket', [{ id: 'M1', of: of(added), result: EIGHT }])
+      await store.remeasured('bracket', [])
+      expect(saves.mock.calls.length).toBe(written)
+      expect(changes).toEqual([])
+    })
   })
 
   it('judges anew when what it should measure or the tolerance is changed, without another measurement', async () => {

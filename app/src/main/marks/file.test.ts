@@ -347,6 +347,14 @@ describe('a dimension', () => {
     expect(sanitiseMark(hole({ value: undefined, expected: 8 }))).not.toHaveProperty('verdict')
   })
 
+  it('keeps why it has no value only while it has none, and no more of it than fits a line', () => {
+    expect(sanitiseMark(hole({ value: undefined, how: undefined, refused: 'plate/F9 is a plane face: it has no diameter' }))).toMatchObject({ refused: 'plate/F9 is a plane face: it has no diameter' })
+    expect(sanitiseMark(hole({ refused: 'plate/F9 is a plane face' }))).not.toHaveProperty('refused')
+    expect(sanitiseMark(hole({ value: undefined, refused: '' }))).not.toHaveProperty('refused')
+    expect(sanitiseMark(hole({ value: undefined, refused: 7 }))).not.toHaveProperty('refused')
+    expect((sanitiseMark(hole({ value: undefined, refused: 'x'.repeat(900) })) as DimensionMark).refused).toHaveLength(300)
+  })
+
   it('passes at the tolerance itself, and fails just beyond it', () => {
     const verdict = (value: number, expected: number, tolerance?: number, measure = 'diameter') => (sanitiseMark(hole({ measure, value, expected, tolerance })) as DimensionMark).verdict
     // 8.05 - 8 is 0.05000000000000071 in floating point.

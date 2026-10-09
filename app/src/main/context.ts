@@ -1,5 +1,6 @@
 import type { BuildState } from '../shared/build'
-import { type Mark, isUnchecked } from '../shared/marks'
+import { standingOf, unmetDimensions } from '../shared/dimension'
+import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
 import type { Scene } from '../shared/scene'
 import { type ViewState, MAX_SELECTION_REPORTED } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
@@ -20,6 +21,10 @@ const SELECTED_DESCRIPTOR_LIMIT = 100
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
 const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
 const MARKS_DATA = '; call mcp__torno__marks for their data'
+const DIMENSIONS_HEAD = 'Dimensions:'
+
+/** `4 pinned dimensions pass` */
+const passing = (count: number): string => `${count} pinned dimension${count === 1 ? ' passes' : 's pass'}`
 
 export interface ContextDeps {
   object(objectId: string): ObjectInfo | undefined
@@ -43,7 +48,8 @@ export interface PromptContext {
  * What the agent is told with every prompt in an object: whether the last build
  * worked, what is on screen and what is selected there, each mark that is
  * news to it (the drafts, oldest first, a line each) and the numbers of the
- * marks still open, each with what the last build did to it. At most
+ * marks still open, each with what the last build did to it; then the
+ * dimensions it has been given that the build does not meet. At most
  * CONTEXT_LIMIT characters: marks that do not fit are counted, not listed,
  * and are not among `sentMarkIds`. Nothing for an object that is not in the
  * workspace.
@@ -55,13 +61,29 @@ export interface PromptContext {
  * the agent started another, as on /clear), the person's marks it was given
  * before are listed once more, since "M3" means nothing there.
  *
+ * A dimension the agent has been given and that is not resolved is pinned:
+ * a check of the part, measured on every build. Under `Dimensions:` each one
+ * that fails, cannot be measured or was not measured on the last build has
+ * its line, with every prompt until it is otherwise, and after them the
+ * number that pass is said. Those lines are not news and are not among
+ * `sentMarkIds`; a dimension listed there is not named again among the open
+ * marks. Room for the head, the count of those left out and the count of
+ * those that pass is kept before any draft is listed.
+ *
  * It changes nothing: whoever delivers the text turns `sentMarkIds` into sent.
  */
 export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean } = {}): PromptContext {
   const revision = deps.scene(objectId)?.revision
   const drafts = marks.filter((m) => m.status === 'draft')
   const open = marks.filter((m) => m.status !== 'resolved' && !drafts.includes(m))
-  const still = opts.fresh ? open.filter((m) => m.author === 'user') : []
+  const pinned = open.filter((m): m is DimensionMark => m.kind === 'dimension')
+  // Those that are not what the person asked for, or of which that cannot be said on this build.
+  const { failing, unmeasured } = unmetDimensions(pinned, revision)
+  const unmet = pinned.filter((m) => failing.includes(m) || unmeasured.includes(m))
+  const passes = pinned.filter((m) => standingOf(m, revision) === 'pass').length
+  const passLine = passes > 0 ? passing(passes) : ''
+  // Under `Dimensions:` they are listed with every prompt: not once more among the marks this conversation has not seen.
+  const still = opts.fresh ? open.filter((m) => m.author === 'user' && !unmet.includes(m as DimensionMark)) : []
   const told = drafts.length > 0 || open.length > 0
   const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
@@ -72,14 +94,16 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   if (selected) lines.push(selected)
   const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision)}` : ''
   const named = layoutNamed(deps, objectId)
-  let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0)
+  const more = (count: number): string => `… and ${count} more: call mcp__torno__marks`
+  // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
+  const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + more(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
+  let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor
   /**
    * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
    * Nothing at all when there is no room for the head and that count: the marks are still among the open ones.
    */
   const list = (head: string, listed: readonly Mark[], tagOf: (mark: Mark) => string | undefined): Mark[] => {
     if (listed.length === 0) return []
-    const more = (count: number): string => `… and ${count} more: call mcp__torno__marks`
     if (used + 1 + head.length + 1 + more(listed.length).length > CONTEXT_LIMIT) return []
     // The head is said even when no mark fits under it: the line that counts them needs it.
     lines.push(head)
@@ -109,7 +133,13 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
     mark.author === 'agent' || mark.reopened ? 'reopened by the user' : mark.sentBefore && !opts.fresh ? 'changed' : undefined
   const listedDrafts = list(MARKS_HEAD, drafts, news)
   list(STILL_OPEN_HEAD, still, () => undefined)
-  if (openLine) lines.push(openLine)
+  // The room kept for the dimensions is theirs now. The count of those that pass is still to come after them.
+  used -= floor - (passLine ? 1 + passLine.length : 0)
+  const listedUnmet = unmet.length > 0 ? list(DIMENSIONS_HEAD, unmet, () => undefined) : []
+  if (passLine) lines.push(...(unmet.length > 0 ? [] : [DIMENSIONS_HEAD]), passLine)
+  // What has its line above is not named again; never longer than the line room was kept for.
+  const rest = open.filter((m) => !listedUnmet.includes(m))
+  if (rest.length > 0) lines.push(`Open marks: ${openMarks(rest, revision, openLine.length - 'Open marks: '.length)}`)
   const text = lines.join('\n')
   if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id) }
   // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is
@@ -122,12 +152,12 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
  * on of it: its part is gone, the build moved its surface, or nothing has
  * checked it against the build. When any is said, so is where their data is.
  */
-function openMarks(open: readonly Mark[], revision: number | undefined): string {
+function openMarks(open: readonly Mark[], revision: number | undefined, limit = OPEN_LIMIT): string {
   const flag = (m: Mark): string => (m.anchorState === 'orphaned' ? ' (part gone)' : m.anchorState === 'drifted' ? ' (moved)' : isUnchecked(m, revision) ? ' (unchecked)' : '')
   const names = open.map((m) => `${m.id}${flag(m)}`)
   const after = names.some((name) => name.includes(' ')) ? MARKS_DATA : ''
   const full = names.join(', ') + after
-  return full.length <= OPEN_LIMIT ? full : someOf(names, OPEN_LIMIT - after.length) + after
+  return full.length <= limit ? full : someOf(names, limit - after.length) + after
 }
 
 /**

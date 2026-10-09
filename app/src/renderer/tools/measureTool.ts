@@ -1,4 +1,4 @@
-import { dimensionText } from '../../shared/dimension'
+import { measuredValue, unmeasuredText, valueText } from '../../shared/dimension'
 import type { Described } from '../../shared/geometry'
 import type { Anchor, MeasureKind, Vec3 } from '../../shared/marks'
 import { toolStore } from '../state/tools'
@@ -97,7 +97,9 @@ export function measureTool(): Tool {
       // The kernel's value, in place of the estimate: until the pointer moves on.
       release()
       held = { until: 0, client: hover?.client ?? client, within: RESULT_PX }
-      ctx.readout.show(held.client, mark.id, [dimensionText(mark), mark.how ?? ''].filter(Boolean).join(' '))
+      // One the kernel could not be asked about yet is kept without a value, and says so.
+      const value = measuredValue(mark, revision)
+      ctx.readout.show(held.client, mark.id, value === undefined ? unmeasuredText(revision) : [valueText(mark.measure, value), mark.how ?? ''].filter(Boolean).join(' '))
     } catch (e) {
       if (mine !== committing) return
       // Main did not keep it, and why is the kernel's to say: no angle between these two, no radius of that.
@@ -196,6 +198,8 @@ export function measureTool(): Tool {
         return true
       }
       if (e.key.toUpperCase() !== 'T' || !hover || hover.hit.kind !== 'face') return false
+      // A key held down repeats: one wall, one dimension.
+      if (e.repeat) return true
       // The wall under the pointer: whatever end was pending is dropped for it.
       first = null
       void commit('thickness', { hit: hover.hit, bare: false }, null, hover.client, ctx)

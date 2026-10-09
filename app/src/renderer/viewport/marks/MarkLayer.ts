@@ -43,6 +43,8 @@ export class MarkLayer {
   private hidden: ReadonlySet<string> = NO_PARTS
   private active: string | null = null
   private section: SectionPlane | null = null
+  /** The build on show, which the values of the dimensions are of or not. */
+  private revision = 0
   private draft: { is: Draft; object: THREE.Object3D } | null = null
 
   constructor(colours: MarkColours) {
@@ -84,8 +86,13 @@ export class MarkLayer {
     if (this.draft) this.draft.object.visible = shown
   }
 
-  /** The marks of the object, of every layout. Resolved ones are not drawn. */
-  setMarks(marks: Mark[]): void {
+  /**
+   * The marks of the object, of every layout. Resolved ones are not drawn.
+   * `revision` is the build on show (0 for none; as it was when not given):
+   * a dimension's label gives its value as of that build or not at all.
+   */
+  setMarks(marks: Mark[], revision: number = this.revision): void {
+    this.revision = revision
     const seen = new Set<string>()
     for (const mark of marks) {
       if (mark.status === 'resolved') continue
@@ -180,7 +187,7 @@ export class MarkLayer {
    * as `show` was last told, or `hidden` for a view that draws other parts.
    */
   labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: Chip, hidden?: ReadonlySet<string>): Placed[] {
-    return place(project(this.marksOf(layout, hidden), camera, size, unit), chip, size, unit)
+    return place(project(this.marksOf(layout, hidden), camera, size, unit, this.revision), chip, size, unit)
   }
 
   /**
@@ -247,10 +254,15 @@ export function cutAway(mark: Mark, section: SectionPlane | null): boolean {
   return points.every((at) => section.normal.reduce((sum, c, i) => sum + c * (at[i] - section.origin[i]), 0) > CUT_BEYOND_MM)
 }
 
-/** Whether a mark is on one of the parts named: the part its anchor ties it to. A mark on no part is on none. */
+/**
+ * Whether a mark is on the parts named, and so not drawn with them: the part
+ * its anchor ties it to. A dimension runs between its two ends, and is on
+ * them only when the part of each is named: while either end's part is drawn
+ * so is the dimension. A mark on no part is on none.
+ */
 export function onHidden(mark: Mark, hidden: ReadonlySet<string>): boolean {
-  const part = markAnchors(mark)[0]?.part
-  return part !== undefined && hidden.has(part)
+  const parts = (mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)).map((anchor) => anchor.part)
+  return parts.length > 0 && parts.every((part) => part !== undefined && hidden.has(part))
 }
 
 /** Everything of a mark that changes how it is drawn, as one string: a note or a status does not. */

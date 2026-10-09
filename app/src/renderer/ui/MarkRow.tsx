@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { measuredValue } from '../../shared/dimension'
+import { measuredValue, unmeasuredText, verdictOn } from '../../shared/dimension'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
 import { actions, store } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
@@ -34,7 +34,7 @@ export const PART_HIDDEN = 'its part is hidden'
 export const UNCHECKED_AFTER_MS = 1500
 
 /** True once `on` has been so for `ms` without a break. */
-function useLasting(on: boolean, ms: number): boolean {
+export function useLasting(on: boolean, ms: number): boolean {
   const [lasting, setLasting] = useState(false)
   useEffect(() => {
     if (!on) return setLasting(false)
@@ -135,21 +135,7 @@ export function MarkRow({
       <span className="mark-kind" title={what} aria-label={what} role="img">
         {mark.kind === 'shape' ? SHAPE_ICONS[mark.shape] : KIND_ICON[mark.kind]}
       </span>
-      {mark.kind === 'dimension' && (
-        <span
-          className="mark-value num"
-          data-none={measuredValue(mark) === undefined ? '' : undefined}
-          data-verdict={measuredValue(mark) === undefined ? undefined : mark.verdict}
-          title={
-            measuredValue(mark) === undefined
-              ? undefined
-              : [`${mark.value} ${mark.measure === 'angle' ? '°' : 'mm'}`, mark.how, mark.verdict === 'pass' ? 'as expected' : mark.verdict === 'fail' ? 'not what was expected' : ''].filter(Boolean).join(', ')
-          }
-        >
-          {shownValue(mark)}
-          {measuredValue(mark) !== undefined && mark.verdict && <VerdictIcon pass={mark.verdict === 'pass'} />}
-        </span>
-      )}
+      {mark.kind === 'dimension' && <DimensionValue mark={mark} revision={revision} />}
       {draft === null ? (
         <button
           type="button"
@@ -254,7 +240,7 @@ export function MarkRow({
         </button>
       </span>
       {fields && <ShapeFields mark={mark} change={change} />}
-      {expects && <DimensionFields mark={mark} change={change} />}
+      {expects && <DimensionFields mark={mark} revision={revision} change={change} />}
       {awaiting && (
         <div className="mark-resolution" onClick={(e) => e.stopPropagation()}>
           <p className="mark-resolution-note selectable">
@@ -270,6 +256,28 @@ export function MarkRow({
         </div>
       )}
     </li>
+  )
+}
+
+/**
+ * A dimension's value beside its number, as of the build on show: with a tick
+ * or a cross when something is expected of it. A value of another build is
+ * greyed, has no verdict, and says which build it is not of.
+ */
+function DimensionValue({ mark, revision }: { mark: Extract<Mark, { kind: 'dimension' }>; revision: number }) {
+  const value = measuredValue(mark, revision)
+  const verdict = verdictOn(mark, revision)
+  const shown = shownValue(mark, revision)
+  const title = shown.stale
+    ? `${unmeasuredText(revision)}: this is what it was${mark.measuredRevision === undefined ? '' : ` on r${mark.measuredRevision}`}`
+    : value === undefined
+      ? undefined
+      : [`${value} ${mark.measure === 'angle' ? '°' : 'mm'}`, mark.how, verdict === 'pass' ? 'as expected' : verdict === 'fail' ? 'not what was expected' : ''].filter(Boolean).join(', ')
+  return (
+    <span className="mark-value num" data-none={shown.none ? '' : undefined} data-stale={shown.stale ? '' : undefined} data-verdict={verdict} title={title}>
+      {shown.text}
+      {verdict && <VerdictIcon pass={verdict === 'pass'} />}
+    </span>
   )
 }
 

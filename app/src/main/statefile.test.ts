@@ -77,6 +77,39 @@ describe('stateText', () => {
     expect(text).toContain('- M1 pin on base/F1 at (1, 0, 5): "note 1" [not checked against r3]\n- M2 pin on base/F1 at (2, 0, 5): "note 2"\n')
   })
 
+  it('lists the dimensions with the marks of their layout: each its value and verdict as of the build, or that it has none of it', () => {
+    const dim = (n: number, over: object = {}): Mark =>
+      ({ ...pin(n, { status: 'sent', note: '' }), kind: 'dimension', measure: 'diameter', a: { point: [n, 0, 5], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 3, ...over }) as Mark
+    const marks = [
+      pin(1),
+      dim(2, { expected: 8.5, verdict: 'fail' }),
+      dim(3, { expected: 8, verdict: 'pass', layout: 'print' }),
+      dim(4, { status: 'draft' }),
+      dim(5, { expected: 8, verdict: 'pass', measuredRevision: 2 }),
+      dim(6, { anchorState: 'drifted', expected: 8, verdict: 'pass' }),
+      dim(7, { anchorState: 'orphaned', expected: 8, verdict: 'pass' }),
+      dim(8, { status: 'resolved', expected: 8, verdict: 'pass' })
+    ]
+    const text = stateText(obj, OK, { revision: 3, scene: SCENE }, marks)
+    expect(text.slice(text.indexOf('In layout assembly:'))).toBe(
+      [
+        'In layout assembly:',
+        '',
+        '- M1 pin on base/F1 at (1, 0, 5): "note 1"',
+        '- M2 diameter 8 mm, base/F9 (expected 8.5 ± 0.05: FAIL, 0.5 under)',
+        '- M4 diameter 8 mm, base/F9',
+        '- M5 diameter: not measured on r3 (was 8 mm on r2), base/F9 (expected 8 ± 0.05)',
+        '- M6 diameter 8 mm, base/F9 (expected 8 ± 0.05: pass) [moved since it was placed: check it]',
+        '- M7 diameter: not measurable, [its part is gone]',
+        '',
+        'In layout print:',
+        '',
+        '- M3 diameter 8 mm, base/F9 (expected 8 ± 0.05: pass)',
+        ''
+      ].join('\n')
+    )
+  })
+
   it('gives the error of a build that failed, and says which build the parts are of', () => {
     const traceback = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n')
     const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: "NameError: name 'Boxx' is not defined", traceback } }

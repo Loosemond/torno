@@ -173,17 +173,26 @@ export interface LabelStyle {
 
 const CHIP = { height: 17, pad: 5, radius: 4, font: 11.5, border: 1.5, leader: 1.25, halo: 1.5 }
 
-/** A dimension's value beside its number: how far apart the two are, the hairline around the value, and the tick of one that passes. */
-const VALUE = { gap: 3, pad: 5, border: 1, hairline: 0.45, failBorder: 2, check: 9, checkGap: 4, weight: 500 }
+/**
+ * A dimension's value beside its number: how far apart the two are, the hairline around the value, the tick of one
+ * that passes and the cross of one that fails, and how faint a value of another build is written.
+ */
+const VALUE = { gap: 3, pad: 5, border: 1, hairline: 0.45, failBorder: 2, check: 9, cross: 7, checkGap: 4, weight: 500, stale: 0.45 }
+
+/** A value as its chip is given it (`LabelValue`). */
+type ChipValue = { text: string; verdict?: 'pass' | 'fail'; stale?: true }
+
+/** How wide the glyph of a verdict is: a tick, a cross, or nothing. */
+const glyphWidth = (value: ChipValue): number => (value.verdict === 'pass' ? VALUE.check : value.verdict === 'fail' ? VALUE.cross : 0)
 
 /** How wide the chip of a mark's number is. */
 function numberWidth(advance: number, text: string, unit: number): number {
   return Math.ceil(advance * text.length + 2 * CHIP.pad * unit)
 }
 
-/** How wide the value of a dimension is, with the tick of one that passes. */
-function valueWidth(advance: number, value: { text: string; verdict?: 'pass' | 'fail' }, unit: number): number {
-  return Math.ceil(advance * value.text.length + 2 * VALUE.pad * unit + (value.verdict === 'pass' ? (VALUE.check + VALUE.checkGap) * unit : 0))
+/** How wide the value of a dimension is, with the tick of one that passes or the cross of one that fails. */
+function valueWidth(advance: number, value: ChipValue, unit: number): number {
+  return Math.ceil(advance * value.text.length + 2 * VALUE.pad * unit + (value.verdict ? (glyphWidth(value) + VALUE.checkGap) * unit : 0))
 }
 
 /** How wide one letter of a chip is: the face is monospaced, so every label is as wide as its letters are many. */
@@ -199,7 +208,7 @@ function chipAdvance(ctx: Ctx, unit: number): number {
  * How large the chip of a label is, for `place`: of its number, and of a
  * dimension's value beside it. `unit` is the pixels of this canvas to a nominal one.
  */
-export function chipSize(ctx: Ctx, unit: number): (text: string, value?: { text: string; verdict?: 'pass' | 'fail' }) => { w: number; h: number } {
+export function chipSize(ctx: Ctx, unit: number): (text: string, value?: ChipValue) => { w: number; h: number } {
   const advance = chipAdvance(ctx, unit)
   return (text, value) => ({ w: numberWidth(advance, text, unit) + (value ? VALUE.gap * unit + valueWidth(advance, value, unit) : 0), h: CHIP.height * unit })
 }
@@ -217,7 +226,7 @@ function chipFont(unit: number): string {
  */
 export function drawLabels(
   ctx: Ctx,
-  labels: Array<{ id: string; text: string; author: 'user' | 'agent'; x: number; y: number; visible: boolean; box: { x: number; y: number; w: number; h: number }; value?: { text: string; verdict?: 'pass' | 'fail' } }>,
+  labels: Array<{ id: string; text: string; author: 'user' | 'agent'; x: number; y: number; visible: boolean; box: { x: number; y: number; w: number; h: number }; value?: ChipValue }>,
   style: LabelStyle,
   unit: number,
   active: string | null = null
@@ -278,7 +287,9 @@ export function drawLabels(
     if (!value) continue
 
     // The value, as on a drawing: ink on paper inside a hairline. One that is not what was expected is
-    // ringed in the colour of failure; one that is has a small tick after it.
+    // ringed in the colour of failure and has a small cross after it (the ring alone is the colour of the
+    // person's marks, and says nothing in a picture); one that is has a small tick. A value of another build
+    // than the one drawn is written faint, and has neither.
     const failed = value.verdict === 'fail'
     const border = (failed ? VALUE.failBorder : VALUE.border) * unit
     const x = box.x + box.w + VALUE.gap * unit
@@ -296,7 +307,22 @@ export function drawLabels(
     ctx.font = `${VALUE.weight} ${CHIP.font * unit}px ${MONO}`
     ctx.textAlign = 'left'
     ctx.fillStyle = style.ink
+    ctx.globalAlpha = value.stale ? VALUE.stale : 1
     ctx.fillText(value.text, x + VALUE.pad * unit, whole.y + whole.h / 2 + 0.5 * unit)
+    ctx.globalAlpha = 1
+    if (value.verdict === 'fail') {
+      const left = x + w - (VALUE.pad + VALUE.cross) * unit
+      const mid = whole.y + whole.h / 2
+      const half = (VALUE.cross * unit) / 2
+      ctx.beginPath()
+      ctx.moveTo(left, mid - half)
+      ctx.lineTo(left + 2 * half, mid + half)
+      ctx.moveTo(left + 2 * half, mid - half)
+      ctx.lineTo(left, mid + half)
+      ctx.strokeStyle = verdicts?.fail ?? style.user
+      ctx.lineWidth = 1.5 * unit
+      ctx.stroke()
+    }
     if (value.verdict === 'pass') {
       const left = x + w - (VALUE.pad + VALUE.check) * unit
       const mid = whole.y + whole.h / 2
@@ -314,12 +340,23 @@ export function drawLabels(
   ctx.restore()
 }
 
-/** The colours of the two verdicts: the style's, or the tokens of the page. */
+/** The tokens of the two verdicts as last read from the page, and the colours of the labels they were read beside. */
+let verdictTokens: { beside: string; fail?: string; ok?: string } | null = null
+
+/**
+ * The colours of the two verdicts: the style's, or the tokens of the page.
+ * Those are read once and kept while the labels keep their colours: with the
+ * colour scheme both change, and they are read again.
+ */
 function verdictColours(style: LabelStyle): { fail?: string; ok?: string } {
   if (style.fail && style.ok) return { fail: style.fail, ok: style.ok }
-  const tokens = typeof document === 'undefined' ? null : getComputedStyle(document.documentElement)
-  const token = (name: string): string | undefined => tokens?.getPropertyValue(name).trim() || undefined
-  return { fail: style.fail ?? token('--fail'), ok: style.ok ?? token('--ok') }
+  const beside = [style.user, style.agent, style.paper, style.surface, style.ink].join(' ')
+  if (verdictTokens?.beside !== beside) {
+    const tokens = typeof document === 'undefined' ? null : getComputedStyle(document.documentElement)
+    const token = (name: string): string | undefined => tokens?.getPropertyValue(name).trim() || undefined
+    verdictTokens = { beside, fail: token('--fail'), ok: token('--ok') }
+  }
+  return { fail: style.fail ?? verdictTokens.fail, ok: style.ok ?? verdictTokens.ok }
 }
 
 let fontsLoaded: Promise<unknown> | undefined

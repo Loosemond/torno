@@ -184,12 +184,15 @@ export function sanitiseMark(value: unknown): Mark | null {
 
 /** The longest account of how a value was taken that a dimension keeps. */
 export const MAX_HOW = 120
+/** The longest reason for having no value that it keeps. */
+export const MAX_REFUSED = 300
 
 /**
  * A dimension: a kind of measurement this version knows, its first end, and a
  * second where the measurement is taken between two (any other has one end,
  * and a second is left out). What was measured is kept as far as it can be
- * what it says: the way and the points only with a value. The verdict is not
+ * what it says: the way and the points only with a value, why there is none
+ * only without. The verdict is not
  * read: it is what the value, the expectation and the tolerance make it.
  */
 function dimensionOf(base: Omit<DimensionMark, 'kind' | 'measure' | 'a'>, value: Record<string, unknown>): DimensionMark | null {
@@ -205,7 +208,7 @@ function dimensionOf(base: Omit<DimensionMark, 'kind' | 'measure' | 'a'>, value:
     const from = Array.isArray(value.points) && value.points.length === 2 ? tuple<Vec3>(value.points[0], 3) : null
     const to = from ? tuple<Vec3>((value.points as unknown[])[1], 3) : null
     if (from && to) mark.points = [from, to]
-  }
+  } else if (typeof value.refused === 'string' && value.refused !== '') mark.refused = value.refused.slice(0, MAX_REFUSED)
   if (isNumber(value.measuredRevision)) mark.measuredRevision = value.measuredRevision
   if (isNumber(value.expected)) mark.expected = value.expected
   if (isNumber(value.tolerance) && value.tolerance >= 0) mark.tolerance = value.tolerance

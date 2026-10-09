@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import { dimensionText, measuredValue } from '../../../shared/dimension'
-import type { Mark } from '../../../shared/marks'
+import { NO_VALUE, isUnmeasured, lastValue, measuredValue, valueText } from '../../../shared/dimension'
+import type { DimensionMark, Mark } from '../../../shared/marks'
 import { LEADER_PX, labelAnchor } from './markObjects'
 
 export interface Size {
@@ -28,6 +28,21 @@ export interface Label {
 export interface LabelValue {
   text: string
   verdict?: 'pass' | 'fail'
+  /** The value is of another build than the one drawn: it is written faint, and has no verdict. */
+  stale?: true
+}
+
+/**
+ * A dimension's value as its chip writes it on the build `revision`: the
+ * value measured on that build, with its verdict; the last one it had,
+ * marked stale, when it has not been measured on that build; `—` when it has
+ * none. The same on screen and in a picture for the agent.
+ */
+export function labelValue(mark: DimensionMark, revision: number | undefined): LabelValue {
+  const value = measuredValue(mark, revision)
+  if (value !== undefined) return { text: valueText(mark.measure, value), ...(mark.verdict ? { verdict: mark.verdict } : {}) }
+  const last = lastValue(mark)
+  return last !== undefined && isUnmeasured(mark, revision) ? { text: valueText(mark.measure, last), stale: true } : { text: NO_VALUE }
 }
 
 /** How large the chip of a label is: of its text and, for a dimension, its value beside it. */
@@ -71,10 +86,11 @@ export function mmPerPx(camera: THREE.Camera, point: THREE.Vector3, heightPx: nu
 /**
  * Where the labels of some marks fall in a view. `camera` is the one the view
  * is drawn with, its matrices up to date; `size` is the view in pixels; `unit`
- * is how many of those a nominal pixel is (see `rescale`). Pure: the same for
- * the screen and for a picture.
+ * is how many of those a nominal pixel is (see `rescale`); `revision` is the
+ * build drawn, which a dimension's value is of or is not (`labelValue`).
+ * Pure: the same for the screen and for a picture.
  */
-export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 1): Label[] {
+export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 1, revision?: number): Label[] {
   const toPx = (p: THREE.Vector3): { x: number; y: number; visible: boolean } => {
     const inFront = p.clone().applyMatrix4(camera.matrixWorldInverse).z < 0 || (camera as THREE.OrthographicCamera).isOrthographicCamera === true
     const v = p.clone().project(camera)
@@ -85,10 +101,7 @@ export function project(marks: Mark[], camera: THREE.Camera, size: Size, unit = 
     const anchor = labelAnchor(mark)
     const point = new THREE.Vector3().fromArray(anchor.point)
     const base: Pick<Label, 'id' | 'text' | 'author' | 'value'> = { id: mark.id, text: labelText(mark), author: mark.author }
-    if (mark.kind === 'dimension') {
-      const verdict = measuredValue(mark) === undefined ? undefined : mark.verdict
-      base.value = { text: dimensionText(mark), ...(verdict ? { verdict } : {}) }
-    }
+    if (mark.kind === 'dimension') base.value = labelValue(mark, revision)
     const foot = toPx(point)
     if (!anchor.leader) return { ...base, ...foot, lean: DEFAULT_LEAN, gap: GAP_PX * unit }
 

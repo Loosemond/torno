@@ -4,6 +4,7 @@ import { type Anchor, type AnchorState, type Mark, type NewMark, type Replacemen
 import type { Part, Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
+import { type RemeasureDeps, remeasureAll } from './measure'
 import type { MarkStore, Reanchored } from './store'
 
 /**
@@ -388,6 +389,19 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
   if (changes.length > 0) await deps.marks.reanchor(objectId, changes)
   if (failures.length > 0) (deps.log ?? console.error)(`cannot check the marks of ${objectId} against its last build: ${failures.join('; ')}`)
   return failures.length === 0
+}
+
+/**
+ * What is done with the marks of an object for its last successful build, in
+ * one pass: they are checked against it (`reanchorAll`), and then, with their
+ * ends as that leaves them, its dimensions are measured on it
+ * (`remeasureAll`). Resolves false when some mark could not be checked or
+ * some dimension not measured, for the pass to be tried again (`retrying`).
+ */
+export async function checkMarks(deps: ReanchorDeps & RemeasureDeps, objectId: string): Promise<boolean> {
+  const anchored = await reanchorAll(deps, objectId)
+  const measured = await remeasureAll(deps, objectId)
+  return anchored && measured
 }
 
 /** Whether a mark's anchors are judged as a pin's is (`judgePin`): a pin, and each end of a dimension, which is on a face or on an edge as a pin is. */

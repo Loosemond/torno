@@ -84,7 +84,8 @@ export type MeasureKind = 'distance' | 'angle' | 'radius' | 'diameter' | 'thickn
  * A measurement that stays: an exact value from the kernel between its ends,
  * and, when the person says what it should be, whether it is. Like any mark
  * it is a draft until the agent has been given it; while it is not resolved
- * it is "pinned": it stays in the list with its value.
+ * it is "pinned": it stays in the list, and is measured again on every build
+ * (`measuredRevision` says on which its value was taken).
  */
 export interface DimensionMark extends MarkBase {
   kind: 'dimension'
@@ -93,7 +94,8 @@ export interface DimensionMark extends MarkBase {
   b?: Anchor                // second end, for distance and angle
   value?: number            // mm or degrees, as last measured by the kernel; absent when not measurable
   how?: string              // "between planes" | "axis to axis" | "point to plane" | "minimum" | "wall, along the normal" | ...
-  measuredRevision?: number // this run's build it was last asked of the kernel on, measurable or not (dropped on load, like checkedRevision)
+  measuredRevision?: number // this run's build the kernel last said of it on, a value or that there is none (dropped on load, like checkedRevision)
+  refused?: string          // why the kernel could not measure it, in its words; only without a value
   expected?: number
   tolerance?: number        // default 0.05 mm, 0.1°
   verdict?: 'pass' | 'fail' // present when expected is set and value is known
@@ -104,8 +106,8 @@ export type MarkKind = Mark['kind']
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 /** What main alone says of a mark: no caller supplies these. */
 export const MAIN_ONLY_KEYS = ['resolvedBy', 'acknowledged', 'sentBefore', 'reopened', 'checkedRevision'] as const
-/** What main alone says of a dimension: what the kernel measured, on which build, and the verdict. No caller supplies these either. */
-export const MEASURED_KEYS = ['value', 'how', 'points', 'measuredRevision', 'verdict'] as const
+/** What main alone says of a dimension: what the kernel measured or why it could not, on which build, and the verdict. No caller supplies these either. */
+export const MEASURED_KEYS = ['value', 'how', 'points', 'measuredRevision', 'refused', 'verdict'] as const
 /** What the kernel's measurement leaves on a dimension (`MEASURED_KEYS`). */
 export type Measurement = Pick<DimensionMark, (typeof MEASURED_KEYS)[number]>
 type Given<M> = M extends DimensionMark ? Omit<M, (typeof MEASURED_KEYS)[number]> : M

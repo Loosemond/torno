@@ -98,16 +98,41 @@ While iterating run the focused test; run all four suites before a commit.
   between its two ends (`a`, `b`), or a radius, a diameter or a wall thickness
   at its one. Main measures it with the kernel's `measure` as it is kept
   (`src/main/marks/measure.ts`: each end goes with its ref and its point, an
-  end with no ref as a bare point), and one the kernel refuses is not kept.
-  `value`, `how`, `points`, `measuredRevision` and `verdict` (`MEASURED_KEYS`)
-  are main's alone, like `MAIN_ONLY_KEYS`. The verdict is never stored on
-  anyone's word: the sanitiser works it out (`shared/dimension.ts`: pass when
-  `|value − expected| <= tolerance`, 0.05 mm or 0.1° when none is given). A
-  changed `expected` or `tolerance` is news of the mark (`(changed)`); a value
-  measured again is not. Its ends are judged like pins. A dimension whose ends
-  moved or lost their part, or that has no value, is never given one anywhere:
-  it says `not measurable` (`measuredValue`). Unresolved, it is "pinned".
-  Numbers shown are written by `shared/format.ts` `number`, on both sides.
+  end with no ref as a bare point). One the kernel refuses is not kept, nor
+  one placed on another build than the last; one the kernel could not be
+  asked about is kept without a value.
+  `value`, `how`, `points`, `measuredRevision`, `refused` and `verdict`
+  (`MEASURED_KEYS`) are main's alone, like `MAIN_ONLY_KEYS`. The verdict is
+  never stored on anyone's word: the sanitiser works it out
+  (`shared/dimension.ts`: pass when `|value − expected| <= tolerance`, 0.05 mm
+  or 0.1° when none is given). A changed `expected` or `tolerance` is news of
+  the mark (`(changed)`); a value measured again is not. Its ends are judged
+  like pins. Numbers shown are written by `shared/format.ts` `number`, on
+  both sides.
+  - Dimensions are the person's checks of the part. After every successful
+    build, once the marks are checked against it, every unresolved dimension
+    is measured on it, in the same pass (`checkMarks`: `reanchorAll`, then
+    `remeasureAll`; one write for all, under the guard of re-anchoring: a
+    dimension whose ends or expectation changed meanwhile is passed over).
+    Only from ends that check judged on that build (`checkedRevision`): never
+    through a ref of an older build. A pass that could not measure every
+    dimension is tried again like one that could not check every mark.
+  - `measuredRevision` is the build the kernel last said of it on. A
+    dimension whose value is not of the last build has no value there
+    (`measuredValue(mark, revision)`, the one rule for the row, the chip, the
+    picture, `describeMark` and the tools' data): it is `not measured on rN
+    (was 6 mm on r11)`, with no verdict. Revisions are of this run, so on the
+    first build of a run every dimension is measured.
+  - An end the build moved (`drifted`) is measured from the feature its
+    refreshed ref names, and the mark says `[moved since it was placed: check
+    it]`. Only a lost part (`orphaned`) or a refusal by the kernel (`refused`
+    keeps its reason) makes it `not measurable`.
+  - Sent and unresolved, it is "pinned": with every prompt, under
+    `Dimensions:`, each pinned dimension that fails, is not measurable or was
+    not measured on the last build has its line, until it passes, and the
+    number that pass is said (`src/main/context.ts`). A draft dimension is
+    told with the drafts. The status line counts every unresolved dimension
+    that fails, sent or not.
 - The MCP tools (`src/main/mcp/tools.ts`, and those that place and resolve
   marks in `mcp/markTools.ts`): `scene`, `look`, `marks`, `describe`,
   `highlight`, `show`, `add_mark`, `resolve_mark`. `show` changes

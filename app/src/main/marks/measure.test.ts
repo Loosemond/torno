@@ -3,7 +3,7 @@ import type { Anchor, DimensionMark, Mark, Measurement, NewMark } from '../../sh
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import { sanitiseMark } from './file'
-import { addDimension, measure, measureDimension, measureRequest, remeasure } from './measure'
+import { addDimension, dueAfterEdit, measure, measureDimension, measureRequest, remeasure } from './measure'
 
 const CAMERA = { position: [100, -100, 80], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', layout: 'assembly', revision: 3, camera: CAMERA } as const
@@ -35,28 +35,29 @@ function kernel(answer: (args: Record<string, unknown>) => unknown, nearest: (ar
 /** The store, as far as a dimension is added to it: what was done to it, in order. */
 function marks() {
   const did: string[] = []
-  const list: Mark[] = []
+  const kept: Mark[] = []
   return {
     did,
-    list,
+    kept,
+    list: async (): Promise<Mark[]> => structuredClone(kept),
     add: async (_objectId: string, mark: NewMark, _status?: 'draft' | 'sent', measured?: Measurement): Promise<Mark> => {
-      const given = Object.fromEntries(Object.entries(mark).filter(([key]) => !['value', 'how', 'points', 'measuredRevision', 'verdict'].includes(key)))
-      const added = sanitiseMark({ ...given, ...measured, id: `M${list.length + 1}`, status: 'draft', anchorState: 'ok', createdAt: '2026-10-09T12:00:00.000Z' })
+      const given = Object.fromEntries(Object.entries(mark).filter(([key]) => !['value', 'how', 'points', 'measuredRevision', 'refused', 'verdict'].includes(key)))
+      const added = sanitiseMark({ ...given, ...measured, id: `M${kept.length + 1}`, status: 'draft', anchorState: 'ok', createdAt: '2026-10-09T12:00:00.000Z' })
       if (!added) throw new Error('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
       did.push(`add ${added.id}${measured?.value === undefined ? '' : ` = ${measured.value}`}`)
-      list.push(added)
+      kept.push(added)
       return added
     },
     measured: async (_objectId: string, id: string, _of: object, result: Measurement): Promise<Mark | null> => {
       did.push(`measured ${id}${result.value === undefined ? ': nothing' : ` = ${result.value}`}`)
-      const at = list.findIndex((m) => m.id === id)
+      const at = kept.findIndex((m) => m.id === id)
       if (at < 0) return null
-      list[at] = sanitiseMark({ ...list[at], ...result })!
-      return list[at]
+      kept[at] = sanitiseMark({ ...kept[at], ...result })!
+      return kept[at]
     },
     remove: async (_objectId: string, id: string): Promise<void> => {
       did.push(`remove ${id}`)
-      list.splice(list.findIndex((m) => m.id === id), 1)
+      kept.splice(kept.findIndex((m) => m.id === id), 1)
     }
   }
 }
@@ -207,7 +208,7 @@ describe('adding a dimension', () => {
     expect(store.did).toEqual([])
     await vi.advanceTimersByTimeAsync(1)
     expect(store.did).toEqual(['add M1'])
-    expect(store.list[0]).not.toHaveProperty('value')
+    expect(store.kept[0]).not.toHaveProperty('value')
     answer(EIGHT)
     expect(await adding).toMatchObject({ id: 'M1', value: 8, verdict: 'fail' })
     expect(store.did).toEqual(['add M1', 'measured M1 = 8'])
@@ -230,13 +231,63 @@ describe('adding a dimension', () => {
     let refuse!: (e: unknown) => void
     const k = kernel(() => new Promise((_resolve, reject) => (refuse = reject)))
     const store = marks()
-    const adding = addDimension({ ...k, marks: store }, 'measures', hole())
+    const adding = addDimension({ ...k, marks: store }, 'measures', hole({ measure: 'radius', a: TOP }))
     const failed = adding.catch((e: unknown) => e)
     await vi.advanceTimersByTimeAsync(300)
     expect(store.did).toEqual(['add M1'])
-    refuse(new KernelError('timeout', 'the query took longer than 30 s'))
-    expect(((await failed) as Error).message).toBe('the query took longer than 30 s')
+    refuse(new KernelError('bad_request', 'radius is measured of a cylindrical, spherical or toroidal face or a circular edge; assembly:plate/F5 is a plane face'))
+    expect(((await failed) as Error).message).toBe('radius is measured of a cylindrical, spherical or toroidal face or a circular edge; plate/F5 is a plane face')
     expect(store.did).toEqual(['add M1', 'remove M1'])
+    vi.useRealTimers()
+  })
+
+  it('is kept, without a value, when the kernel could not be asked: a query that timed out takes no mark of the person’s away', async () => {
+    vi.useFakeTimers()
+    const logged: string[] = []
+    let fail!: (e: unknown) => void
+    const k = kernel(() => new Promise((_resolve, reject) => (fail = reject)))
+    const store = marks()
+    const adding = addDimension({ ...k, marks: store, log: (m) => logged.push(m) }, 'measures', hole({ expected: 8 }))
+    await vi.advanceTimersByTimeAsync(300)
+    fail(new KernelError('timeout', 'the query took longer than 30 s'))
+    const added = (await adding) as DimensionMark
+    expect(added).toMatchObject({ id: 'M1', expected: 8 })
+    for (const key of ['value', 'measuredRevision', 'verdict']) expect(added).not.toHaveProperty(key)
+    expect(store.did).toEqual(['add M1'])
+    expect(logged).toEqual(['cannot measure a new dimension of measures yet: the query took longer than 30 s'])
+    vi.useRealTimers()
+    // So too when it fails at once: it is added as it is.
+    const quick = marks()
+    const atOnce = await addDimension({ ...kernel(() => { throw new KernelError('crash', 'the worker died') }), marks: quick, log: () => {} }, 'measures', hole())
+    expect(atOnce).not.toHaveProperty('value')
+    expect(quick.did).toEqual(['add M1'])
+  })
+
+  it('is refused when it was placed on another build than the last: its refs are of that build, and the kernel is not asked', async () => {
+    const k = kernel(() => EIGHT)
+    const store = marks()
+    await expect(addDimension({ ...k, marks: store }, 'measures', hole({ revision: 2 }))).rejects.toThrow('it was placed on r2, and the part has been built again since (r3): measure it again')
+    k.world.revision = undefined
+    await expect(addDimension({ ...k, marks: store }, 'measures', hole())).rejects.toThrow('there is no build of measures to measure on')
+    expect(k.asked).toEqual([])
+    expect(store.did).toEqual([])
+  })
+
+  it('answers with the mark as it is when its value was not written: the check of the marks got there first', async () => {
+    vi.useFakeTimers()
+    let answer!: (reply: unknown) => void
+    const k = kernel(() => new Promise((resolve) => (answer = resolve)))
+    const store = marks()
+    // The store passes the write over, as it does when the check has refreshed the ends meanwhile, and has measured it itself.
+    store.measured = async (_objectId, id) => {
+      store.did.push(`measured ${id}: passed over`)
+      store.kept[0] = sanitiseMark({ ...store.kept[0], value: 8.1, how: 'cylinder', measuredRevision: 3 })!
+      return null
+    }
+    const adding = addDimension({ ...k, marks: store }, 'measures', hole())
+    await vi.advanceTimersByTimeAsync(300)
+    answer(EIGHT)
+    expect(await adding).toMatchObject({ id: 'M1', value: 8.1 })
     vi.useRealTimers()
   })
 
@@ -270,6 +321,31 @@ describe('measuring a dimension again', () => {
     await remeasure({ ...kernel(() => { throw new KernelError('timeout', 'too long') }), marks: store, log: (m) => logged.push(m) }, 'measures', mark)
     expect(store.did).toHaveLength(before)
     expect(logged).toEqual(['cannot measure M1 of measures: too long'])
+  })
+})
+
+describe('after a change of what a dimension should be', () => {
+  const kept = (more: object = {}): Mark => ({ ...hole(), id: 'M1', status: 'sent', anchorState: 'ok', createdAt: '', value: 8, measuredRevision: 3, checkedRevision: 4, ...more }) as Mark
+
+  it('is measured at once when its value is of an older build and the last build’s check has judged its ends', () => {
+    expect(dueAfterEdit({ expected: 8 }, kept(), 4)).toBe(true)
+    expect(dueAfterEdit({ tolerance: null }, kept({ measuredRevision: undefined }), 4)).toBe(true)
+  })
+
+  it('is left to the check of the marks while that has not judged its ends on the last build: its refs are of an older one', () => {
+    // The build renumbered the faces, and the check is still running or being tried again.
+    expect(dueAfterEdit({ expected: 8 }, kept({ checkedRevision: 3 }), 4)).toBe(false)
+    expect(dueAfterEdit({ expected: 8 }, kept({ checkedRevision: undefined }), 4)).toBe(false)
+    expect(dueAfterEdit({ expected: 8 }, kept({ anchorState: 'orphaned' }), 4)).toBe(false)
+  })
+
+  it('is not measured again when it has a value of the last build, is resolved, is no dimension, or something else was changed', () => {
+    expect(dueAfterEdit({ expected: 8 }, kept({ measuredRevision: 4 }), 4)).toBe(false)
+    expect(dueAfterEdit({ expected: 8 }, kept({ status: 'resolved' }), 4)).toBe(false)
+    expect(dueAfterEdit({ expected: 8 }, { ...kept(), kind: 'pin' } as Mark, 4)).toBe(false)
+    expect(dueAfterEdit({ note: 'the hole' }, kept(), 4)).toBe(false)
+    expect(dueAfterEdit(null, kept(), 4)).toBe(false)
+    expect(dueAfterEdit({ expected: 8 }, kept(), undefined)).toBe(false)
   })
 })
 

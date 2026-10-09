@@ -53,7 +53,8 @@ function fake(over: Partial<ToolContext> = {}) {
     describe: async (ref) => KNOWN[ref] ?? null,
     commit: async (mark) => {
       committed.push(mark)
-      const measured = mark.kind === 'dimension' ? measures[mark.measure] : {}
+      // As main measures it: on the build it was placed on.
+      const measured = mark.kind === 'dimension' ? { ...measures[mark.measure], measuredRevision: mark.revision } : {}
       return { ...mark, ...measured, id: `M${committed.length}`, status: 'draft', anchorState: 'ok', createdAt: '2026-10-09T00:00:00.000Z' } as Mark
     },
     openNote: (mark) => void noted.push(mark.id),
@@ -181,6 +182,10 @@ describe('the measure tool', () => {
     expect(tool.onKey!(key('t'), ctx)).toBe(true)
     await settled()
     expect(committed).toEqual([{ kind: 'dimension', measure: 'thickness', author: 'user', note: '', layout: 'assembly', revision: 7, camera: CAMERA, a: { point: [8, 4, 3], normal: [0, 0, 1], part: 'plate', ref: 'plate/F5', descriptor: PLANE.descriptor } }])
+    // Held down, the key repeats: it is taken, and leaves no second dimension.
+    expect(tool.onKey!({ key: 't', repeat: true } as KeyboardEvent, ctx)).toBe(true)
+    await settled()
+    expect(committed).toHaveLength(1)
     // An edge has no wall under it, and neither has nothing.
     tool.onPointer(pointer('move', [200, 50], rim()), ctx)
     expect(tool.onKey!(key('T'), ctx)).toBe(false)
@@ -267,6 +272,15 @@ describe('the measure tool', () => {
     expect(said.at(-1)).toBe('M1 | 6 mm between planes')
     tool.onPointer(pointer('move', [90, 160], bottom()), ctx)
     expect(said.at(-1)).toBe('plate/F0 | ')
+  })
+
+  it('says so when main kept it without a value: the kernel could not be asked yet', async () => {
+    const tool = measureTool()
+    const { ctx, said } = fake({ commit: async (mark) => ({ ...mark, id: 'M1', status: 'draft', anchorState: 'ok', createdAt: '2026-10-09T00:00:00.000Z' }) as Mark })
+    tool.onPointer(pointer('click', [50, 50], top()), ctx)
+    tool.onPointer(pointer('click', [50, 120], bottom()), ctx)
+    await settled()
+    expect(said.at(-1)).toBe('M1 | not measured on r7')
   })
 
   it('when the kernel refuses the measurement there is no dimension, and its reason is read out for four seconds', async () => {

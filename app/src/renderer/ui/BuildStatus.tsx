@@ -1,6 +1,20 @@
 import { useEffect, useState } from 'react'
-import { partsInLayout, useStore } from '../state/store'
+import { unmetDimensions } from '../../shared/dimension'
+import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
+import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
+
+/** `2 dimensions fail`, `1 dimension not measured`. */
+export function dimensionCount(count: number, what: 'fail' | 'not measured'): string {
+  return `${count === 1 ? 'dimension' : 'dimensions'} ${what === 'fail' && count === 1 ? 'fails' : what}`
+}
+
+/** Makes a mark the active one and brings its row into view in the marks panel. */
+function goToRow(id: string): void {
+  actions.setActiveMark(id)
+  // Its row is there already: only which is active changes.
+  document.querySelector(`.mark-row[data-mark="${id}"]`)?.scrollIntoView({ block: 'nearest' })
+}
 
 /** Whole seconds since `startedAt`, counted once a second while a build runs. */
 function useElapsed(startedAt: number | undefined): number {
@@ -22,7 +36,9 @@ function seconds(s: number): string {
 /**
  * The status line: which object, how its last build went, which revision is on
  * screen, and the kernel at the far right. A failed build is a button that
- * opens the error sheet.
+ * opens the error sheet. Beside the build it says how many dimensions the
+ * build on show fails, and how many have no value of it; either goes to the
+ * first such in the marks panel.
  */
 export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; onErrorOpen: (open: boolean) => void }) {
   const name = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
@@ -30,6 +46,11 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
   const hasScene = useStore((s) => s.scene !== null)
   const partCount = useStore((s) => partsInLayout(s).length)
   const build123d = useStore((s) => s.versions.build123d)
+  const marks = useStore((s) => s.marks)
+  const revision = useStore((s) => (s.scene ? s.revision : 0))
+  const { failing, unmeasured } = unmetDimensions(marks, revision)
+  // Every build leaves every dimension unmeasured for the moment the measuring takes: said only when it lasts.
+  const waiting = useLasting(unmeasured.length > 0, UNCHECKED_AFTER_MS)
   const building = build?.status === 'building'
   const elapsed = useElapsed(building ? build.startedAt : undefined)
   const error = build?.status === 'failed' ? build.error : undefined
@@ -68,6 +89,16 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
               {build.stale && 'showing '}
               <span className="num">r{build.revision}</span>
             </span>
+          )}
+          {hasScene && failing.length > 0 && (
+            <button type="button" className="status-dimensions" data-state="fail" title={`Not what was expected on r${revision}: ${failing.map((m) => m.id).join(', ')}. Go to the first`} onClick={() => goToRow(failing[0].id)}>
+              <span className="num">{failing.length}</span> {dimensionCount(failing.length, 'fail')}
+            </button>
+          )}
+          {hasScene && waiting && unmeasured.length > 0 && (
+            <button type="button" className="status-dimensions" data-state="unmeasured" title={`No value on r${revision}: ${unmeasured.map((m) => m.id).join(', ')}. Go to the first`} onClick={() => goToRow(unmeasured[0].id)}>
+              <span className="num">{unmeasured.length}</span> {dimensionCount(unmeasured.length, 'not measured')}
+            </button>
           )}
           {hasScene && (
             <span data-part="parts">

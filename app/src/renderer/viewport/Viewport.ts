@@ -265,10 +265,12 @@ export class Viewport {
    * The marks of the object on show, of every layout: those of the layout
    * shown that are not resolved are drawn, each with its number. A mark's
    * objects are made once and again only when the mark itself changes.
+   * `revision` is the build on show, 0 for none: a dimension's label gives
+   * its value as measured on that build, or says it has none of it.
    */
-  setMarks(marks: Mark[]): void {
+  setMarks(marks: Mark[], revision = 0): void {
     this.allMarks = marks
-    this.marks.setMarks(marks)
+    this.marks.setMarks(marks, revision)
     this.showMarks()
     this.extent = this.measured()
     this.tintPicks(this.layout)

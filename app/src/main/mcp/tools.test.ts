@@ -452,6 +452,39 @@ describe('marks', () => {
     expect(TOOLS.marks.description).toContain('anchorState')
   })
 
+  it('gives a dimension a value in its data only where its line gives one: measured on that build, and measurable', async () => {
+    const dim = (n: number, over: object = {}): Mark =>
+      ({ ...MARK_BASE, id: `M${n}`, status: 'sent', note: '', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', points: [[-14, 5, 0], [-6, 5, 0]], measuredRevision: 3, checkedRevision: 3, expected: 8, verdict: 'pass', ...over }) as Mark
+    const deps = fake()
+    deps.w.list = [dim(1), dim(2, { measuredRevision: 2 }), dim(3, { anchorState: 'orphaned' }), dim(4, { anchorState: 'drifted' }), dim(5, { value: undefined, how: undefined, points: undefined, verdict: undefined, refused: 'base/F9 is a plane face: it has no diameter' })]
+    const { marks } = jsonOf(await marksTool(deps, 'bracket', {}))
+    // Measured on r3, the build the answer is of.
+    expect(marks[0]).toMatchObject({ value: 8, how: 'cylinder', verdict: 'pass', points: [[-14, 5, 0], [-6, 5, 0]], line: 'M1 diameter 8 mm, base/F9 (expected 8 ± 0.05: pass)' })
+    // Measured on r2: nothing in the data says 8 is its value, or that it passes.
+    for (const key of ['value', 'how', 'points', 'verdict']) expect(marks[1]).not.toHaveProperty(key)
+    expect(marks[1]).toMatchObject({ expected: 8, wasValue: 8, wasRevision: 2, line: 'M2 diameter: not measured on r3 (was 8 mm on r2), base/F9 (expected 8 ± 0.05)' })
+    // Its part gone.
+    for (const key of ['value', 'how', 'points', 'verdict', 'wasValue']) expect(marks[2]).not.toHaveProperty(key)
+    expect(marks[2].line).toBe('M3 diameter: not measurable, [its part is gone]')
+    // Moved, and measured from what is under it now: the value stands, and the line says to check it.
+    expect(marks[3]).toMatchObject({ value: 8, verdict: 'pass', anchorState: 'drifted', line: 'M4 diameter 8 mm, base/F9 (expected 8 ± 0.05: pass) [moved since it was placed: check it]' })
+    expect(marks[4]).toMatchObject({ refused: 'base/F9 is a plane face: it has no diameter' })
+    expect(marks[4]).not.toHaveProperty('value')
+    // `describe M<n>` says the same.
+    const described = jsonOf(await describeTool(deps, 'bracket', { ref: 'M2' })).mark
+    expect(described).toEqual(marks[1])
+    // While another build runs, r3 is still what the values are of.
+    expect(jsonOf(await marksTool({ ...deps, build: () => ({ objectId: 'bracket', status: 'building', revision: 3, startedAt: 0, stale: true }) }, 'bracket', {})).marks[0]).toMatchObject({ value: 8 })
+  })
+
+  it('before any build of the run, gives no dimension a value', async () => {
+    const deps = fake({ state: null, noScene: true })
+    deps.w.list = [{ ...MARK_BASE, id: 'M1', status: 'sent', note: '', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', expected: 8, verdict: 'pass' } as Mark]
+    const [mark] = jsonOf(await marksTool(deps, 'bracket', {})).marks
+    for (const key of ['value', 'verdict', 'wasRevision']) expect(mark).not.toHaveProperty(key)
+    expect(mark).toMatchObject({ wasValue: 8, line: 'M1 diameter: not measured (was 8 mm on an earlier build), base/F9 (expected 8 ± 0.05)' })
+  })
+
   it('keeps to one status when asked, and open is all that are not resolved', async () => {
     const ids = async (status: 'draft' | 'sent' | 'resolved' | 'open') => jsonOf(await marksTool(fake(), 'bracket', { status })).marks.map((m: Mark) => m.id)
     expect(await ids('draft')).toEqual(['M1'])
@@ -994,6 +1027,15 @@ describe('resolve_mark', () => {
     expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M4' }))).toBe('resolved: (yours) M4 pin at (9, 9, 9)')
     await resolveMarkTool(deps, 'bracket', { id: 'M1', note: 'n'.repeat(5000) })
     expect(deps.w.updates.map((u) => u.patch.resolvedNote?.length)).toEqual([undefined, 2000])
+  })
+
+  it('echoes a dimension with the value it has on the build there is', async () => {
+    const deps = fake()
+    // A dimension is echoed with the value it has on the build there is: one measured on another says of which.
+    const dimension = { ...MARK_BASE, id: 'M7', status: 'sent', note: '', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder' } as Mark
+    deps.w.list.push({ ...dimension, measuredRevision: 3 } as Mark, { ...dimension, id: 'M8', measuredRevision: 2 } as Mark)
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M7' }))).toBe('resolved: M7 diameter 8 mm, base/F9')
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M8' }))).toBe('resolved: M8 diameter 8 mm, base/F9 [as measured on r2]')
   })
 
   it('names the marks there are when the id is of none', async () => {

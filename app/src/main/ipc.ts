@@ -13,8 +13,8 @@ import { Builds, buildTimeout, watchFolder } from './builds'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
-import { type Retrying, asPlaced, asReplaced, followMarks, reanchorAll, retrying } from './marks/reanchor'
-import { addDimension, measure, remeasure } from './marks/measure'
+import { type Retrying, asPlaced, asReplaced, checkMarks, followMarks, retrying } from './marks/reanchor'
+import { addDimension, dueAfterEdit, measure, remeasure } from './marks/measure'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
@@ -106,16 +106,17 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
   )
   // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
-  // marks are on: each mark is checked against it. One check at a time per object; a build that
-  // succeeds during one is checked after it, and what was found for the build before is dropped.
-  // A check that could not say of every mark is tried again after a while (`retrying`).
+  // marks are on: each mark is checked against it, and every dimension is then measured on it. One
+  // check at a time per object; a build that succeeds during one is checked after it, and what was
+  // found for the build before is dropped. A check that could not say of every mark, or measure
+  // every dimension, is tried again after a while (`retrying`).
   const reanchor = retrying((objectId) => {
     const store = marks
     if (!store) return Promise.resolve(true)
     const counted = checks.get(objectId) ?? { started: 0, finished: 0 }
     checks.set(objectId, counted)
     counted.started += 1
-    return reanchorAll(
+    return checkMarks(
       {
         marks: store,
         query: (id, name, args) => builds.query(id, name, args),
@@ -361,11 +362,8 @@ export function registerIpc(
     const store = requireMarks()
     const changed = await store.update(String(objectId), String(id), patch, 'user')
     // What a dimension should measure was changed: its verdict is already judged anew from the value it has.
-    // A value of an older build than the last, or none, is measured again, and the verdict follows it.
-    const expects = typeof patch === 'object' && patch !== null && (patch.expected !== undefined || patch.tolerance !== undefined)
-    if (expects && changed.kind === 'dimension' && changed.status !== 'resolved' && changed.measuredRevision !== lastScene(String(objectId))?.revision) {
-      void remeasure(measuring(store), String(objectId), changed)
-    }
+    // One with no value of the last build is measured again, where that can be done now (`dueAfterEdit`).
+    if (dueAfterEdit(patch, changed, lastScene(String(objectId))?.revision)) void remeasure(measuring(store), String(objectId), changed)
     return changed
   })
   ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))

@@ -6,7 +6,7 @@ import type { Anchor, ArrowMark, DimensionMark, Mark, MarksFile, NewMark, PinMar
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import * as file from './file'
-import { type FoundAnchor, RETRY_AFTER_MS, asPlaced, coalesced, followMarks, judge, judgePin, reanchorAll, retrying, tolerance } from './reanchor'
+import { type FoundAnchor, RETRY_AFTER_MS, asPlaced, checkMarks, coalesced, followMarks, judge, judgePin, reanchorAll, retrying, tolerance } from './reanchor'
 import { MarkStore } from './store'
 
 // The real store on a real folder, with its writes counted.
@@ -950,6 +950,217 @@ describe('reanchorAll', () => {
       await quiet()
       expect(asked).toEqual([])
     })
+  })
+})
+
+describe('checkMarks: the dimensions are measured on every build, once the marks are checked against it', () => {
+  // A plate 40 × 30 × 6 standing on z = 0, with a hole of 8: its thickness and the hole are pinned.
+  const TOP: Anchor = { point: [-10, 5, 6], normal: [0, 0, 1], part: 'plate', ref: 'plate/F5' }
+  const WALL: Anchor = { point: [14, 0, 3], normal: [-1, 0, 0], part: 'plate', ref: 'plate/F6' }
+  const UNDER: Anchor = { point: [-10, 5, 0], normal: [0, 0, -1], part: 'plate', ref: 'plate/F4' }
+  const thickness = (more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', measure: 'thickness', a: TOP, ...more }) as NewMark
+  const hole = (more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', measure: 'diameter', a: WALL, ...more }) as NewMark
+  const span = (more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', measure: 'distance', a: TOP, b: UNDER, ...more }) as NewMark
+  const SIX = { value: 6, how: 'wall, along the normal', points: [[-10, 5, 6], [-10, 5, 0]] as [[number, number, number], [number, number, number]], measuredRevision: 1 }
+  const EIGHT = { value: 8, how: 'cylinder', points: [[6, 0, 3], [14, 0, 3]] as [[number, number, number], [number, number, number]], measuredRevision: 1 }
+
+  let root: string
+  let store: MarkStore
+  let changes: Array<{ objectId: string; marks: Mark[] }>
+  let scene: Scene | undefined
+  let revision: number
+  let asked: Array<{ name: string; args: Record<string, unknown> }>
+  let logged: string[]
+  /** What `nearest` says of each anchor, and what `measure` says of a request. */
+  let nearest: (anchor: { part: string; point: number[] }) => object
+  let measured: (args: { kind: string; a: { ref?: string; point?: number[] }; b?: { ref?: string } }) => unknown
+
+  const query = async <T>(_objectId: string, name: string, args: object): Promise<T> => {
+    asked.push({ name, args: structuredClone(args) as Record<string, unknown> })
+    if (name === 'nearest') return { anchors: (args as { anchors: Array<{ part: string; point: number[] }> }).anchors.map(nearest) } as T
+    return (await measured(args as never)) as T
+  }
+  const run = (): Promise<boolean> => checkMarks({ marks: store, query, scene: () => (scene ? { revision, scene } : undefined), log: (message) => logged.push(message) }, 'gauge')
+  const byId = async (): Promise<Record<string, DimensionMark>> => Object.fromEntries((await store.list('gauge')).map((m) => [m.id, m as DimensionMark]))
+  /** The build after: the plate 5 mm thick, its top 1 mm lower and its faces numbered otherwise, the hole 9 across. */
+  const thinner = (): void => {
+    scene = sceneOf(['assembly:plate'])
+    revision += 1
+    nearest = ({ part, point }) =>
+      point[2] === 6 ? found(part, 'plate/F2', 1, { point: [point[0], point[1], 5] }) : point[2] === 0 ? found(part, 'plate/F1', 0, { point: point as [number, number, number] }) : found(part, 'plate/F3', 0.6, { point: [14.5, 0, 3] })
+    measured = ({ kind }) => (kind === 'diameter' ? { value: 9, how: 'cylinder', points: [[5.5, 0, 3], [14.5, 0, 3]] } : { value: 5, how: kind === 'thickness' ? 'wall, along the normal' : 'between planes', points: [[-10, 5, 5], [-10, 5, 0]] })
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'torno-remeasure-'))
+    mkdirSync(join(root, 'gauge'))
+    store = new MarkStore({ dirOf: (id) => (id === 'gauge' ? join(root, 'gauge') : undefined) })
+    changes = []
+    store.on('changed', (m) => changes.push(m))
+    scene = sceneOf(['assembly:plate'])
+    revision = 1
+    asked = []
+    logged = []
+    nearest = ({ part, point }) => found(part, point[2] === 6 ? 'plate/F5' : point[2] === 0 ? 'plate/F4' : 'plate/F6', 0, { point: point as [number, number, number] })
+    measured = ({ kind }) => (kind === 'diameter' ? EIGHT : SIX)
+    saves.mockClear()
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('measures each unresolved dimension from its ends as the check left them, and writes them all at once, after the anchors', async () => {
+    await store.add('gauge', thickness({ expected: 6 }), 'draft', SIX) // M1
+    await store.add('gauge', hole({ expected: 8 }), 'draft', EIGHT) // M2
+    await store.add('gauge', pin(UNDER)) // M3
+    await store.markSent('gauge')
+    await run()
+    thinner()
+    asked = []
+    changes = []
+    saves.mockClear()
+    expect(await run()).toBe(true)
+
+    // One query for the anchors; then each dimension, by the ref its end has now. A wall is asked at the point of its face.
+    expect(asked.map((q) => q.name)).toEqual(['nearest', 'nearest', 'measure', 'measure'])
+    expect(asked[2].args).toEqual({ kind: 'thickness', a: { ref: 'assembly:plate/F2', point: [-10, 5, 5] } })
+    expect(asked[3].args).toEqual({ kind: 'diameter', a: { ref: 'assembly:plate/F3', point: [14, 0, 3] } })
+    // Two writes: what the check found, then every measurement.
+    expect(saves).toHaveBeenCalledTimes(2)
+    expect(changes).toHaveLength(2)
+    expect(changes[0].marks.map((m) => (m as DimensionMark).measuredRevision)).toEqual([1, 1, undefined])
+    const marks = await byId()
+    expect(marks.M1).toMatchObject({ anchorState: 'drifted', a: { point: [-10, 5, 6], ref: 'plate/F2' }, value: 5, measuredRevision: 2, checkedRevision: 2, verdict: 'fail', status: 'sent' })
+    expect(marks.M2).toMatchObject({ anchorState: 'drifted', a: { ref: 'plate/F3' }, value: 9, measuredRevision: 2, verdict: 'fail', status: 'sent', points: [[5.5, 0, 3], [14.5, 0, 3]] })
+    expect(logged).toEqual([])
+  })
+
+  it('measures on the first build of a run what a file holds a value of from the run before', async () => {
+    await store.add('gauge', hole({ expected: 8 }), 'draft', { ...EIGHT, measuredRevision: 7 })
+    store = new MarkStore({ dirOf: () => join(root, 'gauge') })
+    expect((await byId()).M1).not.toHaveProperty('measuredRevision')
+    expect(await run()).toBe(true)
+    expect(asked.map((q) => q.name)).toEqual(['nearest', 'measure'])
+    expect((await byId()).M1).toMatchObject({ value: 8, measuredRevision: 1, verdict: 'pass' })
+  })
+
+  it('does not ask again for a dimension already measured on the build, nor for a resolved one', async () => {
+    await store.add('gauge', hole(), 'draft', EIGHT) // M1
+    await store.add('gauge', thickness()) // M2: no value yet
+    await store.add('gauge', hole(), 'draft', { ...EIGHT, measuredRevision: undefined }) // M3
+    await store.update('gauge', 'M3', { status: 'resolved' })
+    await run()
+    expect(asked.filter((q) => q.name === 'measure').map((q) => q.args.kind)).toEqual(['thickness'])
+    expect((await byId()).M2).toMatchObject({ value: 6, measuredRevision: 1 })
+    expect((await byId()).M3).not.toHaveProperty('measuredRevision')
+    asked = []
+    saves.mockClear()
+    await run()
+    expect(asked.map((q) => q.name)).toEqual(['nearest'])
+    expect(saves).not.toHaveBeenCalled()
+  })
+
+  it('a dimension that lost the part of an end has no value and no verdict from then on, and the kernel is not asked', async () => {
+    await store.add('gauge', span({ expected: 6 }), 'draft', { ...SIX, how: 'between planes' })
+    await run()
+    scene = sceneOf(['assembly:lid'])
+    revision = 2
+    nearest = ({ part }) => ({ part, found: false })
+    asked = []
+    expect(await run()).toBe(true)
+    expect(asked.map((q) => q.name)).toEqual(['nearest'])
+    const gone = (await byId()).M1
+    expect(gone).toMatchObject({ anchorState: 'orphaned', measuredRevision: 2, expected: 6 })
+    for (const key of ['value', 'how', 'points', 'verdict']) expect(gone).not.toHaveProperty(key)
+    // The part back, it is found again and measured.
+    scene = sceneOf(['assembly:plate'])
+    revision = 3
+    nearest = ({ part, point }) => found(part, point[2] === 6 ? 'plate/F5' : 'plate/F4', 0)
+    await run()
+    expect((await byId()).M1).toMatchObject({ anchorState: 'ok', value: 6, measuredRevision: 3, verdict: 'pass' })
+  })
+
+  it('one the kernel refuses has no value either, and keeps the kernel’s reason', async () => {
+    await store.add('gauge', hole({ expected: 8 }), 'draft', EIGHT)
+    thinner()
+    measured = () => {
+      throw new KernelError('bad_request', 'diameter is measured of a cylindrical or spherical face or a circular edge; assembly:plate/F3 is a plane face')
+    }
+    expect(await run()).toBe(true)
+    const refused = (await byId()).M1
+    expect(refused).toMatchObject({ measuredRevision: 2, refused: 'diameter is measured of a cylindrical or spherical face or a circular edge; plate/F3 is a plane face' })
+    for (const key of ['value', 'verdict']) expect(refused).not.toHaveProperty(key)
+    expect(logged).toEqual([])
+  })
+
+  it('one the kernel could not be asked about keeps its value as that of the build it was measured on, and the pass says it failed', async () => {
+    await store.add('gauge', thickness({ expected: 6 }), 'draft', SIX) // M1
+    await store.add('gauge', hole({ expected: 8 }), 'draft', EIGHT) // M2
+    await run()
+    thinner()
+    const answer = measured
+    measured = (args) => {
+      if (args.kind === 'diameter') throw new KernelError('timeout', 'the query took longer than 30 s')
+      return answer(args)
+    }
+    expect(await run()).toBe(false)
+    const marks = await byId()
+    expect(marks.M1).toMatchObject({ value: 5, measuredRevision: 2 })
+    // Checked against r2, and still holding what it measured on r1: never the value of r2.
+    expect(marks.M2).toMatchObject({ value: 8, measuredRevision: 1, checkedRevision: 2, verdict: 'pass' })
+    expect(logged).toEqual(['cannot measure the dimensions of gauge on its last build: M2: the query took longer than 30 s'])
+    // Tried again, it is measured.
+    measured = answer
+    expect(await run()).toBe(true)
+    expect((await byId()).M2).toMatchObject({ value: 9, measuredRevision: 2, verdict: 'fail' })
+  })
+
+  it('does not measure a dimension whose ends the check could not judge: its refs may name other faces now', async () => {
+    await store.add('gauge', hole({ expected: 8 }), 'draft', EIGHT)
+    await run()
+    thinner()
+    nearest = ({ part }) => ({ part, found: true, error: 'no nearest point' })
+    expect(await run()).toBe(false)
+    expect(asked.filter((q) => q.name === 'measure')).toHaveLength(0)
+    expect((await byId()).M1).toMatchObject({ value: 8, measuredRevision: 1, checkedRevision: 1, a: { ref: 'plate/F6' } })
+  })
+
+  it('drops everything when another build lands while the kernel is asked', async () => {
+    await store.add('gauge', thickness(), 'draft', SIX)
+    await store.add('gauge', hole(), 'draft', EIGHT)
+    await run()
+    thinner()
+    const newer = sceneOf(['assembly:plate'])
+    measured = ({ kind }) => {
+      // The build after lands while the first is measured.
+      scene = newer
+      revision = 3
+      return kind === 'diameter' ? EIGHT : SIX
+    }
+    saves.mockClear()
+    expect(await run()).toBe(true)
+    // The anchors of r2 were written; no measurement was.
+    expect(saves).toHaveBeenCalledTimes(1)
+    const marks = await byId()
+    expect([marks.M1.measuredRevision, marks.M2.measuredRevision, marks.M1.value]).toEqual([1, 1, 6])
+  })
+
+  it('passes over a dimension that changed underneath while it was measured, and writes the others', async () => {
+    await store.add('gauge', thickness({ expected: 6 }), 'draft', SIX) // M1
+    await store.add('gauge', hole({ expected: 8 }), 'draft', EIGHT) // M2
+    await run()
+    thinner()
+    const answer = measured
+    measured = async (args) => {
+      // The person says the hole should be 9 while the kernel measures it.
+      if (args.kind === 'diameter') await store.update('gauge', 'M2', { expected: 9 })
+      return answer(args)
+    }
+    await run()
+    const marks = await byId()
+    expect(marks.M1).toMatchObject({ value: 5, measuredRevision: 2 })
+    expect(marks.M2).toMatchObject({ expected: 9, value: 8, measuredRevision: 1 })
   })
 })
 

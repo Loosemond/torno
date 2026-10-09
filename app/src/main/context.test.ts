@@ -453,6 +453,130 @@ describe('contextFor', () => {
       expect(context.sentMarkIds).toHaveLength(listed.length)
     })
 
+    describe('the dimensions the agent has been given', () => {
+      // Pinned: sent, not resolved. Measured on r3, the build there is.
+      const dim = (n: number, over: object = {}): Mark =>
+        ({
+          ...pin(n, { status: 'sent', sentBefore: true, note: '' }),
+          kind: 'dimension',
+          measure: 'diameter',
+          a: { point: [n, 0, 5], part: 'base', ref: 'base/F9' },
+          value: 8,
+          how: 'cylinder',
+          measuredRevision: 3,
+          ...over
+        }) as Mark
+      const failing = (n: number, over: object = {}): Mark => dim(n, { expected: 8.5, verdict: 'fail', ...over })
+      const passing = (n: number, over: object = {}): Mark => dim(n, { expected: 8, verdict: 'pass', ...over })
+      const FAIL = (n: number): string => `M${n} diameter 8 mm, base/F9 (expected 8.5 ± 0.05: FAIL, 0.5 under)`
+      const text = (marks: Mark[], opts: { fresh?: boolean } = {}): string => contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks, opts).text
+
+      it('lists each one that fails, after the marks, and then how many pass', () => {
+        const marks = [pin(1), failing(8), passing(9), passing(10), pin(11, { status: 'sent' })]
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
+        expect(context.text).toBe([STATUS, HEAD, line(1), 'Dimensions:', FAIL(8), '2 pinned dimensions pass', 'Open marks: M9, M10, M11'].join('\n'))
+        // They are not news: only the draft is turned sent.
+        expect(context.sentMarkIds).toEqual(['M1'])
+      })
+
+      it('lists them with every prompt until they pass: nothing consumes them', () => {
+        const marks = [failing(8)]
+        const first = text(marks)
+        expect(first).toBe([STATUS, 'Dimensions:', FAIL(8)].join('\n'))
+        expect(text(marks)).toBe(first)
+        // Passing, there is only the count; and it is among the open marks again.
+        expect(text([passing(8)])).toBe([STATUS, 'Dimensions:', '1 pinned dimension passes', 'Open marks: M8'].join('\n'))
+      })
+
+      it('lists one that cannot be measured, with why, and one not measured on this build, without a value of it', () => {
+        const marks = [
+          dim(2, { value: undefined, how: undefined, refused: 'base/F9 is a plane face: it has no diameter', expected: 8 }),
+          dim(3, { anchorState: 'orphaned', expected: 8, verdict: 'pass' }),
+          passing(4, { measuredRevision: 2 }),
+          dim(5, { measuredRevision: undefined })
+        ]
+        expect(text(marks)).toBe(
+          [
+            STATUS,
+            'Dimensions:',
+            'M2 diameter: not measurable (base/F9 is a plane face: it has no diameter), base/F9 (expected 8 ± 0.05)',
+            'M3 diameter: not measurable, [its part is gone]',
+            'M4 diameter: not measured on r3 (was 8 mm on r2), base/F9 (expected 8 ± 0.05)',
+            'M5 diameter: not measured on r3 (was 8 mm on an earlier build), base/F9'
+          ].join('\n')
+        )
+      })
+
+      it('one whose end the build moved is measured, judged, and says that it moved', () => {
+        expect(text([failing(8, { anchorState: 'drifted' }), passing(9, { anchorState: 'drifted' })])).toBe(
+          [STATUS, 'Dimensions:', `${FAIL(8)} [moved since it was placed: check it]`, '1 pinned dimension passes', 'Open marks: M9 (moved); call mcp__torno__marks for their data'].join('\n')
+        )
+      })
+
+      it('says nothing when there is none pinned, nor of one with nothing expected that is measured', () => {
+        expect(text([pin(1, { status: 'sent' })])).toBe([STATUS, 'Open marks: M1'].join('\n'))
+        expect(text([dim(2)])).toBe([STATUS, 'Open marks: M2'].join('\n'))
+        // Resolved: no longer a check of the part.
+        expect(text([failing(2, { status: 'resolved' })])).toBe(STATUS)
+      })
+
+      it('a draft dimension is told with the drafts, as a mark: not under the dimensions until it has been given', () => {
+        const draft = failing(8, { status: 'draft', sentBefore: false })
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [draft])
+        expect(context.text).toBe([STATUS, HEAD, FAIL(8)].join('\n'))
+        expect(context.sentMarkIds).toEqual(['M8'])
+        // Changed after it was given, it is news again, and listed once.
+        expect(text([failing(8, { status: 'draft' })])).toBe([STATUS, HEAD, `(changed) ${FAIL(8)}`].join('\n'))
+      })
+
+      it('the agent’s own is listed as its own, and one of another layout says which', () => {
+        expect(text([failing(8, { author: 'agent', layout: 'print' })])).toBe([STATUS, 'Dimensions:', `(yours) ${FAIL(8)} [in layout print]`].join('\n'))
+      })
+
+      it('in a conversation that has not seen the marks, is listed once: under the dimensions', () => {
+        const marks = [pin(1, { status: 'sent', sentBefore: true }), failing(8), passing(9)]
+        const STILL = 'Marks still open (this conversation has not seen them):'
+        expect(text(marks, { fresh: true })).toBe(
+          [STATUS, STILL, line(1), 'M9 diameter 8 mm, base/F9 (expected 8 ± 0.05: pass)', 'Dimensions:', FAIL(8), '1 pinned dimension passes', 'Open marks: M1, M9'].join('\n')
+        )
+      })
+
+      it('keeps to the limit: what fits is listed, the rest counted, and the count of those that pass is still said', () => {
+        const marks = [...Array.from({ length: 150 }, (_, i) => failing(i + 1, { note: 'n'.repeat(40) })), passing(200), passing(201)]
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
+        expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+        const lines = context.text.split('\n')
+        expect(lines[1]).toBe('Dimensions:')
+        expect(lines[2]).toBe(`${FAIL(1)}: "${'n'.repeat(40)}"`)
+        const listed = lines.filter((l) => l.includes('FAIL')).length
+        expect(listed).toBeGreaterThan(30)
+        expect(lines.at(-3)).toBe(`… and ${150 - listed} more: call mcp__torno__marks`)
+        expect(lines.at(-2)).toBe('2 pinned dimensions pass')
+        // Those with a line above are not named again; those left out still are.
+        expect(lines.at(-1)).toMatch(new RegExp(`^Open marks: M${listed + 1}, M${listed + 2}, `))
+      })
+
+      it('keeps room for them before the drafts are listed: a prompt full of drafts still says which dimensions fail', () => {
+        const drafts = Array.from({ length: 60 }, (_, i) => pin(i + 1, { note: 'n'.repeat(300) }))
+        const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [...drafts, failing(100), failing(101), passing(102)])
+        expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+        const lines = context.text.split('\n')
+        const at = lines.indexOf('Dimensions:')
+        expect(at).toBeGreaterThan(5)
+        // The head, then either a line or the count of those left out; and the count of those that pass.
+        expect(lines.slice(at + 1).join('\n')).toMatch(/^(M100 .*\n(M101 .*|… and 1 more: call mcp__torno__marks)|… and 2 more: call mcp__torno__marks)\n1 pinned dimension passes\nOpen marks: /)
+        // Only the drafts that were listed are turned sent.
+        expect(context.sentMarkIds.length).toBeGreaterThan(5)
+        expect(context.sentMarkIds.length).toBeLessThan(60)
+        expect(context.sentMarkIds.every((id) => lines.some((l) => l.startsWith(`${id} pin`)))).toBe(true)
+      })
+
+      it('before any build of the run has none measured: each is told as not measured, never with the value its file holds', () => {
+        const none = contextFor(deps({}), 'bracket', [passing(8, { measuredRevision: undefined })]).text
+        expect(none).toBe(['[torno] bracket · not built yet.', 'Dimensions:', 'M8 diameter: not measured (was 8 mm on an earlier build), base/F9 (expected 8 ± 0.05) [in layout assembly]'].join('\n'))
+      })
+    })
+
     it('tells of the marks of an object that is not built, or not open', () => {
       expect(contextFor(deps({}), 'bracket', [pin(1)]).text).toBe(['[torno] bracket · not built yet.', HEAD, `${line(1)} [in layout assembly]`].join('\n'))
       expect(contextFor(deps({ open: 'gear' }), 'bracket', [pin(1)]).sentMarkIds).toEqual(['M1'])

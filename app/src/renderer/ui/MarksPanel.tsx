@@ -38,11 +38,12 @@ export function MarksPanel() {
       (e: unknown) => setRefused(e instanceof Error ? e.message : String(e))
     )
   }
-  /** Whether a mark is on a part that is there and switched off: it is not drawn, like its part. */
+  /** Whether a mark is on a part that is there and switched off: it is not drawn, like its part. A dimension, when that is so of both its ends. */
   const hidden = (mark: (typeof marks)[number]): boolean => {
-    const part = markAnchors(mark)[0]?.part
-    if (part === undefined || mark.status === 'resolved' || layers[part]?.visible !== false) return false
-    return parts?.some((p) => p.layout === mark.layout && p.name === part) ?? false
+    if (mark.status === 'resolved') return false
+    const off = (part: string | undefined): boolean => part !== undefined && layers[part]?.visible === false && (parts?.some((p) => p.layout === mark.layout && p.name === part) ?? false)
+    const ends = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)
+    return ends.length > 0 && ends.every((anchor) => off(anchor.part))
   }
   const row = (mark: (typeof marks)[number]) => (
     <MarkRow

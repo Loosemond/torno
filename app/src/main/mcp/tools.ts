@@ -6,7 +6,7 @@ import type { Mark, MarkPatch, NewMark, Quat, ShapeIntent, ShapeKind } from '../
 import type { Scene } from '../../shared/scene'
 import type { Camera, HighlightResult, LookRequest, LookResult, ShowRequest, ShowResult, ViewState } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
-import { describeMark } from '../marks/describe'
+import { describeMark, markData } from '../marks/describe'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 
@@ -402,9 +402,10 @@ export const noMark = (id: string, marks: Mark[]): ToolResult => failure(`no mar
  * that moved or lost its part still holds the ref it was placed on beside what
  * the kernel says is under it now; the line pairs nothing that may not agree.
  * Given the revision of the last build, the line says when the mark was not
- * checked against it.
+ * checked against it. A dimension has a value in its data only where its line
+ * gives one: as measured on that build (`markData`).
  */
-const withLine = (mark: Mark, revision?: number): Mark & { line: string } => ({ ...mark, line: describeMark(mark, { revision }) })
+const withLine = (mark: Mark, revision?: number): object => ({ ...markData(mark, revision), line: describeMark(mark, { revision }) })
 
 /** Why the last successful build of an object is not of its model as it now is: a build is running, or the latest failed. '' otherwise. */
 export function behind(deps: ToolDeps, objectId: string): string {

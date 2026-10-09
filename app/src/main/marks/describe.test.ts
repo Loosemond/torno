@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Mark } from '../../shared/marks'
-import { describeMark, number } from './describe'
+import { describeMark, markData, number } from './describe'
 
 const BASE = {
   author: 'user',
@@ -201,44 +201,88 @@ describe('a dimension in one line', () => {
   const distance = (m: object = {}): Mark => mark({ id: 'M7', kind: 'dimension', measure: 'distance', a: TOP, b: BOTTOM, value: 6, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], measuredRevision: 4, ...m })
   const hole = (m: object = {}): Mark => mark({ id: 'M8', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 4, ...m })
 
+  // As of r4, the build they were measured on.
+  const said = (m: Mark, tag?: string): string => describeMark(m, { revision: 4, ...(tag ? { tag } : {}) })
+  const checked = { checkedRevision: 4 }
+
   it('says the value, how it was taken and between what', () => {
-    expect(describeMark(distance())).toBe('M7 distance 6 mm between planes, base/F5 to base/F0')
-    expect(describeMark(distance({ value: 6.00000001, note: 'the plate' }))).toBe('M7 distance 6 mm between planes, base/F5 to base/F0: "the plate"')
-    expect(describeMark(distance({ how: 'point to plane', a: { point: [1, 2, 9.5] }, value: 6.5 }))).toBe('M7 distance 6.5 mm point to plane, (1, 2, 9.5) to base/F0')
-    expect(describeMark(distance({ measure: 'angle', value: 45, how: 'between normals' }))).toBe('M7 angle 45° between normals, base/F5 to base/F0')
-    expect(describeMark(distance({ measure: 'thickness', b: undefined, value: 2, how: 'wall, along the normal' }))).toBe('M7 thickness 2 mm wall, along the normal, base/F5 at (5, 3, 3)')
+    expect(said(distance(checked))).toBe('M7 distance 6 mm between planes, base/F5 to base/F0')
+    expect(said(distance({ ...checked, value: 6.00000001, note: 'the plate' }))).toBe('M7 distance 6 mm between planes, base/F5 to base/F0: "the plate"')
+    expect(said(distance({ ...checked, how: 'point to plane', a: { point: [1, 2, 9.5] }, value: 6.5 }))).toBe('M7 distance 6.5 mm point to plane, (1, 2, 9.5) to base/F0')
+    expect(said(distance({ ...checked, measure: 'angle', value: 45, how: 'between normals' }))).toBe('M7 angle 45° between normals, base/F5 to base/F0')
+    expect(said(distance({ ...checked, measure: 'thickness', b: undefined, value: 2, how: 'wall, along the normal' }))).toBe('M7 thickness 2 mm wall, along the normal, base/F5 at (5, 3, 3)')
   })
 
   it('of a diameter or a radius says what it is of, and no more of how unless that says which', () => {
-    expect(describeMark(hole())).toBe('M8 diameter 8 mm, base/F9')
-    expect(describeMark(hole({ measure: 'radius', value: 4, how: 'circle', a: { point: [0, 0, 0], part: 'base', ref: 'base/E3' } }))).toBe('M8 radius 4 mm, base/E3')
-    expect(describeMark(hole({ measure: 'radius', value: 2, how: 'torus, of the tube' }))).toBe('M8 radius 2 mm (torus, of the tube), base/F9')
+    expect(said(hole(checked))).toBe('M8 diameter 8 mm, base/F9')
+    expect(said(hole({ ...checked, measure: 'radius', value: 4, how: 'circle', a: { point: [0, 0, 0], part: 'base', ref: 'base/E3' } }))).toBe('M8 radius 4 mm, base/E3')
+    expect(said(hole({ ...checked, measure: 'radius', value: 2, how: 'torus, of the tube' }))).toBe('M8 radius 2 mm (torus, of the tube), base/F9')
   })
 
   it('with an expectation says what was expected and the tolerance, the verdict, and how far off which way', () => {
-    expect(describeMark(hole({ expected: 8.5, verdict: 'fail' }))).toBe('M8 diameter 8 mm, base/F9 (expected 8.5 ± 0.05: FAIL, 0.5 under)')
-    expect(describeMark(hole({ value: 8.7, expected: 8.5, tolerance: 0.1, verdict: 'fail' }))).toBe('M8 diameter 8.7 mm, base/F9 (expected 8.5 ± 0.1: FAIL, 0.2 over)')
-    expect(describeMark(hole({ value: 8.02, expected: 8, verdict: 'pass' }))).toBe('M8 diameter 8.02 mm, base/F9 (expected 8 ± 0.05: pass)')
-    expect(describeMark(distance({ measure: 'angle', value: 44, how: 'between normals', expected: 45, verdict: 'fail' }))).toBe('M7 angle 44° between normals, base/F5 to base/F0 (expected 45 ± 0.1: FAIL, 1 under)')
+    expect(said(hole({ ...checked, expected: 8.5, verdict: 'fail' }))).toBe('M8 diameter 8 mm, base/F9 (expected 8.5 ± 0.05: FAIL, 0.5 under)')
+    expect(said(hole({ ...checked, value: 8.7, expected: 8.5, tolerance: 0.1, verdict: 'fail' }))).toBe('M8 diameter 8.7 mm, base/F9 (expected 8.5 ± 0.1: FAIL, 0.2 over)')
+    expect(said(hole({ ...checked, value: 8.02, expected: 8, verdict: 'pass' }))).toBe('M8 diameter 8.02 mm, base/F9 (expected 8 ± 0.05: pass)')
+    expect(said(distance({ ...checked, measure: 'angle', value: 44, how: 'between normals', expected: 45, verdict: 'fail' }))).toBe('M7 angle 44° between normals, base/F5 to base/F0 (expected 45 ± 0.1: FAIL, 1 under)')
   })
 
-  it('never gives a value it cannot stand by: none without one, none once an end moved or lost its part', () => {
-    expect(describeMark(distance({ id: 'M9', value: undefined, how: undefined, points: undefined, anchorState: 'orphaned' }))).toBe('M9 distance: not measurable, [its part is gone]')
-    expect(describeMark(distance({ id: 'M9', anchorState: 'orphaned', expected: 6, verdict: 'pass' }))).toBe('M9 distance: not measurable, [its part is gone]')
-    expect(describeMark(distance({ id: 'M9', anchorState: 'drifted', note: 'the plate' }))).toBe('M9 distance: not measurable, [moved since it was placed: check it]: "the plate"')
-    expect(describeMark(hole({ value: undefined, how: undefined }))).toBe('M8 diameter: not measurable, base/F9')
-    expect(describeMark(hole({ value: undefined, how: undefined, expected: 8.5 }))).toBe('M8 diameter: not measurable, base/F9 (expected 8.5 ± 0.05)')
+  it('one whose end the build moved is measured from what is under its ends now, and says that it moved', () => {
+    const moved = hole({ ...checked, anchorState: 'drifted', value: 9, expected: 8, verdict: 'fail', note: 'the bolt' })
+    expect(said(moved)).toBe('M8 diameter 9 mm, base/F9 (expected 8 ± 0.05: FAIL, 1 over): "the bolt" [moved since it was placed: check it]')
   })
 
-  it('says when the value is of an older build than the last, or of none it knows', () => {
+  it('has no value once the part of an end is gone, whatever it held', () => {
+    expect(said(distance({ ...checked, id: 'M9', value: undefined, how: undefined, points: undefined, anchorState: 'orphaned' }))).toBe('M9 distance: not measurable, [its part is gone]')
+    expect(said(distance({ ...checked, id: 'M9', anchorState: 'orphaned', expected: 6, verdict: 'pass' }))).toBe('M9 distance: not measurable, [its part is gone]')
+    // Nor when the build it was measured on is another: there is nothing it was.
+    expect(describeMark(distance({ id: 'M9', anchorState: 'orphaned', checkedRevision: 5 }), { revision: 5 })).toBe('M9 distance: not measurable, [its part is gone]')
+  })
+
+  it('that the kernel could not measure on this build says so, with the kernel’s reason', () => {
+    expect(said(hole({ ...checked, value: undefined, how: undefined }))).toBe('M8 diameter: not measurable, base/F9')
+    expect(said(hole({ ...checked, value: undefined, how: undefined, expected: 8.5 }))).toBe('M8 diameter: not measurable, base/F9 (expected 8.5 ± 0.05)')
+    expect(said(hole({ ...checked, value: undefined, how: undefined, refused: 'base/F9 is a plane face: it has no diameter', expected: 8.5 }))).toBe(
+      'M8 diameter: not measurable (base/F9 is a plane face: it has no diameter), base/F9 (expected 8.5 ± 0.05)'
+    )
+  })
+
+  it('never gives a value of another build as that of the last: it is not measured on that one, and has no verdict', () => {
     expect(describeMark(hole(), { revision: 4 })).toBe('M8 diameter 8 mm, base/F9 [not checked against r4]')
-    expect(describeMark(hole({ checkedRevision: 4 }), { revision: 4 })).toBe('M8 diameter 8 mm, base/F9')
-    expect(describeMark(hole({ checkedRevision: 5 }), { revision: 5 })).toBe('M8 diameter 8 mm, base/F9 [measured on r4, not on r5]')
-    expect(describeMark(hole({ checkedRevision: 5, measuredRevision: undefined }), { revision: 5 })).toBe('M8 diameter 8 mm, base/F9 [measured on an earlier build, not on r5]')
-    expect(describeMark(hole({ status: 'resolved', measuredRevision: 2 }), { revision: 5 })).toBe('M8 diameter 8 mm, base/F9')
+    expect(describeMark(hole({ checkedRevision: 5 }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on r4), base/F9')
+    expect(describeMark(hole({ checkedRevision: 5, expected: 8, verdict: 'pass' }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on r4), base/F9 (expected 8 ± 0.05)')
+    expect(describeMark(hole({ checkedRevision: 5, measuredRevision: undefined }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on an earlier build), base/F9')
+    expect(describeMark(hole({ checkedRevision: 5, measuredRevision: undefined, value: undefined, how: undefined }), { revision: 5 })).toBe('M8 diameter: not measured on r5, base/F9')
+    expect(describeMark(hole({ anchorState: 'drifted', checkedRevision: 5 }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on r4), base/F9 [moved since it was placed: check it]')
+    // With no build to hold it against, it is not measured at all.
+    expect(describeMark(hole())).toBe('M8 diameter: not measured (was 8 mm on r4), base/F9')
+  })
+
+  it('once resolved is no longer measured: its value is what it was, and says of which build when that is not the last', () => {
+    expect(describeMark(hole({ status: 'resolved' }), { revision: 4 })).toBe('M8 diameter 8 mm, base/F9')
+    expect(describeMark(hole({ status: 'resolved', measuredRevision: 2 }), { revision: 5 })).toBe('M8 diameter 8 mm, base/F9 [as measured on r2]')
+    expect(describeMark(hole({ status: 'resolved', measuredRevision: undefined }), { revision: 5 })).toBe('M8 diameter 8 mm, base/F9 [as measured on an earlier build]')
+    expect(describeMark(hole({ status: 'resolved' }))).toBe('M8 diameter 8 mm, base/F9 [as measured on r4]')
   })
 
   it('says whose it is, and that it changed, like any mark', () => {
-    expect(describeMark(hole({ author: 'agent' }), { tag: 'changed' })).toBe('(yours, changed) M8 diameter 8 mm, base/F9')
+    expect(said(hole({ ...checked, author: 'agent' }), 'changed')).toBe('(yours, changed) M8 diameter 8 mm, base/F9')
+  })
+
+  it('as data holds a value only where its line gives one: what it held on another build is told as that', () => {
+    const current = hole({ ...checked, expected: 8.5, verdict: 'fail', points: [[-14, 5, 0], [-6, 5, 0]] })
+    expect(markData(current, 4)).toBe(current)
+    const stale = markData(current, 5) as Record<string, unknown>
+    for (const key of ['value', 'how', 'points', 'verdict']) expect(stale).not.toHaveProperty(key)
+    expect(stale).toMatchObject({ id: 'M8', expected: 8.5, wasValue: 8, wasRevision: 4, measuredRevision: 4 })
+    // Of a run before this one: which build it was is not known.
+    expect(markData(hole({ measuredRevision: undefined }), 5)).not.toHaveProperty('wasRevision')
+    // Its part gone: no value, and none that it was.
+    const gone = markData(hole({ ...checked, anchorState: 'orphaned', expected: 8, verdict: 'pass' }), 4) as Record<string, unknown>
+    for (const key of ['value', 'how', 'verdict', 'wasValue', 'wasRevision']) expect(gone).not.toHaveProperty(key)
+    // Moved, and measured on this build from what is under it: its value stands.
+    expect(markData(hole({ ...checked, anchorState: 'drifted' }), 4)).toMatchObject({ value: 8 })
+    // Any other mark is as it is.
+    const pin = mark({ kind: 'pin', anchor: TOP })
+    expect(markData(pin, 4)).toBe(pin)
   })
 })

@@ -2,12 +2,13 @@ import * as THREE from 'three'
 import type { Line2 } from 'three/addons/lines/Line2.js'
 import { describe, expect, it } from 'vitest'
 import type { DimensionMark, Vec3 } from '../../../shared/marks'
-import { place, project } from './labels'
-import { MarkLayer } from './MarkLayer'
+import { labelValue, place, project } from './labels'
+import { MarkLayer, onHidden } from './MarkLayer'
 import { ARC_PX, DIMENSION_BEHIND, LEADER_PX, TICK_PX, build, labelAnchor, markPoints, rescale } from './markObjects'
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
-const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
+// Measured on r1, the build the tests draw unless they say otherwise.
+const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, measuredRevision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
 const COLOURS = { user: '#cf3f2c', agent: '#2b8a5c', reference: '#6c7178' }
 const SIZE = { width: 800, height: 600 }
 
@@ -135,7 +136,7 @@ describe('the label of a dimension', () => {
   const camera = topCamera()
 
   it('hangs at the middle of its line and carries its value, with the verdict when it has one', () => {
-    const [plain, failing, passing] = project([distance({ points: [[0, 0, 0], [20, 0, 0]] }), diameter({ expected: 8.5, verdict: 'fail' }), diameter({ id: 'M4', expected: 8, verdict: 'pass', author: 'agent' })], camera, SIZE)
+    const [plain, failing, passing] = project([distance({ points: [[0, 0, 0], [20, 0, 0]] }), diameter({ expected: 8.5, verdict: 'fail' }), diameter({ id: 'M4', expected: 8, verdict: 'pass', author: 'agent' })], camera, SIZE, 1, 1)
     expect(plain).toMatchObject({ id: 'M1', text: 'M1', value: { text: '6 mm' }, x: 500, y: 300 })
     expect(plain.value).not.toHaveProperty('verdict')
     expect(failing).toMatchObject({ text: 'M2', value: { text: '⌀ 8 mm', verdict: 'fail' } })
@@ -144,10 +145,50 @@ describe('the label of a dimension', () => {
     expect(failing.x).toBeCloseTo(400 + (-6 / 80) * 800 + LEADER_PX)
   })
 
-  it('shows no value it cannot stand by: none measured, or an end that moved', () => {
-    const [unmeasured, drifted] = project([distance({ value: undefined, points: undefined }), distance({ anchorState: 'drifted', expected: 6, verdict: 'pass' })], camera, SIZE)
-    expect(unmeasured.value).toEqual({ text: '—' })
-    expect(drifted).toMatchObject({ text: 'M1~', value: { text: '—' } })
+  it('shows no value it cannot stand by: none where the kernel gave none or its part is gone', () => {
+    const [unmeasurable, orphaned] = project([distance({ value: undefined, points: undefined }), distance({ anchorState: 'orphaned', expected: 6, verdict: 'pass' })], camera, SIZE, 1, 1)
+    expect(unmeasurable.value).toEqual({ text: '—' })
+    expect(orphaned).toMatchObject({ text: 'M1?', value: { text: '—' } })
+  })
+
+  it('one whose end moved is measured from what is under it now: its value and verdict stand, and its number says it moved', () => {
+    const [drifted] = project([distance({ anchorState: 'drifted', expected: 6, verdict: 'pass' })], camera, SIZE, 1, 1)
+    expect(drifted).toMatchObject({ text: 'M1~', value: { text: '6 mm', verdict: 'pass' } })
+  })
+
+  it('a value of another build than the one drawn is what it was: stale, and without its verdict', () => {
+    const failing = diameter({ expected: 8.5, verdict: 'fail' })
+    expect(labelValue(failing, 1)).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
+    expect(labelValue(failing, 2)).toEqual({ text: '⌀ 8 mm', stale: true })
+    // Of a run before this one, or with no build at all.
+    expect(labelValue({ ...failing, measuredRevision: undefined }, 2)).toEqual({ text: '⌀ 8 mm', stale: true })
+    expect(labelValue(failing, 0)).toEqual({ text: '⌀ 8 mm', stale: true })
+    expect(labelValue(failing, undefined)).toEqual({ text: '⌀ 8 mm', stale: true })
+    expect(labelValue(diameter({ value: undefined, measuredRevision: undefined }), 2)).toEqual({ text: '—' })
+    // The layer draws its labels as of the build it was last told of, on screen and in a picture alike.
+    const marks = new MarkLayer(COLOURS)
+    const chip = () => ({ w: 40, h: 17 })
+    marks.setMarks([failing], 1)
+    marks.show('assembly')
+    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
+    marks.setMarks([failing], 2)
+    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', stale: true })
+    // Told of the marks alone, it keeps the build it knew.
+    marks.setMarks([{ ...failing, measuredRevision: 2 }])
+    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
+  })
+
+  it('is hidden with its parts only when the part of each end is switched off', () => {
+    const across = distance({ b: { ...BOTTOM, part: 'lid' } })
+    expect(onHidden(across, new Set(['plate']))).toBe(false)
+    expect(onHidden(across, new Set(['lid']))).toBe(false)
+    expect(onHidden(across, new Set(['plate', 'lid']))).toBe(true)
+    expect(onHidden(distance(), new Set(['plate']))).toBe(true)
+    expect(onHidden(diameter(), new Set(['plate']))).toBe(true)
+    // An end in the air is on no part: the dimension is drawn while it has such an end.
+    expect(onHidden(distance({ b: { point: [0, 0, 9] } }), new Set(['plate']))).toBe(false)
+    // Any other mark goes by the part it is anchored on.
+    expect(onHidden({ ...BASE, id: 'M9', kind: 'pin', anchor: TOP }, new Set(['plate']))).toBe(true)
   })
 
   it('other marks have none', () => {
@@ -161,7 +202,7 @@ describe('the label of a dimension', () => {
       asked.push([text, value?.text])
       return { w: 8 * (text.length + (value ? value.text.length + 1 : 0)), h: 16 }
     }
-    const [placed] = place(project([distance({ points: [[0, 0, 0], [20, 0, 0]] })], camera, SIZE), chip, SIZE)
+    const [placed] = place(project([distance({ points: [[0, 0, 0], [20, 0, 0]] })], camera, SIZE, 1, 1), chip, SIZE)
     expect(asked).toEqual([['M1', '6 mm']])
     expect(placed.box.w).toBe(56)
   })

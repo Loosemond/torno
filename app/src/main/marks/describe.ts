@@ -1,5 +1,5 @@
 import { number } from '../../shared/format'
-import { expectedText, measuredValue, offBy, valueText } from '../../shared/dimension'
+import { expectedText, lastValue, measuredValue, offBy, standingOf, unmeasuredText, valueText } from '../../shared/dimension'
 import { type Anchor, type DimensionMark, type Mark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
 
 /** Marks the note of a mark the last build moved off its surface, or left without its part. */
@@ -24,50 +24,80 @@ export function sizes(v: readonly number[]): string {
  * moved the surface it was on or dropped its part. `tag` is said before it,
  * in brackets: what the line is news of (`changed`). Given the `revision` of
  * the last build that worked, it says so when nothing has checked the mark
- * against that build: what it says of the ref is then of an older one; and
- * of a dimension, when its value was measured on another.
+ * against that build: what it says of the ref is then of an older one. A
+ * dimension gives its value only as that of the build of `revision`
+ * (`dimension`): without one it is told as not measured.
  */
 export function describeMark(mark: Mark, opts: { tag?: string; revision?: number } = {}): string {
   const tags = [mark.author === 'agent' ? 'yours' : '', opts.tag ?? ''].filter(Boolean).join(', ')
   const note = mark.note.replace(/\s+/g, ' ').trim()
   const unchecked = isUnchecked(mark, opts.revision) ? ` [not checked against r${opts.revision}]` : ''
-  // A dimension that lost an end says so in place of its value, not after its note.
-  const suffix = mark.kind === 'dimension' && mark.anchorState !== 'ok' ? '' : ANCHOR_SUFFIX[mark.anchorState]
-  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark)}${note ? `: "${note}"` : ''}${suffix}${unchecked}${measuredOn(mark, opts.revision)}`
+  // A dimension that lost its part says so in place of its value, not after its note.
+  const suffix = mark.kind === 'dimension' && mark.anchorState === 'orphaned' ? '' : ANCHOR_SUFFIX[mark.anchorState]
+  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark, opts.revision)}${note ? `: "${note}"` : ''}${suffix}${unchecked}${asMeasured(mark, opts.revision)}`
 }
 
 /**
- * Said after a dimension whose value is of another build than the last: the
- * value is exact, of the geometry of that build.
+ * Said after a resolved dimension whose value is not of the build of `revision`: it is no longer measured, and what
+ * it holds is of the build it was last measured on.
  */
-function measuredOn(mark: Mark, revision: number | undefined): string {
-  if (mark.kind !== 'dimension' || mark.status === 'resolved' || revision === undefined || revision <= 0) return ''
-  if (measuredValue(mark) === undefined || mark.measuredRevision === revision) return ''
-  return ` [measured on ${mark.measuredRevision === undefined ? 'an earlier build' : `r${mark.measuredRevision}`}, not on r${revision}]`
+function asMeasured(mark: Mark, revision: number | undefined): string {
+  if (mark.kind !== 'dimension' || mark.status !== 'resolved' || lastValue(mark) === undefined) return ''
+  if (revision !== undefined && mark.measuredRevision === revision) return ''
+  return ` [as measured on ${mark.measuredRevision === undefined ? 'an earlier build' : `r${mark.measuredRevision}`}]`
+}
+
+/**
+ * A mark as data for the agent, beside its line. A dimension holds its value,
+ * how and between which points it was taken and its verdict only when they
+ * are of the build of `revision` (`measuredValue`): data is read before prose,
+ * and a value there would be taken for the part's. What it held on another
+ * build is `wasValue`, of `wasRevision` when that is known, as its line says.
+ */
+export function markData(mark: Mark, revision: number | undefined): object {
+  if (mark.kind !== 'dimension' || measuredValue(mark, revision) !== undefined) return mark
+  const { value: _value, how: _how, points: _points, verdict: _verdict, ...rest } = mark
+  const last = lastValue(mark)
+  if (standingOf(mark, revision) !== 'unmeasured' || last === undefined) return rest
+  return { ...rest, wasValue: last, ...(mark.measuredRevision === undefined ? {} : { wasRevision: mark.measuredRevision }) }
 }
 
 /**
  * `distance 6 mm between planes, base/F5 to base/F0`: the kind of measurement,
  * the value with how it was taken, and its ends; then what was expected and
- * the verdict, with how far off and which way when it fails. Without a value
- * it says `not measurable` in its place, and when an end was moved or lost
- * its part nothing of the ends: only that.
+ * the verdict, with how far off and which way when it fails. The value is
+ * that of the build of `revision`, and is given as nothing else:
+ *
+ * - measured on another build, or on none this run, it says
+ *   `not measured on r12 (was 6 mm on r11)`, and no verdict;
+ * - one the kernel could not measure on that build says `not measurable`,
+ *   with the kernel's reason;
+ * - one that lost the part of an end says only that.
+ *
+ * One whose end the build moved is measured between what its ends name now:
+ * its line is as any other's, and the mark says after it that it moved.
  */
-function dimension(mark: DimensionMark): string {
-  const value = measuredValue(mark)
-  if (mark.anchorState !== 'ok') return `${mark.measure}: not measurable, ${ANCHOR_SUFFIX[mark.anchorState].trim()}`
+function dimension(mark: DimensionMark, revision: number | undefined): string {
+  if (mark.anchorState === 'orphaned') return `${mark.measure}: not measurable, ${ANCHOR_SUFFIX.orphaned.trim()}`
+  const standing = standingOf(mark, revision)
   const end = (anchor: Anchor): string => anchor.ref ?? vector(anchor.point)
   const ends = mark.measure === 'thickness' ? `${end(mark.a)}${mark.a.ref ? ` at ${vector(mark.a.point)}` : ''}` : mark.b ? `${end(mark.a)} to ${end(mark.b)}` : end(mark.a)
   const expected = mark.expected === undefined ? '' : ` (expected ${expectedText(mark)}`
-  if (value === undefined) return `${mark.measure}: not measurable, ${ends}${expected && `${expected})`}`
+  const shown = (value: number): string => valueText(mark.measure, value).replace(/^(⌀|R) /, '')
+  if (standing === 'unmeasured') {
+    const last = lastValue(mark)
+    const was = last === undefined ? '' : ` (was ${shown(last)} on ${mark.measuredRevision === undefined ? 'an earlier build' : `r${mark.measuredRevision}`})`
+    return `${mark.measure}: ${unmeasuredText(revision)}${was}, ${ends}${expected && `${expected})`}`
+  }
+  if (mark.value === undefined) return `${mark.measure}: not measurable${mark.refused ? ` (${mark.refused})` : ''}, ${ends}${expected && `${expected})`}`
   // Of a radius or a diameter the way is what the thing is, which its ref says already: said only when it says which radius.
   const round = mark.measure === 'radius' || mark.measure === 'diameter'
   const how = !mark.how ? '' : round ? (/^(cylinder|circle|sphere)$/.test(mark.how) ? '' : ` (${mark.how})`) : ` ${mark.how}`
-  const verdict = mark.expected === undefined ? '' : `${expected}: ${mark.verdict === 'pass' ? 'pass' : `FAIL, ${offBy(value, mark.expected)}`})`
-  return `${mark.measure} ${valueText(mark.measure, value).replace(/^(⌀|R) /, '')}${how}, ${ends}${verdict}`
+  const verdict = mark.expected === undefined ? '' : `${expected}: ${mark.verdict === 'pass' ? 'pass' : `FAIL, ${offBy(mark.value, mark.expected)}`})`
+  return `${mark.measure} ${shown(mark.value)}${how}, ${ends}${verdict}`
 }
 
-function what(mark: Mark): string {
+function what(mark: Mark, revision: number | undefined): string {
   const settled = mark.anchorState === 'ok'
   switch (mark.kind) {
     case 'pin':
@@ -86,7 +116,7 @@ function what(mark: Mark): string {
     case 'shape':
       return shape(mark)
     case 'dimension':
-      return dimension(mark)
+      return dimension(mark, revision)
   }
 }
 

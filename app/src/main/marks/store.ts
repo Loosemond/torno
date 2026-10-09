@@ -24,6 +24,15 @@ export interface Reanchored {
   checkedRevision?: number
 }
 
+/** What the kernel said of a dimension on a build (`remeasureAll`), for `MarkStore.remeasured` to write. */
+export interface Remeasured {
+  id: string
+  /** The dimension as it was measured: its ends as they then were, and what was expected of it. Another by now is passed over. */
+  of: Pick<DimensionMark, 'measure' | 'a' | 'b' | 'expected' | 'tolerance'>
+  /** Its value, how and between which points it was taken, and the build; without a value, that it has none on that build. */
+  result: Measurement
+}
+
 interface MarkEvents {
   /** The marks of an object changed: the whole list, as it now is. */
   changed: { objectId: string; marks: Mark[] }
@@ -277,23 +286,51 @@ export class MarkStore {
    * Writes what the kernel measured of a dimension: its value, how it was
    * taken, between which points and on which build, or that it could not be
    * measured (no value: what it had is gone). `of` is the dimension as it was
-   * measured: one whose ends have been put elsewhere since, or which is gone
-   * or no dimension, is passed over, and null returned. A check that only
-   * refreshed what its ends are on leaves them the same ends. Nothing else of
-   * the mark changes: a value measured again is not news of the mark.
+   * measured: one that is gone or no dimension is passed over, and null
+   * returned, and so is one whose ends are no longer at those points or no
+   * longer name those refs. The kernel measures the feature a ref names, so
+   * a value taken through a ref the check has since replaced is of something
+   * else than the mark now says. Nothing else of the mark changes: a value
+   * measured again is not news of the mark.
    */
   measured(objectId: string, id: string, of: Pick<DimensionMark, 'measure' | 'a' | 'b'>, result: Measurement): Promise<Mark | null> {
     return this.change(objectId, (file) => {
       const at = file.marks.findIndex((m) => m.id === id)
       const mark = file.marks[at]
       if (mark?.kind !== 'dimension' || mark.measure !== of.measure) return UNCHANGED
-      if (!isDeepStrictEqual([mark.a.point, mark.b?.point], [of.a.point, of.b?.point])) return UNCHANGED
-      const bare = Object.fromEntries(Object.entries(mark).filter(([key]) => !(MEASURED_KEYS as readonly string[]).includes(key)))
-      const now = sanitiseMark({ ...bare, ...Object.fromEntries(MEASURED_KEYS.map((key) => [key, result[key]])) })
+      const through = (d: Pick<DimensionMark, 'a' | 'b'>): unknown[] => [d.a.point, d.a.ref, d.b?.point, d.b?.ref]
+      if (!isDeepStrictEqual(through(mark), through(of))) return UNCHANGED
+      const now = withMeasurement(mark, result)
       if (!now || isDeepStrictEqual(now, mark)) return UNCHANGED
       file.marks[at] = now
       return now
     }).then((now) => (now === UNCHANGED ? null : now))
+  }
+
+  /**
+   * Writes what the kernel measured of the dimensions of an object on a
+   * build, in one write: each its value, or that it has none there. Ids not
+   * listed are untouched. One that is gone, resolved or no dimension is
+   * passed over, and so is one that is no longer what was measured: its ends
+   * are not the anchors it was measured from, or what it should be has been
+   * changed since. Nothing else of a mark changes, its status least of all:
+   * a value measured again is not news of the mark.
+   */
+  remeasured(objectId: string, changes: Remeasured[]): Promise<void> {
+    return this.change(objectId, (file) => {
+      let any = false
+      for (const { id, of, result } of changes) {
+        const at = file.marks.findIndex((m) => m.id === id)
+        const mark = file.marks[at]
+        if (mark?.kind !== 'dimension' || mark.status === 'resolved' || mark.measure !== of.measure) continue
+        if (!isDeepStrictEqual([mark.a, mark.b, mark.expected, mark.tolerance], [of.a, of.b, of.expected, of.tolerance])) continue
+        const now = withMeasurement(mark, result)
+        if (!now || isDeepStrictEqual(now, mark)) continue
+        file.marks[at] = now
+        any = true
+      }
+      return any ? undefined : UNCHANGED
+    }).then(() => {})
   }
 
   /**
@@ -379,6 +416,12 @@ export class MarkStore {
   private emit<E extends keyof MarkEvents>(event: E, message: MarkEvents[E]): void {
     for (const cb of this.listeners[event]) cb(message)
   }
+}
+
+/** A dimension with what the kernel now says of it in place of what it said before; the verdict follows from the value. */
+function withMeasurement(mark: DimensionMark, result: Measurement): Mark | null {
+  const bare = Object.fromEntries(Object.entries(mark).filter(([key]) => !(MEASURED_KEYS as readonly string[]).includes(key)))
+  return sanitiseMark({ ...bare, ...Object.fromEntries(MEASURED_KEYS.map((key) => [key, result[key]])) })
 }
 
 /** What an edit returns when it changed nothing. */

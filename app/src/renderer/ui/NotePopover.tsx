@@ -17,10 +17,10 @@ const KEEP_CLEAR = { left: 60, top: 54, right: 12, bottom: 12 }
  * placed on, while the kernel's line is of what is under its point now: the
  * two do not agree, so the line is left out and the note says what happened.
  */
-export function subject(mark: Mark): { ref: string; detail: string; state: AnchorState } {
+export function subject(mark: Mark, revision = 0): { ref: string; detail: string; state: AnchorState } {
   const state = mark.anchorState
   // A dimension: its value, how it was taken, and that an end moved.
-  if (mark.kind === 'dimension') return { ref: dimensionText(mark), detail: [measuredValue(mark) === undefined ? '' : (mark.how ?? ''), state === 'ok' ? '' : ANCHOR_BADGE[state]].filter(Boolean).join(', '), state }
+  if (mark.kind === 'dimension') return { ref: dimensionText(mark, revision), detail: [measuredValue(mark, revision) === undefined ? '' : (mark.how ?? ''), state === 'ok' ? '' : ANCHOR_BADGE[state]].filter(Boolean).join(', '), state }
   const anchor = mark.kind === 'arrow' ? mark.from : mark.anchor
   const moved = state === 'ok' ? '' : ANCHOR_BADGE[state]
   const from = anchor?.ref ? `from ${anchor.ref}` : ''
@@ -82,6 +82,7 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
   const field = useRef<HTMLTextAreaElement>(null)
   const [text, setText] = useState(mark.note)
   const { id } = mark
+  const revision = useStore((s) => (s.scene ? s.revision : 0))
 
   const refused = (e: unknown): void => actions.setMarksProblem({ objectId, message: e instanceof Error ? e.message : String(e) })
   /** What is typed and what the mark says, as of the last render; and whether the person ended the writing. */
@@ -172,7 +173,7 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
     return () => document.removeEventListener('pointerdown', onPress, true)
   }, [])
 
-  const on = subject(mark)
+  const on = subject(mark, revision)
   const label = labelText(mark)
 
   return (

@@ -1081,6 +1081,12 @@ button {
   color: var(--fail);
 }
 
+/* A value of another build than the one on show: what it was, not what it is. */
+.mark-value[data-stale],
+.dimension-value[data-stale] {
+  color: var(--muted);
+}
+
 .verdict-icon {
   flex: none;
   width: 11px;
@@ -1993,6 +1999,22 @@ button {
   font-weight: 500;
 }
 
+.status-dimensions {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-weight: 500;
+}
+
+.status-dimensions[data-state='fail'] {
+  color: var(--fail);
+}
+
+.status-dimensions[data-state='unmeasured'] {
+  color: var(--warn);
+}
+
+.status-dimensions:hover,
 .status-fail:hover,
 .status-fail[aria-expanded='true'] {
   text-decoration: underline;
