@@ -1,6 +1,7 @@
 """Drives ``python -m torno_kernel`` as a subprocess through the frame codec."""
 
 import io
+import json
 import math
 import os
 import platform
@@ -204,7 +205,20 @@ time.sleep(30)
 """
 
 
-@pytest.mark.parametrize("payload", [b"not json", b"null", b"[1]", b'{"ok":true}', b'{"ok":false}'])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not json",
+        b"null",
+        b"[1]",
+        b'{"ok":true}',
+        b'{"ok":false}',
+        # Results by their shape, which Python reads and no frame can carry on to the client.
+        b'{"ok":true,"scene":{"parts":[{"volume":NaN}]}}',
+        b'{"ok":true,"scene":{"model":"\\ud800"}}',
+        b'{"ok":false,"error":{"message":"\\udfff"}}',
+    ],
+)
 def test_worker_frame_that_is_no_result_is_a_crash_of_that_build_only(fresh, ws, tmp_path, payload):
     (tmp_path / "garbage.py").write_text(GARBAGE_MODEL.format(payload=payload))
     id = fresh.send("build", dir=str(tmp_path), model="garbage.py")
@@ -702,7 +716,7 @@ def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
 
     monkeypatch.setattr(loader, "load_scene", lambda dir, model: {"main": {}})
     scene = {"model": "nan.py", "layouts": ["main"], "parts": [{"volume": float("nan")}]}
-    monkeypatch.setattr(tess, "build_scene", lambda layouts, model: (scene, b"blob", {"k": 1}))
+    monkeypatch.setattr(tess, "build_scene", lambda layouts, model, kept: (scene, b"blob", {"k": 1}))
     channel = io.BytesIO()
     assert worker._build(channel, "/nowhere", "nan.py") is None
     channel.seek(0)
@@ -712,6 +726,41 @@ def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
     assert reply["error"]["kind"] == "exception"
     assert "Out of range float values are not JSON compliant" in reply["error"]["message"]
     assert read_frame(channel) is None  # one frame, and nothing half written before it
+
+
+def test_a_worker_answers_from_what_its_build_worked_out_of_each_part(monkeypatch):
+    """The volume of each part is in the scene: the queries of that build do not measure it again."""
+    from torno_kernel import extent, worker
+    from torno_kernel.frames import read_frame
+
+    built = io.BytesIO()
+    shapes, kept = worker._build(built, str(BRACKET), "bracket.py")
+    built.seek(0)
+    scene = read_frame(built)[0]["scene"]
+    volumes = {part["key"]: part["volume"] for part in scene["parts"]}
+    assert {key: kept["volume", key] for key in shapes} == volumes
+    assert all(kept["deflection", key] > 0 and kept["valid", key] is True for key in shapes)
+
+    monkeypatch.setattr(extent, "volume_and_centre", lambda *args, **more: pytest.fail("measured again"))
+    asked = io.BytesIO()
+    write_frame(asked, {"id": 1, "name": "describe", "args": {"ref": "assembly:base"}})
+    write_frame(asked, {"id": 2, "name": "measure", "args": {"kind": "volume", "a": {"ref": "assembly:post"}}})
+    asked.seek(0)
+
+    class Channel:
+        def __init__(self) -> None:
+            self.written = io.BytesIO()
+            self.read, self.write, self.flush = asked.read, self.written.write, lambda: None
+
+    channel = Channel()
+    worker._serve(channel, shapes, kept)
+    channel.written.seek(0)
+    described, _ = read_frame(channel.written)
+    assert described["result"]["volume"] == volumes["assembly:base"]
+    measured, _ = read_frame(channel.written)
+    assert measured["result"]["value"] == volumes["assembly:post"]
+    # What the first query worked out is there for the next.
+    assert ("area", "assembly:base") in kept and ("box", "assembly:base") in kept
 
 
 def test_query_reply_that_cannot_be_serialised_is_an_exception_reply_and_the_next_is_answered(
@@ -788,6 +837,130 @@ def test_a_number_of_thousands_of_digits_is_a_bad_request_over_the_wire(bracket_
     huge = {"kind": "mass", "a": {"ref": "assembly:base"}, "density": 10**400}
     assert bracket_kernel.query(BRACKET, "measure", huge)["error"]["kind"] == "bad_request"
     assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
+
+
+def raw_query(dir, id: str, name: str, args: str) -> str:
+    """A query frame's header written by hand, for what no encoder here would write."""
+    return f'{{"id":{id},"op":"query","dir":{json.dumps(str(dir))},"name":"{name}","args":{args}}}'
+
+
+@pytest.mark.parametrize("number", ["NaN", "Infinity", "-Infinity"])
+def test_a_query_holding_a_number_that_is_not_finite_is_a_bad_request_and_the_kernel_serves_on(
+    bracket_kernel, number
+):
+    args = f'{{"kind":"mass","a":{{"ref":"assembly:base"}},"density":{number}}}'
+    bracket_kernel.send_raw(raw_query(BRACKET, '"q"', "measure", args))
+    reply, _ = bracket_kernel.recv(5)
+    assert reply == {
+        "id": "q",
+        "ok": False,
+        "error": {
+            "kind": "bad_request",
+            "message": "the request holds a number that is not finite: NaN and the infinities are not JSON",
+        },
+    }
+    # As its id, the request cannot be named in the answer.
+    bracket_kernel.send_raw(raw_query(BRACKET, number, "describe", '{"ref":"assembly:base"}'))
+    reply, _ = bracket_kernel.recv(5)
+    assert (reply["id"], reply["ok"], reply["error"]["kind"]) == (None, False, "bad_request")
+    assert bracket_kernel.proc.poll() is None
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
+
+
+def test_a_request_holding_half_a_character_is_a_bad_request_and_the_kernel_serves_on(bracket_kernel, ws):
+    """JSON.stringify writes a lone surrogate as an escape: Python reads it, and cannot write it."""
+    message = "the request holds text that is not Unicode: a lone surrogate, \\ud800 to \\udfff"
+    lone = '"\\ud800"'
+    raw = [
+        raw_query(BRACKET, '"q"', "describe", f'{{"ref":{lone}}}'),
+        raw_query(BRACKET, '"q"', "describe", f'{{{lone}:1}}'),
+        raw_query(BRACKET, '"q"', "describe\\udfff", "{}"),
+        f'{{"id":"q","op":"query","dir":{lone},"name":"describe","args":{{}}}}',
+        f'{{"id":"q","op":"build","dir":{lone},"model":"bracket.py"}}',
+        f'{{"id":"q","op":"build","dir":{json.dumps(str(ws / "bracket"))},"model":{lone}}}',
+    ]
+    for header in raw:
+        bracket_kernel.send_raw(header)
+        reply, _ = bracket_kernel.recv(5)
+        assert reply == {"id": "q", "ok": False, "error": {"kind": "bad_request", "message": message}}, header
+    for header in (raw_query(BRACKET, lone, "describe", "{}"), f'{{"id":7,"op":{lone}}}'):
+        bracket_kernel.send_raw(header)
+        reply, _ = bracket_kernel.recv(5)
+        assert (reply["ok"], reply["error"]["kind"]) == (False, "bad_request"), header
+    assert bracket_kernel.proc.poll() is None
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
+
+
+@pytest.mark.parametrize("depth", [200_000, 20_000, 3_000, 900])
+def test_a_request_nested_however_deeply_is_answered_and_the_kernel_serves_on(bracket_kernel, depth):
+    nested = "[" * depth + "]" * depth
+    bracket_kernel.send_raw(raw_query(BRACKET, '"deep"', "describe", f'{{"ref":{nested}}}'))
+    reply, _ = bracket_kernel.recv(10)
+    # Too deep to read at all, its id is not known; read, it is refused by whoever cannot
+    # pass it on, or by describe, which wants a string.
+    assert reply["id"] in (None, "deep")
+    assert (reply["ok"], reply["error"]["kind"]) == (False, "bad_request")
+    if depth == 200_000:
+        assert reply["id"] is None
+    assert bracket_kernel.proc.poll() is None
+    # The same worker answers: it was not lost over it.
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
+
+
+def test_a_request_the_worker_cannot_read_or_is_no_object_is_a_bad_request_and_the_next_is_answered(
+    monkeypatch,
+):
+    from torno_kernel import queries, worker
+    from torno_kernel.frames import read_frame
+
+    monkeypatch.setattr(queries, "run", lambda shapes, name, args, kept: {"value": 2.0})
+    asked = io.BytesIO()
+    for header in (b"[" * 200_000 + b"]" * 200_000, b"[1, 2]", b'"describe"', b"null"):
+        asked.write(len(header).to_bytes(4, "big") + (0).to_bytes(4, "big") + header)
+    write_frame(asked, {"id": 5, "name": "measure", "args": {}})
+    asked.seek(0)
+
+    class Channel:
+        def __init__(self) -> None:
+            self.written = io.BytesIO()
+            self.read, self.write, self.flush = asked.read, self.written.write, lambda: None
+
+    channel = Channel()
+    worker._serve(channel, {})
+    channel.written.seek(0)
+    for _ in range(4):
+        reply, _ = read_frame(channel.written)
+        assert (reply["id"], reply["ok"], reply["error"]["kind"]) == (None, False, "bad_request")
+    assert read_frame(channel.written)[0] == {"id": 5, "ok": True, "result": {"value": 2.0}}
+    assert read_frame(channel.written) is None
+
+
+def test_a_reply_the_worker_cannot_write_at_all_is_still_one_reply(monkeypatch):
+    """Half a character in a reply, and in the name the failure would be told with."""
+    from torno_kernel import queries, worker
+    from torno_kernel.frames import read_frame
+
+    answers = iter([{"value": "\ud800"}, {"value": 2.0}])
+    monkeypatch.setattr(queries, "run", lambda shapes, name, args, kept: next(answers))
+    asked = io.BytesIO()
+    # Written as the escape, which is how such a name would arrive.
+    header = b'{"id":1,"name":"\\udfff","args":{}}'
+    asked.write(len(header).to_bytes(4, "big") + (0).to_bytes(4, "big") + header)
+    write_frame(asked, {"id": 2, "name": "measure", "args": {}})
+    asked.seek(0)
+
+    class Channel:
+        def __init__(self) -> None:
+            self.written = io.BytesIO()
+            self.read, self.write, self.flush = asked.read, self.written.write, lambda: None
+
+    channel = Channel()
+    worker._serve(channel, {})
+    channel.written.seek(0)
+    first, _ = read_frame(channel.written)
+    assert (first["id"], first["ok"], first["error"]["kind"]) == (1, False, "exception")
+    assert read_frame(channel.written)[0] == {"id": 2, "ok": True, "result": {"value": 2.0}}
+    assert read_frame(channel.written) is None
 
 
 def test_coordinates_no_number_can_be_made_of_are_refused_and_the_worker_lives(bracket_kernel):
@@ -1053,3 +1226,59 @@ def test_a_worker_is_busy_until_it_has_answered_every_query_that_was_given_up_on
     live_end.sendall(frame({"id": "fourth", "ok": True, "result": {"n": 4}}))
     sup._step()
     assert routed.sent() == [{"id": "fourth", "ok": True, "result": {"n": 4}}]
+
+
+def test_a_reply_with_no_id_answers_the_query_the_worker_has_had_longest(routed):
+    """A worker that could not read a request cannot say which it was: it answers in order."""
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="first", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    routed.request(id="second", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    sup._step()
+    unread = {"kind": "bad_request", "message": "a request could not be read"}
+    live_end.sendall(frame({"id": None, "ok": False, "error": unread}))
+    sup._step()
+    assert routed.sent() == [{"id": "first", "ok": False, "error": unread}]
+    assert [id for id, _ in live.queries] == ["second"]
+    live_end.sendall(frame({"id": "second", "ok": True, "result": {"n": 2}}))
+    sup._step()
+    assert routed.sent() == [{"id": "second", "ok": True, "result": {"n": 2}}]
+    # With nothing waiting, it is nobody's.
+    live_end.sendall(frame({"ok": False, "error": unread}))
+    sup._step()
+    assert routed.sent() == [] and sup._live == {"/object": live}
+
+
+def test_a_reply_with_no_id_to_a_query_given_up_on_frees_the_worker(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.3)
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="slow", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    sup._step()  # the deadline passes
+    assert [f["error"]["kind"] for f in routed.sent()] == ["timeout"]
+    assert live.stalled
+    live_end.sendall(frame({"id": None, "ok": False, "error": {"kind": "bad_request", "message": "unread"}}))
+    sup._step()
+    assert routed.sent() == [] and not live.stalled
+    routed.request(id="next", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    assert [id for id, _ in live.queries] == ["next"]
+
+
+@pytest.mark.parametrize("header", [b'{"id":"q","ok":true,"result":{"value":NaN}}', b'{"id":"q","ok":true,"result":"\\ud800"}'])
+def test_a_reply_of_a_live_worker_that_cannot_be_passed_on_ends_that_worker_only(routed, header):
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="q", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    live_end.sendall(len(header).to_bytes(4, "big") + (0).to_bytes(4, "big") + header)
+    sup._step()
+    [reply] = routed.sent()
+    assert (reply["id"], reply["ok"], reply["error"]["kind"]) == ("q", False, "crash")
+    assert sup._live == {} and gone(live.pid)

@@ -59,10 +59,40 @@ def build_timeout(value: Any) -> float | None:
 
 
 def _is_result(header: Any) -> bool:
-    """Whether a worker's frame is a build result: ``ok`` with a scene, or not with an error."""
+    """Whether a worker's frame is a build result: ``ok`` with a scene, or not with an error.
+
+    And one that can be passed on: a worker's own code writes nothing else.
+    """
     if not isinstance(header, dict):
         return False
-    return isinstance(header.get("scene" if header.get("ok") else "error"), dict)
+    if not isinstance(header.get("scene" if header.get("ok") else "error"), dict):
+        return False
+    return _unwritable(header) is None
+
+
+def _unwritable(value: Any) -> str | None:
+    """Why what was read of a frame cannot be written in one, or None when it can.
+
+    Python reads JSON that it will not write: ``NaN`` and the infinities, and
+    half a character (a lone surrogate, which a JavaScript encoder writes as
+    an escape). What is nested deeper than Python follows is refused too.
+    """
+    try:
+        _encoded(value)
+    except UnicodeError:
+        return "holds text that is not Unicode: a lone surrogate, \\ud800 to \\udfff"
+    except ValueError:
+        return "holds a number that is not finite: NaN and the infinities are not JSON"
+    except RecursionError:
+        return "is nested too deeply"
+    return None
+
+
+def _encoded(header: Any, blob: bytes = b"") -> bytes:
+    """A frame as bytes. Raises as ``write_frame`` does for what is not JSON."""
+    frame = io.BytesIO()
+    write_frame(frame, header, blob)
+    return frame.getvalue()
 
 
 class _Decoder:
@@ -84,8 +114,10 @@ class _Decoder:
             del self._data[:end]
             try:
                 decoded = json.loads(header.decode("utf-8"))
-            except ValueError:
-                decoded = None  # not JSON; the framing is intact, so carry on
+            except (ValueError, RecursionError):
+                # Not JSON, or nested deeper than Python follows; the framing
+                # is intact, so carry on.
+                decoded = None
             yield decoded, blob
 
 
@@ -101,9 +133,7 @@ class _Outbox:
 
     def push(self, header: dict[str, Any], blob: bytes = b"") -> None:
         """Queue a frame and write as much as the other end has room for."""
-        frame = io.BytesIO()
-        write_frame(frame, header, blob)
-        self._data += frame.getvalue()
+        self._data += _encoded(header, blob)
         self.flush()
 
     def flush(self) -> None:
@@ -227,7 +257,11 @@ class Supervisor:
         if not isinstance(request, dict):
             self._fail(None, "bad_request", "a request must be a JSON object")
             return
+        # Every reply names its request: by an id that can be written, or by none.
         id = request.get("id")
+        if (why := _unwritable(id)) is not None:
+            self._fail(None, "bad_request", f"the id of the request {why}")
+            return
         op = request.get("op")
         if op == "build":
             self._build(id, request)
@@ -237,13 +271,21 @@ class Supervisor:
             self._cancel_building("cancelled by request")
         elif op == "shutdown":
             self._running = False
-        else:
+        elif op is None or isinstance(op, str):
+            # repr writes half a character as its escape.
             self._fail(id, "bad_request", f"unknown op {op!r}")
+        else:
+            # Not told back: it may be nested deeper than can be written.
+            self._fail(id, "bad_request", "unknown op: the op of a request is a string")
 
     def _build(self, id: Any, request: dict[str, Any]) -> None:
         dir, model, timeout = request.get("dir"), request.get("model"), request.get("timeout")
         if not isinstance(dir, str) or not isinstance(model, str):
             self._fail(id, "bad_request", "build needs dir and model, both strings")
+            return
+        # They are told again in replies, for as long as the build is kept.
+        if (why := _unwritable([dir, model])) is not None:
+            self._fail(id, "bad_request", f"the request {why}")
             return
         timeout = build_timeout(timeout)
         if timeout is None:
@@ -259,6 +301,11 @@ class Supervisor:
         dir = request.get("dir")
         if not isinstance(dir, str):
             self._fail(id, "bad_request", "query needs dir, the object's folder, a string")
+            return
+        query = {"id": id, "name": request.get("name"), "args": request.get("args")}
+        # Refused here, with its id, rather than by a worker that could not say whose it was.
+        if (why := _unwritable([dir, query])) is not None:
+            self._fail(id, "bad_request", f"the request {why}")
             return
         live = self._live.get(dir)
         if live is None:
@@ -280,7 +327,6 @@ class Supervisor:
                 f"within {QUERY_TIMEOUT:g} s; ask again when it has",
             )
             return
-        query = {"id": id, "name": request.get("name"), "args": request.get("args")}
         live.queries.append((id, time.monotonic() + QUERY_TIMEOUT))
         try:
             live.outbox.push(query)
@@ -347,8 +393,17 @@ class Supervisor:
                     self._build_garbled(worker)
             elif not self._is_live(worker):
                 return  # an earlier frame of this chunk ended it
-            elif not isinstance(header, dict):
+            elif not isinstance(header, dict) or _unwritable(header) is not None:
+                # Not a reply, or one that cannot be passed on: it is past trusting.
                 self._live_died(worker)
+            elif header.get("id") is None:
+                # It could not read the request, so it cannot say which it answers: it
+                # answers one at a time, in order, those given up on first.
+                if worker.abandoned > 0:
+                    worker.abandoned -= 1
+                elif worker.queries:
+                    id, _ = worker.queries.pop(0)
+                    self._send({**header, "id": id}, blob)
             else:
                 if worker.answered(header.get("id")):
                     self._send(header, blob)

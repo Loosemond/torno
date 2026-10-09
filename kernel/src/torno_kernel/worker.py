@@ -29,9 +29,9 @@ def run(sock: socket.socket, capture_fd: int, dir: str, model: str) -> NoReturn:
     try:
         _isolate(capture_fd)
         channel = sock.makefile("rwb")
-        shapes = _build(channel, dir, model)
-        if shapes is not None:
-            _serve(channel, shapes)
+        built = _build(channel, dir, model)
+        if built is not None:
+            _serve(channel, *built)
     except BaseException:
         # Nothing may propagate into the supervisor's stack, which this
         # process inherited. A broken socket means the supervisor is gone.
@@ -56,16 +56,21 @@ def _isolate(capture_fd: int) -> None:
     sys.stderr.reconfigure(line_buffering=True)
 
 
-def _build(channel: Any, dir: str, model: str) -> dict[str, Any] | None:
-    """Send the build's one result frame. Returns the shapes, or None on failure."""
+def _build(channel: Any, dir: str, model: str) -> tuple[dict[str, Any], dict[Any, Any]] | None:
+    """Send the build's one result frame.
+
+    Returns the shapes and what the build worked out of each part that its
+    queries would otherwise work out again, or None on failure.
+    """
     try:
         layouts = loader.load_scene(Path(dir), model)
-        scene, blob, shapes = tess.build_scene(layouts, model)
+        kept: dict[Any, Any] = {}
+        scene, blob, shapes = tess.build_scene(layouts, model, kept)
         _flush_output()
         # Inside the try: a scene that cannot be written as JSON (a NaN volume)
         # is refused before a byte of it is sent, and is a failure like any other.
         write_frame(channel, {"ok": True, "scene": scene}, blob)
-        return shapes
+        return shapes, kept
     except loader.LoadError as e:
         error = {"kind": e.kind, "message": e.message, "traceback": e.traceback}
     except SystemExit as e:
@@ -77,23 +82,31 @@ def _build(channel: Any, dir: str, model: str) -> dict[str, Any] | None:
     return None
 
 
-def _serve(channel: Any, shapes: dict[str, Any]) -> None:
-    """Answer query frames until the supervisor closes the socket."""
-    # What a query works out of a part (its faces taken apart and boxed) is the
-    # same for every later one: these shapes are the worker's for its life.
-    kept: dict[str, Any] = {}
+def _serve(channel: Any, shapes: dict[str, Any], kept: dict[Any, Any] | None = None) -> None:
+    """Answer query frames until the supervisor closes the socket.
+
+    ``kept`` is what the build worked out of the parts, to begin with.
+    """
+    # What a query works out of a part (its faces taken apart and boxed, its
+    # area, its box) is the same for every later one: these shapes are the
+    # worker's for its life.
+    kept = {} if kept is None else kept
     while True:
         try:
             frame = read_frame(channel)
-        except ValueError as e:
+        except (ValueError, RecursionError) as e:
             # The frame was whole and its header was not JSON Python reads (an
-            # integer of thousands of digits): the next frame starts where it should.
-            unread = {"kind": "bad_request", "message": f"a request could not be read: {e}"}
-            write_frame(channel, {"id": None, "ok": False, "error": unread})
+            # integer of thousands of digits, brackets nested by the hundred
+            # thousand): the next frame starts where it should. Whose request it
+            # was cannot be said: the supervisor takes it for the oldest it waits on.
+            _refuse_unread(channel, f"a request could not be read: {e}")
             continue
         if frame is None:
             break
         request, _ = frame
+        if not isinstance(request, dict):
+            _refuse_unread(channel, "a request must be a JSON object")
+            continue
         try:
             result = queries.run(shapes, request.get("name"), request.get("args"), kept)
         except queries.QueryError as e:
@@ -104,12 +117,31 @@ def _serve(channel: Any, shapes: dict[str, Any]) -> None:
             reply = {"ok": True, "result": result}
         try:
             write_frame(channel, {"id": request.get("id"), **reply})
-        except (ValueError, TypeError) as e:
-            # A reply that is not JSON (an infinity, a NaN, a number of numpy's)
-            # is refused before a byte of it is sent: the query failed, the
-            # worker did not.
-            failed = _exception(f"the reply to {request.get('name')} could not be written: {e}")
-            write_frame(channel, {"id": request.get("id"), "ok": False, "error": failed})
+        except (ValueError, TypeError, RecursionError) as e:
+            # A reply that is not JSON (an infinity, a NaN, a number of numpy's,
+            # half a character) is refused before a byte of it is sent: the query
+            # failed, the worker did not.
+            why = f"the reply to {request.get('name')} could not be written"
+            try:
+                failed = _exception(f"{why}: {e}")
+                write_frame(channel, {"id": request.get("id"), "ok": False, "error": failed})
+            except (ValueError, TypeError, RecursionError):
+                # Nor can what went wrong be: every query has its one reply all the same.
+                failed = {"kind": "exception", "message": why.encode("ascii", "backslashreplace").decode()}
+                write_frame(channel, {"id": _plain(request.get("id")), "ok": False, "error": failed})
+
+
+def _refuse_unread(channel: Any, message: str) -> None:
+    write_frame(channel, {"id": None, "ok": False, "error": {"kind": "bad_request", "message": message}})
+
+
+def _plain(id: Any) -> Any:
+    """The id of a request, or None for one that cannot be written back."""
+    try:
+        return id if isinstance(id, (int, str)) and str(id).isascii() else None
+    except ValueError:
+        # An integer of more digits than Python writes.
+        return None
 
 
 def _exception(message: str) -> dict[str, str]:
