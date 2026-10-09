@@ -91,12 +91,13 @@ In each object folder, `.torno/`:
 .torno/
   marks.json          all marks, open and resolved
   scene.json          layer visibility, colours, named views, section state
-  scans/<id>/         source file, display mesh, meta.json (transform, units)
+  scans.json          every scan: its source (path, size, hash), how it was imported, one transform per layout
+  scans/<id>/         mesh.bin (the scan, in mm, Z up) and one .mask per region painted on it
   views/              images the agent asked for (latest N)
   state.md            a plain-text summary any LLM can read
 ```
 
-`state.md` exists so an agent with no MCP support still has the build status, the open marks and the refs. Everything is plain JSON or Markdown, safe to commit.
+`state.md` exists so an agent with no MCP support still has the build status, the open marks and the refs. Everything is plain JSON or Markdown, safe to commit. `scans/.gitignore` leaves `mesh.bin` out: it is rebuilt from the source.
 
 ## 4. Kernel
 
@@ -118,7 +119,7 @@ Measured on this machine: importing build123d takes 2 to 4 s, the helmet stand b
 
 - A **supervisor** imports build123d once and stays up.
 - Each build runs in a **forked worker** (`os.fork`): 20 to 40 ms of overhead instead of 4 s, and a crash, a segfault in `fillet` or a timeout kills only the worker.
-- The newest successful worker stays alive as the **query server** for its revision, because it holds the exact shapes. Measure, section and clearance go to it.
+- The newest successful worker stays alive as the **query server** for its revision, because it holds the exact shapes. Measure, section and clearance go to it. A scan is imported by a process of its own (`python -m torno_kernel.scans`), never by the supervisor or a worker; trimesh is an optional extra of the kernel package that only that process asks for.
 - A build in progress is killed when a newer save arrives.
 - Slow models show a "building" state with elapsed time over the previous revision.
 
@@ -131,7 +132,7 @@ Rules the spike proved necessary:
 
 The kernel is started with the workspace's own environment so the model's imports resolve:
 `uv run --no-sync --project <workspace> --with-editable <torno>/kernel python -m torno_kernel`.
-`--no-sync` leaves the workspace's `.venv` and lockfile untouched; the kernel's own dependencies (ocp-tessellate, trimesh) go into a uv overlay.
+`--no-sync` leaves the workspace's `.venv` and lockfile untouched; the kernel's own dependencies (ocp-tessellate, numpy) go into a uv overlay.
 
 ### Output of a build
 
@@ -141,7 +142,7 @@ Vertices are in the part's local frame and the location is sent beside them; the
 
 ### Queries (all exact, on the B-rep)
 
-`describe(ref)`, `distance(a, b)`, `angle(a, b)`, `radius(ref)`, `thickness(point, direction)`, `bbox(ref)` (approximate on freeform faces, and labelled so), `mass(ref, density)`, `section(plane)` → outlines per part, `overlap(a, b)` → volume and box, `clearance(a, b)` → minimum distance and where, `scan_clash(part, scan)` → points inside, deepest penetration and where, `mesh_check(part)` → open edges after welding and where.
+`describe(ref)`, `distance(a, b)`, `angle(a, b)`, `radius(ref)`, `thickness(point, direction)`, `bbox(ref)` (approximate on freeform faces, and labelled so), `mass(ref, density)`, `section(plane)` → outlines per part, `overlap(a, b)` → volume and box, `clearance(a, b)` → minimum distance and where, `scan_clash(part, scan)` → scan points inside the part in clusters, the deepest and where, the nearest outside; `scan_deviation(part or faces, scan)` → how far apart they lie, as min, mean, max and percentiles; `scan_section(plane, scan)` → the scan's polylines in a plane. These three are approximate by nature and say so: only the distance from a reported scan point to the B-rep is exact. `mesh_check(part)` → open edges after welding and where.
 
 ### Geometry identity
 
@@ -164,7 +165,7 @@ A mark is the unit of communication. One list, one data model, shown in the view
 | Stroke | draw freehand | on the surface, or on a locked view plane: a profile, an outline, a scribble |
 | Shape | place a box, cylinder, sphere or plane with a gizmo | intent: `add`, `remove`, `keep-out`, `reference` |
 | Dimension | two picks | measured value; optionally "should be 12 mm" |
-| Region | paint or lasso on a scan | `ignore`, `movable`, `keep-out` |
+| Region | paint or box on a scan | "this part of the scan", with a note saying what it is |
 
 Common fields: `id`, `kind`, `author` (`user` or `agent`), `note`, `anchors` (point, normal, ref, descriptor), `camera`, `revision`, `status` (`draft` → `sent` → `resolved`, plus `drifted`, `orphaned`).
 
@@ -202,13 +203,16 @@ Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSu
 |---|---|
 | `scene()` | parts, layouts, scans, build status, revision, what is visible, the user's camera |
 | `marks(status?)` | marks as data |
-| `look(view?, parts?, section?, marks?, size?)` | an image. No arguments means exactly what the user sees. `view` is a preset name, a named view, or a camera. Each image has axes, a scale bar and mark numbers. |
+| `scans()` | the scans with their alignment in the layout, size, source |
+| `look(view?, parts?, section?, marks?, scans?, size?)` | an image. No arguments means exactly what the user sees. `view` is a preset name, a named view, or a camera. Each image has axes, a scale bar and mark numbers. |
 | `describe(ref)` | exact geometry of a part, face or edge, and its neighbours |
 | `measure(kind, a, b?)` | distance, angle, radius, thickness, bbox, mass |
-| `section(plane, parts?)` | image plus outlines in mm |
-| `check(kind, a, b?)` | overlap, clearance, scan_clash, mesh |
+| `section(plane, parts?, scan?)` | image plus outlines in mm |
+| `check(kind, a, b?)` | overlap, clearance, mesh |
+| `scan_clash(part, scan?, ignore?)` | scan points inside a part, in clusters, the deepest and the nearest outside; approximate |
+| `scan_deviation(part, faces?, scan?, region?, from?)` | how far a part, or faces of it, lies from a scan; approximate |
 | `highlight(refs, note?)` | shows the user those refs |
-| `show(view?, parts?, section?)` | changes the user's viewport |
+| `show(view?, parts?, section?, scans?)` | changes the user's viewport |
 | `add_mark(...)`, `resolve_mark(id, note?)` | writes marks |
 
 Images come from the same renderer the user sees (a render target in the window, 20 to 30 ms at 1024 × 768), so the two sides never disagree about what is on screen. The long edge is capped at 2000 px, above which the CLI downscales.
@@ -225,12 +229,12 @@ Custom, on plain three.js with three-mesh-bvh. It is the centre of the product a
 - **Views:** standard views, perspective/orthographic toggle, named views saved per object.
 - **Section:** one plane, axis-aligned or taken from a picked face, dragged along its normal, with stencil caps coloured per part. Scans are clipped without caps.
 - **Measure:** point, edge and face snapping; live readout from the mesh while hovering, the committed value from the kernel.
-- **Scans:** drawn with vertex colours or texture, opacity slider, a decimated display mesh for large files.
+- **Scans:** drawn with vertex colours baked from the texture, opacity slider, one mesh for drawing, picking and checking (reduced only above 2 M triangles).
 - **Render on demand**, not a continuous loop.
 
 ## 8. Scans
 
-Import GLB, OBJ, PLY or STL by drop or dialog. The kernel (trimesh) stores the source, bakes vertex colours from the texture, decimates each geometry to a display mesh of at most about 500k triangles in total (fast-simplification, about 3 s for the 1.6M-triangle Micra scan), and records units and transform in `meta.json`. Polycam files are metres and Y up; import converts to millimetres and Z up by default.
+Import GLB, glTF, OBJ, PLY or STL by drop or dialog. The import process (trimesh) bakes vertex colours from the texture, converts to millimetres and Z up, and writes one mesh, `mesh.bin`; up to 2,000,000 triangles it is not reduced (Micra: 1.6 M, 3.4 s, 34 MB). The source is referenced by path, size and hash and never copied. Unit and up axis are assumed from the format and the size (glTF: metres, Y up), shown, and can be changed afterwards.
 
 Alignment, in order of use:
 
@@ -238,7 +242,7 @@ Alignment, in order of use:
 2. **Pairs:** click matching points on scan and model (three or more); rigid fit with optional uniform scale.
 3. **Nudge:** a gizmo, with numeric entry.
 
-The transform is saved with the object, so clash checks can run in tests later. ICP refinement is deferred.
+A transform is kept per layout; a scan with none for the layout shown is not aligned there and nothing is checked against it. After every build each alignment is checked against the model again. ICP refinement is deferred.
 
 ## 9. Show
 
