@@ -721,10 +721,13 @@ def test_query_reply_that_cannot_be_serialised_is_an_exception_reply_and_the_nex
     from torno_kernel import queries, worker
     from torno_kernel.frames import read_frame
 
-    answers = iter([{"value": float("inf")}, {"value": 2.0}])
+    import numpy as np
+
+    # An infinity is not JSON; nor is a number numpy made, to the encoder.
+    answers = iter([{"value": float("inf")}, {"value": np.float32(1.5)}, {"value": 2.0}])
     monkeypatch.setattr(queries, "run", lambda shapes, name, args, kept: next(answers))
     asked = io.BytesIO()
-    for id in (1, 2):
+    for id in (1, 2, 3):
         write_frame(asked, {"id": id, "name": "measure", "args": {}})
     asked.seek(0)
 
@@ -741,7 +744,10 @@ def test_query_reply_that_cannot_be_serialised_is_an_exception_reply_and_the_nex
     first, _ = read_frame(channel.written)
     assert (first["id"], first["ok"], first["error"]["kind"]) == (1, False, "exception")
     assert "the reply to measure could not be written" in first["error"]["message"]
-    assert read_frame(channel.written)[0] == {"id": 2, "ok": True, "result": {"value": 2.0}}
+    second, _ = read_frame(channel.written)
+    assert (second["id"], second["ok"], second["error"]["kind"]) == (2, False, "exception")
+    assert "the reply to measure could not be written" in second["error"]["message"]
+    assert read_frame(channel.written)[0] == {"id": 3, "ok": True, "result": {"value": 2.0}}
     assert read_frame(channel.written) is None  # nothing half written
 
 

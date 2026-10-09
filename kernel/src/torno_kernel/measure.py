@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from . import topo
+from . import extent, tess, topo
 from .describe import number
 from .queries import QueryError, as_point, need_layout, need_solid, resolve
 
@@ -23,8 +23,12 @@ _TARGET = "a target: ref, a string, or layout, a string, with point, three finit
 _PARALLEL = math.sin(math.radians(0.01))
 # A wall thinner than this is the face the ray starts on.
 _OWN_FACE = 1e-6
-# A point this near a face, mm, is on it: further off, the wall asked about is not the one measured.
+# A point this near a face, mm, is on it: further off, the wall asked about is not
+# the one measured. A point picked on the mesh is as far off the face as the mesh
+# is, which on a large curved part is more: then the band is this many times the
+# part's deflection.
 _ON_FACE = 0.05
+_ON_MESH = 1.5
 # How far a ray is followed, mm.
 _REACH = 1e7
 PLA = 1.24  # g/cm³
@@ -76,8 +80,10 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     - ``radius``, ``diameter``: of a cylindrical, spherical or toroidal face
       (of a torus its tube, with ``major``) or of a circular edge.
     - ``thickness``: from a point of a face of a solid along its inward
-      normal to where the same part ends. The point is on the face, within
-      0.05 mm: one further off is refused, not moved there.
+      normal to where the same part ends. The point is on the face, or as
+      near it as a pick on the mesh is: within 0.05 mm, or 1.5 times the
+      deflection the part is drawn with where that is more. It is laid on
+      the face and ``moved`` says how far, mm; one further off is refused.
     - ``bbox`` of a part, a face or an edge, exact when all its faces are
       planes or cylinders and all its edges lines or circles; ``volume`` and
       ``mass`` of a part that is a solid; ``area`` of a part or a face.
@@ -335,7 +341,7 @@ def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
         raise QueryError(
             "exception", f"no point of {target.ref} near the one given could be computed"
         )
-    if onto.Value() > _ON_FACE:
+    if onto.Value() > max(_ON_FACE, _ON_MESH * tess.deflection(target.part)):
         raise QueryError(
             "bad_request",
             f"the point is {number(onto.Value())} mm from {target.ref}: give a point on the face",
@@ -357,6 +363,7 @@ def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
         "unit": "mm",
         "how": "wall, along the normal",
         "points": [_gp(start), _gp(rays.Pnt(first))],
+        "moved": float(onto.Value()),
         "exact": True,
     }
 
@@ -419,17 +426,15 @@ def _boxed_exactly(target: _Target) -> bool:
 
 
 def _extent(kind: str, target: _Target) -> dict[str, Any]:
-    from build123d import Face
-
     if kind == "volume":
         if target.kind != "part":
             raise QueryError("bad_request", f"volume is measured of a part; {target.what}")
         need_solid(target.shape, target.key)
-        return _exactly(target.shape.volume, "mm3", "of the solid")
+        return _exactly(extent.volume(target.shape), "mm3", "of the solid")
     if target.kind == "part":
-        return _exactly(target.shape.area, "mm2", "surface of the part")
+        return _exactly(extent.area(target.shape), "mm2", "surface of the part")
     if target.kind == "face":
-        return _exactly(Face(target.shape).area, "mm2", "of the face")
+        return _exactly(extent.area(target.shape), "mm2", "of the face")
     raise QueryError("bad_request", f"area is measured of a part or a face; {target.what}")
 
 
@@ -448,7 +453,7 @@ def _mass(target: _Target, density: Any, default: bool) -> dict[str, Any]:
     ):
         raise QueryError("bad_request", "density is a positive number, in g/cm³")
     need_solid(target.shape, target.key)
-    volume = float(target.shape.volume)
+    volume = extent.volume(target.shape)
     return {
         # mm³ to cm³.
         "value": volume / 1000 * density,

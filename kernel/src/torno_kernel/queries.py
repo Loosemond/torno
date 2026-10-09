@@ -4,7 +4,7 @@ import math
 import re
 from typing import Any
 
-from . import topo
+from . import extent, topo
 from .describe import descriptor
 
 _SUBSHAPE = re.compile(r"^(?P<key>.+)/(?P<kind>[FE])(?P<index>\d+)$")
@@ -209,12 +209,13 @@ def _anchor(anchor: Any) -> tuple[str, list[float], str | None]:
 
 def _is_coordinate(value: Any) -> bool:
     """A number that can be a coordinate in mm: finite, and no further out than FARTHEST."""
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and abs(value) <= FARTHEST
-    )
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and abs(value) <= FARTHEST
+    except OverflowError:
+        # An integer of hundreds of digits, which JSON may hold and no float can.
+        return False
 
 
 class _Surface:
@@ -430,8 +431,8 @@ def _describe_part(key: str, shape: Any) -> dict[str, Any]:
         "kind": "part",
         "key": key,
         "bbox": {"min": _xyz(box.min), "max": _xyz(box.max)},
-        "volume": float(shape.volume),
-        "area": float(shape.area),
+        "volume": extent.volume(shape),
+        "area": extent.area(shape),
         "faceCount": len(topo.faces(shape)),
         "edgeCount": len(topo.edges(shape)),
         "valid": bool(shape.is_valid),
@@ -461,7 +462,7 @@ def _describe_face(ref: str, topods_face: Any) -> dict[str, Any]:
         "kind": "face",
         "ref": ref,
         "type": face.geom_type.name.lower(),
-        "area": float(face.area),
+        "area": extent.area(topods_face),
         "center": _xyz(center),
         "normal": normal,
         "radius": None if radius is None else float(radius),

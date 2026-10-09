@@ -37,6 +37,16 @@ def wires(shape: Any) -> list[Any]:
     return _subshapes(shape, TopAbs_WIRE)
 
 
+def loose_faces(shape: Any) -> int:
+    """How many of the shape's faces are of none of its solids."""
+    from ocp_tessellate.ocp_utils import TopAbs_FACE, TopExp, TopTools_IndexedMapOfShape
+
+    of_solids = TopTools_IndexedMapOfShape()
+    for solid in solids(shape):
+        TopExp.MapShapes_s(solid, TopAbs_FACE, of_solids)
+    return len(faces(shape)) - of_solids.Extent()
+
+
 def what(shape: Any) -> str:
     """What kind of shape this is, with its article: ``a shell``, ``a face``, ``a compound``."""
     wrapped = getattr(shape, "wrapped", shape)

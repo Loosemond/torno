@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from . import arrange
+from . import arrange, extent
 
 DEVIATION = 0.1
 ANGULAR_TOLERANCE = 0.2
@@ -70,6 +70,16 @@ def mesh_of(shape: Any) -> tuple[np.ndarray, np.ndarray]:
     return _posed(vertices, [float(x) for x in loc[0]], [float(x) for x in loc[1]]), triangles
 
 
+def deflection(shape: Any) -> float:
+    """How far, in mm, the mesh a part is drawn with may be from its faces.
+
+    ocp-tessellate's rule: DEVIATION for a part whose box measures 300 mm
+    along its three sides together, and in proportion for any other.
+    """
+    box = shape.bounding_box()
+    return (box.size.X + box.size.Y + box.size.Z) / 300 * DEVIATION
+
+
 def _tessellate(named: dict[str, Any]) -> list[tuple[str, Any, dict, Any, str | None]]:
     """Mesh one layout: (name, shape, mesh arrays, loc, cache id) per part."""
     # ocp-tessellate needs OCP from the user's workspace, so it is imported only here.
@@ -123,7 +133,7 @@ def _part(
         "layout": layout,
         "loc": {"t": t, "q": q},
         "bbox": _bbox(vertices, t, q),
-        "volume": float(shape.volume),
+        "volume": extent.volume(shape),
         "faceCount": len(arrays["trianglesPerFace"]),
         "edgeCount": len(arrays["segmentsPerEdge"]),
         "triangleCount": len(arrays["triangles"]) // 3,

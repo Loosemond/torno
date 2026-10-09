@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-from . import tess, topo
+from . import extent, tess, topo
 from .queries import QueryError, need_part, need_solid
 
 KINDS = ("overlap", "clearance", "mesh")
@@ -32,8 +32,9 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
     - ``clearance``: the least ``distance`` between the two, mm, and the
       ``points`` of each it is between. Parts that touch are 0 apart. Parts
       that share volume, one inside the other included, are 0 apart and
-      ``overlapping``, with both points at the centre of what they share:
-      it is the same verdict ``overlap`` gives. Of a part that is not a
+      ``overlapping``, with both points at the centre of mass of what they
+      share, which need not be in it (of a ring through a slab it is in the
+      ring's hole): it is the same verdict ``overlap`` gives. Of a part that is not a
       solid the distance is told and ``overlapping`` is null. ``how`` says
       which of these it is.
     - ``mesh``: whether the mesh of the part is ``watertight``: its vertices
@@ -89,16 +90,14 @@ def _topods(shape: Any) -> Any:
 
 def _shared(one: Any, other: Any, names: str) -> dict[str, Any]:
     """What two solids share: its ``volume``, its ``bbox`` and its centre, ``at``."""
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib, BRepGProp, GProp_GProps
+    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
 
     if _boxes_apart(one, other):
         return {"volume": 0.0, "bbox": None, "at": None}
     common = _common(one, other)
     if not common.IsDone():
         raise QueryError("exception", f"what {names} share could not be computed")
-    measured = GProp_GProps()
-    BRepGProp.VolumeProperties_s(common.Shape(), measured)
-    volume = abs(float(measured.Mass()))
+    volume, centre = extent.volume_and_centre(common.Shape())
     if volume < _SHARED:
         return {"volume": volume, "bbox": None, "at": None}
     box = Bnd_Box()
@@ -107,7 +106,7 @@ def _shared(one: Any, other: Any, names: str) -> dict[str, Any]:
     return {
         "volume": volume,
         "bbox": {"min": _xyz(box.CornerMin()), "max": _xyz(box.CornerMax())},
-        "at": _xyz(measured.CentreOfMass()),
+        "at": _xyz(centre),
     }
 
 
@@ -177,7 +176,7 @@ def _clearance(
             "distance": 0.0,
             "points": [both["at"], both["at"]],
             "overlapping": True,
-            "how": "the parts overlap",
+            "how": "the parts overlap; the points are the centre of what they share",
         }
     return {**between, "overlapping": False, "how": "minimum"}
 

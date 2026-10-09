@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-from . import topo
+from . import extent, topo
 from .queries import QueryError, as_point, need_layout, need_part
 
 # How far a drawn outline may stray from the true one, mm.
@@ -21,6 +21,7 @@ _JOIN = 1e-6
 # What a part's entry says of how it was cut.
 SOLID = "cross-section of the solid"
 SURFACE = "outline of the surface: the part is not a solid"
+MIXED = "cross-section of its solids; its loose faces are not cut"
 _ZERO = 1e-12
 
 
@@ -40,9 +41,12 @@ def section(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
       plane is in each solid, its surface included. So a plane that lies on a
       face of the solid has that face in the cross-section, whichever way it
       looks, and one that only touches the solid (along an edge, or a line of
-      a round side) cuts nothing. Every loop is closed and ``open`` is 0. A
+      a round side) cuts nothing. "On" is to OCC's tolerance: a plane within
+      1e-7 mm outside a face is answered as on it. Every loop is closed and ``open`` is 0. A
       cross-section may come in pieces that share an edge; solids of one part
-      that overlap are each cut, and both counted.
+      that overlap are each cut, and both counted. Of a part that also has
+      faces of no solid only the solids are cut, and ``how`` is
+      ``cross-section of its solids; its loose faces are not cut``.
     - ``outline of the surface: the part is not a solid``, of a shell or a
       face: the curves the plane cuts of it, joined end to end. ``open`` is
       how many of them are not closed, and then the part's ``area`` is null:
@@ -139,7 +143,7 @@ def _cut(shape: Any, frame: _Frame, key: str) -> dict[str, Any]:
     solids = topo.solids(wrapped)
     if solids:
         loops, area, exact = _cross_section(solids, frame, key)
-        how = SOLID
+        how = MIXED if topo.loose_faces(wrapped) else SOLID
     else:
         loops, exact = _outline(wrapped, frame, key)
         closed = all(loop["closed"] for loop in loops)
@@ -336,11 +340,7 @@ def _wire_area(plane: Any, wire: Any, outline: np.ndarray) -> tuple[float, bool]
 
 def _face_area(face: Any) -> float | None:
     """The exact area of a face, or None when none can be measured of it."""
-    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
-
-    measured = GProp_GProps()
-    BRepGProp.SurfaceProperties_s(face, measured)
-    area = abs(float(measured.Mass()))
+    area = extent.area(face)
     return area if math.isfinite(area) and area > 0 else None
 
 

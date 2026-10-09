@@ -263,7 +263,7 @@ def test_clearance_agrees_with_overlap_when_a_part_has_several_solids(far_first)
         assert (result["distance"], result["overlapping"], result["how"]) == (
             0,
             True,
-            "the parts overlap",
+            "the parts overlap; the points are the centre of what they share",
         )
         # Somewhere in what they share.
         assert result["points"][0] == result["points"][1]
@@ -339,3 +339,12 @@ def test_vertices_are_one_within_a_tenth_of_a_micron_in_any_direction():
         )
         count, _ = checks.open_edges(vertices, np.array([[0, 1, 2], [3, 5, 4]]))
         assert count == 4
+
+
+def test_the_volume_shared_with_a_freeform_solid_is_exact_to_a_millionth(spline_prism):
+    from build123d import Box
+
+    prism, true_area = spline_prism
+    shapes = {"assembly:prism": prism, "assembly:block": Box(100, 100, 100)}
+    # The block holds all of the prism, 5 mm high.
+    assert check(shapes, "overlap", "prism", "block")["volume"] == pytest.approx(true_area * 5, rel=1e-6)

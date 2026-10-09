@@ -12,6 +12,7 @@ from torno_kernel.tess import build_scene
 WS = Path(__file__).parent / "fixtures" / "ws"
 SOLID = "cross-section of the solid"
 SURFACE = "outline of the surface: the part is not a solid"
+MIXED = "cross-section of its solids; its loose faces are not cut"
 X, Y, Z = [1, 0, 0], [0, 1, 0], [0, 0, 1]
 
 
@@ -350,3 +351,34 @@ def test_a_loop_no_face_can_be_made_of_says_its_area_is_not_exact(monkeypatch):
 def test_coordinates_beyond_a_million_kilometres_are_refused(bracket):
     plane = {"origin": [0, 0, 1e308], "normal": [0, 0, 1]}
     assert refused(bracket, {"layout": "assembly", "plane": plane})[0] == "bad_request"
+
+
+# Areas of outlines that are not lines and circles: exact to 1e-6 of themselves
+
+
+def test_the_area_of_a_spline_outline_is_that_of_the_spline(spline_prism):
+    prism, true_area = spline_prism
+    [part] = section({"assembly:prism": prism}, [0, 0, 2], Z)["parts"]
+    [loop] = part["loops"]
+    assert (loop["areaExact"], part["areaExact"]) == (True, True)
+    assert loop["area"] == pytest.approx(true_area, rel=1e-6)
+    assert part["area"] == pytest.approx(true_area, rel=1e-6)
+    # The polygon it is drawn as is not what was measured: that is short by more.
+    assert abs(shoelace(loop["points"]) - true_area) > 1e-4 * true_area
+
+
+def test_the_area_of_an_ellipse_outline_is_that_of_the_ellipse():
+    from build123d import Ellipse, extrude
+
+    [part] = section({"assembly:it": extrude(Ellipse(10, 5), 2)}, [0, 0, 1], Z)["parts"]
+    assert part["area"] == pytest.approx(math.pi * 10 * 5, rel=1e-6)
+    assert part["loops"][0]["area"] == pytest.approx(math.pi * 10 * 5, rel=1e-6)
+
+
+def test_a_part_of_a_solid_and_a_loose_face_says_the_face_is_not_cut():
+    from build123d import Box, Compound, Pos
+
+    loose = (Pos(50, 0, 0) * Box(10, 10, 10)).faces()[0]
+    [part] = section({"assembly:mixed": Compound([Box(10, 10, 10), loose])}, [0, 0, 0], Z)["parts"]
+    assert (part["how"], part["area"], part["open"]) == (MIXED, pytest.approx(100), 0)
+    assert len(part["loops"]) == 1

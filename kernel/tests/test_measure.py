@@ -307,6 +307,7 @@ def test_thickness_of_the_wall_the_pocket_leaves(shapes):
         "unit": "mm",
         "how": "wall, along the normal",
         "points": [pytest.approx([0, -15, 1]), pytest.approx([0, -13, 1])],
+        "moved": pytest.approx(0, abs=1e-9),
         "exact": True,
     }
     # Beside the pocket the same face has the whole plate behind it,
@@ -325,6 +326,7 @@ def test_thickness_is_taken_from_the_face_when_the_point_is_a_hair_off_it(shapes
     result = measure(shapes, "thickness", {"ref": bottom, "point": [15, -5, -3.04]})
     assert result["value"] == pytest.approx(6)
     assert result["points"] == [pytest.approx([15, -5, -3]), pytest.approx([15, -5, 3])]
+    assert result["moved"] == pytest.approx(0.04)
 
 
 def test_thickness_at_a_point_that_is_not_on_the_face_is_refused(shapes, bottom, top):
@@ -647,3 +649,90 @@ def test_what_was_worked_out_of_a_part_is_kept_for_the_next_thickness(shapes):
     assert len(held) == 1
     assert queries.run(shapes, "measure", args, kept) == first
     assert all(kept[k] is held[k] for k in held) and len(kept) == 1
+
+
+# Areas and volumes of what is not flat or round: exact to 1e-6 of themselves
+
+
+def test_area_and_volume_of_a_spline_prism_are_exact_to_a_millionth(spline_prism):
+    prism, true_area = spline_prism
+    made = {"assembly:prism": prism}
+    [top] = refs(made, "assembly:prism", "F", "plane, normal +Z")
+    assert measure(made, "area", top)["value"] == pytest.approx(true_area, rel=1e-6)
+    assert measure(made, "volume", "assembly:prism")["value"] == pytest.approx(true_area * 5, rel=1e-6)
+    assert measure(made, "mass", "assembly:prism", density=1)["value"] == pytest.approx(
+        true_area * 5 / 1000, rel=1e-6
+    )
+    # describe says the same numbers.
+    assert queries.describe(made, top)["area"] == pytest.approx(true_area, rel=1e-6)
+    described = queries.describe(made, "assembly:prism")
+    assert described["volume"] == pytest.approx(true_area * 5, rel=1e-6)
+    side = described["area"] - 2 * true_area
+    assert measure(made, "area", "assembly:prism")["value"] == pytest.approx(described["area"])
+    # The side is the outline's length times the height: longer than a circle of that area's.
+    assert side / 5 > 2 * math.sqrt(math.pi * true_area)
+
+
+def test_volume_and_area_of_an_ellipsoid_and_a_torus_are_exact_to_a_millionth():
+    from build123d import Sphere, Torus, scale
+
+    made = {"assembly:egg": scale(Sphere(5), by=(1, 2, 3)), "assembly:ring": Torus(20, 3)}
+    assert measure(made, "volume", "assembly:egg")["value"] == pytest.approx(
+        4 / 3 * math.pi * 5 * 10 * 15, rel=1e-6
+    )
+    assert measure(made, "volume", "assembly:ring")["value"] == pytest.approx(
+        2 * math.pi**2 * 20 * 9, rel=1e-6
+    )
+    assert measure(made, "area", "assembly:ring")["value"] == pytest.approx(
+        4 * math.pi**2 * 20 * 3, rel=1e-6
+    )
+
+
+def test_a_compound_inside_a_compound_has_the_volume_of_its_solid():
+    from build123d import Box, Compound
+
+    made = {"assembly:nest": Compound([Compound([Box(10, 10, 10)])])}
+    assert measure(made, "volume", "assembly:nest")["value"] == pytest.approx(1000)
+    assert measure(made, "mass", "assembly:nest", density=2)["value"] == pytest.approx(2)
+    assert measure(made, "area", "assembly:nest")["value"] == pytest.approx(600)
+    described = queries.describe(made, "assembly:nest")
+    assert (described["volume"], described["area"]) == (pytest.approx(1000), pytest.approx(600))
+    assert described["descriptor"] == "part, 10 × 10 × 10 mm, 1000 mm³, 6 faces"
+    scene, _, _ = build_scene({"assembly": dict(nest=made["assembly:nest"])}, "nest.py")
+    assert scene["parts"][0]["volume"] == pytest.approx(1000)
+
+
+def test_a_part_that_is_not_a_solid_is_described_with_no_volume():
+    made = not_solids()
+    assert queries.describe(made, "assembly:tub")["volume"] == 0
+    assert queries.describe(made, "assembly:tub")["area"] == pytest.approx(500)
+
+
+# A pick on a large curved face is as far off it as the mesh it was made on
+
+
+def test_thickness_takes_a_point_as_far_off_a_face_as_the_mesh_is_and_says_how_far_it_moved():
+    from build123d import Cylinder
+
+    made = {"assembly:drum": Cylinder(200, 50)}
+    [side] = refs(made, "assembly:drum", "F", "cylinder")
+    # The drum is drawn with chords up to (400 + 400 + 50) / 300 × 0.1 = 0.283 mm off it.
+    result = measure(made, "thickness", {"ref": side, "point": [199.88, 0, 0]})
+    assert (result["value"], result["moved"]) == (pytest.approx(400), pytest.approx(0.12))
+    assert result["points"] == [pytest.approx([200, 0, 0]), pytest.approx([-200, 0, 0])]
+    assert refused(made, "thickness", {"ref": side, "point": [199, 0, 0]}) == (
+        "bad_request",
+        f"the point is 1 mm from {side}: give a point on the face",
+    )
+    # A small part is drawn finer: there the band is 0.05 mm, as before.
+    small = {"assembly:pin": Cylinder(2, 50)}
+    [side] = refs(small, "assembly:pin", "F", "cylinder")
+    assert refused(small, "thickness", {"ref": side, "point": [2.12, 0, 0]})[0] == "bad_request"
+
+
+def test_an_integer_too_large_for_a_float_is_no_coordinate(shapes, top):
+    far = {"layout": "assembly", "point": [0, 0, 10**400]}
+    assert refused(shapes, "distance", far, top)[0] == "bad_request"
+    with pytest.raises(queries.QueryError) as e:
+        queries.run(shapes, "nearest", {"layout": "assembly", "anchors": [{"part": "plate", "point": [10**400, 0, 0]}]})
+    assert e.value.kind == "bad_request"
