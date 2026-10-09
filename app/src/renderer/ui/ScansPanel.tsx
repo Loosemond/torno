@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, alignmentOf, importText, staleText } from '../../shared/scans'
+import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, alignmentOf, doubtOf, importText } from '../../shared/scans'
+import { setAlignScan } from '../state/align'
 import { actions, store, useStore } from '../state/store'
+import { setTool } from '../state/tools'
 import { Confirm } from './Confirm'
 import { EyeIcon } from './Layers'
 import { importScan, reimportScan } from './scanDrop'
@@ -109,9 +111,12 @@ export function ScansPanel() {
 /** The one thing to know first of a scan in the layout shown, and what there is to say of it in a sentence. */
 function stateOf(scan: ScanInfo, layout: string): { state: string; text: string; said: string | null } {
   if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', said: null }
-  const stale = alignmentOf(scan, layout) ? staleText(scan.checks[layout]) : null
+  const alignment = alignmentOf(scan, layout)
+  // One notion of "may no longer hold", with its reasons: what the last build's check found, and a source that changed.
+  const stale = doubtOf(scan, layout)
   if (stale) return { state: 'stale', text: 'check alignment', said: stale }
-  if (!alignmentOf(scan, layout)) return { state: 'unaligned', text: 'not aligned here', said: null }
+  if (!alignment) return { state: 'unaligned', text: 'not aligned here', said: null }
+  if (alignment.rough) return { state: 'rough', text: 'rough alignment', said: alignment.rough }
   return { state: 'aligned', text: 'aligned', said: null }
 }
 
@@ -199,7 +204,7 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
         </p>
       )}
       <div className="scan-state">
-        <span className="chip" data-state={state.state}>
+        <span className="chip" data-state={state.state} title={state.said ?? undefined}>
           {state.text}
         </span>
         {source && (
@@ -208,6 +213,20 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           </span>
         )}
         <span className="spacer" />
+        <button
+          type="button"
+          className="link-button"
+          aria-label={`Align ${id}`}
+          title="Stand this scan where the model is, in the layout shown (L)"
+          disabled={meshGone}
+          onClick={() => {
+            // The tool first: taking it up puts down whatever was in hand.
+            setTool('align')
+            setAlignScan(id)
+          }}
+        >
+          Align
+        </button>
         <button type="button" className="scan-more" aria-label={`More of ${id}`} aria-expanded={more} aria-controls={fields} onClick={() => setMore((open) => !open)}>
           More
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -216,7 +235,19 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
         </button>
       </div>
       {/* Why the state above needs a look, in words: the one sentence it is there for. */}
-      {state.said && <p className="scan-said">{numbered(state.said)}</p>}
+      {state.said && (
+        <p className="scan-said" data-state={state.state}>
+          {numbered(state.said)}
+          {alignmentOf(scan, layout)?.sourceChanged && (
+            <>
+              {' '}
+              <button type="button" className="link-button" aria-label={`The alignment of ${id} is still right`} title="The alignment still holds for the scan as it was read again" onClick={() => void asked(objectId, window.torno.scans.alignHolds(objectId, id, layout))}>
+                Still right
+              </button>
+            </>
+          )}
+        </p>
+      )}
       {meshGone && (
         <p className="scan-said">
           Its mesh is gone from the disk: it cannot be drawn or checked.{' '}

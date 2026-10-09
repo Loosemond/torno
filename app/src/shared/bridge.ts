@@ -2,7 +2,7 @@ import type { BuildState } from './build'
 import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark, Replacement } from './marks'
 import type { Scene } from './scene'
-import type { NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } from './scans'
+import type { AlignMade, NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } from './scans'
 import type { SceneFile } from './scenefile'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
@@ -67,8 +67,17 @@ export interface TornoBridge {
     convert(objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }): Promise<ScanInfo>
     rename(objectId: string, id: string, name: string): Promise<ScanInfo>
     remove(objectId: string, id: string): Promise<void>
-    /** Where the scan is in a layout of the last build, or null for nowhere: main adds how that build's parts are spread, and when. */
-    align(objectId: string, id: string, layout: string, alignment: NewAlignment | null): Promise<ScanInfo>
+    /**
+     * Where the scan is in a layout of the last build, or null for nowhere. `made` says which build it was fitted
+     * on (main refuses another than the last) and what the person said yes to: an alignment that is rough, or
+     * that changes the scan's size, is kept only with that yes. Main adds how that build's parts are spread, when,
+     * the residuals and why it is rough.
+     */
+    align(objectId: string, id: string, layout: string, alignment: NewAlignment | null, made?: AlignMade): Promise<ScanInfo>
+    /** Puts back the alignment the scan had in that layout before the last one was kept. Rejects when there is none to go back to. */
+    undoAlign(objectId: string, id: string, layout: string): Promise<ScanInfo>
+    /** The person says the alignment still holds, though the scan was imported again from a changed source. */
+    alignHolds(objectId: string, id: string, layout: string): Promise<ScanInfo>
     /** The scan's `mesh.bin`, for `parseScanMesh`. */
     mesh(objectId: string, id: string): Promise<ArrayBuffer>
     onChanged(cb: (m: { objectId: string; scans: ScanInfo[] }) => void): () => void

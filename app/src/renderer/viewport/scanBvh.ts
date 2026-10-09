@@ -11,13 +11,22 @@ interface Answer { version?: number; roots?: ArrayBuffer[]; indirectBuffer?: Uin
  * where one can be made (it is given copies of the positions and the triangles, so the scan is drawn
  * meanwhile), in place where none can (vitest) or when the worker fails. `how` says which. The worker is let
  * go of with its answer, and the copies with it. Rejects for a geometry no tree can be made of.
+ *
+ * `stop` says the mesh was let go of: the worker is ended, nothing is built in its place, and the promise
+ * rejects. A tree asked for after that is not begun.
  */
+export const LET_GO = 'the mesh was let go of: no tree is made of it'
+
 export function buildScanBvh(
   geometry: THREE.BufferGeometry,
-  makeWorker: (() => Worker) | null = typeof Worker === 'undefined' ? null : inWorker
+  makeWorker: (() => Worker) | null = typeof Worker === 'undefined' ? null : inWorker,
+  stop?: AbortSignal
 ): Promise<{ tree: MeshBVH; how: 'worker' | 'main' }> {
-  const here = (): { tree: MeshBVH; how: 'main' } => ({ tree: new MeshBVH(geometry, { indirect: true }), how: 'main' })
-  if (!makeWorker) return Promise.resolve().then(here)
+  const here = (): { tree: MeshBVH; how: 'main' } => {
+    if (stop?.aborted) throw new Error(LET_GO)
+    return { tree: new MeshBVH(geometry, { indirect: true }), how: 'main' }
+  }
+  if (!makeWorker || stop?.aborted) return Promise.resolve().then(here)
   return new Promise((resolve, reject) => {
     let worker: Worker | null = null
     let answered = false
@@ -35,6 +44,9 @@ export function buildScanBvh(
       worker = makeWorker()
       // A worker that cannot be started, or fails, is no reason for a scan that cannot be pointed at.
       worker.onerror = () => done(here)
+      // An answer that cannot be read is no answer.
+      worker.onmessageerror = () => done(here)
+      stop?.addEventListener('abort', () => done(here), { once: true })
       worker.onmessage = ({ data }: MessageEvent<Answer>) => {
         const { version, roots, indirectBuffer } = data
         if (!roots || !indirectBuffer) return done(here)

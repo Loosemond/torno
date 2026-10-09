@@ -25,7 +25,7 @@ export interface Tool {
 }
 
 /** What a tool may do to the viewport. */
-export type ToolViewport = Pick<Viewport, 'setHover' | 'setNavigation' | 'setDraft' | 'lockedView' | 'pick' | 'bounds'> & Partial<Pick<Viewport, 'getSection' | 'setSection' | 'sectionBox' | 'onSectionHandle' | 'canvas' | 'pointerAt' | 'pickScan'>>
+export type ToolViewport = Pick<Viewport, 'setHover' | 'setNavigation' | 'setDraft' | 'lockedView' | 'pick' | 'bounds' | 'pickScan'> & Partial<Pick<Viewport, 'getSection' | 'setSection' | 'sectionBox' | 'onSectionHandle' | 'canvas' | 'pointerAt' | 'scanPatch'>>
 
 /**
  * What a tool works with, as it is when the event arrives: the object on show,
@@ -124,15 +124,6 @@ export function routePointer(tool: Tool, e: ViewportPointer, ctx: ToolContext): 
   tool.onPointer(e, ctx)
   // After the tool, which has just put away whatever it said of nothing.
   if (e.cut && tool.id !== 'section') ctx.readout.say(e.client, CUT_FACE)
-  else if (e.scan) ctx.readout.say(e.client, scanInFront(e.scan))
-}
-
-/**
- * Said at the pointer where a scan drawn thin is in front of a part: what is seen first is what is pointed
- * at, so the part showing through it is not picked, and the pointer says why.
- */
-export function scanInFront(id: string): string {
-  return `Scan ${id} is in front of the part here: switch it off to point at the part`
 }
 
 /**

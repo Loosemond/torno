@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import type { Mark } from '../../shared/marks'
+import type { Mark, Quat } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
-import type { ScanInfo, ScanView } from '../../shared/scans'
+import type { ScanInfo, ScanTransform, ScanView } from '../../shared/scans'
 import type { Camera, SectionPlane, ViewName } from '../../shared/view'
+import { type AlignPoint, drawAlignPoints } from './alignPoints'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
 import { labelAnchor, markPoints } from './marks/markObjects'
 import { mmPerPx, type Placed } from './marks/labels'
@@ -14,7 +15,8 @@ import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder, pointerRay } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
 import { PointerRouter, type ViewportPointer } from './pointer'
-import { SCAN_BEHIND_MM, ScanLayer, rayOf, reaching, type ScanHit, type ScanLayerState } from './scans'
+import { ScanEdit } from './scanEdit'
+import { ScanLayer, rayOf, reaching, type ScanHit, type ScanLayerState } from './scans'
 import { SectionCut, nearSegmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
@@ -116,8 +118,9 @@ export class Viewport {
   )
   /** Whether the last `pick` ended on the cut face of a solid. */
   private onCut = false
-  /** The scan the last `pick` was left to, being in front of what it would have found; null for none. */
-  private scanInFront: string | null = null
+  /** The scan the gizmo holds while it is moved by hand, and the points of an alignment being made. */
+  private readonly scanEdit = new ScanEdit(this.scans)
+  private alignPoints: AlignPoint[] = []
   private readonly marks = new MarkLayer(markColours(LIGHT_THEME))
   /** The marks of the object as last given, resolved ones too: `focusMark` goes to any of them. */
   private allMarks: Mark[] = []
@@ -170,12 +173,13 @@ export class Viewport {
 
     // Before this class listens to the pointer: by then the gizmo has said whether the pointer is on it.
     this.gizmo = new ShapeGizmo(this.perspective, canvas, {
-      shape: (id) => {
+      subject: (id) => {
         const mark = this.marks.markOf(this.layout, id)
-        return mark?.kind === 'shape' ? mark : null
+        return this.scanEdit.subject(id) ?? (mark?.kind === 'shape' ? mark : null)
       },
-      preview: (id, shape) => {
-        this.marks.preview(id, shape)
+      preview: (id, change) => {
+        if (this.scanEdit.subject(id)) this.scanEdit.preview(id, change)
+        else this.marks.preview(id, change)
         this.extent = this.measured()
         this.invalidate()
       },
@@ -193,7 +197,6 @@ export class Viewport {
       canvasPoint: (x, y) => this.canvasPoint(x, y),
       pick: (x, y) => this.pick(x, y),
       pickedCut: () => this.onCut,
-      pickedScan: () => (this.scanInFront !== null && this.scans.seenThrough(this.scanInFront) ? this.scanInFront : null),
       syncMatrices: () => this.syncMatrices(),
       view: () => this.getCamera(),
       setView: (c) => {
@@ -302,6 +305,36 @@ export class Viewport {
 
   scanState(): ScanLayerState[] {
     return this.scans.state()
+  }
+
+  /** A scan's bounds tree, how it was made and the mesh it is of; null until it is there. For what works on a scan's triangles (the region brush). */
+  scanTree(id: string): ReturnType<ScanLayer['tree']> {
+    return this.scans.tree(id)
+  }
+
+  /** Draws a scan somewhere else for now (a fit not yet applied, a drag); null draws it where main has it. */
+  previewScan(id: string, transform: ScanTransform | null): void {
+    this.scans.preview(id, transform)
+    this.extent = this.measured()
+  }
+
+  /** The triangles of a scan within `radius` mm of a hit whose normals are within `degrees` of the hit's: their centroids in the object frame and their areas. Tints them when `tint`. Null clears the tint. */
+  scanPatch(hit: ScanHit | null, radius: number, opts?: { degrees?: number; tint?: boolean }): { points: Vec3[]; weights: number[] } | null {
+    return this.scans.patch(hit, radius, opts)
+  }
+
+  /** Numbered dots for the ends of the pairs being made and the points of a floor: in `--accent`, in no picture. */
+  showAlignPoints(points: AlignPoint[]): void {
+    this.alignPoints = points
+    this.invalidate()
+  }
+
+  /** The gizmo on a scan, at `pivot`: moving or turning it draws the scan as dragged, and on release says how far it was moved and turned about the pivot. Null takes it away, and the gizmo is the active shape's again. */
+  editScan(id: string | null, mode: 'translate' | 'rotate', pivot: Vec3, onChange: (change: { move: Vec3; turn: Quat }) => void): void {
+    this.scanEdit.edit(id, pivot, onChange)
+    this.gizmo.edit(id, mode, (change) => (this.scanEdit.released(change), this.gizmo.place()), 'scan')
+    this.gizmo.place()
+    this.invalidate()
   }
 
   /**
@@ -528,8 +561,8 @@ export class Viewport {
    * of the parts of the current layout that are switched on. A part that is
    * hidden is never hit; one that is see-through is hit like any other.
    * Coordinates are the browser's client pixels; the answer is in the object frame.
-   * What is seen is what is picked: where a scan is drawn in front, however thin, nothing of the parts is hit,
-   * unless the parts alone are asked for (`partsOnly`).
+   * What is seen is what is picked: behind a scan drawn solid nothing of the parts is hit, unless the parts
+   * alone are asked for (`partsOnly`); a scan that is seen through is pointed through (`ScanLayer.blocks`).
    */
   pick(clientX: number, clientY: number, opts?: { edges?: boolean; partsOnly?: boolean }): Hit | null {
     const at = this.canvasPoint(clientX, clientY)
@@ -541,9 +574,9 @@ export class Viewport {
     const picked = pickUnder(parts, this.camera, at.ndc, at.size, { ...opts, cut: keeps && { keeps } })
     const ray = rayOf(pointerRay(this.camera, at.ndc))
     const reach = picked.hit?.distance ?? (picked.cut && keeps ? ray.distanceToPlane(keeps) : null)
-    this.scanInFront = reach === null || opts?.partsOnly ? null : (this.scans.pick(ray, keeps, reach - SCAN_BEHIND_MM)?.scan ?? null)
-    this.onCut = picked.cut && this.scanInFront === null
-    return this.scanInFront === null ? picked.hit : null
+    const hidden = reach !== null && !opts?.partsOnly && this.scans.blocks(ray, keeps, reach, (p) => mmPerPx(this.camera, new THREE.Vector3().fromArray(p), at.size.height))
+    this.onCut = picked.cut && !hidden
+    return hidden ? null : picked.hit
   }
 
   /** What a point of the window is on of the scans drawn, whatever part is in front: `pick`'s twin. Nothing of a scan whose tree is not there yet, nor of what a section takes away. */
@@ -630,7 +663,7 @@ export class Viewport {
   }
 
   private lookOfScans(): void {
-    this.scans.setLook({ plain: this.theme.scan, surface: this.theme.surface }, this.stale)
+    this.scans.setLook({ plain: this.theme.scan, surface: this.theme.surface, accent: this.theme.accent }, this.stale)
   }
 
   /** Where a point of the object frame falls in the window, in client pixels. */
@@ -1068,8 +1101,8 @@ export class Viewport {
     ctx.clearRect(0, 0, size.width, size.height)
     const labels = this.marks.labels(this.layout, this.camera, size, 1, chipSize(ctx, 1))
     drawLabels(ctx, labels, this.labelStyle(), 1, this.marks.activeId)
+    drawAlignPoints(ctx, this.alignPoints, this.camera, size, { accent: this.theme.accent, paper: this.theme.panel })
   }
-
 }
 
 /**

@@ -19,6 +19,14 @@ export function number(value: number): string {
   return text === '-0' ? '0' : text
 }
 
+/**
+ * How well something fits, in millimetres: `number`, of the value to the thousandth. What a fit of clicked
+ * points leaves is never known finer than that, and `0.000004247 mm` says nothing `0 mm` does not.
+ */
+export function fitNumber(mm: number): string {
+  return number(Math.round(mm * 1000) / 1000)
+}
+
 /** What names a build (`r12`) or a part's face or edge (`plate/E7`) in a sentence. */
 const NAMED = /(\br\d+\b|[\w.-]+\/[FE]\d+\b)/
 

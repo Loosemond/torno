@@ -71,7 +71,7 @@ function bracketFiles(): Record<string, string> {
   return files
 }
 
-type Refused = 'relative' | 'ghost' | 'unknown' | 'unreadable' | 'nowhere'
+type Refused = 'relative' | 'ghost' | 'unknown' | 'unreadable' | 'nowhere' | 'otherBuild' | 'noBuild' | 'rough'
 
 /** What a call through the bridge rejected with, or null when it did not. */
 function rejection(which: Refused, path = ''): Promise<string | null> {
@@ -83,7 +83,10 @@ function rejection(which: Refused, path = ''): Promise<string | null> {
         ghost: () => window.torno.scans.list('ghost'),
         unknown: () => window.torno.scans.rename('bracket', 'S9', 'x'),
         unreadable: () => window.torno.scans.import('bracket', path),
-        nowhere: () => window.torno.scans.align('bracket', 'S1', 'nowhere', identity)
+        nowhere: () => window.torno.scans.align('bracket', 'S1', 'nowhere', identity, { revision: window.__tornoTest!.state().revision, rough: true }),
+        otherBuild: () => window.torno.scans.align('bracket', 'S1', window.__tornoTest!.state().layout, identity, { revision: window.__tornoTest!.state().revision + 1, rough: true }),
+        noBuild: () => window.torno.scans.align('bracket', 'S1', window.__tornoTest!.state().layout, identity),
+        rough: () => window.torno.scans.align('bracket', 'S1', window.__tornoTest!.state().layout, identity, { revision: window.__tornoTest!.state().revision })
       }
       return calls[which]().then(
         () => null,
@@ -166,7 +169,7 @@ test('an alignment is kept with how the layout was spread, and dropped when the 
   const layout = (await state()).scene!.layouts[0]
   const parts = (await state()).scene!.parts.filter((part) => part.layout === layout).map((part) => part.name)
   const aligned = await page.evaluate(
-    ({ layout }) => window.torno.scans.align('bracket', 'S1', layout, { transform: { t: [1, 2, 3], q: [0, 0, 0, 2], s: 1 }, steps: ['typed'] }),
+    ({ layout }) => window.torno.scans.align('bracket', 'S1', layout, { transform: { t: [1, 2, 3], q: [0, 0, 0, 2], s: 1 }, steps: ['typed'] }, { revision: window.__tornoTest!.state().revision, rough: true }),
     { layout }
   )
   const alignment = aligned.alignments[layout]
@@ -175,6 +178,12 @@ test('an alignment is kept with how the layout was spread, and dropped when the 
   expect(Number.isNaN(Date.parse(alignment.at))).toBe(false)
   expect(scansOnDisk().scans[0].alignments[layout]).toEqual(alignment)
   expect(await rejection('nowhere')).toBe('no build of this object has a layout named nowhere: there is nothing to align the scan to')
+  // Task 5: an alignment is of the build it was made on, and one that is rough is kept only with a yes; what main says of it is main's.
+  const revision = (await state()).revision
+  expect(await rejection('otherBuild')).toBe(`that alignment was made on r${revision + 1}, the build is r${revision}: align again`)
+  expect(await rejection('noBuild')).toBe('an alignment says which build it was made on')
+  expect(await rejection('rough')).toBe('this alignment is rough (it was placed by hand, with no pairs of points to say how well): it is kept only once that is accepted')
+  expect(alignment).toMatchObject({ revision, rough: 'it was placed by hand, with no pairs of points to say how well', before: null })
 
   const converted: ScanInfo = await page.evaluate(() => window.torno.scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' }))
   expect(converted).toMatchObject({ imported: { unit: 'cm', up: 'z', assumed: { unit: false, up: false }, triangles: 12, bbox: { min: [-200, -150, -25], max: [200, 150, 25] } }, alignments: {} })

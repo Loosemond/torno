@@ -1,4 +1,4 @@
-import { number } from './format'
+import { fitNumber, number } from './format'
 import type { Quat, Vec3 } from './marks'
 
 export type ScanUnit = 'mm' | 'cm' | 'm' | 'in'
@@ -28,9 +28,28 @@ export interface ScanAlignment {
   /** `Part.arranged` of every part of the layout when it was aligned, zeros for a part that was not moved. */
   frame: Record<string, Vec3>
   at: string // ISO
+  /** The build it was made on. Of this run: dropped when the file is read, like a mark's `checkedRevision`. */
+  revision?: number
+  /**
+   * Why it is only rough, when it is: no pairs of points, fewer than three, pairs in a line, or pairs left further
+   * apart than `ROUGH_RMS_MM` (`roughOf` in `shared/align.ts`). Worked out by main, and kept only once the person
+   * said yes to it. Whatever reports the scan says so.
+   */
+  rough?: string
+  /** The scan was imported again from a source that was no longer the file it was aligned with. Until it is aligned again, or the person says it still holds. */
+  sourceChanged?: true
+  /** The alignment this one took the place of, for one undo: null when the scan was not aligned there before. Absent when there is nothing to undo. */
+  before?: Omit<ScanAlignment, 'before'> | null
 }
-/** What a caller gives to align: main adds `frame` and `at`. */
-export type NewAlignment = Omit<ScanAlignment, 'frame' | 'at'>
+/** What only main says of an alignment: never taken from the window or from a tool's arguments. */
+export const ALIGNMENT_MAIN_ONLY = ['frame', 'at', 'revision', 'rough', 'sourceChanged', 'before'] as const
+/** What a caller gives to align: main adds the rest. */
+export type NewAlignment = Omit<ScanAlignment, (typeof ALIGNMENT_MAIN_ONLY)[number]>
+/**
+ * What goes with an alignment to be kept: the build it was fitted on, and what the person said yes to. An
+ * alignment that is rough, or that changes the scan's size, is kept only with that yes.
+ */
+export interface AlignMade { revision: number; rough?: boolean; scaled?: boolean }
 
 /** What main found when it checked an alignment against a build (`main/scans/alignCheck.ts`). Never stored: revisions are of this run. */
 export interface AlignmentCheck { revision: number; of: number; off: number; worst: number; moved: string[] }
@@ -144,25 +163,34 @@ export function alignmentOf(scan: Pick<Scan, 'alignments'>, layout: string): Sca
   return Object.hasOwn(scan.alignments, layout) ? scan.alignments[layout] : null
 }
 
-/** Why an alignment may no longer hold, as a sentence, or null. */
-export function staleText(check: AlignmentCheck | undefined): string | null {
-  if (!check) return null
+/**
+ * Why an alignment may no longer hold, as a sentence, or null: what the last check against a build found, and
+ * whether the scan itself was read again from a changed source since. One notion, with its reasons.
+ */
+export function staleText(check: AlignmentCheck | undefined, alignment?: Pick<ScanAlignment, 'sourceChanged'> | null): string | null {
   const why: string[] = []
-  if (check.moved.length > 0) why.push(`torno has moved ${check.moved.join(', ')} for display since it was aligned`)
-  if (check.off > 0) why.push(`the model is no longer under ${count(check.off)} of its ${count(check.of)} points (worst ${number(check.worst)} mm off) on r${check.revision}`)
+  if (alignment?.sourceChanged) why.push('the scan was imported again from a source that had changed since it was aligned')
+  if (check && check.moved.length > 0) why.push(`torno has moved ${check.moved.join(', ')} for display since it was aligned`)
+  if (check && check.off > 0) why.push(`the model is no longer under ${count(check.off)} of its ${count(check.of)} points (worst ${number(check.worst)} mm off) on r${check.revision}`)
   return why.length > 0 ? `${why.join(', and ')}: check the alignment` : null
+}
+
+/** Why the alignment of a scan in a layout may no longer hold (`staleText`); null when it holds as far as is known, or the scan is not aligned there. */
+export function doubtOf(scan: Pick<ScanInfo, 'alignments' | 'checks'>, layout: string): string | null {
+  const alignment = alignmentOf(scan, layout)
+  return alignment ? staleText(Object.hasOwn(scan.checks, layout) ? scan.checks[layout] : undefined, alignment) : null
 }
 
 /** `by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)`; `by floor only: its place in that plane is as imported`. */
 export function alignmentText(alignment: ScanAlignment): string {
   const pairs = alignment.pairs ?? []
-  const rms = alignment.rms === undefined ? null : `rms ${number(alignment.rms)} mm`
+  const rms = alignment.rms === undefined ? null : `rms ${fitNumber(alignment.rms)} mm`
   // A floor says how high the scan stands and how it leans, and nothing of where it is on that floor.
   if (alignment.steps.length === 1 && alignment.steps[0] === 'floor') return `by floor only${rms ? ` (plane ${rms})` : ''}: its place in that plane is as imported`
   const said = alignment.steps.map((step) => {
     if (step === 'typed') return 'typed values'
     if (step !== 'pairs') return step
-    const fit = [...(rms ? [rms] : []), ...(pairs.length > 0 ? [`worst ${number(Math.max(...pairs.map((pair) => pair.residual)))} mm`] : [])]
+    const fit = [...(rms ? [rms] : []), ...(pairs.length > 0 ? [`worst ${fitNumber(Math.max(...pairs.map((pair) => pair.residual)))} mm`] : [])]
     return `${count(pairs.length)} ${pairs.length === 1 ? 'pair' : 'pairs'}${fit.length > 0 ? ` (${fit.join(', ')})` : ''}${alignment.scaled ? ', scaled' : ''}`
   })
   return `by ${said.join(' + ')}`

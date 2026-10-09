@@ -171,13 +171,19 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
 /**
  * The scans a picture has, as its caption says them: ` · scans S1 at 60 %, S2`, how thin only of one that is; nothing
  * for none. A scan that is not aligned in the picture's layout is not where the model is, and one whose alignment the
- * last build put in doubt may not be: whoever reads the picture is told, with the scan's name.
+ * last build put in doubt may not be, nor one that is only rough: whoever reads the picture is told, with the scan's name.
  */
-export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' | 'aligned' | 'stale'>>, layout: string): string {
+export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' | 'aligned' | 'stale'> & Partial<Pick<ShownScan, 'rough'>>>, layout: string): string {
   if (drawn.length === 0) return ''
   const said = drawn.map((scan) => {
     const thin = scan.opacity < 1 ? ` at ${Math.round(scan.opacity * 100)} %` : ''
-    const where = !scan.aligned ? ` (not aligned in ${layout}: drawn where it was imported)` : scan.stale ? ` (its alignment in ${layout} may no longer hold: ${scan.stale})` : ''
+    const where = !scan.aligned
+      ? ` (not aligned in ${layout}: drawn where it was imported)`
+      : scan.stale
+        ? ` (its alignment in ${layout} may no longer hold: ${scan.stale}${scan.rough ? `; it is rough: ${scan.rough}` : ''})`
+        : scan.rough
+          ? ` (aligned roughly in ${layout}: ${scan.rough})`
+          : ''
     return `${scan.id}${thin}${where}`
   })
   return ` · scans ${said.join(', ')}`

@@ -97,23 +97,6 @@ describe('the pointer over the canvas', () => {
     vi.unstubAllGlobals()
   })
 
-  it('says which scan took the pick when one drawn thin is in front of a part, and not while a drag turns the camera', () => {
-    const events: ViewportPointer[] = []
-    const { pointer, canvas } = router({ pick: () => null, pickedScan: () => 'S1' })
-    pointer.listen((e) => events.push(e))
-    fire(canvas, 'pointermove')
-    expect(events[0]).toMatchObject({ type: 'move', hit: null, scan: 'S1' })
-    fire(canvas, 'pointermove', { buttons: 1 })
-    expect(events[1].hit).toBeNull()
-    expect('scan' in events[1]).toBe(false)
-    // With no scan in the way nothing is said of one.
-    const plain: ViewportPointer[] = []
-    const other = router()
-    other.pointer.listen((e) => plain.push(e))
-    fire(other.canvas, 'pointermove')
-    expect('scan' in plain[0]).toBe(false)
-  })
-
   it('tells of a click after the release of a press that did not move, and of none after a drag', () => {
     const { canvas, told } = router()
     fire(canvas, 'pointerdown', { buttons: 1, clientX: 50, clientY: 50, timeStamp: 10 })

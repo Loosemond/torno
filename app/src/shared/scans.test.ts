@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { box, meshBin } from '../test/scanFixtures'
-import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, importText, maskBits, maskFile, parseScanMesh, staleText } from './scans'
+import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, doubtOf, importText, maskBits, maskFile, parseScanMesh, staleText } from './scans'
 
 describe('parseScanMesh', () => {
   it('gives views of the vertices, the colours and the triangles of a mesh.bin', () => {
@@ -55,6 +55,22 @@ describe('what is said of a scan', () => {
     expect(alignmentText({ ...aligned, steps: ['floor', 'pairs'], pairs, rms: 2.1 })).toBe('by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)')
     expect(alignmentText({ ...aligned, steps: ['pairs', 'nudge'], pairs, rms: 2.1, scaled: true })).toBe('by 4 pairs (rms 2.1 mm, worst 3.4 mm), scaled + nudge')
     expect(alignmentText({ ...aligned, steps: ['typed'], rms: undefined })).toBe('by typed values')
+  })
+
+  // Task 5: what a fit leaves is said to the thousandth of a millimetre, never with the digits of rounding error.
+  it('says how well it fits no finer than a fit is known', () => {
+    const pairs = [0.000005728, 0.0000024].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual }))
+    expect(alignmentText({ ...aligned, steps: ['pairs'], pairs, rms: 0.000004247 })).toBe('by 2 pairs (rms 0 mm, worst 0 mm)')
+    expect(alignmentText({ ...aligned, steps: ['pairs'], pairs: [{ ...pairs[0], residual: 0.0126 }], rms: 0.0126 })).toBe('by 1 pair (rms 0.013 mm, worst 0.013 mm)')
+  })
+
+  it('says a scan read again from a changed source with what the last build found, as one reason to look', () => {
+    expect(staleText(undefined, { sourceChanged: true })).toBe('the scan was imported again from a source that had changed since it was aligned: check the alignment')
+    expect(staleText({ revision: 4, of: 0, off: 0, worst: 0, moved: ['lid'] }, { sourceChanged: true })).toBe('the scan was imported again from a source that had changed since it was aligned, and torno has moved lid for display since it was aligned: check the alignment')
+    expect(staleText(undefined, {})).toBeNull()
+    const scan = { alignments: { print: { ...aligned, sourceChanged: true as const } }, checks: {} }
+    expect(doubtOf(scan, 'print')).toBe('the scan was imported again from a source that had changed since it was aligned: check the alignment')
+    expect(doubtOf(scan, 'assembly')).toBeNull()
   })
 
   it('says when the model has moved under an alignment', () => {

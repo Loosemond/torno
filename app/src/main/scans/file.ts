@@ -2,6 +2,7 @@ import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Quat, Vec3 } from '../../shared/marks'
 import type { AlignStep, Scan, ScanAlignment, ScanImport, ScanPair, ScanSource, ScanTransform, ScansFile } from '../../shared/scans'
+import { canonical, reckoned } from '../../shared/align'
 import { writeFileAtomic } from '../atomic'
 import { MESH, MESH_NAME, SCAN_ID, nextFolderId } from './meshfiles'
 
@@ -54,6 +55,8 @@ export async function loadScansFile(dir: string, now: () => Date = () => new Dat
     // not JSON
   }
   const read = readScansFile(parsed)
+  // Revisions count from 1 in every run: the build an alignment was made on is not one of this run's.
+  if (read) for (const scan of read.file.scans) for (const alignment of Object.values(scan.alignments)) forgetRevision(alignment)
   if (read && read.dropped === 0) return { file: past(read.file) }
 
   const stamp = now().toISOString().replace(/[:.]/g, '-')
@@ -71,6 +74,11 @@ export async function loadScansFile(dir: string, now: () => Date = () => new Dat
   await writeFileAtomic(path, textOf(file))
   const what = read.dropped === 1 ? '1 scan in the scans file of this object was' : `${read.dropped} scans in the scans file of this object were`
   return { file, problem: `${what} not one this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}, and the meshes are still in ${FOLDER}/scans/.` }
+}
+
+function forgetRevision(alignment: ScanAlignment): void {
+  delete alignment.revision
+  if (alignment.before) delete (alignment.before as ScanAlignment).revision
 }
 
 /** Writes `<dir>/.torno/scans.json`, creating the folder. Readers see the old file or the new one, never half of one. */
@@ -192,10 +200,12 @@ function importOf(value: unknown): ScanImport | null {
 
 /**
  * An alignment with only what an alignment has, or null when the value is
- * not one: no transform of finite numbers, a scale that is none, no step
- * this version knows, a place further off than the kernel reckons with. Its
- * rotation is kept as a unit quaternion (one that is all zeros turns
- * nothing). Pairs that are not two points are left out, and no more than
+ * not one: no transform of finite numbers, a scale that is none, a turn that
+ * is none (all zeros), no step this version knows, a place further off than
+ * the kernel reckons with. Its rotation is kept as a unit quaternion, of its
+ * two signs the one with w ≥ 0. What follows from the transform and the pairs
+ * is worked out here, whatever the value says of it (`reckoned`): each pair's
+ * residual, their rms, whether the scan was scaled, why it is rough. Pairs that are not two points are left out, and no more than
  * `MAX_PAIRS` kept; of its steps the last `MAX_STEPS`; a part whose name is
  * longer than a name is not named.
  */
@@ -226,7 +236,18 @@ export function sanitiseAlignment(value: unknown): ScanAlignment | null {
     if (arranged && isPartName(part)) frame.push([part, arranged])
   }
   alignment.frame = Object.fromEntries(frame)
-  return alignment
+  if (typeof value.revision === 'number' && Number.isSafeInteger(value.revision) && value.revision >= 1) alignment.revision = value.revision
+  if (value.sourceChanged === true) alignment.sourceChanged = true
+  // One step back and no further: what was before the one before is not kept.
+  if (value.before === null) alignment.before = null
+  else if (value.before !== undefined) {
+    const before = sanitiseAlignment(value.before)
+    if (before) {
+      delete before.before
+      alignment.before = before
+    }
+  }
+  return reckoned(alignment)
 }
 
 function transformOf(value: unknown): ScanTransform | null {
@@ -235,9 +256,9 @@ function transformOf(value: unknown): ScanTransform | null {
   const q = tuple<Quat>(value.q, 4)
   if (!t || !q || !isNumber(value.s) || value.s < SCALE.min || value.s > SCALE.max || t.some((c) => Math.abs(c) > MAX_COORDINATE)) return null
   const length = Math.hypot(...q)
-  // A quaternion of zeros, or of nothing that counts, turns nothing.
-  const unit = Number.isFinite(length) && length > 1e-12 ? (q.map((c) => c / length) as Quat) : ([0, 0, 0, 1] as Quat)
-  return { t, q: unit, s: value.s }
+  // A quaternion of zeros, or of nothing that counts, is no turn at all: not one to take for "not turned".
+  if (!Number.isFinite(length) || length <= 1e-12) return null
+  return { t, q: canonical(q), s: value.s }
 }
 
 /** A copy of `value` when it is exactly `length` finite numbers. */

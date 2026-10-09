@@ -17,6 +17,8 @@ let ran: Array<{ what: string; args: unknown[] }>
 let fails: string | null
 
 const REPLY: ImportReply = { unit: 'mm', up: 'z', assumed: { unit: true, up: true }, vertices: 8, triangles: 12, colours: 'none', bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, area: 3100, reduced: null, source: { bytes: 684, sha256: 'ab'.repeat(32) } }
+/** The person's yes to an alignment that is rough: one placed by hand is. */
+const YES = { rough: true }
 const ALIGNED: ScanAlignment = { transform: { t: [1, 2, 3], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: { base: [0, 0, 0] }, at: '2026-10-10T09:00:00.000Z' }
 
 /** Stands in for the import process: writes a mesh.bin where it is told to, unless it is to fail. */
@@ -120,8 +122,8 @@ describe('ScanStore', () => {
   it('keeps a transform for each layout, and drops them all when the unit is changed', async () => {
     const scans = store()
     await scans.import('bracket', source)
-    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
-    await scans.align('bracket', 'S1', 'print', { ...ALIGNED, transform: { t: [9, 9, 9], q: [0, 0, 0, 2], s: 1 } })
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED, YES)
+    await scans.align('bracket', 'S1', 'print', { ...ALIGNED, transform: { t: [9, 9, 9], q: [0, 0, 0, 2], s: 1 } }, YES)
     expect(file().scans[0].alignments.print.transform.q).toEqual([0, 0, 0, 1])
     expect(Object.keys((await scans.align('bracket', 'S1', 'print', null)).alignments)).toEqual(['assembly'])
     const converted = await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
@@ -214,7 +216,7 @@ describe('ScanStore', () => {
   it('takes the unit and the axis a scan has as chosen, and leaves its alignments', async () => {
     const scans = store()
     await scans.import('bracket', source)
-    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED, YES)
     const same = await scans.convert('bracket', 'S1', { unit: 'mm', up: 'z' })
     expect(same.imported.assumed).toEqual({ unit: false, up: false })
     expect(Object.keys(same.alignments)).toEqual(['assembly'])
@@ -225,7 +227,7 @@ describe('ScanStore', () => {
   it('tells what a check of an alignment found with the scans, and never writes it', async () => {
     const scans = store()
     await scans.import('bracket', source)
-    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED, YES)
     const told: ScanInfo[][] = []
     scans.on('changed', (m) => told.push(m.scans))
     const check = { revision: 3, of: 4, off: 1, worst: 2.5, moved: [] }
@@ -237,7 +239,7 @@ describe('ScanStore', () => {
     expect(told[0][0].checks).toEqual({ assembly: check })
     expect(JSON.stringify(file())).not.toContain('checks')
     // Aligned anew, it has not been checked.
-    expect((await scans.align('bracket', 'S1', 'assembly', ALIGNED)).checks).toEqual({})
+    expect((await scans.align('bracket', 'S1', 'assembly', ALIGNED, YES)).checks).toEqual({})
     await scans.checked('bracket', 'S1', 'assembly', check)
     scans.forget()
     expect((await scans.list('bracket'))[0].checks).toEqual({})
@@ -250,12 +252,109 @@ describe('ScanStore', () => {
     await expect(scans.align('bracket', 'S1', 'assembly', { ...ALIGNED, transform: { ...ALIGNED.transform, s: 0 } })).rejects.toThrow('that is not an alignment')
     await expect(scans.align('bracket', 'S1', 'assembly', { ...ALIGNED, steps: [] })).rejects.toThrow('that is not an alignment')
     const pairs = Array.from({ length: 70 }, (_, n) => ({ scan: [n, 0, 0] as [number, number, number], model: [n, 1, 0] as [number, number, number], residual: 1 }))
-    const kept = await scans.align('bracket', 'S1', '__proto__', { ...ALIGNED, transform: { t: [0, 0, 0], q: [0, 0, 0, 0], s: 1 }, pairs, extra: 1 } as ScanAlignment)
+    const kept = await scans.align('bracket', 'S1', '__proto__', { ...ALIGNED, transform: { t: [0, 0, 0], q: [0, 0, 0, -2], s: 1 }, pairs, extra: 1 } as ScanAlignment, YES)
     expect(Object.keys(kept.alignments)).toEqual(['__proto__'])
     const alignment = file().scans[0].alignments['__proto__']
     expect(alignment.transform.q).toEqual([0, 0, 0, 1])
     expect(alignment.pairs).toHaveLength(64)
     expect(alignment).not.toHaveProperty('extra')
+    // A turn that is none (all zeros) is no alignment: it is not taken for no turn.
+    await expect(scans.align('bracket', 'S1', 'assembly', { ...ALIGNED, transform: { t: [0, 0, 0], q: [0, 0, 0, 0], s: 1 } }, YES)).rejects.toThrow('that is not an alignment')
+  })
+
+  it('works out the residuals of an alignment itself, whatever it is told', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const told = { ...ALIGNED, steps: ['pairs' as const], rms: 0, scaled: false, transform: { t: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], s: 2 },
+      pairs: [{ scan: [1, 0, 0] as [number, number, number], model: [2, 0, 3] as [number, number, number], residual: 0 }, { scan: [0, 1, 0] as [number, number, number], model: [0, 2, 0] as [number, number, number], residual: 99 }] }
+    const kept = (await scans.align('bracket', 'S1', 'print', told, { rough: true, scaled: true })).alignments.print
+    expect(kept.pairs!.map((p) => p.residual)).toEqual([3, 0])
+    expect(kept.rms).toBeCloseTo(Math.sqrt(4.5), 9)
+    expect(kept.scaled).toBe(true)
+  })
+
+  // Task 5, the controller's rulings.
+  const pair = (scan: [number, number, number], model: [number, number, number]) => ({ scan, model, residual: 0 })
+  const FITTED: ScanAlignment = { ...ALIGNED, steps: ['pairs'], transform: { t: [5, 0, 1], q: [0, 0, 0, 1], s: 1 }, pairs: [pair([0, 0, 0], [5, 0, 1]), pair([10, 0, 0], [15, 0, 1]), pair([0, 10, 0], [5, 10, 1])] }
+
+  it('keeps a rough alignment only with the person’s yes, and says why it is rough', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await expect(scans.align('bracket', 'S1', 'assembly', ALIGNED)).rejects.toThrow('this alignment is rough (it was placed by hand, with no pairs of points to say how well): it is kept only once that is accepted')
+    expect(file().scans[0].alignments).toEqual({})
+    // A fit of three pairs that are not in a line needs no yes, and is not rough; the caller's word for it counts for nothing.
+    const sound = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, rough: 'so they say' })).alignments.assembly
+    expect(sound).not.toHaveProperty('rough')
+    const rough = (await scans.align('bracket', 'S1', 'print', ALIGNED, YES)).alignments.print
+    expect(rough.rough).toBe('it was placed by hand, with no pairs of points to say how well')
+    expect(file().scans[0].alignments.print.rough).toBe(rough.rough)
+  })
+
+  it('keeps a scale other than one only when the person chose to keep it', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const scaled = { ...FITTED, transform: { ...FITTED.transform, s: 1.02 }, pairs: FITTED.pairs!.map((p) => ({ ...p, model: [5 + 1.02 * p.scan[0], 1.02 * p.scan[1], 1] as [number, number, number] })) }
+    await expect(scans.align('bracket', 'S1', 'assembly', scaled)).rejects.toThrow('this alignment changes the size of the scan (× 1.02): it is kept only when that scale was chosen')
+    expect((await scans.align('bracket', 'S1', 'assembly', scaled, { scaled: true })).alignments.assembly).toMatchObject({ scaled: true, transform: { s: 1.02 } })
+  })
+
+  it('keeps the alignment before the last for one undo, and nothing of it from a caller', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await expect(scans.undoAlign('bracket', 'S1', 'assembly')).rejects.toThrow('S1 is not aligned in assembly: there is nothing to undo')
+    const first = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, before: FITTED, sourceChanged: true })).alignments.assembly
+    // The first there is: before it the scan was not aligned, and that is what an undo goes back to.
+    expect(first.before).toBeNull()
+    expect(first).not.toHaveProperty('sourceChanged')
+    const second = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, steps: ['pairs', 'nudge'], transform: { ...FITTED.transform, t: [5, 0, 2] } })).alignments.assembly
+    expect(second.before).toMatchObject({ steps: ['pairs'], transform: { t: [5, 0, 1] } })
+    expect(second.before).not.toHaveProperty('before')
+    const told: ScanInfo[][] = []
+    scans.on('changed', (m) => told.push(m.scans))
+    await scans.checked('bracket', 'S1', 'assembly', { revision: 3, of: 3, off: 0, worst: 0, moved: [] })
+    const undone = await scans.undoAlign('bracket', 'S1', 'assembly')
+    expect(undone.alignments.assembly).toMatchObject({ steps: ['pairs'], transform: { t: [5, 0, 1] } })
+    // One step back and no further; what was checked was of the alignment that is gone.
+    expect(undone.alignments.assembly).not.toHaveProperty('before')
+    expect(undone.checks).toEqual({})
+    expect(file().scans[0].alignments.assembly.transform.t).toEqual([5, 0, 1])
+    await expect(scans.undoAlign('bracket', 'S1', 'assembly')).rejects.toThrow('there is nothing to undo')
+    // Back from the first alignment is not aligned.
+    await scans.align('bracket', 'S1', 'print', FITTED)
+    expect((await scans.undoAlign('bracket', 'S1', 'print')).alignments).not.toHaveProperty('print')
+  })
+
+  it('marks every alignment of a scan read again from a changed source, until it is aligned again or said to hold', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.align('bracket', 'S1', 'assembly', FITTED)
+    await scans.align('bracket', 'S1', 'print', FITTED)
+    // Read again from the same file: nothing is in doubt.
+    expect((await scans.reimport('bracket', 'S1')).scan.alignments.assembly).not.toHaveProperty('sourceChanged')
+    const changed: Importer = { ...importer, import: async (...args) => ({ ...(await importer.import(...args)), source: { bytes: 684, sha256: 'cd'.repeat(32) } }) }
+    const later = store(changed)
+    const again = await later.reimport('bracket', 'S1')
+    expect(again.sourceChanged).toBe(true)
+    expect(again.scan.alignments).toMatchObject({ assembly: { sourceChanged: true }, print: { sourceChanged: true } })
+    // It is in the file: it is still said after torno was closed.
+    expect(file().scans[0].alignments.print.sourceChanged).toBe(true)
+    expect((await store().list('bracket'))[0].alignments.assembly.sourceChanged).toBe(true)
+    // Aligned again in one layout, said to hold in the other.
+    expect((await later.align('bracket', 'S1', 'assembly', FITTED)).alignments.assembly).not.toHaveProperty('sourceChanged')
+    const held = await later.alignmentHolds('bracket', 'S1', 'print')
+    expect(held.alignments.print).not.toHaveProperty('sourceChanged')
+    expect(file().scans[0].alignments.print).not.toHaveProperty('sourceChanged')
+    await expect(later.alignmentHolds('bracket', 'S1', 'nowhere')).rejects.toThrow('S1 is not aligned in nowhere')
+  })
+
+  it('keeps the build an alignment was made on for this run only, and a turn written one way', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const kept = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, revision: 4, transform: { ...FITTED.transform, q: [0, 0, 0, -3] } })).alignments.assembly
+    expect(kept.revision).toBe(4)
+    expect(kept.transform.q).toEqual([0, 0, 0, 1])
+    // Revisions count from 1 in every run: what the file says of one is dropped when it is read.
+    expect((await store().list('bracket'))[0].alignments.assembly).not.toHaveProperty('revision')
   })
 
   it('says where the files of a scan it has read are, and of nothing that is no scan or no mark', async () => {
@@ -522,7 +621,7 @@ describe('ScanStore, after its review', () => {
     const scans = store()
     await scans.import('bracket', source)
     await scans.rename('bracket', 'S1', 'engine bay')
-    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED, YES)
     await scans.checked('bracket', 'S1', 'assembly', { revision: 3, of: 4, off: 0, worst: 0.1, moved: [] })
     rmSync(join(scansDir(), 'S1'), { recursive: true })
     expect((await scans.list('bracket'))[0].meshState).toBe('missing')
@@ -545,7 +644,7 @@ describe('ScanStore, after its review', () => {
     const scans = store()
     await scans.import('bracket', source)
     await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
-    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED, YES)
     await scans.checked('bracket', 'S1', 'assembly', { revision: 3, of: 4, off: 0, worst: 0.1, moved: [] })
     scans.forget()
     const later = store(other)

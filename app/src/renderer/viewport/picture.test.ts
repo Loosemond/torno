@@ -38,6 +38,14 @@ describe('the scans a picture has, in its caption', () => {
       ' · scans S1 at 50 % (not aligned in assembly: drawn where it was imported), S2 (its alignment in assembly may no longer hold: torno has moved lid for display since it was aligned: check the alignment)'
     )
   })
+
+  // Task 5: an alignment that is only rough is said to be, with its reason; one in doubt besides says that first.
+  it('say of a scan that it is aligned only roughly', () => {
+    const rough = 'it was placed by hand, with no pairs of points to say how well'
+    expect(scansNote([{ id: 'S1', opacity: 1, aligned: true, stale: null, rough }], 'print')).toBe(` · scans S1 (aligned roughly in print: ${rough})`)
+    expect(scansNote([{ id: 'S1', opacity: 1, aligned: true, stale: 'x: check the alignment', rough }], 'print')).toBe(` · scans S1 (its alignment in print may no longer hold: x: check the alignment; it is rough: ${rough})`)
+    expect(scansNote([{ id: 'S1', opacity: 1, aligned: false, stale: null, rough: null }], 'print')).toBe(' · scans S1 (not aligned in print: drawn where it was imported)')
+  })
 })
 
 /** The section the person has on screen. */

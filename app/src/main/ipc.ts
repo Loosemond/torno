@@ -5,7 +5,7 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
 import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
-import { type NewAlignment, type ScanUnit, type ScanUp, SCAN_FORMATS } from '../shared/scans'
+import { type AlignMade, type NewAlignment, type ScanUnit, type ScanUp, SCAN_FORMATS } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { ViewState } from '../shared/view'
@@ -14,10 +14,11 @@ import { Builds, buildTimeout, watchFolder } from './builds'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
-import { type Retrying, asPlaced, asReplaced, checkMarks, followMarks, retrying } from './marks/reanchor'
+import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
 import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
+import { checkAlignments, tiedToMoved } from './scans/alignCheck'
 import { type ScanStore, frameOf } from './scans/store'
 import { loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
@@ -31,7 +32,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
-//           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport
+//           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection (sent by src/main/look.ts),
@@ -44,6 +45,8 @@ interface OpenWorkspace {
   scan: () => () => boolean
   /** Has the marks of an object checked against its last build (see `openWorkspace`). */
   reanchor?: Retrying
+  /** Has the alignments of an object's scans checked against its last build. */
+  alignChecks?: Retrying
   kernel: KernelClient
   builds: Builds
   opened: Set<string> // ids of the objects being watched and built
@@ -135,6 +138,22 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   })
   builds.on('scene', ({ objectId }) => reanchor(objectId))
   ws.reanchor = reanchor
+  // And every alignment of its scans: whether the model is still under the points it was tied to, and whether
+  // torno spreads the layout's parts as it did then. Found and said, never moved or fitted again.
+  const alignChecks = retrying((objectId) => {
+    const store = scans
+    if (!store) return Promise.resolve(true)
+    return checkAlignments(
+      {
+        scans: store,
+        scene: (id) => (current === ws ? builds.scene(id) : undefined),
+        nearest: async (id, layout, anchors: AskedAnchor[]) => nearestReply(await builds.query(id, 'nearest', { layout, anchors }), anchors)
+      },
+      objectId
+    )
+  })
+  builds.on('scene', ({ objectId }) => alignChecks(objectId))
+  ws.alignChecks = alignChecks
   current = ws
   return info
 }
@@ -157,6 +176,7 @@ export async function closeWorkspace(): Promise<void> {
   forgetViews()
   // A check of its marks that failed is not tried again: its timers would outlive it.
   ws.reanchor?.cancel()
+  ws.alignChecks?.cancel()
   checks.clear()
   // The next workspace may have an object of the same name, or this folder may change while it is closed.
   marks?.forget()
@@ -418,13 +438,29 @@ export function registerIpc(
   ipcMain.handle('scans:remove', (_event, objectId: string, id: string) => requireScans().remove(String(objectId), String(id)))
   ipcMain.handle('scans:problem', (_event, objectId: string) => requireScans().problem(String(objectId)))
   ipcMain.handle('scans:dismissProblem', (_event, objectId: string) => requireScans().dismissProblem(String(objectId)))
-  // What only main says of an alignment is said here: how the parts of that layout are spread on the last build, and when.
-  ipcMain.handle('scans:align', (_event, objectId: string, id: string, layout: string, alignment: NewAlignment | null) => {
+  // What only main says of an alignment is said here: how the parts of that layout are spread on the last build,
+  // when, and which build that is. An alignment is of the build it was fitted on: one made on another than the
+  // last is refused, as a dimension placed on another is. Then it is checked against that build, like every other.
+  const checked = <T>(objectId: string, kept: Promise<T>): Promise<T> =>
+    kept.then((info) => {
+      current?.alignChecks?.(objectId)
+      return info
+    })
+  ipcMain.handle('scans:align', (_event, objectId: string, id: string, layout: string, alignment: NewAlignment | null, made?: AlignMade) => {
     if (alignment === null || alignment === undefined) return requireScans().align(String(objectId), String(id), layout, null)
-    const frame = frameOf(lastScene(String(objectId))?.scene, layout)
-    if (!frame) throw new Error(`no build of this object has a layout named ${String(layout)}: there is nothing to align the scan to`)
-    return requireScans().align(String(objectId), String(id), layout, { ...Object(alignment), frame, at: new Date().toISOString() })
+    const last = lastScene(String(objectId))
+    const frame = frameOf(last?.scene, layout)
+    if (!last || !frame) throw new Error(`no build of this object has a layout named ${String(layout)}: there is nothing to align the scan to`)
+    const revision = Object(made).revision
+    if (typeof revision !== 'number' || !Number.isSafeInteger(revision)) throw new Error('an alignment says which build it was made on')
+    if (revision !== last.revision) throw new Error(`that alignment was made on r${revision}, the build is r${last.revision}: align again`)
+    const moved = tiedToMoved(Object(alignment), frame)
+    if (moved.length > 0) throw new Error(`torno moved ${moved.join(', ')} for display in ${layout}: align to a part it did not move, or in a layout that places the parts as assembled`)
+    const accepted = { rough: Object(made).rough === true, scaled: Object(made).scaled === true }
+    return checked(String(objectId), requireScans().align(String(objectId), String(id), layout, { ...Object(alignment), frame, at: new Date().toISOString(), revision }, accepted))
   })
+  ipcMain.handle('scans:undoAlign', (_event, objectId: string, id: string, layout: string) => checked(String(objectId), requireScans().undoAlign(String(objectId), String(id), layout)))
+  ipcMain.handle('scans:alignHolds', (_event, objectId: string, id: string, layout: string) => requireScans().alignmentHolds(String(objectId), String(id), layout))
   // A copy with a buffer of its own, as the blob of a scene is sent.
   ipcMain.handle('scans:mesh', async (_event, objectId: string, id: string) => toArrayBuffer(await requireScans().mesh(String(objectId), String(id))))
 

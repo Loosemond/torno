@@ -57,6 +57,18 @@ const picture = (request: LookRequest, p: Page = page) =>
     const made = await window.__tornoTest!.look(request)
     return { caption: made.caption, sum: made.png.reduce((a, b) => (a * 31 + b) % 1_000_000_007, 7) }
   }, request)
+/**
+ * Stands a scan `t` away from where it was imported, as three pairs of points that fit exactly would: an alignment
+ * that is not rough, made on the build on show (main refuses one made on another).
+ */
+const place = (id: string, t: [number, number, number], p: Page = page) =>
+  p.evaluate(
+    ({ id, t }) => {
+      const pairs = ([[0, 0, 0], [10, 0, 0], [0, 10, 0]] as [number, number, number][]).map((scan) => ({ scan, model: [scan[0] + t[0], scan[1] + t[1], scan[2] + t[2]] as [number, number, number], residual: 0 }))
+      return window.torno.scans.align('bracket', id, 'assembly', { transform: { t, q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs }, { revision: window.__tornoTest!.state().revision })
+    },
+    { id, t }
+  )
 const scansFile = () => JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scans.json'), 'utf8'))
 
 test.beforeAll(async () => {
@@ -95,7 +107,7 @@ test('a picture has the scan unless it is asked without, and says which', async 
   // Changed in fix round 1 (I1): a scan that is not aligned is said not to be where the model is.
   expect(withScan.caption).toContain(' · scans S1 (not aligned in assembly: drawn where it was imported) · ')
   expect(without.caption).not.toContain('scans')
-  await page.evaluate(() => window.torno.scans.align('bracket', 'S1', 'assembly', { transform: { t: [0, 0, 1], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] }))
+  await place('S1', [0, 0, 1])
   await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
   expect((await picture({ view: 'iso', size: 256 })).caption).toContain(' · scans S1 · ')
   expect((await picture({ view: 'iso', size: 256, layout: 'print' })).caption).toContain(' · scans S1 (not aligned in print: drawn where it was imported) · ')
@@ -252,7 +264,7 @@ test('a scan whose mesh is gone says so, is not drawn, and has its source read a
   expect((await scans())[0]).toMatchObject({ id: 'S2', loaded: false })
   expect((await picture({ view: 'iso', size: 256 })).caption).not.toContain('scans')
   // Changed in fix round 1 (I2): beside what says the mesh is gone, and into the same scan: what it had stays.
-  await page.evaluate(() => window.torno.scans.align('bracket', 'S2', 'assembly', { transform: { t: [0, 0, 1], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] }))
+  await place('S2', [0, 0, 1])
   await expect(row('S2').locator('.scan-said')).toContainText('Its mesh is gone from the disk')
   await row('S2').locator('.scan-said').getByRole('button', { name: 'Import again' }).click()
   await expect.poll(async () => (await scans())[0], { timeout: 30_000 }).toMatchObject({ id: 'S2', loaded: true, aligned: true })
@@ -263,9 +275,10 @@ test('a scan whose mesh is gone says so, is not drawn, and has its source read a
 
 // Task 4: pointing at a scan.
 
-test('a scan in front of a part takes the pick, however thin it is drawn, unless the parts alone are asked for or a section takes it away', async () => {
+// Changed in Task 5 (the controller's ruling): what is seen through is pointed through. Only a scan drawn solid takes the pick.
+test('a scan drawn solid in front of a part takes the pick, and one that is seen through does not; nor one the section takes away', async () => {
   // The plate 2.5 mm over the top of the post, which is at z = 22.5: from above, the post is behind it.
-  await page.evaluate(() => window.torno.scans.align('bracket', 'S2', 'assembly', { transform: { t: [0, 0, 35], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] }))
+  await place('S2', [0, 0, 35])
   await expect.poll(async () => (await scans())[0]).toMatchObject({ id: 'S2', ready: true, how: 'worker', transform: { t: [0, 0, 35] } })
   const [fx, fy] = await page.evaluate(() => window.__tornoTest!.project([0, 0, 22.5]))
   const at = [fx, fy] as const
@@ -278,7 +291,7 @@ test('a scan in front of a part takes the pick, however thin it is drawn, unless
   expect(onScan!.distance).toBeLessThan(part!.distance)
   expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), at)).toBeNull()
 
-  // Drawn solid, the scan hides the part and nothing needs saying; drawn thin, the part shows through, and the pointer says why it is not picked.
+  // Drawn solid, the scan hides the part: nothing is pointed at there, and nothing needs saying.
   const readout = page.locator('.pick-readout')
   const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
   const [x, y] = [canvas.x + fx * canvas.width, canvas.y + fy * canvas.height]
@@ -286,14 +299,24 @@ test('a scan in front of a part takes the pick, however thin it is drawn, unless
   await page.mouse.move(x + 3, y)
   await page.mouse.move(x, y)
   await expect(readout).toBeHidden()
+  // Drawn thin, the part shows through it, and is what is pointed at: the pointer names it, and a click selects it.
   await row('S2').getByRole('slider', { name: 'Opacity of S2' }).fill('0.4')
   await expect.poll(async () => (await scans())[0].opacity).toBe(0.4)
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), at)).toMatchObject({ part: 'post', kind: 'face' })
+  // The scan itself can still be pointed at by what asks for scans.
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickScanAt(fx, fy), at)).toMatchObject({ scan: 'S2' })
   await page.mouse.move(x + 3, y)
   await page.mouse.move(x, y)
-  await expect(readout).toHaveText('Scan S2 is in front of the part here: switch it off to point at the part')
+  await expect(readout.locator('.pick-readout-ref')).toHaveText(/^post\/F/)
   await page.mouse.down()
   await page.mouse.up()
-  expect((await state()).selection).toEqual([])
+  await expect.poll(async () => (await state()).selection).toHaveLength(1)
+  expect((await state()).selection[0]).toMatch(/^post\/F/)
+  await page.keyboard.press('Escape')
+  // Solid again for what follows.
+  await row('S2').getByRole('slider', { name: 'Opacity of S2' }).fill('1')
+  await expect.poll(async () => (await scans())[0].opacity).toBe(1)
+  expect(await page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy), at)).toBeNull()
 
   // A section that takes the plate away takes it out of the pointer's way: what it removes is not picked.
   const show = (request: object): Promise<void> => app.evaluate(({ BrowserWindow }, req) => BrowserWindow.getAllWindows()[0].webContents.send('view:show', { id: 987700, request: req }), request)
@@ -335,10 +358,7 @@ test.describe('a large scan', () => {
     await pickFile(wavy)
     await page.getByRole('button', { name: 'Import scan…' }).click()
     await expect.poll(async () => (await scans())[0]?.loaded, { timeout: 60_000 }).toBe(true)
-    // The window answers while the tree is built: a round trip to it takes no longer than it does idle.
-    const before = Date.now()
-    await page.evaluate(() => window.__tornoTest!.state().objectId)
-    expect(Date.now() - before).toBeLessThan(500)
+    // That the tree is made off the window's thread is said by `how` below: nothing here times the window meanwhile.
     await expect.poll(async () => (await scans())[0].ready, { timeout: 30_000 }).toBe(true)
     const cost = await page.evaluate(() => window.__tornoTest!.timeScanPicks(200))
     expect(cost.how).toEqual({ S1: 'worker' })

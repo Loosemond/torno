@@ -1,8 +1,10 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { ScanInfo } from '../../shared/scans'
-import { box, meshBin } from '../../test/scanFixtures'
-import { ScanLayer, reaching } from './scans'
+import { MeshBVH } from 'three-mesh-bvh'
+import { box, grid, meshBin } from '../../test/scanFixtures'
+import { SCAN_OFFSET_FACTOR } from './scanMesh'
+import { SCAN_BEHIND_MM, ScanLayer, drawnBehind, reaching, type TreeBuilder } from './scans'
 
 const scan = (id: string, more: Partial<ScanInfo> = {}): ScanInfo =>
   ({ id, name: `${id}.stl`, source: { path: `/d/${id}.stl`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'mm', up: 'z', assumed: { unit: true, up: true }, vertices: 8, triangles: 12, colours: 'none', bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, area: 3100, at: '' }, alignments: {}, sourceState: 'present', meshState: 'ok', checks: {}, ...more }) as ScanInfo
@@ -33,7 +35,7 @@ describe('ScanLayer', () => {
     layer.setView('S2', { visible: false })
     layer.setView('S1', { opacity: 0.6 })
     // Changed in fix round 1 (I1): what is drawn of a scan says whether it is aligned in the layout drawn.
-    expect(layer.shown()).toEqual([{ id: 'S1', visible: true, opacity: 0.6, aligned: false, stale: null }, { id: 'S2', visible: false, opacity: 1, aligned: false, stale: null }])
+    expect(layer.shown()).toEqual([{ id: 'S1', visible: true, opacity: 0.6, aligned: false, stale: null, rough: null }, { id: 'S2', visible: false, opacity: 1, aligned: false, stale: null, rough: null }])
     const mesh = layer.group.children[0].children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.Material>
     expect(mesh.material).toMatchObject({ transparent: true, opacity: 0.6, depthWrite: false })
     const back = layer.showOnly(['S2'])
@@ -305,12 +307,16 @@ describe('pointing at a scan, further', () => {
     expect(layer.pick(down(5, 1, 20), null)).toMatchObject({ scan: 'S2', point: [5, 1, 17.5], normal: [0, 0, 1], distance: 2.5 })
   })
 
-  it('says whether a scan is seen through', async () => {
-    const layer = await layerOf(scan('S1'))
-    expect(layer.seenThrough('S1')).toBe(false)
-    layer.setView('S1', { opacity: 0.5 })
-    expect(layer.seenThrough('S1')).toBe(true)
-    expect(layer.seenThrough('S9')).toBe(false)
+  it('asked for what is drawn solid only, passes through a scan drawn thin, whichever is in front', async () => {
+    // S2 is above S1. Thin, it is in nobody's way: the solid one behind it is what stands in front of a part.
+    const layer = await layerOf(scan('S1'), scan('S2', { alignments: aligned([0, 0, 20]) }))
+    layer.setView('S2', { opacity: 0.3 })
+    expect(layer.pick(down(5, 1), null)).toMatchObject({ scan: 'S2' })
+    expect(layer.pick(down(5, 1), null, Infinity, true)).toMatchObject({ scan: 'S1', point: [5, 1, 2.5] })
+    layer.setView('S1', { opacity: 0.94 })
+    expect(layer.pick(down(5, 1), null, Infinity, true)).toBeNull()
+    layer.setView('S1', { opacity: 0.95 })
+    expect(layer.pick(down(5, 1), null, Infinity, true)).toMatchObject({ scan: 'S1' })
   })
 
   it('has no tree for a mesh that was let go of while its tree was made, and keeps no one waiting', async () => {
@@ -345,5 +351,231 @@ describe('pointing at a scan, further', () => {
     expect(layer.state()[0].ready).toBe(true)
     expect(layer.tree('S1')!.built.id).toBe('S1')
     expect(drawn).toBe(before + 1)
+  })
+})
+
+// Task 5, and what Task 4's review asked for.
+describe('a scan in front of a part', () => {
+  const down = (x: number, y: number): THREE.Ray => new THREE.Ray(new THREE.Vector3(x, y, 100), new THREE.Vector3(0, 0, -1))
+  const PX = (): number => 0.1
+  async function layerOf(...scans: ScanInfo[]): Promise<ScanLayer> {
+    const layer = new ScanLayer(() => {})
+    layer.set(scans, 'print')
+    for (const { id } of scans) layer.load(id, meshBin(box([40, 30, 5])))
+    await Promise.all(scans.map(({ id }) => layer.whenReady(id)))
+    return layer
+  }
+
+  it('takes the pick when it is drawn solid, and never when it is seen through', async () => {
+    // The top of the scan is 97.5 mm along the ray; a part 110 mm along it is behind the scan.
+    const layer = await layerOf(scan('S1'))
+    expect(layer.blocks(down(5, 1), null, 110, PX)).toBe(true)
+    // The part in front of the scan, and where the scan is not.
+    expect(layer.blocks(down(5, 1), null, 90, PX)).toBe(false)
+    expect(layer.blocks(down(50, 1), null, 110, PX)).toBe(false)
+    layer.setView('S1', { opacity: 0.9 })
+    expect(layer.blocks(down(5, 1), null, 110, PX)).toBe(false)
+    layer.setView('S1', { opacity: 1, visible: false })
+    expect(layer.blocks(down(5, 1), null, 110, PX)).toBe(false)
+  })
+
+  it('does not when the part lies in its surface: the scan is drawn pushed back, so the part is what is seen', async () => {
+    const layer = await layerOf(scan('S1'))
+    expect(layer.blocks(down(5, 1), null, 97.5, PX)).toBe(false)
+    expect(layer.blocks(down(5, 1), null, 97.5 + SCAN_BEHIND_MM / 2, PX)).toBe(false)
+    expect(layer.blocks(down(5, 1), null, 97.6, PX)).toBe(true)
+  })
+
+  it('nor, seen at a slant, when the scan is in front by less than it is pushed back there', async () => {
+    // Head on, the scan is pushed back by next to nothing; at a slant, by two pixels' worth of its slope.
+    expect(drawnBehind([0, 0, 1], [0, 0, -1], 0.1)).toBeCloseTo(SCAN_BEHIND_MM, 12)
+    const slant = Math.tan(Math.PI / 3)
+    expect(drawnBehind([0, 0, 1], [Math.sin(Math.PI / 3), 0, -Math.cos(Math.PI / 3)], 0.1)).toBeCloseTo(SCAN_BEHIND_MM + SCAN_OFFSET_FACTOR * 0.1 * slant, 9)
+    // Along the surface there is no telling: it never takes the pick there.
+    expect(drawnBehind([0, 0, 1], [1, 0, 0], 0.1)).toBeGreaterThan(1e3)
+    // A ray 80° off the normal of the scan's top, which it meets at (0, 0, 2.5): a part 0.5 mm further along is drawn in front of it.
+    const layer = await layerOf(scan('S1'))
+    const angle = (80 * Math.PI) / 180
+    const direction = new THREE.Vector3(Math.sin(angle), 0, -Math.cos(angle))
+    const ray = new THREE.Ray(new THREE.Vector3(0, 0, 2.5).addScaledVector(direction, -100), direction)
+    expect(layer.pick(ray, null)!.distance).toBeCloseTo(100, 6)
+    expect(layer.blocks(ray, null, 100.5, PX)).toBe(false)
+    expect(layer.blocks(ray, null, 103, PX)).toBe(true)
+    // Head on, half a millimetre is plenty.
+    expect(layer.blocks(down(5, 1), null, 98, PX)).toBe(true)
+  })
+})
+
+describe('waiting for a scan’s tree', () => {
+  /** A builder whose trees are made when the test says, each by the mesh it was asked for. */
+  function builder(): { build: TreeBuilder; asked: Array<{ geometry: THREE.BufferGeometry; signal: AbortSignal; finish(ok: boolean): Promise<void> }> } {
+    const asked: ReturnType<typeof builder>['asked'] = []
+    const build: TreeBuilder = (geometry, signal) =>
+      new Promise((resolve, reject) => {
+        asked.push({
+          geometry,
+          signal,
+          finish: async (ok) => {
+            if (ok) resolve({ tree: new MeshBVH(geometry, { indirect: true }), how: 'main' })
+            else reject(new Error('no tree'))
+            await Promise.resolve()
+            await Promise.resolve()
+          }
+        })
+      })
+    return { build, asked }
+  }
+  const waiting = (promise: Promise<void>): (() => boolean) => {
+    let done = false
+    void promise.then(() => (done = true))
+    return () => done
+  }
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+  }
+
+  it('is over at once for a scan whose mesh cannot come', async () => {
+    const layer = new ScanLayer(() => {})
+    layer.set([scan('S1', { meshState: 'missing' })], 'print')
+    await layer.whenReady('S1')
+    expect(layer.state()[0].ready).toBe(false)
+  })
+
+  it('is not ended by the failure of a tree for a mesh that was replaced meanwhile', async () => {
+    const { build, asked } = builder()
+    const layer = new ScanLayer(() => {}, build)
+    const first = scan('S1')
+    layer.set([first], 'print')
+    layer.load('S1', meshBin(box()))
+    // Converted: another mesh, with a tree of its own to wait for.
+    layer.set([{ ...first, imported: { ...first.imported, at: 'later' } }], 'print')
+    layer.load('S1', meshBin(box()))
+    const ready = waiting(layer.whenReady('S1'))
+    await asked[0].finish(false)
+    await settle()
+    expect(ready()).toBe(false)
+    await asked[1].finish(true)
+    await settle()
+    expect(ready()).toBe(true)
+    expect(layer.state()[0].ready).toBe(true)
+  })
+
+  it('tells whoever makes the tree when the mesh is let go of, so that nothing more is built for it', () => {
+    const { build, asked } = builder()
+    const layer = new ScanLayer(() => {}, build)
+    layer.set([scan('S1')], 'print')
+    layer.load('S1', meshBin(box()))
+    expect(asked[0].signal.aborted).toBe(false)
+    layer.set([], 'print')
+    expect(asked[0].signal.aborted).toBe(true)
+  })
+})
+
+describe('a scan drawn somewhere else for now', () => {
+  const down = (x: number, y: number): THREE.Ray => new THREE.Ray(new THREE.Vector3(x, y, 100), new THREE.Vector3(0, 0, -1))
+  const THERE = { t: [100, 0, 10] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], s: 1 }
+  async function layerWith(alignments = {}): Promise<ScanLayer> {
+    const layer = new ScanLayer(() => {})
+    layer.set([scan('S1', { alignments })], 'print')
+    layer.load('S1', meshBin(box([40, 30, 5])))
+    await layer.whenReady('S1')
+    return layer
+  }
+
+  it('is drawn and pointed at there, and where main has it again afterwards', async () => {
+    let drawn = 0
+    const layer = new ScanLayer(() => (drawn += 1))
+    layer.set([scan('S1')], 'print')
+    layer.load('S1', meshBin(box([40, 30, 5])))
+    await layer.whenReady('S1')
+    const before = drawn
+    layer.preview('S1', THERE)
+    expect(drawn).toBe(before + 1)
+    expect(layer.state()[0]).toMatchObject({ aligned: false, transform: THERE })
+    expect(layer.placed('S1')).toEqual(THERE)
+    expect(layer.pick(down(105, 1), null)).toMatchObject({ point: [105, 1, 12.5], local: [5, 1, 2.5] })
+    expect(layer.box()!.max.toArray()).toEqual([120, 15, 12.5])
+    layer.preview('S1', null)
+    expect(layer.state()[0].transform.t).toEqual([0, 0, 0])
+    expect(layer.pick(down(105, 1), null)).toBeNull()
+    expect(layer.placed('S9')).toBeNull()
+  })
+
+  it('is in no picture: a picture draws it where main has it', async () => {
+    const layer = await layerWith()
+    layer.preview('S1', THERE)
+    const back = layer.showOnly(['S1'])
+    expect(layer.group.children[0].position.toArray()).toEqual([0, 0, 0])
+    back()
+    expect(layer.group.children[0].position.toArray()).toEqual([100, 0, 10])
+  })
+
+  it('says of an aligned scan that it is rough, when it is', async () => {
+    const layer = await layerWith({ print: { ...aligned([0, 0, 0]).print, rough: 'it was placed by hand, with no pairs of points to say how well' } })
+    expect(layer.shown()[0]).toMatchObject({ aligned: true, rough: 'it was placed by hand, with no pairs of points to say how well' })
+    const changed = await layerWith({ print: { ...aligned([0, 0, 0]).print, sourceChanged: true } })
+    expect(changed.shown()[0].stale).toBe('the scan was imported again from a source that had changed since it was aligned: check the alignment')
+  })
+})
+
+describe('a patch of a scan', () => {
+  const down = (x: number, y: number): THREE.Ray => new THREE.Ray(new THREE.Vector3(x, y, 100), new THREE.Vector3(0, 0, -1))
+  async function sheet(alignments = {}): Promise<ScanLayer> {
+    const layer = new ScanLayer(() => {})
+    layer.set([scan('S1', { alignments })], 'print')
+    // A sheet 19 mm square of 1 mm cells with a step: flat at z = 0, and 5 mm up from x = 5 on.
+    layer.load('S1', meshBin(grid(20, 1, (x) => (x > 5 ? 5 : 0))))
+    await layer.whenReady('S1')
+    return layer
+  }
+
+  it('is the triangles round a point of it that face as the one hit does, by their middles and their areas', async () => {
+    const layer = await sheet()
+    const hit = layer.pick(down(0.2, 0.2), null)!
+    const patch = layer.patch(hit, 3)!
+    // Every triangle of a 1 mm grid has half a square millimetre, and all of these lie flat at z = 0.
+    expect(patch.points.length).toBeGreaterThan(40)
+    expect(patch.points.length).toBe(patch.weights.length)
+    expect(patch.weights.every((w) => Math.abs(w - 0.5) < 1e-6)).toBe(true)
+    expect(patch.points.every((p) => Math.hypot(p[0] - 0.2, p[1] - 0.2) <= 3 && Math.abs(p[2]) < 1e-6)).toBe(true)
+    // About π r² of it.
+    expect(patch.weights.reduce((a, b) => a + b, 0)).toBeGreaterThan(0.85 * Math.PI * 9)
+    // A patch that reaches the step leaves out the riser, which faces another way, and takes the flat beyond it.
+    const wide = layer.patch(hit, 8)!
+    expect(wide.points.some((p) => p[2] > 4.9)).toBe(true)
+    expect(wide.points.some((p) => p[2] > 0.1 && p[2] < 4.9)).toBe(false)
+    expect(layer.patch(null, 3)).toBeNull()
+  })
+
+  it('is said in the object frame of a scan that was moved and scaled, with its radius in millimetres there', async () => {
+    const layer = await sheet({ print: { transform: { t: [100, 0, 10], q: [0, 0, 0, 1], s: 2 }, steps: ['typed'], frame: {}, at: '' } })
+    const hit = layer.pick(down(100.4, 0.4), null)!
+    const patch = layer.patch(hit, 6)!
+    expect(patch.weights.every((w) => Math.abs(w - 2) < 1e-6)).toBe(true)
+    expect(patch.points.every((p) => Math.hypot(p[0] - 100.4, p[1] - 0.4) <= 6 && Math.abs(p[2] - 10) < 1e-6)).toBe(true)
+    expect(patch.weights.reduce((a, b) => a + b, 0)).toBeGreaterThan(0.85 * Math.PI * 36)
+  })
+
+  it('is tinted over the scan while asked, with nothing copied of the scan, and in no picture', async () => {
+    const layer = await sheet()
+    const hit = layer.pick(down(0.2, 0.2), null)!
+    const group = layer.group.children[0]
+    expect(group.children).toHaveLength(1)
+    const patch = layer.patch(hit, 3, { tint: true })!
+    expect(group.children).toHaveLength(2)
+    const [mesh, tint] = group.children as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[]
+    expect(tint.geometry.getAttribute('position')).toBe(mesh.geometry.getAttribute('position'))
+    expect(tint.geometry.drawRange.count).toBe(3 * patch.points.length)
+    expect(tint.material).toMatchObject({ transparent: true, opacity: 0.35, depthWrite: false })
+    const back = layer.showOnly(['S1'])
+    expect(tint.visible).toBe(false)
+    back()
+    expect(tint.visible).toBe(true)
+    // Asked without a tint, or for nothing: the tint goes.
+    layer.patch(hit, 3)
+    expect(group.children).toHaveLength(1)
+    layer.patch(hit, 3, { tint: true })
+    layer.patch(null, 0)
+    expect(group.children).toHaveLength(1)
   })
 })

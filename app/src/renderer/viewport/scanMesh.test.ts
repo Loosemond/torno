@@ -22,14 +22,16 @@ describe('buildScan', () => {
     expect(built.mesh.geometry.boundsTree).toBeUndefined()
   })
 
-  it('draws a scan without colours lit and flat, and owns its data', () => {
+  // Changed in Task 5 (Task 4's review): the positions and the triangles are the blob's own, one copy less of a mesh of tens of megabytes.
+  it('draws a scan without colours lit and flat, from the bytes it was given: nothing of them is copied', () => {
     const blob = meshBin(box())
     const built = buildScan('S2', blob)
     expect(built.own).toBeNull()
     expect(built.mesh.material).toBe(built.plain)
     expect(built.plain).toMatchObject({ flatShading: true, side: THREE.DoubleSide, polygonOffset: true })
-    new Float32Array(blob, 64, 3).fill(999)
     expect(built.mesh.geometry.getAttribute('position').getX(0)).toBe(-20)
+    expect((built.mesh.geometry.getAttribute('position').array as Float32Array).buffer).toBe(blob)
+    expect((built.mesh.geometry.index!.array as Uint32Array).buffer).toBe(blob)
   })
 
   // Fix round 1: the box is the one the file says, and the sphere is round it: no pass over the vertices for either.

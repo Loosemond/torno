@@ -141,7 +141,7 @@ function fake(over: Partial<ToolContext> = {}) {
   const noted: string[] = []
   const said: string[] = []
   const ctx: ToolContext = {
-    viewport: { setHover: () => {}, setNavigation: () => {}, setDraft: () => {}, lockedView: () => null, pick: () => null, bounds: () => BOUNDS },
+    viewport: { setHover: () => {}, setNavigation: () => {}, setDraft: () => {}, lockedView: () => null, pickScan: () => null, pick: () => null, bounds: () => BOUNDS },
     readout: { show: () => {}, describe: () => {}, say: (_at, message) => void said.push(message), hide: () => {} },
     objectId: 'bracket',
     layout: 'assembly',

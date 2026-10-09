@@ -7,6 +7,7 @@ import { connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
+import { alignTool, connectAlign } from '../tools/alignTool'
 import { arrowTool } from '../tools/arrowTool'
 import { drawTool } from '../tools/drawTool'
 import { measureTool } from '../tools/measureTool'
@@ -20,6 +21,7 @@ import { Readout } from '../viewport/highlight'
 import { meshOf } from '../viewport/scans'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
+import { AlignBar } from './AlignBar'
 import { NotePopover } from './NotePopover'
 import { importScan, scanDropped } from './scanDrop'
 import { SectionBar } from './SectionBar'
@@ -197,7 +199,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // The one pointer subscription: every event goes to the tool in use, and to
   // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
-  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), section: sectionTool(), measure: measureTool() }
+  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), section: sectionTool(), measure: measureTool(), align: alignTool() }
   let tool = tools[toolStore.getState().tool]
   const putDown = () => {
     tool?.cancel(context())
@@ -266,6 +268,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // After the layout: a mark of another layout is gone to once that layout is shown.
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
   })
+
+  // After the store's own subscription above: by then the viewport has the scans as they now are.
+  const offAlign = connectAlign(viewport)
 
   viewport.onCameraSettled((camera) => {
     if (camera.ortho !== store.getState().ortho) actions.setOrtho(camera.ortho)
@@ -356,6 +361,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offScene()
     offStore()
     offShape()
+    offAlign()
     setPictures(null)
     offAgent()
     delete window.__tornoTest
@@ -452,6 +458,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
           <ToolPalette />
           <Selection viewport={viewport} />
           <SectionBar viewport={viewport} />
+          <AlignBar />
           <AgentLine />
           <NotePopover viewport={viewport} />
         </>

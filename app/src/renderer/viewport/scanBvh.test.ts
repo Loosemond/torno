@@ -19,6 +19,7 @@ function played(answer: (posted: Posted, worker: Worker) => void): { make: () =>
       const worker = {
         onmessage: null,
         onerror: null,
+        onmessageerror: null,
         terminate: () => void (seen.terminated += 1),
         postMessage: (message: Posted['message'], transfer: Transferable[]) => {
           const posted = { message, transfer }
@@ -97,5 +98,29 @@ describe('buildScanBvh', () => {
     await expect(buildScanBvh(empty, null)).rejects.toThrow()
     const failing = played((_posted, w) => w.onerror!(new Event('error') as ErrorEvent))
     await expect(buildScanBvh(empty, failing.make)).rejects.toThrow()
+  })
+
+  // From Task 4's review.
+  it('builds in place when the worker’s answer cannot be read', async () => {
+    const garbled = played((_posted, w) => w.onmessageerror!(new MessageEvent('messageerror')))
+    expect((await buildScanBvh(sheet(), garbled.make)).how).toBe('main')
+    expect(garbled.terminated).toBe(1)
+  })
+
+  it('builds nothing on the window’s thread for a mesh that was let go of: the worker is ended, and its failure is no reason to', async () => {
+    const stop = new AbortController()
+    let fail: (() => void) | undefined
+    const slow = played((_posted, w) => (fail = () => w.onerror!(new Event('error') as ErrorEvent)))
+    const asked = buildScanBvh(sheet(), slow.make, stop.signal)
+    await Promise.resolve()
+    stop.abort()
+    await expect(asked).rejects.toThrow('let go of')
+    expect(slow.terminated).toBe(1)
+    fail!()
+    // And one asked for after it was let go of is not begun at all.
+    const none = played(() => {})
+    await expect(buildScanBvh(sheet(), none.make, stop.signal)).rejects.toThrow('let go of')
+    expect(none.posted).toEqual([])
+    await expect(buildScanBvh(sheet(), null, stop.signal)).rejects.toThrow('let go of')
   })
 })

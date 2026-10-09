@@ -2,7 +2,8 @@ import { copyFile, mkdir, readFile, realpath, rm, stat as statFile, writeFile } 
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
-import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, SCAN_FORMATS, UNIT_MM } from '../../shared/scans'
+import { number } from '../../shared/format'
+import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, SCAN_FORMATS, UNIT_MM, alignmentOf } from '../../shared/scans'
 import { loadScansFile, sanitiseAlignment, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
 import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, removeMesh, scanFolder, sweep } from './meshfiles'
@@ -335,6 +336,8 @@ export class ScanStore {
           })
           if (!again) throw new Error(`the import of ${name} did not say what it wrote: ${id} is as it was`)
           sourceChanged = again.source.sha256 !== scan.source.sha256
+          // Of another file than the one each was aligned with: said with the scan until it is aligned again, or said to hold.
+          if (sourceChanged) for (const alignment of Object.values(again.alignments)) alignment.sourceChanged = true
           meshChanged = again.imported.vertices !== scan.imported.vertices || again.imported.triangles !== scan.imported.triangles
           file.scans[at] = again
           // Of another mesh than the one they were checked with.
@@ -393,23 +396,70 @@ export class ScanStore {
    * Keeps where the scan is in a layout, or with null that it is aligned to
    * nothing there. What the last check found of that layout is forgotten:
    * it was of the alignment before.
+   *
+   * What follows from the transform and the pairs is worked out here, never
+   * taken: residuals, rms, whether the scan was scaled, why it is rough
+   * (`sanitiseAlignment`). An alignment that is rough, or that changes the
+   * scan's size, is kept only with the person's yes to that (`accepted`).
+   * The alignment it takes the place of is kept with it, for one `undoAlign`;
+   * `before` and `sourceChanged` are never a caller's to say.
    */
-  align(objectId: string, id: string, layout: string, alignment: ScanAlignment | null): Promise<ScanInfo> {
-    return this.of(objectId, (place) => this.aligning(place, id, layout, alignment))
+  align(objectId: string, id: string, layout: string, alignment: ScanAlignment | null, accepted: { rough?: boolean; scaled?: boolean } = {}): Promise<ScanInfo> {
+    return this.of(objectId, (place) => this.aligning(place, id, layout, alignment, accepted))
   }
 
-  private aligning(place: Place, id: string, layout: string, alignment: ScanAlignment | null): Promise<ScanInfo> {
+  private aligning(place: Place, id: string, layout: string, alignment: ScanAlignment | null, accepted: { rough?: boolean; scaled?: boolean }): Promise<ScanInfo> {
+    return this.inLayout(place, id, layout, (scan, others) => {
+      if (alignment === null) {
+        scan.alignments = Object.fromEntries(others)
+        return
+      }
+      const kept = sanitiseAlignment({ ...Object(alignment), before: undefined, sourceChanged: undefined })
+      if (!kept) throw new Error('that is not an alignment: its transform, its steps, its frame or its time is missing, or a number is not finite')
+      if (kept.scaled && accepted.scaled !== true) throw new Error(`this alignment changes the size of the scan (× ${number(kept.transform.s)}): it is kept only when that scale was chosen`)
+      if (kept.rough !== undefined && accepted.rough !== true) throw new Error(`this alignment is rough (${kept.rough}): it is kept only once that is accepted`)
+      const was = alignmentOf(scan, layout)
+      kept.before = was ? withoutBefore(was) : null
+      scan.alignments = Object.fromEntries([...others, [layout, kept]])
+    })
+  }
+
+  /**
+   * Puts back the alignment the scan had in a layout before the last one was
+   * kept, as it was: its frame, its time and what it was made of. One step
+   * back: what is put back has nothing before it. Rejects when there is
+   * nothing to go back to.
+   */
+  undoAlign(objectId: string, id: string, layout: string): Promise<ScanInfo> {
+    return this.of(objectId, (place) =>
+      this.inLayout(place, id, layout, (scan, others) => {
+        const now = alignmentOf(scan, layout)
+        if (!now) throw new Error(`${scan.id} is not aligned in ${layout}: there is nothing to undo`)
+        if (now.before === undefined) throw new Error(`${scan.id} has no alignment in ${layout} before this one: there is nothing to undo`)
+        scan.alignments = Object.fromEntries(now.before === null ? others : [...others, [layout, structuredClone(now.before)]])
+      })
+    )
+  }
+
+  /** The person says an alignment still holds though the scan was read again from a changed source: it is no longer said to be in doubt for that. */
+  alignmentHolds(objectId: string, id: string, layout: string): Promise<ScanInfo> {
+    return this.of(objectId, (place) =>
+      this.change(place, (file) => {
+        const scan = file.scans[indexOf(file, id)]
+        const now = alignmentOf(scan, layout)
+        if (!now) throw new Error(`${scan.id} is not aligned in ${String(layout)}`)
+        delete now.sourceChanged
+        return scan
+      }).then((scan) => this.infoOf(place.dir, scan))
+    )
+  }
+
+  /** Changes the alignment of a scan in one layout (`edit` is given the scan and its alignments in the others), and forgets what was checked of it there. */
+  private inLayout(place: Place, id: string, layout: string, edit: (scan: Scan, others: Array<[string, ScanAlignment]>) => void): Promise<ScanInfo> {
     return this.change(place, (file) => {
       const scan = file.scans[indexOf(file, id)]
       if (typeof layout !== 'string' || layout === '') throw new Error('a scan is aligned in a layout: name it')
-      const others = Object.entries(scan.alignments).filter(([name]) => name !== layout)
-      if (alignment === null) {
-        scan.alignments = Object.fromEntries(others)
-      } else {
-        const kept = sanitiseAlignment(alignment)
-        if (!kept) throw new Error('that is not an alignment: its transform, its steps, its frame or its time is missing, or a number is not finite')
-        scan.alignments = Object.fromEntries([...others, [layout, kept]])
-      }
+      edit(scan, Object.entries(scan.alignments).filter(([name]) => name !== layout))
       const checks = this.checks.get(place.dir)?.get(scan.id)
       if (checks) delete checks[layout]
       return scan
@@ -633,6 +683,12 @@ export class ScanStore {
 export function frameOf(scene: Scene | undefined, layout: string): Record<string, Vec3> | null {
   const parts = scene?.parts.filter((part) => part.layout === layout) ?? []
   return parts.length > 0 ? Object.fromEntries(parts.map((part): [string, Vec3] => [part.name, part.arranged ? [...part.arranged] : [0, 0, 0]])) : null
+}
+
+/** An alignment as it is kept for an undo: without what was before it. */
+function withoutBefore(alignment: ScanAlignment): Omit<ScanAlignment, 'before'> {
+  const { before: _dropped, ...rest } = structuredClone(alignment)
+  return rest
 }
 
 /** Whether `path` is `folder` or under it. */

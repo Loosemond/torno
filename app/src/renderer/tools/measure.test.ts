@@ -45,7 +45,7 @@ function fake(over: Partial<ToolContext> = {}) {
   }
   const ctx: ToolContext = {
     // What the viewport finds under a point as of now is what the last pointer event was on, unless a test says the view moved since (`under`).
-    viewport: { setHover: (hit) => void hovered.push(hit?.ref ?? null), setNavigation: () => {}, setDraft: (d) => void drafts.push(d), lockedView: () => null, pick: () => world.under, pointerAt: () => world.at, bounds: () => ({ min: [-20, -15, -3], max: [20, 15, 3] }) },
+    viewport: { setHover: (hit) => void hovered.push(hit?.ref ?? null), setNavigation: () => {}, setDraft: (d) => void drafts.push(d), lockedView: () => null, pickScan: () => null, pick: () => world.under, pointerAt: () => world.at, bounds: () => ({ min: [-20, -15, -3], max: [20, 15, 3] }) },
     readout: { show: (_at, ref, detail) => void said.push(`${ref} | ${detail ?? ''}`), describe: () => {}, say: (_at, message) => void said.push(message), hide: () => void said.push('(hidden)') },
     objectId: 'measures',
     layout: 'assembly',

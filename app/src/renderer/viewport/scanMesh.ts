@@ -14,8 +14,10 @@ export interface BuiltScan {
   triangles: number
 }
 
+/** By how many pixels' worth of its own slope a scan is drawn pushed back in depth: what is picked reckons with it (`drawnBehind` in `scans.ts`). */
+export const SCAN_OFFSET_FACTOR = 2
 /** What both materials of a scan share: seen from either side, and pushed back so that a part lying in the scan's surface wins the depth test. */
-const SURFACE = { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 } as const
+const SURFACE = { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: SCAN_OFFSET_FACTOR, polygonOffsetUnits: 2 } as const
 
 /** Linear light, 0 to 65535, of each sRGB byte. */
 const LINEAR = Uint16Array.from({ length: 256 }, (_, byte) => {
@@ -36,8 +38,9 @@ export function linearColours(rgba: Uint8Array): Uint16Array {
 }
 
 /**
- * The three.js objects of one scan. The geometry owns copies of the positions
- * and the triangles, in the file's order, so the blob can be released. No
+ * The three.js objects of one scan. The geometry's positions and triangles
+ * are views of the blob, in the file's order: nothing of them is copied, and
+ * the blob lives as long as the scan. No
  * bounds tree: `scanBvh.ts` makes it. Throws what `parseScanMesh` does of
  * bytes that are no scan.
  *
@@ -47,8 +50,8 @@ export function linearColours(rgba: Uint8Array): Uint16Array {
 export function buildScan(id: string, blob: ArrayBuffer): BuiltScan {
   const parsed = parseScanMesh(blob)
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices.slice(), 3))
-  geometry.setIndex(new THREE.BufferAttribute(parsed.triangles.slice(), 1))
+  geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices, 3))
+  geometry.setIndex(new THREE.BufferAttribute(parsed.triangles, 1))
   if (parsed.colours) geometry.setAttribute('color', new THREE.BufferAttribute(linearColours(parsed.colours), 3, true))
   // The box is the one the file says, and the sphere is round it: neither costs a pass over the vertices.
   geometry.boundingBox = new THREE.Box3(new THREE.Vector3(...parsed.bbox.min), new THREE.Vector3(...parsed.bbox.max))

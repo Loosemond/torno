@@ -35,31 +35,45 @@ export function gizmoTakes(gizmo: { dragging: boolean; onHandle: boolean }, e: {
 /**
  * What a drag has made of a shape, from where the gizmo has put its stand-in:
  * only what the gizmo's way changes. Moving gives the position, to the
- * hundredth of a millimetre; turning the rotation; sizing the size, worked out
+ * hundredth of a millimetre (of a scan, as it is); turning the rotation; sizing the size, worked out
  * from the size the drag began with (`from`) and the stand-in's scale, which is
  * then put back to 1: a shape is so many millimetres, never a scale.
  */
-export function draggedTo(mode: GizmoMode, kind: ShapeKind, from: Vec3, stand: THREE.Object3D): Partial<ShapeTransform> {
+export function draggedTo(mode: GizmoMode, kind: ShapeKind | undefined, from: Vec3 | undefined, stand: THREE.Object3D): Partial<ShapeTransform> {
   const round = (mm: number): number => Math.round(mm * STEPS_PER_MM) / STEPS_PER_MM + 0
   switch (mode) {
     case 'translate':
-      return { position: stand.position.toArray().map(round) as Vec3 }
+      // A scan is held at a point of its own, which is at no round place: how far it was moved from there is what is rounded, by who moves it.
+      return { position: kind === undefined ? stand.position.toArray() : (stand.position.toArray().map(round) as Vec3) }
     case 'rotate':
       return { rotation: stand.quaternion.clone().normalize().toArray() as Quat }
     case 'scale': {
       const scale = stand.scale.toArray()
       stand.scale.set(1, 1, 1)
+      // What has no size (a scan) is never sized.
+      if (kind === undefined || from === undefined) return {}
       return { size: fitSize(kind, from.map((mm, i) => round(mm * Math.abs(scale[i]))) as Vec3, from) }
     }
   }
 }
 
+/** What the gizmo holds: a shape mark, or a scan by a point of it. Only a shape has a size. */
+export interface GizmoSubject { position: Vec3; rotation: Quat; shape?: ShapeKind; size?: Vec3 }
+
+/** What the gizmo is asked to be on, and who hears what a drag made of it. */
+export interface GizmoEdit { id: string; mode: GizmoMode; onChange: (change: Partial<ShapeTransform>) => void }
+
+/** The one thing the gizmo is on, of what it was asked to be on: the scan being moved by hand, while there is one; else the shape being edited. */
+export function editingOf(asked: { shape: GizmoEdit | null; scan: GizmoEdit | null }): GizmoEdit | null {
+  return asked.scan ?? asked.shape
+}
+
 /** What the gizmo needs of the viewport it is in. */
 export interface GizmoHost {
-  /** The shape mark with this id, if it is drawn in the layout shown. */
-  shape(id: string): ShapeMark | null
-  /** Draw the shape as a drag has it for now. */
-  preview(id: string, shape: Partial<ShapeTransform>): void
+  /** What has this id (a shape mark's, or a scan's), if it is drawn in the layout shown. */
+  subject(id: string): GizmoSubject | null
+  /** Draw it as a drag has it for now. */
+  preview(id: string, change: Partial<ShapeTransform>): void
   /** A drag of the gizmo began or ended: the camera is not the pointer's meanwhile. */
   dragging(on: boolean): void
   /** Something of the gizmo changed that a frame should show. */
@@ -77,10 +91,10 @@ export interface GizmoHost {
 export class ShapeGizmo {
   private readonly controls: TransformControls
   private readonly stand = new THREE.Object3D()
-  /** The shape the gizmo is asked to be on, and who hears what a drag made of it. */
-  private editing: { id: string; mode: GizmoMode; onChange: (shape: Partial<ShapeTransform>) => void } | null = null
-  /** While it is dragged: the size the shape had when the drag began, and what the drag has made of it so far. */
-  private drag: { size: Vec3; made: Partial<ShapeTransform> | null } | null = null
+  /** What the gizmo is asked to be on: a shape, a scan, or both, of which it is on one (`editingOf`). */
+  private readonly asked: { shape: GizmoEdit | null; scan: GizmoEdit | null } = { shape: null, scan: null }
+  /** While it is dragged: what it is on, the size that had when the drag began, and what the drag has made of it so far. */
+  private drag: { id: string; shape?: ShapeKind; size?: Vec3; made: Partial<ShapeTransform> | null } | null = null
   /** The press under way began on the gizmo. */
   private press = false
 
@@ -116,14 +130,18 @@ export class ShapeGizmo {
     if (this.controls.dragging) this.controls.pointerUp(null)
   }
 
-  /** The shape to be on and what dragging does, or null for no shape. Call `place` after. */
-  edit(id: string | null, mode: GizmoMode, onChange: (shape: Partial<ShapeTransform>) => void): void {
-    this.editing = id === null ? null : { id, mode, onChange }
+  /** The shape to be on and what dragging does, or null for no shape; `of: 'scan'` for the scan to be on instead, which has the gizmo while there is one. Call `place` after. */
+  edit(id: string | null, mode: GizmoMode, onChange: (change: Partial<ShapeTransform>) => void, of: 'shape' | 'scan' = 'shape'): void {
+    this.asked[of] = id === null ? null : { id, mode, onChange }
+  }
+
+  private get editing(): GizmoEdit | null {
+    return editingOf(this.asked)
   }
 
   /** Brings the gizmo to the shape being edited, as the shape now is, or takes it away when that is not drawn. A drag under way is left alone. */
   place(): void {
-    const mark = this.editing && this.host.shape(this.editing.id)
+    const mark = this.editing && this.host.subject(this.editing.id)
     if (!mark || !this.editing) {
       if (this.controls.object) this.controls.detach()
       this.drag = null
@@ -189,24 +207,25 @@ export class ShapeGizmo {
   }
 
   private readonly onDragging = (): void => {
-    const mark = this.editing && this.host.shape(this.editing.id)
+    const editing = this.editing
+    const mark = editing && this.host.subject(editing.id)
     if (this.controls.dragging) {
-      this.drag = mark ? { size: mark.size, made: null } : null
+      this.drag = editing && mark ? { id: editing.id, shape: mark.shape, size: mark.size, made: null } : null
       this.host.dragging(true)
       return
     }
-    const made = this.drag?.made
+    const drag = this.drag
     this.drag = null
     this.host.dragging(false)
     this.place()
-    if (made && this.editing) this.editing.onChange(made)
+    // Told to whoever asked for the edit of what was dragged, if that is still what the gizmo is on.
+    if (drag?.made && this.editing?.id === drag.id) this.editing.onChange(drag.made)
   }
 
   /** The gizmo moved its stand-in: the shape is drawn as that makes it. */
   private readonly onMoved = (): void => {
-    const mark = this.editing && this.host.shape(this.editing.id)
-    if (!mark || !this.drag || !this.editing) return
-    this.drag.made = draggedTo(this.editing.mode, mark.shape, this.drag.size, this.stand)
-    this.host.preview(mark.id, this.drag.made)
+    if (!this.drag || this.editing?.id !== this.drag.id) return
+    this.drag.made = draggedTo(this.editing.mode, this.drag.shape, this.drag.size, this.stand)
+    this.host.preview(this.drag.id, this.drag.made)
   }
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { draggedTo, gizmoTakes } from './ShapeGizmo'
+import { draggedTo, editingOf, gizmoTakes } from './ShapeGizmo'
 
 const OFF = { dragging: false, onHandle: false }
 const ON = { dragging: false, onHandle: true }
@@ -97,5 +97,23 @@ describe('what a drag of the gizmo made of a shape', () => {
     const flipped = stand()
     flipped.scale.set(-1.2, 0, 1)
     expect(draggedTo('scale', 'box', [10, 10, 4], flipped)).toEqual({ size: [12, 0.1, 4] })
+  })
+
+  it('a scan is never sized: sizing it changes nothing, and leaves its stand-in at scale 1', () => {
+    const object = stand()
+    expect(draggedTo('scale', undefined, undefined, object)).toEqual({})
+    expect(object.scale.toArray()).toEqual([1, 1, 1])
+    // Moved, it is where the handle is, to the last digit: it is held at a point of its own, and how far it went from there is what is rounded (`ScanEdit`).
+    expect(draggedTo('translate', undefined, undefined, stand())).toEqual({ position: [14.23456, -8.5, 6.504] })
+    expect(Object.keys(draggedTo('rotate', undefined, undefined, stand()))).toEqual(['rotation'])
+  })
+})
+
+describe('what the gizmo is on', () => {
+  it('is the scan while one is to be moved by hand, and the shape again afterwards', () => {
+    const both = editingOf({ shape: { id: 'M3', mode: 'scale', onChange: () => {} }, scan: { id: 'S1', mode: 'rotate', onChange: () => {} } })
+    expect(both).toMatchObject({ id: 'S1', mode: 'rotate' })
+    expect(editingOf({ shape: { id: 'M3', mode: 'scale', onChange: () => {} }, scan: null })).toMatchObject({ id: 'M3' })
+    expect(editingOf({ shape: null, scan: null })).toBeNull()
   })
 })

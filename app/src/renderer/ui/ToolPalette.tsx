@@ -234,4 +234,12 @@ export const ICONS: Record<ToolName, ReactNode> = {
       <path d="M1.750 10.250 10.250 1.750l4 4-8.500 8.500-4-4ZM4.500 7.500l1.500 1.500M6.750 5.250l1 1M9 3l1.500 1.500" />
     </Icon>
   ),
+  // A scan, dashed, brought onto the part it is a scan of: two outlines and the move between them.
+  align: (
+    <Icon>
+      <path d="M2.250 8.750h6v5h-6v-5Z" />
+      <path d="M7.750 2.250h6v5h-6v-5Z" strokeDasharray="1.5 1.75" />
+      <path d="M10.250 8.750v2.500H9.750M11 10l-.750 1.250L9.500 10" />
+    </Icon>
+  )
 }

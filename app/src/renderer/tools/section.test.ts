@@ -6,7 +6,7 @@ import { actions, store } from '../state/store'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
 import { NOT_CONFIRMED, NOT_FLAT, PICK_A_FACE, alongNormal, sectionStore, sectionTool, setFromFace } from './sectionTool'
-import { CUT_FACE, routePointer, scanInFront, type ToolContext } from './Tool'
+import { CUT_FACE, routePointer, type ToolContext } from './Tool'
 
 const BOX = { min: [-20, -15, -2.5] as Vec3, max: [20, 15, 22.5] as Vec3 }
 const Z: SectionPlane = { origin: [0, 0, 10], normal: [0, 0, 1] }
@@ -34,7 +34,7 @@ function fake(over: Partial<ToolContext> = {}) {
       setHover: () => {},
       setNavigation: (on) => void navigation.push(on),
       setDraft: () => {},
-      lockedView: () => null,
+      lockedView: () => null, pickScan: () => null,
       pick: () => null,
       bounds: () => BOX,
       sectionBox: () => BOX,
@@ -320,18 +320,6 @@ describe('from a face', () => {
     expect(navigation).toEqual([])
     expect(tool.onKey!({ key: 'Escape' } as KeyboardEvent, ctx)).toBe(true)
     expect(sectionStore.getState().fromFace).toBe(false)
-  })
-})
-
-describe('a scan drawn thin in front of the part under the pointer', () => {
-  it('is said to have taken the pick, after the tool in hand was told of nothing there', () => {
-    const { ctx, said } = fake()
-    const told: Array<Hit | null> = []
-    const tool = { id: 'pin', cursor: '', onPointer: (e: ViewportPointer) => void told.push(e.hit), cancel: () => {} }
-    routePointer(tool, { ...pointer('move', 0, 0, { buttons: 0 }), scan: 'S2' }, ctx)
-    expect(told).toEqual([null])
-    expect(said).toEqual(['Scan S2 is in front of the part here: switch it off to point at the part'])
-    expect(scanInFront('S2')).toBe(said[0])
   })
 })
 

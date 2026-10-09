@@ -411,7 +411,7 @@ function edgeRef(mark: Mark): string | undefined {
  * The answers of a `nearest` reply, when there is one for each anchor asked
  * about, in order, and each that named an edge is told of it. Throws otherwise.
  */
-function nearestReply(reply: unknown, asked: AskedAnchor[]): NearestAnchor[] {
+export function nearestReply(reply: unknown, asked: AskedAnchor[]): NearestAnchor[] {
   const found = (reply as { anchors?: unknown } | null)?.anchors
   const whole =
     Array.isArray(found) &&
