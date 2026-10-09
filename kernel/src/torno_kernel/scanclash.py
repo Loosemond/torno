@@ -696,7 +696,7 @@ def _part(shapes: dict[str, Any], args: dict[str, Any]) -> tuple[str, str, Any, 
 
 
 class _Scan:
-    """A scan where its transform puts it: the points in the object frame, the triangles, and which vertices count."""
+    """A scan where its transform puts it: the points in the object frame, the triangles, and which triangles and vertices count."""
 
     def __init__(self, said: Any) -> None:
         if not isinstance(said, dict) or not isinstance(said.get("path"), str) or not isinstance(said.get("id"), str):
@@ -718,12 +718,18 @@ class _Scan:
         self.points = vertices.astype(np.float64) @ turn.T * size + move
         if not (np.abs(self.points) <= FARTHEST).all():
             raise QueryError("bad_request", f"the transform of {self.id} puts it further out than {FARTHEST:g} mm")
+        # Which triangles count, and which vertices: those a triangle that counts uses. So the rim of a region that
+        # is left out, whose vertices its neighbours share, still counts; of a region asked for alone, its rim is its own.
         self.counts = np.ones(len(vertices), dtype=bool)
+        self.kept = np.ones(len(self.triangles), dtype=bool)
         try:
             if only is not None:
-                self.counts = self._of(scanfile.read_mask(only, len(self.triangles)))
+                self.kept = scanfile.read_mask(only, len(self.triangles)).astype(bool)
             for path in ignore:
-                self.counts &= ~self._of(scanfile.read_mask(path, len(self.triangles)))
+                self.kept &= ~scanfile.read_mask(path, len(self.triangles)).astype(bool)
+            if only is not None or ignore:
+                # A vertex no triangle uses is of no region: it counts unless one region alone was asked for.
+                self.counts = self._of(self.kept) | (np.zeros(len(vertices), dtype=bool) if only is not None else ~self._of(np.ones(len(self.triangles), dtype=bool)))
         except (OSError, ValueError) as e:
             raise QueryError("bad_request", f"a region of {self.id} could not be read: {e}") from e
 
@@ -742,7 +748,7 @@ class _Scan:
         return tess._rotation([float(c) / length for c in q]), np.array(t, dtype=np.float64), float(s)
 
     def _of(self, mask: np.ndarray) -> np.ndarray:
-        """The vertices of the triangles a region has."""
+        """The vertices some triangles use."""
         vertices = np.zeros(len(self.points), dtype=bool)
         vertices[self.triangles[mask].reshape(-1)] = True
         return vertices
@@ -756,14 +762,14 @@ class _Scan:
         return self.stood[1]
 
     def meeting(self, low: np.ndarray, high: np.ndarray) -> np.ndarray:
-        """The triangles whose boxes meet a box, of those whose corners all count: a triangle may meet it with no corner in it."""
+        """The triangles whose boxes meet a box, of those that count: a triangle may meet it with no corner in it."""
         out = np.zeros(len(self.points), dtype=np.uint8)
         for axis in range(3):
             out |= (self.points[:, axis] < low[axis]).astype(np.uint8) << (2 * axis)
             out |= (self.points[:, axis] > high[axis]).astype(np.uint8) << (2 * axis + 1)
         # Its box misses the other when all three corners are beyond the same side of it.
         beyond = out[self.triangles]
-        return np.flatnonzero(((beyond[:, 0] & beyond[:, 1] & beyond[:, 2]) == 0) & self.counts[self.triangles].all(axis=1))
+        return np.flatnonzero(((beyond[:, 0] & beyond[:, 1] & beyond[:, 2]) == 0) & self.kept)
 
 
 def _stamp(path: str) -> tuple[Any, ...]:
@@ -1169,7 +1175,7 @@ def outline(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any]) 
     frame = _Frame(origin, normal)
     height = (scan.points - frame.origin) @ frame.normal
     side = height >= 0
-    corners = scan.triangles[scan.counts[scan.triangles].all(axis=1)]
+    corners = scan.triangles[scan.kept]
     corners = corners[side[corners].any(axis=1) & ~side[corners].all(axis=1)]
     # The corner that is alone on its side of the plane: the two edges from it go through the plane.
     alone = np.where(side[corners[:, 0]] != side[corners[:, 1]], np.where(side[corners[:, 0]] != side[corners[:, 2]], 0, 1), 2)

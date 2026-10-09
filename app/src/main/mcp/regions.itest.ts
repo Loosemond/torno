@@ -160,9 +160,9 @@ describe('a painted region, through the MCP server and the real kernel', () => {
     const without = await call('scan_clash', { part: 'tub', ignore: ['M1'] })
     expect(without.isError).toBe(false)
     expect(without.data.ignore).toEqual(['M1'])
-    // The points of its triangles: more than it has triangles' worth of area, fewer than the sheet.
-    expect(without.data.points.ignored).toBeGreaterThan(20)
-    expect(without.data.points.ignored).toBeLessThan(80)
+    // The points every triangle round which is painted: those inside its rim, which its neighbours share and so still count.
+    expect(without.data.points.ignored).toBeGreaterThan(10)
+    expect(without.data.points.ignored).toBeLessThan(painted.count)
     expect(without.data.inside.count).toBe(400 - without.data.points.ignored)
     expect(without.data.reading).toMatch(new RegExp(`≈ ${400 - without.data.points.ignored} scan points inside the part in 1 cluster, .*, ${without.data.points.ignored} points of M1 left out\\. `))
     expect(without.data.exact).toBe(false)
@@ -173,7 +173,10 @@ describe('a painted region, through the MCP server and the real kernel', () => {
     const whole = await call('scan_deviation', { part: 'lid', from: 'scan', within: 100 })
     const only = await call('scan_deviation', { part: 'lid', from: 'scan', within: 100, region: 'M1' })
     expect(whole.data).toMatchObject({ samples: 400, region: null })
-    expect(only.data).toMatchObject({ region: 'M1', samples: without.data.points.ignored, exact: false })
+    expect(only.data).toMatchObject({ region: 'M1', exact: false })
+    // Asked of the region alone, the points on its rim are its own too.
+    expect(only.data.samples).toBeGreaterThan(without.data.points.ignored)
+    expect(only.data.samples).toBeLessThan(painted.count + 20)
     expect(only.data.reading).toMatch(/^scan_deviation lid vs S1 region M1 \(assembly, r1\): /)
     // Every point told is one of the region's: within the brush of where it was set down.
     const [x, y] = only.data.worst.at

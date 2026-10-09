@@ -173,9 +173,33 @@ def test_a_region_is_left_out_or_is_all_that_is_asked(tmp_path):
     scanfile.write_mask(tmp_path / "M7.mask", left)
     without = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, ignore=[str(tmp_path / "M7.mask")]))
     only = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, only=str(tmp_path / "M7.mask")))
-    # The column of vertices at 0.5 is a corner of triangles on both sides.
-    assert without["inside"]["count"] == 9 * 20 and without["points"]["ignored"] == 16 * 30
+    # The column of vertices at 0.5 is a corner of triangles on both sides: the rim of the region. A vertex is
+    # left out only when every triangle that uses it is painted, so the rim still counts; asked of the region
+    # alone, every vertex of its triangles is of it, the rim too.
+    assert without["inside"]["count"] == 10 * 20 and without["points"]["ignored"] == 15 * 30
     assert only["inside"]["count"] == 11 * 20 and only["points"]["ignored"] == 14 * 30
+
+
+def test_a_crossing_is_left_out_only_when_the_triangle_itself_is_painted(tmp_path):
+    # A sheet stood on edge through the box's top face (z = 5): the triangles of the row that spans it cross.
+    upright = {"t": [0, 0, 0], "q": [math.sin(math.pi / 4), 0, 0, math.cos(math.pi / 4)], "s": 1}
+    vertices, triangles = SHEET
+    whole = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, transform=upright))
+    assert whole["inside"]["crossing"] > 0
+    # The triangles that reach above the top are painted, all of them and only them: nothing that crosses is left.
+    high = (vertices[triangles][:, :, 1] > 5).any(axis=1) & (vertices[triangles][:, :, 1] < 5).any(axis=1)
+    scanfile.write_mask(tmp_path / "M7.mask", high)
+    spanning = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, transform=upright, ignore=[str(tmp_path / "M7.mask")]))
+    # One row of triangles painted: their vertices are all rim, shared with rows that are not, so no vertex is left out...
+    assert spanning["points"]["ignored"] == 0 and spanning["inside"]["count"] == whole["inside"]["count"]
+    # ...and the painted triangles themselves no longer count as crossing.
+    assert spanning["inside"]["crossing"] < whole["inside"]["crossing"]
+    # The row above them, painted instead, takes no crossing away: a neighbour of a painted triangle still counts.
+    above = (vertices[triangles][:, :, 1] > 5.4).all(axis=1) & (vertices[triangles][:, :, 1] < 6.6).all(axis=1)
+    assert above.any()
+    scanfile.write_mask(tmp_path / "M9.mask", above)
+    beside = ask(box_part(), "scan_clash", scan=scan_of(tmp_path, transform=upright, ignore=[str(tmp_path / "M9.mask")]))
+    assert beside["inside"]["crossing"] == whole["inside"]["crossing"]
     scanfile.write_mask(tmp_path / "M8.mask", np.ones(5, dtype=bool))
     kind, message = refused(box_part(), "scan_clash", scan=scan_of(tmp_path, ignore=[str(tmp_path / "M8.mask")]))
     assert kind == "bad_request" and "a region of S1 could not be read" in message and "5 triangles, not 1682" in message

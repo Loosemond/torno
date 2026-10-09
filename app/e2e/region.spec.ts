@@ -223,7 +223,8 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   expect(left.reading).toMatch(/, \d+ points of M1 left out/)
   expect(left.ignore).toEqual(['M1'])
   const only = JSON.parse((await call(client, 'scan_deviation', { part: 'lid', region: 'M1', from: 'scan' })).text)
-  expect(only.samples).toBe(left.points.ignored)
+  // The points on the region's rim are its own when it is asked for alone, and still count when it is left out.
+  expect(only.samples).toBeGreaterThan(left.points.ignored)
   expect(only.region).toBe('M1')
   // And as an end of a measurement: its middle, where the scan stands.
   const measured = JSON.parse((await call(client, 'measure', { kind: 'distance', a: 'M1', b: 'tub' })).text)
