@@ -281,32 +281,50 @@ describe('how far the camera reaches for the scans', () => {
   })
 })
 
+// Fix round 1 (M7): a caption is read by the agent: what it says of a fit is to a tenth of a millimetre, as main's words are.
+describe('what a caption is given of a fit', () => {
+  it('is its RMS to 0.1 mm, and under 0.05 mm as under 0.1 mm: never the microns the row may show the person', () => {
+    const pairs = [0.001, 0.005, 0.003, 0.002].map((residual, n) => ({ scan: [n, 0, 0] as [number, number, number], model: [n, 0, 0] as [number, number, number], residual }))
+    const fitted = (rms: number, more: object = {}) => ({ print: { transform: { t: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], s: 1 }, steps: ['pairs' as const], pairs, rms, frame: {}, at: '', ...more } })
+    const layer = new ScanLayer(() => {})
+    layer.set([scan('S1', { alignments: fitted(0.003) }), scan('S2', { alignments: fitted(1.26) }), scan('S3', { alignments: fitted(20.04, { steps: ['pairs', 'nudge'], fitRms: 0.004 }) })], 'print')
+    for (const id of ['S1', 'S2', 'S3']) layer.load(id, meshBin(box()))
+    expect(layer.shown().map((s) => s.basis)).toEqual(['4 pairs, RMS under 0.1 mm', '4 pairs, RMS 1.3 mm', '4 pairs (fit RMS under 0.1 mm), then moved by hand: the pairs are now 20 mm apart'])
+  })
+})
+
 // Milestone 5: a scan the far plane cuts says so, on its row and in a picture's caption.
 describe('a scan that reaches further than the camera does for it', () => {
   const parts = new THREE.Sphere(new THREE.Vector3(0, 0, 10), 50)
 
-  it('is said to be cut by the view when it is 500 times the size of the parts, and not when it is twice it', () => {
+  // Fix round 1: each scan is held against the reach the camera is given for all of them, not against one of its own.
+  it('is said to be cut by the view when it reaches out of what the camera is given, and a scan beside it that does not is not', () => {
     const layer = new ScanLayer(() => {})
     layer.set([scan('S1'), scan('S2'), scan('S3')], 'print')
     layer.load('S1', meshBin(box([50_000, 50_000, 50_000])))
     layer.load('S2', meshBin(box([200, 200, 200])))
-    expect(layer.state(parts).map(({ id, clipped }) => [id, clipped])).toEqual([['S1', true], ['S2', false], ['S3', false]])
-    expect(layer.shown(parts).map(({ id, clipped }) => [id, clipped ?? false])).toEqual([['S1', true], ['S2', false]])
-    // Nothing is cut of a scan that is not drawn, and nothing is said without the parts to hold it against.
+    // As the viewport does: one reach for the parts and every scan drawn, no further than 200 times the parts.
+    const reach = (): THREE.Sphere => reaching(parts.clone(), layer.box(), parts)
+    expect(reach().radius).toBe(10_000)
+    expect(layer.state(reach()).map(({ id, clipped }) => [id, clipped])).toEqual([['S1', true], ['S2', false], ['S3', false]])
+    expect(layer.shown(reach()).map(({ id, clipped }) => [id, clipped ?? false])).toEqual([['S1', true], ['S2', false]])
+    // Nothing is cut of a scan that is not drawn; and with it switched off the reach is the other's, whole.
     layer.setView('S1', { visible: false })
-    expect(layer.state(parts)[0].clipped).toBe(false)
+    expect(layer.state(reach()).map((s) => s.clipped)).toEqual([false, false, false])
     layer.setView('S1', { visible: true })
+    // Nothing is said without the reach to hold it against.
     expect(layer.state()[0].clipped).toBe(false)
     expect(layer.shown()[0].clipped).toBeUndefined()
   })
 
-  it('is one rule with the reach itself: cut exactly when the sphere round the parts and the scan is past 200 times the parts', () => {
-    const boxAt = (half: number) => new THREE.Box3(new THREE.Vector3(-half, -half, -half), new THREE.Vector3(half, half, half))
-    for (const half of [10, 1250, 5000, 5700, 5800, 1_250_000]) {
-      const reached = reaching(parts.clone(), boxAt(half), parts)
-      const all = parts.clone().union(boxAt(half).getBoundingSphere(new THREE.Sphere()))
-      expect(beyondReach(boxAt(half), parts)).toBe(reached.radius < all.radius - 1e-6)
+  it('is one rule with the reach itself: cut exactly when some of its box is outside the sphere the camera is given', () => {
+    const boxAt = (x: number, half: number) => new THREE.Box3(new THREE.Vector3(x - half, -half, -half), new THREE.Vector3(x + half, half, half))
+    for (const [x, half, cut] of [[0, 10, false], [0, 1250, false], [0, 5000, false], [0, 5800, true], [0, 1_250_000, true], [900, 10, false], [9000, 400, false], [20_000, 10, true]] as Array<[number, number, boolean]>) {
+      const reached = reaching(parts.clone(), boxAt(x, half), parts)
+      expect([x, half, beyondReach(boxAt(x, half), reached)]).toEqual([x, half, cut])
     }
+    // Held against a reach that is wider for what else is drawn (a mark far off), it is not cut where that takes it in.
+    expect(beyondReach(boxAt(0, 8000), new THREE.Sphere(new THREE.Vector3(), 20_000))).toBe(false)
   })
 })
 

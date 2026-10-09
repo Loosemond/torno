@@ -73,7 +73,7 @@ async function place(id: string, t: [number, number, number], p: Page = page): P
   await expect.poll(() => p.evaluate((id) => { const s = window.__tornoTest!.state(); return s.scans.find((scan) => scan.id === id)?.checks.assembly?.revision === s.revision }, id)).toBe(true)
 }
 /** What a picture's caption says of a scan `place` aligned: what it rests on, and that no build can say whether it holds (its ends are on no part). */
-const PLACED = '3 pairs, RMS 0 mm; tied to no point of the model: not checked against builds'
+const PLACED = '3 pairs, RMS under 0.1 mm; tied to no point of the model: not checked against builds'
 const scansFile = () => JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scans.json'), 'utf8'))
 
 test.beforeAll(async () => {
@@ -348,8 +348,13 @@ test('a scan drawn solid in front of a part takes the pick, and one that is seen
 test('"Frame" on its row brings a scan that stands far off into view, and does not turn the camera', async () => {
   await row('S2').getByRole('button', { name: 'Show S2' }).click()
   await expect.poll(async () => (await scans())[0].visible).toBe(true)
-  // The plate, 60 × 50 × 2 round (0, 0, -10) in its own frame, stood 400 mm along X: out of a view of the parts.
+  // Stood a hundred metres off, it is further than the camera reaches for a scan (200 times the parts): its row says so.
+  await place('S2', [100_000, 0, 35])
+  await expect.poll(async () => (await scans())[0].clipped).toBe(true)
+  await expect(row('S2').locator('.chip[data-state="clipped"]')).toHaveText('not all in view')
+  // The plate, 60 × 50 × 2 round (0, 0, -10) in its own frame, stood 400 mm along X: out of a view of the parts, and within reach.
   await place('S2', [400, 0, 35])
+  await expect(row('S2').locator('.chip[data-state="clipped"]')).toHaveCount(0)
   await expect.poll(async () => (await scans())[0].transform.t).toEqual([400, 0, 35])
   await page.getByRole('button', { name: 'Iso', exact: true }).click()
   const corners: Array<[number, number, number]> = [[-30, -25, -11], [30, 25, -9], [30, -25, -11], [-30, 25, -9]]

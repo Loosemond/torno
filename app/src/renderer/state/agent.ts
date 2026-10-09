@@ -13,6 +13,7 @@ import {
   sectionOf
 } from '../../shared/view'
 import { NOT_EXPLODED_AND_CUT, explodeOf, isExploded } from '../../shared/explode'
+import { tenth } from '../../shared/format'
 import { type ScanView, MIN_SCAN_OPACITY, standingOf } from '../../shared/scans'
 import { colorFor, colorsByName } from '../viewport/palette'
 import { explodedNote, scansNote } from '../viewport/picture'
@@ -108,7 +109,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   const loaded = viewport.scanState?.()
   const shown = after.scans
     .filter((scan) => scan.meshState === 'ok' && after.scanViews[scan.id]?.visible !== false && loaded?.find((one) => one.id === scan.id)?.loaded !== false)
-    .map((scan) => ({ id: scan.id, opacity: after.scanViews[scan.id]?.opacity ?? 1, ...standingOf(scan, layout, after.scene ? after.revision : 0) }))
+    .map((scan) => ({ id: scan.id, opacity: after.scanViews[scan.id]?.opacity ?? 1, ...standingOf(scan, layout, after.scene ? after.revision : 0, tenth) }))
   // Drawn apart now, by this or as they were: said as the caption of a picture says it, with what that means of the scans.
   const apart = explodeNow(after, layout)
   return {

@@ -328,7 +328,7 @@ test('Escape steps back one pick, and only then puts the tool down; two pairs ar
   expect(rough.transform.t[2]).toBeCloseTo(before.transform.t[2] + 1, 3)
   // A picture says so too.
   const caption = await page.evaluate(async () => (await window.__tornoTest!.look({ view: 'iso', size: 128 })).caption)
-  expect(caption).toMatch(/scans S1 \(2 pairs, RMS 0(\.\d+)? mm; aligned roughly in assembly: it has 2 pairs of points: it takes three that are not in a line to fix a scan; tied to no point of the model: not checked against builds\)/)
+  expect(caption).toMatch(/scans S1 \(2 pairs, RMS (under 0\.1|\d+(\.\d)?) mm; aligned roughly in assembly: it has 2 pairs of points: it takes three that are not in a line to fix a scan; tied to no point of the model: not checked against builds\)/)
 
   // With nothing in hand, Escape puts the tool down.
   await page.keyboard.press('Escape')

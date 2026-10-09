@@ -9,7 +9,8 @@ import { keepAlignment, readAs } from '../../tools/alignTool'
 import { numberedNames } from '../AlignBar'
 import { Confirm } from '../Confirm'
 import { capital, numbered } from '../numbered'
-import { AXES, coords, typed } from './format'
+import { typed } from '../typed'
+import { AXES, coords } from './format'
 
 export function PairsBody({ state, scan, fit, need }: { state: AlignState; scan: ScanInfo; fit: PairFit | null; need: string | null }) {
   const { pairs, scale } = state

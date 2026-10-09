@@ -312,7 +312,8 @@ export class Viewport {
   }
 
   scanState(): ScanLayerState[] {
-    return this.scans.state(this.groundExtent)
+    // Against the sphere the camera's near and far are set by.
+    return this.scans.state(this.extent)
   }
 
   /** What is tinted on the scans: the regions kept and the set being painted. */

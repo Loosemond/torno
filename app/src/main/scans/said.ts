@@ -1,4 +1,4 @@
-import { scanNumber } from '../../shared/format'
+import { tenth } from '../../shared/format'
 import { type AlignBasis, type AlignStep, type ScanAlignment, type ScanInfo, alignmentOf, alignmentText, basisOf, standingOf, tiedPoints } from '../../shared/scans'
 
 // What is said of a scan's alignment to the agent, in one place: every tool reply, every reading line and the line
@@ -8,13 +8,6 @@ import { type AlignBasis, type AlignStep, type ScanAlignment, type ScanInfo, ali
 
 /** To the ninth decimal, and never -0: what a fit leaves past that is arithmetic. */
 const tidy = (value: number): number => Math.round(value * 1e9) / 1e9 + 0
-
-/**
- * A figure of a fit as the agent is told it, less its unit: to a tenth of a millimetre, as everything a reading
- * takes from the scan is (`scanNumber`), and `under 0.1` below half of that. A few clicked points fitted to the
- * micron are no finer than the scan they were clicked on; the data keeps the numbers in full.
- */
-const tenth = (mm: number): string => (Math.abs(mm) < 0.05 ? 'under 0.1' : scanNumber(mm))
 
 /** How a scan's alignment in a layout stands, as data: what a tool's JSON holds under `alignment`. */
 export interface AlignmentData {

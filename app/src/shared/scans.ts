@@ -231,16 +231,17 @@ function movedFit(alignment: Pick<ScanAlignment, 'rms' | 'fitRms'>, fit: (rms: s
 /**
  * How an alignment was made, short: `floor only`, `by hand`, `4 pairs, RMS 0.8 mm`; a fit or a floor that was
  * moved by hand says so, and of a fit both how well it fitted and where its pairs are now: `4 pairs (fit RMS
- * 0.8 mm), then moved by hand: the pairs are now 20 mm apart`. For a row and a caption.
+ * 0.8 mm), then moved by hand: the pairs are now 20 mm apart`. For a row and a caption: `figure` writes each
+ * length, to the thousandth for the person's row, to a tenth for a caption the agent reads (`tenth`).
  */
-export function basisText(alignment: Pick<ScanAlignment, 'steps' | 'pairs' | 'rms' | 'fitRms' | 'scaled'>): string {
+export function basisText(alignment: Pick<ScanAlignment, 'steps' | 'pairs' | 'rms' | 'fitRms' | 'scaled'>, figure: (mm: number) => string = fitNumber): string {
   const { basis, movedByHand } = basisOf(alignment)
   const scaled = alignment.scaled ? ', scaled' : ''
   if (basis !== 'pairs') return `${basis === 'hand' ? 'by hand' : 'floor only'}${scaled}${movedByHand ? ', then moved by hand' : ''}`
   const pairs = alignment.pairs?.length ?? 0
   const many = `${count(pairs)} ${pairs === 1 ? 'pair' : 'pairs'}`
-  if (!movedByHand) return `${many}${alignment.rms === undefined ? '' : `, RMS ${fitNumber(alignment.rms)} mm`}${scaled}`
-  const { fitted, now } = movedFit(alignment, (rms) => `fit RMS ${rms} mm`)
+  if (!movedByHand) return `${many}${alignment.rms === undefined ? '' : `, RMS ${figure(alignment.rms)} mm`}${scaled}`
+  const { fitted, now } = movedFit(alignment, (rms) => `fit RMS ${rms} mm`, figure)
   return `${many}${fitted}${scaled}, then moved by hand${now}`
 }
 
@@ -265,7 +266,7 @@ export interface Standing { aligned: boolean; basis: string | null; rough: strin
  * `revision` is the last build, 0 or absent for none: an alignment whose check is missing, or of another build,
  * was not checked against it, and says so, as an unchecked mark does.
  */
-export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unchecked'>, layout: string, revision?: number): Standing {
+export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unchecked'>, layout: string, revision?: number, figure?: (mm: number) => string): Standing {
   const alignment = alignmentOf(scan, layout)
   if (!alignment) return { aligned: false, basis: null, rough: null, stale: null, unchecked: false, waiting: false, failed: false, note: null }
   const found = Object.hasOwn(scan.checks, layout) ? scan.checks[layout] : undefined
@@ -280,7 +281,8 @@ export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unche
     // Until the next doubt: what was confirmed is then in question again.
     ...(alignment.confirmed && (stale === null || waiting) ? [`confirmed by the user${alignment.confirmed.revision === undefined ? '' : ` on r${alignment.confirmed.revision}`}`] : [])
   ]
-  return { aligned: true, basis: basisText(alignment), rough: alignment.rough ?? null, stale, unchecked, waiting, failed: failure !== undefined, note: notes.length > 0 ? notes.join('; ') : null }
+  // `figure` writes the lengths of what it rests on (`basisText`): to a tenth for a caption, which the agent reads.
+  return { aligned: true, basis: basisText(alignment, figure), rough: alignment.rough ?? null, stale, unchecked, waiting, failed: failure !== undefined, note: notes.length > 0 ? notes.join('; ') : null }
 }
 
 /**

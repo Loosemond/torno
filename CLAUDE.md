@@ -375,7 +375,7 @@ than two parts is never exploded.
     is written through a link either (`ownFolders`: `.torno`, `.torno/scans`,
     a scan's folder), and nothing else is deleted through one (`linkRefusal`
     in `masks.ts`): not a mask, not a scan's folder when the scan is removed
-    (the removal is refused and the scan kept), and the sweep clears nothing
+    (the removal is refused, saying to take the link away, and the scan kept), and the sweep clears nothing
     where `.torno` or `.torno/scans` is one. A re-import that a removal
     overtook takes away the folder it made again, only when it is empty.
   - What `scans.json` says is bounded as it is read (`scans/file.ts`): a
@@ -482,9 +482,10 @@ than two parts is never exploded.
     of a fit, that its RMS is of the clicked points (`RMS_OF_CLICKS`):
     never a word on how true the scan is. The fit's own figures (RMS, worst,
     where a hand left the pairs, a floor's plane) are told to 0.1 mm too in
-    whatever main says (`tenth` in `said.ts`, given to `alignmentText`); the
-    window shows the person theirs to the thousandth, and the data keeps
-    them in full. What else is known of an
+    whatever the agent reads: what main says (`tenth` of `shared/format.ts`,
+    given to `alignmentText`) and a caption, of a picture or of `show` (`standingOf`
+    gives `basisText` the same). The bar and the row show the person theirs
+    to the thousandth, and the data keeps them in full. What else is known of an
     alignment (`standing.note`) is said once a reply, in the reading.
     `scan_deviation` says the least distance, and that `within` is where the
     looking stops.
@@ -584,15 +585,16 @@ than two parts is never exploded.
   beyond the picture (`beyondNote`), when spread parts are not where a scan
   drawn has them (`spreadBesideScans`), and which scans have no mesh. The
   camera reaches for a scan no further than `SCAN_REACH` (200) times the
-  sphere round the parts (`reaching`); a scan drawn that lies further is cut
-  by the far plane, and says so (`beyondReach`: `ScanLayerState.clipped`,
+  sphere round the parts (`reaching`); a scan drawn of which some is outside
+  the sphere the camera is then given is cut by the far plane, and says so
+  (`beyondReach`, each scan against that one sphere: `ScanLayerState.clipped`,
   the chip "not all in view" on its row from `store.scansClipped`, which
   the viewport sets with every view it reports, and `reaches beyond the
   view: not all of it is drawn` in a picture's caption).
 - The align bar is `ui/AlignBar.tsx`, its three bodies `ui/align/`
   (`FloorBody`, `PairsBody`, `NudgeBody`, and `format.ts` for what they
   share); the field one number is typed in is `ui/Field.tsx`, the Region
-  bar's too.
+  bar's too, and what was typed is read by `ui/typed.ts`.
 - Refs and numbers in a sentence are set in the monospace face by
   `ui/numbered.tsx`, a ref whole. `.torno/views/` ignores itself for git.
 - What the window says of its scans (`ViewState.scans`) is sanitised in main

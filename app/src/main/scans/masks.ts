@@ -57,12 +57,12 @@ export async function removeMaskFile(dir: string, scan: string, stem: string): P
 
 /**
  * Why nothing is deleted under an object's scans folder, or in the folder of one scan: `.torno`, `.torno/scans`
- * or that scan's folder is a link, and what is behind it is not torno's to delete. Null when none is. Writes are
- * refused for the same (`ownFolders`).
+ * or that scan's folder is a link, and what is behind it is not torno's to delete; with the way out, which is
+ * the person's: to take the link away. Null when none is. Writes are refused for the same (`ownFolders`).
  */
 export async function linkRefusal(dir: string, scan?: string): Promise<string | null> {
   const folder = await linkedFolder(dir, scan)
-  return folder === null ? null : `${folder} is a link: torno deletes nothing through it`
+  return folder === null ? null : `${folder} is a link: torno deletes nothing through it. Take the link away, then remove it again`
 }
 
 /** The masks there are in a scan's folder, each by its stem: for whoever clears away those no mark names. */

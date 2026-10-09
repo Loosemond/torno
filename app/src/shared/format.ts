@@ -35,6 +35,15 @@ export function scanNumber(mm: number): string {
   return number(Math.round(mm * 10) / 10 + 0)
 }
 
+/**
+ * A figure of a fit as the agent is told it, less its unit: to a tenth of a millimetre, as everything a reading
+ * takes from a scan is (`scanNumber`), and `under 0.1` below half of that. A few clicked points fitted to the
+ * micron are no finer than the scan they were clicked on; the data keeps the numbers in full.
+ */
+export function tenth(mm: number): string {
+  return Math.abs(mm) < 0.05 ? 'under 0.1' : scanNumber(mm)
+}
+
 /** How many of something: a whole number with its thousands set apart, `1,598,472`. */
 export function count(n: number): string {
   return n.toLocaleString('en-US')

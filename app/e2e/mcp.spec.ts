@@ -841,7 +841,7 @@ const DEVIATION = { near: [0x8a, 0x45, 0x94], far: [0xd3, 0xd8, 0xdf], inside: [
 const near = (rgb: number[], to: number[]): boolean => rgb.every((c, i) => Math.abs(c - to[i]) <= 3)
 /** Where the sheet is put: as it was imported, by three pairs of points that are not in a line and that it leaves nothing apart. */
 /** What a picture's caption says of that alignment: what it rests on, and that no build can say whether it holds. */
-const BASIS = '3 pairs, RMS 0 mm; tied to no point of the model: not checked against builds'
+const BASIS = '3 pairs, RMS under 0.1 mm; tied to no point of the model: not checked against builds'
 const AS_IMPORTED = {
   transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 },
   steps: ['pairs'],

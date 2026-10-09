@@ -1174,7 +1174,7 @@ describe('the masks of regions', () => {
     rmSync(folder(), { recursive: true })
     symlinkSync(elsewhere, folder())
     await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${folder()} is a link: torno deletes nothing through it`)
-    await expect(scans.remove('bracket', 'S1')).rejects.toThrow('is a link')
+    await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${folder()} is a link: torno deletes nothing through it. Take the link away, then remove it again`)
     expect(readFileSync(join(elsewhere, 'M7.mask'), 'utf8')).toBe('x')
     // It is refused before anything is changed: the scan is still the object's, and the link is as it was.
     expect((await scans.list('bracket')).map((scan) => scan.id)).toEqual(['S1'])

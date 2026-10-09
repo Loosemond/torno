@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { typed } from './align/format'
+import { typed } from './typed'
 
 /** One number to type: the DOM's own while it is typed in; `commit` is given what was typed when it is a number. */
 export function Field({ label, sign, axis, value, unit, disabled, commit }: { label: string; sign?: string; axis?: 'x' | 'y' | 'z'; value: string; unit?: string; disabled?: boolean; commit: (value: number, input: HTMLInputElement) => void }) {

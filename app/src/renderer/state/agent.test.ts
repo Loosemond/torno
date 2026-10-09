@@ -253,6 +253,14 @@ describe('show', () => {
       expect((replies.at(-1)!.result as { caption: string }).caption).not.toContain('scans are where they are')
     })
 
+    // Fix round 1 (M7): the caption is read by the agent: a fit's figures to a tenth of a millimetre, as a picture's has them.
+    it('says of a fit in its caption no finer than a tenth of a millimetre', () => {
+      const pairs = [0.001, 0.005, 0.003].map((residual, n) => ({ scan: [n, 0, 0], model: [n, 0, 0], residual }))
+      store.setState({ scans: store.getState().scans.map((scan) => (scan.id === 'S1' ? { ...scan, alignments: { assembly: { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs, rms: 0.003, frame: {}, at: '' } } } : scan)) as never })
+      show({ scans: ['S1'] })
+      expect((replies.at(-1)!.result as { caption: string }).caption).toContain(' · scans S1 (3 pairs, RMS under 0.1 mm; ')
+    })
+
     it('leaves on the scans named and no other, as thin as asked, says so, and leaves the scene file as the person had it', () => {
       actions.setScanView('S2', { opacity: 0.8 })
       const edits = store.getState().edits
