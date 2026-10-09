@@ -133,7 +133,7 @@ describe('reanchorAll', () => {
     asked.push({ objectId, name, args: structuredClone(args) as Record<string, unknown> })
     return answer(name, args as Record<string, unknown>) as T
   }
-  const run = (): Promise<boolean> => reanchorAll({ marks: store, query, scene: last, log: (message) => logged.push(message) }, 'bracket')
+  const run = (): Promise<boolean | 'busy'> => reanchorAll({ marks: store, query, scene: last, log: (message) => logged.push(message) }, 'bracket')
   const anchorsOf = (args: Record<string, unknown>) => args.anchors as Array<{ part: string; point: number[] }>
   const still = (args: Record<string, unknown>) => ({ anchors: anchorsOf(args).map(({ part }) => found(part, `${part}/F1`, 0)) })
   const onDisk = (): MarksFile => JSON.parse(readFileSync(join(dirs.bracket, '.torno', 'marks.json'), 'utf8'))
@@ -573,6 +573,20 @@ describe('reanchorAll', () => {
       expect((await byId()).M1).toMatchObject({ checkedRevision: 1, anchor: { point: [62, 0, 12], arranged: [58, 0, 0] } })
     })
 
+    it('a dimension between two parts moves each end with its own part: an angle keeps both ends on their own faces', async () => {
+      const ON_BASE: Anchor = { point: [5, 3, 2.5], normal: [0, 0, 1], part: 'base', ref: 'base/F1', arranged: [0, 0, 0] }
+      const NINETY = { value: 90, how: 'between planes', measuredRevision: 1 }
+      // The first end on the part that stays, and the other way round.
+      await store.add('bracket', { ...BASE, ...PRINT, kind: 'dimension', measure: 'angle', a: ON_BASE, b: { ...ON_SPREAD, ref: 'post/F1' } } as NewMark, 'draft', { ...NINETY, points: [[5, 3, 2.5], [54, 0, 12]] })
+      await store.add('bracket', { ...BASE, ...PRINT, kind: 'dimension', measure: 'angle', a: { ...ON_SPREAD, ref: 'post/F1' }, b: ON_BASE } as NewMark, 'draft', { ...NINETY, points: [[54, 0, 12], [5, 3, 2.5]] })
+      await widen()
+      expect(anchorsOf(asked[0].args).map((a) => [a.part, a.point])).toEqual([['base', [5, 3, 2.5]], ['post', [59, 0, 12]], ['post', [59, 0, 12]], ['base', [5, 3, 2.5]]])
+      const marks = await byId()
+      expect(marks.M1).toMatchObject({ anchorState: 'ok', checkedRevision: 2, a: { point: [5, 3, 2.5], ref: 'base/F1', arranged: [0, 0, 0] }, b: { point: [59, 0, 12], ref: 'post/F1', arranged: [55, 0, 0] }, points: [[5, 3, 2.5], [59, 0, 12]], value: 90 })
+      expect(marks.M2).toMatchObject({ anchorState: 'ok', a: { point: [59, 0, 12], arranged: [55, 0, 0] }, b: { point: [5, 3, 2.5], arranged: [0, 0, 0] }, points: [[59, 0, 12], [5, 3, 2.5]] })
+      expect(describeMark(marks.M1)).not.toContain('moved')
+    })
+
     it('a query that fails moves nothing: the mark is moved when it can be judged where it would be', async () => {
       await store.add('bracket', pin(ON_SPREAD, PRINT))
       await run()
@@ -1009,7 +1023,7 @@ describe('checkMarks: the dimensions are measured on every build, once the marks
     if (name === 'nearest') return { anchors: (args as { anchors: Array<{ part: string; point: number[] }> }).anchors.map(nearest) } as T
     return (await measured(args as never)) as T
   }
-  const run = (): Promise<boolean> => checkMarks({ marks: store, query, scene: () => (scene ? { revision, scene } : undefined), log: (message) => logged.push(message) }, 'gauge')
+  const run = (): Promise<boolean | 'busy'> => checkMarks({ marks: store, query, scene: () => (scene ? { revision, scene } : undefined), log: (message) => logged.push(message) }, 'gauge')
   const byId = async (): Promise<Record<string, DimensionMark>> => Object.fromEntries((await store.list('gauge')).map((m) => [m.id, m as DimensionMark]))
   /** The build after: the plate 5 mm thick, its top 1 mm lower and its faces numbered otherwise, the hole 9 across. */
   const thinner = (): void => {
@@ -1146,6 +1160,67 @@ describe('checkMarks: the dimensions are measured on every build, once the marks
     measured = answer
     expect(await run()).toBe(true)
     expect((await byId()).M2).toMatchObject({ value: 9, measuredRevision: 2, verdict: 'fail' })
+  })
+
+  it('says the worker is busy, not that the pass failed for good, when the kernel answers at once that it is still busy with an earlier query', async () => {
+    const BUSY = new KernelError('timeout', 'the build of /ws/gauge is still busy with a query it did not answer within 30 s; ask again when it has')
+    await store.add('gauge', hole({ expected: 8 }), 'draft', EIGHT)
+    await run()
+    thinner()
+    const answer = measured
+    measured = () => {
+      throw BUSY
+    }
+    expect(await run()).toBe('busy')
+    // The check of the anchors too: nothing could be asked.
+    const say = nearest
+    nearest = () => {
+      throw BUSY
+    }
+    revision += 1
+    scene = sceneOf(['assembly:plate'])
+    expect(await run()).toBe('busy')
+    // A query of its own that took too long is a failure like any other.
+    nearest = say
+    measured = () => {
+      throw new KernelError('timeout', 'the query was not answered within 30 s; the build it was sent to is still there')
+    }
+    expect(await run()).toBe(false)
+    measured = answer
+    expect(await run()).toBe(true)
+  })
+
+  it('a distance between two parts has no value on a build that spreads them, says why with what to do, and is measured again when they are back', async () => {
+    const ON_TRAY: Anchor = { point: [0, 0, 4], normal: [0, 0, 1], part: 'tray', ref: 'tray/F5' }
+    const ON_LID: Anchor = { point: [0, 0, 6], normal: [0, 0, -1], part: 'lid', ref: 'lid/F0' }
+    const TWO = { value: 2, how: 'between planes', points: [[0, 0, 4], [0, 0, 6]] as [[number, number, number], [number, number, number]], measuredRevision: 1 }
+    const placed = (): Scene => sceneOf(['print:tray', 'print:lid', 'assembly:tray', 'assembly:lid'])
+    scene = placed()
+    nearest = ({ part, point }) => found(part, part === 'tray' ? 'tray/F5' : 'lid/F0', 0, { point: point as [number, number, number] })
+    measured = () => TWO
+    await store.add('gauge', { ...BASE, layout: 'print', kind: 'dimension', measure: 'distance', a: ON_TRAY, b: ON_LID, expected: 2 } as NewMark, 'draft', TWO)
+    expect(await run()).toBe(true)
+    expect((await byId()).M1).toMatchObject({ value: 2, measuredRevision: 1, verdict: 'pass', b: { arranged: [0, 0, 0] } })
+
+    // The build after has them overlap in the print layout: torno sets the lid 45 mm along.
+    scene = placed()
+    scene.parts[1].arranged = [45, 0, 0]
+    revision = 2
+    asked = []
+    expect(await run()).toBe(true)
+    const wiped = (await byId()).M1
+    expect(wiped).toMatchObject({ anchorState: 'ok', measuredRevision: 2, b: { point: [45, 0, 6], arranged: [45, 0, 0] }, refused: 'torno spread tray and lid apart for display in layout print, so the distance between them there is not the model’s: measure it in layout assembly' })
+    for (const key of ['value', 'how', 'points', 'verdict']) expect(wiped).not.toHaveProperty(key)
+    expect(asked.filter((q) => q.name === 'measure')).toEqual([])
+    expect(describeMark(wiped, { revision: 2 })).toBe(`M1 distance: not measurable (${wiped.refused}), tray/F5 to lid/F0 (expected 2 ± 0.05)`)
+
+    // And the one after that places them as the model does again.
+    scene = placed()
+    revision = 3
+    expect(await run()).toBe(true)
+    const back = (await byId()).M1
+    expect(back).toMatchObject({ value: 2, measuredRevision: 3, verdict: 'pass', b: { point: [0, 0, 6], arranged: [0, 0, 0] } })
+    expect(back).not.toHaveProperty('refused')
   })
 
   it('does not measure a dimension whose ends the check could not judge: its refs may name other faces now', async () => {
@@ -1377,6 +1452,43 @@ describe('retrying', () => {
     check('a')
     await vi.advanceTimersByTimeAsync(120_000)
     expect(state.runs).toEqual([0, 2000, 12_000, 42_000])
+  })
+
+  it('keeps checking every 30 s past the third time while the kernel is only busy, until it has answered', async () => {
+    const state = { says: 'busy' as boolean | 'busy', runs: [] as number[] }
+    const started = Date.now()
+    const check = retrying(async () => {
+      state.runs.push(Date.now() - started)
+      return state.says
+    })
+    check('a')
+    await vi.advanceTimersByTimeAsync(110_000)
+    expect(state.runs).toEqual([0, 2000, 12_000, 42_000, 72_000, 102_000])
+    // It answers again: checked once more, and no more.
+    state.says = true
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(state.runs).toEqual([0, 2000, 12_000, 42_000, 72_000, 102_000, 132_000])
+    expect(vi.getTimerCount()).toBe(0)
+
+    // Busy at first and then failing otherwise: left after the three tries, as ever.
+    state.runs = []
+    state.says = 'busy'
+    const again = Date.now()
+    const other = retrying(async () => {
+      state.runs.push(Date.now() - again)
+      return state.says
+    })
+    other('a')
+    await vi.advanceTimersByTimeAsync(80_000)
+    state.says = false
+    await vi.advanceTimersByTimeAsync(300_000)
+    expect(state.runs).toEqual([0, 2000, 12_000, 42_000, 72_000, 102_000])
+    // A newer build, or the workspace closing, ends the wait as it does any other.
+    state.says = 'busy'
+    other('a')
+    await vi.advanceTimersByTimeAsync(50_000)
+    other.cancel()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('stops once a check has worked', async () => {

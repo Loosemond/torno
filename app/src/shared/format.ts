@@ -18,3 +18,15 @@ export function number(value: number): string {
   const text = value.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '')
   return text === '-0' ? '0' : text
 }
+
+/** What names a build (`r12`) or a part's face or edge (`plate/E7`) in a sentence. */
+const NAMED = /(\br\d+\b|[\w.-]+\/[FE]\d+\b)/
+
+/**
+ * A sentence in pieces: every second one, from the second, names a build or
+ * a ref, and is set in the face of numbers wherever the sentence is shown,
+ * as every number and ref is. (`['not measured on ', 'r12', '']`.)
+ */
+export function namedPieces(text: string): string[] {
+  return text.split(NAMED)
+}

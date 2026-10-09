@@ -1,9 +1,9 @@
 import { offEdgeReason, verdictOf } from '../../shared/dimension'
-import type { MeasureArgs, MeasureTarget, Measured } from '../../shared/geometry'
+import type { MeasureArgs, MeasureTarget } from '../../shared/geometry'
 import type { Anchor, DimensionMark, Mark, Measurement, NewMark, Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
-import { KernelError } from '../kernel/client'
+import { KernelError, isBusy } from '../kernel/client'
 import { sanitiseMark } from './file'
 import { spreadApart, spreadReason } from './spread'
 import type { MarkStore, Remeasured } from './store'
@@ -315,7 +315,8 @@ export interface RemeasureDeps extends MeasureDeps {
  * measures from the ends as that left them: a dimension whose end the build
  * moved is measured between the features its ends name now, and says that
  * it moved. Resolves false when some dimension could not be measured that
- * should have been.
+ * should have been, and `busy` when that was because the kernel's worker was
+ * still busy with an earlier query.
  *
  * - One whose ends that check could not judge (`checkedRevision` is of
  *   another build) is not measured: its refs may name other faces by now.
@@ -334,7 +335,7 @@ export interface RemeasureDeps extends MeasureDeps {
  * dimension was measured from, and the store passes over one that changed
  * underneath.
  */
-export async function remeasureAll(deps: RemeasureDeps, objectId: string): Promise<boolean> {
+export async function remeasureAll(deps: RemeasureDeps, objectId: string): Promise<boolean | 'busy'> {
   const last = deps.scene(objectId)
   if (!last) return true
   const { scene, revision } = last
@@ -344,6 +345,8 @@ export async function remeasureAll(deps: RemeasureDeps, objectId: string): Promi
   )
   const changes: Remeasured[] = []
   const failures: string[] = []
+  /** Whether what could not be measured was only because the worker is still busy with an earlier query: worth asking again (`retrying`). */
+  let busy = false
   for (const mark of due) {
     if (superseded()) return true
     const of = { measure: mark.measure, a: mark.a, ...(mark.b ? { b: mark.b } : {}), ...(mark.expected === undefined ? {} : { expected: mark.expected }), ...(mark.tolerance === undefined ? {} : { tolerance: mark.tolerance }) }
@@ -354,27 +357,12 @@ export async function remeasureAll(deps: RemeasureDeps, objectId: string): Promi
     try {
       changes.push({ id: mark.id, of, result: await measureDimension(deps, objectId, mark, revision) })
     } catch (e) {
+      if (isBusy(e)) busy = true
       failures.push(`${mark.id}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
   if (superseded()) return true
   if (changes.length > 0) await deps.marks.remeasured(objectId, changes)
   if (failures.length > 0) (deps.log ?? console.error)(`cannot measure the dimensions of ${objectId} on its last build: ${failures.join('; ')}`)
-  return failures.length === 0
-}
-
-/**
- * `measure`, as the window asks it of an object's last good build: refs are
- * of the layout named, and go to the kernel with it in front, as
- * `geometry:describe` sends them. Rejects with a plain message, the kernel's
- * when it refused.
- */
-export async function measure(query: Builds['query'], objectId: string, args: MeasureArgs): Promise<Measured> {
-  const whole = typeof args === 'object' && args !== null && typeof args.kind === 'string' && typeof args.layout === 'string' && args.layout !== '' && typeof args.a === 'object' && args.a !== null
-  if (!whole || (args.b !== undefined && (typeof args.b !== 'object' || args.b === null))) throw new Error('measure needs a kind, a layout and an end a: a ref, a point, or both')
-  try {
-    return await query<Measured>(objectId, 'measure', wire(args))
-  } catch (e) {
-    throw new Error(plain(e, args.layout))
-  }
+  return failures.length === 0 ? true : busy ? 'busy' : false
 }

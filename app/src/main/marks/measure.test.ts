@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import { isSpreadRefusal } from '../../shared/dimension'
 import type { Anchor, DimensionMark, Mark, Measurement, NewMark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import { sanitiseMark } from './file'
-import { addDimension, addDimensionTold, dueAfterEdit, measure, measureDimension, measureRequest, remeasure } from './measure'
+import { addDimension, addDimensionTold, dueAfterEdit, measureDimension, measureRequest, remeasure, wire } from './measure'
 
 const CAMERA = { position: [100, -100, 80], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', layout: 'assembly', revision: 3, camera: CAMERA } as const
@@ -394,9 +395,32 @@ describe('adding a dimension', () => {
       const k = { ...kernel(() => SIX), scene: () => ({ revision: 3, scene: spreadScene }) }
       expect(await onR3(k, 'spread', across() as DimensionMark)).toEqual({
         measuredRevision: 3,
-        refused: 'torno spread tray and lid apart for display in layout print, so the distance between them there is not the model’s'
+        refused: 'torno spread tray and lid apart for display in layout print, so the distance between them there is not the model’s: no layout places them as assembled'
       })
       expect(k.asked).toEqual([])
+      // With a layout that places both as the model does, the reason says where to measure it.
+      const both = { ...spreadScene, layouts: ['assembly', 'print'], parts: [...spreadScene.parts, { key: 'assembly:tray', name: 'tray', layout: 'assembly' }, { key: 'assembly:lid', name: 'lid', layout: 'assembly' }] } as unknown as Scene
+      expect((await onR3({ ...k, scene: () => ({ revision: 3, scene: both }) }, 'spread', across() as DimensionMark)).refused).toBe(
+        'torno spread tray and lid apart for display in layout print, so the distance between them there is not the model’s: measure it in layout assembly'
+      )
+    })
+
+    it('nor is a distance from a bare point to a part torno moved: kept by no one, and not measurable when it is there already', async () => {
+      const k = { ...kernel(() => SIX), scene: () => ({ revision: 3, scene: spreadScene }) }
+      const store = marks()
+      const POINT = "In layout print torno moved lid for display (the parts overlapped as the model placed them), so the distance between a point and lid there is torno's, not the model's. Measure between faces and edges of lid."
+      for (const ends of [{ a: { point: [30, 0, 9] } }, { a: { point: [30, 0, 2], part: 'lid', ref: 'lid/F5' }, b: { point: [30, 0, 9] } }]) {
+        await expect(addDimension({ ...k, marks: store }, 'spread', across(ends))).rejects.toThrow(POINT)
+        expect(await onR3(k, 'spread', across(ends) as DimensionMark)).toEqual({ measuredRevision: 3, refused: 'torno moved lid for display in layout print, so the distance from a point to it there is not the model’s: measure between its faces' })
+      }
+      expect(k.asked).toEqual([])
+      expect(store.did).toEqual([])
+      // The window knows each of these reasons again by its words, to say them in a line of its own.
+      const refusals = [FULL, POINT, (await onR3(k, 'spread', across() as DimensionMark)).refused, (await onR3(k, 'spread', across({ a: { point: [30, 0, 9] } }) as DimensionMark)).refused]
+      expect(refusals.map(isSpreadRefusal)).toEqual([true, true, true, true])
+      expect(isSpreadRefusal('angle is measured between two planar faces')).toBe(false)
+      // From a point to the part that stayed where the model placed it, it is kept and measured.
+      expect(await addDimension({ ...k, marks: store }, 'spread', across({ b: { point: [0, 0, 9] } }))).toMatchObject({ id: 'M1', value: 6.000000000000001 })
     })
   })
 
@@ -507,25 +531,9 @@ describe('after a change of what a dimension should be', () => {
   })
 })
 
-describe('measure, as the window asks it', () => {
-  it('puts the layout in front of the refs, names the layout for a bare point, and hands on what the kernel says', async () => {
-    const k = kernel(() => SIX)
-    const reply = await measure(k.query, 'measures', { kind: 'distance', layout: 'assembly', a: { ref: 'plate/F5', point: [5, 3, 3] }, b: { point: [0, 0, 9] } })
-    expect(reply).toEqual(SIX)
-    expect(k.asked[0]).toEqual({ objectId: 'measures', name: 'measure', args: { kind: 'distance', a: { ref: 'assembly:plate/F5', point: [5, 3, 3] }, b: { layout: 'assembly', point: [0, 0, 9] } } })
-    await measure(k.query, 'measures', { kind: 'mass', layout: 'assembly', a: { ref: 'plate' }, density: 1.05 })
-    expect(k.asked[1].args).toEqual({ kind: 'mass', a: { ref: 'assembly:plate' }, density: 1.05 })
-  })
-
-  it('refuses what names no layout or no end, and turns a kernel error into a plain one', async () => {
-    const k = kernel(() => {
-      throw new KernelError('bad_request', 'volume is measured of a part; assembly:plate/F5 is a plane face')
-    })
-    await expect(measure(k.query, 'measures', { kind: 'volume', layout: '', a: { ref: 'plate' } })).rejects.toThrow('measure needs a kind, a layout and an end a')
-    await expect(measure(k.query, 'measures', null as never)).rejects.toThrow('measure needs a kind, a layout and an end a')
-    expect(k.asked).toEqual([])
-    const failed = await measure(k.query, 'measures', { kind: 'volume', layout: 'assembly', a: { ref: 'plate/F5' } }).catch((e: unknown) => e)
-    expect(failed).not.toBeInstanceOf(KernelError)
-    expect((failed as Error).message).toBe('volume is measured of a part; plate/F5 is a plane face')
+describe('a measurement as it goes to the kernel', () => {
+  it('has the layout in front of the refs, and names the layout for a bare point', () => {
+    expect(wire({ kind: 'distance', layout: 'assembly', a: { ref: 'plate/F5', point: [5, 3, 3] }, b: { point: [0, 0, 9] } })).toEqual({ kind: 'distance', a: { ref: 'assembly:plate/F5', point: [5, 3, 3] }, b: { layout: 'assembly', point: [0, 0, 9] } })
+    expect(wire({ kind: 'mass', layout: 'assembly', a: { ref: 'plate' }, density: 1.05 })).toEqual({ kind: 'mass', a: { ref: 'assembly:plate' }, density: 1.05 })
   })
 })

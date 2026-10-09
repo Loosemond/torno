@@ -183,9 +183,11 @@ const moved = (p: Vec3, by: Vec3): Vec3 => [p[0] + by[0], p[1] + by[1], p[2] + b
  * its anchor's point, an arrow's end, the points of a stroke on the surface,
  * the origin of a stroke's plane, a shape's position, both ends of a
  * dimension and the points its value was taken between. Used when the part it
- * is on is spread otherwise than it was (`Anchor.arranged`).
+ * is on is spread otherwise than it was (`Anchor.arranged`). The second end
+ * of a dimension, and the point its value was taken at there, move by `byB`:
+ * it may be on another part, which was moved otherwise.
  */
-export function translated<M extends Mark>(mark: M, by: Vec3): M {
+export function translated<M extends Mark>(mark: M, by: Vec3, byB: Vec3 = by): M {
   const at = (anchor: Anchor): Anchor => ({ ...anchor, point: moved(anchor.point, by) })
   const m: Mark = mark
   switch (m.kind) {
@@ -204,6 +206,7 @@ export function translated<M extends Mark>(mark: M, by: Vec3): M {
     case 'shape':
       return { ...m, position: moved(m.position, by), ...(m.anchor ? { anchor: at(m.anchor) } : {}) } as M
     case 'dimension':
-      return { ...m, a: at(m.a), ...(m.b ? { b: at(m.b) } : {}), ...(m.points ? { points: [moved(m.points[0], by), moved(m.points[1], by)] } : {}) } as M
+      // Of one end alone (a radius, a wall) both points are of that end.
+      return { ...m, a: at(m.a), ...(m.b ? { b: { ...m.b, point: moved(m.b.point, byB) } } : {}), ...(m.points ? { points: [moved(m.points[0], by), moved(m.points[1], m.b ? byB : by)] } : {}) } as M
   }
 }

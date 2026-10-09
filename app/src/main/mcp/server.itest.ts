@@ -190,6 +190,25 @@ describe('the MCP server', () => {
     expect(added).toEqual([])
   })
 
+  it('answers a malformed plane or end with what one looks like, not with the schema’s "Invalid input"', async () => {
+    const client = await connect('bracket')
+    const said = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      const result = await client.callTool({ name, arguments: args }).catch((e: Error) => ({ isError: true, content: [{ type: 'text', text: e.message }] }))
+      expect(result.isError, `${name} ${JSON.stringify(args)}`).toBe(true)
+      return (result.content as Content)[0].text!
+    }
+    const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for the plane across x, y or z at that coordinate in mm, or {"origin": [x, y, z], "normal": [x, y, z]} with a normal that is not all zeros'
+    for (const plane of ['z=3', { z: 3 }, { axis: 'z' }, [0, 0, 1], { origin: [0, 0, 0] }]) expect(await said('section', { plane })).toBe(NO_PLANE)
+    expect(await said('section', {})).toBe(NO_PLANE)
+    expect(await said('look', { section: { at: 3 } })).toBe(NO_PLANE)
+    expect(await said('show', { section: 'z' })).toBe(NO_PLANE)
+    const noEnd = (name: string): string => `${name} names nothing: give a ref ("lid/F12"), the number of a mark ("M3"), {"point": [x, y, z]} in mm, or {"ref": "lid/F12", "point": [x, y, z]}`
+    expect(await said('measure', { kind: 'radius' })).toBe(noEnd('a'))
+    expect(await said('measure', { kind: 'radius', a: { face: 'base/F5' } })).toBe(noEnd('a'))
+    expect(await said('measure', { kind: 'distance', a: 'base/F5', b: [1, 2] })).toBe(noEnd('b'))
+    expect(await said('add_mark', { kind: 'dimension', note: '', measure: 'diameter', a: 12 })).toBe(noEnd('a'))
+  })
+
   it('refuses arguments that are not what look takes', async () => {
     const client = await connect('bracket')
     const result = await client.callTool({ name: 'look', arguments: { view: 'sideways' } }).catch((e: Error) => ({ isError: true, content: [{ type: 'text', text: e.message }] }))

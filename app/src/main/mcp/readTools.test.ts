@@ -6,7 +6,7 @@ import type { Part, Scene } from '../../shared/scene'
 import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState } from '../../shared/view'
 import { KernelError } from '../kernel/client'
 import { addMarkTool } from './markTools'
-import { MAX_LOOP_POINTS, checkTool, measureTool, sectionTool, thinned } from './readTools'
+import { MAX_SECTION_POINTS, checkTool, measureTool, sectionTool, thinned } from './readTools'
 import { type ToolDeps, type ToolResult, describeTool, lookTool, sceneTool, showTool, TOOLS } from './tools'
 
 // The tools the agent reads the part with, against stand-ins for the kernel,
@@ -110,7 +110,7 @@ describe('the descriptions of the tools that read the part', () => {
   it('say what is returned, in what units, when to use each, and that values are exact unless the reply says approximate', () => {
     for (const tool of [TOOLS.measure, TOOLS.check]) expect(tool.description).toMatch(/exact, from the B-rep, unless the reply .* approximate/)
     expect(TOOLS.measure.description).toContain('mm, degrees, mm², mm³ and grams')
-    expect(TOOLS.section.description).toContain('thinned to 200 points each unless you ask for one part')
+    expect(TOOLS.section.description).toContain('an answer holds at most 4,000 points in all')
     expect(TOOLS.add_mark.description).toContain('becomes a pinned check the user sees')
   })
 })
@@ -183,7 +183,7 @@ describe('measure', () => {
   it('does not measure through a dimension that is itself not measurable, and says why in its words', async () => {
     const off = { ...MARK, id: 'M1', kind: 'dimension', measure: 'distance', anchorState: 'drifted', a: { point: [0, 0, 3], part: 'tub', ref: 'tub/E3', edge: 'tub/E3' }, b: { point: [0, 0, -3], part: 'tub', ref: 'tub/E7', edge: 'tub/E7' }, measuredRevision: 4, refused: 'the edge tub/E3 it was on is not under its end on r4' } as Mark
     const deps = fake(undefined, { marks: async () => [off] })
-    expect(await measureTool(deps, 'box', { kind: 'distance', a: 'M1', b: 'tub/F0' })).toEqual(refused('M1 is not measurable (the edge tub/E3 it was on is not under its end on r4): give a ref'))
+    expect(await measureTool(deps, 'box', { kind: 'distance', a: 'M1', b: 'tub/F0' })).toEqual(refused('M1 is a dimension: name the ref or point of the end you mean'))
     expect(deps.queries).toEqual([])
   })
 
@@ -194,7 +194,15 @@ describe('measure', () => {
     expect(await measureTool(deps, 'box', { kind: 'radius', a: 'tub', layout: 'exploded' })).toEqual(refused("no layout 'exploded'; layouts: assembly, print"))
     expect(await measureTool(deps, 'box', { kind: 'distance', a: 'tub/F5' })).toEqual(refused('distance is between two ends: give b'))
     expect(await measureTool(deps, 'box', { kind: 'volume', a: 'tub', b: 'lid' })).toEqual(refused('volume is of a alone: leave b out'))
-    expect(await measureTool(deps, 'box', { kind: 'radius', a: {} })).toEqual(refused('a names nothing: give a ref, the number of a mark, {point: [x, y, z]} or {ref, point}'))
+    const NO_END = (name: string): string => `${name} names nothing: give a ref ("lid/F12"), the number of a mark ("M3"), {"point": [x, y, z]} in mm, or {"ref": "lid/F12", "point": [x, y, z]}`
+    expect(await measureTool(deps, 'box', { kind: 'radius', a: {} })).toEqual(refused(NO_END('a')))
+    // Whatever was given for an end reaches the tool, which says what an end is.
+    for (const a of [undefined, null, 7, [1, 2, 3], { point: [1, 2] }, { ref: 5 }, { point: [1, 2, 'x'] }]) expect(await measureTool(deps, 'box', { kind: 'radius', a: a as never })).toEqual(refused(NO_END('a')))
+    expect(await measureTool(deps, 'box', { kind: 'distance', a: 'tub/F5', b: { face: 'tub/F0' } as never })).toEqual(refused(NO_END('b')))
+    expect(await addMarkTool(deps, 'box', { kind: 'dimension', note: '', measure: 'diameter', a: { at: [1, 2, 3] } as never })).toEqual(refused(NO_END('a')))
+    // A dimension is between two ends: its number stands for neither.
+    const dim: Mark = { ...MARK, id: 'M8', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 3], part: 'tub', ref: 'tub/F5' }, b: { point: [0, 0, -3], part: 'tub', ref: 'tub/F0' } }
+    expect(await measureTool(fake(undefined, { marks: async () => [dim] }), 'box', { kind: 'radius', a: 'M8' })).toEqual(refused('M8 is a dimension: name the ref or point of the end you mean'))
     expect(await measureTool(fake(), 'bracket', { kind: 'radius', a: 'tub' })).toEqual(refused('unknown object: bracket'))
     expect(deps.queries).toEqual([])
   })
@@ -205,6 +213,18 @@ describe('measure', () => {
     const slow = fake(() => new KernelError('timeout', 'the query took more than 30 s'))
     expect(await measureTool(slow, 'box', { kind: 'radius', a: 'tub/F5' })).toEqual(refused('the kernel did not answer within 30 s; the part may be too large for this measurement'))
     expect(await measureTool(fake(() => ({ kind: 'radius' })), 'box', { kind: 'radius', a: 'tub/F5' })).toEqual(refused('the kernel did not answer with a measurement'))
+    // A worker still busy with a query that was given up on answers at once, in the kernel's own words: nothing is said of this part's size.
+    const busy = fake(() => new KernelError('timeout', 'the build of /ws/box is still busy with a query it did not answer within 30 s; ask again when it has'))
+    expect(await measureTool(busy, 'box', { kind: 'radius', a: 'tub/F5' })).toEqual(refused('the build of /ws/box is still busy with a query it did not answer within 30 s; ask again when it has'))
+    expect(await checkTool(busy, 'box', { kind: 'mesh', a: 'lid' })).toEqual(refused('the build of /ws/box is still busy with a query it did not answer within 30 s; ask again when it has'))
+  })
+
+  it('reads an area the kernel calls approximate as it says it, with a digit count or with none', async () => {
+    const area = (how: string, more: object = {}) => ({ kind: 'area', value: 700.7123, unit: 'mm2', how, exact: false, ...more })
+    const reading = async (said: object): Promise<string> => data(await measureTool(fake(() => said), 'box', { kind: 'area', a: 'tub/F5' })).reading
+    expect(await reading(area('of the face, approximate, good to about 4 significant digits', { digits: 4 }))).toBe('area ≈ 700.7 mm² of the face, approximate, good to about 4 significant digits, tub/F5')
+    expect(await reading(area('of the face, approximate: its integrals differ by 2.1 %', { digits: null }))).toBe('area ≈ 700.7 mm² of the face, approximate: its integrals differ by 2.1 %, tub/F5')
+    expect(data(await measureTool(fake(() => area('of the face, approximate: its integrals differ by 2.1 %', { digits: null })), 'box', { kind: 'area', a: 'tub/F5' }))).toMatchObject({ exact: false, digits: null })
   })
 
   it('reads a wall measured through a mark with the mark, and a box the kernel says nothing of how it took without a stray comma', async () => {
@@ -288,7 +308,7 @@ describe('section', () => {
   it('answers with the drawing and with the outlines as JSON: the plane in both forms, each part, the extent and a reading', async () => {
     const deps = fake(() => CUT)
     const result = await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, size: 5000 })
-    expect(deps.queries).toEqual([{ name: 'section', args: { layout: 'assembly', plane: { origin: [0, 0, 3], normal: [0, 0, 1] } } }])
+    expect(deps.queries).toEqual([{ name: 'section', args: { layout: 'assembly', plane: { origin: [0, 0, 3], normal: [0, 0, 1] }, deflection: 0.01 } }])
     // The window is given the outlines in full, every name of the build for the colours, and a size within bounds.
     expect(deps.drawings).toEqual([{ objectId: 'box', layout: 'assembly', section: CUT, names: ['tub', 'lid', 'tub', 'lid'], size: 2000, spread: false }])
     expect(result.content[0]).toEqual({ type: 'image', mimeType: 'image/png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64') })
@@ -318,26 +338,66 @@ describe('section', () => {
     )
   })
 
-  it('thins each loop to 200 points, still closed, and says so; one part asked for alone is given in full', async () => {
-    const circle = Array.from({ length: 1000 }, (_, i): [number, number] => [20 * Math.cos((i * Math.PI) / 500), 20 * Math.sin((i * Math.PI) / 500)])
-    const round: Sectioned = { ...CUT, parts: [{ ...CUT.parts[0], loops: [loop(circle, 1256.6), loop(square(4), -16)], area: 1240.6 }], bounds: { min: [-20, -20], max: [20, 20] } }
-    const several = data(await sectionTool(fake(() => round), 'box', { plane: { axis: 'z', at: 3 } })) as never as { thinned?: boolean; parts: Array<{ loops: Array<SectionLoop & { thinned?: boolean; of?: number }> }> }
-    expect(several.thinned).toBe(true)
-    const [big, small] = several.parts[0].loops
-    expect(big).toMatchObject({ closed: true, thinned: true, of: 1000, area: 1256.6 })
-    expect(big.points).toHaveLength(MAX_LOOP_POINTS)
-    // What was dropped lies within the deflection the loop now says: 200 even chords of this circle would stray 0.0025 mm, and these are not far from even.
-    expect(big.deflection).toBeGreaterThan(0.05)
-    expect(big.deflection).toBeLessThan(0.05 + 0.01)
-    expect(small).toEqual(loop(square(4), -16))
+  it('holds at most 4,000 points in all, shared among the loops by their length, whether or not one part is named, and says so', async () => {
+    const circle = (r: number, n: number): [number, number][] => Array.from({ length: n }, (_, i): [number, number] => [r * Math.cos((i * 2 * Math.PI) / n), r * Math.sin((i * 2 * Math.PI) / n)])
+    // Under the budget nothing is thinned, however many points one loop has.
+    const few: Sectioned = { ...CUT, parts: [{ ...CUT.parts[0], loops: [loop(circle(20, 1000), 1256.6), loop(square(4), -16)], area: 1240.6 }], bounds: { min: [-20, -20], max: [20, 20] } }
+    const whole = data(await sectionTool(fake(() => few), 'box', { plane: { axis: 'z', at: 3 } })) as never as { thinned?: boolean; parts: Array<{ loops: SectionLoop[] }> }
+    expect(whole.thinned).toBeUndefined()
+    expect(whole.parts[0].loops[0].points).toHaveLength(1000)
 
-    const deps = fake(() => round)
-    const alone = data(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, parts: ['tub'] })) as never as { thinned?: boolean; parts: Array<{ loops: SectionLoop[] }> }
-    expect(deps.queries[0].args).toMatchObject({ parts: ['tub'] })
-    expect(alone.thinned).toBeUndefined()
-    expect(alone.parts[0].loops[0].points).toHaveLength(1000)
-    // The drawing is always of the outline in full.
-    expect(deps.drawings[0].section.parts[0].loops[0].points).toHaveLength(1000)
+    // Over it: a long outline, a short one of as many points, and a square that has nothing to spare.
+    const many: Sectioned = { ...CUT, parts: [{ ...CUT.parts[0], loops: [loop(circle(30, 4000), 2827.4), loop(circle(10, 4000), -314.2), loop(circle(10, 4000), -314.2), loop(square(4), -16)], area: 2183 }], bounds: { min: [-30, -30], max: [30, 30] } }
+    type Told = { thinned?: boolean; points?: number; of?: number; loopsOmitted?: number; parts: Array<{ area: number; loopsOmitted?: number; loops: Array<SectionLoop & { thinned?: boolean; of?: number }> }> }
+    for (const parts of [undefined, ['tub']]) {
+      const deps = fake(() => many)
+      const told = data(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, ...(parts ? { parts } : {}) })) as never as Told
+      const [long, short, other, corners] = told.parts[0].loops
+      const kept = told.parts[0].loops.reduce((sum, l) => sum + l.points.length, 0)
+      expect(kept).toBeLessThanOrEqual(MAX_SECTION_POINTS)
+      expect(kept).toBeGreaterThan(MAX_SECTION_POINTS - 8)
+      expect(told).toMatchObject({ thinned: true, points: kept, of: 12004 })
+      expect(told).not.toHaveProperty('loopsOmitted')
+      // Three times as long, three times the points; the square keeps its four.
+      expect(long.points.length / short.points.length).toBeCloseTo(3, 1)
+      expect(short.points).toHaveLength(other.points.length)
+      expect(long).toMatchObject({ closed: true, thinned: true, of: 4000, area: 2827.4 })
+      expect(long.deflection).toBeGreaterThan(0.05)
+      expect(corners).toEqual(loop(square(4), -16))
+      // The areas are the kernel's, and the drawing is of the outlines in full.
+      expect(told.parts[0].area).toBe(2183)
+      expect(deps.drawings[0].section.parts[0].loops[0].points).toHaveLength(4000)
+    }
+  })
+
+  it('leaves out the smallest loops when there are more than 500, and counts them', async () => {
+    const ring = (r: number): [number, number][] => Array.from({ length: 12 }, (_, i): [number, number] => [r * Math.cos((i * Math.PI) / 6), r * Math.sin((i * Math.PI) / 6)])
+    const loops = Array.from({ length: 620 }, (_, i) => loop(ring(1 + i), -1))
+    const sieve: Sectioned = { ...CUT, parts: [{ ...CUT.parts[0], loops: loops.slice(0, 600) }, { ...CUT.parts[0], part: 'lid', loops: loops.slice(600) }] }
+    const told = data(await sectionTool(fake(() => sieve), 'box', { plane: { axis: 'z', at: 3 } })) as never as { thinned: boolean; points: number; of: number; loopsOmitted: number; reading: string; parts: Array<{ loopsOmitted?: number; loops: SectionLoop[] }> }
+    expect(told).toMatchObject({ thinned: true, of: 620 * 12, loopsOmitted: 120 })
+    expect(told.points).toBeLessThanOrEqual(MAX_SECTION_POINTS)
+    expect(told.parts.map((p) => [p.loops.length, p.loopsOmitted])).toEqual([[480, 120], [20, undefined]])
+    // The smallest are the ones left out, and each kept has eight points at least.
+    expect(Math.hypot(...told.parts[0].loops[0].points[0])).toBeCloseTo(121)
+    expect(Math.min(...told.parts.flatMap((p) => p.loops.map((l) => l.points.length)))).toBeGreaterThanOrEqual(8)
+    // The reading counts the loops the kernel cut.
+    expect(told.reading).toContain('in 600 loops')
+  })
+
+  it('asks the kernel for outlines within 0.01 mm, which the drawing is made from, or within what the agent asks', async () => {
+    const deps = fake(() => CUT)
+    await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 } })
+    await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, parts: ['tub'] })
+    await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, deflection: 0.05 })
+    expect(deps.queries.map((q) => (q.args as { deflection?: number }).deflection)).toEqual([0.01, 0.01, 0.05])
+    expect(deps.queries[1].args).toEqual({ layout: 'assembly', plane: { origin: [0, 0, 3], normal: [0, 0, 1] }, parts: ['tub'], deflection: 0.01 })
+    expect(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, deflection: 'fine' as never })).toEqual(refused('deflection is a number of mm, 0.005 to 0.05: how far the outlines may stray from the true ones (default 0.01)'))
+  })
+
+  it('says of a part the plane misses that it does not cut it, not that it is cut in no loops', async () => {
+    const one: Sectioned = { ...CUT, parts: [CUT.parts[0], { ...CUT.parts[0], part: 'lid', loops: [], area: 0 }] }
+    expect(data(await sectionTool(fake(() => one), 'box', { plane: { axis: 'z', at: 3 } })).reading).toBe('plane normal +Z at z = 3 · layout assembly: tub 1500 mm² in 2 loops; the plane does not cut lid; the cut is 40 × 40 mm')
   })
 
   it('keeps the corners of a loop it thins', () => {
@@ -390,7 +450,8 @@ describe('section', () => {
 
   it('refuses what is no plane, parts the layout has not, and passes on a timeout', async () => {
     const deps = fake()
-    const noPlane = 'that is not a plane: give {origin: [x, y, z], normal: [x, y, z]} with a normal that is not all zeros, or {axis: "x" | "y" | "z", at: number}'
+    const noPlane = 'that is not a plane: give {"axis": "z", "at": 3} for the plane across x, y or z at that coordinate in mm, or {"origin": [x, y, z], "normal": [x, y, z]} with a normal that is not all zeros'
+    for (const plane of [undefined, 'z=3', { z: 3 }, { axis: 'z' }, { axis: 'z', at: '3' }, [0, 0, 1], { origin: [0, 0], normal: [0, 0, 1] }]) expect(await sectionTool(deps, 'box', { plane: plane as never })).toEqual(refused(noPlane))
     expect(await sectionTool(deps, 'box', { plane: { origin: [0, 0, 0], normal: [0, 0, 0] } })).toEqual(refused(noPlane))
     expect(await sectionTool(deps, 'box', { plane: { axis: 'w', at: 1 } as never })).toEqual(refused(noPlane))
     expect(await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, parts: ['cap'] })).toEqual(refused("no part 'cap' in layout assembly (parts: tub, lid)"))
@@ -434,18 +495,32 @@ describe('a layout whose parts torno spread apart for display', () => {
   it('answers what is of one part as ever, with how far that part was moved so that its points can be put back', async () => {
     const hole = { kind: 'diameter', value: 8, unit: 'mm', how: 'cylinder', points: [[41, 0, 0], [49, 0, 0]], exact: true }
     expect(data(await measureTool(spread(() => hole), 'box', { kind: 'diameter', a: 'lid/F3', layout: 'print' }))).toEqual({ layout: 'print', revision: 4, ...hole, arranged: [45, 0, 0], note: MOVED, reading: '⌀ 8 mm, lid/F3' })
-    // A free point and a part are of that one part, whichever is named first.
+    // From a free point to a part torno moved is no distance of the model's either, whichever is named first: the point is where the part is shown only by the spread.
     const toPoint = { kind: 'distance', value: 3, unit: 'mm', how: 'point to plane', points: [[45, 0, 5], [45, 0, 2]], exact: true }
+    const POINT = "In layout print torno moved lid for display (the parts overlapped as the model placed them), so the distance between a point and lid there is torno's, not the model's. Ask in a layout that places lid as the model does (layouts: assembly), or measure between faces and edges of lid."
     for (const ends of [{ a: { point: [45, 0, 5] }, b: 'lid/F1' }, { a: 'lid/F1', b: { point: [45, 0, 5] } }] as const) {
-      expect(data(await measureTool(spread(() => toPoint), 'box', { kind: 'distance', ...ends, layout: 'print' } as never))).toMatchObject({ value: 3, arranged: [45, 0, 0], note: MOVED })
+      const deps = spread(() => toPoint)
+      expect(await measureTool(deps, 'box', { kind: 'distance', ...ends, layout: 'print' } as never)).toEqual(refused(POINT))
+      expect(await addMarkTool(deps, 'box', { kind: 'dimension', note: '', measure: 'distance', ...ends, layout: 'print' } as never)).toEqual(refused(POINT))
+      expect(deps.queries).toEqual([])
     }
-    // Two ends on one part are of that part.
+    // To a part that was left where the model placed it, it is answered.
+    expect(data(await measureTool(spread(() => toPoint), 'box', { kind: 'distance', a: { point: [0, 0, 5] }, b: 'tub/F1', layout: 'print' }))).toMatchObject({ value: 3 })
+    // Two ends on one part are of that part. With no coordinates in the answer, nothing is said of frames.
     const within = { kind: 'distance', value: 2, unit: 'mm', how: 'between planes', exact: true }
-    expect(data(await measureTool(spread(() => within), 'box', { kind: 'distance', a: 'lid/F1', b: 'lid/F2', layout: 'print' }))).toMatchObject({ value: 2, arranged: [45, 0, 0] })
+    const inside = data(await measureTool(spread(() => within), 'box', { kind: 'distance', a: 'lid/F1', b: 'lid/F2', layout: 'print' }))
+    expect(inside).toMatchObject({ value: 2, arranged: [45, 0, 0] })
+    expect(inside).not.toHaveProperty('note')
+    const volume = data(await measureTool(spread(() => ({ kind: 'volume', value: 6000, unit: 'mm3', how: 'solid', exact: true })), 'box', { kind: 'volume', a: 'lid', layout: 'print' }))
+    expect(volume).toMatchObject({ value: 6000, arranged: [45, 0, 0] })
+    expect(volume).not.toHaveProperty('note')
     // A part that was not moved says nothing of it, and a mesh is the part's own.
     expect(data(await measureTool(spread(() => hole), 'box', { kind: 'diameter', a: 'tub/F3', layout: 'print' }))).not.toHaveProperty('arranged')
     const mesh = data(await checkTool(spread(() => ({ watertight: true, openEdges: 0, where: [], triangles: 12 })), 'box', { kind: 'mesh', a: 'lid', layout: 'print' }))
-    expect(mesh).toMatchObject({ reading: 'mesh of lid: closed, 12 triangles', arranged: [45, 0, 0], note: MOVED })
+    expect(mesh).toMatchObject({ reading: 'mesh of lid: closed, 12 triangles', arranged: [45, 0, 0] })
+    expect(mesh).not.toHaveProperty('note')
+    const open = data(await checkTool(spread(() => ({ watertight: false, openEdges: 3, where: [[45, 0, 0]], triangles: 12 })), 'box', { kind: 'mesh', a: 'lid', layout: 'print' }))
+    expect(open).toMatchObject({ arranged: [45, 0, 0], note: MOVED })
     // An angle is the same wherever the parts are put: they were moved, not turned.
     // Where its two ends are relative to each other is torno's, though: the points are left out.
     const angle = { kind: 'angle', value: 90, unit: 'deg', how: 'between normals', points: [[45, 0, 0], [0, 0, 0]], exact: true }
@@ -602,7 +677,7 @@ describe('add_mark with a dimension', () => {
     })
     const result = await addMarkTool(deps, 'box', { kind: 'dimension', note: '', measure: 'diameter', a: 'tub/F5', expected: 8 })
     expect(result.isError).toBeUndefined()
-    expect(text(result)).toBe(`${first}\nplaced in layout assembly: (yours) M9 diameter: not measured on r${now}, tub/F5 (expected 8 ± 0.05) [not checked against r${now}]\nrevision r${now}`)
+    expect(text(result)).toBe(`${first}\nplaced in layout assembly: (yours) M9 diameter: not measured yet, tub/F5 (expected 8 ± 0.05) [not checked against r${now}]\nrevision r${now}`)
   })
 
   it("answers with the kernel's reason when it cannot measure what was named, and nothing is kept", async () => {

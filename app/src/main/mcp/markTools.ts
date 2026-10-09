@@ -1,5 +1,6 @@
 import type { Described } from '../../shared/geometry'
-import { type Anchor, type Mark, type NewMark, type Quat, isUnchecked, markAnchors } from '../../shared/marks'
+import { expectedText, offBy, standingOf, valueText } from '../../shared/dimension'
+import { type Anchor, type DimensionMark, type Mark, type NewMark, type Quat, isUnchecked, markAnchors } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Camera, HighlightResult } from '../../shared/view'
 import { describeMark, number, vector } from '../marks/describe'
@@ -65,6 +66,20 @@ export function checkRef(scene: Scene, layout: string, ref: string): CheckedRef 
 /** An end of a measurement as the agent names one: a ref, the number of a mark, a point, or a ref with a point. */
 export type EndArg = string | { ref?: string; point?: Vec3 }
 
+/** Said of an end that is none, with what one looks like: whatever was given reaches the tool, so that this is the answer. */
+export const noEnd = (name: string): string => `${name} names nothing: give a ref ("lid/F12"), the number of a mark ("M3"), {"point": [x, y, z]} in mm, or {"ref": "lid/F12", "point": [x, y, z]}`
+
+/** An end as it was given, when it is one: a ref, or an object with a ref, a point of three finite numbers, or both. */
+function endOf(arg: unknown): { ref?: string; point?: Vec3 } | null {
+  if (typeof arg === 'string') return arg === '' ? null : { ref: arg }
+  if (typeof arg !== 'object' || arg === null || Array.isArray(arg)) return null
+  const { ref, point } = arg as { ref?: unknown; point?: unknown }
+  const isPoint = Array.isArray(point) && point.length === 3 && point.every((c) => typeof c === 'number' && Number.isFinite(c))
+  if ((ref !== undefined && (typeof ref !== 'string' || ref === '')) || (point !== undefined && !isPoint)) return null
+  if (ref === undefined && point === undefined) return null
+  return { ...(ref === undefined ? {} : { ref: ref as string }), ...(point === undefined ? {} : { point: point as Vec3 }) }
+}
+
 /** An end of a measurement as it is asked of the kernel, and what a reading calls it: `base/F5`, `base/F5 (M3)`, `(10, 5, -1)`. */
 export interface End {
   ref?: string
@@ -95,10 +110,10 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
       }
       const mark = marks.find((m) => m.id === arg)
       if (!mark) return noMark(arg, marks)
+      // It has two ends, or is of one thing at a point: which is meant is not for torno to guess.
+      if (mark.kind === 'dimension') return failure(`${arg} is a dimension: name the ref or point of the end you mean`)
       if (mark.layout !== layout) return failure(`${arg} is in layout ${mark.layout}, not ${layout}`)
       if (mark.anchorState === 'orphaned') return failure(`the part ${arg} was placed on is gone: give a ref`)
-      // A dimension whose edge is no longer under its end says why it is not measured: nothing is measured through it either.
-      if (mark.anchorState !== 'ok' && mark.kind === 'dimension' && mark.refused) return failure(`${arg} is not measurable (${mark.refused}): give a ref`)
       if (mark.anchorState !== 'ok') return failure(`${arg} has moved since it was placed: give a ref`)
       if (mark.status === 'resolved') return failure(`${arg} is resolved, and is no longer checked against the builds: give a ref`)
       if (isUnchecked(mark, revision)) return failure(`${arg} has not been checked against r${revision} yet, so what it is on is not known: give a ref, or ask again in a moment`)
@@ -113,8 +128,9 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
       ends.push({ ref: on.ref, point: on.point, part: checked.part, text: `${on.ref} (${arg})` })
       continue
     }
-    const { ref, point } = typeof arg === 'string' ? { ref: arg, point: undefined } : arg
-    if (ref === undefined && point === undefined) return failure(`${name} names nothing: give a ref, the number of a mark, {point: [x, y, z]} or {ref, point}`)
+    const given = endOf(arg)
+    if (!given) return failure(noEnd(name))
+    const { ref, point } = given
     const checked = ref === undefined ? undefined : checkRef(scene, layout, ref)
     if (typeof checked === 'string') return failure(checked)
     ends.push({ ...(ref === undefined ? {} : { ref }), ...(point ? { point } : {}), ...(checked ? { part: checked.part } : {}), text: ref ?? vector(point!) })
@@ -445,7 +461,8 @@ async function dimensionFor(
   args: AddMarkArgs
 ): Promise<Pick<Extract<NewMark, { kind: 'dimension' }>, 'kind' | 'measure' | 'a' | 'b' | 'expected' | 'tolerance' | 'camera'> | ToolResult> {
   const { measure, expected, tolerance } = args
-  if (measure === undefined || args.a === undefined) return failure(`a dimension needs measure, one of ${MEASURES.join(', ')}, and a, what it is of`)
+  if (measure === undefined) return failure(`a dimension needs measure, one of ${MEASURES.join(', ')}, and a, what it is of`)
+  if (args.a === undefined) return failure(noEnd('a'))
   const between = measure === 'distance' || measure === 'angle'
   if (between && args.b === undefined) return failure(`a dimension of ${measure === 'angle' ? 'an angle' : 'a distance'} needs b, its other end`)
   if (!between && args.b !== undefined) return failure(`a dimension of a ${measure} is of a alone: leave b out`)
@@ -485,17 +502,40 @@ async function dimensionFor(
   }
 }
 
+/**
+ * Resolves a mark for the agent. A dimension of the person's that has an
+ * expected value is not the agent's to resolve: it is their check of the
+ * part, a resolved dimension is no longer measured, and an agent that
+ * resolved what it had just made pass would switch the check off. It is told
+ * how the check stands instead. Of any other dimension it resolves, it is
+ * told that the dimension is no longer measured.
+ */
 export async function resolveMarkTool(deps: ToolDeps, objectId: string, args: ResolveMarkArgs): Promise<ToolResult> {
-  if (!deps.object(objectId)) return failure(`unknown object: ${objectId}`)
-  if (!MARK_ID.test(args.id)) {
-    const marks = await marksOf(deps, objectId)
-    return 'content' in marks ? marks : noMark(args.id, marks)
+  const marks = await marksOf(deps, objectId)
+  if ('content' in marks) return marks
+  const before = MARK_ID.test(args.id) ? marks.find((m) => m.id === args.id) : undefined
+  if (!before) return noMark(args.id, marks)
+  const revision = deps.scene(objectId)?.revision
+  if (before.kind === 'dimension' && before.author === 'user' && before.expected !== undefined && before.status !== 'resolved') {
+    return failure(`${before.id} is the person's check of the part: it stays measured on every build and only they resolve it. ${standing(before, revision)}`)
   }
   const note = args.note?.trim().slice(0, MAX_NOTE)
   try {
     const mark = await deps.updateMark(objectId, args.id, { status: 'resolved', ...(note ? { resolvedNote: note } : {}) })
-    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision: deps.scene(objectId)?.revision })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}` }] }
+    const unmeasured = mark.kind === 'dimension' ? `\n${mark.id} is no longer measured.` : ''
+    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}${unmeasured}` }] }
   } catch (e) {
     return failure(messageOf(e))
   }
+}
+
+/** How a check of the person's stands on the last build, in a sentence: `It passes on r5.` */
+function standing(mark: DimensionMark, revision: number | undefined): string {
+  if (revision === undefined) return 'It is not measured: nothing is built yet.'
+  const stands = standingOf(mark, revision)
+  if (stands === 'pass') return `It passes on r${revision}.`
+  if (stands === 'fail' && mark.value !== undefined && mark.expected !== undefined) {
+    return `It fails on r${revision}: ${valueText(mark.measure, mark.value).replace(/^(⌀|R) /, '')}, expected ${expectedText(mark)} (${offBy(mark.value, mark.expected)}).`
+  }
+  return `It is not ${stands === 'unmeasurable' ? 'measurable' : 'measured'} on r${revision}.`
 }

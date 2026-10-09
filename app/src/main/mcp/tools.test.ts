@@ -210,6 +210,24 @@ describe('scene', () => {
     })
   })
 
+  it('counts the unresolved dimensions that pass, fail and have no value of the build, when it is given the marks', () => {
+    const dim = (id: string, over: object): Mark => ({ ...MARK_BASE, id, status: 'sent', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 3, ...over }) as Mark
+    const marks = [
+      dim('M5', { expected: 8, verdict: 'pass' }),
+      dim('M6', { expected: 9, verdict: 'fail' }),
+      dim('M7', { expected: 9, verdict: 'fail', status: 'draft' }),
+      dim('M8', { expected: 8, verdict: 'pass', measuredRevision: 2 }),
+      dim('M9', { anchorState: 'orphaned' }),
+      // Not counted: with nothing expected of it, and resolved.
+      dim('M10', {}),
+      dim('M11', { expected: 9, verdict: 'fail', status: 'resolved' })
+    ]
+    expect(JSON.parse(textOf(sceneTool(fake(), 'bracket', marks))).dimensions).toEqual({ pass: 1, fail: 2, notMeasured: 2 })
+    // No dimension, nothing said.
+    expect(JSON.parse(textOf(sceneTool(fake(), 'bracket', fake().w.list)))).not.toHaveProperty('dimensions')
+    expect(TOOLS.scene.description).toContain('dimensions')
+  })
+
   it('carries the kind, the message and the last 30 lines of the traceback of a failed build, with the parts still shown', () => {
     const traceback = Array.from({ length: 45 }, (_, i) => `line ${i + 1}`).join('\n')
     const state: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, seconds: 0.1, stale: true, error: { kind: 'exception', message: 'ValueError: no', traceback, output: 'printed' } }
@@ -486,8 +504,9 @@ describe('marks', () => {
     const deps = fake({ state: null, noScene: true })
     deps.w.list = [{ ...MARK_BASE, id: 'M1', status: 'sent', note: '', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', expected: 8, verdict: 'pass' } as Mark]
     const [mark] = jsonOf(await marksTool(deps, 'bracket', {})).marks
-    for (const key of ['value', 'verdict', 'wasRevision']) expect(mark).not.toHaveProperty(key)
-    expect(mark).toMatchObject({ wasValue: 8, line: 'M1 diameter: not measured (was 8 mm on an earlier build), base/F9 (expected 8 ± 0.05)' })
+    // What its file holds is of no build of this run: it is not given as what the dimension was, either.
+    for (const key of ['value', 'verdict', 'wasRevision', 'wasValue']) expect(mark).not.toHaveProperty(key)
+    expect(mark).toMatchObject({ line: 'M1 diameter: not measured yet, base/F9 (expected 8 ± 0.05)' })
   })
 
   it('keeps to one status when asked, and open is all that are not resolved', async () => {
@@ -552,6 +571,16 @@ describe('describe', () => {
     expect(result.isError).toBeUndefined()
     expect(jsonOf(result)).toEqual({ layout: 'assembly', revision: 3, ...FACE, area: 1200 })
     expect(deps.w.described).toEqual([{ layout: 'assembly', ref: 'base/F5' }])
+  })
+
+  it('gives the box of a part without the noise of measuring it: a loft’s z min of -1e-07 is 0, never -0, and an approximate area stays as the kernel says it', async () => {
+    const loft = { ...WHOLE, bbox: { min: [-20, -15, -1e-7], max: [20, 15.00000004, 2.5] }, area: 3100.1234567, areaExact: false, descriptor: 'part, 40 × 30 × 2.5 mm, 6000 mm³, 6 faces' }
+    const text = textOf(await describeTool(fake({ describe: async () => loft as unknown as Described }), 'bracket', { ref: 'base' }))
+    expect(JSON.parse(text)).toMatchObject({ bbox: { min: [-20, -15, 0], max: [20, 15, 2.5] }, area: 3100.1235, areaExact: false })
+    expect(text).not.toMatch(/-0[,\]]|e-0/)
+    // An area with no digit count is told like any other: nothing here reads the kernel's words for it.
+    expect(TOOLS.measure.description).toContain('with no digit count')
+    expect(TOOLS.describe.description).toContain('areaExact false is approximate')
   })
 
   it('asks in the layout named, and of a whole part or an edge alike', async () => {
@@ -1039,8 +1068,39 @@ describe('resolve_mark', () => {
     // A dimension is echoed with the value it has on the build there is: one measured on another says of which.
     const dimension = { ...MARK_BASE, id: 'M7', status: 'sent', note: '', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder' } as Mark
     deps.w.list.push({ ...dimension, measuredRevision: 3 } as Mark, { ...dimension, id: 'M8', measuredRevision: 2 } as Mark)
-    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M7' }))).toBe('resolved: M7 diameter 8 mm, base/F9')
-    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M8' }))).toBe('resolved: M8 diameter 8 mm, base/F9 [as measured on r2]')
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M7' }))).toBe('resolved: M7 diameter 8 mm, base/F9\nM7 is no longer measured.')
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M8' }))).toBe('resolved: M8 diameter 8 mm, base/F9 [as measured on r2]\nM8 is no longer measured.')
+  })
+
+  it('does not resolve a dimension of the person’s that has an expected value: it is their check of the part, and says how it stands', async () => {
+    const deps = fake()
+    const check = { ...MARK_BASE, status: 'sent', note: '', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 2.5], part: 'base', ref: 'base/F5' }, b: { point: [0, 0, -2.5], part: 'base', ref: 'base/F0' }, how: 'between planes', expected: 8, measuredRevision: 3 } as const
+    deps.w.list.push(
+      { ...check, id: 'M5', value: 8, verdict: 'pass' } as Mark,
+      { ...check, id: 'M6', value: 6, verdict: 'fail' } as Mark,
+      { ...check, id: 'M7', value: 6, verdict: 'fail', measuredRevision: 2 } as Mark,
+      { ...check, id: 'M8', value: undefined, refused: 'no' } as Mark,
+      // The agent's own, with an expectation, is its to resolve; so is one of the person's already resolved (nothing changes).
+      { ...check, id: 'M9', author: 'agent', value: 8, verdict: 'pass' } as Mark
+    )
+    const theirs = (id: string): string => `${id} is the person's check of the part: it stays measured on every build and only they resolve it.`
+    expect(await resolveMarkTool(deps, 'bracket', { id: 'M5', note: 'done' })).toEqual({ isError: true, content: [{ type: 'text', text: `${theirs('M5')} It passes on r3.` }] })
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M6' }))).toBe(`${theirs('M6')} It fails on r3: 6 mm, expected 8 ± 0.05 (2 under).`)
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M7' }))).toBe(`${theirs('M7')} It is not measured on r3.`)
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M8' }))).toBe(`${theirs('M8')} It is not measurable on r3.`)
+    expect(deps.w.updates).toEqual([])
+    const own = await resolveMarkTool(deps, 'bracket', { id: 'M9' })
+    expect(own.isError).toBeUndefined()
+    expect(textOf(own)).toBe('resolved: (yours) M9 distance 8 mm between planes, base/F5 to base/F0 (expected 8 ± 0.05: pass)\nM9 is no longer measured.')
+    // Before any build there is nothing it stands on.
+    const unbuilt = fake({ state: null, noScene: true })
+    unbuilt.w.list.push({ ...check, id: 'M5', value: 8, verdict: 'pass' } as Mark)
+    expect(textOf(await resolveMarkTool(unbuilt, 'bracket', { id: 'M5' }))).toBe(`${theirs('M5')} It is not measured: nothing is built yet.`)
+  })
+
+  it('the description and the system prompt say so', () => {
+    expect(TOOLS.resolve_mark.description).toContain('A dimension of the user’s with an expected value is not yours to resolve')
+    expect(TOOLS.resolve_mark.description).toContain('no longer measured')
   })
 
   it('names the marks there are when the id is of none', async () => {

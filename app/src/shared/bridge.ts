@@ -1,5 +1,5 @@
 import type { BuildState } from './build'
-import type { Described, MeasureArgs, Measured } from './geometry'
+import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark, Replacement } from './marks'
 import type { Scene } from './scene'
 import type { SceneFile } from './scenefile'
@@ -53,8 +53,6 @@ export interface TornoBridge {
   }
   geometry: {
     describe(objectId: string, layout: string, ref: string): Promise<Described>   // rejects with a plain message
-    /** An exact measurement on the object's last good build, between refs or points of a layout. Rejects with a plain message: the kernel's reason when it refuses what was asked. */
-    measure(objectId: string, args: MeasureArgs): Promise<Measured>
   }
   session: {
     /** What there is for an object: its running session, and whether an earlier conversation can be resumed. */

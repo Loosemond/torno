@@ -423,12 +423,12 @@ test('given to the agent they are pinned: the next prompt says only how many pas
   const first = await prompted()
   expect(first).toMatch(/M1thickness6mmwall,alongthenormal,plate\/F\d+at\(-10,5,6\)\(expected6±0\.05:pass\)/)
   expect(first).toMatch(/M2diameter8mm,plate\/F\d+\(expected8±0\.05:pass\)/)
-  expect(first).not.toContain('Dimensions:')
+  expect(first).not.toContain('Dimensions')
   await expect(row('M1', page).locator('.mark-status')).toHaveText('pinned')
   await expect(row('M2', page).locator('.mark-status')).toHaveText('pinned')
   // From then on: nothing of them but the count, while they pass.
   const second = await prompted()
-  expect(second).toMatch(/Dimensions:2pinneddimensionspassOpenmarks:M1,M2$/)
+  expect(second).toMatch(/Dimensions\(measuredonr\d+\):2pinneddimensionspassOpenmarks:M1,M2$/)
   expect(second).not.toContain('thickness')
 })
 
@@ -475,7 +475,7 @@ test('a build that makes the plate 5 mm thick fails them: the rows, the status l
   // The agent is told of both with the prompt, and with the one after: they are not news that is told once.
   for (const _again of [1, 2]) {
     const context = await prompted()
-    expect(context).toMatch(/Dimensions:M1thickness5mmwall,alongthenormal,plate\/F\d+at\(-10,5,6\)\(expected6±0\.05:FAIL,1under\)\[movedsinceitwasplaced:checkit\]M2diameter10mm,plate\/F\d+\(expected8±0\.05:FAIL,2over\)\[movedsinceitwasplaced:checkit\]$/)
+    expect(context).toMatch(/Dimensions\(measuredonr\d+\):M1thickness5mmwall,alongthenormal,plate\/F\d+at\(-10,5,6\)\(expected6±0\.05:FAIL,1under\)\[movedsinceitwasplaced:checkit\]M2diameter10mm,plate\/F\d+\(expected8±0\.05:FAIL,2over\)\[movedsinceitwasplaced:checkit\]$/)
     expect(context).not.toContain('pinneddimension')
     // Each has its line: neither is named again among the open marks.
     expect(context).not.toContain('Openmarks:')
@@ -504,7 +504,7 @@ test('built as it should be again, they pass: the status line is clear, and the 
   await expect(row('M1', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'pass')
   await expect(statusLine().locator('.status-dimensions')).toHaveCount(0)
   const context = await prompted()
-  expect(context).toMatch(/Dimensions:2pinneddimensionspassOpenmarks:M1,M2$/)
+  expect(context).toMatch(/Dimensions\(measuredonr\d+\):2pinneddimensionspassOpenmarks:M1,M2$/)
   expect(context).not.toContain('FAIL')
 })
 

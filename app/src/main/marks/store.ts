@@ -20,6 +20,8 @@ export interface Reanchored {
    * it (`translated`). `anchors` are already there.
    */
   shift?: Vec3
+  /** Of a dimension between two parts: how far the part of its second end was moved, when that is another part. Its first end moves by `shift`. */
+  shiftB?: Vec3
   /** The revision of the build it was checked against. */
   checkedRevision?: number
 }
@@ -149,7 +151,8 @@ export class MarkStore {
    *
    * A mark of the person's that the agent was sent, and whose note, shape or
    * expectation is changed without the patch naming a status, is a draft again: the next
-   * prompt carries it once more, as changed. A mark that is no longer
+   * prompt carries it once more, as changed. So is a dimension of the agent's
+   * own of which the person changes what it should measure. A mark that is no longer
    * resolved forgets who resolved it; one the person makes a draft again
    * says that it was reopened, until it is sent. `acknowledged` can only be set, and only
    * on a mark the agent resolved.
@@ -176,8 +179,13 @@ export class MarkStore {
       const said = changed as unknown as Record<string, unknown>
       const before = mark as unknown as Record<string, unknown>
       // What the agent was told of it no longer holds: it is told again.
-      if (asked.status === undefined && mark.status === 'sent' && mark.author === 'user' && CONTENT_KEYS.some((key) => !isDeepStrictEqual(said[key], before[key]))) {
+      const differs = (keys: readonly string[]): boolean => keys.some((key) => !isDeepStrictEqual(said[key], before[key]))
+      if (asked.status === undefined && mark.status === 'sent' && mark.author === 'user' && differs(CONTENT_KEYS)) changed.status = 'draft'
+      // A dimension of the agent's own that the person holds to another value: it placed the mark, and does not know of that.
+      // It is told as one it was given before, which it was: it made it.
+      if (asked.status === undefined && mark.status === 'sent' && mark.author === 'agent' && by === 'user' && differs(DIMENSION_KEYS)) {
         changed.status = 'draft'
+        changed.sentBefore = true
       }
       // Resolved, and a draft again: the agent is told that the person did not take it, when it knows of the
       // mark or of its resolution. One the person resolved before it was ever sent is news to it, and no more.
@@ -262,13 +270,13 @@ export class MarkStore {
   reanchor(objectId: string, changes: Reanchored[]): Promise<void> {
     return this.change(objectId, (file) => {
       let any = false
-      for (const { id, judged, anchors, anchorState, shift, checkedRevision } of changes) {
+      for (const { id, judged, anchors, anchorState, shift, shiftB, checkedRevision } of changes) {
         const at = file.marks.findIndex((m) => m.id === id)
         if (at < 0) continue
         const mark = file.marks[at]
         if (!isDeepStrictEqual(markAnchors(mark), judged)) continue
         // Whatever else the mark holds is moved from where it is now: a shape may have been dragged meanwhile.
-        const where = shift && anchors[0] ? translated(mark, shift) : mark
+        const where = (shift || shiftB) && anchors[0] ? translated(mark, shift ?? [0, 0, 0], shiftB ?? [0, 0, 0]) : mark
         const anchor =
           mark.kind === 'dimension'
             ? { ...(anchors[0] ? { a: anchors[0] } : {}), ...(anchors[1] && mark.b ? { b: anchors[1] } : {}) }

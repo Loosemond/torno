@@ -59,8 +59,7 @@ const bridge: TornoBridge = {
     dismissProblem: (objectId) => invokePlain('marks:dismissProblem', objectId)
   },
   geometry: {
-    describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref),
-    measure: (objectId, args) => invokePlain('geometry:measure', objectId, args)
+    describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref)
   },
   session: {
     current: (objectId) => ipcRenderer.invoke('session:current', objectId),

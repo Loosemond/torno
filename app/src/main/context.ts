@@ -21,7 +21,19 @@ const SELECTED_DESCRIPTOR_LIMIT = 100
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
 const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
 const MARKS_DATA = '; call mcp__torno__marks for their data'
-const DIMENSIONS_HEAD = 'Dimensions:'
+
+/**
+ * The head of the dimensions: which build their values and verdicts are of,
+ * and, while that is not the model as it now is (a build is running, or the
+ * latest failed), that it is not. Read without it, a FAIL of the build before
+ * is taken for a verdict on the edit just made.
+ */
+function dimensionsHead(deps: ContextDeps, objectId: string, revision: number | undefined): string {
+  if (revision === undefined) return 'Dimensions (nothing is built yet):'
+  const status = deps.build(objectId)?.status
+  const why = status === 'building' ? '; a build is running, so these are not of your last edit' : status === 'failed' ? `; the latest build failed, so these are still of r${revision}` : ''
+  return `Dimensions (measured on r${revision}${why}):`
+}
 
 /**
  * `4 pinned dimensions pass`; and of those among them whose end the build
@@ -75,8 +87,8 @@ export interface PromptContext {
  * before are listed once more, since "M3" means nothing there.
  *
  * A dimension the agent has been given and that is not resolved is pinned:
- * a check of the part, measured on every build. Under `Dimensions:` each one
- * that fails, cannot be measured or was not measured on the last build has
+ * a check of the part, measured on every build. Under `Dimensions (measured
+ * on rN):` (`dimensionsHead`) each one that fails, cannot be measured or was not measured on the last build has
  * its line, with every prompt until it is otherwise, and after them the
  * number that pass is said. Those lines are not news and are not among
  * `sentMarkIds`; a dimension listed there is not named again among the open
@@ -95,6 +107,7 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   const unmet = pinned.filter((m) => failing.includes(m) || unmeasured.includes(m))
   const passes = pinned.filter((m) => standingOf(m, revision) === 'pass')
   const passLine = passes.length > 0 ? passing(passes) : ''
+  const DIMENSIONS_HEAD = dimensionsHead(deps, objectId, revision)
   // Under `Dimensions:` they are listed with every prompt: not once more among the marks this conversation has not seen.
   const still = opts.fresh ? open.filter((m) => m.author === 'user' && !unmet.includes(m as DimensionMark)) : []
   const told = drafts.length > 0 || open.length > 0
@@ -141,8 +154,9 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   // One of its own is a draft only because the person reopened it, and so is one of theirs that says so:
   // it was resolved, and that did not do. Another of theirs that it has been given before is told again
   // because it changed: it knows the number, unless this conversation is another.
+  // One of its own that is a draft and was not reopened is a dimension the person holds to another value (`sentBefore`).
   const news = (mark: Mark): string | undefined =>
-    mark.author === 'agent' || mark.reopened ? 'reopened by the user' : mark.sentBefore && !opts.fresh ? 'changed' : undefined
+    mark.reopened || (mark.author === 'agent' && !mark.sentBefore) ? 'reopened by the user' : mark.sentBefore && (mark.author === 'agent' || !opts.fresh) ? 'changed' : undefined
   const listedDrafts = list(MARKS_HEAD, drafts, news)
   list(STILL_OPEN_HEAD, still, () => undefined)
   // The room kept for the dimensions is theirs now. The count of those that pass is still to come after them.

@@ -21,6 +21,20 @@ export class KernelError extends Error {
   }
 }
 
+/**
+ * Whether a query was answered at once because the worker that holds the
+ * build is still busy with one it was given up on (`_query` in
+ * kernel/src/torno_kernel/supervisor.py). It has the kind of a query that
+ * took too long itself, and is told apart by its words: this one says
+ * nothing of what was asked, and is worth asking again. Known by its words
+ * also once it is a plain error, as what the kernel says is passed on
+ * (`plain` in marks/measure.ts).
+ */
+export function isBusy(e: unknown): boolean {
+  if (!(e instanceof Error) || (e instanceof KernelError && e.kind !== 'timeout')) return false
+  return /\bis still busy with a query it did not answer\b/.test(e.message)
+}
+
 export interface KernelClient {
   /** The first start. Rejects if the kernel stops for good before it is ever ready. */
   ready: Promise<{ versions: Record<string, string> }>

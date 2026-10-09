@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
-import type { Described, MeasureArgs, Measured } from '../shared/geometry'
+import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
@@ -14,7 +14,7 @@ import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
 import { type Retrying, asPlaced, asReplaced, checkMarks, followMarks, retrying } from './marks/reanchor'
-import { addDimension, dueAfterEdit, measure, remeasure } from './marks/measure'
+import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
@@ -27,7 +27,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:stop,
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
-//           marks:dismissProblem, geometry:describe, geometry:measure
+//           marks:dismissProblem, geometry:describe
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection (sent by src/main/look.ts),
@@ -387,8 +387,6 @@ export function registerIpc(
     }
   })
 
-  // An exact measurement of an object's last good build, between refs or points of a layout.
-  ipcMain.handle('geometry:measure', (_event, objectId: string, args: MeasureArgs): Promise<Measured> => measure(queryObject, String(objectId), args))
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

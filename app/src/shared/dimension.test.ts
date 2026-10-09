@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dimensionText, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
+import { dimensionText, exactText, notMeasuredText, shownDimension, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
 import type { DimensionMark, Mark } from './marks'
 
 const dim = (over: Partial<DimensionMark> = {}): DimensionMark =>
@@ -61,6 +61,46 @@ describe('the value a dimension may be said to have', () => {
   it('of a resolved one is what it was: it is no longer measured', () => {
     expect(isUnmeasured(dim({ status: 'resolved' }), 9)).toBe(false)
     expect(measuredValue(dim({ status: 'resolved' }), 9)).toBe(8)
+  })
+})
+
+describe('what is shown of a dimension, in its row, on its chip, in a picture', () => {
+  it('is its value and its verdict on the build it was measured on', () => {
+    expect(shownDimension(dim({ expected: 8, verdict: 'pass' }), 3)).toEqual({ text: '⌀ 8 mm', value: 8, verdict: 'pass' })
+    expect(shownDimension(dim(), 3)).toEqual({ text: '⌀ 8 mm', value: 8 })
+    // A verdict is of a value and an expectation: one that says neither is not taken for a failure.
+    expect(shownDimension(dim({ expected: 8 }), 3)).toEqual({ text: '⌀ 8 mm', value: 8 })
+  })
+
+  it('on another build is what it was, stale, with no verdict, and says of which build', () => {
+    expect(shownDimension(dim({ expected: 8, verdict: 'pass' }), 4)).toEqual({ text: '⌀ 8 mm', stale: true, of: 3, note: 'not measured on r4: this is what it was on r3' })
+  })
+
+  it('of a resolved one is the value as measured on the build it was last measured on: no verdict, stale, whatever it held', () => {
+    const resolved = dim({ status: 'resolved', expected: 8, verdict: 'pass', measuredRevision: 5 })
+    expect(shownDimension(resolved, 6)).toEqual({ text: '⌀ 8 mm', stale: true, of: 5, note: 'as measured on r5: resolved, it is no longer measured' })
+    expect(shownDimension(dim({ status: 'resolved', expected: 8, verdict: 'pass', measuredRevision: undefined }), 6)).toEqual({ text: '⌀ 8 mm', stale: true, note: 'as measured on an earlier build: resolved, it is no longer measured' })
+    // Resolved on the build there is, it is still that build's.
+    expect(shownDimension(resolved, 5)).toEqual({ text: '⌀ 8 mm', value: 8, verdict: 'pass' })
+    expect(shownDimension(dim({ status: 'resolved', value: undefined }), 6)).toEqual({ text: 'not measured', none: true, note: 'resolved: it is no longer measured' })
+  })
+
+  it('held from a run before, or never measured, is not measured yet: what the file holds is of no build of this run', () => {
+    expect(shownDimension(dim({ measuredRevision: undefined, expected: 8, verdict: 'pass' }), 1)).toEqual({ text: 'not measured yet', none: true })
+    expect(shownDimension(dim({ measuredRevision: undefined }), undefined)).toEqual({ text: 'not measured yet', none: true })
+    expect(shownDimension(dim({ measuredRevision: undefined, value: undefined }), 4)).toEqual({ text: 'not measured yet', none: true })
+    expect(notMeasuredText(dim({ measuredRevision: undefined }), 4)).toBe('not measured yet')
+    expect(notMeasuredText(dim(), 4)).toBe('not measured on r4')
+  })
+
+  it('without a value it can have, says so', () => {
+    expect(shownDimension(dim({ value: undefined, refused: 'no diameter' }), 3)).toEqual({ text: 'not measurable', none: true })
+    expect(shownDimension(dim({ anchorState: 'orphaned' }), 3)).toEqual({ text: 'not measurable', none: true })
+  })
+
+  it('a value in full has its unit as everywhere: no space before the degree', () => {
+    expect(exactText('angle', 45.00000001)).toBe('45.00000001°')
+    expect(exactText('diameter', 8.0000001)).toBe('8.0000001 mm')
   })
 })
 

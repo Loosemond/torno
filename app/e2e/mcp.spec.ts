@@ -643,6 +643,11 @@ test('section answers with a drawing of the outlines the kernel cut, and with th
   expect(plate.area).toBeCloseTo(1200 - 2 * Math.PI * 16, 6)
   expect(plate.loops.map((loop) => Math.sign(loop.area))).toEqual([1, -1, -1])
   expect(json.reading).toBe('plane normal +Z at z = -2 · layout assembly: plate 1099 mm² in 3 loops; the cut is 40 × 30 mm')
+  // The outlines are asked of the kernel within 0.01 mm, so that a round hole is drawn round; all of them fit, and none is thinned.
+  expect(plate.loops.every((loop) => (loop as { deflection?: number }).deflection === 0.01)).toBe(true)
+  expect(json).not.toHaveProperty('thinned')
+  // What is no plane is answered with what one looks like, through the server as the agent calls it.
+  expect(await call(measures, 'section', { plane: { z: -2 } })).toMatchObject({ isError: true, text: 'that is not a plane: give {"axis": "z", "at": 3} for the plane across x, y or z at that coordinate in mm, or {"origin": [x, y, z], "normal": [x, y, z]} with a normal that is not all zeros' })
   expect(json.image).toMatch(/^1280×\d+, the parts in the colours the user sees them in, saved as .+\/measures\/\.torno\/views\/\d+\.png$/)
 
   // The drawing: 1280 on its long edge, the plate in its colour, and the sheet showing through both holes.
@@ -740,9 +745,10 @@ test("add_mark with a dimension leaves a check of the agent's that the user sees
   await expect(row.locator('.mark-value')).toHaveAttribute('data-verdict', 'fail')
   await expect(page.locator('.mark-row[data-mark="M2"] .mark-value')).toHaveAttribute('data-verdict', 'pass')
 
-  // A mark stands for what it is on, for measure too.
-  const through = JSON.parse((await call(measures, 'measure', { kind: 'radius', a: 'M1' })).text)
-  expect(through).toMatchObject({ value: 4, reading: `R 4 mm, ${hole.ref} (M1)` })
+  // A dimension has two ends, or is of one thing at a point: its number stands for neither in measure.
+  expect(await call(measures, 'measure', { kind: 'radius', a: 'M1' })).toMatchObject({ isError: true, text: 'M1 is a dimension: name the ref or point of the end you mean' })
+  // scene counts how the checks stand on the build.
+  expect(JSON.parse((await call(measures, 'scene')).text).dimensions).toEqual({ pass: 1, fail: 1, notMeasured: 0 })
 
   // What the kernel cannot measure is not kept.
   const flat = await call(measures, 'add_mark', { kind: 'dimension', note: '', measure: 'radius', a: { ref: top.ref, point: [-15, -10, 3] } })

@@ -50,8 +50,11 @@ export function lastValue(mark: DimensionMark): number | undefined {
  * the kernel could not measure, or whose part is gone, has none. One whose
  * end the build moved is measured from what is under it now, and has a value.
  *
- * This is the one rule for whatever shows or tells a dimension: its row, its
- * chip on the part and in a picture, its line, and its data for the agent.
+ * This is the one rule for whatever tells of an open dimension: its line and
+ * its data for the agent, and, through `shownDimension`, its row and its chip
+ * on the part and in a picture. A resolved one is no longer measured, and what
+ * it holds is told as of the build it was last measured on (`shownDimension`,
+ * and `markData` and `describeMark` in main).
  */
 export function measuredValue(mark: DimensionMark, revision: number | undefined): number | undefined {
   return isUnmeasured(mark, revision) ? undefined : lastValue(mark)
@@ -101,9 +104,45 @@ export function isOffEdge(refused: string | undefined): boolean {
   return refused !== undefined && /^the edge \S+ it was on is not under its end on r\d+$/.test(refused)
 }
 
+/**
+ * Whether a reason says that torno set the parts apart for display, so that
+ * what was asked between them is not the model's (`spreadApart` and
+ * `spreadReason` in main/marks/spread.ts say so in these words). The window
+ * knows it again, to say it in a line of its own.
+ */
+export function isSpreadRefusal(reason: string | undefined): boolean {
+  return reason !== undefined && /\btorno (spread|moved) .+ for display\b/.test(reason)
+}
+
 /** `not measured on r12`: said of a dimension in place of a value that is not of the build there is; `not measured` when there is no build. */
 export function unmeasuredText(revision: number | undefined): string {
   return revision !== undefined && revision > 0 ? `not measured on r${revision}` : 'not measured'
+}
+
+/** `r11`, or `an earlier build` of one that is not known: how the build a value is of is named, everywhere. */
+export function onBuild(revision: number | undefined): string {
+  return revision === undefined ? 'an earlier build' : `r${revision}`
+}
+
+/**
+ * What is said in place of the value of an open dimension that has none of
+ * the build `revision`. One that says of no build that it was measured on it
+ * (`measuredRevision`: read from its file, where that is of another run, or
+ * never measured) is `not measured yet`: what it holds is of no build that
+ * can be named, and the pass after the next build measures it.
+ */
+export function notMeasuredText(mark: Pick<DimensionMark, 'measuredRevision'>, revision: number | undefined): string {
+  return mark.measuredRevision === undefined ? 'not measured yet' : unmeasuredText(revision)
+}
+
+/** The unit a kind of measurement is in, as it is written after a number: with a space before `mm`, none before `°`. */
+export function unitOf(measure: MeasureKind): '°' | 'mm' {
+  return measure === 'angle' ? '°' : 'mm'
+}
+
+/** A value in full, with its unit: what a rounded one stands for (`8.0000001 mm`, `45.00000001°`). */
+export function exactText(measure: MeasureKind, value: number): string {
+  return measure === 'angle' ? `${value}°` : `${value} mm`
 }
 
 /** A value of a kind of measurement as it is shown: `6 mm`, `⌀ 8 mm`, `R 4 mm`, `45°`. At most four significant digits. */
@@ -115,10 +154,51 @@ export function valueText(measure: MeasureKind, value: number): string {
 /** What stands for the value of a dimension that has none. */
 export const NO_VALUE = '—'
 
-/** A dimension's value on the build `revision` as it is shown beside its number, on the part and in the list; `—` when it has none there. */
-export function dimensionText(mark: DimensionMark, revision: number | undefined): string {
+/** What a dimension is said to be when it has no value and can have none on the build shown. */
+export const NOT_MEASURABLE = 'not measurable'
+
+/**
+ * What is shown of a dimension on the build `revision`: in its row, on its
+ * chip and in a picture. One rule for all of them.
+ *
+ * - `value` (and `verdict`, when something is expected): it was measured on
+ *   that build, and `text` is that value.
+ * - `stale`: `text` is a value of another build, `of` when that is known. It
+ *   is shown greyed, with no tick or cross, and `note` says what it is: what
+ *   an open dimension was, or what a resolved one, which is no longer
+ *   measured, was last measured as.
+ * - `none`: `text` says in words that there is no value.
+ */
+export interface ShownDimension {
+  text: string
+  value?: number
+  verdict?: 'pass' | 'fail'
+  stale?: true
+  of?: number
+  none?: true
+  note?: string
+}
+
+export function shownDimension(mark: DimensionMark, revision: number | undefined): ShownDimension {
+  const last = lastValue(mark)
+  const of = mark.measuredRevision === undefined ? {} : { of: mark.measuredRevision }
+  const current = (value: number): ShownDimension => ({ text: valueText(mark.measure, value), value, ...(mark.verdict ? { verdict: mark.verdict } : {}) })
+  if (mark.status === 'resolved') {
+    if (last === undefined) return { text: 'not measured', none: true, note: 'resolved: it is no longer measured' }
+    if (revision !== undefined && mark.measuredRevision === revision) return current(last)
+    return { text: valueText(mark.measure, last), stale: true, ...of, note: `as measured on ${onBuild(mark.measuredRevision)}: resolved, it is no longer measured` }
+  }
   const value = measuredValue(mark, revision)
-  return value === undefined ? NO_VALUE : valueText(mark.measure, value)
+  if (value !== undefined) return current(value)
+  if (standingOf(mark, revision) === 'unmeasurable') return { text: NOT_MEASURABLE, none: true }
+  if (last === undefined || mark.measuredRevision === undefined) return { text: notMeasuredText(mark, revision), none: true }
+  return { text: valueText(mark.measure, last), stale: true, ...of, note: `${unmeasuredText(revision)}: this is what it was on ${onBuild(mark.measuredRevision)}` }
+}
+
+/** A dimension's value on the build `revision` as it is shown beside its number where there is room for no more; `—` when it has none there. */
+export function dimensionText(mark: DimensionMark, revision: number | undefined): string {
+  const shown = shownDimension(mark, revision)
+  return shown.value === undefined ? NO_VALUE : shown.text
 }
 
 /** `8.5 ± 0.05`: what a dimension should measure, with the tolerance that applies. Full precision, as typed. */

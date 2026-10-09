@@ -165,6 +165,7 @@ describe('contextFor', () => {
     const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 0.8, stale: false }
     const STATUS = '[torno] bracket · build ok · r3 (0.8 s) · layout assembly · parts: base, post.'
     const HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
+    const DIMS = 'Dimensions (measured on r3):'
     const pin = (n: number, over: Partial<Mark> = {}): Mark =>
       ({
         id: `M${n}`,
@@ -474,7 +475,7 @@ describe('contextFor', () => {
       it('lists each one that fails, after the marks, and then how many pass', () => {
         const marks = [pin(1), failing(8), passing(9), passing(10), pin(11, { status: 'sent' })]
         const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
-        expect(context.text).toBe([STATUS, HEAD, line(1), 'Dimensions:', FAIL(8), '2 pinned dimensions pass', 'Open marks: M9, M10, M11'].join('\n'))
+        expect(context.text).toBe([STATUS, HEAD, line(1), DIMS, FAIL(8), '2 pinned dimensions pass', 'Open marks: M9, M10, M11'].join('\n'))
         // They are not news: only the draft is turned sent.
         expect(context.sentMarkIds).toEqual(['M1'])
       })
@@ -482,10 +483,10 @@ describe('contextFor', () => {
       it('lists them with every prompt until they pass: nothing consumes them', () => {
         const marks = [failing(8)]
         const first = text(marks)
-        expect(first).toBe([STATUS, 'Dimensions:', FAIL(8)].join('\n'))
+        expect(first).toBe([STATUS, DIMS, FAIL(8)].join('\n'))
         expect(text(marks)).toBe(first)
         // Passing, there is only the count; and it is among the open marks again.
-        expect(text([passing(8)])).toBe([STATUS, 'Dimensions:', '1 pinned dimension passes', 'Open marks: M8'].join('\n'))
+        expect(text([passing(8)])).toBe([STATUS, DIMS, '1 pinned dimension passes', 'Open marks: M8'].join('\n'))
       })
 
       it('lists one that cannot be measured, with why, and one not measured on this build, without a value of it', () => {
@@ -498,18 +499,18 @@ describe('contextFor', () => {
         expect(text(marks)).toBe(
           [
             STATUS,
-            'Dimensions:',
+            DIMS,
             'M2 diameter: not measurable (base/F9 is a plane face: it has no diameter), base/F9 (expected 8 ± 0.05)',
             'M3 diameter: not measurable, [its part is gone]',
             'M4 diameter: not measured on r3 (was 8 mm on r2), base/F9 (expected 8 ± 0.05)',
-            'M5 diameter: not measured on r3 (was 8 mm on an earlier build), base/F9'
+            'M5 diameter: not measured yet, base/F9'
           ].join('\n')
         )
       })
 
       it('one whose end the build moved is measured, judged, and says that it moved', () => {
         expect(text([failing(8, { anchorState: 'drifted' }), passing(9, { anchorState: 'drifted' })])).toBe(
-          [STATUS, 'Dimensions:', `${FAIL(8)} [moved since it was placed: check it]`, '1 pinned dimension passes (1 measured from what is under its ends now: M9)', 'Open marks: M9 (moved); call mcp__torno__marks for their data'].join('\n')
+          [STATUS, DIMS, `${FAIL(8)} [moved since it was placed: check it]`, '1 pinned dimension passes (1 measured from what is under its ends now: M9)', 'Open marks: M9 (moved); call mcp__torno__marks for their data'].join('\n')
         )
         // Only counted, one that passes would pass unseen for what it was placed on: each such is named.
         expect(text([passing(9, { anchorState: 'drifted' }), passing(10), passing(12, { anchorState: 'drifted' })]).split('\n')[2]).toBe(
@@ -533,15 +534,21 @@ describe('contextFor', () => {
         expect(text([failing(8, { status: 'draft' })])).toBe([STATUS, HEAD, `(changed) ${FAIL(8)}`].join('\n'))
       })
 
+      it('the agent’s own whose expectation the person changed is told as changed, not as reopened', () => {
+        expect(text([failing(8, { author: 'agent', status: 'draft', sentBefore: true })])).toBe([STATUS, HEAD, `(yours, changed) ${FAIL(8)}`].join('\n'))
+        expect(text([failing(8, { author: 'agent', status: 'draft', sentBefore: true, reopened: true })])).toBe([STATUS, HEAD, `(yours, reopened by the user) ${FAIL(8)}`].join('\n'))
+        expect(text([failing(8, { author: 'agent', status: 'draft', sentBefore: false })])).toBe([STATUS, HEAD, `(yours, reopened by the user) ${FAIL(8)}`].join('\n'))
+      })
+
       it('the agent’s own is listed as its own, and one of another layout says which', () => {
-        expect(text([failing(8, { author: 'agent', layout: 'print' })])).toBe([STATUS, 'Dimensions:', `(yours) ${FAIL(8)} [in layout print]`].join('\n'))
+        expect(text([failing(8, { author: 'agent', layout: 'print' })])).toBe([STATUS, DIMS, `(yours) ${FAIL(8)} [in layout print]`].join('\n'))
       })
 
       it('in a conversation that has not seen the marks, is listed once: under the dimensions', () => {
         const marks = [pin(1, { status: 'sent', sentBefore: true }), failing(8), passing(9)]
         const STILL = 'Marks still open (this conversation has not seen them):'
         expect(text(marks, { fresh: true })).toBe(
-          [STATUS, STILL, line(1), 'M9 diameter 8 mm, base/F9 (expected 8 ± 0.05: pass)', 'Dimensions:', FAIL(8), '1 pinned dimension passes', 'Open marks: M1, M9'].join('\n')
+          [STATUS, STILL, line(1), 'M9 diameter 8 mm, base/F9 (expected 8 ± 0.05: pass)', DIMS, FAIL(8), '1 pinned dimension passes', 'Open marks: M1, M9'].join('\n')
         )
       })
 
@@ -550,7 +557,7 @@ describe('contextFor', () => {
         const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks)
         expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
         const lines = context.text.split('\n')
-        expect(lines[1]).toBe('Dimensions:')
+        expect(lines[1]).toBe(DIMS)
         expect(lines[2]).toBe(`${FAIL(1)}: "${'n'.repeat(40)}"`)
         const listed = lines.filter((l) => l.includes('FAIL')).length
         expect(listed).toBeGreaterThan(30)
@@ -565,7 +572,7 @@ describe('contextFor', () => {
         const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [...drafts, failing(100), failing(101), passing(102)])
         expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
         const lines = context.text.split('\n')
-        const at = lines.indexOf('Dimensions:')
+        const at = lines.indexOf(DIMS)
         expect(at).toBeGreaterThan(5)
         // The head, then either a line or the count of those left out; and the count of those that pass.
         expect(lines.slice(at + 1).join('\n')).toMatch(/^(M100 .*\n(M101 .*|… and 1 more unmet or unmeasured: call mcp__torno__marks)|… and 2 more unmet or unmeasured: call mcp__torno__marks)\n1 pinned dimension passes\nOpen marks: /)
@@ -575,9 +582,24 @@ describe('contextFor', () => {
         expect(context.sentMarkIds.every((id) => lines.some((l) => l.startsWith(`${id} pin`)))).toBe(true)
       })
 
+      it('says which build they were measured on, and that it is not of the model as it now is while a build runs or after one failed', () => {
+        const marks = [failing(8), passing(9)]
+        const of = (build: BuildState): string[] => contextFor(deps({ build, scene: SCENE, revision: 3 }), 'bracket', marks).text.split('\n')
+        expect(of(OK)[1]).toBe('Dimensions (measured on r3):')
+        const building = of({ objectId: 'bracket', status: 'building', revision: 3, startedAt: 0, stale: true })
+        expect(building[0]).toBe('[torno] bracket · building (0 s so far) · showing r3.')
+        expect(building[1]).toBe('Dimensions (measured on r3; a build is running, so these are not of your last edit):')
+        expect(building[3]).toBe('1 pinned dimension passes')
+        const failed = of({ objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'no' } })
+        expect(failed[2]).toBe('Dimensions (measured on r3; the latest build failed, so these are still of r3):')
+        // The head is counted in what fits.
+        const many = Array.from({ length: 150 }, (_, i) => failing(i + 1, { note: 'n'.repeat(40) }))
+        expect(contextFor(deps({ build: { objectId: 'bracket', status: 'building', revision: 3, startedAt: 0, stale: true }, scene: SCENE, revision: 3 }), 'bracket', many).text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+      })
+
       it('before any build of the run has none measured: each is told as not measured, never with the value its file holds', () => {
         const none = contextFor(deps({}), 'bracket', [passing(8, { measuredRevision: undefined })]).text
-        expect(none).toBe(['[torno] bracket · not built yet.', 'Dimensions:', 'M8 diameter: not measured (was 8 mm on an earlier build), base/F9 (expected 8 ± 0.05) [in layout assembly]'].join('\n'))
+        expect(none).toBe(['[torno] bracket · not built yet.', 'Dimensions (nothing is built yet):', 'M8 diameter: not measured yet, base/F9 (expected 8 ± 0.05) [in layout assembly]'].join('\n'))
       })
     })
 

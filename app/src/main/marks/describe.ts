@@ -1,5 +1,5 @@
 import { number } from '../../shared/format'
-import { expectedText, lastValue, measuredValue, offBy, standingOf, unmeasuredText, valueText } from '../../shared/dimension'
+import { expectedText, lastValue, measuredValue, notMeasuredText, offBy, onBuild, standingOf, valueText } from '../../shared/dimension'
 import { type Anchor, type DimensionMark, type Mark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
 
 /** Marks the note of a mark the last build moved off its surface, or left without its part. */
@@ -44,7 +44,7 @@ export function describeMark(mark: Mark, opts: { tag?: string; revision?: number
 function asMeasured(mark: Mark, revision: number | undefined): string {
   if (mark.kind !== 'dimension' || mark.status !== 'resolved' || lastValue(mark) === undefined) return ''
   if (revision !== undefined && mark.measuredRevision === revision) return ''
-  return ` [as measured on ${mark.measuredRevision === undefined ? 'an earlier build' : `r${mark.measuredRevision}`}]`
+  return ` [as measured on ${onBuild(mark.measuredRevision)}]`
 }
 
 /**
@@ -53,8 +53,9 @@ function asMeasured(mark: Mark, revision: number | undefined): string {
  * (`measuredValue`): data is read before prose, and a value there would be
  * taken for the part's.
  *
- * - What it held on another build is `wasValue`, of `wasRevision` when that
- *   is known, as its line says.
+ * - What it held on another build of this run is `wasValue`, of
+ *   `wasRevision`, as its line says. What its file holds from a run before
+ *   is of no build that can be named, and is not given.
  * - A resolved one is no longer measured: what it held when it was last
  *   measured is `resolvedValue` and `resolvedVerdict`, of `resolvedOnRevision`
  *   when that is known, whichever build is the last. Never `value`.
@@ -70,7 +71,7 @@ export function markData(mark: Mark, revision: number | undefined): object {
     const { measuredRevision: _on, ...settled } = rest
     return last === undefined ? settled : { ...settled, resolvedValue: last, ...(mark.verdict ? { resolvedVerdict: mark.verdict } : {}), ...on('resolvedOnRevision') }
   }
-  if (standingOf(mark, revision) !== 'unmeasured' || last === undefined) return rest
+  if (standingOf(mark, revision) !== 'unmeasured' || last === undefined || mark.measuredRevision === undefined) return rest
   return { ...rest, wasValue: last, ...on('wasRevision') }
 }
 
@@ -80,8 +81,8 @@ export function markData(mark: Mark, revision: number | undefined): object {
  * the verdict, with how far off and which way when it fails. The value is
  * that of the build of `revision`, and is given as nothing else:
  *
- * - measured on another build, or on none this run, it says
- *   `not measured on r12 (was 6 mm on r11)`, and no verdict;
+ * - measured on another build, it says `not measured on r12 (was 6 mm on
+ *   r11)`, and no verdict; on none this run, `not measured yet`;
  * - one the kernel could not measure on that build says `not measurable`,
  *   with the kernel's reason;
  * - one that lost the part of an end says only that.
@@ -98,8 +99,9 @@ function dimension(mark: DimensionMark, revision: number | undefined): string {
   const shown = (value: number): string => valueText(mark.measure, value).replace(/^(⌀|R) /, '')
   if (standing === 'unmeasured') {
     const last = lastValue(mark)
-    const was = last === undefined ? '' : ` (was ${shown(last)} on ${mark.measuredRevision === undefined ? 'an earlier build' : `r${mark.measuredRevision}`})`
-    return `${mark.measure}: ${unmeasuredText(revision)}${was}, ${ends}${expected && `${expected})`}`
+    // What it held on a build that can be named. What its file holds from another run is of none: it is not measured yet.
+    const was = last === undefined || mark.measuredRevision === undefined ? '' : ` (was ${shown(last)} on ${onBuild(mark.measuredRevision)})`
+    return `${mark.measure}: ${notMeasuredText(mark, revision)}${was}, ${ends}${expected && `${expected})`}`
   }
   if (mark.value === undefined) return `${mark.measure}: not measurable${mark.refused ? ` (${mark.refused})` : ''}, ${ends}${expected && `${expected})`}`
   // Of a radius or a diameter the way is what the thing is, which its ref says already: said only when it says which radius.

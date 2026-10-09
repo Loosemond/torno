@@ -814,10 +814,29 @@ describe('a dimension', () => {
     expect(await store.update('bracket', 'M1', { tolerance: 0.3 })).toMatchObject({ status: 'draft', verdict: 'pass' })
   })
 
+  it('of the agent’s own is news to it when the person changes what it should be: told as changed, not as reopened', async () => {
+    await store.add('bracket', { ...hole({ expected: 8 }), author: 'agent' } as NewMark, 'sent', EIGHT)
+    const changed = await store.update('bracket', 'M1', { expected: 8.5 })
+    expect(changed).toMatchObject({ status: 'draft', sentBefore: true, expected: 8.5, verdict: 'fail' })
+    expect(changed).not.toHaveProperty('reopened')
+    await store.markSent('bracket')
+    expect(await store.update('bracket', 'M1', { tolerance: 1 })).toMatchObject({ status: 'draft', verdict: 'pass' })
+    // What the agent changes of its own is no news to it, nor is the person's note on it.
+    await store.markSent('bracket')
+    expect(await store.update('bracket', 'M1', { expected: 9 }, 'agent')).toMatchObject({ status: 'sent' })
+  })
+
+  it('has both its ends moved by a check, each by how far its own part was moved, with the point its value was taken at', async () => {
+    const added = (await store.add('bracket', distance({ measure: 'angle' }), 'draft', { value: 90, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], measuredRevision: 1 })) as DimensionMark
+    await store.reanchor('bracket', [{ id: 'M1', judged: [added.a, added.b!], anchors: [added.a, { ...BOTTOM, point: [10, 3, -3] }], anchorState: 'ok', shiftB: [5, 0, 0], checkedRevision: 2 }])
+    const [now] = (await store.list('bracket')) as DimensionMark[]
+    expect(now).toMatchObject({ a: { point: [5, 3, 3] }, b: { point: [10, 3, -3] }, points: [[5, 3, 3], [10, 3, -3]], checkedRevision: 2 })
+  })
+
   it('has both its ends refreshed by a check, and moves with them, with the points it was measured between', async () => {
     const added = (await store.add('bracket', distance(), 'draft', { value: 6, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], measuredRevision: 1 })) as DimensionMark
     await store.reanchor('bracket', [
-      { id: 'M1', judged: [added.a, added.b!], anchors: [{ ...TOP, point: [15, 3, 3], ref: 'plate/F7' }, { ...BOTTOM, point: [15, 3, -3], ref: 'plate/F2' }], anchorState: 'ok', shift: [10, 0, 0], checkedRevision: 2 }
+      { id: 'M1', judged: [added.a, added.b!], anchors: [{ ...TOP, point: [15, 3, 3], ref: 'plate/F7' }, { ...BOTTOM, point: [15, 3, -3], ref: 'plate/F2' }], anchorState: 'ok', shift: [10, 0, 0], shiftB: [10, 0, 0], checkedRevision: 2 }
     ])
     const [now] = (await store.list('bracket')) as DimensionMark[]
     expect(now).toMatchObject({ a: { point: [15, 3, 3], ref: 'plate/F7' }, b: { point: [15, 3, -3], ref: 'plate/F2' }, points: [[15, 3, 3], [15, 3, -3]], value: 6, checkedRevision: 2 })

@@ -3,7 +3,7 @@ import type { Described } from '../../shared/geometry'
 import { type Anchor, type AnchorState, type Mark, type NewMark, type Replacement, type Vec3, markAnchors, strokeSamples, translated } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
-import { KernelError } from '../kernel/client'
+import { KernelError, isBusy } from '../kernel/client'
 import { type RemeasureDeps, remeasureAll } from './measure'
 import { EDGE_TOLERANCE_MM, edgeIsUnder, edgeOfPin, tolerance } from './tolerance'
 import type { MarkStore, Reanchored } from './store'
@@ -219,7 +219,7 @@ export interface ReanchorDeps {
  * same query, and it is drifted when one of them is on no surface any more,
  * though its first point is. Its anchor is still refreshed from the first.
  */
-export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise<boolean> {
+export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise<Checked> {
   const last = deps.scene(objectId)
   if (!last) return true
   const { scene, revision } = last
@@ -227,19 +227,30 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
   const listed = (await deps.marks.list(objectId)).filter((mark) => mark.status !== 'resolved')
   if (superseded()) return true
 
-  /** Each mark as listed, how far it is moved first, and as it is judged: moved, its anchor saying the spread of this build. */
-  const checked = listed.map((original): { original: Mark; shift: Vec3 | null; mark: Mark } => {
-    const primary = markAnchors(original)[0]
-    const now = primary?.part === undefined ? null : spreadOf(scene, original.layout, primary.part)
-    if (!primary || now === null) return { original, shift: null, mark: original }
-    const shift = shiftOf(primary, now)
-    // A dimension moves as one, with the part of its first end; each end then says how its own part is spread.
-    const spread = (anchor: Anchor): Vec3 | null => (anchor.part === primary.part ? now : anchor.part === undefined ? null : spreadOf(scene, original.layout, anchor.part))
-    return { original, shift, mark: withAnchor(shift ? translated(original, shift) : original, (anchor) => withSpread(anchor, spread(anchor))) }
+  /**
+   * Each mark as listed, how far it is moved first, and as it is judged: moved, its anchor saying the spread of this
+   * build. A mark moves with the part of its anchor. A dimension has two, which may be on two parts: each end moves
+   * with its own (`shiftB` is the second's), and one that is a bare point, on no part, stays.
+   */
+  const checked = listed.map((original): { original: Mark; shift: Vec3 | null; shiftB: Vec3 | null; mark: Mark } => {
+    const spread = (anchor: Anchor | undefined): Vec3 | null => (anchor?.part === undefined ? null : spreadOf(scene, original.layout, anchor.part))
+    const moved = (anchor: Anchor | undefined): Vec3 | null => {
+      const now = spread(anchor)
+      return anchor && now ? shiftOf(anchor, now) : null
+    }
+    const [primary, second] = markAnchors(original)
+    const shift = moved(primary)
+    const shiftB = original.kind === 'dimension' ? moved(second) : null
+    if (!primary || (spread(primary) === null && spread(second) === null)) return { original, shift: null, shiftB: null, mark: original }
+    const where = shift || shiftB ? translated(original, shift ?? NOT_SPREAD, original.kind === 'dimension' ? (shiftB ?? NOT_SPREAD) : (shift ?? NOT_SPREAD)) : original
+    // An end whose part is gone keeps what it says of how that was spread, to move by all that changed when it is back.
+    return { original, shift, shiftB, mark: withAnchor(where, (anchor) => (anchor.part !== undefined && spread(anchor) === null ? anchor : withSpread(anchor, spread(anchor)))) }
   })
   const marks = checked.map((one) => one.mark)
 
   const failures: string[] = []
+  /** Whether what could not be asked was only because the worker is still busy with an earlier query. */
+  let busy = false
   /** By anchor, as judged: how the build leaves it. Without an entry it could not be asked about. */
   const judged = new Map<Anchor, Judged>()
   const toleranceOf = (layout: string, part: string | undefined): number =>
@@ -279,6 +290,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       found = nearestReply(await deps.query(objectId, 'nearest', { layout, anchors: asked }), asked)
     } catch (e) {
       if (superseded()) return true
+      if (isBusy(e)) busy = true
       failures.push(`layout ${layout}: ${messageOf(e)}`)
       continue
     }
@@ -339,6 +351,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       } catch (e) {
         // `bad_ref` cannot be, of a part `nearest` has just found. Anything else, and it is not known what is there.
         if (!(e instanceof KernelError && e.kind === 'bad_ref')) {
+          if (isBusy(e)) busy = true
           judged.delete(old)
           failures.push(`${mark.id}: ${messageOf(e)}`)
           return
@@ -352,7 +365,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
   if (superseded()) return true
 
   const changes: Reanchored[] = []
-  for (const { original, shift, mark } of checked) {
+  for (const { original, shift, shiftB, mark } of checked) {
     if (unanswered.has(mark.id)) continue
     const anchors = markAnchors(mark)
     const now = anchors.map((anchor): Judged | undefined => (anchor.part === undefined ? { anchor, state: 'ok' } : judged.get(anchor)))
@@ -360,12 +373,12 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
     const ofAnchors = WORST_FIRST.find((state) => now.some((j) => j.state === state)) ?? 'ok'
     const anchorState = ofAnchors === 'ok' && offSurface.has(mark.id) ? 'drifted' : ofAnchors
     const was = markAnchors(original)
-    if (anchorState === original.anchorState && original.checkedRevision === revision && shift === null && now.every((j, i) => isDeepStrictEqual(j.anchor, was[i]))) continue
-    changes.push({ id: mark.id, judged: was, anchors: now.map((j) => j.anchor), anchorState, ...(shift ? { shift } : {}), checkedRevision: revision })
+    if (anchorState === original.anchorState && original.checkedRevision === revision && shift === null && shiftB === null && now.every((j, i) => isDeepStrictEqual(j.anchor, was[i]))) continue
+    changes.push({ id: mark.id, judged: was, anchors: now.map((j) => j.anchor), anchorState, ...(shift ? { shift } : {}), ...(shiftB ? { shiftB } : {}), checkedRevision: revision })
   }
   if (changes.length > 0) await deps.marks.reanchor(objectId, changes)
   if (failures.length > 0) (deps.log ?? console.error)(`cannot check the marks of ${objectId} against its last build: ${failures.join('; ')}`)
-  return failures.length === 0
+  return failures.length === 0 ? true : busy ? 'busy' : false
 }
 
 /**
@@ -375,10 +388,11 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
  * (`remeasureAll`). Resolves false when some mark could not be checked or
  * some dimension not measured, for the pass to be tried again (`retrying`).
  */
-export async function checkMarks(deps: ReanchorDeps & RemeasureDeps, objectId: string): Promise<boolean> {
+export async function checkMarks(deps: ReanchorDeps & RemeasureDeps, objectId: string): Promise<Checked> {
   const anchored = await reanchorAll(deps, objectId)
   const measured = await remeasureAll(deps, objectId)
-  return anchored && measured
+  if (anchored === true && measured === true) return true
+  return anchored === 'busy' || measured === 'busy' ? 'busy' : false
 }
 
 /** Whether a mark's anchors are judged as a pin's is (`judgePin`): a pin, and each end of a dimension, which is on a face or on an edge as a pin is. */
@@ -423,39 +437,53 @@ function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-/** How long after a check of the marks that failed it is tried again: three times, then left until the next build. */
+/**
+ * How a check of the marks went: all of it (true), or some could not be
+ * checked or measured (false); `busy` when that was, for some of it, because
+ * the kernel's worker was still busy with an earlier query and answered
+ * nothing (`isBusy`). That says nothing against asking again.
+ */
+export type Checked = boolean | 'busy'
+
+/** How long after a check of the marks that failed it is tried again: three times, then left until the next build, unless the kernel was only busy. */
 export const RETRY_AFTER_MS = [2000, 10_000, 30_000]
+/** How long after a check that found the kernel busy it is tried again, once the three times are up. */
+export const RETRY_BUSY_MS = 30_000
 
 /**
  * `check`, one at a time per object (`coalesced`), and again after a while
  * when it could not check everything (it resolves false, or rejects): after
- * each of `RETRY_AFTER_MS`, then no more. Asking anew, as for a newer build
- * or a mark just added, drops what was waiting and starts the count again.
+ * each of `RETRY_AFTER_MS`, then no more; but for a check that says the
+ * kernel was only `busy`, which is tried again every `RETRY_BUSY_MS` for as
+ * long as it says so: a worker busy for minutes would otherwise leave every
+ * dimension unmeasured until the next build. Asking anew, as for a newer
+ * build or a mark just added, drops what was waiting and starts the count again.
  *
  * `cancel` ends it, as when the workspace it checks for is closed: what was
  * waiting is dropped, and nothing is checked from then on, asked or not.
  */
-export function retrying(check: (objectId: string) => Promise<boolean>, log: (message: string) => void = console.error): Retrying {
+export function retrying(check: (objectId: string) => Promise<Checked>, log: (message: string) => void = console.error): Retrying {
   /** By object: how many times it has been tried again, and the wait for the next. */
   const waiting = new Map<string, { tried: number; timer?: NodeJS.Timeout }>()
   let cancelled = false
   const run = coalesced(async (objectId) => {
     if (cancelled) return
-    let ok = false
+    let went: Checked = false
     try {
-      ok = await check(objectId)
+      went = await check(objectId)
     } finally {
       const state = waiting.get(objectId) ?? { tried: 0 }
       clearTimeout(state.timer)
       state.timer = undefined
-      if (ok || cancelled || state.tried >= RETRY_AFTER_MS.length) waiting.delete(objectId)
+      const after = state.tried < RETRY_AFTER_MS.length ? RETRY_AFTER_MS[state.tried] : went === 'busy' ? RETRY_BUSY_MS : undefined
+      if (went === true || cancelled || after === undefined) waiting.delete(objectId)
       else {
         waiting.set(objectId, state)
         state.timer = setTimeout(() => {
           state.timer = undefined
           state.tried += 1
           run(objectId)
-        }, RETRY_AFTER_MS[state.tried])
+        }, after)
       }
     }
   }, log)

@@ -250,8 +250,8 @@ describe('a dimension in one line', () => {
     expect(describeMark(hole(), { revision: 4 })).toBe('M8 diameter 8 mm, base/F9 [not checked against r4]')
     expect(describeMark(hole({ checkedRevision: 5 }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on r4), base/F9')
     expect(describeMark(hole({ checkedRevision: 5, expected: 8, verdict: 'pass' }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on r4), base/F9 (expected 8 ± 0.05)')
-    expect(describeMark(hole({ checkedRevision: 5, measuredRevision: undefined }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on an earlier build), base/F9')
-    expect(describeMark(hole({ checkedRevision: 5, measuredRevision: undefined, value: undefined, how: undefined }), { revision: 5 })).toBe('M8 diameter: not measured on r5, base/F9')
+    expect(describeMark(hole({ checkedRevision: 5, measuredRevision: undefined }), { revision: 5 })).toBe('M8 diameter: not measured yet, base/F9')
+    expect(describeMark(hole({ checkedRevision: 5, measuredRevision: undefined, value: undefined, how: undefined }), { revision: 5 })).toBe('M8 diameter: not measured yet, base/F9')
     expect(describeMark(hole({ anchorState: 'drifted', checkedRevision: 5 }), { revision: 5 })).toBe('M8 diameter: not measured on r5 (was 8 mm on r4), base/F9 [moved since it was placed: check it]')
     // With no build to hold it against, it is not measured at all.
     expect(describeMark(hole())).toBe('M8 diameter: not measured (was 8 mm on r4), base/F9')

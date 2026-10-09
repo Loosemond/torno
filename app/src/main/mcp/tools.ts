@@ -2,7 +2,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { BuildState } from '../../shared/build'
 import type { Described } from '../../shared/geometry'
-import type { Mark, MarkPatch, MeasureKind, NewMark, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
+import { type DimensionStanding, standingOf } from '../../shared/dimension'
+import type { DimensionMark, Mark, MarkPatch, MeasureKind, NewMark, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import {
   type AxisPlane,
@@ -25,7 +26,7 @@ import type { Unmeasured } from '../marks/measure'
 import { movedForDisplay } from '../marks/spread'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { type EndArg, addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
-import { checkTool, measureTool, sectionTool } from './readTools'
+import { type MeasureToolArgs, type SectionToolArgs, checkTool, measureTool, sectionTool } from './readTools'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -98,11 +99,16 @@ export const SPREAD_NOTE =
 
 const VIEW_NAMES = ['iso', 'front', 'back', 'left', 'right', 'top', 'bottom'] as const
 const vec3 = z.tuple([z.number(), z.number(), z.number()])
-/** A plane, in either form the agent may give one in. */
-const planeInput = z.union([z.object({ origin: vec3, normal: vec3 }), z.object({ axis: z.enum(['x', 'y', 'z']), at: z.number() })])
-const planeHelp = '{origin, normal}, a point of the plane and its normal in mm in the frame of the layout, or {axis, at} for the plane across x, y or z at that coordinate, its normal along +axis'
+/**
+ * A plane, in either form the agent may give one in. The schema names the
+ * two forms and refuses nothing: whatever is given reaches the tool, which
+ * answers what is no plane with what one looks like (`NO_PLANE`), where the
+ * schema's own refusal would say only that the input is invalid.
+ */
+const planeInput = z.union([z.object({ axis: z.enum(['x', 'y', 'z']), at: z.number() }), z.object({ origin: vec3, normal: vec3 }), z.unknown()])
+const planeHelp = '{"axis": "z", "at": 3} for the plane across x, y or z at that coordinate, its normal along +axis, or {"origin": [x, y, z], "normal": [x, y, z]}, a point of the plane and its normal, in mm in the frame of the layout'
 /** Said of a plane that is none. */
-export const NO_PLANE = 'that is not a plane: give {origin: [x, y, z], normal: [x, y, z]} with a normal that is not all zeros, or {axis: "x" | "y" | "z", at: number}'
+export const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for the plane across x, y or z at that coordinate in mm, or {"origin": [x, y, z], "normal": [x, y, z]} with a normal that is not all zeros'
 const cameraInput = z.object({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional() })
 
 const lookInput = {
@@ -174,10 +180,10 @@ export const SHAPES = ['box', 'cylinder', 'sphere', 'plane'] as const
 export const INTENTS = ['add', 'remove', 'keep-out', 'reference'] as const
 export const MEASURES = ['distance', 'angle', 'radius', 'diameter', 'thickness'] as const satisfies readonly MeasureKind[]
 
-/** An end of a measurement, as the agent names one. */
-const endInput = z.union([z.string(), z.object({ ref: z.string().optional(), point: vec3.optional() })])
+/** An end of a measurement, as the agent names one. Like a plane, whatever is given reaches the tool, which says what an end is (`noEnd`). */
+const endInput = z.union([z.string(), z.object({ ref: z.string().optional(), point: vec3.optional() }), z.unknown()])
 const endText =
-  'A ref of a face or an edge (lid/F12, lid/E3), the number of a mark (M3: what that mark is on), {point: [x, y, z]} in mm in the frame of the layout, or {ref, point} for the feature the ref names, taken at that point of it.'
+  'A ref of a face or an edge ("lid/F12", "lid/E3"), the number of a mark ("M3": what that mark is on), {"point": [x, y, z]} in mm in the frame of the layout, or {"ref": "lid/F12", "point": [x, y, z]} for the feature the ref names, taken at that point of it.'
 
 const addMarkInput = {
   kind: z
@@ -207,17 +213,20 @@ const measureInput = {
     .describe(
       'distance (between parallel planes, between axes, from a point to a plane, else the minimum) and angle are between a and b. radius and diameter are of a round face or a circular edge; thickness of a wall, from a point of a face along its inward normal; bbox of a part, a face or an edge; area of a part or a face; volume and mass of a part.'
     ),
-  a: endInput.describe(`What is measured, or its first end. ${endText} A whole part (lid) where the kind takes one.`),
+  // Not required by the schema: left out, the tool says what an end is.
+  a: endInput.optional().describe(`What is measured, or its first end. ${endText} A whole part (lid) where the kind takes one.`),
   b: endInput.optional().describe('The other end of a distance or an angle, given as a is.'),
   density: z.number().optional().describe('For mass: g/cm³. Default 1.24, PLA, and the reply says so.'),
   layout: z.string().optional().describe(layoutText)
 }
 
 const sectionInput = {
-  plane: z.union([z.literal('current'), planeInput]).describe(`The plane to cut by: ${planeHelp}; or 'current' for the user's own section.`),
-  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to cut. Default: every part of the layout. Name one part to get its outline in full, up to 2,000 points a loop.'),
+  // Not required by the schema: left out, the tool says what a plane is.
+  plane: z.union([z.literal('current'), planeInput]).optional().describe(`The plane to cut by: ${planeHelp}; or 'current' for the user's own section.`),
+  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to cut. Default: every part of the layout. With fewer parts each loop has more of the 4,000 points an answer holds.'),
   layout: z.string().optional().describe('The layout to cut, as listed by scene. Default: the one on screen.'),
-  size: z.number().optional().describe(`Long edge of the drawing in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`)
+  size: z.number().optional().describe(`Long edge of the drawing in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`),
+  deflection: z.unknown().optional().describe('How far the outlines may stray from the true ones, in mm, 0.005 to 0.05. Default 0.01.')
 }
 
 const checkInput = {
@@ -277,7 +286,7 @@ export interface ResolveMarkArgs {
 export const TOOLS = {
   scene: {
     description:
-      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, and what the user sees (layout, visible parts, camera). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
+      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera), and, under dimensions, how many of the pinned dimensions pass, fail and are not measured on that revision. Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
   },
   look: {
     description:
@@ -286,12 +295,12 @@ export const TOOLS = {
   },
   marks: {
     description:
-      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
+      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
     description:
-      'Returns JSON with the exact geometry of a part, a face or an edge: its type, size, area or length, centre, normal or radius, a one-line descriptor, the revision of the build it was measured on, and a stale note when a newer build is running or failed. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it.',
+      'Returns JSON with the exact geometry of a part, a face or an edge: its type, size, area or length, centre, normal or radius, a one-line descriptor, the revision of the build it was measured on, and a stale note when a newer build is running or failed; an area with areaExact false is approximate (≈ in the descriptor), as that of a freeform face always is. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it.',
     inputSchema: describeInput
   },
   highlight: {
@@ -311,17 +320,17 @@ export const TOOLS = {
   },
   resolve_mark: {
     description:
-      "Returns the mark, now resolved: the user sees it in their list as resolved by you, with your note, until they confirm or reopen it. Call it for each mark of the user's once you have acted on it and checked the result.",
+      "Returns the mark, now resolved: the user sees it in their list as resolved by you, with your note, until they confirm or reopen it. Call it for each mark of the user's once you have acted on it and checked the result. A dimension of the user’s with an expected value is not yours to resolve, since it is their check of the part and passes by itself, and any other dimension you resolve is no longer measured on later builds.",
     inputSchema: resolveMarkInput
   },
   measure: {
     description:
-      "Returns JSON with one measurement of the last build and a reading of it in a line: the distance or angle between two ends, the radius or diameter of a round face or edge, the thickness of a wall at a point of a face, or the bbox, volume, area or mass of a part, in mm, degrees, mm², mm³ and grams, with how it was taken (between planes, axis to axis, minimum). Values are exact, from the B-rep, unless the reply has exact false and the reading says approximate. Measure before you state a size or a fit, instead of working it out from the model's code or writing a script.",
+      "Returns JSON with one measurement of the last build and a reading of it in a line: the distance or angle between two ends, the radius or diameter of a round face or edge, the thickness of a wall at a point of a face, or the bbox, volume, area or mass of a part, in mm, degrees, mm², mm³ and grams, with how it was taken (between planes, axis to axis, minimum). Values are exact, from the B-rep, unless the reply has exact false and the reading says approximate (≈): the area of a freeform face always is, and how then says about how many digits are good, or, with no digit count, by how much its integrals differ. Measure before you state a size or a fit, instead of working it out from the model's code or writing a script.",
     inputSchema: measureInput
   },
   section: {
     description:
-      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. A loop is a polyline within its deflection of the true outline (0.05 mm, more when thinned: loops are thinned to 200 points each unless you ask for one part), and an area is exact only where areaExact is true. Use it to see inside a part and to check a wall or a fit across a cut; to see the cut in 3D as the user would, call look with a section.",
+      "Returns a 2D drawing and JSON of what a plane cuts of the parts: for each part its outlines from the B-rep, as loops of [u, v] points in mm along the plane's own axes (x and y in the reply), with their areas in mm² (negative round a hole) and the extent of the whole cut. A loop is a polyline within its deflection of the true outline (0.01 mm unless you give another, more when thinned: an answer holds at most 4,000 points in all, shared among the loops by their length, and says thinned, of and loopsOmitted when it left any out), and an area is the kernel's, exact only where areaExact is true. Use it to see inside a part and to check a wall or a fit across a cut; to see the cut in 3D as the user would, call look with a section.",
     inputSchema: sectionInput
   },
   check: {
@@ -333,16 +342,16 @@ export const TOOLS = {
 
 /** The tools of one object's MCP server. */
 export function registerTools(server: McpServer, deps: ToolDeps, objectId: string): void {
-  server.registerTool('scene', { description: TOOLS.scene.description }, async () => sceneTool(deps, objectId))
-  server.registerTool('look', TOOLS.look, async (args) => lookTool(deps, objectId, args))
+  server.registerTool('scene', { description: TOOLS.scene.description }, async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined)))
+  server.registerTool('look', TOOLS.look, async (args) => lookTool(deps, objectId, args as LookArgs))
   server.registerTool('marks', TOOLS.marks, async (args) => marksTool(deps, objectId, args))
   server.registerTool('describe', TOOLS.describe, async (args) => describeTool(deps, objectId, args))
   server.registerTool('highlight', TOOLS.highlight, async (args) => highlightTool(deps, objectId, args))
-  server.registerTool('show', TOOLS.show, async (args) => showTool(deps, objectId, args))
-  server.registerTool('add_mark', TOOLS.add_mark, async (args) => addMarkTool(deps, objectId, args))
+  server.registerTool('show', TOOLS.show, async (args) => showTool(deps, objectId, args as ShowArgs))
+  server.registerTool('add_mark', TOOLS.add_mark, async (args) => addMarkTool(deps, objectId, args as AddMarkArgs))
   server.registerTool('resolve_mark', TOOLS.resolve_mark, async (args) => resolveMarkTool(deps, objectId, args))
-  server.registerTool('measure', TOOLS.measure, async (args) => measureTool(deps, objectId, args))
-  server.registerTool('section', TOOLS.section, async (args) => sectionTool(deps, objectId, args))
+  server.registerTool('measure', TOOLS.measure, async (args) => measureTool(deps, objectId, args as MeasureToolArgs))
+  server.registerTool('section', TOOLS.section, async (args) => sectionTool(deps, objectId, args as SectionToolArgs))
   server.registerTool('check', TOOLS.check, async (args) => checkTool(deps, objectId, args))
 }
 
@@ -367,10 +376,18 @@ export function built(deps: ToolDeps, objectId: string): { obj: ObjectInfo; buil
   return failure(`no build yet: ${build.status}${build.error ? `: ${build.error.message}` : ''}${traceback ? `\n${traceback}` : ''}`)
 }
 
-export function sceneTool(deps: ToolDeps, objectId: string): ToolResult {
+/**
+ * `marks` are the object's, when they could be read: the unresolved
+ * dimensions that have an expected value are then counted by how they stand
+ * on the last build, so that the check after an edit says at once whether
+ * the person's checks still hold.
+ */
+export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[]): ToolResult {
   const found = built(deps, objectId)
   if ('content' in found) return found
-  const { obj, build, scene } = found
+  const { obj, build, scene, revision } = found
+  const checks = (marks ?? []).filter((m): m is DimensionMark => m.kind === 'dimension' && m.status !== 'resolved').map((m) => standingOf(m, revision)).filter((stands) => stands !== 'measured')
+  const count = (...of: DimensionStanding[]): number => checks.filter((stands) => of.includes(stands)).length
 
   const open = deps.openObjectId() === objectId
   const view = open ? deps.view(objectId) : undefined
@@ -416,6 +433,8 @@ export function sceneTool(deps: ToolDeps, objectId: string): ToolResult {
       : null,
     // The user's own cut, if they have one: what is on the side its normal points to is not drawn.
     section: view?.section ? sectionData(view.section) : null,
+    // Of the last build that worked (`build.revision`): call marks for which, and why.
+    ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
     ...(notes.length > 0 ? { note: notes.join(' ') } : {})
   }
   return { content: [{ type: 'text', text: JSON.stringify(result) }] }
@@ -588,7 +607,7 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
   try {
     const described = await deps.describe(objectId, layout, args.ref)
     // As of the answer: a build may have ended while the kernel was asked. Its centre and its box are where the part is shown.
-    return json({ layout, ...ofBuild(deps, objectId), ...described, ...movedForDisplay(checked.part, layout) })
+    return json({ layout, ...ofBuild(deps, objectId), ...described, ...movedForDisplay(checked.part, layout, described) })
   } catch (e) {
     return failure(messageOf(e))
   }

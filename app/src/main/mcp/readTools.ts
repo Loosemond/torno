@@ -3,7 +3,7 @@ import type { CheckedClearance, CheckedMesh, CheckedOverlap, Measured, MeasuredV
 import type { Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeOf, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
-import { KernelError } from '../kernel/client'
+import { KernelError, isBusy } from '../kernel/client'
 import { number, sizes, vector } from '../marks/describe'
 import { plain, wire } from '../marks/measure'
 import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
@@ -29,6 +29,7 @@ export interface SectionToolArgs {
   parts?: string[]
   layout?: string
   size?: number
+  deflection?: number
 }
 export interface CheckToolArgs {
   kind: 'overlap' | 'clearance' | 'mesh'
@@ -37,8 +38,14 @@ export interface CheckToolArgs {
   layout?: string
 }
 
-/** The most points of a loop that the JSON of a section holds, unless one part was asked for. */
-export const MAX_LOOP_POINTS = 200
+/** The most points the JSON of a section holds in all, whatever was asked for: what a tool's answer has room for. */
+export const MAX_SECTION_POINTS = 4000
+/** The fewest points a loop is thinned to, and so the most loops that are told: the smallest beyond them are counted. */
+export const MIN_LOOP_POINTS = 8
+export const MAX_SECTION_LOOPS = MAX_SECTION_POINTS / MIN_LOOP_POINTS
+/** How far the outlines asked of the kernel may stray from the true ones, mm, unless the agent says: fine enough for a round hole to be drawn round. */
+export const SECTION_DEFLECTION = 0.01
+const NO_DEFLECTION = `deflection is a number of mm, 0.005 to 0.05: how far the outlines may stray from the true ones (default ${SECTION_DEFLECTION})`
 
 interface Built {
   obj: ObjectInfo
@@ -62,9 +69,15 @@ async function ofOneBuild<T>(deps: ToolDeps, objectId: string, ask: (found: Buil
   }
 }
 
-/** Why the kernel gave no answer, as the agent is told: its own words when it refused, without the layout before each ref. */
+/**
+ * Why the kernel gave no answer, as the agent is told: its own words when it
+ * refused, without the layout before each ref. Of a query that took too long,
+ * that the part may be too large for it; but not of one that was answered at
+ * once because the worker is still busy with an earlier one (`isBusy`): that
+ * says nothing of this question, and is told as the kernel says it.
+ */
 function refusal(e: unknown, layout: string, what: string): ToolResult {
-  if (e instanceof KernelError && e.kind === 'timeout') return failure(`the kernel did not answer within 30 s; the part may be too large for this ${what}`)
+  if (e instanceof KernelError && e.kind === 'timeout' && !isBusy(e)) return failure(`the kernel did not answer within 30 s; the part may be too large for this ${what}`)
   return failure(plain(e, layout))
 }
 
@@ -119,7 +132,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const parts = [...new Map([a, ...(b ? [b] : [])].flatMap((end) => (end.part ? [[end.part.name, end.part] as const] : []))).values()]
   const { points: _points, ...angleOnly } = measured as Measured & { points?: unknown }
   const told = parts.length === 2 && parts.some(isMoved) ? angleOnly : measured
-  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 ? movedForDisplay(parts[0], layout) : {}), reading })
+  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 ? movedForDisplay(parts[0], layout, told) : {}), reading })
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -205,7 +218,7 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   const reading = checkReading(args, checked)
   if (reading === null) return failure('the kernel did not answer with a check')
   // Where the open edges of a mesh are is where its part is shown.
-  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two ? {} : movedForDisplay(part, layout)), reading })
+  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two ? {} : movedForDisplay(part, layout, checked)), reading })
 }
 
 /** A check in a line. Null for a reply that is none. */
@@ -240,6 +253,9 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
 
 export async function sectionTool(deps: ToolDeps, objectId: string, args: SectionToolArgs): Promise<ToolResult> {
   if (args.parts?.length === 0) return failure('parts is empty: name the parts to cut, or leave it out for all of them')
+  if (args.deflection !== undefined && !(finite(args.deflection) && args.deflection > 0)) return failure(NO_DEFLECTION)
+  // The kernel keeps it between 0.005 and 0.05.
+  const deflection = args.deflection ?? SECTION_DEFLECTION
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     const layout = layoutFor(deps, objectId, found.scene, args.layout)
     if (typeof layout !== 'string') return layout
@@ -251,7 +267,7 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
       if (checked.target !== 'part') return failure(`parts are cut whole, and ${name} is ${checked.target === 'face' ? 'a face' : 'an edge'}: give ${checked.part.name}`)
     }
     try {
-      const cut = await deps.query<Sectioned>(objectId, 'section', { layout, plane, ...(args.parts ? { parts: args.parts } : {}) })
+      const cut = await deps.query<Sectioned>(objectId, 'section', { layout, plane, ...(args.parts ? { parts: args.parts } : {}), deflection })
       if (!Array.isArray(cut?.parts) || !isVec(cut.plane?.origin) || !isVec(cut.plane.normal)) return failure('the kernel did not answer with a section')
       return { got: { layout, cut } }
     } catch (e) {
@@ -267,24 +283,30 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
   // Torno moved parts of this layout apart: the cut is of them where they are shown.
   const spread = cut.parts.some((part) => isMoved(inLayout(part.part)))
 
-  // One part is given in full; of several, each loop in no more points than can be read.
-  const full = args.parts?.length === 1
-  let thinnedAny = false
-  const parts = cut.parts.map((part) => ({
-    ...clean({ ...part, loops: undefined }),
-    ...(spread ? { arranged: inLayout(part.part)?.arranged ?? [0, 0, 0] } : {}),
-    loops: part.loops.map((loop) => {
-      const kept = full ? null : thinned(loop, MAX_LOOP_POINTS)
-      if (kept) thinnedAny = true
-      const { points, ...rest } = loop
-      return { ...clean(rest), ...(kept ? { deflection: clean(kept.deflection), thinned: true, of: points.length } : {}), points: tidy(kept?.points ?? points) }
-    })
-  }))
+  // The outlines in no more points than an answer has room for: each loop its share of them, by its length.
+  const most = pointsFor(cut.parts.flatMap((part) => part.loops))
+  const count = { kept: 0, of: 0, omitted: 0 }
+  const parts = cut.parts.map((part) => {
+    const told = part.loops.filter((loop) => most.get(loop) !== 0)
+    count.omitted += part.loops.length - told.length
+    return {
+      ...clean({ ...part, loops: undefined }),
+      ...(spread ? { arranged: inLayout(part.part)?.arranged ?? [0, 0, 0] } : {}),
+      ...(told.length < part.loops.length ? { loopsOmitted: part.loops.length - told.length } : {}),
+      loops: told.map((loop) => {
+        const kept = thinned(loop, most.get(loop) ?? loop.points.length)
+        const { points, ...rest } = loop
+        count.kept += (kept?.points ?? points).length
+        return { ...clean(rest), ...(kept ? { deflection: clean(kept.deflection), thinned: true, of: points.length } : {}), points: tidy(kept?.points ?? points) }
+      })
+    }
+  })
+  for (const part of cut.parts) for (const loop of part.loops) count.of += loop.points.length
   const extent = cut.bounds ? ([cut.bounds.max[0] - cut.bounds.min[0], cut.bounds.max[1] - cut.bounds.min[1]] as [number, number]) : null
   const along = axisForm(cut.plane)
   const title = `${planeText(cut.plane)} · layout ${layout}${spread ? ' (parts spread for display)' : ''}`
   const read = extent
-    ? `${title}: ${cut.parts.map((part) => `${cutText(part)} in ${part.loops.length} loop${part.loops.length === 1 ? '' : 's'}`).join('; ')}; the cut is ${sizes(extent)} mm`
+    ? `${title}: ${cut.parts.map((part) => (part.loops.length === 0 ? `the plane does not cut ${part.part}` : `${cutText(part)} in ${part.loops.length} loop${part.loops.length === 1 ? '' : 's'}`)).join('; ')}; the cut is ${sizes(extent)} mm`
     : `${title}: the plane cuts ${args.parts ? 'none of these parts' : 'nothing'}`
   const reading = spread ? `${read}. ${SPREAD_NOTE}` : read
 
@@ -313,7 +335,8 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
       parts,
       bounds: clean(cut.bounds),
       extent: clean(extent),
-      ...(thinnedAny ? { thinned: true } : {}),
+      // Fewer points than the kernel gave: how many of how many, and how many loops were left out altogether.
+      ...(count.kept < count.of ? { thinned: true, points: count.kept, of: count.of, ...(count.omitted > 0 ? { loopsOmitted: count.omitted } : {}) } : {}),
       reading,
       image
     })
@@ -343,6 +366,58 @@ function planeAsked(deps: ToolDeps, objectId: string, obj: ObjectInfo, asked: Se
   // Their plane is laid across the parts they are looking at: in another layout it would cut somewhere they never chose.
   if (view.layout !== layout) return failure(`the user's section is of layout ${view.layout}, the one they are viewing, not of ${layout}: leave layout out, or give a plane`)
   return view.section
+}
+
+/** How long a loop is, along its points: what its share of the points goes by. Never told: lengths and areas told are the kernel's. */
+function lengthOf(loop: Pick<SectionLoop, 'points' | 'closed'>): number {
+  const { points } = loop
+  let length = 0
+  for (let i = 1; i < points.length; i++) length += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
+  if (loop.closed && points.length > 1) length += Math.hypot(points[0][0] - points[points.length - 1][0], points[0][1] - points[points.length - 1][1])
+  return length
+}
+
+/**
+ * How many points of each loop of a section are told, when together they have
+ * more than `budget`: each loop `MIN_LOOP_POINTS` (or all it has), and its
+ * share of the rest by its length, never more than it has; what one loop
+ * cannot use goes to the others. With more loops than can each have that few,
+ * the shortest get none (0): they are left out, and counted. Empty when all
+ * the points fit: nothing is thinned.
+ */
+export function pointsFor(loops: readonly SectionLoop[], budget = MAX_SECTION_POINTS): Map<SectionLoop, number> {
+  const most = new Map<SectionLoop, number>()
+  if (loops.reduce((sum, loop) => sum + loop.points.length, 0) <= budget) return most
+  const byLength = loops.map((loop) => ({ loop, length: lengthOf(loop) })).sort((a, b) => b.length - a.length)
+  const fewest = (loop: SectionLoop): number => Math.min(MIN_LOOP_POINTS, loop.points.length)
+  // As many of the longest as can each have its fewest.
+  let room = budget
+  let open = byLength.filter(({ loop }) => {
+    if (fewest(loop) > room) return false
+    room -= fewest(loop)
+    return true
+  })
+  for (const { loop } of byLength) if (!open.some((one) => one.loop === loop)) most.set(loop, 0)
+  // Each has its fewest; what is left of the budget is shared by length, and what a loop cannot use is shared again.
+  const extra = new Map<SectionLoop, number>()
+  for (;;) {
+    const total = open.reduce((sum, one) => sum + one.length, 0)
+    const share = (one: { length: number }): number => (total > 0 ? (room * one.length) / total : room / open.length)
+    const spare = (loop: SectionLoop): number => loop.points.length - fewest(loop)
+    const whole = open.filter((one) => share(one) >= spare(one.loop))
+    if (whole.length === 0) {
+      for (const one of open) extra.set(one.loop, Math.floor(share(one)))
+      break
+    }
+    for (const one of whole) {
+      extra.set(one.loop, spare(one.loop))
+      room -= spare(one.loop)
+    }
+    open = open.filter((one) => !whole.includes(one))
+    if (open.length === 0) break
+  }
+  for (const [loop, more] of extra) most.set(loop, fewest(loop) + more)
+  return most
 }
 
 /**
