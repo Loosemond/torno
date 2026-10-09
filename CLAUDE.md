@@ -242,9 +242,13 @@ While iterating run the focused test; run all four suites before a commit.
 - `measure`'s `moved`, on a thickness, is how far the given point was from
   the face it was laid on; it says nothing of the value's precision.
 - A `print` layout that was spread (`arrange.py`) has its parts where torno
-  put them: what is measured between two parts there is of that arrangement,
-  not of the model. Fit is checked in a layout that places the parts as
-  assembled.
+  put them. Between two parts of which either was moved, `check overlap`,
+  `check clearance` and `measure distance` are refused in main
+  (`spreadApart` in `mcp/readTools.ts`), naming the layouts that place both
+  as assembled; an angle is answered, since parts are moved and never
+  turned. An answer of one part carries its `arranged`, and a `section` a
+  note and each part's. Fit is checked in a layout that places the parts as
+  assembled (`assembly(p)`).
 
 ## Kernel invariants
 

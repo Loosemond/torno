@@ -432,14 +432,20 @@ loaded machine: `describe` of the whole part 10 s, its `volume` or `mass`
 on a face took under 0.1 s. The volume of every part is also worked out
 during each build.
 
-**Parts that fit together.** `overlap`, `clearance`, and a distance or an
-angle between two parts are of the parts where the layout has them. Fit can
-therefore only be checked in a layout that places the parts as assembled
-(`assembly(p)` in the model). In a `print` layout that torno spread along X
-the parts are where torno put them for display, not where the model has
-them: an object with only a print layout can be measured part by part
-(thickness, diameter, bbox, volume, mass, mesh, a distance within one part),
-but not checked for fit until it has an assembly.
+**Parts that fit together.** `overlap`, `clearance` and a distance between
+two parts are of the parts where the layout has them, so fit can only be
+checked in a layout that places the parts as assembled (`assembly(p)` in the
+model). In a `print` layout that torno spread along X the parts are where
+torno put them for display, not where the model has them: there these three
+are refused between two parts, with a sentence that says why and names the
+layouts that do place both parts, if the object has any. What is of one part
+is answered as ever (thickness, diameter, bbox, area, volume, mass, mesh, a
+distance within the part, and an angle, which moving a part does not
+change), with `arranged`, how far torno moved the part, beside any points.
+A `section` of such a layout says so in a `note`, in its reading and on the
+drawing, and gives each part's `arranged`. An object with only a print
+layout can therefore be measured part by part, but not checked for fit
+until its model has an assembly.
 
 The session's status follows the hooks Claude Code posts to torno:
 `UserPromptSubmit`, `PreToolUse` and `PostToolUse` mean working, `Stop` idle,
