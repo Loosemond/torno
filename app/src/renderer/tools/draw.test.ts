@@ -24,7 +24,7 @@ function pointer(type: ViewportPointer['type'], x: number, z: number, hit: Hit |
   return { type, hit, ray: { origin: [x, -100, z], direction: [0, 1, 0] }, client: [x, -z], buttons: type === 'up' || type === 'click' ? 0 : 1, shift: false, alt: false }
 }
 
-function fake(opts: { locked?: 'front' | null; pick?: (x: number, y: number) => Hit | null; stale?: string } = {}) {
+function fake(opts: { locked?: 'front' | null; pick?: (x: number, y: number, opts?: { edges?: boolean }) => Hit | null; stale?: string } = {}) {
   const committed: NewMark[] = []
   const noted: string[] = []
   const drafts: unknown[] = []
@@ -36,7 +36,7 @@ function fake(opts: { locked?: 'front' | null; pick?: (x: number, y: number) => 
       setNavigation: (...args) => void navigation.push(args),
       setDraft: (d) => void drafts.push(d),
       lockedView: () => opts.locked ?? null,
-      pick: (x, y) => opts.pick?.(x, y) ?? null,
+      pick: (x, y, o) => opts.pick?.(x, y, o) ?? null,
       bounds: () => BOUNDS
     },
     readout: { show: (_at, ref, detail) => void said.push(`${ref} | ${detail ?? ''}`), describe: () => {}, say: (_at, message) => void said.push(message), hide: () => {} },
@@ -233,6 +233,30 @@ describe('the draw tool', () => {
       }
     ])
     expect(noted).toEqual(['M1'])
+  })
+
+  it('on a free view, begins on the face under the pointer, not on the edge the pointer is within reach of', async () => {
+    // The viewport reports the edge it snapped to; under the pointer itself is the face, 0.4 mm from it.
+    const edge: Hit = { partKey: 'assembly:base', part: 'base', kind: 'edge', index: 3, ref: 'base/E3', point: [0, -15, 0], normal: null, distance: 100 }
+    const picks: Array<{ edges?: boolean } | undefined> = []
+    const { ctx, committed } = fake({
+      pick: (x, y, opts) => {
+        picks.push(opts)
+        return hitAt([x + 0.4, -15, -y])
+      }
+    })
+    const tool = drawTool()
+    routePointer(tool, pointer('down', 0, 0, edge), ctx)
+    expect(picks).toEqual([{ edges: false }])
+    routePointer(tool, pointer('move', 10, 0), ctx)
+    routePointer(tool, pointer('up', 20, 0), ctx)
+    await settled()
+    expect(committed[0]).toMatchObject({ space: 'surface', anchor: { point: [0.4, -15, 0], ref: 'base/F5', normal: [0, 0, 1] }, points: [[0.4, -15, 0], [20.4, -15, 0]] })
+
+    // Within reach of an edge and beside the part: there is no face to begin on, and the drag turns the camera.
+    const beside = fake({ pick: () => null })
+    routePointer(drawTool(), pointer('down', 0, 0, edge), beside.ctx)
+    expect(beside.navigation).toEqual([])
   })
 
   it('on a free view, a press beside the parts is not a stroke: that drag turns the camera', async () => {

@@ -307,3 +307,22 @@ test('a mark whose layout the build no longer has says so, and going to it does 
   await row(lost.id).hover()
   await expect(row(lost.id).getByRole('button', { name: `Go to ${lost.id}` })).toBeDisabled()
 })
+
+test("a mark of the agent's that lost its part is not offered Re-place, and main refuses to put it somewhere else", async () => {
+  // As the agent's tools leave one: through main's store, as the agent. The post is gone in this build.
+  const theirs = await app.evaluate(async (_electron, camera) => {
+    const { marks } = (globalThis as unknown as { __tornoMain: { marks: import('../src/main/marks/store').MarkStore } }).__tornoMain
+    return marks.add('morph', { kind: 'pin', author: 'agent', note: 'shorter?', layout: 'main', revision: 1, camera, anchor: { point: [0, 0, 22.5], part: 'post' } }, 'sent')
+  }, await page.evaluate(() => window.__tornoTest!.camera()))
+  await expect.poll(async () => (await marks()).find((m) => m.id === theirs.id)?.anchorState).toBe('orphaned')
+  await expect(row(theirs.id)).toHaveAttribute('data-author', 'agent')
+  await expect(row(theirs.id).locator('.mark-anchor')).toHaveText('its part is gone')
+  await row(theirs.id).hover()
+  await expect(row(theirs.id).getByRole('button', { name: `Go to ${theirs.id}` })).toBeVisible()
+  await expect(row(theirs.id).getByRole('button', { name: `Re-place ${theirs.id}` })).toHaveCount(0)
+  const refused = await page.evaluate(
+    ([id, camera]) => window.torno.marks.replace('morph', id, { anchor: { point: [10, 6, 5.5], part: 'plate' }, revision: 4, camera }).then(() => 'moved', (e: Error) => e.message),
+    [theirs.id, await page.evaluate(() => window.__tornoTest!.camera())] as const
+  )
+  expect(refused).toBe(`${theirs.id} is the agent's mark: it is not put somewhere else`)
+})

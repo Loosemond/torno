@@ -829,14 +829,58 @@ button {
   color: var(--fail);
 }
 
+/* Nothing has checked the mark against the build on show. */
+.mark-anchor[data-state='unchecked'] {
+  color: var(--warn);
+}
+
 .mark-row[data-status='resolved'] .mark-chip,
-.mark-row[data-elsewhere] .mark-chip {
+.mark-row[data-elsewhere] .mark-chip,
+.mark-row[data-hidden] .mark-chip {
   opacity: 0.55;
 }
 
 .mark-row[data-status='resolved'] .mark-note,
-.mark-row[data-elsewhere] .mark-note {
+.mark-row[data-elsewhere] .mark-note,
+.mark-row[data-hidden] .mark-note {
   color: var(--muted);
+}
+
+/* A mark the agent resolved, until the person has seen that: it stays among the open ones, as it was. */
+.mark-row[data-awaiting] .mark-chip {
+  opacity: 1;
+}
+
+.mark-row[data-awaiting] .mark-note {
+  color: var(--ink);
+}
+
+/* What the agent did about it, in words, and the two things to do about that. */
+.mark-resolution {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0 9px;
+  font-size: var(--text-small);
+}
+
+.mark-resolution-note {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.mark-resolution-by {
+  font-weight: 600;
+}
+
+.mark-resolution .button {
+  height: 22px;
+  padding: 0 9px;
 }
 
 /* What can be done with a mark: over the end of the row while it is pointed at or holds the focus. */

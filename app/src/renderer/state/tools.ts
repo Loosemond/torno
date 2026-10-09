@@ -87,8 +87,12 @@ export function startReplace(objectId: string, id: string): void {
   toolStore.setState({ tool: 'pin', replacing: { objectId, id, back: replacing?.back ?? tool } })
 }
 
-/** The mark has been put somewhere else, or is left where it is: back to the tool that was in hand. */
-export function endReplace(): void {
+/**
+ * The mark has been put somewhere else, or is left where it is: back to the
+ * tool that was in hand. Given the mark it is ended for, only while that mark
+ * is still the one being moved: another may have been taken up meanwhile.
+ */
+export function endReplace(id?: string): void {
   const { replacing } = toolStore.getState()
-  if (replacing) toolStore.setState({ tool: replacing.back, replacing: null })
+  if (replacing && (id === undefined || replacing.id === id)) toolStore.setState({ tool: replacing.back, replacing: null })
 }

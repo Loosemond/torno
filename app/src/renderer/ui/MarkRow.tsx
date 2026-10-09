@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Mark, MarkKind, MarkPatch } from '../../shared/marks'
+import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
 import { actions, store } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { labelText } from '../viewport/marks/labels'
@@ -20,20 +20,43 @@ const ANCHOR_NOTE = {
 export const ANCHOR_BADGE = { drifted: 'moved: check it', orphaned: 'its part is gone' } as const
 /** What the row says of a mark whose layout the build no longer has: it cannot be shown, and going to it does nothing. */
 export const LAYOUT_GONE = 'its layout is gone'
+/** What the row says of a mark on a part that is switched off: it is not drawn either. */
+export const PART_HIDDEN = 'its part is hidden'
+/**
+ * How long a mark may go unchecked against a new build before its row says
+ * so: every build leaves every mark unchecked for the moment the check takes,
+ * and a row that flickered each time would say nothing.
+ */
+export const UNCHECKED_AFTER_MS = 1500
+
+/** True once `on` has been so for `ms` without a break. */
+function useLasting(on: boolean, ms: number): boolean {
+  const [lasting, setLasting] = useState(false)
+  useEffect(() => {
+    if (!on) return setLasting(false)
+    const timer = setTimeout(() => setLasting(true), ms)
+    return () => clearTimeout(timer)
+  }, [on, ms])
+  return on && lasting
+}
 
 /**
  * One mark in the panel: its number, what kind it is, its note (click to
  * write it), whether the last build moved the surface it is on or dropped its
- * part, whether the agent has been sent it, and what can be done with it. A
- * shape that is the active mark opens out below into its numbers
- * (`ShapeFields`). `change` and `remove` are the panel's, which says so when
- * main refuses.
+ * part, whether anything has checked it against the build on show, whether
+ * the agent has been sent it, and what can be done with it. A shape that is
+ * the active mark opens out below into its numbers (`ShapeFields`). A mark
+ * the agent resolved, and the person has not yet confirmed, says so on a
+ * line of its own, with the agent's note and the two things to do about it.
+ * `change` and `remove` are the panel's, which says so when main refuses.
  */
 export function MarkRow({
   mark,
   active,
   elsewhere,
   gone = false,
+  partHidden = false,
+  revision = 0,
   change,
   remove
 }: {
@@ -43,6 +66,10 @@ export function MarkRow({
   elsewhere: boolean
   /** The mark is of a layout the build no longer has. */
   gone?: boolean
+  /** The mark is on a part that is switched off, and so not drawn. */
+  partHidden?: boolean
+  /** The revision of the build on show; 0 for none. */
+  revision?: number
   /** Resolves when main has made the change; rejects when it refuses. */
   change: (patch: MarkPatch) => Promise<unknown>
   remove: () => void
@@ -53,9 +80,15 @@ export function MarkRow({
   const resolved = mark.status === 'resolved'
   const label = labelText(mark)
   const replacing = useReplacing() === mark.id
-  // Offered where it can be done: a pin, a pick or an arrow that the last build left off its surface or without
-  // its part, in the layout shown, where the next click on a part ties it again.
-  const replaceable = !resolved && !elsewhere && mark.anchorState !== 'ok' && (mark.kind === 'pin' || mark.kind === 'pick' || mark.kind === 'arrow')
+  // Offered where it can be done: a pin, a pick or an arrow of the person's that the last build left off its
+  // surface or without its part, in the layout shown, where the next click on a part ties it again. Not on
+  // a mark of the agent's: where that is, is what the agent said.
+  const replaceable =
+    !resolved && !elsewhere && mark.author === 'user' && mark.anchorState !== 'ok' && (mark.kind === 'pin' || mark.kind === 'pick' || mark.kind === 'arrow')
+  // The agent resolved it and the person has not said they have seen that.
+  const awaiting = awaitsAcknowledgement(mark)
+  // Nothing has checked it against the build on show: its ref is of an older one.
+  const unchecked = useLasting(isUnchecked(mark, revision), UNCHECKED_AFTER_MS)
 
   const writing = draft !== null
   useEffect(() => {
@@ -80,7 +113,9 @@ export function MarkRow({
       data-status={mark.status}
       data-active={active ? '' : undefined}
       data-elsewhere={elsewhere ? '' : undefined}
-      data-expanded={fields ? '' : undefined}
+      data-hidden={partHidden ? '' : undefined}
+      data-awaiting={awaiting ? '' : undefined}
+      data-expanded={fields || awaiting ? '' : undefined}
       data-replacing={replacing ? '' : undefined}
       aria-current={active ? 'true' : undefined}
       onClick={() => actions.focusMark(mark.id)}
@@ -131,6 +166,14 @@ export function MarkRow({
         <span className="mark-anchor" data-state="orphaned" title={`The build no longer has the layout ${mark.layout}, so this mark cannot be shown`}>
           {LAYOUT_GONE}
         </span>
+      ) : unchecked ? (
+        <span
+          className="mark-anchor"
+          data-state="unchecked"
+          title={`Nothing has checked this mark against the build on show: what it says it is on is of an older one${mark.anchorState === 'ok' ? '' : `. ${ANCHOR_NOTE[mark.anchorState]}`}`}
+        >
+          not checked against <span className="num">r{revision}</span>
+        </span>
       ) : (
         !resolved &&
         mark.anchorState !== 'ok' && (
@@ -138,6 +181,11 @@ export function MarkRow({
             {ANCHOR_BADGE[mark.anchorState]}
           </span>
         )
+      )}
+      {partHidden && (
+        <span className="mark-layout" title="Marks on a part that is switched off are not drawn. Switch the part on to see it">
+          {PART_HIDDEN}
+        </span>
       )}
       {elsewhere && <span className="mark-layout num">{mark.layout}</span>}
       {!resolved && (
@@ -182,6 +230,20 @@ export function MarkRow({
         </button>
       </span>
       {fields && <ShapeFields mark={mark} change={change} />}
+      {awaiting && (
+        <div className="mark-resolution" onClick={(e) => e.stopPropagation()}>
+          <p className="mark-resolution-note selectable">
+            <span className="mark-resolution-by">Resolved by the agent</span>
+            {mark.resolvedNote ? `: ${mark.resolvedNote}` : ''}
+          </p>
+          <button type="button" className="button" title="Seen: move it to the resolved marks" onClick={() => void change({ acknowledged: true }).catch(() => {})}>
+            OK
+          </button>
+          <button type="button" className="button" title="Not done: make it a draft again, for the next prompt" onClick={() => void change({ status: 'draft' }).catch(() => {})}>
+            Reopen
+          </button>
+        </div>
+      )}
     </li>
   )
 }

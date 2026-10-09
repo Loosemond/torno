@@ -129,7 +129,11 @@ export function drawTool(): Tool {
           drawing = { on: 'plane', plane, points: [], start: e.hit, last: e.client }
           sample(e, ctx)
         } else {
-          drawing = { on: 'surface', points: [e.hit!.point], start: e.hit, last: e.client }
+          // On the face under the pointer, like every later point: within reach of an edge the viewport
+          // reports the edge, and the stroke would begin on it, off to one side of where it was pressed.
+          const start = e.hit!.kind === 'face' ? e.hit : ctx.viewport.pick(e.client[0], e.client[1], { edges: false })
+          if (!start) return
+          drawing = { on: 'surface', points: [start.point], start, last: e.client }
         }
         ctx.viewport.setNavigation(false, { wheel: true })
         ctx.viewport.setHover(null)

@@ -282,7 +282,7 @@ export class Viewport {
   setMarks(marks: Mark[]): void {
     this.allMarks = marks
     this.marks.setMarks(marks)
-    this.marks.show(this.layout)
+    this.showMarks()
     this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
     this.tintPicks(this.layout)
     this.gizmo.place()
@@ -386,10 +386,36 @@ export class Viewport {
 
   /** Sets visibility, colour or opacity of one part; what is left out keeps its value. Remembered across rebuilds. */
   setLayer(key: string, s: LayerState): void {
-    this.layers.set(key, { ...this.layers.get(key), ...s })
+    const was = this.layers.get(key)
+    this.layers.set(key, { ...was, ...s })
     const entry = this.entries.get(key)
     if (entry) this.applyLook(entry)
+    if (entry && (was?.visible !== false) !== (this.layers.get(key)?.visible !== false)) {
+      // The marks on a part come and go with it.
+      this.showMarks()
+      this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+      this.tintPicks(this.layout)
+      this.gizmo.place()
+    }
     this.invalidate()
+  }
+
+  /** Shows the marks of the layout on screen, but for those on the parts switched off. */
+  private showMarks(): void {
+    this.marks.show(this.layout, this.hiddenParts(this.layout))
+  }
+
+  /**
+   * The names of the parts of a layout that are not drawn: those switched
+   * off, or, given the keys of the parts a picture draws, every other.
+   */
+  private hiddenParts(layout: string, drawn?: ReadonlySet<string>): Set<string> {
+    const hidden = new Set<string>()
+    for (const { part } of this.entries.values()) {
+      if (part.layout !== layout) continue
+      if (drawn ? !drawn.has(part.key) : this.layers.get(part.key)?.visible === false) hidden.add(part.name)
+    }
+    return hidden
   }
 
   /** Dims the parts, to say they are older than the latest build attempt. */
@@ -582,6 +608,8 @@ export class Viewport {
     }
 
     const withMarks = req.marks !== false
+    // A mark on a part the picture leaves out is left out with it.
+    const notDrawn = this.hiddenParts(req.layout, wanted)
     const unit = overlayUnit(width, height)
     const otherLayout = req.layout !== this.layout
 
@@ -601,12 +629,13 @@ export class Viewport {
       for (const entry of shown) entry.built.group.visible = true
       let extent = otherLayout ? this.rebuildGround(req.layout) : this.groundExtent
       this.marks.setActive(null)
-      this.marks.show(withMarks ? req.layout : null)
+      this.marks.show(withMarks ? req.layout : null, notDrawn)
       this.marks.showDraft(false) // not a mark yet
       if (withMarks) {
         extent = this.marks.extend(extent.clone(), req.layout)
         this.highlights.setVisible(true, MARK_LAYERS)
-        if (otherLayout) this.tintPicks(req.layout)
+        // Of the marks the picture draws: other parts may be switched on in it than on screen.
+        this.tintPicks(req.layout)
       }
 
       camera.up.fromArray(view.up)
@@ -632,12 +661,10 @@ export class Viewport {
       showGizmo()
       this.highlights.setVisible(true)
       this.marks.setActive(active)
-      this.marks.show(this.layout) // sized for the screen again by the next frame drawn
+      this.showMarks() // sized for the screen again by the next frame drawn
       this.marks.showDraft(true)
-      if (otherLayout) {
-        this.rebuildGround(this.layout)
-        if (withMarks) this.tintPicks(this.layout)
-      }
+      if (otherLayout) this.rebuildGround(this.layout)
+      if (withMarks) this.tintPicks(this.layout)
     }
 
     const picture = new OffscreenCanvas(width, height)
@@ -658,7 +685,7 @@ export class Viewport {
     })
     if (withMarks) {
       // With the camera of the picture, which for a named view is not the one on screen.
-      const labels = this.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP))
+      const labels = this.marks.labels(req.layout, camera, { width, height }, unit, chipSize(ctx, unit * PICTURE_CHIP), notDrawn)
       drawLabels(ctx, labels, this.labelStyle(), unit * PICTURE_CHIP)
     }
     const blob = await picture.convertToBlob({ type: 'image/png' })
@@ -727,8 +754,8 @@ export class Viewport {
   private refresh(): void {
     for (const entry of this.entries.values()) this.applyLook(entry)
     this.groundExtent = this.rebuildGround(this.layout)
+    this.showMarks()
     this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
-    this.marks.show(this.layout)
     this.highlights.apply(this.partNamed) // the refs may name other geometry now, or none
     this.tintPicks(this.layout)
     this.gizmo.place() // a shape of another layout is not there to hold
@@ -926,7 +953,7 @@ export class Viewport {
     this.gizmo.setColours(toHex(this.theme.axisX), toHex(this.theme.axisY), toHex(this.theme.axisZ), toHex(this.theme.ink))
     this.highlights.setColors(this.theme)
     this.marks.setColours(markColours(this.theme))
-    this.marks.show(this.layout)
+    this.showMarks()
     this.scene.background = new THREE.Color(this.theme.surface)
     this.ground.material.color.set(this.theme.hairline)
   }

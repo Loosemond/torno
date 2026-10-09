@@ -76,8 +76,9 @@ export function Selection({ viewport }: { viewport: Viewport }) {
       <button
         type="button"
         className="bar-button"
-        disabled={!canInsert}
-        title={canInsert ? "Put the selection in the session's prompt" : 'Start a session to put the selection in its prompt'}
+        // Not on a stale build either: the refs would name other geometry in the build the agent then asks about.
+        disabled={!canInsert || stale !== null}
+        title={stale ?? (canInsert ? "Put the selection in the session's prompt" : 'Start a session to put the selection in its prompt')}
         onClick={() => insert(selection)}
       >
         Insert

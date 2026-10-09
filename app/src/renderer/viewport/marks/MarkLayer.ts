@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Mark, ShapeMark, Vec3 } from '../../../shared/marks'
+import { type Mark, type ShapeMark, type Vec3, markAnchors } from '../../../shared/marks'
 import { mmPerPx, place, project, type Placed, type Size } from './labels'
 import { build, dispose, markPoints, rescale, setActive, type MarkColours } from './markObjects'
 
@@ -33,6 +33,8 @@ export class MarkLayer {
   private readonly entries = new Map<string, Entry>()
   private colours: MarkColours
   private layout: string | null = null
+  /** The names of the parts of that layout that are switched off: marks on them are not shown either. */
+  private hidden: ReadonlySet<string> = NO_PARTS
   private active: string | null = null
   private draft: { is: Draft; object: THREE.Object3D } | null = null
 
@@ -111,16 +113,26 @@ export class MarkLayer {
 
   private draw(mark: Mark, drawnAs: string): void {
     const entry = { mark, drawnAs, object: build(mark, this.colours, 1) }
-    entry.object.visible = mark.layout === this.layout
+    entry.object.visible = this.shows(mark)
     setActive(entry.object, mark.id === this.active)
     this.entries.set(mark.id, entry)
     this.group.add(entry.object)
   }
 
-  /** Shows the marks of one layout and no others; null for none. */
-  show(layout: string | null): void {
+  /**
+   * Shows the marks of one layout and no others; null for none. Of those, a
+   * mark on a part named in `hidden` (the parts switched off) is not shown,
+   * like its part: it would float where nothing is drawn. A mark on no part
+   * always is.
+   */
+  show(layout: string | null, hidden: ReadonlySet<string> = NO_PARTS): void {
     this.layout = layout
-    for (const entry of this.entries.values()) entry.object.visible = entry.mark.layout === layout
+    this.hidden = hidden
+    for (const entry of this.entries.values()) entry.object.visible = this.shows(entry.mark)
+  }
+
+  private shows(mark: Mark, layout: string | null = this.layout, hidden: ReadonlySet<string> = this.hidden): boolean {
+    return mark.layout === layout && !onHidden(mark, hidden)
   }
 
   /** The mark being worked on, or null. */
@@ -144,9 +156,13 @@ export class MarkLayer {
     if (this.draft?.object.visible) rescale(this.draft.object, scale, unit)
   }
 
-  /** The labels of a layout's marks in a view, each with a chip that covers no other. */
-  labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: (text: string) => { w: number; h: number }): Placed[] {
-    return place(project(this.marksOf(layout), camera, size, unit), chip, size, unit)
+  /**
+   * The labels of a layout's marks in a view, each with a chip that covers no
+   * other. Those of marks on the parts switched off are left out: the parts
+   * as `show` was last told, or `hidden` for a view that draws other parts.
+   */
+  labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: (text: string) => { w: number; h: number }, hidden?: ReadonlySet<string>): Placed[] {
+    return place(project(this.marksOf(layout, hidden), camera, size, unit), chip, size, unit)
   }
 
   /**
@@ -169,10 +185,10 @@ export class MarkLayer {
     return sphere
   }
 
-  /** A mark of a layout, among those drawn. */
+  /** A mark of a layout, among those drawn: not one on a part that is switched off. */
   markOf(layout: string, id: string): Mark | undefined {
     const mark = this.entries.get(id)?.mark
-    return mark?.layout === layout ? mark : undefined
+    return mark?.layout === layout && !onHidden(mark, this.hidden) ? mark : undefined
   }
 
   dispose(): void {
@@ -180,9 +196,9 @@ export class MarkLayer {
     this.clear()
   }
 
-  /** In the order of their numbers, so that a label keeps its place as others come and go after it. */
-  private marksOf(layout: string): Mark[] {
-    return [...this.entries.values()].map((e) => e.mark).filter((m) => m.layout === layout).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
+  /** The marks of a layout that are drawn, in the order of their numbers, so that a label keeps its place as others come and go after it. */
+  private marksOf(layout: string, hidden: ReadonlySet<string> = this.hidden): Mark[] {
+    return [...this.entries.values()].map((e) => e.mark).filter((m) => m.layout === layout && !onHidden(m, hidden)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
   }
 
   private clear(): void {
@@ -196,9 +212,17 @@ export class MarkLayer {
   }
 }
 
+const NO_PARTS: ReadonlySet<string> = new Set()
+
+/** Whether a mark is on one of the parts named: the part its anchor ties it to. A mark on no part is on none. */
+export function onHidden(mark: Mark, hidden: ReadonlySet<string>): boolean {
+  const part = markAnchors(mark)[0]?.part
+  return part !== undefined && hidden.has(part)
+}
+
 /** Everything of a mark that changes how it is drawn, as one string: a note or a status does not. */
 function drawnAsOf(mark: Mark): string {
-  const { note: _note, status: _status, resolvedNote: _resolvedNote, createdAt: _createdAt, camera: _camera, revision: _revision, ...drawn } = mark
+  const { note: _note, status: _status, resolvedNote: _resolvedNote, createdAt: _createdAt, camera: _camera, revision: _revision, sentBefore: _sentBefore, checkedRevision: _checkedRevision, ...drawn } = mark
   return JSON.stringify(drawn)
 }
 

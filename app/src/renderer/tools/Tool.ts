@@ -54,8 +54,11 @@ export interface ToolContext {
   replacing?: string | null
   /** Has main put a mark somewhere else: the same mark, tied where it was clicked. Rejects when main refuses, having said so. */
   replace?(id: string, placed: Replacement): Promise<Mark>
-  /** The mark is put, or is left where it is: the tool that was in hand before is taken up again. */
-  endReplace?(): void
+  /**
+   * The mark is put, or is left where it is: the tool that was in hand before is taken up again. Given
+   * the mark that was put, only if that is still the one being moved.
+   */
+  endReplace?(id?: string): void
 }
 
 /**

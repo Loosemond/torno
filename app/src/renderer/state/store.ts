@@ -144,7 +144,10 @@ export const actions = {
     const kept = Object.entries(s.layers).filter(([name]) => names.has(name))
     const layers = kept.length === Object.keys(s.layers).length ? s.layers : Object.fromEntries(kept)
     const same = s.scene !== null && layout === s.layout && sameParts(s.scene, m.scene)
-    store.setState({ scene: m.scene, revision: m.revision, layout, layers, ...(same ? {} : NO_SELECTION) })
+    // The layout shown is gone with this build: what was being done there (a note, a mark worked on) is of
+    // a layout that is no longer shown, as when the layout is changed by hand.
+    const elsewhere = s.scene !== null && layout !== s.layout ? layoutChange(s, layout) : {}
+    store.setState({ ...elsewhere, scene: m.scene, revision: m.revision, layout, layers, ...(same ? {} : NO_SELECTION) })
     return true
   },
 

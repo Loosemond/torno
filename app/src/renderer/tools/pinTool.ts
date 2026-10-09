@@ -44,7 +44,8 @@ export function pinTool(): Tool {
     } finally {
       kept()
       if (mine === placing) ctx.viewport.setDraft(null)
-      ctx.endReplace?.()
+      // Of this mark only: another may have been taken up to be moved while the kernel was asked about this one.
+      ctx.endReplace?.(id)
     }
   }
 

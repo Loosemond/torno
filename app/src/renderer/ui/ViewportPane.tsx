@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Scene } from '../../shared/scene'
-import type { LookRequest, LookResult } from '../../shared/view'
+import { type LookRequest, type LookResult, type ViewState, MAX_SELECTION_REPORTED } from '../../shared/view'
 import { connectAgent, picture, setPictures } from '../state/agent'
-import { describeWhole, descriptorOf } from '../state/descriptors'
+import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { arrowTool } from '../tools/arrowTool'
@@ -76,7 +76,28 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const report = () => {
     const s = store.getState()
     if (!s.objectId || !s.scene) return
-    window.torno.view.report({ objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s) })
+    const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s) }
+    // What is selected goes to the agent with the next prompt: the refs, each with the kernel's line once it has come.
+    if (s.selection.length > 0) {
+      const { objectId, revision, layout } = s
+      const refs = s.selection.slice(0, MAX_SELECTION_REPORTED).map((ref) => {
+        const descriptor = descriptorOf(objectId, revision, layout, ref)
+        return descriptor === undefined ? { ref } : { ref, descriptor }
+      })
+      view.selection = { revision, refs }
+    }
+    window.torno.view.report(view)
+  }
+  /** Says what is selected now, and again once the kernel has said what each of it is. */
+  const reportSelection = (s: TornoState) => {
+    report()
+    const { objectId, revision, layout, selection } = s
+    if (!objectId || selection.length === 0) return
+    const asked = selection.slice(0, MAX_SELECTION_REPORTED).filter((ref) => descriptorOf(objectId, revision, layout, ref) === undefined)
+    if (asked.length === 0) return
+    void Promise.all(asked.map((ref) => describe(objectId, revision, layout, ref))).then(() => {
+      if (store.getState().selection === selection) report()
+    })
   }
 
   const offScene = window.torno.object.onScene((m) => {
@@ -158,6 +179,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // A mark that can no longer be put somewhere else here (it is gone, resolved, or of another layout or object) is left be.
     if (toolStore.getState().replacing && replacingIn(s) === null) endReplace()
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
+    if (s.selection !== prev.selection && s.objectId === prev.objectId && s.scene === prev.scene && s.layout === prev.layout) reportSelection(s)
     if (s.marks !== prev.marks) viewport.setMarks(s.marks)
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
     // What was pointed at belongs to the object, the layout and the build it was pointed at in.

@@ -109,6 +109,14 @@ describe('putting a mark somewhere else', () => {
     expect(drafts).toEqual([{ kind: 'pin', point: [14, 9, 2.5], normal: [0, 0, 1] }, null])
   })
 
+  it('ends the putting of the mark it moved, and of no other', async () => {
+    const ended: Array<string | undefined> = []
+    const { ctx } = replacing({ endReplace: (id) => void ended.push(id) })
+    routePointer(pinTool(), pointer('click', 14, 2.5, { hit: hitAt([14, 9, 2.5]) }), ctx)
+    await settled()
+    expect(ended).toEqual(['M3'])
+  })
+
   it('a click beside the parts moves nothing and keeps the tool in hand; the pointer there says what to do', async () => {
     const { ctx, moved, ended, said } = replacing()
     const tool = pinTool()
@@ -159,6 +167,17 @@ describe('the tool in hand while a mark is put somewhere else', () => {
     expect(toolStore.getState()).toMatchObject({ tool: 'arrow', replacing: null })
     endReplace() // nothing to end
     expect(toolStore.getState().tool).toBe('arrow')
+  })
+
+  it('is ended for a mark only while that mark is the one being moved', () => {
+    setTool('arrow')
+    startReplace('bracket', 'M3')
+    // Another was started before the first had been put: the first's ending is not this one's.
+    startReplace('bracket', 'M4')
+    endReplace('M3')
+    expect(toolStore.getState()).toMatchObject({ tool: 'pin', replacing: { id: 'M4' } })
+    endReplace('M4')
+    expect(toolStore.getState()).toMatchObject({ tool: 'arrow', replacing: null })
   })
 
   it('choosing a tool leaves the mark where it is: the pin tool chosen by hand places pins', () => {

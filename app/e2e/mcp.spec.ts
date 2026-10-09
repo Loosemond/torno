@@ -132,7 +132,7 @@ test('before an object has been built, scene and look say there is no build', as
     expect(result.text, name).toBe('no build yet: bracket has not been opened in the torno window')
   }
   // The marks are the object's, built or not: there are none yet.
-  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '[]' })
+  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[]}' })
   const nothing = await call(await connect('no such object'), 'scene')
   expect(nothing).toMatchObject({ isError: true, text: 'unknown object: no such object' })
 })
@@ -328,19 +328,24 @@ test('a pin the user places with the pointer is in marks, with the face it is on
   await page.keyboard.press('Escape') // back to Select
   await expect.poll(async () => (await state()).marks[0]?.note).toBe('make this corner thicker')
 
-  const marks: PinMark[] = JSON.parse((await call(bracket, 'marks')).text)
-  expect(marks).toHaveLength(1)
-  pin = marks[0]
+  const listed: { revision: number; marks: Array<PinMark & { line: string }> } = JSON.parse((await call(bracket, 'marks')).text)
+  expect(listed.revision).toBe(1)
+  expect(listed).not.toHaveProperty('stale')
+  expect(listed.marks).toHaveLength(1)
+  const { line: _line, ...asListed } = listed.marks[0]
+  pin = asListed as PinMark
+  // Checked against the build it was placed on, the moment it was kept.
+  expect(pin.checkedRevision).toBe(1)
   expect(pin).toMatchObject({ id: 'M1', kind: 'pin', author: 'user', status: 'draft', anchorState: 'ok', layout: 'assembly', note: 'make this corner thicker' })
   expect(pin.anchor).toMatchObject({ part: 'base', descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
   expect(pin.anchor.ref).toMatch(/^base\/F\d+$/)
-  expect(JSON.parse((await call(bracket, 'marks', { status: 'draft' })).text)).toHaveLength(1)
-  expect((await call(bracket, 'marks', { status: 'sent' })).text).toBe('[]')
+  expect(JSON.parse((await call(bracket, 'marks', { status: 'draft' })).text).marks).toHaveLength(1)
+  expect((await call(bracket, 'marks', { status: 'sent' })).text).toBe('{"revision":1,"marks":[]}')
 
   // The same face, asked of the kernel, and the mark by its number.
   const face = JSON.parse((await call(bracket, 'describe', { ref: pin.anchor.ref! })).text)
-  expect(face).toMatchObject({ layout: 'assembly', kind: 'face', ref: `assembly:${pin.anchor.ref}`, type: 'plane', area: 1200, normal: [0, 0, 1], descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
-  expect(JSON.parse((await call(bracket, 'describe', { ref: 'M1' })).text)).toEqual(pin)
+  expect(face).toMatchObject({ layout: 'assembly', revision: 1, kind: 'face', ref: `assembly:${pin.anchor.ref}`, type: 'plane', area: 1200, normal: [0, 0, 1], descriptor: 'plane, normal +Z, z = 2.5, 1200 mm²' })
+  expect(JSON.parse((await call(bracket, 'describe', { ref: 'M1' })).text)).toEqual({ revision: 1, mark: listed.marks[0] })
   expect(await call(bracket, 'describe', { ref: 'base/F99' })).toMatchObject({ isError: true, text: 'base has 6 faces, F0 to F5: there is no F99' })
   expect(await call(bracket, 'describe', { ref: 'M7' })).toMatchObject({ isError: true, text: 'no mark M7; marks: M1' })
 })
@@ -365,7 +370,7 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
   const unchecked = await checks('bracket')
   const byRef = await call(bracket, 'add_mark', { kind: 'pin', note: '<i>this</i> face?', ref: pin.anchor.ref })
   expect(byRef.isError).toBe(false)
-  expect(byRef.text).toBe(`placed in layout assembly: (yours) M2 pin on ${pin.anchor.ref} (plane, normal +Z, z = 2.5, 1200 mm²) at (0, 0, 2.5): "<i>this</i> face?"`)
+  expect(byRef.text).toBe(`placed in layout assembly: (yours) M2 pin on ${pin.anchor.ref} (plane, normal +Z, z = 2.5, 1200 mm²) at (0, 0, 2.5): "<i>this</i> face?"\nrevision r1`)
 
   const row = page.locator('.mark-row[data-mark="M2"]')
   await expect(row).toHaveAttribute('data-author', 'agent')
@@ -382,20 +387,22 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
 
   // By a point alone: the kernel says which part it is on.
   const byPoint = await call(bracket, 'add_mark', { kind: 'arrow', note: 'taller', point: [0, 0, 22.5], by: [0, 0, 10] })
-  expect(byPoint.text).toMatch(/^placed in layout assembly: \(yours\) M3 arrow from post\/F\d \(plane, normal \+Z, z = 22\.5, 50\.27 mm²\) at \(0, 0, 22\.5\) by \(0, 0, 10\), 10 mm: "taller"$/)
+  expect(byPoint.text).toMatch(/^placed in layout assembly: \(yours\) M3 arrow from post\/F\d \(plane, normal \+Z, z = 22\.5, 50\.27 mm²\) at \(0, 0, 22\.5\) by \(0, 0, 10\), 10 mm: "taller"\nrevision r1$/)
   const inAir = await call(bracket, 'add_mark', { kind: 'shape', note: 'keep clear', shape: 'box', size: [10, 10, 4], position: [30, 30, 30], intent: 'keep-out' })
-  expect(inAir.text).toBe('placed in layout assembly: (yours) M4 box 10 × 10 × 4 mm centred at (30, 30, 30), intent keep-out: "keep clear"')
+  expect(inAir.text).toBe('placed in layout assembly: (yours) M4 box 10 × 10 × 4 mm centred at (30, 30, 30), intent keep-out: "keep clear"\nrevision r1')
   await expect.poll(async () => (await state()).marks.map((m) => `${m.id} ${m.author} ${m.kind}`)).toEqual(['M1 user pin', 'M2 agent pin', 'M3 agent arrow', 'M4 agent shape'])
 
   // Main checks each new mark against the build at once: what was answered still holds afterwards.
   await checked('bracket', unchecked)
   const kept = (await state()).marks
   expect(kept.map((m) => m.anchorState)).toEqual(['ok', 'ok', 'ok', 'ok'])
-  expect(byRef.text).toBe(`placed in layout assembly: ${describeMark(kept[1])}`)
-  expect(byPoint.text).toBe(`placed in layout assembly: ${describeMark(kept[2])}`)
+  expect(byRef.text).toBe(`placed in layout assembly: ${describeMark(kept[1])}\nrevision r1`)
+  expect(byPoint.text).toBe(`placed in layout assembly: ${describeMark(kept[2])}\nrevision r1`)
+  // Each was checked against that build.
+  expect(kept.map((m) => m.checkedRevision)).toEqual([1, 1, 1, 1])
   // Each mark comes with its line.
-  const listed: Array<{ id: string; line: string }> = JSON.parse((await call(bracket, 'marks')).text)
-  expect(listed.map((m) => m.line)).toEqual(kept.map(describeMark))
+  const listed: { revision: number; marks: Array<{ id: string; line: string }> } = JSON.parse((await call(bracket, 'marks')).text)
+  expect(listed.marks.map((m) => m.line)).toEqual(kept.map((m) => describeMark(m, { revision: 1 })))
 
   expect(await call(bracket, 'add_mark', { kind: 'pin', note: '', ref: 'lid/F1' })).toMatchObject({ isError: true, text: "no part 'lid' in layout assembly (parts: base, post)" })
   expect(await call(bracket, 'add_mark', { kind: 'pin', note: '', ref: 'base', point: [0, 0, 90] })).toMatchObject({ isError: true, text: expect.stringMatching(/^the point \(0, 0, 90\) is 87\.5 mm from the surface of base: /) })
@@ -460,10 +467,16 @@ test('highlight shows the user what the agent means, until they click', async ()
   await expect(line).toHaveCount(0)
 })
 
-test('resolve_mark moves a mark under Resolved, with what the agent did', async () => {
+test('resolve_mark resolves a mark, which the user sees as resolved by the agent with what it did, and then moves under Resolved', async () => {
   const result = await call(bracket, 'resolve_mark', { id: 'M1', note: 'made the corner 2 mm thicker' })
   expect(result).toMatchObject({ isError: false, text: `resolved: ${describeMark(pin)}\nnote: made the corner 2 mm thicker` })
   const marks = page.getByRole('region', { name: 'Marks' })
+  // Still in the list, saying who resolved it and what was done, in words on the row.
+  const awaiting = marks.locator('.mark-rows').first().locator('[data-mark="M1"]')
+  await expect(marks.locator('.mark-rows').first().locator('[data-mark]')).toHaveCount(4)
+  await expect(awaiting).toHaveAttribute('data-awaiting', '')
+  await expect(awaiting.locator('.mark-resolution-note')).toHaveText('Resolved by the agent: made the corner 2 mm thicker')
+  await awaiting.getByRole('button', { name: 'OK', exact: true }).click()
   await expect(marks.locator('.mark-rows').first().locator('[data-mark]')).toHaveCount(3)
   await expect(marks.locator('.mark-rows').first().locator('[data-mark="M1"]')).toHaveCount(0)
   await marks.getByRole('button', { name: /Resolved/ }).click()
@@ -502,7 +515,7 @@ test('for an object that is not the one open, look refuses and scene says what i
   }
   await expect(page.locator('.agent-line')).toHaveCount(0)
   // Its marks and its geometry are still there to ask about.
-  expect(JSON.parse((await call(bracket, 'marks', { status: 'open' })).text)).toHaveLength(3)
+  expect(JSON.parse((await call(bracket, 'marks', { status: 'open' })).text).marks).toHaveLength(3)
   expect(JSON.parse((await call(bracket, 'describe', { ref: 'post' })).text)).toMatchObject({ layout: 'assembly', kind: 'part' })
   const scene = JSON.parse((await call(bracket, 'scene')).text)
   expect(scene).toMatchObject({ object: 'bracket', build: { status: 'ok', revision: 1 }, layout: null, camera: null })
@@ -533,13 +546,13 @@ test('add_mark by a face whose centre is not on it puts the pin on the face unde
   const placed = await call(pocket, 'add_mark', { kind: 'pin', note: 'deeper?', ref: top.ref })
   expect(placed.isError).toBe(false)
   expect(placed.text).toBe(
-    `placed in layout main: (yours) M1 pin on ${floor.ref} (${floor.descriptor}) at (0, 0, 0.5): "deeper?"\nThe centre of ${top.ref} is not on it: the mark is placed on ${floor.ref}, the face under that point. Give a point on ${top.ref} to put it there.`
+    `placed in layout main: (yours) M1 pin on ${floor.ref} (${floor.descriptor}) at (0, 0, 0.5): "deeper?"\nThe centre of ${top.ref} is not on it: the mark is placed on ${floor.ref}, the face under that point. Give a point on ${top.ref} to put it there.\nrevision r1`
   )
   // The check that follows the adding finds it as it was said to be.
   await checked('pocket', unchecked)
   const [kept] = (await state()).marks as PinMark[]
   expect(kept).toMatchObject({ id: 'M1', anchorState: 'ok', anchor: { point: [0, 0, 0.5], part: 'plate', ref: floor.ref, descriptor: floor.descriptor } })
   expect(placed.text.split('\n')[0]).toBe(`placed in layout main: ${describeMark(kept)}`)
-  const [listed] = JSON.parse((await call(pocket, 'marks')).text) as Array<{ line: string }>
+  const [listed] = (JSON.parse((await call(pocket, 'marks')).text) as { marks: Array<{ line: string }> }).marks
   expect(listed.line).toBe(describeMark(kept))
 })

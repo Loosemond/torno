@@ -71,6 +71,20 @@ describe('applying a scene', () => {
     expect(store.getState().layout).toBe('main')
   })
 
+  it('closes the note and lets go of the active mark when the layout shown is gone: the mark is of a layout that is not there', () => {
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    actions.setLayout('print')
+    const mark = { id: 'M1', layout: 'print', status: 'draft' } as Mark
+    actions.setMarks({ objectId: 'bracket', marks: [mark] })
+    actions.openNote({ objectId: 'bracket', layout: 'print', id: 'M1' })
+    expect(store.getState()).toMatchObject({ activeMark: 'M1', noting: 'M1' })
+    // A build that still has the layout leaves both.
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: rebuilt(BRACKET, 'print:base') })
+    expect(store.getState()).toMatchObject({ activeMark: 'M1', noting: 'M1' })
+    actions.applyScene({ objectId: 'bracket', revision: 3, scene: scene({ assembly: ['base'] }) })
+    expect(store.getState()).toMatchObject({ layout: 'assembly', activeMark: null, noting: null })
+  })
+
   it('says there is nothing new when the same revision arrives again', () => {
     expect(actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })).toBe(true)
     actions.setLayout('print')

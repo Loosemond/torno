@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ArrowMark, PickMark, PinMark, StrokeMark, Vec3 } from '../../shared/marks'
-import { subject, unsavedNote } from './NotePopover'
+import { noteStillBelongs, subject, unsavedNote } from './NotePopover'
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
@@ -41,5 +41,17 @@ describe('what is kept of a note whose card went away by itself', () => {
   it('is nothing when nothing was changed, or the person ended the writing themselves', () => {
     expect(unsavedNote('same ', 'same', false)).toBeNull()
     expect(unsavedNote('typed', '', true)).toBeNull()
+  })
+})
+
+describe('whether a note typed when its card went still belongs to its mark', () => {
+  it('does while the workspace it was typed in is the one open, whichever of its objects is shown', () => {
+    expect(noteStillBelongs('/ws', '/ws')).toBe(true)
+  })
+
+  it('does not once another folder is open, or none: an object there may have the same name, and a mark of the same number', () => {
+    expect(noteStillBelongs('/ws', '/other')).toBe(false)
+    expect(noteStillBelongs('/ws', undefined)).toBe(false)
+    expect(noteStillBelongs(undefined, undefined)).toBe(false)
   })
 })

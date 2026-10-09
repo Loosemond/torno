@@ -49,6 +49,17 @@ export function unsavedNote(typed: string, kept: string, ended: boolean): string
 }
 
 /**
+ * Whether a note that was being typed when its card went may still be saved
+ * to its mark: while the workspace it was typed in (`opened`, its root) is
+ * the one open now, whichever of its objects is shown. Main knows every
+ * object of the open workspace by its name. Once another folder is open, an
+ * object there may bear the same name, with a mark of the same number.
+ */
+export function noteStillBelongs(opened: string | undefined, now: string | undefined): boolean {
+  return opened !== undefined && opened === now
+}
+
+/**
  * The note of the mark just made, as a small card beside it over the
  * viewport. It appears when a tool has placed a mark and goes when the note
  * is saved or left, when the mark is deleted, and when another object or
@@ -74,21 +85,31 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
   const latest = useRef({ text, kept: mark.note, ended: false })
   latest.current.text = text
   latest.current.kept = mark.note
+  /** The note as last handed to main, so that the same text is handed over once. */
+  const sent = useRef(mark.note)
+  /** Has main keep what is typed, when it is not what the mark says or what main was last given. */
+  const keep = (): void => {
+    const note = latest.current.text.trim()
+    if (note === latest.current.kept || note === sent.current) return
+    sent.current = note
+    window.torno.marks.update(objectId, id, { note }).catch(refused)
+  }
   const save = (): void => {
-    const note = text.trim()
     latest.current.ended = true
-    if (note !== mark.note) window.torno.marks.update(objectId, id, { note }).catch(refused)
+    keep()
     actions.closeNote()
   }
+  /** The workspace the card was opened in. */
+  const opened = useRef(store.getState().workspace?.root)
   // The card can go without a press or a key: the agent shows another layout, another mark's note opens.
   // What was typed is not lost with it.
   useEffect(
     () => () => {
       const { text: typed, kept, ended } = latest.current
       const note = unsavedNote(typed, kept, ended)
-      // Only while its object is still the one open: once another is, or another folder, main may know
-      // an object of the same name with a mark of the same number, and the note is not that one's.
-      if (note === null || store.getState().objectId !== objectId) return
+      // Also when another object of the same workspace is shown by now: main knows this one by its name
+      // still. Not once another folder is open (`noteStillBelongs`).
+      if (note === null || note === sent.current || !noteStillBelongs(opened.current, store.getState().workspace?.root)) return
       window.torno.marks.update(objectId, id, { note }).catch(() => {}) // the mark may be gone: that is why the card went
     },
     [objectId, id]
@@ -178,6 +199,9 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
         placeholder="What should change here?"
         aria-label={`Note on ${id}`}
         onChange={(e) => setText(e.target.value)}
+        // The focus can leave without a press or a key that ends the writing: Ctrl+` goes to the terminal,
+        // and the prompt typed there must carry the note. Kept, and the card stays for more.
+        onBlur={keep}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) save()
           else if (e.key === 'Escape') {

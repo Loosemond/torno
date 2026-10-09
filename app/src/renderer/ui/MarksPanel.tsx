@@ -1,20 +1,24 @@
 import { useEffect, useState } from 'react'
-import type { MarkPatch } from '../../shared/marks'
+import { type MarkPatch, awaitsAcknowledgement, markAnchors } from '../../shared/marks'
 import { actions, useStore } from '../state/store'
 import { TOOLS } from '../state/tools'
 import { MarkRow } from './MarkRow'
 
 /**
  * The marks of the open object, below the layers: those still to be dealt
- * with, then, folded away, the resolved ones. Marks of every layout are
- * listed; one of a layout that is not shown says which, and going to it
- * switches there.
+ * with, then, folded away, the resolved ones. A mark the agent resolved stays
+ * among the first until the person has said they have seen it, or reopened
+ * it. Marks of every layout are listed; one of a layout that is not shown
+ * says which, and going to it switches there.
  */
 export function MarksPanel() {
   const objectId = useStore((s) => s.objectId)
   const marks = useStore((s) => s.marks)
   const layout = useStore((s) => s.layout)
   const layouts = useStore((s) => s.scene?.layouts)
+  const parts = useStore((s) => s.scene?.parts)
+  const layers = useStore((s) => s.layers)
+  const revision = useStore((s) => (s.scene ? s.revision : 0))
   const active = useStore((s) => s.activeMark)
   const problem = useStore((s) => s.marksProblem)
   const [showResolved, setShowResolved] = useState(false)
@@ -34,6 +38,12 @@ export function MarksPanel() {
       (e: unknown) => setRefused(e instanceof Error ? e.message : String(e))
     )
   }
+  /** Whether a mark is on a part that is there and switched off: it is not drawn, like its part. */
+  const hidden = (mark: (typeof marks)[number]): boolean => {
+    const part = markAnchors(mark)[0]?.part
+    if (part === undefined || mark.status === 'resolved' || layers[part]?.visible !== false) return false
+    return parts?.some((p) => p.layout === mark.layout && p.name === part) ?? false
+  }
   const row = (mark: (typeof marks)[number]) => (
     <MarkRow
       key={mark.id}
@@ -41,6 +51,8 @@ export function MarksPanel() {
       active={mark.id === active}
       elsewhere={mark.layout !== layout}
       gone={layouts !== undefined && !layouts.includes(mark.layout)}
+      partHidden={hidden(mark)}
+      revision={revision}
       change={(patch: MarkPatch) => {
         const call = window.torno.marks.update(objectId, mark.id, patch)
         done(call)
@@ -49,8 +61,8 @@ export function MarksPanel() {
       remove={() => done(window.torno.marks.remove(objectId, mark.id))}
     />
   )
-  const open = marks.filter((m) => m.status !== 'resolved')
-  const resolved = marks.filter((m) => m.status === 'resolved')
+  const open = marks.filter((m) => m.status !== 'resolved' || awaitsAcknowledgement(m))
+  const resolved = marks.filter((m) => !open.includes(m))
 
   return (
     <section className="section marks" aria-label="Marks">
