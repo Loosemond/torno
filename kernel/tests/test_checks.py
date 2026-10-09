@@ -72,6 +72,7 @@ def test_clearance_between_parts_that_are_apart_is_the_gap_with_its_points():
         "distance": pytest.approx(3),
         "points": [pytest.approx(result["points"][0]), pytest.approx(result["points"][1])],
         "overlapping": False,
+        "how": "minimum",
     }
     on_a, on_b = result["points"]
     assert (on_a[0], on_b[0]) == (pytest.approx(10), pytest.approx(13))
@@ -172,7 +173,7 @@ def tetrahedron(apex_again) -> tuple[np.ndarray, np.ndarray]:
     return vertices, triangles
 
 
-def test_vertices_closer_than_a_tenth_of_a_micron_are_one():
+def test_vertices_within_a_tenth_of_a_micron_are_one():
     # What a slicer welds is closed; what it does not is open, however near.
     count, where = checks.open_edges(*tetrahedron([0, 0, 10.00002]))
     assert (count, len(where)) == (0, 0)
@@ -244,3 +245,97 @@ def test_a_layout_or_a_part_that_is_not_there_is_a_bad_ref_naming_those_that_are
         "bad_ref",
         "no part 'lid' in assembly; its parts are a, b",
     )
+
+
+# Parts of several solids, and parts that are not solids
+
+
+@pytest.mark.parametrize("far_first", [True, False])
+def test_clearance_agrees_with_overlap_when_a_part_has_several_solids(far_first):
+    from build123d import Box, Compound, Pos
+
+    pieces = [Pos(40, 0, 0) * Box(4, 4, 4), Box(2, 2, 2)]  # one far off, one at the centre of a
+    several = Compound(pieces if far_first else pieces[::-1])
+    shapes = {"assembly:a": Box(20, 20, 20), "assembly:b": several}
+    for one, other in (("a", "b"), ("b", "a")):
+        assert check(shapes, "overlap", one, other)["volume"] == pytest.approx(8)
+        result = check(shapes, "clearance", one, other)
+        assert (result["distance"], result["overlapping"], result["how"]) == (
+            0,
+            True,
+            "the parts overlap",
+        )
+        # Somewhere in what they share.
+        assert result["points"][0] == result["points"][1]
+        assert all(abs(c) <= 1 for c in result["points"][0])
+
+
+def tub_and_box() -> dict:
+    from build123d import Axis, Box, Pos, Shell
+
+    tub = Shell(Box(10, 10, 10).faces().sort_by(Axis.Z)[:-1])
+    return {
+        "assembly:tub": tub,
+        "assembly:box": Pos(2, 0, 0) * Box(10, 10, 10),
+        "assembly:far": Pos(20, 0, 0) * Box(10, 10, 10),
+    }
+
+
+def test_overlap_of_a_part_that_is_not_a_solid_is_refused():
+    shapes = tub_and_box()
+    for a, b in (("tub", "box"), ("box", "tub")):
+        assert refused(shapes, {"kind": "overlap", "layout": "assembly", "a": a, "b": b}) == (
+            "bad_request",
+            "tub is not a solid: it is a shell",
+        )
+
+
+def test_clearance_of_a_part_that_is_not_a_solid_is_its_distance_and_no_verdict():
+    shapes = tub_and_box()
+    apart = check(shapes, "clearance", "tub", "far")
+    assert (apart["distance"], apart["overlapping"]) == (pytest.approx(10), None)
+    assert apart["how"] == "minimum; tub is not a solid, so whether the parts overlap is not told"
+    crossing = check(shapes, "clearance", "box", "tub")
+    assert (crossing["distance"], crossing["overlapping"]) == (0, None)
+
+
+def test_the_mesh_of_a_part_of_several_solids_is_checked_whole():
+    from build123d import Box, Compound, Pos
+
+    two = {"assembly:two": Compound([Box(10, 10, 10), Pos(30, 0, 0) * Box(10, 10, 10)])}
+    result = check(two, "mesh", "two")
+    assert (result["watertight"], result["triangles"]) == (True, 24)
+
+
+# Welding across the lines of a grid
+
+
+@pytest.mark.parametrize("line", [0.0, 0.00005, 0.0001, 0.00015, 0.0002, 0.0003, 7.00005])
+@pytest.mark.parametrize("axis", [0, 1, 2])
+def test_vertices_a_millionth_apart_are_one_wherever_they_lie(line, axis):
+    # Two triangles side by side; the second has its own vertices for the edge they
+    # share, a millionth of a millimetre off, on the other side of ``line``.
+    def at(u, v, w):
+        point = [u, v, w]
+        return point[-axis:] + point[:-axis] if axis else point
+
+    low, high = line - 5e-7, line + 5e-7
+    vertices = np.array(
+        [at(low, 0, 0), at(low, 10, 0), at(-10, 5, 0), at(high, 0, 0), at(high, 10, 0), at(10, 5, 0)]
+    )
+    triangles = np.array([[0, 1, 2], [3, 5, 4]])
+    count, _ = checks.open_edges(vertices, triangles)
+    assert count == 4
+
+
+def test_vertices_are_one_within_a_tenth_of_a_micron_in_any_direction():
+    rng = np.random.default_rng(1)
+    for _ in range(200):
+        base = rng.uniform(-1, 1, 3)
+        step = rng.normal(size=3)
+        near = base + step / np.linalg.norm(step) * 0.99e-4
+        vertices = np.array(
+            [base, base + [0, 10, 0], base + [-10, 5, 0], near, near + [0, 10, 0], near + [10, 5, 0]]
+        )
+        count, _ = checks.open_edges(vertices, np.array([[0, 1, 2], [3, 5, 4]]))
+        assert count == 4

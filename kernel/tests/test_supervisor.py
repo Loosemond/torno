@@ -383,7 +383,14 @@ def test_section_over_the_protocol_for_the_object_asked(fresh, ws):
     result = cut["result"]
     assert result["plane"] == {**level, "x": [1, 0, 0], "y": [0, 1, 0]}
     base, post = result["parts"]
-    assert base == {"part": "base", "loops": [], "area": 0, "open": 0}
+    assert base == {
+        "part": "base",
+        "loops": [],
+        "area": 0,
+        "areaExact": True,
+        "open": 0,
+        "how": "cross-section of the solid",
+    }
     [circle] = post["loops"]
     assert (circle["closed"], circle["area"]) == (True, pytest.approx(math.pi * 16))
     assert all(math.hypot(u, v) == pytest.approx(4) for u, v in circle["points"])
@@ -705,6 +712,51 @@ def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
     assert reply["error"]["kind"] == "exception"
     assert "Out of range float values are not JSON compliant" in reply["error"]["message"]
     assert read_frame(channel) is None  # one frame, and nothing half written before it
+
+
+def test_query_reply_that_cannot_be_serialised_is_an_exception_reply_and_the_next_is_answered(
+    monkeypatch,
+):
+    """A worker answers for as long as it lives: an infinity in one reply must not end it."""
+    from torno_kernel import queries, worker
+    from torno_kernel.frames import read_frame
+
+    answers = iter([{"value": float("inf")}, {"value": 2.0}])
+    monkeypatch.setattr(queries, "run", lambda shapes, name, args, kept: next(answers))
+    asked = io.BytesIO()
+    for id in (1, 2):
+        write_frame(asked, {"id": id, "name": "measure", "args": {}})
+    asked.seek(0)
+
+    class Channel:
+        """Reads the requests and collects the replies, as the worker's socket file does."""
+
+        def __init__(self) -> None:
+            self.written = io.BytesIO()
+            self.read, self.write, self.flush = asked.read, self.written.write, lambda: None
+
+    channel = Channel()
+    worker._serve(channel, {})
+    channel.written.seek(0)
+    first, _ = read_frame(channel.written)
+    assert (first["id"], first["ok"], first["error"]["kind"]) == (1, False, "exception")
+    assert "the reply to measure could not be written" in first["error"]["message"]
+    assert read_frame(channel.written)[0] == {"id": 2, "ok": True, "result": {"value": 2.0}}
+    assert read_frame(channel.written) is None  # nothing half written
+
+
+def test_coordinates_no_number_can_be_made_of_are_refused_and_the_worker_lives(bracket_kernel):
+    far = {"layout": "assembly", "point": [0, 0, 1e308]}
+    there = {"layout": "assembly", "point": [0, 1e308, 0]}
+    reply = bracket_kernel.query(BRACKET, "measure", {"kind": "distance", "a": far, "b": there})
+    assert (reply["ok"], reply["error"]["kind"]) == (False, "bad_request")
+    plane = {"origin": [1e308, 0, 0], "normal": [0, 0, 1]}
+    cut = bracket_kernel.query(BRACKET, "section", {"layout": "assembly", "plane": plane})
+    assert cut["error"]["kind"] == "bad_request"
+    near = bracket_kernel.nearest(BRACKET, "assembly", [{"part": "base", "point": [0, 0, 1e308]}])
+    assert near["error"]["kind"] == "bad_request"
+    # The same worker still answers.
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
 
 
 class Routed:

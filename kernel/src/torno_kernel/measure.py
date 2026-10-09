@@ -13,7 +13,7 @@ import numpy as np
 
 from . import topo
 from .describe import number
-from .queries import QueryError, as_point, need_layout, resolve
+from .queries import QueryError, as_point, need_layout, need_solid, resolve
 
 KINDS = ("distance", "angle", "radius", "diameter", "thickness", "bbox", "volume", "area", "mass")
 # The kinds that are taken between two targets.
@@ -23,6 +23,8 @@ _TARGET = "a target: ref, a string, or layout, a string, with point, three finit
 _PARALLEL = math.sin(math.radians(0.01))
 # A wall thinner than this is the face the ray starts on.
 _OWN_FACE = 1e-6
+# A point this near a face, mm, is on it: further off, the wall asked about is not the one measured.
+_ON_FACE = 0.05
 # How far a ray is followed, mm.
 _REACH = 1e7
 PLA = 1.24  # g/cm³
@@ -49,7 +51,8 @@ class _Target:
             return f"{self.name} is a point"
         if self.kind == "part":
             return f"{self.ref} is a part"
-        return f"{self.ref} is a {_type(self)} {self.kind}"
+        type = _type(self)
+        return f"{self.ref} is {'an' if type[:1] in 'aeiou' else 'a'} {type} {self.kind}"
 
 
 def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | None) -> dict[str, Any]:
@@ -63,17 +66,21 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     - ``distance``: between two parallel planar faces, the distance between
       their planes; between two cylinders or circles of parallel axes, between
       the axes; from a point to a planar face, to its plane; between two
-      points; of anything else the minimum.
+      points; of anything else the minimum. Where an end is a whole part
+      that is ``minimum, between surfaces``: a part inside another, or a
+      point inside a part, is as far from it as from its surface, not 0.
     - ``angle``: between the outward normals of two planar faces (0 for faces
       that look the same way, 180 for opposite ones), between two straight
       edges or between a straight edge and a planar face (both 0 to 90: a
       line has no sense).
     - ``radius``, ``diameter``: of a cylindrical, spherical or toroidal face
       (of a torus its tube, with ``major``) or of a circular edge.
-    - ``thickness``: from a point of a face along its inward normal to where
-      the same part ends.
-    - ``bbox`` of a part, a face or an edge; ``volume`` and ``mass`` of a
-      part; ``area`` of a part or a face.
+    - ``thickness``: from a point of a face of a solid along its inward
+      normal to where the same part ends. The point is on the face, within
+      0.05 mm: one further off is refused, not moved there.
+    - ``bbox`` of a part, a face or an edge, exact when all its faces are
+      planes or cylinders and all its edges lines or circles; ``volume`` and
+      ``mass`` of a part that is a solid; ``area`` of a part or a face.
 
     ``kept`` is the worker's (``queries.run``).
     """
@@ -177,7 +184,8 @@ def _minimum(a: _Target, b: _Target) -> dict[str, Any]:
     return {
         "value": float(extrema.Value()),
         "unit": "mm",
-        "how": "minimum",
+        # Said of a whole part, so that 8 mm to a part it is inside of is not read as apart.
+        "how": "minimum, between surfaces" if "part" in (a.kind, b.kind) else "minimum",
         "points": [_gp(extrema.PointOnShape1(1)), _gp(extrema.PointOnShape2(1))],
         "exact": True,
     }
@@ -313,18 +321,24 @@ def _away(at: np.ndarray, centre: np.ndarray, axis: np.ndarray) -> np.ndarray:
 def _thickness(target: _Target, kept: dict[Any, Any]) -> dict[str, Any]:
     from build123d import Face, Vector
     from OCP.BRepExtrema import BRepExtrema_DistShapeShape
-    from OCP.gp import gp_Dir, gp_Lin, gp_Pnt
+    from OCP.gp import gp_Dir, gp_Lin
 
     if target.kind != "face" or target.point is None:
         why = target.what if target.kind != "face" else f"{target.name} has no point"
         raise QueryError(
             "bad_request", f"thickness needs a.ref, a face, and a.point, a point on it; {why}"
         )
-    # The point given is near the face; the wall is measured from the face itself.
+    need_solid(target.part, target.key)
+    # The wall is measured from the face itself: the point given is on it, to within rounding.
     onto = BRepExtrema_DistShapeShape(_vertex(target.point), target.shape)
     if not onto.IsDone() or onto.NbSolution() < 1:
         raise QueryError(
             "exception", f"no point of {target.ref} near the one given could be computed"
+        )
+    if onto.Value() > _ON_FACE:
+        raise QueryError(
+            "bad_request",
+            f"the point is {number(onto.Value())} mm from {target.ref}: give a point on the face",
         )
     start = onto.PointOnShape2(1)
     try:
@@ -378,19 +392,30 @@ def _bbox(target: _Target) -> dict[str, Any]:
         "unit": "mm",
         "how": "axis-aligned box"
         if exact
-        else "axis-aligned box, approximate on faces that are neither flat nor cylinders",
+        else "axis-aligned box, approximate: exact only of planes and cylinders with "
+        "straight and circular edges",
         "exact": exact,
     }
 
 
 def _boxed_exactly(target: _Target) -> bool:
-    """Whether the box of the target is its own: OCC's is not, of a freeform face."""
-    from build123d import Face
+    """Whether the box of the target is its own: OCC's is not, of a freeform face or edge."""
+    from build123d import Edge, Face
 
-    if target.kind == "edge":
-        return _type(target) in ("line", "circle")
-    faces = [target.shape] if target.kind == "face" else topo.faces(target.shape)
-    return all(Face(face).geom_type.name.lower() in ("plane", "cylinder") for face in faces)
+    try:
+        if target.kind != "edge" and not all(
+            Face(face).geom_type.name.lower() in ("plane", "cylinder")
+            for face in topo.faces(target.shape)
+        ):
+            return False
+        # A flat face may end in a spline; a cylinder cut on the slant ends in an ellipse.
+        return all(
+            Edge(edge).geom_type.name.lower() in ("line", "circle")
+            for edge in topo.edges(target.shape)
+        )
+    except Exception:
+        # An edge with no curve to name the type of.
+        return False
 
 
 def _extent(kind: str, target: _Target) -> dict[str, Any]:
@@ -399,6 +424,7 @@ def _extent(kind: str, target: _Target) -> dict[str, Any]:
     if kind == "volume":
         if target.kind != "part":
             raise QueryError("bad_request", f"volume is measured of a part; {target.what}")
+        need_solid(target.shape, target.key)
         return _exactly(target.shape.volume, "mm3", "of the solid")
     if target.kind == "part":
         return _exactly(target.shape.area, "mm2", "surface of the part")
@@ -421,6 +447,7 @@ def _mass(target: _Target, density: Any, default: bool) -> dict[str, Any]:
         or density <= 0
     ):
         raise QueryError("bad_request", "density is a positive number, in g/cm³")
+    need_solid(target.shape, target.key)
     volume = float(target.shape.volume)
     return {
         # mm³ to cm³.

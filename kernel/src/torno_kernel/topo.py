@@ -30,11 +30,19 @@ def solids(shape: Any) -> list[Any]:
     return _subshapes(shape, TopAbs_SOLID)
 
 
-def vertices(shape: Any) -> list[Any]:
-    """The shape's distinct vertices as ``TopoDS_Vertex``."""
-    from ocp_tessellate.ocp_utils import TopAbs_VERTEX
+def wires(shape: Any) -> list[Any]:
+    """The shape's distinct wires as ``TopoDS_Wire``: of a face, its outer one and its holes."""
+    from ocp_tessellate.ocp_utils import TopAbs_WIRE
 
-    return _subshapes(shape, TopAbs_VERTEX)
+    return _subshapes(shape, TopAbs_WIRE)
+
+
+def what(shape: Any) -> str:
+    """What kind of shape this is, with its article: ``a shell``, ``a face``, ``a compound``."""
+    wrapped = getattr(shape, "wrapped", shape)
+    # TopAbs_SHELL, by whichever name the enum goes in this OCP.
+    kind = str(wrapped.ShapeType()).rsplit("_", 1)[-1].lower()
+    return f"{'an' if kind[:1] in 'aeiou' else 'a'} {kind}"
 
 
 def _subshapes(shape: Any, kind: Any) -> list[Any]:

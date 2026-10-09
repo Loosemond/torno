@@ -11,6 +11,9 @@ _SUBSHAPE = re.compile(r"^(?P<key>.+)/(?P<kind>[FE])(?P<index>\d+)$")
 # No part has a face or an edge of a million: a longer number is not one, and
 # one of thousands of digits is more than int() takes.
 _INDEX_DIGITS = 6
+# No coordinate is further from the origin than this, mm: sums and squares of
+# larger ones overflow, and an infinity cannot be written in a reply.
+FARTHEST = 1e9
 
 
 class QueryError(Exception):
@@ -103,6 +106,12 @@ def need_layout(shapes: dict[str, Any], layout: str) -> None:
         raise QueryError("bad_ref", f"no layout {layout!r}; the layouts are {', '.join(layouts)}")
 
 
+def need_solid(shape: Any, name: str) -> None:
+    """Refuse what has no solid: it has no volume, no inside and no walls to measure."""
+    if not topo.solids(shape):
+        raise QueryError("bad_request", f"{name} is not a solid: it is {topo.what(shape)}")
+
+
 def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
     """The shape of ``part`` in ``layout``, or a ``bad_ref`` naming the layout's parts."""
     need_layout(shapes, layout)
@@ -114,7 +123,7 @@ def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
 
 
 def as_point(value: Any) -> list[float] | None:
-    """Three finite numbers as floats, or None for anything else."""
+    """Three coordinates (finite, within FARTHEST) as floats, or None for anything else."""
     if isinstance(value, list) and len(value) == 3 and all(_is_coordinate(c) for c in value):
         return [float(c) for c in value]
     return None
@@ -199,7 +208,13 @@ def _anchor(anchor: Any) -> tuple[str, list[float], str | None]:
 
 
 def _is_coordinate(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    """A number that can be a coordinate in mm: finite, and no further out than FARTHEST."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and abs(value) <= FARTHEST
+    )
 
 
 class _Surface:

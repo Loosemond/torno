@@ -92,7 +92,13 @@ def _serve(channel: Any, shapes: dict[str, Any]) -> None:
             reply = {"ok": False, "error": _exception(str(e) or type(e).__name__)}
         else:
             reply = {"ok": True, "result": result}
-        write_frame(channel, {"id": request.get("id"), **reply})
+        try:
+            write_frame(channel, {"id": request.get("id"), **reply})
+        except ValueError as e:
+            # A reply that is not JSON (an infinity, a NaN) is refused before a
+            # byte of it is sent: the query failed, the worker did not.
+            failed = _exception(f"the reply to {request.get('name')} could not be written: {e}")
+            write_frame(channel, {"id": request.get("id"), "ok": False, "error": failed})
 
 
 def _exception(message: str) -> dict[str, str]:

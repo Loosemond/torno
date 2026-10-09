@@ -18,6 +18,9 @@ DEFLECTION = 0.05
 MAX_POINTS = 2000
 # Ends of cut edges closer than this are one point, mm.
 _JOIN = 1e-6
+# What a part's entry says of how it was cut.
+SOLID = "cross-section of the solid"
+SURFACE = "outline of the surface: the part is not a solid"
 _ZERO = 1e-12
 
 
@@ -31,14 +34,29 @@ def section(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     ``[u, v]`` is ``origin + u·x + v·y`` in the frame of the layout.
 
     Each part asked of is listed, in the build's order, with its ``loops``
-    (none where the plane misses it). A loop has its ``points``, whether it
-    is ``closed`` (then the last point joins the first, which is not told
-    twice), its ``area`` and the ``deflection`` it is drawn at. The area is
-    that of the true outline: positive for a loop that bounds material, which
-    runs counter-clockwise, negative for a hole in it, which runs clockwise,
-    and 0 for a loop that is not closed. Closed loops come largest first, open
-    ones after them. A part's ``area`` is the sum and ``open`` the number of
-    loops that are not closed: a part that is a solid has none.
+    (none where the plane misses it), and ``how`` it was cut:
+
+    - ``cross-section of the solid``, of a part that has solids: what of the
+      plane is in each solid, its surface included. So a plane that lies on a
+      face of the solid has that face in the cross-section, whichever way it
+      looks, and one that only touches the solid (along an edge, or a line of
+      a round side) cuts nothing. Every loop is closed and ``open`` is 0. A
+      cross-section may come in pieces that share an edge; solids of one part
+      that overlap are each cut, and both counted.
+    - ``outline of the surface: the part is not a solid``, of a shell or a
+      face: the curves the plane cuts of it, joined end to end. ``open`` is
+      how many of them are not closed, and then the part's ``area`` is null:
+      what an open outline bounds cannot be told.
+
+    A loop has its ``points``, whether it is ``closed`` (then the last point
+    joins the first, which is not told twice), its ``area`` and the
+    ``deflection`` it is drawn at. The area is that of the true outline, not
+    of the polygon: positive for a loop that bounds material, which runs
+    counter-clockwise, negative for a hole in it, which runs clockwise, and
+    null for a loop that is not closed. ``areaExact`` is false of a loop whose
+    area could only be taken of its polygon, and of a part with such a loop.
+    Closed loops come largest first, open ones after them. A part's ``area``
+    is the sum.
 
     ``bounds`` is the box of every point in ``[u, v]``, null when nothing is cut.
     """
@@ -66,15 +84,7 @@ def section(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     frame = _Frame(np.array(origin), np.array(normal) / length)
     parts = []
     for name in dict.fromkeys(names):
-        loops = _loops(need_part(shapes, layout, name), frame, f"{layout}:{name}")
-        parts.append(
-            {
-                "part": name,
-                "loops": loops,
-                "area": sum(loop["area"] for loop in loops),
-                "open": sum(1 for loop in loops if not loop["closed"]),
-            }
-        )
+        parts.append({"part": name, **_cut(need_part(shapes, layout, name), frame, f"{layout}:{name}")})
     drawn = [loop["points"] for part in parts for loop in part["loops"]]
     bounds = None
     if drawn:
@@ -123,14 +133,132 @@ class _Frame:
         return (points - self.origin) @ np.stack([self.x, self.y]).T
 
 
-def _loops(shape: Any, frame: _Frame, key: str) -> list[dict[str, Any]]:
-    """The loops the plane cuts of one part, signed and ordered as ``section`` says."""
+def _cut(shape: Any, frame: _Frame, key: str) -> dict[str, Any]:
+    """What ``section`` says of one part, but its name."""
+    wrapped = getattr(shape, "wrapped", shape)
+    solids = topo.solids(wrapped)
+    if solids:
+        loops, area, exact = _cross_section(solids, frame, key)
+        how = SOLID
+    else:
+        loops, exact = _outline(wrapped, frame, key)
+        closed = all(loop["closed"] for loop in loops)
+        # Of an outline that is not closed, what it bounds cannot be told.
+        area = sum(loop["area"] for loop in loops) if closed else None
+        how = SURFACE
+    # Largest first; those that are not closed have no area and come last.
+    loops.sort(key=lambda loop: (not loop["closed"], -abs(loop["area"] or 0.0)))
+    return {
+        "loops": loops,
+        "area": area,
+        "areaExact": exact,
+        "open": sum(1 for loop in loops if not loop["closed"]),
+        "how": how,
+    }
+
+
+def _cross_section(
+    solids: list[Any], frame: _Frame, key: str
+) -> tuple[list[dict[str, Any]], float, bool]:
+    """The loops round what of the plane is in each solid, their area and whether it is exact.
+
+    Each solid is intersected with a sheet of the plane larger than itself.
+    What comes back is faces, whole whatever the plane touches on its way:
+    their outer wires bound material and their inner ones holes.
+    """
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+    from OCP.BRepTools import BRepTools
+
+    plane = frame.plane()
+    loops: list[dict[str, Any]] = []
+    total, exact = 0.0, True
+    for solid in solids:
+        sheet = _sheet(solid, frame, plane)
+        if sheet is None:
+            continue
+        common = BRepAlgoAPI_Common(solid, sheet)
+        if not common.IsDone():
+            raise QueryError("exception", f"the section of {key} could not be computed")
+        for face in topo.faces(common.Shape()):
+            rim = BRepTools.OuterWire_s(face)
+            around = [
+                _ring(plane, wire, frame, hole=not wire.IsSame(rim)) for wire in topo.wires(face)
+            ]
+            around = [loop for loop in around if loop is not None]
+            area = _face_area(face)
+            if area is None or not all(loop["areaExact"] for loop in around):
+                # The polygons are the best there is.
+                area, exact = sum(loop["area"] for loop in around), False
+            total += area
+            loops += around
+    return loops, total, exact
+
+
+def _sheet(solid: Any, frame: _Frame, plane: Any) -> Any:
+    """A face of the plane that reaches past the solid on every side, or None when the
+    plane passes the solid by."""
+    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib, BRepBuilderAPI_MakeFace
+
+    box = Bnd_Box()
+    # Of the geometry, which the box may exceed but never falls short of.
+    BRepBndLib.Add_s(solid, box, False)
+    if box.IsVoid():
+        return None
+    low, high = box.CornerMin(), box.CornerMax()
+    corners = np.array(
+        [
+            [x, y, z]
+            for x in (low.X(), high.X())
+            for y in (low.Y(), high.Y())
+            for z in (low.Z(), high.Z())
+        ]
+    )
+    off = (corners - frame.origin) @ frame.normal
+    if off.min() > _JOIN or off.max() < -_JOIN:
+        return None
+    flat = frame.flat(corners)
+    (u0, v0), (u1, v1) = flat.min(axis=0) - 1, flat.max(axis=0) + 1
+    return BRepBuilderAPI_MakeFace(plane, float(u0), float(u1), float(v0), float(v1)).Face()
+
+
+def _ring(plane: Any, wire: Any, frame: _Frame, hole: bool) -> dict[str, Any] | None:
+    """A closed loop as it is told: its points turning the way that says what it bounds."""
+    outline = _closed_outline(wire, frame)
+    if outline is None:
+        return None
+    area, exact = _wire_area(plane, wire, outline)
+    if (_shoelace(outline) < 0) != hole:
+        outline = outline[::-1]
+    points, deflection = _within_limit(outline, closed=True)
+    return {
+        "points": points,
+        "closed": True,
+        "area": -area if hole else area,
+        "areaExact": exact,
+        "deflection": deflection,
+    }
+
+
+def _closed_outline(wire: Any, frame: _Frame) -> np.ndarray | None:
+    """The points of a closed wire in the plane, the first not told again at the end."""
+    outline = frame.flat(_polyline(wire))
+    if len(outline) >= 2 and np.linalg.norm(outline[0] - outline[-1]) <= _JOIN:
+        outline = outline[:-1]
+    return outline if len(outline) >= 3 else None
+
+
+def _outline(shape: Any, frame: _Frame, key: str) -> tuple[list[dict[str, Any]], bool]:
+    """The loops a plane cuts of a shape that is no solid, and whether their areas are exact.
+
+    The cut is loose edges, joined end to end. A loop inside an odd number of
+    others is taken for a hole.
+    """
     # build123d and OCP come from the user's workspace, so they are imported only when used.
     from build123d import Edge, Wire
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Section
 
     plane = frame.plane()
-    cut = BRepAlgoAPI_Section(getattr(shape, "wrapped", shape), plane, False)
+    cut = BRepAlgoAPI_Section(shape, plane, False)
     # The curves as they are, not splines put through them.
     cut.Approximation(False)
     cut.Build()
@@ -138,42 +266,29 @@ def _loops(shape: Any, frame: _Frame, key: str) -> list[dict[str, Any]]:
         raise QueryError("exception", f"the section of {key} could not be computed")
     edges = topo.edges(cut.Shape())
     if not edges:
-        return []
-    # The cut is loose edges, a few per face crossed: they are joined end to end.
-    wires = Wire.combine([Edge(edge) for edge in edges], tol=_JOIN)
-    closed, open_ones = [], []
-    for wire in wires:
-        outline = frame.flat(_polyline(wire.wrapped))
-        if len(outline) < 2:
+        return [], True
+    closed, loops = [], []
+    for wire in Wire.combine([Edge(edge) for edge in edges], tol=_JOIN):
+        outline = _closed_outline(wire.wrapped, frame) if wire.is_closed else None
+        if outline is not None:
+            closed.append((wire.wrapped, outline))
             continue
-        if wire.is_closed and len(outline) >= 3:
-            if np.linalg.norm(outline[0] - outline[-1]) <= _JOIN:
-                outline = outline[:-1]
-            closed.append((outline, _area(plane, wire.wrapped, outline)))
-        else:
-            open_ones.append(outline)
-    loops = []
-    for outline, area in sorted(closed, key=lambda loop: -loop[1]):
-        # A loop inside an odd number of others is the edge of a hole.
-        depth = sum(
-            1 for other, _ in closed if other is not outline and _inside(outline[0], other)
-        )
-        hole = depth % 2 == 1
-        if (_shoelace(outline) < 0) != hole:
-            outline = outline[::-1]
-        points, deflection = _within_limit(outline, closed=True)
-        loops.append(
-            {
-                "points": points,
-                "closed": True,
-                "area": -area if hole else area,
-                "deflection": deflection,
-            }
-        )
-    for outline in open_ones:
-        points, deflection = _within_limit(outline, closed=False)
-        loops.append({"points": points, "closed": False, "area": 0.0, "deflection": deflection})
-    return loops
+        outline = frame.flat(_polyline(wire.wrapped))
+        if len(outline) >= 2:
+            points, deflection = _within_limit(outline, closed=False)
+            loops.append(
+                {
+                    "points": points,
+                    "closed": False,
+                    "area": None,
+                    "areaExact": True,
+                    "deflection": deflection,
+                }
+            )
+    for wire, outline in closed:
+        depth = sum(1 for _, other in closed if other is not outline and _inside(outline[0], other))
+        loops.append(_ring(plane, wire, frame, hole=depth % 2 == 1))
+    return loops, all(loop["areaExact"] for loop in loops)
 
 
 def _polyline(wire: Any) -> np.ndarray:
@@ -202,21 +317,31 @@ def _polyline(wire: Any) -> np.ndarray:
     return np.array(points, dtype=np.float64).reshape(-1, 3)
 
 
-def _area(plane: Any, wire: Any, outline: np.ndarray) -> float:
-    """The area a closed wire of the plane bounds: of the wire itself, not of its polygon."""
-    from ocp_tessellate.ocp_utils import BRepBuilderAPI_MakeFace, BRepGProp, GProp_GProps
+def _wire_area(plane: Any, wire: Any, outline: np.ndarray) -> tuple[float, bool]:
+    """The area a closed wire of the plane bounds, and whether it is of the wire itself
+    or only of the polygon drawn of it."""
+    from ocp_tessellate.ocp_utils import BRepBuilderAPI_MakeFace
 
+    area = None
     try:
         face = BRepBuilderAPI_MakeFace(plane, wire, True)
         if face.IsDone():
-            measured = GProp_GProps()
-            BRepGProp.SurfaceProperties_s(face.Face(), measured)
-            if math.isfinite(measured.Mass()) and measured.Mass() != 0:
-                return abs(float(measured.Mass()))
+            area = _face_area(face.Face())
     except Exception:
         pass
-    # A wire no face can be made of: the polygon is the best there is.
-    return abs(_shoelace(outline))
+    if area is None:
+        return abs(_shoelace(outline)), False
+    return area, True
+
+
+def _face_area(face: Any) -> float | None:
+    """The exact area of a face, or None when none can be measured of it."""
+    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
+
+    measured = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face, measured)
+    area = abs(float(measured.Mass()))
+    return area if math.isfinite(area) and area > 0 else None
 
 
 def _shoelace(outline: np.ndarray) -> float:

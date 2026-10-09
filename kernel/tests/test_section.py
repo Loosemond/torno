@@ -10,6 +10,9 @@ from torno_kernel.loader import load_scene
 from torno_kernel.tess import build_scene
 
 WS = Path(__file__).parent / "fixtures" / "ws"
+SOLID = "cross-section of the solid"
+SURFACE = "outline of the surface: the part is not a solid"
+X, Y, Z = [1, 0, 0], [0, 1, 0], [0, 0, 1]
 
 
 @pytest.fixture(scope="module")
@@ -43,10 +46,10 @@ def test_a_cut_through_the_post_is_one_closed_circle_and_the_base_is_missed(brac
     result = section(bracket, [0, 0, 12.5], [0, 0, 1])
     assert [part["part"] for part in result["parts"]] == ["base", "post"]
     parts = by_name(result)
-    assert parts["base"] == {"part": "base", "loops": [], "area": 0, "open": 0}
+    assert parts["base"] == {"part": "base", "loops": [], "area": 0, "areaExact": True, "open": 0, "how": SOLID}
     post = parts["post"]
     [loop] = post["loops"]
-    assert loop["closed"] is True
+    assert (loop["closed"], loop["areaExact"], post["areaExact"], post["how"]) == (True, True, True, SOLID)
     # The area is of the circle itself, not of the polygon drawn of it.
     assert loop["area"] == pytest.approx(math.pi * 16, rel=1e-9)
     assert (post["area"], post["open"]) == (pytest.approx(math.pi * 16), 0)
@@ -150,8 +153,8 @@ def test_an_island_in_a_hole_is_counted_again():
 def test_a_plane_that_misses_lists_every_part_with_no_loops(bracket):
     result = section(bracket, [0, 0, 100], [0, 0, 1])
     assert result["parts"] == [
-        {"part": "base", "loops": [], "area": 0, "open": 0},
-        {"part": "post", "loops": [], "area": 0, "open": 0},
+        {"part": "base", "loops": [], "area": 0, "areaExact": True, "open": 0, "how": SOLID},
+        {"part": "post", "loops": [], "area": 0, "areaExact": True, "open": 0, "how": SOLID},
     ]
     assert result["bounds"] is None
 
@@ -172,7 +175,9 @@ def test_a_part_that_is_not_closed_gives_open_loops_and_says_how_many():
     shapes = {"assembly:tub": Shell(faces[:-1])}  # without its top
     [part] = section(shapes, [0, 0, 0], [0, 1, 0])["parts"]
     [loop] = part["loops"]
-    assert (loop["closed"], loop["area"], part["area"], part["open"]) == (False, 0, 0, 1)
+    # Of an outline that is not closed no area is told, nor of the part it leaves open.
+    assert (loop["closed"], loop["area"], part["area"], part["open"]) == (False, None, None, 1)
+    assert part["how"] == SURFACE
     # Up one side is not there: down, across the bottom and up again.
     assert len(loop["points"]) == 4
     ends = sorted([tuple(loop["points"][0]), tuple(loop["points"][-1])])
@@ -181,6 +186,7 @@ def test_a_part_that_is_not_closed_gives_open_loops_and_says_how_many():
     # Cut level, it is closed all the same.
     [level] = section(shapes, [0, 0, 0], [0, 0, 1])["parts"]
     assert (level["loops"][0]["closed"], level["area"], level["open"]) == (True, pytest.approx(100), 0)
+    assert (level["how"], level["areaExact"]) == (SURFACE, True)
 
 
 def test_a_loop_of_more_points_than_the_limit_is_drawn_coarser_and_its_area_is_still_exact():
@@ -244,3 +250,103 @@ def test_a_layout_or_a_part_that_is_not_there_is_a_bad_ref_naming_those_that_are
         "bad_ref",
         "no part 'lid' in assembly; its parts are base, post",
     )
+
+
+# Planes that touch: the cross-section of a solid is what of the plane is in it
+
+
+@pytest.fixture(scope="module")
+def plate():
+    _, _, shapes = build_scene(load_scene(WS / "measures", "measures.py"), "measures.py")
+    return shapes
+
+
+def whole(shapes, origin, normal) -> dict:
+    """The one part cut, after checking that what it says of itself adds up."""
+    [part] = section(shapes, origin, normal)["parts"]
+    assert part["area"] == pytest.approx(sum(loop["area"] for loop in part["loops"]))
+    assert all(loop["closed"] and loop["areaExact"] for loop in part["loops"])
+    assert (part["open"], part["areaExact"], part["how"]) == (0, True, SOLID)
+    return part
+
+
+@pytest.mark.parametrize("x", [14, 6])
+def test_a_plane_tangent_to_a_hole_still_cuts_the_whole_plate(plate, x):
+    # The hole of radius 4 at x = 10 only touches the plane: nothing of the 30 × 6 is missing.
+    assert whole(plate, [x, 0, 0], X)["area"] == pytest.approx(180)
+
+
+@pytest.mark.parametrize("normal", [X, [-1, 0, 0]])
+def test_a_plane_on_a_face_of_the_solid_has_that_face_in_the_cross_section(plate, normal):
+    # x = -5 is a side wall of the pocket, 6 × 4: the solid ends there and has it,
+    # whichever way the plane looks.
+    part = whole(plate, [-5, 0, 0], normal)
+    assert part["area"] == pytest.approx(180)
+    assert sorted(loop["area"] for loop in part["loops"]) == [pytest.approx(24), pytest.approx(156)]
+
+
+def test_a_plane_on_an_outer_face_is_that_face(plate):
+    top = whole(plate, [0, 0, 3], Z)
+    assert top["area"] == pytest.approx(38 * 30 - 2 * math.pi * 16 - 60)
+    assert [loop["area"] > 0 for loop in top["loops"]] == [True, False, False, False]
+    from build123d import Box
+
+    box = {"assembly:box": Box(10, 10, 10)}
+    assert whole(box, [0, 0, 5], Z)["area"] == pytest.approx(100)
+    assert whole(box, [0, 0, -5], Z)["area"] == pytest.approx(100)
+    assert whole(box, [0, 0, 5.001], Z)["loops"] == []
+
+
+def test_touching_solids_of_one_part_are_each_cut():
+    from build123d import Box, Compound, Pos
+
+    two = {"assembly:two": Compound([Box(10, 10, 10), Pos(10, 0, 0) * Box(10, 10, 10)])}
+    part = whole(two, [0, 0, 0], Z)
+    assert part["area"] == pytest.approx(200)
+    assert [loop["area"] for loop in part["loops"]] == [pytest.approx(100), pytest.approx(100)]
+
+
+def test_overlapping_solids_of_one_part_are_each_cut_and_both_counted():
+    from build123d import Box, Compound, Pos
+
+    two = {"assembly:two": Compound([Box(10, 10, 10), Pos(5, 0, 0) * Box(10, 10, 10)])}
+    part = whole(two, [0, 0, 0], Z)
+    assert [loop["area"] for loop in part["loops"]] == [pytest.approx(100), pytest.approx(100)]
+    assert part["area"] == pytest.approx(200)
+
+
+def test_a_plane_that_only_touches_a_solid_cuts_nothing_of_it():
+    from build123d import Box, Cylinder, Torus
+
+    touched = [
+        (Torus(20, 3), [0, 0, 3], Z),  # along the circle on top of the ring
+        (Box(10, 10, 10), [5, 5, 0], [1, 1, 0]),  # along one edge
+        (Cylinder(4, 20), [4, 0, 0], X),  # along a line of its side
+    ]
+    for shape, origin, normal in touched:
+        part = whole({"assembly:it": shape}, origin, normal)
+        assert (part["loops"], part["area"]) == ([], 0)
+    # Through the ring it is cut as a ring.
+    ring = whole({"assembly:it": Torus(20, 3)}, [0, 0, 0], Z)
+    assert [loop["area"] for loop in ring["loops"]] == [
+        pytest.approx(math.pi * 23**2),
+        pytest.approx(-math.pi * 17**2),
+    ]
+
+
+def test_a_loop_no_face_can_be_made_of_says_its_area_is_not_exact(monkeypatch):
+    from build123d import Axis, Box, Shell
+
+    from torno_kernel import section as module
+
+    monkeypatch.setattr(module, "_face_area", lambda face: None)
+    tub = {"assembly:tub": Shell(Box(10, 10, 10).faces().sort_by(Axis.Z)[:-1])}
+    [part] = section(tub, [0, 0, 0], Z)["parts"]
+    [loop] = part["loops"]
+    # The polygon's area, said to be that.
+    assert (loop["area"], loop["areaExact"], part["areaExact"]) == (pytest.approx(100), False, False)
+
+
+def test_coordinates_beyond_a_million_kilometres_are_refused(bracket):
+    plane = {"origin": [0, 0, 1e308], "normal": [0, 0, 1]}
+    assert refused(bracket, {"layout": "assembly", "plane": plane})[0] == "bad_request"

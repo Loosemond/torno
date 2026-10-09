@@ -155,10 +155,14 @@ def test_a_target_with_a_ref_and_a_point_is_the_feature_of_the_ref(shapes, top, 
 def test_distance_between_two_parts_is_the_minimum_with_its_points(shapes):
     far = ref(shapes, "assembly:base", "F", "plane, normal -X, x = -20,")
     result = measure(shapes, "distance", "assembly:post", far)
-    assert (result["value"], result["how"], result["exact"]) == (pytest.approx(16), "minimum", True)
+    assert (result["value"], result["how"]) == (pytest.approx(16), "minimum, between surfaces")
+    assert result["exact"] is True
     assert result["points"] == [pytest.approx([-4, 0, 2.5]), pytest.approx([-20, 0, 2.5])]
     touching = measure(shapes, "distance", "assembly:post", "assembly:base")
-    assert (touching["value"], touching["how"]) == (pytest.approx(0, abs=1e-9), "minimum")
+    assert (touching["value"], touching["how"]) == (
+        pytest.approx(0, abs=1e-9),
+        "minimum, between surfaces",
+    )
 
 
 def test_a_point_and_a_curved_face_are_the_minimum_apart(shapes, holes):
@@ -317,10 +321,28 @@ def test_thickness_of_the_wall_the_pocket_leaves(shapes):
     assert floor["value"] == pytest.approx(2)
 
 
-def test_thickness_is_taken_from_the_point_of_the_face_nearest_the_one_given(shapes, bottom):
-    result = measure(shapes, "thickness", {"ref": bottom, "point": [15, -5, -8]})
+def test_thickness_is_taken_from_the_face_when_the_point_is_a_hair_off_it(shapes, bottom):
+    result = measure(shapes, "thickness", {"ref": bottom, "point": [15, -5, -3.04]})
     assert result["value"] == pytest.approx(6)
     assert result["points"] == [pytest.approx([15, -5, -3]), pytest.approx([15, -5, 3])]
+
+
+def test_thickness_at_a_point_that_is_not_on_the_face_is_refused(shapes, bottom, top):
+    assert refused(shapes, "thickness", {"ref": bottom, "point": [15, -5, -8]}) == (
+        "bad_request",
+        f"the point is 5 mm from {bottom}: give a point on the face",
+    )
+    # In the mouth of a hole the face is its rim, 4 mm away.
+    assert refused(shapes, "thickness", {"ref": top, "point": [10, 5, 3]}) == (
+        "bad_request",
+        f"the point is 4 mm from {top}: give a point on the face",
+    )
+    assert refused(shapes, "thickness", {"ref": top, "point": [0, 60, 3.06]})[1].startswith(
+        "the point is 45 mm from"
+    )
+    assert refused(shapes, "thickness", {"ref": top, "point": [15, 0, 3.06]})[1].startswith(
+        "the point is 0.06 mm from"
+    )
 
 
 def test_thickness_from_inside_a_hole_goes_into_the_material(shapes, holes):
@@ -331,15 +353,92 @@ def test_thickness_from_inside_a_hole_goes_into_the_material(shapes, holes):
 
 
 def test_thickness_with_nothing_behind_the_face_is_refused():
-    from build123d import Box, Shell
+    from build123d import Box, Compound, Pos
 
-    lone = Shell([Box(10, 10, 10).faces()[0]])
-    made = {"assembly:sheet": lone}
-    centre = queries.describe(made, "assembly:sheet/F0")["center"]
-    assert refused(made, "thickness", {"ref": "assembly:sheet/F0", "point": centre}) == (
+    # A solid, and beside it a face that bounds nothing.
+    loose = (Pos(50, 0, 0) * Box(10, 10, 10)).faces()[0]
+    made = {"assembly:mixed": Compound([Box(10, 10, 10), loose])}
+    centre = queries.describe(made, "assembly:mixed/F6")["center"]
+    assert refused(made, "thickness", {"ref": "assembly:mixed/F6", "point": centre}) == (
         "bad_request",
         "no opposite wall along the normal",
     )
+
+
+def not_solids() -> dict:
+    from build123d import Axis, Box, Shell
+
+    faces = Box(10, 10, 10).faces().sort_by(Axis.Z)
+    return {"assembly:tub": Shell(faces[:-1]), "assembly:sheet": faces[0]}
+
+
+def test_volume_mass_and_thickness_of_what_is_not_a_solid_are_refused():
+    made = not_solids()
+    assert refused(made, "volume", "assembly:tub") == (
+        "bad_request",
+        "assembly:tub is not a solid: it is a shell",
+    )
+    assert refused(made, "mass", "assembly:sheet") == (
+        "bad_request",
+        "assembly:sheet is not a solid: it is a face",
+    )
+    centre = queries.describe(made, "assembly:tub/F0")["center"]
+    assert refused(made, "thickness", {"ref": "assembly:tub/F0", "point": centre}) == (
+        "bad_request",
+        "assembly:tub is not a solid: it is a shell",
+    )
+    # What it has, it is asked: five faces of 100 mm².
+    assert measure(made, "area", "assembly:tub")["value"] == pytest.approx(500)
+    assert measure(made, "area", "assembly:sheet/F0")["value"] == pytest.approx(100)
+    assert measure(made, "bbox", "assembly:tub")["size"] == pytest.approx([10, 10, 10])
+
+
+def test_a_part_inside_another_is_apart_from_its_surface_and_says_so():
+    from build123d import Box
+
+    nested = {"assembly:a": Box(20, 20, 20), "assembly:b": Box(4, 4, 4)}
+    result = measure(nested, "distance", "assembly:a", "assembly:b")
+    assert (result["value"], result["how"]) == (pytest.approx(8), "minimum, between surfaces")
+    inside = measure(nested, "distance", {"layout": "assembly", "point": [0, 0, 0]}, "assembly:a")
+    assert (inside["value"], inside["how"]) == (pytest.approx(10), "minimum, between surfaces")
+    # Between a face and a point there is no inside to be in.
+    face = measure(nested, "distance", {"layout": "assembly", "point": [0, 0, 0]}, "assembly:a/F0")
+    assert face["how"] == "point to plane"
+
+
+def test_bbox_is_exact_only_when_every_edge_is_a_line_or_a_circle():
+    from build123d import Box, Cylinder, Ellipse, Pos, Rot, extrude
+
+    # A cylinder cut on the slant: flat and cylindrical faces, and an ellipse between them.
+    slanted = Cylinder(4, 20) - Pos(0, 0, 12) * Rot(0, 30, 0) * Box(40, 40, 10)
+    assert measure({"assembly:it": Cylinder(4, 20)}, "bbox", "assembly:it")["exact"] is True
+    assert measure({"assembly:it": slanted}, "bbox", "assembly:it")["exact"] is False
+    made = {"assembly:it": extrude(Ellipse(10, 5), 2)}
+    flat = [r for r in refs(made, "assembly:it", "F", "plane")]
+    assert flat and all(measure(made, "bbox", r)["exact"] is False for r in flat)
+    rim = refs(made, "assembly:it", "E", "ellipse")[0]
+    assert measure(made, "bbox", rim)["exact"] is False
+
+
+def test_what_a_target_is_reads_as_a_sentence():
+    from build123d import Ellipse, extrude
+
+    made = {"assembly:it": extrude(Ellipse(10, 5), 2)}
+    rim = refs(made, "assembly:it", "E", "ellipse")[0]
+    assert refused(made, "radius", rim)[1].endswith(f"{rim} is an ellipse edge")
+    side = refs(made, "assembly:it", "F", "extrusion")[0]
+    assert refused(made, "radius", side)[1].endswith(f"{side} is an extrusion face")
+
+
+@pytest.mark.parametrize("huge", [1e308, -1e308, 1.1e9])
+def test_coordinates_beyond_a_million_kilometres_are_refused(shapes, top, huge):
+    far = {"layout": "assembly", "point": [0, 0, huge]}
+    assert refused(shapes, "distance", far, top)[0] == "bad_request"
+    assert refused(shapes, "distance", far, {"layout": "assembly", "point": [0, 0, 0]})[0] == (
+        "bad_request"
+    )
+    near = {"layout": "assembly", "point": [0, 0, 1e9]}
+    assert measure(shapes, "distance", near, top)["value"] == pytest.approx(1e9 - 3)
 
 
 def test_thickness_needs_a_face_and_a_point(shapes, top):
@@ -391,7 +490,10 @@ def test_bbox_of_a_part_with_a_face_that_is_neither_flat_nor_a_cylinder_is_not_e
 
     result = measure({"assembly:ball": Sphere(7)}, "bbox", "assembly:ball")
     assert result["exact"] is False
-    assert result["how"] == "axis-aligned box, approximate on faces that are neither flat nor cylinders"
+    assert result["how"] == (
+        "axis-aligned box, approximate: exact only of planes and cylinders with straight and "
+        "circular edges"
+    )
     assert result["size"] == pytest.approx([14, 14, 14], abs=0.01)
 
 
