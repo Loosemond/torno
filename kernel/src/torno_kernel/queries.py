@@ -23,16 +23,23 @@ class QueryError(Exception):
 
 
 def run(
-    shapes: dict[str, Any], name: str, args: Any, kept: dict[str, Any] | None = None
+    shapes: dict[str, Any], name: str, args: Any, kept: dict[Any, Any] | None = None
 ) -> dict[str, Any]:
     """Answer the query ``name`` over the shapes of the last build, by part key.
 
     ``kept`` is where what was worked out of a part is kept from one query to
     the next: a worker hands in the same dict for as long as it lives, which
-    is as long as its shapes are the ones asked about.
+    is as long as its shapes are the ones asked about. ``nearest`` keeps a
+    part's surface under its key; the others keep theirs under a pair
+    ``(what, key)``.
     """
+    # It builds on what is below, so it is imported once that is defined.
+    from . import measure
+
     if not isinstance(args, dict):
         args = {}
+    if name == "measure":
+        return measure.measure(shapes, args, kept)
     if name == "describe":
         ref = args.get("ref")
         if not isinstance(ref, str):
@@ -45,7 +52,10 @@ def run(
                 "bad_request", "nearest needs args.layout, a string, and args.anchors, a list"
             )
         return {"anchors": nearest(shapes, layout, anchors, kept)}
-    raise QueryError("bad_request", f"unknown query {name!r}; the queries are describe and nearest")
+    raise QueryError(
+        "bad_request",
+        f"unknown query {name!r}; the queries are describe, nearest and measure",
+    )
 
 
 def describe(shapes: dict[str, Any], ref: str) -> dict[str, Any]:
@@ -54,8 +64,23 @@ def describe(shapes: dict[str, Any], ref: str) -> dict[str, Any]:
     Positions and directions are in the object frame. ``descriptor`` says the
     same in one line.
     """
+    key, kind, shape = resolve(shapes, ref)
+    if kind == "part":
+        return _describe_part(key, shape)
+    if kind == "face":
+        return _describe_face(ref, shape)
+    return _describe_edge(ref, shape)
+
+
+def resolve(shapes: dict[str, Any], ref: str) -> tuple[str, str, Any]:
+    """What ``ref`` names: its part's key, ``part``, ``face`` or ``edge``, and the shape.
+
+    A part is the shape the model made; a face or an edge is the ``TopoDS``
+    one of that index in the kernel's order (``topo``). Anything else is a
+    ``bad_ref`` that names what there is.
+    """
     if ref in shapes:
-        return _describe_part(ref, shapes[ref])
+        return ref, "part", shapes[ref]
     match = _SUBSHAPE.match(ref)
     key = match["key"] if match else ref
     if key not in shapes:
@@ -63,8 +88,32 @@ def describe(shapes: dict[str, Any], ref: str) -> dict[str, Any]:
     shape = shapes[key]
     index = _index(match)
     if match["kind"] == "F":
-        return _describe_face(ref, _pick(topo.faces(shape), index, key, "faces", "F"))
-    return _describe_edge(ref, _pick(topo.edges(shape), index, key, "edges", "E"))
+        return key, "face", _pick(topo.faces(shape), index, key, "faces", "F")
+    return key, "edge", _pick(topo.edges(shape), index, key, "edges", "E")
+
+
+def need_layout(shapes: dict[str, Any], layout: str) -> None:
+    """Refuse a layout the build does not have, naming those it has."""
+    if not any(key.startswith(f"{layout}:") for key in shapes):
+        layouts = list(dict.fromkeys(key.split(":", 1)[0] for key in shapes))
+        raise QueryError("bad_ref", f"no layout {layout!r}; the layouts are {', '.join(layouts)}")
+
+
+def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
+    """The shape of ``part`` in ``layout``, or a ``bad_ref`` naming the layout's parts."""
+    need_layout(shapes, layout)
+    key = f"{layout}:{part}"
+    if key not in shapes:
+        names = [k.split(":", 1)[1] for k in shapes if k.startswith(f"{layout}:")]
+        raise QueryError("bad_ref", f"no part {part!r} in {layout}; its parts are {', '.join(names)}")
+    return shapes[key]
+
+
+def as_point(value: Any) -> list[float] | None:
+    """Three finite numbers as floats, or None for anything else."""
+    if isinstance(value, list) and len(value) == 3 and all(_is_coordinate(c) for c in value):
+        return [float(c) for c in value]
+    return None
 
 
 def nearest(
@@ -101,9 +150,7 @@ def nearest(
 
     ``kept`` holds what was worked out of each part asked about (``run``).
     """
-    layouts = list(dict.fromkeys(key.split(":", 1)[0] for key in shapes))
-    if not any(key.startswith(f"{layout}:") for key in shapes):
-        raise QueryError("bad_ref", f"no layout {layout!r}; the layouts are {', '.join(layouts)}")
+    need_layout(shapes, layout)
     wanted = [_anchor(anchor) for anchor in anchors]
     # A part is asked about once per mark on it, and again after every build
     # of another object, every mark added: taking it apart is done once.

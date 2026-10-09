@@ -335,6 +335,43 @@ def test_nearest_over_the_protocol(bracket_kernel):
     assert beside["distance"] == pytest.approx(3)
 
 
+def test_measure_over_the_protocol_for_the_object_asked(fresh, ws):
+    plate, bracket = ws / "measures", ws / "bracket"
+    reply, _ = fresh.build(plate, "measures.py")
+    assert reply["ok"], reply
+    build_bracket(fresh, ws)
+    # The bracket built last; the plate is still asked of its own worker.
+    mass = fresh.query(plate, "measure", {"kind": "mass", "a": {"ref": "assembly:plate"}})
+    assert mass["ok"] is True, mass
+    assert mass["result"] == {
+        "kind": "mass",
+        "value": pytest.approx(mass["result"]["volume"] / 1000 * 1.24),
+        "unit": "g",
+        "how": "PLA 1.24 g/cm³ (default)",
+        "density": 1.24,
+        "volume": pytest.approx(7200 - 60 - 192 * math.pi - 240),
+        "exact": True,
+    }
+    wall = {"ref": "assembly:plate/F1", "point": [0, -15, 1]}
+    thickness = fresh.query(plate, "measure", {"kind": "thickness", "a": wall})["result"]
+    assert (thickness["value"], thickness["how"]) == (pytest.approx(2), "wall, along the normal")
+    assert thickness["points"] == [pytest.approx([0, -15, 1]), pytest.approx([0, -13, 1])]
+    apart = {"kind": "distance", "a": {"ref": "assembly:post"}, "b": {"ref": "assembly:base/F0"}}
+    assert fresh.query(bracket, "measure", apart)["result"]["value"] == pytest.approx(16)
+    # Neither has the other's parts, and what cannot be measured is said, not raised.
+    assert fresh.query(plate, "measure", apart)["error"]["kind"] == "bad_ref"
+    refused = fresh.query(bracket, "measure", {"kind": "radius", "a": {"ref": "assembly:base/F0"}})
+    assert refused == {
+        "id": refused["id"],
+        "ok": False,
+        "error": {
+            "kind": "bad_request",
+            "message": "radius is measured of a cylindrical, spherical or toroidal face or a "
+            "circular edge; assembly:base/F0 is a plane face",
+        },
+    }
+
+
 def test_nearest_in_an_unknown_layout_is_bad_ref_naming_the_layouts(bracket_kernel):
     reply = bracket_kernel.nearest(BRACKET, "exploded", [])
     assert reply["ok"] is False
