@@ -21,15 +21,18 @@ export interface ScanLayerState {
   opacity: number
   /** Where it is drawn: where its alignment for the layout shown puts it, or where it is drawn for now (`preview`). */
   transform: ScanTransform
+  /** It reaches beyond `SCAN_REACH` times the parts' sphere: the far plane cuts it (`beyondReach`). */
+  clipped: boolean
 }
 
 /**
  * What is drawn of a scan, and what must be said of it with a picture: whether it is aligned in the layout
  * drawn, what that rests on (`basis`), why it may no longer hold or was not checked against the build on show
  * (`stale`; `waiting` when that is all it says), why its fit is rough, and what else is to be known of it
- * (`note`). As `standingOf` says them.
+ * (`note`). As `standingOf` says them. `clipped` when not all of it is drawn: it reaches further than the camera
+ * does for a scan (`beyondReach`).
  */
-export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null; rough: string | null; basis: string | null; note: string | null; waiting: boolean }
+export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null; rough: string | null; basis: string | null; note: string | null; waiting: boolean; clipped?: true }
 
 /** Makes the bounds tree of a scan's geometry; `stop` says the mesh was let go of meanwhile (`buildScanBvh`). */
 export type TreeBuilder = (geometry: THREE.BufferGeometry, stop: AbortSignal) => Promise<{ tree: MeshBVH; how: 'worker' | 'main' }>
@@ -63,11 +66,20 @@ export function reaching(extent: THREE.Sphere, box: THREE.Box3 | null, parts: TH
   if (!box) return extent
   const all = extent.clone().union(box.getBoundingSphere(new THREE.Sphere()))
   const most = parts.radius * SCAN_REACH
-  if (all.radius <= most) return extent.copy(all)
+  if (!(all.radius > most)) return extent.copy(all)
   // Round the parts, as far as that; what else is drawn (marks, the plane of a section) stays inside.
   const round = new THREE.Sphere(parts.center.clone(), most)
   return extent.copy(round.union(extent.clone()))
 }
+
+/**
+ * Whether the camera's reach is cut short of a box of the scans (`reaching`): the sphere round it and the parts
+ * is past `SCAN_REACH` times the sphere round the parts, so the far plane cuts what is in the box.
+ */
+export function beyondReach(box: THREE.Box3, parts: THREE.Sphere): boolean {
+  return parts.clone().union(box.getBoundingSphere(new THREE.Sphere())).radius > parts.radius * SCAN_REACH
+}
+
 /**
  * A scan takes the pick from a part only when it is nearer than the part by more than this, in millimetres,
  * and by more than it is drawn pushed back there (`drawnBehind`): where the two lie in one surface the part is
@@ -500,14 +512,20 @@ export class ScanLayer {
    * and whether it is aligned in the layout drawn: the one on screen, or a
    * picture's while one is made.
    */
-  shown(): ShownScan[] {
+  shown(parts?: THREE.Sphere): ShownScan[] {
     const layout = this.pictured?.layout ?? this.layout
     return this.entries
       .filter((entry) => entry.built)
       .map((entry) => {
         const { aligned, stale, rough, basis, note, waiting } = standingOf(entry.info, layout, this.revision)
-        return { id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry), aligned, stale, rough, basis, note, waiting }
+        return { id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry), aligned, stale, rough, basis, note, waiting, ...(this.cutShort(entry, parts) ? { clipped: true as const } : {}) }
       })
+  }
+
+  /** Whether a scan that is drawn reaches further than the camera does for it, `parts` being the sphere round the parts (`beyondReach`). Not without them. */
+  private cutShort(entry: Entry, parts?: THREE.Sphere): boolean {
+    const box = entry.built?.group.visible ? entry.built.mesh.geometry.boundingBox : null
+    return parts !== undefined && !!box && beyondReach(box.clone().applyMatrix4(entry.built!.group.matrix), parts)
   }
 
   /** A box round what is drawn of them, in the object frame; null when nothing is. */
@@ -538,7 +556,7 @@ export class ScanLayer {
     return all.isEmpty() ? null : all
   }
 
-  state(): ScanLayerState[] {
+  state(parts?: THREE.Sphere): ScanLayerState[] {
     return this.entries.map((entry) => {
       const { info, built } = entry
       const alignment = alignmentOf(info, this.layout)
@@ -551,7 +569,8 @@ export class ScanLayer {
         aligned: alignment !== null,
         visible: this.views.get(info.id)?.visible !== false,
         opacity: this.opacityOf(entry),
-        transform: this.previews.get(info.id) ?? alignment?.transform ?? IDENTITY
+        transform: this.previews.get(info.id) ?? alignment?.transform ?? IDENTITY,
+        clipped: this.cutShort(entry, parts)
       }
     })
   }

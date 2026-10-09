@@ -62,6 +62,8 @@ export interface TornoState {
   scansKnown: boolean
   /** How each scan is looked at, by scan id, where the person changed it: what the scene file keeps. */
   scanViews: Record<string, ScanView>
+  /** The scans the view cuts, by id: each reaches further than the camera does for a scan (`ScanLayerState.clipped`). As the viewport last found, not per frame. */
+  scansClipped: readonly string[]
   /** The file being imported into the open object as a scan, and what the process is doing; null for none. */
   importing: { name: string; stage: string | null } | null
   /** Why what was last asked of the scans here (an import, another unit, a removal) came to nothing, as main said it; null once it is put away. */
@@ -112,8 +114,9 @@ export interface TornoState {
 const NOTHING_SELECTED: string[] = []
 const NOTHING_PICKED: Record<string, PickedAt> = {}
 const NO_SCANS: ScanInfo[] = []
+const NOT_CLIPPED: readonly string[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -323,6 +326,12 @@ export const actions = {
   /** Brings a scan into view with the parts, without turning the camera: "Frame" on its row. */
   frameScan(id: string): void {
     store.setState({ scanFramed: { id, n: (store.getState().scanFramed?.n ?? 0) + 1 } })
+  },
+
+  /** Which scans the view cuts, as the viewport found them now: set only when they are others than before. */
+  setScansClipped(ids: readonly string[]): void {
+    const had = store.getState().scansClipped
+    if (ids.length !== had.length || ids.some((id, n) => id !== had[n])) store.setState({ scansClipped: ids.length === 0 ? NOT_CLIPPED : [...ids] })
   },
 
   /** Why what was asked of the scans came to nothing, for the panel to say; null puts it away. */

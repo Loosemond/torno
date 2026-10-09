@@ -303,7 +303,7 @@ export class Viewport {
   }
 
   scanState(): ScanLayerState[] {
-    return this.scans.state()
+    return this.scans.state(this.groundExtent)
   }
 
   /** What is tinted on the scans: the regions kept and the set being painted. */

@@ -131,6 +131,7 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
   const layout = useStore((s) => s.layout)
   const view = useStore((s) => s.scanViews[id])
   const reading = useStore((s) => s.importing !== null)
+  const clipped = useStore((s) => s.scansClipped.includes(id))
   // The regions painted on it, which lose their triangles with it: said before it is removed.
   const regions = useStore((s) => s.marks.filter((mark) => mark.kind === 'region' && mark.scan === id && mark.anchorState !== 'orphaned').length)
   const guess = guessOf(scan)
@@ -217,6 +218,11 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
         {source && (
           <span className="chip" data-state={source === 'source missing' ? 'source-missing' : 'source-changed'} title={`${scan.source.path}${source === 'source missing' ? ' is no longer there' : ' is not the file that was imported'}. The scan goes on working from what torno made of it`}>
             {source}
+          </span>
+        )}
+        {clipped && (
+          <span className="chip" data-state="clipped" title="This scan reaches further than the view is drawn: Frame brings more of it in">
+            not all in view
           </span>
         )}
         <span className="spacer" />

@@ -4,7 +4,7 @@ import type { ScanInfo } from '../../shared/scans'
 import { MeshBVH } from 'three-mesh-bvh'
 import { box, grid, meshBin } from '../../test/scanFixtures'
 import { SCAN_OFFSET_FACTOR } from './scanMesh'
-import { FAR_OPACITY, SCAN_BEHIND_MM, ScanLayer, drawnBehind, reaching, type TreeBuilder } from './scans'
+import { FAR_OPACITY, SCAN_BEHIND_MM, ScanLayer, beyondReach, drawnBehind, reaching, type TreeBuilder } from './scans'
 
 const scan = (id: string, more: Partial<ScanInfo> = {}): ScanInfo =>
   ({ id, name: `${id}.stl`, source: { path: `/d/${id}.stl`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'mm', up: 'z', assumed: { unit: true, up: true }, vertices: 8, triangles: 12, colours: 'none', bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, area: 3100, at: '' }, alignments: {}, sourceState: 'present', meshState: 'ok', checks: {}, ...more }) as ScanInfo
@@ -278,6 +278,35 @@ describe('how far the camera reaches for the scans', () => {
     // What else is drawn (marks, the plane of a section) is never left out for it.
     const wide = new THREE.Sphere(new THREE.Vector3(), 20_000)
     expect(reaching(wide.clone(), boxAt(0, 1_250_000), parts).radius).toBeGreaterThanOrEqual(20_000)
+  })
+})
+
+// Milestone 5: a scan the far plane cuts says so, on its row and in a picture's caption.
+describe('a scan that reaches further than the camera does for it', () => {
+  const parts = new THREE.Sphere(new THREE.Vector3(0, 0, 10), 50)
+
+  it('is said to be cut by the view when it is 500 times the size of the parts, and not when it is twice it', () => {
+    const layer = new ScanLayer(() => {})
+    layer.set([scan('S1'), scan('S2'), scan('S3')], 'print')
+    layer.load('S1', meshBin(box([50_000, 50_000, 50_000])))
+    layer.load('S2', meshBin(box([200, 200, 200])))
+    expect(layer.state(parts).map(({ id, clipped }) => [id, clipped])).toEqual([['S1', true], ['S2', false], ['S3', false]])
+    expect(layer.shown(parts).map(({ id, clipped }) => [id, clipped ?? false])).toEqual([['S1', true], ['S2', false]])
+    // Nothing is cut of a scan that is not drawn, and nothing is said without the parts to hold it against.
+    layer.setView('S1', { visible: false })
+    expect(layer.state(parts)[0].clipped).toBe(false)
+    layer.setView('S1', { visible: true })
+    expect(layer.state()[0].clipped).toBe(false)
+    expect(layer.shown()[0].clipped).toBeUndefined()
+  })
+
+  it('is one rule with the reach itself: cut exactly when the sphere round the parts and the scan is past 200 times the parts', () => {
+    const boxAt = (half: number) => new THREE.Box3(new THREE.Vector3(-half, -half, -half), new THREE.Vector3(half, half, half))
+    for (const half of [10, 1250, 5000, 5700, 5800, 1_250_000]) {
+      const reached = reaching(parts.clone(), boxAt(half), parts)
+      const all = parts.clone().union(boxAt(half).getBoundingSphere(new THREE.Sphere()))
+      expect(beyondReach(boxAt(half), parts)).toBe(reached.radius < all.radius - 1e-6)
+    }
   })
 })
 

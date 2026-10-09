@@ -96,7 +96,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const report = () => {
     const s = store.getState()
     if (!s.objectId || !s.scene) return
-    const scans = viewport.scanState().map(({ id, visible, opacity, loaded }) => ({ id, visible, opacity, loaded }))
+    const found = viewport.scanState()
+    const scans = found.map(({ id, visible, opacity, loaded }) => ({ id, visible, opacity, loaded }))
+    // For the rows of the scans: which of them the far plane cuts, as of every change that is reported.
+    actions.setScansClipped(found.filter((scan) => scan.clipped).map((scan) => scan.id))
     const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s), ...(s.section ? { section: s.section } : {}), scans }
     // What is selected goes to the agent with the next prompt: the refs, each with the kernel's line once it has come.
     if (s.selection.length > 0) {

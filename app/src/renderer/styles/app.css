@@ -831,7 +831,8 @@ button {
   color: var(--fail);
 }
 
-.chip[data-state^='source-']::before {
+.chip[data-state^='source-']::before,
+.chip[data-state='clipped']::before {
   display: none;
 }
 

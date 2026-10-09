@@ -132,7 +132,7 @@ export interface PictureState {
  * of what they hold a shape by, of which mark they are working on, of what
  * is not a mark yet, or of the plane they cut by (the cut itself is in it).
  */
-export function asPictured<T>(host: PictureHost, state: PictureState, draw: (extent: THREE.Sphere) => T): T {
+export function asPictured<T>(host: PictureHost, state: PictureState, draw: (extent: THREE.Sphere, parts: THREE.Sphere) => T): T {
   const otherLayout = state.layout !== host.layout()
   const parts = [...host.parts()]
   const before = new Map(parts.map((p) => [p, p.built.group.visible]))
@@ -152,7 +152,8 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     host.cutBy(state.section, state.layout, false)
     // Once the scan stands and is cut as the picture has it: its colours are of where it stands.
     if (state.colour) host.scans.colourFor(state.colour.scan, state.colour.colours(), state.colour.of)
-    let extent = otherLayout ? host.layGround(state.layout) : host.groundExtent()
+    const ground = otherLayout ? host.layGround(state.layout) : host.groundExtent()
+    let extent = ground
     // A scan may stand far from the parts: the camera reaches what is drawn of it.
     const around = host.scans.box()
     if (around) extent = reaching(extent.clone(), around, extent)
@@ -165,7 +166,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
       // Of the marks the picture draws: other parts may be switched on in it than on screen.
       host.tintPicks(state.layout)
     }
-    return draw(extent)
+    return draw(extent, ground)
   } finally {
     host.renderer.setViewport(onScreen)
     host.renderer.setRenderTarget(null)
@@ -188,18 +189,22 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
  * for none. A scan that is not aligned in the picture's layout is not where the model is, and one whose alignment the
  * last build put in doubt may not be, nor one that is only rough, and one laid on its floor alone or placed by hand
  * is no fit: whoever reads the picture is told what each alignment rests on and what is in doubt of it, with the scan's name.
+ * So is a scan the far plane cuts (`clipped`).
  */
-export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' | 'aligned' | 'stale'> & Partial<Pick<ShownScan, 'rough' | 'basis' | 'note' | 'waiting'>>>, layout: string): string {
+export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' | 'aligned' | 'stale'> & Partial<Pick<ShownScan, 'rough' | 'basis' | 'note' | 'waiting' | 'clipped'>>>, layout: string): string {
   if (drawn.length === 0) return ''
   const said = drawn.map((scan) => {
     const thin = scan.opacity < 1 ? ` at ${Math.round(scan.opacity * 100)} %` : ''
-    if (!scan.aligned) return `${scan.id}${thin} (not aligned in ${layout}: drawn where it was imported)`
+    // The far plane cuts it (`beyondReach`): what the picture shows of it is not all there is.
+    const cut = scan.clipped ? ['reaches beyond the view: not all of it is drawn'] : []
+    if (!scan.aligned) return `${scan.id}${thin} (${[`not aligned in ${layout}: drawn where it was imported`, ...cut].join('; ')})`
     // What it rests on first; then what puts it in doubt, what is doubtful of its fit, and what else is to be known.
     const told = [
       ...(scan.basis ? [scan.basis] : []),
       ...(scan.stale ? [scan.waiting ? scan.stale : `its alignment in ${layout} may no longer hold: ${scan.stale}`] : []),
       ...(scan.rough ? [scan.stale ? `it is rough: ${scan.rough}` : `aligned roughly in ${layout}: ${scan.rough}`] : []),
-      ...(scan.note ? [scan.note] : [])
+      ...(scan.note ? [scan.note] : []),
+      ...cut
     ]
     return `${scan.id}${thin}${told.length > 0 ? ` (${told.join('; ')})` : ''}`
   })
@@ -333,7 +338,7 @@ export class PictureMaker {
     const unit = overlayUnit(width, height)
 
     // Everything from here to the end of `asPictured` is synchronous, so no frame on screen sees it.
-    const { camera, pixels, drawn } = asPictured(host, { layout: req.layout, shown, withMarks, scans, section, notDrawn, width, height, ...(colour ? { colour } : {}) }, (extent) => {
+    const { camera, pixels, drawn } = asPictured(host, { layout: req.layout, shown, withMarks, scans, section, notDrawn, width, height, ...(colour ? { colour } : {}) }, (extent, parts) => {
       const camera = host.cameraFor(view, aspect, extent)
       // In the picture's own pixels: a dot is as large a share of a big picture as of a small one.
       host.marks.update(camera, { width, height }, unit)
@@ -346,7 +351,7 @@ export class PictureMaker {
       host.renderer.readRenderTargetPixels(targets.encoded, 0, 0, width, height, pixels)
       // What was drawn of the scans: one whose mesh has not come is not in the picture, and is not said to be.
       // The scan drawn by its distance is drawn solid, in colours that are read: not as thin as it is on screen.
-      return { camera, pixels, drawn: host.scans.shown().filter((scan) => scan.visible).map((scan) => (scan.id === colouring?.scan ? { ...scan, opacity: 1 } : scan)) }
+      return { camera, pixels, drawn: host.scans.shown(parts).filter((scan) => scan.visible).map((scan) => (scan.id === colouring?.scan ? { ...scan, opacity: 1 } : scan)) }
     })
 
     const picture = new OffscreenCanvas(width, height)

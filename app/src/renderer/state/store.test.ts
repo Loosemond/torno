@@ -662,6 +662,18 @@ describe('the scans', () => {
     expect(store.getState().scansRefused).toBeNull()
   })
 
+  it('say which of them the view cuts, as the viewport last found: the same list while nothing changed, none in another object', () => {
+    expect(store.getState().scansClipped).toEqual([])
+    actions.setScansClipped(['S1'])
+    const kept = store.getState().scansClipped
+    expect(kept).toEqual(['S1'])
+    // Told the same again, nothing is set: no row is drawn anew for it.
+    actions.setScansClipped(['S1'])
+    expect(store.getState().scansClipped).toBe(kept)
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().scansClipped).toEqual([])
+  })
+
   it('are looked at as the person set each: a change is merged, is an edit, and is what the scene file keeps', () => {
     actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
     const edits = store.getState().edits

@@ -31,6 +31,14 @@ describe('the scans a picture has, in its caption', () => {
     expect(scansNote([], 'print')).toBe('')
   })
 
+  // Milestone 5: the far plane cuts a scan that reaches past 200 times the parts, and a picture that shows a part of it says so.
+  it('say of a scan that reaches further than the view is drawn that not all of it is in the picture', () => {
+    const ok = { aligned: true, stale: null }
+    expect(scansNote([{ id: 'S1', opacity: 1, ...ok, clipped: true }], 'print')).toBe(' · scans S1 (reaches beyond the view: not all of it is drawn)')
+    expect(scansNote([{ id: 'S1', opacity: 0.6, ...ok, clipped: true, basis: 'by hand' }, { id: 'S2', opacity: 1, ...ok }], 'print')).toBe(' · scans S1 at 60 % (by hand; reaches beyond the view: not all of it is drawn), S2')
+    expect(scansNote([{ id: 'S1', opacity: 1, aligned: false, stale: null, clipped: true }], 'print')).toBe(' · scans S1 (not aligned in print: drawn where it was imported; reaches beyond the view: not all of it is drawn)')
+  })
+
   // Fix round 1 (I1): a scan that is not where the model is must not be read as one that is.
   it('say of a scan that it is not aligned in the layout drawn, or that its alignment may no longer hold', () => {
     expect(scansNote([{ id: 'S1', opacity: 1, aligned: false, stale: null }], 'print')).toBe(' · scans S1 (not aligned in print: drawn where it was imported)')
