@@ -88,8 +88,9 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     - ``bbox`` of a part, a face or an edge, exact when all its faces are
       planes or cylinders and all its edges lines or circles; ``volume`` and
       ``mass`` of a part that is a solid; ``area`` of a part or a face,
-      exact unless a face is freeform and its area cannot be confirmed
-      (``extent``): then ``how`` says to how many digits it can be relied on.
+      exact of planes, cylinders, cones, spheres, tori and curves extruded
+      straight; of any other face it is approximate (``extent``), and ``how``
+      says about how many significant digits of it are good, six at most.
 
     ``kept`` is the worker's (``queries.run``).
     """
@@ -455,8 +456,8 @@ def _extent(kind: str, target: _Target) -> dict[str, Any]:
     area = extent.area(target.shape)
     how = "surface of the part" if target.kind == "part" else "of the face"
     if not area.exact:
-        # Of a freeform face OCC has no integral that can be relied on: see extent.
-        how += f", approximate: integrations agree to {area.digits} digits"
+        # Of a freeform face OCC has no integral that is a proof: see extent.
+        how += f", approximate, good to about {area.digits} significant digits"
     return {"value": area.value, "unit": "mm2", "how": how, "exact": area.exact}
 
 

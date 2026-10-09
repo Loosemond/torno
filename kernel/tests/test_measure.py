@@ -686,7 +686,7 @@ def test_area_and_volume_of_a_spline_prism_are_exact_to_a_millionth(spline_prism
     assert face["descriptor"] == f"extrusion, {number(true_length * 5)} mm²"
 
 
-def test_volume_and_area_of_an_ellipsoid_and_a_torus_are_exact_to_a_millionth():
+def test_volumes_of_an_ellipsoid_and_a_torus_and_the_area_of_the_torus_are_right_to_a_millionth():
     from build123d import Sphere, Torus, scale
 
     made = {"assembly:egg": scale(Sphere(5), by=(1, 2, 3)), "assembly:ring": Torus(20, 3)}
@@ -699,6 +699,46 @@ def test_volume_and_area_of_an_ellipsoid_and_a_torus_are_exact_to_a_millionth():
     assert measure(made, "area", "assembly:ring")["value"] == pytest.approx(
         4 * math.pi**2 * 20 * 3, rel=1e-6
     )
+
+
+def test_a_volume_is_right_by_the_quick_integral_and_by_the_one_that_converges(spline_prism):
+    from build123d import Align, Box, Cone, Cylinder, Pos, Rot, Sphere, Torus, fillet, scale
+
+    from torno_kernel import extent
+
+    prism, outline_area, _ = spline_prism
+    half = Box(100, 100, 100, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    # Planes, cylinders, cones, spheres and tori that end in lines and circles: the quick
+    # integral has those right, and takes a tenth of the time on a part full of fillets.
+    quick = {
+        Box(10, 20, 30): 6000,
+        Cylinder(10, 20) - Cylinder(4, 20): math.pi * (100 - 16) * 20,
+        Sphere(7): 4 / 3 * math.pi * 343,
+        Cone(6, 2, 9): math.pi * 9 * (36 + 12 + 4) / 3,
+        Torus(20, 3): 2 * math.pi**2 * 20 * 9,
+        # A box of 6 × 16 × 26 grown by a ball of 2.
+        fillet(Box(10, 20, 30).edges(), 2): 6 * 16 * 26
+        + 2 * 2 * (6 * 16 + 16 * 26 + 6 * 26)
+        + math.pi * 4 * (6 + 16 + 26)
+        + 4 / 3 * math.pi * 8,
+    }
+    # Anything else is integrated until it converges.
+    slow = {
+        prism: outline_area * 5,
+        scale(Sphere(5), by=(1, 2, 3)): 4 / 3 * math.pi * 5 * 10 * 15,
+        # Cut through its middle on the slant, it ends in an ellipse: half of it is left.
+        Cylinder(5, 20) - Rot(0, 30, 0) * half: math.pi * 25 * 20 / 2,
+        Pos(1, 2, 3) * prism: outline_area * 5,
+    }
+    for shapes, plain, tolerance in ((quick, True, 1e-12), (slow, False, 1e-6)):
+        for shape, volume in shapes.items():
+            assert extent.round_and_straight(shape) is plain
+            assert extent.volume(shape) == pytest.approx(volume, rel=tolerance)
+            made = {"assembly:it": shape}
+            result = measure(made, "volume", "assembly:it")
+            assert (result["value"], result["exact"]) == (pytest.approx(volume, rel=tolerance), True)
+            scene, _, _ = build_scene({"assembly": {"it": shape}}, "it.py")
+            assert scene["parts"][0]["volume"] == pytest.approx(volume, rel=tolerance)
 
 
 def test_a_compound_inside_a_compound_has_the_volume_of_its_solid():
@@ -755,12 +795,38 @@ def test_an_integer_too_large_for_a_float_is_no_coordinate(shapes, top):
 
 
 def said_digits(how: str) -> int:
-    """How many digits an approximate area says its integrations agree to."""
+    """About how many significant digits an approximate area says are good."""
     import re
 
-    found = re.search(r", approximate: integrations agree to (\d+) digits$", how)
+    found = re.search(r", approximate, good to about (\d) significant digits$", how)
     assert found, how
     return int(found[1])
+
+
+def whole_surface_area(face, panels: int = 48) -> float:
+    """The area of a face that is the whole of its surface, by Gauss-Legendre, without the kernel.
+
+    The surface's u and v ranges are cut into panels, and |dS/du × dS/dv| is
+    summed at six points a side in each: nothing of OCC's integrals is used.
+    """
+    import numpy as np
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.gp import gp_Pnt, gp_Vec
+
+    surface = BRepAdaptor_Surface(face)
+    u0, u1 = surface.FirstUParameter(), surface.LastUParameter()
+    v0, v1 = surface.FirstVParameter(), surface.LastVParameter()
+    nodes, weights = np.polynomial.legendre.leggauss(6)
+    at, du, dv = gp_Pnt(), gp_Vec(), gp_Vec()
+    hu, hv = (u1 - u0) / panels / 2, (v1 - v0) / panels / 2
+    total = 0.0
+    for i in range(panels):
+        for j in range(panels):
+            for x, wx in zip(nodes, weights, strict=True):
+                for y, wy in zip(nodes, weights, strict=True):
+                    surface.D1(u0 + hu * (2 * i + 1 + x), v0 + hv * (2 * j + 1 + y), at, du, dv)
+                    total += wx * wy * du.Crossed(dv).Magnitude()
+    return total * hu * hv
 
 
 def ellipsoid_area(a: float, b: float, c: float) -> float:
@@ -790,22 +856,97 @@ def test_the_reference_for_the_ellipsoid_is_right_of_a_sphere():
     assert ellipsoid_area(5, 10, 15) == pytest.approx(1222.0536575644, rel=1e-12)
 
 
-def test_the_area_of_an_ellipsoid_is_exact_or_says_how_nearly():
+def test_the_area_of_an_ellipsoid_is_never_said_to_be_exact_and_is_as_near_as_it_says():
     from build123d import Sphere, scale
 
     made = {"assembly:egg": scale(Sphere(5), by=(1, 2, 3))}
     true_area = ellipsoid_area(5, 10, 15)
-    for target in ("assembly:egg", "assembly:egg/F0"):
+    for target, how in (("assembly:egg", "surface of the part"), ("assembly:egg/F0", "of the face")):
         result = measure(made, "area", target)
-        if result["exact"]:
-            assert result["value"] == pytest.approx(true_area, rel=1e-6)
-        else:
-            # Not claimed: and then as near as it says it is.
-            assert result["value"] == pytest.approx(true_area, rel=10 ** -said_digits(result["how"]))
-            assert said_digits(result["how"]) >= 3
-    described = queries.describe(made, "assembly:egg/F0")
-    assert described["areaExact"] is measure(made, "area", "assembly:egg/F0")["exact"]
-    assert ("≈" in described["descriptor"]) is not described["areaExact"]
+        assert result["exact"] is False
+        assert result["how"].startswith(f"{how}, approximate, good to about ")
+        digits = said_digits(result["how"])
+        assert 2 <= digits <= 6
+        assert result["value"] == pytest.approx(true_area, rel=10**-digits)
+        # The integral told is the one that was nearest wherever it was checked: 3.3e-6 here.
+        assert result["value"] == pytest.approx(true_area, rel=1e-5)
+    for ref in ("assembly:egg", "assembly:egg/F0"):
+        assert queries.describe(made, ref)["areaExact"] is False
+    assert queries.describe(made, "assembly:egg/F0")["descriptor"].startswith("bspline, ≈ ")
+
+
+def tuned_loft():
+    """A loft whose side OCC integrates three ways that agree to 9.6e-7, all further than that out."""
+    from build123d import Circle, Ellipse, Pos, loft
+
+    return loft(
+        [Circle(10).face(), Pos(0, 0, 15) * Ellipse(13.5, 5).face(), Pos(3, 0, 30) * Circle(4).face()]
+    )
+
+
+def test_integrals_that_agree_are_no_proof_the_side_of_a_loft_is_approximate():
+    made = {"assembly:horn": tuned_loft()}
+    [side] = refs(made, "assembly:horn", "F", "bspline")
+    face = topo.faces(made["assembly:horn"])[int(side.rsplit("F", 1)[1])]
+    true_area = whole_surface_area(face)
+    # The reference has settled, and is what two other integrators gave for the re-review.
+    assert true_area == pytest.approx(whole_surface_area(face, 24), rel=1e-10)
+    assert true_area == pytest.approx(1718.8083762046, rel=1e-10)
+    result = measure(made, "area", side)
+    assert result["exact"] is False
+    assert result["value"] == pytest.approx(true_area, rel=1e-5)
+    assert 2 <= said_digits(result["how"]) <= 5
+    assert result["value"] == pytest.approx(true_area, rel=10 ** -said_digits(result["how"]))
+    described = queries.describe(made, side)
+    assert (described["area"], described["areaExact"]) == (result["value"], False)
+    assert described["descriptor"] == f"bspline, ≈ {number(result['value'])} mm²"
+    # The part is two discs and that side: no more exact than its side, and to its digits.
+    whole = measure(made, "area", "assembly:horn")
+    assert whole["exact"] is False
+    assert whole["value"] == pytest.approx(true_area + math.pi * 100 + math.pi * 16, rel=1e-5)
+    assert whole["how"] == (
+        f"surface of the part, approximate, good to about {said_digits(result['how'])} significant digits"
+    )
+    assert queries.describe(made, "assembly:horn")["areaExact"] is False
+
+
+def test_integrals_that_coincide_are_still_approximate_and_good_to_six_digits_at_most(monkeypatch):
+    from torno_kernel import extent
+
+    made = {"assembly:horn": tuned_loft()}
+    [side] = refs(made, "assembly:horn", "F", "bspline")
+    # No doubt between them at all: which is not to say that they are right.
+    monkeypatch.setattr(extent, "_integrated", lambda face, tolerance: 1718.81)
+    result = measure(made, "area", side)
+    assert (result["value"], result["exact"]) == (1718.81, False)
+    assert result["how"] == "of the face, approximate, good to about 6 significant digits"
+    assert queries.describe(made, side)["areaExact"] is False
+
+
+@pytest.mark.parametrize(
+    "integrals, digits",
+    [
+        ((100.0, 100.0, 100.0), 6),
+        ((100.0, 100.0, 100.00000001), 6),  # 1e-10 apart: never more than six
+        ((100.0, 100.0, 100.0001), 5),  # 1e-6 apart: one digit fewer than they agree to
+        ((100.0, 100.00011, 100.0), 4),
+        ((100.0, 100.0, 100.2), 2),  # 2e-3 apart
+        ((100.0, 150.0, 100.0), 2),  # never fewer than two
+    ],
+)
+def test_the_digits_said_of_an_area_are_one_fewer_than_all_its_integrals_agree_to(
+    monkeypatch, integrals, digits
+):
+    from torno_kernel import extent
+
+    made = {"assembly:horn": tuned_loft()}
+    [side] = refs(made, "assembly:horn", "F", "bspline")
+    by_tolerance = dict(zip((None, 1e-9, 1e-12), integrals, strict=True))
+    monkeypatch.setattr(extent, "_integrated", lambda face, tolerance: by_tolerance[tolerance])
+    result = measure(made, "area", side)
+    # The value is that of the finest tolerance, wherever it lies among them.
+    assert (result["value"], result["exact"]) == (integrals[2], False)
+    assert said_digits(result["how"]) == digits
 
 
 def test_the_area_of_a_freeform_face_cut_on_the_slant_is_not_said_to_be_exact(spline_prism):
@@ -823,22 +964,25 @@ def test_the_area_of_a_freeform_face_cut_on_the_slant_is_not_said_to_be_exact(sp
     true_area = float(np.sum(steps * (8 - middles[:, 0] * math.tan(math.radians(15)))))
     [side] = refs(made, "assembly:wedge", "F", "extrusion")
     result = measure(made, "area", side)
-    # No two integrations of this face agree to a millionth: none is claimed.
+    # It is cut along its height, so it is not its curve's length times a height: not claimed.
     assert result["exact"] is False
-    assert result["how"].startswith("of the face, approximate: integrations agree to ")
+    assert result["how"].startswith("of the face, approximate, good to about ")
     assert result["value"] == pytest.approx(true_area, rel=10 ** -said_digits(result["how"]))
     whole = measure(made, "area", "assembly:wedge")
     assert whole["exact"] is False
-    assert whole["how"].startswith("surface of the part, approximate: integrations agree to ")
+    # The part says no more digits than its weakest face.
+    assert whole["how"] == (
+        f"surface of the part, approximate, good to about {said_digits(result['how'])} significant digits"
+    )
     described = queries.describe(made, side)
     assert described["areaExact"] is False
     assert described["descriptor"] == f"extrusion, ≈ {number(result['value'])} mm²"
     assert queries.describe(made, "assembly:wedge")["areaExact"] is False
 
 
-def test_areas_of_round_and_swept_faces_are_exact_to_a_millionth():
+def test_areas_of_flat_and_round_faces_are_exact_and_of_a_turned_spline_approximate():
     import numpy as np
-    from build123d import Axis, Box, Circle, Cylinder, Edge, Ellipse, Face, Pos, Sphere, Vector, Wire, loft, revolve
+    from build123d import Axis, Box, Cone, Cylinder, Edge, Face, Sphere, Torus, Vector, Wire, revolve
 
     profile = Edge.make_spline([Vector(5, 0, 0), Vector(9, 0, 6), Vector(4, 0, 12), Vector(7, 0, 20)])
     closing = [
@@ -851,7 +995,8 @@ def test_areas_of_round_and_swept_faces_are_exact_to_a_millionth():
         "assembly:ball": Sphere(7),
         "assembly:bush": Cylinder(10, 20) - Cylinder(4, 20),
         "assembly:vase": revolve(Face(Wire([profile, *closing])), Axis.Z),
-        "assembly:horn": loft([Circle(10).face(), Pos(0, 0, 20) * Ellipse(6, 3).face()]),
+        "assembly:cone": Cone(6, 2, 9),
+        "assembly:ring": Torus(20, 3),
     }
     # Pappus: a curve turned about an axis sweeps its length times the way its centre goes.
     points = np.array([tuple(profile.position_at(t)) for t in np.linspace(0, 1, 20001)])
@@ -861,17 +1006,19 @@ def test_areas_of_round_and_swept_faces_are_exact_to_a_millionth():
         "assembly:box": 2 * (200 + 300 + 600),
         "assembly:ball": 4 * math.pi * 49,
         "assembly:bush": 2 * math.pi * (100 - 16) + 2 * math.pi * 14 * 20,
-        "assembly:vase": swept + math.pi * 25 + math.pi * 49,
+        "assembly:cone": math.pi * (36 + 4) + math.pi * (6 + 2) * math.hypot(9, 4),
+        "assembly:ring": 4 * math.pi**2 * 20 * 3,
     }
     for key, area in expected.items():
         result = measure(made, "area", key)
-        assert (result["value"], result["exact"]) == (pytest.approx(area, rel=1e-6), True), key
+        assert (result["value"], result["exact"]) == (pytest.approx(area, rel=1e-9), True), key
+        assert result["how"] == "surface of the part"
+    # A spline turned about an axis is none of those: right to a millionth here, and not claimed.
     [turned] = refs(made, "assembly:vase", "F", "revolution")
-    assert measure(made, "area", turned)["value"] == pytest.approx(swept, rel=1e-6)
-    # Of the loft there is no closed form: its ends are known, and its side is claimed.
-    horn = measure(made, "area", "assembly:horn")
-    assert horn["exact"] is True
-    assert horn["value"] > math.pi * 100 + math.pi * 18
+    for target, area in ((turned, swept), ("assembly:vase", swept + math.pi * 25 + math.pi * 49)):
+        result = measure(made, "area", target)
+        assert (result["value"], result["exact"]) == (pytest.approx(area, rel=1e-6), False)
+        assert 2 <= said_digits(result["how"]) <= 6
 
 
 def test_a_density_too_large_for_a_float_is_refused(shapes):
