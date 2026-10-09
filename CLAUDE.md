@@ -205,10 +205,13 @@ While iterating run the focused test; run all four suites before a commit.
     the theme, with what is up in the world up on it. The kernel is asked for
     outlines within 0.01 mm (`SECTION_DEFLECTION`; the agent may give
     `deflection`, 0.005 to 0.05), and the drawing is made from them in full.
-    The JSON holds at most 4,000 points in all (`pointsFor`): each loop its
-    share by its length, 8 at least, the shortest beyond 500 loops left out
-    and counted (`loopsOmitted`); areas are the kernel's, never worked out
-    from thinned points.
+    The JSON holds at most 1,500 points in all (`MAX_SECTION_POINTS`,
+    `pointsFor`), the parts' outlines and a scan's lines together: each loop
+    its share by its length, 8 at least, the shortest beyond 187 loops left
+    out and counted (`loopsOmitted`); the scan's share is asked of the kernel
+    as `points` (`scanShare`), which thins its lines once and tells them to
+    0.1 mm. The reading says what was thinned. Areas are the kernel's, never
+    worked out from thinned points.
   - A plane is `{origin, normal}` or `{axis, at}` (`planeOf` in
     `shared/view.ts`): the latter has its normal along +axis.
   - `add_mark` with `kind: 'dimension'` goes through `addDimensionTold`, as
@@ -226,7 +229,7 @@ While iterating run the focused test; run all four suites before a commit.
 - Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `X`
   section, `M` measure (`T` there: the wall under the pointer as of the key,
   picked anew where `Viewport.pointerAt` says the pointer is), `L` align a
-  scan (`G`, `R` there for its handles), `B` region of a scan (`[`, `]`, `E`,
+  scan (`G`, `R` there for its handles, `Tab` in Pairs for which end is asked first), `B` region of a scan (`[`, `]`, `E`,
   `Z` there); `G`, `R`, `T` for the gizmo of the active shape. A slider is no field to type in
   (`ui/typing.ts`): the keys work with one in focus. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
@@ -294,7 +297,17 @@ While iterating run the focused test; run all four suites before a commit.
   - What may be deleted under `.torno/scans/` is in `meshfiles.ts` `sweep`:
     a folder only when it holds the `importing` marker of an import that
     never ended, an unnamed mesh only while the named one is there, nothing
-    through a link, nothing beside a `scans.json` that was set aside.
+    through a link, nothing beside a `scans.json` that was set aside. Nothing
+    is written through a link either (`ownFolders`: `.torno`, `.torno/scans`,
+    a scan's folder).
+  - What `scans.json` says is bounded as it is read (`scans/file.ts`): a
+    layout name and a source path are one line, 200 and 4,096 characters at
+    most; a mesh whose header gives no box is refused (`parseScanMesh`).
+  - `list` and a failed read of a mesh tell the scans anew when a source or
+    a mesh is found gone or back (`looked`), so a row never says "aligned"
+    of a scan the tools refuse. The window asks for a mesh again when it is
+    back, and after a failure only once the scans were told anew
+    (`ui/scanMeshes.ts`).
   - Main alone names a mesh or a mask file. The one path the window gives is
     the source of an import, which main checks (`sourceOf`: absolute, one of
     the five formats, not inside the object's `.torno/`) and only reads.
@@ -325,6 +338,19 @@ While iterating run the focused test; run all four suites before a commit.
   or the window (`keepChecking`, `recheckAlignments`), until it is. "Still
   right" (`alignmentHolds`) holds the alignment against the model as it is
   now (`confirmed.held`).
+  - **No check by itself has an object built again.** A check after a build,
+    on a timer or at a listing asks with `Builds.query(…, { restore: false
+    })` (`checkingAlignments`, and the marks' `retrying`, whose `restore` is
+    true only for the run a person's act or a tool asked for); when the
+    kernel no longer holds the build it records why (`uncheckedFor`, `the
+    kernel no longer holds this build`) and waits for the next `scene`.
+  - `Builds.query` restores a build the kernel let go, for a tool or an act
+    of the person; but not sources that have just failed to build
+    (`Entry.failure`, until a source changes or a rebuild is asked for): it
+    then rejects saying there is no build to answer from. `BuildState.letGo`
+    (`memory`) says the kernel let the object's build go to make room
+    (`build.started`'s `retired`, or a `no_build` with `reason: "memory"`);
+    `letGoText` words it for the status line and for `scene`.
 - **One notion, one wording.** How an alignment stands is `standingOf(scan,
   layout, revision)` in `shared/scans.ts` (`basis`, `rough`, `stale`,
   `unchecked`, `waiting`, `failed`, `note`), for the row, the bar and the
@@ -334,9 +360,12 @@ While iterating run the focused test; run all four suites before a commit.
   (`first`), its closing sentence (`last`), the `Scans:` line of the prompt,
   `state.md`. A tool reads it again once the kernel has answered (`saidNow`).
 - A part torno moved for display is refused by the scan checks
-  (`scanSpread`), naming the layouts that place it as the model does, or
-  `def assembly(p)`, and the parts it did not move; so is a part that stood
-  elsewhere when the scan was aligned (`scanFrame`). Other parts being spread
+  (`scanSpread`), saying the whole way: a layout that places it as the model
+  does and in which the scan is aligned, or `def assembly(p)`, a build, and
+  the user aligning the scan in it (an alignment is of one layout); and the
+  parts it did not move. A scan not aligned in the layout asked names only
+  the layouts that would answer for that part (`notAligned`). So is a part
+  that stood elsewhere when the scan was aligned (`scanFrame`). Other parts being spread
   otherwise is a doubt, said first, not a refusal. Refusals are made in main
   before the kernel is asked (`scanFor`).
 - The kernel's scan queries (`scanclash.py`: `scan_clash`, `scan_deviation`,
@@ -348,14 +377,29 @@ While iterating run the focused test; run all four suites before a commit.
   points an answer names taken again on the B-rep. At most 200,000
   candidates, 32 points retaken, 8 clusters told, 10 s (`BUDGET`); a
   deviation takes 100 to 20,000 samples within 0.1 to 200 mm; a section
-  tells 4,000 points, of which the tool's JSON keeps 2,000. What was thinned
-  or left undone is in `sampling`, and a reading never tells an unfinished
-  count as a no. A scan and its masks are kept by path, inode, times and
+  tells as many points as it is asked for (`points`, 2 to 4,000), to 0.1 mm.
+  The 10 s start once what is worked out once of the part and the scan is
+  there (20 s in all at most); when they run out before every point was
+  measured (`sampling.measured`), depths and the nearest are of the points
+  measured, and the reading says so. What was thinned or left undone is in
+  `sampling`, and a reading never tells an unfinished count as a no. A scan and its masks are kept by path, inode, times and
   size: a file written anew is read anew.
 - **Nothing from a scan is ever said to be exact.** Every reply has `exact:
   false`, `approximate` (`SCAN_APPROXIMATE`) and `≈`, the revision, the
   layout and the alignment with its rms. `measure` with a scan end forces
   `exact` false whatever the kernel says of the distance.
+  - **A dimension is of the model.** `add_mark` with `kind: 'dimension'`
+    refuses an end that is a point of a scan or a region (`dimensionFor`):
+    it would be kept as a bare point, told as exact and checked on every
+    build.
+  - In a reading a length or a point taken from a scan is told to 0.1 mm
+    (`scanNumber`, `scanVector`; under 0.05 mm is `under 0.1 mm`); the data
+    keeps the kernel's. A reading closes with how the scan is aligned and,
+    of a fit, that its rms is of the clicked points (`RMS_OF_CLICKS`):
+    never a word on how true the scan is. What else is known of an
+    alignment (`standing.note`) is said once a reply, in the reading.
+    `scan_deviation` says the least distance, and that `within` is where the
+    looking stops.
 - A region is a mark of kind `region` (`main/marks/regions.ts`): its
   triangles are `<id>/<stem>.mask` (`maskStem`: `M7`, and `M7.2` once it was
   painted again), a bit each, of the triangle count of the mesh it was
@@ -380,7 +424,10 @@ While iterating run the focused test; run all four suites before a commit.
     there is no second step to skip. A mask that is gone or of another
     triangle count orphans too (`tendRegions`, when the window lists the
     scans); a mask that could not be read for any other reason leaves the
-    region as it was and is said as a problem line. Orphaned is one way.
+    region as it was and is said as a problem line. Orphaning is undone when
+    its cause passes: `list` brings back an orphaned region whose scan is
+    there again with the mesh the mark records and a mask that reads
+    (`maskReads`), and says so once (`M7 is back: …`).
   - A conversion keeps the triangles and restates the numbers and the mesh
     (`convertScan`); when that fails the scan's regions are orphaned, with why.
   - "Edit" on its row takes its mask in hand as a painting; "Keep" writes a
@@ -391,20 +438,43 @@ While iterating run the focused test; run all four suites before a commit.
     round which is painted, and as crossings only painted triangles: the rim
     of a region still counts. Asked for alone (`region`), its rim is its own.
   - The Region tool (`tools/regionTool.ts`) takes the scan only where it is
-    what is drawn at the pixel: not behind a part in front of it, not in the
-    half a section took away; a box takes what faces the eye unless "Through"
+    what is drawn at the pixel under the pointer: not behind a part in front
+    of it, not in the half a section took away. (The brush is a ball round
+    that point: its rim can reach scan a part hides, and its tooltip says
+    so.) When none is chosen the brush is a thirtieth of the scan, 25 mm at
+    most (`usualRadius`); a box takes what faces the eye unless "Through"
     is chosen, and does not look at what hides what. It works while the build
     is stale. A painting is discarded by "Clear" alone, and `Z` brings that
     back; another tool, `Escape` or another object parks it (per object, in
-    this run, not on the disk), the palette's Region button shows a dot, and
-    `Escape` in the middle of a stroke gives up that stroke only.
+    this run, not on the disk; it goes with its scan only once that object's
+    scans are known, `scansKnown`, and with the workspace), the palette's
+    Region button shows a dot, and `Escape` in the middle of a stroke gives
+    up that stroke only. A kept region whose "Edit" is parked is drawn from
+    its kept mask: it is left out of the tints only while the tool is in hand.
+  - In Pairs (`tools/alignTool.ts`) a click gives the end that is asked for
+    and no other (`expects`: the end the open pair lacks, else `first`, which
+    `Tab` switches); the bar's line names the pair and the end (`nextLine`).
+    A scan aligned in another layout offers that transform as a start, kept
+    as by hand (`startedFrom`): never as a fit of this layout.
+  - A press during a view move is answered from the camera as it is at the
+    press (`CameraMove.drop`): nothing jumps the move to its end.
 - In the window a scan's bounds tree is built in a worker
   (`viewport/scanBvh.worker.ts`), indirect, so triangle numbers hold; a scan
   is drawn before it can be pointed at. A scan drawn at 95 % or more blocks
-  the pick of a part behind it; a thinner one does not. Nothing of a brush
+  the pick of a part behind it, and the pointer says so (`hiddenByScan`); a
+  thinner one does not. Seen through, a scan lays its depth down first
+  (`depthOnly`), so only its nearest layer is blended. Nothing of a brush
   stroke or of a drag of the gizmo goes through React or the store. A picture
   coloured by distance is refused past 60,000 points or 1.5 s
-  (`scanDeviation.ts`): it is worked out on the window's thread.
+  (`scanDeviation.ts`): it is worked out on the window's thread. It is lit,
+  seen through beyond the range, and what is inside the part is drawn over
+  it (`ScanLayer.colourFor`): its caption says the colours are approximate.
+  A named view frames the parts; `look`'s `frame: 'all'` and "Frame" on a
+  scan's row take the scans in, and a caption says when a scan reaches
+  beyond the picture (`beyondNote`), when spread parts are not where a scan
+  drawn has them (`spreadBesideScans`), and which scans have no mesh.
+- Refs and numbers in a sentence are set in the monospace face by
+  `ui/numbered.tsx`, a ref whole. `.torno/views/` ignores itself for git.
 - What the window says of its scans (`ViewState.scans`) is sanitised in main
   (`scansOf` in `main/look.ts`) before anything is told of it.
 - A scan and a picture coloured by distance use tokens of their own
@@ -464,12 +534,22 @@ While iterating run the focused test; run all four suites before a commit.
   and ocp-tessellate so that every worker it forks has them loaded, and then
   only routes frames. It never loads a model, builds, tessellates or answers a
   query: one OCC operation in it would start OCC's thread pool, and every
-  worker forked afterwards would deadlock.
+  worker forked afterwards would deadlock. It reads two files of `/proc`
+  before a build and nothing else of the system.
 - **Workers never fork.** One worker is forked per build. For each object
   folder, the last one that succeeded stays alive to answer queries about that
   object, and is replaced when the next build of that folder succeeds. At most
   four stay alive: a fifth folder retires the one least recently built or
-  queried, whose queries are then `no_build`. A worker keeps what `nearest`
+  queried, whose queries are then `no_build`. Fewer stay when memory is
+  short: before a build is forked the supervisor reads `MemAvailable`
+  (`/proc/meminfo`) and the `VmRSS` of the folder's live worker
+  (`/proc/<pid>/status`), takes the build to need that (`ROOM_LEAST`, 2 GiB,
+  at least) and `ROOM_SPARE` (2 GiB) more, and while less is available
+  retires the live workers of other folders, least recently used first, then
+  the folder's own (`Supervisor._make_room`). `build.started` carries
+  `retired`, the folders let go; a query of one is `no_build` with `reason:
+  "memory"` until a build of it succeeds. When `/proc` cannot be read nothing
+  is retired. A worker keeps what `nearest`
   worked out of each part it was asked about. A query names its folder (`dir`)
   and has 30 s, after which it is answered `timeout` and the worker left alone.
   Until that worker has answered every query that was given up on, new queries

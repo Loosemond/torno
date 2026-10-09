@@ -118,6 +118,17 @@ other file changing during a build may be the model's own doing, so the build
 is left to finish and one more follows it. A build that runs longer than 600 s
 is stopped; `TORNO_BUILD_TIMEOUT` sets another limit.
 
+The last build of an object stays in memory, to answer what is measured and
+checked of it; a large model's can hold gigabytes. Before a build is started
+the kernel looks at how much memory is free: when there is less than the
+last build of that object holds (2 GiB at least) and 2 GiB more, it lets go
+the builds of other open objects first, the one least recently used first,
+and then that object's own. The status line then says "The last build was
+let go to make room (memory): tools answer when this one lands". An object
+whose build was let go for another's is built again when something is asked
+of it, never by a check on a timer; and a model that has just failed to
+build is not built again until a source changes.
+
 ### Pointing and marks
 
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
@@ -290,8 +301,9 @@ file is only read. Torno keeps its path, size, date and hash, and makes one
 mesh of it in millimetres and Z up, `.torno/scans/<id>/mesh.bin`, baking a
 texture into colours at the vertices. The scan goes on working from that mesh
 when the file moves or is deleted (its row then says "source missing" or
-"source changed", once the object is opened again); when the mesh is gone
-too, the row says so and offers "Import again". A scan of more than 2,000,000
+"source changed", within half a minute, or as soon as the agent or the window
+asks about the scan); when the mesh is gone too, the row says so and offers
+"Import again", and a mesh that is put back is drawn again. A scan of more than 2,000,000
 triangles is reduced to at most that many, and its row says from how many. One file
 is read at a time, in a process of its own; the window stays free meanwhile,
 and the scan can be pointed at about a second after it is drawn.
@@ -324,13 +336,16 @@ viewport has three ways, which can follow one another:
   The bar says how flat the patch is. A floor says how the scan lies, not
   where on that floor it is.
 - **Pairs.** Click a point on the scan, then the same point on the model, or
-  type the model point. From three pairs that are not in a line the scan is
+  type the model point. The bar always says which end of which pair it asks
+  for ("Pair 3: click its point on the scan"), and a click gives that end
+  and no other: with the part sitting in the scan, a click that lands on the
+  wrong one is kept as nothing, and the pointer says so. `Tab` switches which
+  end a new pair is asked for first. From three pairs that are not in a line the scan is
   drawn where they put it, with how far each pair is left apart and the RMS
   of all. Nothing is kept until "Apply". When the fit says the scan is some
   10, 25.4 or 1000 times off, the bar says which unit that looks like and
   offers to read the scan as that; "Keep this scale" keeps a scale the fit
-  found. With a part in front of the scan a click is taken for the part: look
-  at the table's rows as you go.
+  found.
 - **Nudge.** Handles to move (`G`) and turn (`R`) the scan, and fields for
   where its origin is and how it is turned.
 
@@ -345,11 +360,23 @@ What the row then says of the scan is what the agent is told of it:
 | `…, then moved by hand` | A fit or a floor that was moved afterwards; the row says how far apart the pairs now are. |
 | `rough alignment` | A fit that cannot be relied on: fewer than three pairs, pairs almost in a line, or pairs left more than 5 mm apart. Torno asks before it keeps one. |
 | `check alignment` | The model has moved since: a point you clicked on a part is no longer on it, torno spreads a part otherwise, or the scan was imported again from a changed file. The row says which. Align again, or press "Still right". |
-| `not checked yet` | The last build has not been compared with the alignment yet, or the kernel could not say (the row gives the reason; it is tried again every 30 s). |
+| `not checked yet` | Nothing is built in this run yet; or the last build has not been compared with the alignment yet, or the kernel could not say (the row gives the reason; it is tried again every 30 s). When the kernel no longer holds the build, the check waits for the next build: torno never builds the model again by itself to make one. |
 | `Tied to no point of the model` | No end of the alignment was clicked on a part, so no build can say whether it still holds. |
 
 After every build torno looks for the model points of each alignment on their
 parts again. It tells what it finds; it never moves a scan by itself.
+
+An alignment is of one layout. A scan that is aligned in another layout and
+not in the one shown offers "Use this alignment in *layout*" on its row: the
+scan is put where it stands there, as a start, and kept as placed by hand.
+The two layouts need not place the parts alike, so nothing of the other fit
+comes with it: look, and move it with Align.
+
+"Frame" on the row brings the scan into view with the parts; the views and
+"Fit" frame the parts, which lie somewhere inside a scan of their
+surroundings. Drawn thin, a scan shows only its nearest layer over what is
+behind it. With Select in hand over a part that a solid scan hides, the
+pointer says so: what is seen is what is picked.
 
 **Regions** (`B`). Drag over a scan to paint a part of it: a brush whose
 radius is in the bar (`[`, `]`), "Erase" (`E`, or Ctrl held), "Box"
@@ -544,11 +571,12 @@ loops of `[u, v]` points in mm along the plane's own axes (given as `x` and
 `y`), each loop's `area` (negative round a hole), the part's `area`, how many
 loops are `open`, and the extent of the whole cut. The outlines come from
 the exact geometry, as polylines within 0.01 mm of it, or within the
-`deflection` asked for (0.005 to 0.05 mm). A reply holds at most 4,000 points
-in all, whether or not parts are named: beyond that each loop has its share
+`deflection` asked for (0.005 to 0.05 mm). A reply holds at most 1,500 points
+in all, the parts' outlines and a scan's lines together, whether or not parts
+are named: beyond that each loop has its share
 by its length, eight points at least, and says so (`thinned`, the `of` it
 had and the `deflection` it then has), as does the reply (`thinned`, `points`,
-`of`); beyond 500 loops the shortest are left out and counted
+`of`, and the reading); beyond 187 loops the shortest are left out and counted
 (`loopsOmitted`). Areas are the kernel's, of the true outlines, whatever was
 thinned, and the drawing is always made from the outlines in full.
 With it comes a 2D drawing of the cut on a millimetre grid, each part in its
@@ -647,7 +675,7 @@ counts the scan's triangles that cross the part's surface, and names the
 nearest scan point outside. It gives no volume: a scan is an open surface.
 
 ```
-scan_clash airbox-tub vs S1 (print, r1): ≈ 125 scan points inside the part in 1 cluster, deepest 2.367 mm at (-95.63, 125.4, 12.76) under airbox-tub/F25; 145 scan triangles cross its surface; nearest scan point outside 0.008139 mm from airbox-tub/F57. S1 is aligned by 4 pairs (rms 0.003 mm, worst 0.005 mm): a depth under that says nothing (tied to no point of the model: not checked against builds).
+scan_clash airbox-tub vs S1 (print, r1): ≈ 125 scan points inside the part in 1 cluster, deepest 2.4 mm at (-95.6, 125.4, 12.8) under airbox-tub/F25; 145 scan triangles cross its surface; nearest scan point outside under 0.1 mm from airbox-tub/F57. S1 is aligned by 4 pairs (rms 0.003 mm, worst 0.005 mm): that rms is of the clicked points, and says nothing of how true the scan is (tied to no point of the model: not checked against builds).
 ```
 
 **`scan_deviation`** takes `part`, and optionally `faces` (refs of faces of
@@ -655,29 +683,45 @@ that part), `from` (`part`, the default: from points of the part to the
 scan's triangles; `scan`: from the scan's vertices to the part), `region`
 (only that region of the scan), `within` (0.1 to 200 mm, 50 by default),
 `samples` (100 to 20,000; 10,000 by default), `scan` and `layout`. It gives
-the least, mean, greatest and RMS distance and percentiles, signed where the
-part is a solid, the worst place, and how many samples had nothing within
-reach.
+the least, mean, greatest and RMS distance and percentiles of the points that
+have the other within `within` (further is not looked at, so the greatest is
+no greatest distance there is), signed where the part is a solid, the worst
+place, and how many samples had nothing within reach.
 
 ```
-scan_deviation airbox-tub vs S1 (print, r1): ≈ 24.14 mm median, 25.26 mm mean, 50 mm at most (95 % within 45.7 mm), from 8,802 points of the part to the scan; the scan is inside the part at 84 of them; 1,198 more had no scan within 50 mm; furthest at (-68.66, -57.4, 109.2) on airbox-tub/F71. S1 is aligned by 4 pairs (rms 0.003 mm, worst 0.005 mm): a distance under that says nothing (tied to no point of the model: not checked against builds).
+scan_deviation airbox-tub vs S1 (print, r1): within 0.1 mm at the nearest; of the 8,802 points of the part that have the scan within 50 mm (further is not looked at): ≈ 24.1 mm median, 25.3 mm mean, 50 mm the furthest, 95 % within 45.7 mm; the scan is inside the part at 84 of them; 1,198 more had no scan within 50 mm; furthest at (-68.7, -57.4, 109.2) on airbox-tub/F71. S1 is aligned by 4 pairs (rms 0.003 mm, worst 0.005 mm): that rms is of the clicked points, and says nothing of how true the scan is (tied to no point of the model: not checked against builds).
 ```
 
 **What the other tools gained.** An end of `measure` (a distance only) may
 be `{scan: "S1", point: [x, y, z]}`, a point given in the frame of the
 layout, or the number of a region, which stands for its centroid; the reply
-is then approximate. `section` with `scan: "S1"` adds the lines the plane
-cuts of the scan, dashed on the drawing and at most 2,000 points in the
-JSON. `look` with `scanColour: {part: "tub", range: 20}` draws one scan
-coloured by its distance to a part, from 0 to `range` mm (20 by default),
-with the scan points inside the part marked and the colours named in the
-caption; the numbers are `scan_deviation`'s.
+is then approximate. A dimension (`add_mark`) takes neither: it is of the
+model, and is checked on every build. `section` with `scan: "S1"` adds the
+lines the plane cuts of the scan, dashed on the drawing and, to 0.1 mm, in
+the scan's share of the reply's 1,500 points. `look` with `scanColour:
+{part: "tub", range: 20}` draws one scan coloured by its distance to a part,
+from 0 to `range` mm (20 by default): shaded, seen through beyond the range
+so that the part stays in sight, with the scan points inside the part marked
+and drawn over it; the caption names the colours and says they are
+approximate, and the numbers are `scan_deviation`'s. `look` with `frame:
+"all"` fits a named view to the scans drawn as well as the parts, and a
+caption says when a scan reaches beyond the picture, when spread parts are
+not where a scan drawn has them, and which scans have no mesh to draw.
+
+Lengths and points taken from a scan are told to 0.1 mm in every reading
+(the data keeps what the kernel gave). Of the readings above, the first
+number after a `≈` and all that follow it in that sentence are approximate;
+`scans` gives no measurement and has none.
 
 **Limits, each said in the reply that meets it.**
 
 - `scan_clash` checks at most 200,000 scan points near the part (beyond
   that every n-th), takes at most 32 of the points it names again on the
-  B-rep, tells the 8 largest clusters and gives itself 10 s. `scan_deviation`
+  B-rep, tells the 8 largest clusters and gives itself 10 s, measured from
+  when what is worked out once of the part and the scan is there (a first
+  question about a large part may take up to 20 s in all). When the time
+  runs out before every point is measured, the depths told are of the points
+  measured, and the reading says so. `scan_deviation`
   gives itself 10 s too. What was thinned or left undone is in `sampling` and
   in the reading (`the time ran out: 18,000 of the 20,000 asked were
   measured`), and a count that was cut short is never told as a no.
@@ -687,9 +731,13 @@ caption; the numbers are `scan_deviation`'s.
 
 **What is refused, and why.** A scan that is not aligned in the layout asked
 (`S1 is not aligned in layout assembly (it is aligned in: print), so nothing
-is checked against it there`); a part torno moved for display, naming the
-layouts that place it as the model does, or `def assembly(p)`, and the parts
-it did not move; a part that stood elsewhere when the scan was aligned; a
+is checked against it there: the user aligns it in assembly with the Align
+tool (an alignment is of one layout)`, with the layouts in which the
+question would be answered, if any); a part torno moved for display, with
+the whole way out: a layout that places it as the model does and in which
+the scan is aligned, or, when the model has none, to add one
+(`def assembly(p)`), let it build, and have the user align the scan in it;
+and the parts it did not move; a part that stood elsewhere when the scan was aligned; a
 scan whose mesh is gone, with the path; a scan that is being imported or
 converted; a region that no longer fits its scan's mesh.
 
@@ -712,7 +760,7 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 | `.torno/scans/<id>/mesh.bin` | the scan as torno draws and checks it, in millimetres and Z up (`mesh.<n>.bin` once it was converted or imported again). `.torno/scans/.gitignore` keeps the meshes out of git: a clone has the record, and its row offers "Import again" |
 | `.torno/scans/<id>/<mark>.mask` | the triangles of a region, a bit each (`<mark>.<n>.mask` once it was painted again) |
 | `.torno/session.json` | the id of the conversation to resume |
-| `.torno/views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 |
+| `.torno/views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20. The folder ignores itself for git (`.gitignore`, written once): a picture of a scan may show the real world |
 | `.torno/state.md` | the build, the parts, the scans and the open marks as text, for an agent without torno's tools. Its first line says when it was written: nothing keeps it current once torno has quit |
 
 Add `.torno/` to the workspace's `.gitignore` if you do not want these in git.

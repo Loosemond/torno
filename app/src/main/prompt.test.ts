@@ -38,7 +38,7 @@ describe('the system prompt', () => {
       'nothing taken from it is exact',
       // Who aligns, and that a layout added to the model has no alignment until they do.
       'that the user imported and aligns to one layout at a time with the Align tool (you cannot)',
-      'refused where the scan is not aligned in the layout asked (ask the user to align it there, or ask in a layout where it is) and for a part torno moved for display',
+      'refused where the scan is not aligned in the layout asked (the user aligns it there: an alignment is of one layout) and for a part torno moved for display',
       'a reading says first what puts the alignment in doubt',
       'no script that loads the scan',
       'pass its number in ignore to scan_clash, or in region to scan_deviation'
@@ -53,6 +53,12 @@ describe('the system prompt', () => {
   })
 
   it('stays short', () => {
-    expect(SYSTEM_PROMPT.length).toBeLessThan(6100)
+    // Raised from 6,100 in the final fix wave, for the way out of the refusal for a moved part and that a dimension is of the model.
+    expect(SYSTEM_PROMPT.length).toBeLessThan(6250)
+  })
+
+  // Final fix wave (I8, T9, C1).
+  it('says the whole way for a part torno moved, and that a dimension never has an end on a scan', () => {
+    for (const said of ['the user aligns it there: an alignment is of one layout', 'adding one if need be; the user then aligns the scan in it', 'A dimension is of the model: it never has an end on a scan.']) expect(SYSTEM_PROMPT).toContain(said)
   })
 })
