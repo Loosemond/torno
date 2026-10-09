@@ -255,9 +255,19 @@ def _sheet(solid: Any, frame: _Frame, plane: Any) -> Any:
     return BRepBuilderAPI_MakeFace(plane, float(u0), float(u1), float(v0), float(v1)).Face()
 
 
-def _ring(plane: Any, wire: Any, frame: _Frame, hole: bool) -> dict[str, Any] | None:
-    """A closed loop as it is told: its points turning the way that says what it bounds."""
-    outline, drawn_at = _closed_outline(wire, frame)
+def _ring(
+    plane: Any,
+    wire: Any,
+    frame: _Frame,
+    hole: bool,
+    drawn: tuple[np.ndarray | None, float] | None = None,
+) -> dict[str, Any] | None:
+    """A closed loop as it is told: its points turning the way that says what it bounds.
+
+    ``drawn`` is its outline and the deflection it was drawn at (``_closed_outline``),
+    when the wire was drawn already.
+    """
+    outline, drawn_at = _closed_outline(wire, frame) if drawn is None else drawn
     if outline is None:
         return None
     area, exact = _wire_area(plane, wire, outline)
@@ -277,9 +287,15 @@ def _closed_outline(wire: Any, frame: _Frame) -> tuple[np.ndarray | None, float]
     """The points of a closed wire in the plane, the first not told again at the end, and
     the deflection they are drawn at. No points of a wire that bounds nothing."""
     outline, drawn_at = _drawn(wire, frame)
+    return _shut(outline), drawn_at
+
+
+def _shut(outline: np.ndarray) -> np.ndarray | None:
+    """The points of a wire drawn as those of a closed one: the first not told again at
+    the end. None of a wire that bounds nothing."""
     if len(outline) >= 2 and np.linalg.norm(outline[0] - outline[-1]) <= _JOIN:
         outline = outline[:-1]
-    return (outline if len(outline) >= 3 else None), drawn_at
+    return outline if len(outline) >= 3 else None
 
 
 def _drawn(wire: Any, frame: _Frame) -> tuple[np.ndarray, float]:
@@ -319,11 +335,12 @@ def _outline(shape: Any, frame: _Frame, key: str) -> tuple[list[dict[str, Any]],
         return [], True
     closed, loops = [], []
     for wire in Wire.combine([Edge(edge) for edge in edges], tol=_JOIN):
-        outline = _closed_outline(wire.wrapped, frame)[0] if wire.is_closed else None
-        if outline is not None:
-            closed.append((wire.wrapped, outline))
-            continue
+        # Drawn once, whatever becomes of it: a part may have thousands.
         outline, drawn_at = _drawn(wire.wrapped, frame)
+        shut = _shut(outline) if wire.is_closed else None
+        if shut is not None:
+            closed.append((wire.wrapped, shut, drawn_at))
+            continue
         if len(outline) >= 2:
             points, deflection = _within_limit(outline, False, drawn_at)
             loops.append(
@@ -335,9 +352,9 @@ def _outline(shape: Any, frame: _Frame, key: str) -> tuple[list[dict[str, Any]],
                     "deflection": deflection,
                 }
             )
-    for wire, outline in closed:
-        depth = sum(1 for _, other in closed if other is not outline and _inside(outline[0], other))
-        loops.append(_ring(plane, wire, frame, hole=depth % 2 == 1))
+    for wire, outline, drawn_at in closed:
+        depth = sum(1 for _, other, _ in closed if other is not outline and _inside(outline[0], other))
+        loops.append(_ring(plane, wire, frame, hole=depth % 2 == 1, drawn=(outline, drawn_at)))
     return loops, all(loop["areaExact"] for loop in loops)
 
 

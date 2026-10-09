@@ -169,6 +169,24 @@ def test_only_the_parts_asked_for_are_cut_and_in_the_layout_named(bracket):
     assert loop["area"] == pytest.approx(math.pi * 16)
 
 
+def test_each_wire_of_a_part_that_is_no_solid_is_drawn_once(monkeypatch):
+    from build123d import Axis, Box, Shell
+
+    from torno_kernel import section as module
+
+    drawn = []
+    polyline = module._polyline
+    monkeypatch.setattr(module, "_polyline", lambda wire, deflection: drawn.append(deflection) or polyline(wire, deflection))
+    tub = {"assembly:tub": Shell(Box(10, 10, 10).faces().sort_by(Axis.Z)[:-1])}
+    # Cut level: one closed wire. Cut upright: one open one.
+    [level] = section(tub, [0, 0, 0], [0, 0, 1])["parts"]
+    assert (level["loops"][0]["closed"], level["area"]) == (True, pytest.approx(100))
+    assert drawn == [0.05]
+    [upright] = section(tub, [0, 0, 0], [0, 1, 0])["parts"]
+    assert upright["open"] == 1
+    assert drawn == [0.05, 0.05]
+
+
 def test_a_part_that_is_not_closed_gives_open_loops_and_says_how_many():
     from build123d import Axis, Box, Shell
 

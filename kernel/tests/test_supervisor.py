@@ -907,6 +907,22 @@ def test_a_request_nested_however_deeply_is_answered_and_the_kernel_serves_on(br
     assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
 
 
+def test_a_frame_nested_too_deeply_to_read_is_told_so_and_one_that_is_no_object_otherwise(bracket_kernel):
+    depth = 20_000
+    bracket_kernel.send_raw(raw_query(BRACKET, '"deep"', "describe", "[" * depth + "]" * depth))
+    reply, _ = bracket_kernel.recv(10)
+    assert reply == {
+        "id": None,
+        "ok": False,
+        "error": {"kind": "bad_request", "message": "the request is nested too deeply"},
+    }
+    for header in ("[1, 2]", "{not json"):
+        bracket_kernel.send_raw(header)
+        reply, _ = bracket_kernel.recv(5)
+        assert reply["error"] == {"kind": "bad_request", "message": "a request must be a JSON object"}
+    assert bracket_kernel.describe(BRACKET, "assembly:base")["ok"] is True
+
+
 def test_a_request_the_worker_cannot_read_or_is_no_object_is_a_bad_request_and_the_next_is_answered(
     monkeypatch,
 ):
@@ -1248,6 +1264,24 @@ def test_a_reply_with_no_id_answers_the_query_the_worker_has_had_longest(routed)
     live_end.sendall(frame({"ok": False, "error": unread}))
     sup._step()
     assert routed.sent() == [] and sup._live == {"/object": live}
+
+
+def test_a_reply_of_a_live_worker_is_written_once_to_check_it_and_to_pass_it_on(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="q", op="query", dir="/object", name="describe", args={})
+    sup._step()
+    written = []
+    encoded = supervisor._encoded
+    monkeypatch.setattr(supervisor, "_encoded", lambda *args: written.append(args[0]) or encoded(*args))
+    reply = {"id": "q", "ok": True, "result": {"kind": "part", "name": "é"}}
+    live_end.sendall(frame(reply))
+    sup._step()
+    assert routed.sent() == [reply]
+    assert written == [reply]
 
 
 def test_a_reply_with_no_id_to_a_query_given_up_on_frees_the_worker(routed, monkeypatch):

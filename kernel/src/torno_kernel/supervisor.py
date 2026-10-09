@@ -88,11 +88,23 @@ def _unwritable(value: Any) -> str | None:
     return None
 
 
+def _written(header: Any, blob: bytes) -> bytes | None:
+    """A frame as bytes, or None for what cannot be written in one (``_unwritable``)."""
+    try:
+        return _encoded(header, blob)
+    except (ValueError, RecursionError):
+        return None
+
+
 def _encoded(header: Any, blob: bytes = b"") -> bytes:
     """A frame as bytes. Raises as ``write_frame`` does for what is not JSON."""
     frame = io.BytesIO()
     write_frame(frame, header, blob)
     return frame.getvalue()
+
+
+# What a frame is read as when it is JSON nested deeper than Python follows.
+_TOO_DEEP = object()
 
 
 class _Decoder:
@@ -102,7 +114,11 @@ class _Decoder:
         self._data = bytearray()
 
     def feed(self, chunk: bytes) -> Iterator[tuple[Any, bytes]]:
-        """Add a chunk and yield every frame it completes."""
+        """Add a chunk and yield every frame it completes.
+
+        A header that is not JSON is None, and one too deep to read _TOO_DEEP:
+        neither is an object, which is all a frame may be.
+        """
         self._data += chunk
         while len(self._data) >= _PREFIX.size:
             header_len, blob_len = _PREFIX.unpack_from(self._data)
@@ -114,10 +130,11 @@ class _Decoder:
             del self._data[:end]
             try:
                 decoded = json.loads(header.decode("utf-8"))
-            except (ValueError, RecursionError):
-                # Not JSON, or nested deeper than Python follows; the framing
-                # is intact, so carry on.
+            except ValueError:
+                # Not JSON; the framing is intact, so carry on.
                 decoded = None
+            except RecursionError:
+                decoded = _TOO_DEEP
             yield decoded, blob
 
 
@@ -133,7 +150,11 @@ class _Outbox:
 
     def push(self, header: dict[str, Any], blob: bytes = b"") -> None:
         """Queue a frame and write as much as the other end has room for."""
-        self._data += _encoded(header, blob)
+        self.write(_encoded(header, blob))
+
+    def write(self, frame: bytes) -> None:
+        """Queue a frame already in bytes, likewise."""
+        self._data += frame
         self.flush()
 
     def flush(self) -> None:
@@ -254,6 +275,9 @@ class Supervisor:
     # Requests
 
     def _handle(self, request: Any) -> None:
+        if request is _TOO_DEEP:
+            self._fail(None, "bad_request", "the request is nested too deeply")
+            return
         if not isinstance(request, dict):
             self._fail(None, "bad_request", "a request must be a JSON object")
             return
@@ -393,7 +417,7 @@ class Supervisor:
                     self._build_garbled(worker)
             elif not self._is_live(worker):
                 return  # an earlier frame of this chunk ended it
-            elif not isinstance(header, dict) or _unwritable(header) is not None:
+            elif not isinstance(header, dict) or (passed_on := _written(header, blob)) is None:
                 # Not a reply, or one that cannot be passed on: it is past trusting.
                 self._live_died(worker)
             elif header.get("id") is None:
@@ -406,7 +430,8 @@ class Supervisor:
                     self._send({**header, "id": id}, blob)
             else:
                 if worker.answered(header.get("id")):
-                    self._send(header, blob)
+                    # As it was written to see that it can be: not written again.
+                    self._outbox.write(passed_on)
                 elif worker.abandoned > 0:
                     # The answer to a query already given up on: it is dropped, and the
                     # worker has one less of them to get through.
