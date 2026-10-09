@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { type Mark, strokeSamples } from './marks'
 import { bufView } from './scene'
 
 function blobOf(floats: number[]): ArrayBuffer {
@@ -53,5 +54,26 @@ describe('bufView', () => {
     const blob = blobOf([1, 2, 3])
     expect(() => bufView(blob, { offset: -4, length: 4 }, Float32Array)).toThrow(RangeError)
     expect(() => bufView(blob, { offset: 0, length: -4 }, Float32Array)).toThrow(RangeError)
+  })
+})
+
+describe('strokeSamples', () => {
+  const stroke = (count: number, space: 'surface' | 'plane' = 'surface') =>
+    ({ kind: 'stroke', space, anchor: { point: [0, 0, 0] }, points: Array.from({ length: count }, (_, i) => [i, 0, 0]) }) as unknown as Mark
+
+  it('gives every point after the first of a short stroke', () => {
+    expect(strokeSamples(stroke(4))).toEqual([[1, 0, 0], [2, 0, 0], [3, 0, 0]])
+    expect(strokeSamples(stroke(1))).toEqual([])
+  })
+
+  it('gives eight of a long one, evenly spaced, the last among them', () => {
+    const samples = strokeSamples(stroke(401))
+    expect(samples.map((p) => p[0])).toEqual([50, 100, 150, 200, 250, 300, 350, 400])
+    expect(strokeSamples(stroke(10)).map((p) => p[0])).toEqual([1, 2, 3, 5, 6, 7, 8, 9])
+  })
+
+  it('gives none of a profile on a plane, or of a mark that is no stroke', () => {
+    expect(strokeSamples(stroke(20, 'plane'))).toEqual([])
+    expect(strokeSamples({ kind: 'pin', anchor: { point: [0, 0, 0] } } as unknown as Mark)).toEqual([])
   })
 })

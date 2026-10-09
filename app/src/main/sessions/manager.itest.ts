@@ -6,7 +6,7 @@ import type { SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { type HttpRouter, startHttp } from '../http'
 import { claudeAdapter } from './claude'
-import { Sessions } from './manager'
+import { killGroup, Sessions } from './manager'
 
 // The session manager with a real PTY and a real HTTP server; only the agent is
 // a stand-in (test/fake-agent.mjs), launched with Claude Code's arguments.
@@ -160,6 +160,13 @@ describe('a session', () => {
 
     sessions.write(sessionId, 'hook PermissionRequest\r')
     await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('needs_input')
+    // The question was answered and the tool runs: it is working again.
+    sessions.write(sessionId, 'hook PostToolUse\r')
+    await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('working')
+    sessions.write(sessionId, 'hook PermissionRequest\r')
+    await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('needs_input')
+    sessions.write(sessionId, 'hook PreToolUse\r')
+    await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('working')
     sessions.write(sessionId, 'hook Stop\r')
     await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('idle')
   })
@@ -229,7 +236,7 @@ describe('a session', () => {
     }
     const { sessionId } = sessions.start(object('bracket'), {})
     await expect.poll(() => said(sessionId)).toContain('READY')
-    for (const event of ['Stop', 'Notification', 'PermissionRequest', 'SessionEnd']) {
+    for (const event of ['Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']) {
       sessions.write(sessionId, `hook ${event}\r`)
       await expect.poll(() => said(sessionId)).toContain(`${event}: ok`)
     }
@@ -311,6 +318,25 @@ describe('a session', () => {
     const first = sessions.start(object('bracket'), {})
     expect(sessions.start(object('bracket'), {}).sessionId).toBe(first.sessionId)
     expect(sessions.start(object('other'), {}).sessionId).not.toBe(first.sessionId)
+  })
+
+  it('says where it stands when it is started: starting when new, as it is when it was already running', async () => {
+    const first = sessions.start(object('bracket'), {})
+    expect(first.status).toBe('starting')
+    await expect.poll(() => said(first.sessionId)).toContain('READY')
+    expect(sessions.start(object('bracket'), {})).toMatchObject({ sessionId: first.sessionId, status: 'idle' })
+    sessions.write(first.sessionId, 'hook\r')
+    await expect.poll(() => statuses.get(first.sessionId)?.at(-1)).toBe('working')
+    expect(sessions.start(object('bracket'), {}).status).toBe('working')
+  })
+
+  it('names the object a session is of, until it has been hung up on', async () => {
+    const obj = object('bracket')
+    const { sessionId } = sessions.start(obj, {})
+    expect(sessions.objectOf(sessionId)).toEqual({ id: 'bracket', dir: obj.dir })
+    expect(sessions.objectOf('no-such-session')).toBeUndefined()
+    void sessions.stop(sessionId)
+    expect(sessions.objectOf(sessionId)).toBeUndefined()
   })
 
   it('gives way to a new session as soon as it is told to stop', async () => {
@@ -480,7 +506,7 @@ describe('the hook endpoint', () => {
     }
     expect(statuses.get(sessionId)).toEqual(['starting', 'idle'])
     expect(sessions.current('bracket')?.status).toBe('idle')
-    for (const name of ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'SessionEnd']) {
+    for (const name of ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']) {
       expect((await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}' })).status).toBe(200)
     }
   })
@@ -498,5 +524,25 @@ describe('the hook endpoint', () => {
   it('listens on the loopback address only', () => {
     expect(http.url('/a')).toBe(`http://127.0.0.1:${http.port}/a`)
     expect(http.port).toBeGreaterThan(0)
+  })
+})
+
+describe('killGroup', () => {
+  it('kills the group of a process, and the process alone when the group is gone', () => {
+    const killed: number[] = []
+    killGroup(4242, (target) => void killed.push(target))
+    expect(killed).toEqual([-4242])
+    const gone: number[] = []
+    killGroup(4242, (target) => {
+      gone.push(target)
+      if (target < 0) throw Object.assign(new Error('no such process'), { code: 'ESRCH' })
+    })
+    expect(gone).toEqual([-4242, 4242])
+  })
+
+  it('kills nothing unless the pid is above 1: -0 is the caller\'s own group, -1 every process it may signal', () => {
+    const killed: number[] = []
+    for (const pid of [0, 1, -1, -4242, NaN, 1.5, Infinity]) killGroup(pid, (target) => void killed.push(target))
+    expect(killed).toEqual([])
   })
 })

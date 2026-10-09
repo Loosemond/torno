@@ -89,9 +89,10 @@ export class Sessions {
    * running there. `resume` continues the conversation on file, if there is one.
    * Throws when the agent's command cannot be found.
    */
-  start(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number }): { sessionId: string; cols: number; rows: number } {
+  start(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number }): { sessionId: string; cols: number; rows: number; status: SessionStatus } {
     const running = this.of(obj.id)
-    if (running) return { sessionId: running.id, cols: running.cols, rows: running.rows }
+    // With where it stands: nothing more may be said of a session that is waiting, and the caller would take it for starting.
+    if (running) return { sessionId: running.id, cols: running.cols, rows: running.rows, status: running.status }
 
     const { adapter, http } = this.deps
     const id = randomUUID()
@@ -138,7 +139,7 @@ export class Sessions {
       this.advance(session, 'exit')
       ended()
     })
-    return { sessionId: id, cols, rows }
+    return { sessionId: id, cols, rows, status: session.status }
   }
 
   /** How many agents have not gone yet, counting those hung up on. */
@@ -150,6 +151,16 @@ export class Sessions {
   current(objectId: string): SessionInfo | null {
     const s = this.of(objectId)
     return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: s.pty.pid } : null
+  }
+
+  /**
+   * The object a session is of: its id and its folder. None for a session
+   * that has ended or been hung up on. Whoever passes on what a window typed
+   * checks here that the session is one of the workspace that is open.
+   */
+  objectOf(sessionId: string): { id: string; dir: string } | undefined {
+    const s = this.sessions.get(sessionId)
+    return s && !s.killTimer ? { id: s.object.id, dir: s.object.dir } : undefined
   }
 
   /** Whether the object has a conversation on file to resume. */
@@ -296,12 +307,14 @@ function signal(child: pty.IPty, name: string): void {
 /**
  * Kill an agent that ignored the hangup, and with it whatever it started: a
  * PTY's child leads a process group of its own. The process alone, if the
- * group is no longer there.
+ * group is no longer there. Nothing for a pid that is not above 1.
  */
-function killGroup(pid: number): void {
+export function killGroup(pid: number, kill: (target: number, signal: string) => void = process.kill): void {
+  // Never 0 or 1 negated: -0 is this process's own group, and -1 every process it may signal.
+  if (!Number.isInteger(pid) || pid <= 1) return
   for (const target of [-pid, pid]) {
     try {
-      process.kill(target, 'SIGKILL')
+      kill(target, 'SIGKILL')
       return
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ESRCH') return

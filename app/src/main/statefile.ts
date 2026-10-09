@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
@@ -18,6 +17,7 @@ export const STATE_DELAY_MS = 1000
  * with sizes, and every mark that is not resolved, a line each. It is what an
  * agent without torno's tools can read to know what one with them is told.
  * Nothing in it changes unless the build or the marks do: no times, no camera.
+ * The file itself begins with `writtenLine`, before this.
  */
 export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[]): string {
   const lines = [
@@ -56,6 +56,14 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
   return `${lines.join('\n')}\n`
 }
 
+/**
+ * The first line of the file: when it was written, and that nothing keeps it
+ * up to date once torno has quit. Whoever reads it later can tell how old it is.
+ */
+export function writtenLine(at: Date): string {
+  return `Written by torno at ${at.toISOString()}; it is only current while torno is running.`
+}
+
 /** To 0.01 mm, as the scene tool gives sizes: a bounding box comes from the mesh, which is that much off a round part. */
 function toHundredth(value: number): number {
   return Math.round(value * 100) / 100
@@ -81,16 +89,19 @@ export interface StateFileDeps {
   delayMs?: number
   write?(path: string, text: string): Promise<void>
   log?(message: string): void
+  now?(): Date
 }
 
 /**
  * Keeps the state file of every open object up to date. Told that an object's
  * build or marks changed, it waits until a second has passed without another
- * change and then writes the file, unless it already says the same.
+ * change and then writes the file, unless it already says the same. The first
+ * time in a run it is written whatever the file of an earlier run says: its
+ * first line is the time of writing, and that one would be of the earlier run.
  */
 export class StateFiles {
   private timers = new Map<string, NodeJS.Timeout>()
-  /** By path: what the file was last seen or made to hold. */
+  /** By path: what the file was last made to hold, below its first line. */
   private written = new Map<string, string>()
 
   constructor(private deps: StateFileDeps) {}
@@ -124,13 +135,8 @@ export class StateFiles {
     if (!build || this.deps.object(objectId)?.dir !== obj.dir) return
     const text = stateText(obj, build, this.deps.scene(objectId), marks)
     const path = join(obj.dir, FOLDER, NAME)
-    if (!this.written.has(path)) {
-      // The file of an earlier run, which may already say this.
-      const onDisk = await readFile(path, 'utf8').catch(() => null)
-      if (onDisk !== null) this.written.set(path, onDisk)
-    }
     if (this.written.get(path) === text) return
-    await (this.deps.write ?? writeFileAtomic)(path, text)
+    await (this.deps.write ?? writeFileAtomic)(path, `${writtenLine(this.deps.now?.() ?? new Date())}\n\n${text}`)
     this.written.set(path, text)
   }
 }

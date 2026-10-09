@@ -183,6 +183,54 @@ describe('Builds.query', () => {
     expect(scenes.map((m) => m.revision)).toEqual([1, 2])
   })
 
+  it('does not call the parts on screen stale while it builds unchanged sources again for a query', async () => {
+    const { kernel, builds, states } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    kernel.retired.add('/ws/bracket')
+    const answer = builds.query('bracket', 'describe', {})
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', revision: 1, stale: false })
+    kernel.succeed(1)
+    await answer
+    expect(states.slice(-2).map((s) => [s.status, s.stale])).toEqual([['building', false], ['ok', false]])
+    // A build for a change is stale as ever, also the next one.
+    builds.rebuild('bracket')
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', stale: true })
+  })
+
+  it('calls them stale once the sources change during that build', async () => {
+    const { kernel, builds, watched } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    kernel.retired.add('/ws/bracket')
+    const answer = builds.query('bracket', 'describe', {})
+    await flush()
+    watched.get('/ws/bracket')!(['/ws/bracket/bracket.py'])
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', stale: true })
+    await flush()
+    kernel.succeed(2)
+    await expect(answer).resolves.toMatchObject({ dir: '/ws/bracket' })
+  })
+
+  it('does not call them stale either when that build had to wait for the kernel', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    builds.open(gear)
+    kernel.retired.add('/ws/bracket')
+    const answer = builds.query('bracket', 'describe', {})
+    await flush()
+    kernel.succeed(1)
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'building', revision: 1, stale: false })
+    kernel.succeed(2)
+    await answer
+  })
+
   it('builds once for queries that find the worker gone at the same time', async () => {
     const { kernel, builds } = setup()
     builds.open(bracket)
@@ -466,6 +514,34 @@ describe('Builds', () => {
     expect(scenes.map((s) => s.objectId)).toEqual(['gear', 'bracket'])
   })
 
+  it('rebuilds a displaced object even when the displacing build ends before the cancelled reply lands', async () => {
+    // A kernel whose `cancelled` for the build it replaced arrives late: after the build that replaced it has ended.
+    class LateKernel extends FakeKernel {
+      override build(dir: string, model: string, opts?: { timeout?: number; onStarted?: () => void }): Promise<BuildResult> {
+        const running = this.calls.at(-1)
+        const was = running?.settled
+        if (running) running.settled = true // the base class then leaves it unanswered
+        const promise = super.build(dir, model, opts)
+        if (running) running.settled = was ?? false
+        return promise
+      }
+    }
+    const kernel = new LateKernel()
+    const builds = new Builds({ kernel, watch: () => () => {} })
+    builds.open(bracket)
+    builds.open(gear)
+    kernel.fail(1, { kind: 'exception', message: 'gear does not build' })
+    await flush()
+    // The kernel is free, and bracket has it again, though nothing has said yet that its first build was cancelled.
+    expect(kernel.calls.map((c) => c.model)).toEqual(['bracket.py', 'gear.py', 'bracket.py'])
+    kernel.calls[0].settle({ ok: false, error: { kind: 'cancelled', message: 'replaced' } })
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'building' })
+    kernel.succeed(2)
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'ok', revision: 1 })
+  })
+
   it('fails a build the kernel refuses, rather than starting it again for ever', async () => {
     // What a kernel that has been shut down answers: `cancelled`, at once, every time.
     class RefusingKernel extends FakeKernel {
@@ -599,6 +675,40 @@ describe('Builds', () => {
       await flush()
       expect(kernel.calls).toHaveLength(2)
       expect(builds.state('bracket')?.status).toBe('ok')
+    })
+
+    it('does not build a third time when the follow-up build is itself followed by such a change', async () => {
+      const { kernel, builds, watched } = setup()
+      builds.open(bracket)
+      // A model that writes a cache every time it builds.
+      watched.get('/ws/bracket')!(['/ws/bracket/mesh.brep'])
+      kernel.succeed(0)
+      await flush()
+      expect(kernel.calls).toHaveLength(2)
+      watched.get('/ws/bracket')!(['/ws/bracket/mesh.brep'])
+      kernel.succeed(1)
+      await flush()
+      expect(kernel.calls).toHaveLength(2)
+      expect(builds.state('bracket')).toMatchObject({ status: 'ok', revision: 2, stale: false })
+      // A change after it has ended builds as ever.
+      watched.get('/ws/bracket')!(['/ws/bracket/data.csv'])
+      expect(kernel.calls).toHaveLength(3)
+    })
+
+    it('still restarts a follow-up build when Python changes during it', async () => {
+      const { kernel, builds, watched } = setup()
+      builds.open(bracket)
+      watched.get('/ws/bracket')!(['/ws/bracket/mesh.brep'])
+      kernel.succeed(0)
+      await flush()
+      watched.get('/ws/bracket')!(['/ws/bracket/bracket.py'])
+      await flush()
+      expect(kernel.calls).toHaveLength(3)
+      // That one is a build of its own: a change during it is followed up once more.
+      watched.get('/ws/bracket')!(['/ws/bracket/mesh.brep'])
+      kernel.succeed(2)
+      await flush()
+      expect(kernel.calls).toHaveLength(4)
     })
 
     it('rebuilds at once for any change when the object is not building', async () => {

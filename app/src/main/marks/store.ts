@@ -1,4 +1,4 @@
-import type { Anchor, AnchorState, Mark, MarkPatch, MarksFile, NewMark } from '../../shared/marks'
+import type { Anchor, AnchorState, Mark, MarkPatch, MarksFile, NewMark, Replacement } from '../../shared/marks'
 import { loadMarksFile, sanitiseMark, saveMarksFile } from './file'
 
 interface MarkEvents {
@@ -8,7 +8,8 @@ interface MarkEvents {
   problem: { objectId: string; message: string }
   /**
    * Marks whose anchors nothing has checked against the last build: those just
-   * added, and those reopened, which were passed over while they were resolved.
+   * added, those reopened, which were passed over while they were resolved,
+   * and those put somewhere else, which carry what their placer saw.
    * Told after the `changed` of the same change.
    */
   unchecked: { objectId: string; ids: string[] }
@@ -111,6 +112,48 @@ export class MarkStore {
   }
 
   /**
+   * Puts a pin, a pick or an arrow somewhere else: the same mark, with its
+   * number and its note, tied to the anchor given, as of that build and from
+   * that view. An arrow starts there and keeps its length and direction. A
+   * pick is of what the anchor names: the part again if it was of a part, else
+   * that face or edge. The mark is taken to be on its surface until the check
+   * that follows (`unchecked`) has said. One the agent had been sent is a
+   * draft again: what it was told of the mark no longer holds. Strokes and
+   * shapes are not moved this way, nor a resolved mark.
+   */
+  replace(objectId: string, id: string, placed: Replacement): Promise<Mark> {
+    return this.change(
+      objectId,
+      (file) => {
+        const at = indexOf(file, id)
+        const mark = file.marks[at]
+        if (mark.kind !== 'pin' && mark.kind !== 'pick' && mark.kind !== 'arrow') throw new Error(`${id} is a ${mark.kind}: only a pin, a pick or an arrow is put somewhere else`)
+        if (mark.status === 'resolved') throw new Error(`${id} is resolved: reopen it first`)
+        const anchor = (placed as Replacement | null)?.anchor
+        if (typeof anchor !== 'object' || anchor === null || typeof anchor.part !== 'string') throw new Error(`${id} was not put on a part`)
+        const common = { anchorState: 'ok', status: mark.author === 'user' ? 'draft' : mark.status, revision: placed.revision, camera: placed.camera } as const
+        let moved: Mark | null
+        if (mark.kind === 'arrow') {
+          const by = mark.to.map((c, i) => c - mark.from.point[i])
+          moved = sanitiseMark({ ...mark, ...common, from: anchor, to: by.map((c, i) => c + anchor.point?.[i]) })
+        } else if (mark.kind === 'pick') {
+          const whole = mark.target === 'part'
+          const target = whole ? 'part' : /\/E\d+$/.test(anchor.ref ?? '') ? 'edge' : 'face'
+          // The kernel's line was of the face or edge clicked: of the whole part the check says anew.
+          const { descriptor: _ofWhatWasClicked, ...bare } = anchor
+          moved = sanitiseMark({ ...mark, ...common, target, anchor: whole ? { ...bare, ref: anchor.part } : anchor })
+        } else {
+          moved = sanitiseMark({ ...mark, ...common, anchor })
+        }
+        if (!moved) throw new Error(`${id} cannot be put there: a point, a revision or a camera is missing or not a finite number`)
+        file.marks[at] = moved
+        return moved
+      },
+      [id]
+    )
+  }
+
+  /**
    * Replaces anchors and anchor states in one write; ids not listed are
    * untouched. `anchors` are in the order of `markAnchors`. An id that is not
    * there is passed over: the mark may have been removed while a build ran.
@@ -154,9 +197,10 @@ export class MarkStore {
    * Change the marks of an object: `edit` is given a copy of the file to
    * change. The copy is written, then kept, then told; an `edit` that throws,
    * or a write that fails, leaves the marks as they were. An `edit` that
-   * returns UNCHANGED writes and tells nothing.
+   * returns UNCHANGED writes and tells nothing. `moved` are marks the edit
+   * tied to other geometry: they are told as unchecked, like those added.
    */
-  private change<T>(objectId: string, edit: (file: MarksFile) => T): Promise<T> {
+  private change<T>(objectId: string, edit: (file: MarksFile) => T, moved: readonly string[] = []): Promise<T> {
     return this.turn(objectId, async (current, dir, epoch) => {
       const file = structuredClone(current)
       const result = edit(file)
@@ -167,7 +211,7 @@ export class MarkStore {
         this.files.set(dir, file)
         this.emit('changed', { objectId, marks: structuredClone(file.marks) })
         const was = new Map(current.marks.map((m) => [m.id, m.status]))
-        const unchecked = file.marks.filter((m) => m.status !== 'resolved' && (was.get(m.id) ?? 'resolved') === 'resolved').map((m) => m.id)
+        const unchecked = file.marks.filter((m) => m.status !== 'resolved' && ((was.get(m.id) ?? 'resolved') === 'resolved' || moved.includes(m.id))).map((m) => m.id)
         if (unchecked.length > 0) this.emit('unchecked', { objectId, ids: unchecked })
       }
       return structuredClone(result)

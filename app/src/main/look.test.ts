@@ -5,11 +5,17 @@ import { forgetViews, latestView, reportView, requestHighlight, requestLook, req
 
 function fakeWindow(destroyed = false) {
   const sent: Array<{ channel: string; message: { id: number; request: unknown } }> = []
+  const listeners = new Set<() => void>()
   const win = {
     isDestroyed: () => destroyed,
+    once: (_event: 'closed', cb: () => void) => listeners.add(cb),
+    removeListener: (_event: 'closed', cb: () => void) => listeners.delete(cb),
+    /** The window is closed: whoever asked to be told is. */
+    close: () => [...listeners].forEach((cb) => (listeners.delete(cb), cb())),
+    listening: () => listeners.size,
     webContents: { send: (channel: string, message: { id: number; request: unknown }) => sent.push({ channel, message }) }
   } as unknown as BrowserWindow
-  return { win, sent }
+  return { win: win as BrowserWindow & { close(): void; listening(): number }, sent }
 }
 
 const PICTURE: LookResult = { png: new Uint8Array([1, 2, 3]), width: 4, height: 3, caption: 'view iso', objectId: 'bracket', revision: 1, stale: false }
@@ -20,6 +26,31 @@ afterEach(() => {
 })
 
 describe('requestLook', () => {
+  it('rejects at once when the window is closed while it waits, and ignores a late reply', async () => {
+    vi.useFakeTimers()
+    const { win, sent } = fakeWindow()
+    const result = requestLook(win, {}, 10000)
+    const failed = expect(result).rejects.toThrow('the torno window was closed')
+    win.close()
+    await failed
+    expect(vi.getTimerCount()).toBe(0)
+    expect(() => resolveRequest(sent[0].message.id, PICTURE)).not.toThrow()
+  })
+
+  it('stops listening for the window to close once it is answered, or has timed out', async () => {
+    vi.useFakeTimers()
+    const { win, sent } = fakeWindow()
+    const answered = requestLook(win, {})
+    expect(win.listening()).toBe(1)
+    resolveRequest(sent[0].message.id, PICTURE)
+    await answered
+    expect(win.listening()).toBe(0)
+    const late = expect(requestLook(win, {}, 500)).rejects.toThrow('did not answer')
+    await vi.advanceTimersByTimeAsync(500)
+    await late
+    expect(win.listening()).toBe(0)
+  })
+
   it('sends the request to the window and resolves with its reply', async () => {
     const { win, sent } = fakeWindow()
     const result = requestLook(win, { view: 'iso' })

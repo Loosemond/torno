@@ -54,6 +54,8 @@ export type NewMark = DistributiveOmit<Mark, 'id' | 'status' | 'anchorState' | '
 export type MarkPatch = Partial<Pick<MarkBase, 'note' | 'status' | 'resolvedNote'>> &
   Partial<Pick<ShapeMark, 'intent' | 'position' | 'rotation' | 'size' | 'shape'>>
 export interface MarksFile { next: number; marks: Mark[] }
+/** Where a mark is put again, by a click on a part: the anchor found there, on which build and from which view. */
+export interface Replacement { anchor: Anchor; revision: number; camera: Camera }
 
 /** The most points a stroke keeps. Main cuts a longer one there; whoever draws one sends no more. */
 export const MAX_STROKE_POINTS = 400
@@ -70,4 +72,20 @@ export function markAnchors(mark: Mark): Anchor[] {
     case 'shape':
       return mark.anchor ? [mark.anchor] : []
   }
+}
+
+/** The most points of a surface stroke that are checked against a build, besides its first. */
+export const STROKE_SAMPLES = 8
+
+/**
+ * Points of a surface stroke after its first, evenly spaced along its list and
+ * ending with its last: at most `most`. The first is the stroke's anchor, and
+ * is checked as such. None for any other mark: a profile on a plane lies on
+ * nothing.
+ */
+export function strokeSamples(mark: Mark, most = STROKE_SAMPLES): Vec3[] {
+  if (mark.kind !== 'stroke' || mark.space !== 'surface') return []
+  const rest = (mark.points ?? []).slice(1)
+  if (rest.length <= most) return rest
+  return Array.from({ length: most }, (_, i) => rest[Math.round(((i + 1) * rest.length) / most) - 1])
 }

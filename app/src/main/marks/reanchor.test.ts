@@ -169,6 +169,54 @@ describe('reanchorAll', () => {
     expect(logged).toEqual([])
   })
 
+  describe('a stroke on the surface', () => {
+    const stroke = (points: Array<[number, number, number]>, more: object = {}): NewMark =>
+      ({ ...BASE, kind: 'stroke', space: 'surface', anchor: { ...ON_TOP, point: points[0] }, points, ...more }) as NewMark
+    const line = (count: number): Array<[number, number, number]> => Array.from({ length: count }, (_, i) => [i, 0, 2.5])
+
+    it('is asked about at its first point and at eight more along it, against every part of its layout', async () => {
+      await store.add('bracket', stroke(line(17)))
+      await run()
+      const anchors = anchorsOf(asked[0].args)
+      expect(anchors[0]).toEqual({ part: 'base', point: [0, 0, 2.5] })
+      expect(anchors.slice(1).map((a) => `${a.part}@${a.point[0]}`)).toEqual([2, 4, 6, 8, 10, 12, 14, 16].flatMap((x) => [`base@${x}`, `post@${x}`]))
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', anchor: { ref: 'base/F1' } })
+    })
+
+    it('has drifted when a point along it is on no surface any more, though its first point is', async () => {
+      await store.add('bracket', stroke(line(5)))
+      // A pocket was cut under the far half of it.
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part, point }) => found(part, `${part}/F1`, point[0] >= 3 ? 4 : 0)) })
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchorState: 'drifted', anchor: { point: [0, 0, 2.5], ref: 'base/F1' } })
+      // And is ok again when the surface is back under all of it.
+      answer = (_name, args) => still(args)
+      await run()
+      expect((await byId()).M1.anchorState).toBe('ok')
+    })
+
+    it('is ok where it runs from the part it began on onto another', async () => {
+      await store.add('bracket', stroke(line(5)))
+      // Its far half is on the post, well away from the base.
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part, point }) => found(part, `${part}/F1`, (part === 'post') === point[0] >= 3 ? 0 : 9)) })
+      await run()
+      expect((await byId()).M1.anchorState).toBe('ok')
+    })
+
+    it('is orphaned with its part, whatever its other points are on', async () => {
+      await store.add('bracket', stroke(line(5), { anchor: { point: [0, 0, 2.5], part: 'gone' } }))
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part }) => (part === 'gone' ? { part, found: false } : found(part, `${part}/F1`, 0))) })
+      await run()
+      expect((await byId()).M1.anchorState).toBe('orphaned')
+    })
+
+    it('on a plane is asked about at its anchor only', async () => {
+      await store.add('bracket', { ...BASE, kind: 'stroke', space: 'plane', anchor: ON_TOP, plane: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 0, 1], label: 'XZ at y = 0.0' }, points2d: [[0, 0], [5, 5], [9, 0]] } as NewMark)
+      await run()
+      expect(anchorsOf(asked[0].args)).toEqual([{ part: 'base', point: ON_TOP.point }])
+    })
+  })
+
   it('writes nothing when every mark is as the build has it, and asks nothing when no mark is on a part', async () => {
     await store.add('bracket', pin(ON_TOP))
     await run()

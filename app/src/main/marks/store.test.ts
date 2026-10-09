@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Anchor, Mark, MarksFile, NewMark, PinMark, ShapeMark } from '../../shared/marks'
+import type { Anchor, Mark, MarksFile, NewMark, PinMark, Replacement, ShapeMark } from '../../shared/marks'
 import * as file from './file'
 import { MarkStore } from './store'
 
@@ -279,6 +279,73 @@ describe('re-anchoring after a build', () => {
     await store.add('bracket', pin())
     await store.reanchor('bracket', [{ id: 'M1', anchors: [], anchorState: 'orphaned' }])
     expect((await store.list('bracket'))[0]).toMatchObject({ anchor: ANCHOR, anchorState: 'orphaned' })
+  })
+})
+
+describe('putting a mark somewhere else', () => {
+  const THERE: Anchor = { point: [5, 6, 28], normal: [0, 0, 1], part: 'base', ref: 'base/F9', descriptor: 'plane, normal +Z, z = 28, 900 mm²' }
+  const VIEW = { ...CAMERA, position: [50, -50, 40] }
+  const placed = { anchor: THERE, revision: 4, camera: VIEW } as Replacement
+  let unchecked: string[][]
+
+  beforeEach(() => {
+    unchecked = []
+    store.on('unchecked', (m) => unchecked.push(m.ids))
+  })
+
+  it('ties a pin where it was clicked: the same number and note, ok until it is checked, and asks for the check', async () => {
+    await store.add('bracket', pin('too thin here'))
+    await store.reanchor('bracket', [{ id: 'M1', anchors: [ANCHOR], anchorState: 'drifted' }])
+    await store.markSent('bracket')
+    unchecked = []
+    const moved = await store.replace('bracket', 'M1', placed)
+    expect(moved).toMatchObject({ id: 'M1', kind: 'pin', note: 'too thin here', anchorState: 'ok', anchor: THERE, revision: 4, camera: VIEW, createdAt: '2026-10-09T12:00:00.000Z' })
+    // The agent was told where it used to be: it is told again.
+    expect(moved.status).toBe('draft')
+    expect(unchecked).toEqual([['M1']])
+    expect(onDisk('bracket').marks).toEqual([moved])
+    expect(changes.at(-1)).toEqual({ objectId: 'bracket', marks: [moved] })
+  })
+
+  it('moves the start of an arrow and keeps its length and direction', async () => {
+    await store.add('bracket', arrow())
+    const moved = await store.replace('bracket', 'M1', placed)
+    expect(moved).toMatchObject({ kind: 'arrow', from: THERE, to: [5, 6, 38] })
+  })
+
+  it('makes a pick one of what was clicked, and keeps a pick of a part a pick of the part', async () => {
+    await store.add('bracket', { ...BASE, kind: 'pick', target: 'face', anchor: ANCHOR } as NewMark)
+    await store.add('bracket', { ...BASE, kind: 'pick', target: 'part', anchor: { ...ANCHOR, ref: 'base' } } as NewMark)
+    const edge: Anchor = { point: [20, 0, 28], part: 'base', ref: 'base/E3' }
+    expect(await store.replace('bracket', 'M1', { ...placed, anchor: edge })).toMatchObject({ target: 'edge', anchor: edge })
+    expect(await store.replace('bracket', 'M1', placed)).toMatchObject({ target: 'face', anchor: THERE })
+    const whole = await store.replace('bracket', 'M2', { ...placed, anchor: { ...THERE, part: 'post', ref: 'post/F2' } })
+    expect(whole).toMatchObject({ target: 'part', anchor: { point: THERE.point, part: 'post', ref: 'post' } })
+    expect((whole as PinMark).anchor.descriptor).toBeUndefined()
+  })
+
+  it("leaves a mark of the agent's as sent", async () => {
+    await store.add('bracket', { ...pin(), author: 'agent' } as NewMark, 'sent')
+    expect((await store.replace('bracket', 'M1', placed)).status).toBe('sent')
+  })
+
+  it('refuses a stroke, a shape, a resolved mark, a place that is on no part, and a mark that is not there', async () => {
+    await store.add('bracket', shape())
+    await store.add('bracket', { ...BASE, kind: 'stroke', space: 'surface', anchor: ANCHOR, points: [[1, 2, 20], [3, 2, 20]] } as NewMark)
+    await store.add('bracket', pin())
+    await store.add('bracket', pin())
+    await store.update('bracket', 'M4', { status: 'resolved' })
+    saves.mockClear()
+    unchecked = []
+    await expect(store.replace('bracket', 'M1', placed)).rejects.toThrow('M1 is a shape: only a pin, a pick or an arrow is put somewhere else')
+    await expect(store.replace('bracket', 'M2', placed)).rejects.toThrow('M2 is a stroke')
+    await expect(store.replace('bracket', 'M4', placed)).rejects.toThrow('M4 is resolved: reopen it first')
+    await expect(store.replace('bracket', 'M3', { ...placed, anchor: { point: [0, 0, 90] } })).rejects.toThrow('M3 was not put on a part')
+    await expect(store.replace('bracket', 'M3', null as never)).rejects.toThrow('M3 was not put on a part')
+    await expect(store.replace('bracket', 'M3', { ...placed, anchor: { ...THERE, point: [0, NaN, 0] } })).rejects.toThrow('M3 cannot be put there')
+    await expect(store.replace('bracket', 'M9', placed)).rejects.toThrow('no mark M9')
+    expect(saves).not.toHaveBeenCalled()
+    expect(unchecked).toEqual([])
   })
 })
 

@@ -16,16 +16,37 @@ interface Waiting {
 const waiting = new Map<number, Waiting>()
 let nextId = 1
 
-/** Ask a window to do something, and wait for what it says it did. Rejects with its error text, or when it does not answer. */
+/**
+ * Ask a window to do something, and wait for what it says it did. Rejects with
+ * its error text, when it does not answer, and at once when it is closed
+ * while the answer is waited for.
+ */
 function request<T>(win: BrowserWindow, channel: string, req: unknown, timeoutMs: number): Promise<T> {
   if (win.isDestroyed()) return Promise.reject(new Error('the torno window is closed'))
   return new Promise<T>((resolve, reject) => {
     const id = nextId++
-    const timer = setTimeout(() => {
+    const closed = (): void => {
+      const asked = waiting.get(id)
+      if (!asked) return
       waiting.delete(id)
-      reject(new Error(`the torno window did not answer within ${Math.round(timeoutMs / 1000)} s`))
-    }, timeoutMs)
-    waiting.set(id, { resolve, reject, timer })
+      clearTimeout(asked.timer)
+      reject(new Error('the torno window was closed'))
+    }
+    const settled = <A extends unknown[]>(settle: (...args: A) => void) => {
+      return (...args: A): void => {
+        win.removeListener('closed', closed)
+        settle(...args)
+      }
+    }
+    const timer = setTimeout(
+      settled(() => {
+        waiting.delete(id)
+        reject(new Error(`the torno window did not answer within ${Math.round(timeoutMs / 1000)} s`))
+      }),
+      timeoutMs
+    )
+    waiting.set(id, { resolve: settled(resolve as (result: never) => void), reject: settled(reject), timer })
+    win.once('closed', closed)
     win.webContents.send(channel, { id, request: req })
   })
 }

@@ -1,6 +1,6 @@
 import type { BuildState } from './build'
 import type { Described } from './geometry'
-import type { Mark, MarkPatch, NewMark } from './marks'
+import type { Mark, MarkPatch, NewMark, Replacement } from './marks'
 import type { Scene } from './scene'
 import type { SceneFile } from './scenefile'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, ShowRequest, ShowResult, ViewState } from './view'
@@ -38,6 +38,8 @@ export interface TornoBridge {
     add(objectId: string, mark: NewMark): Promise<Mark>
     update(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
     remove(objectId: string, id: string): Promise<void>
+    /** Puts a pin, a pick or an arrow somewhere else on a part: the same mark and note, tied where it was clicked. An arrow keeps its length and direction. */
+    replace(objectId: string, id: string, placed: Replacement): Promise<Mark>
     onChanged(cb: (m: { objectId: string; marks: Mark[] }) => void): () => void
     /** Something about an object's marks file the person should know, said once: a file that could not be read was set aside. */
     onProblem(cb: (m: { objectId: string; message: string }) => void): () => void
@@ -51,8 +53,8 @@ export interface TornoBridge {
   session: {
     /** What there is for an object: its running session, and whether an earlier conversation can be resumed. */
     current(objectId: string): Promise<{ running: { sessionId: string; status: SessionStatus } | null; resumable: boolean }>
-    /** Starts the agent in the object's folder, at the terminal's size; returns the session already running there, if any. */
-    start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }): Promise<{ sessionId: string; cols: number; rows: number }>
+    /** Starts the agent in the object's folder, at the terminal's size; returns the session already running there, if any. Either way with its status as it is then. */
+    start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }): Promise<{ sessionId: string; cols: number; rows: number; status: SessionStatus }>
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
     stop(sessionId: string): Promise<void>

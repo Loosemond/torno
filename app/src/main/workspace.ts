@@ -74,3 +74,22 @@ export async function scanWorkspace(root: string): Promise<WorkspaceInfo> {
   objects.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   return { root, hasProject: await exists(join(root, 'pyproject.toml')), objects }
 }
+
+/**
+ * Orders scans of one workspace that may overlap and end in any order. Call
+ * what it returns when a scan begins; what that returns is asked when the scan
+ * has ended, and says whether its result may be kept: not when a scan begun
+ * later has already been kept, which is the newer word on the folder.
+ */
+export function scanOrder(): () => () => boolean {
+  let begun = 0
+  let kept = 0
+  return () => {
+    const mine = ++begun
+    return () => {
+      if (mine < kept) return false
+      kept = mine
+      return true
+    }
+  }
+}

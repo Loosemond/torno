@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,7 +6,7 @@ import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
 import type { Part, Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { StateFiles, stateText } from './statefile'
+import { StateFiles, stateText, writtenLine } from './statefile'
 
 const part = (layout: string, name: string, min: number[], max: number[]): Part => ({ key: `${layout}:${name}`, name, layout, bbox: { min, max } }) as Part
 const SCENE: Scene = {
@@ -109,6 +109,7 @@ describe('StateFiles', () => {
       scene: () => ({ revision: 3, scene: SCENE }),
       marks: async () => marks,
       delayMs: 20,
+      now: () => new Date(Date.UTC(2026, 9, 9, 4, 30, writes)),
       write: async (file, text) => {
         writes += 1
         const { writeFileAtomic } = await import('./atomic')
@@ -119,8 +120,13 @@ describe('StateFiles', () => {
 
   it('writes the file whole, through a temp file that is gone afterwards', async () => {
     await files.write('bracket')
-    expect(readFileSync(path(), 'utf8')).toBe(stateText(obj, OK, { revision: 3, scene: SCENE }, marks))
+    const first = 'Written by torno at 2026-10-09T04:30:00.000Z; it is only current while torno is running.'
+    expect(readFileSync(path(), 'utf8')).toBe(`${first}\n\n${stateText(obj, OK, { revision: 3, scene: SCENE }, marks)}`)
     expect(readdirSync(join(root, '.torno'))).toEqual(['state.md'])
+  })
+
+  it('says in its first line when it was written, and that it is only current while torno runs', () => {
+    expect(writtenLine(new Date('2026-10-09T04:30:00Z'))).toBe('Written by torno at 2026-10-09T04:30:00.000Z; it is only current while torno is running.')
   })
 
   it('writes once for a burst of changes, a moment after the last', async () => {
@@ -160,16 +166,17 @@ describe('StateFiles', () => {
     await files.write('bracket')
     expect(writes).toBe(2)
     expect(readFileSync(path(), 'utf8')).toContain('- M2 pin')
+    // The time is that of the write that changed it.
+    expect(readFileSync(path(), 'utf8').split('\n')[0]).toContain('2026-10-09T04:30:01.000Z')
     expect(statSync(path()).mtimeMs).toBeGreaterThanOrEqual(before)
   })
 
-  it('leaves alone the file of an earlier run that already says the same', async () => {
+  it('writes the file of an earlier run again, though it says the same: its time was of that run', async () => {
     await files.write('bracket')
     files.forget() // as a new run: nothing is remembered of what was written
     await files.write('bracket')
-    expect(writes).toBe(1)
-    writeFileSync(path(), 'something else')
-    files.forget()
+    expect(writes).toBe(2)
+    expect(readFileSync(path(), 'utf8').split('\n')[0]).toContain('2026-10-09T04:30:01.000Z')
     await files.write('bracket')
     expect(writes).toBe(2)
   })

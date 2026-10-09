@@ -50,6 +50,7 @@ const bridge: TornoBridge = {
     add: (objectId, mark) => invokePlain('marks:add', objectId, mark),
     update: (objectId, id, patch) => invokePlain('marks:update', objectId, id, patch),
     remove: (objectId, id) => invokePlain('marks:remove', objectId, id),
+    replace: (objectId, id, placed) => invokePlain('marks:replace', objectId, id, placed),
     onChanged: (cb) => subscribe('marks:changed', cb),
     onProblem: (cb) => subscribe('marks:problem', cb),
     problem: (objectId) => invokePlain('marks:problem', objectId),

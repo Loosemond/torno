@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { Described } from '../../shared/geometry'
-import { type Anchor, type AnchorState, type Mark, type Vec3, markAnchors } from '../../shared/marks'
+import { type Anchor, type AnchorState, type Mark, type Vec3, markAnchors, strokeSamples } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
@@ -36,6 +36,13 @@ const TOLERANCE_OF_DIAGONAL = 0.005
  */
 export const EDGE_TOLERANCE_MM = 0.5
 const WORST_FIRST: AnchorState[] = ['orphaned', 'drifted', 'ok']
+/**
+ * A stroke on the surface may run from one part onto the next, and its points
+ * do not say which part each is on: each is asked about against every part of
+ * the layout, while the layout has no more parts than this. Beyond it, against
+ * the part the stroke began on only.
+ */
+const STROKE_PARTS = 8
 
 /**
  * How far from the surface of a part an anchor may be and still be on it, in
@@ -88,6 +95,11 @@ export interface ReanchorDeps {
  * its edge ref, and is ok only while the build has an edge of that number
  * within the tolerance of the mark's point: the kernel measures that distance.
  * Otherwise it is drifted, whatever the surface did.
+ *
+ * A stroke on the surface is anchored by its first point, and is more than
+ * that point: a few points along it (`strokeSamples`) are asked about in the
+ * same query, and it is drifted when one of them is on no surface any more,
+ * though its first point is. Its anchor is still refreshed from the first.
  */
 export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise<void> {
   const scene = deps.scene(objectId)
@@ -105,6 +117,8 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
   /** By anchor: what the kernel said of it. */
   const nearest = new Map<Anchor, NearestAnchor>()
   const byLayout = new Map<string, Array<{ anchor: Anchor; asked: AskedAnchor }>>()
+  /** By layout: the points along its strokes, each with the parts it is asked about against, and the stroke it is of. */
+  const alongStrokes = new Map<string, Array<{ id: string; asked: AskedAnchor[] }>>()
   for (const mark of marks) {
     for (const anchor of markAnchors(mark)) {
       if (anchor.part === undefined) continue
@@ -112,8 +126,14 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       byLayout.set(mark.layout, entries)
       const edge = edgeRef(mark)
       entries.push({ anchor, asked: { part: anchor.part, point: anchor.point, ...(edge === undefined ? {} : { edge }) } })
+      const names = scene.parts.filter((p) => p.layout === mark.layout).map((p) => p.name)
+      const parts = names.length <= STROKE_PARTS && names.includes(anchor.part) ? names : [anchor.part]
+      const samples = strokeSamples(mark).map((point) => ({ id: mark.id, asked: parts.map((part) => ({ part, point })) }))
+      if (samples.length > 0) alongStrokes.set(mark.layout, [...(alongStrokes.get(mark.layout) ?? []), ...samples])
     }
   }
+  /** The strokes with a point that is on no surface any more. */
+  const offSurface = new Set<string>()
   for (const [layout, entries] of byLayout) {
     if (!scene.layouts.includes(layout)) {
       // The kernel would refuse the layout; the scene already says none of its parts is there.
@@ -121,8 +141,9 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       continue
     }
     let found: NearestAnchor[]
+    const samples = alongStrokes.get(layout) ?? []
     try {
-      const asked = entries.map((entry) => entry.asked)
+      const asked = [...entries.map((entry) => entry.asked), ...samples.flatMap((sample) => sample.asked)]
       found = nearestReply(await deps.query(objectId, 'nearest', { layout, anchors: asked }), asked)
     } catch (e) {
       if (superseded()) return
@@ -134,6 +155,12 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       nearest.set(anchor, found[i])
       judged.set(anchor, judge(anchor, found[i], toleranceOf(layout, anchor.part)))
     })
+    let at = entries.length
+    for (const sample of samples) {
+      const answers = found.slice(at, at + sample.asked.length)
+      at += sample.asked.length
+      if (!answers.some((one) => one.found && one.distance <= toleranceOf(layout, one.part))) offSurface.add(sample.id)
+    }
   }
 
   // `nearest` names faces. What a pick of an edge or of a whole part points at is not a face.
@@ -186,7 +213,8 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
     const anchors = markAnchors(mark)
     const now = anchors.map((anchor): Judged | undefined => (anchor.part === undefined ? { anchor, state: 'ok' } : judged.get(anchor)))
     if (!now.every((j) => j !== undefined)) continue
-    const anchorState = WORST_FIRST.find((state) => now.some((j) => j.state === state)) ?? 'ok'
+    const ofAnchors = WORST_FIRST.find((state) => now.some((j) => j.state === state)) ?? 'ok'
+    const anchorState = ofAnchors === 'ok' && offSurface.has(mark.id) ? 'drifted' : ofAnchors
     if (anchorState === mark.anchorState && now.every((j, i) => isDeepStrictEqual(j.anchor, anchors[i]))) continue
     changes.push({ id: mark.id, anchors: now.map((j) => j.anchor), anchorState })
   }

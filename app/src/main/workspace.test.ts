@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { scanWorkspace } from './workspace'
+import { scanOrder, scanWorkspace } from './workspace'
 
 const FIXTURES = resolve(__dirname, '../../../kernel/tests/fixtures/ws')
 
@@ -88,5 +88,33 @@ describe('scanWorkspace', () => {
 
   it('rejects a root that is not a folder', async () => {
     await expect(scanWorkspace(join(root, 'missing'))).rejects.toThrow(/missing/)
+  })
+})
+
+describe('scanOrder', () => {
+  it('keeps scans that end in the order they began', () => {
+    const begin = scanOrder()
+    const first = begin()
+    expect(first()).toBe(true)
+    const second = begin()
+    expect(second()).toBe(true)
+  })
+
+  it('drops a scan that ends after one begun later has been kept', () => {
+    const begin = scanOrder()
+    const older = begin()
+    const newer = begin()
+    expect(newer()).toBe(true)
+    expect(older()).toBe(false)
+    // And the next one is kept again.
+    expect(begin()()).toBe(true)
+  })
+
+  it('keeps an older scan while the newer one has not ended, which then replaces it', () => {
+    const begin = scanOrder()
+    const older = begin()
+    const newer = begin()
+    expect(older()).toBe(true)
+    expect(newer()).toBe(true)
   })
 })

@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
 import type { Described } from '../shared/geometry'
-import type { MarkPatch, NewMark } from '../shared/marks'
+import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { ViewState } from '../shared/view'
@@ -18,13 +18,14 @@ import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
-import { scanWorkspace } from './workspace'
+import { sessionOfWorkspace } from './sessions/status'
+import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:stop,
-//           marks:list, marks:add, marks:update, marks:remove, marks:problem (also sent to the renderer),
+//           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           session:write, session:resize, session:insert
@@ -33,7 +34,9 @@ import { scanWorkspace } from './workspace'
 //           marks:changed, marks:problem
 
 interface OpenWorkspace {
-  info: WorkspaceInfo // as of the last scan
+  info: WorkspaceInfo // as of the newest scan that has ended
+  /** Scans overlap (a burst of changes in two folders, an object opened meanwhile): an older one never replaces a newer. */
+  scan: () => () => boolean
   /** Has the marks of an object checked against its last build (see `openWorkspace`). */
   reanchor?: (objectId: string) => void
   kernel: KernelClient
@@ -49,6 +52,14 @@ let sessions: Sessions | null = null
 
 /** The marks of the objects of the open workspace, once `registerIpc` has been given them. */
 let marks: MarkStore | null = null
+
+/** By object: how many checks of its marks against a build were started, and how many have ended. */
+const checks = new Map<string, { started: number; finished: number }>()
+
+/** How many checks of an object's marks against its build were started and have ended: equal when none is under way. For tests. */
+export function marksChecks(objectId: string): { started: number; finished: number } {
+  return { ...(checks.get(objectId) ?? { started: 0, finished: 0 }) }
+}
 
 /** Told where the build of an object stands, each time that changes, once `registerIpc` has been given it. */
 let onBuild: ((state: BuildState) => void) | null = null
@@ -85,7 +96,7 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
         })
       })
   })
-  const ws: OpenWorkspace = { info, kernel, builds, opened: new Set(), shown: null }
+  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null }
   builds.on('build', (state) => {
     broadcast('object:build', state)
     onBuild?.(state)
@@ -99,6 +110,9 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   const reanchor = coalesced((objectId) => {
     const store = marks
     if (!store) return Promise.resolve()
+    const counted = checks.get(objectId) ?? { started: 0, finished: 0 }
+    checks.set(objectId, counted)
+    counted.started += 1
     return reanchorAll(
       {
         marks: store,
@@ -107,7 +121,7 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
         scene: (id) => (current === ws ? builds.scene(id)?.scene : undefined)
       },
       objectId
-    )
+    ).finally(() => (counted.finished += 1))
   })
   builds.on('scene', ({ objectId }) => reanchor(objectId))
   ws.reanchor = reanchor
@@ -121,8 +135,9 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
  * that fails leaves what was known.
  */
 async function rescan(ws: OpenWorkspace): Promise<void> {
+  const newest = ws.scan()
   const scanned = await scanWorkspace(ws.info.root).catch(() => null)
-  if (scanned && current === ws) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
+  if (scanned && current === ws && newest()) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
 }
 
 export async function closeWorkspace(): Promise<void> {
@@ -130,6 +145,7 @@ export async function closeWorkspace(): Promise<void> {
   if (!ws) return
   current = null
   forgetViews()
+  checks.clear()
   // The next workspace may have an object of the same name, or this folder may change while it is closed.
   marks?.forget()
   onWorkspaceClosed?.()
@@ -250,10 +266,11 @@ export function registerIpc(
     ws.shown = id
     ws.builds.show(id)
     // Scanned afresh: the agent may have created the folder a moment ago.
+    const newest = ws.scan()
     const scanned = await scanWorkspace(ws.info.root)
     // The workspace may have been closed or replaced during the scan; its kernel is then gone.
     if (current !== ws) throw new Error(`the workspace ${ws.info.root} was closed`)
-    ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
+    if (newest()) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
     const obj = ws.info.objects.find((o) => o.id === id)
     if (!obj) throw new Error(`no object named ${id} in ${ws.info.root}`)
     const state = ws.builds.open(obj)
@@ -296,12 +313,17 @@ export function registerIpc(
 
   ipcMain.handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
 
+  // What a window types or inserts goes only to a session the manager has for an object of the open
+  // workspace: the window names a session, and is not taken at its word.
+  const ofThisWorkspace = (sessionId: string): boolean =>
+    sessions !== null && sessionOfWorkspace(sessions.objectOf(sessionId), (id) => findObject(id)?.dir)
+
   ipcMain.on('session:write', (_event, sessionId: string, data: string) => {
-    if (typeof data === 'string') sessions?.write(String(sessionId), data)
+    if (typeof data === 'string' && ofThisWorkspace(String(sessionId))) sessions?.write(String(sessionId), data)
   })
 
   ipcMain.on('session:insert', (_event, sessionId: string, text: string) => {
-    if (typeof text === 'string') sessions?.insert(String(sessionId), text)
+    if (typeof text === 'string' && ofThisWorkspace(String(sessionId))) sessions?.insert(String(sessionId), text)
   })
 
   ipcMain.on('session:resize', (_event, sessionId: string, cols: number, rows: number) => {
@@ -318,6 +340,9 @@ export function registerIpc(
     requireMarks().update(String(objectId), String(id), patch)
   )
   ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))
+  ipcMain.handle('marks:replace', (_event, objectId: string, id: string, placed: Replacement) =>
+    requireMarks().replace(String(objectId), String(id), placed)
+  )
   ipcMain.handle('marks:problem', (_event, objectId: string) => requireMarks().problem(String(objectId)))
   ipcMain.handle('marks:dismissProblem', (_event, objectId: string) => requireMarks().dismissProblem(String(objectId)))
 

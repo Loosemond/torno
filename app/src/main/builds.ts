@@ -71,6 +71,12 @@ interface Entry {
   startedAt: number
   /** Something other than Python changed while it was building: build once more when that build ends. */
   changedMeanwhile: boolean
+  /**
+   * The build wanted, or running, is of sources that have not changed: the
+   * kernel let go of the last one and a query needs it back (see `query`). The
+   * parts on screen are what it will make, so they are not stale meanwhile.
+   */
+  restoring: boolean
   unwatch: Array<() => void>
   /** Queries waiting for the next build to end, because the kernel no longer holds the last one (see `query`). */
   rebuilt?: { promise: Promise<void>; resolve: () => void; reject: (e: KernelError) => void }
@@ -83,9 +89,10 @@ interface Entry {
  * The kernel runs one build at a time: starting one cancels the one running.
  * For the same object that is what a save of its Python mid-build wants. Any
  * other file changing mid-build may be the model's own doing (a cache, an
- * export), so that build is left to finish and one more follows it. A build
- * displaced by another object's is started again once the kernel is free, the
- * object shown in the window first.
+ * export), so that build is left to finish and one more follows it: one, since
+ * a model that writes such a file every time it builds would otherwise build
+ * for ever. A build displaced by another object's is started again once the
+ * kernel is free, the object shown in the window first.
  */
 export class Builds {
   private readonly kernel: KernelClient
@@ -137,6 +144,7 @@ export class Builds {
         attempt: 0,
         startedAt: 0,
         changedMeanwhile: false,
+        restoring: false,
         unwatch: []
       }
       this.entries.set(obj.id, entry)
@@ -168,6 +176,7 @@ export class Builds {
     const obj = this.choice(scanned)
     if (!entry || (entry.obj.model === obj.model && entry.obj.problem === obj.problem)) return false
     entry.obj = obj
+    entry.restoring = false
     this.start(entry)
     return true
   }
@@ -181,12 +190,18 @@ export class Builds {
     if (!entry) return
     const building = entry.state.status === 'building'
     if (building && paths.length > 0 && !paths.some((path) => path.endsWith('.py'))) entry.changedMeanwhile = true
-    else this.start(entry)
+    else this.startChanged(entry)
   }
 
   rebuild(objectId: string): void {
     const entry = this.entries.get(objectId)
-    if (entry) this.start(entry)
+    if (entry) this.startChanged(entry)
+  }
+
+  /** Build because the sources may have changed: what is on screen is stale until it ends. */
+  private startChanged(entry: Entry): void {
+    entry.restoring = false
+    this.start(entry)
   }
 
   close(objectId: string): void {
@@ -217,7 +232,8 @@ export class Builds {
    * restart. When it no longer holds this one, the object is built again and
    * the kernel asked once more; if that build fails, the rejection is its
    * error. The build takes its turn: it never stops one that is running, and
-   * queries that wait at the same time share it.
+   * queries that wait at the same time share it. The sources are the ones the
+   * parts on screen were built from, so that build does not make them stale.
    */
   async query<T = unknown>(objectId: string, name: string, args: object): Promise<T> {
     const entry = this.entries.get(objectId)
@@ -247,6 +263,7 @@ export class Builds {
       entry.rebuilt = { promise, resolve, reject }
       // A build of this object that is running, or waiting for its turn, will do.
       if (entry.state.status !== 'building') {
+        entry.restoring = true
         if (this.running === null) this.start(entry)
         else this.displaced.add(entry.obj.id) // started when the kernel is free
       }
@@ -269,23 +286,29 @@ export class Builds {
     else this.sceneListeners.push(cb as (m: SceneMessage) => void)
   }
 
-  private start(entry: Entry): void {
+  /** `followUp`: the build is started only because something other than Python changed during the last one. */
+  private start(entry: Entry, followUp = false): void {
     const { obj } = entry
     const id = obj.id
     const attempt = ++entry.attempt
     const revision = entry.state.revision
+    const stale = revision > 0 && !entry.restoring
     this.displaced.delete(id)
     entry.changedMeanwhile = false // this build sees whatever changed
 
     if (obj.model === null) {
       const message = obj.problem ?? `no model file in ${obj.dir}`
+      entry.restoring = false
       this.set(entry, { objectId: id, status: 'failed', revision, error: { kind: 'no_model', message }, stale: revision > 0 })
       this.abandon(id)
       return
     }
 
+    // The kernel drops the build it is running for this one. Its `cancelled` may land after this build
+    // has ended and the kernel is free again, when nothing would say any more that it was displaced.
+    if (this.running !== null && this.running !== id) this.displaced.add(this.running)
     entry.startedAt = this.now()
-    this.set(entry, { objectId: id, status: 'building', revision, startedAt: entry.startedAt, stale: revision > 0 })
+    this.set(entry, { objectId: id, status: 'building', revision, startedAt: entry.startedAt, stale })
     this.running = id
     const opts = this.timeout === undefined ? undefined : { timeout: this.timeout }
     void this.kernel.build(obj.dir, obj.model, opts).then((result) => {
@@ -297,12 +320,17 @@ export class Builds {
         // shut down, or refused): a failure. Starting it again from here could
         // loop without ever yielding, since such a reply need not be a round trip.
         const displaced = !result.ok && result.error.kind === 'cancelled' && this.running !== null
-        const again = entry.changedMeanwhile
+        // Once: the build that follows such a change is not followed for another.
+        const again = entry.changedMeanwhile && !followUp
+        if (!displaced) {
+          entry.restoring = false
+          this.displaced.delete(id) // it ended by itself after all: there is nothing to start again
+        }
         if (result.ok) this.succeeded(entry, result.scene, result.blob)
         else if (displaced) this.displaced.add(id)
         else this.failed(entry, result.error)
         // A listener may have closed the object, or started it again, by now.
-        if (again && !displaced && this.entries.get(id) === entry && entry.attempt === attempt) this.start(entry)
+        if (again && !displaced && this.entries.get(id) === entry && entry.attempt === attempt) this.start(entry, true)
       }
       // Otherwise a newer build of this object replaced this one, or the object
       // was closed: whatever the result says, it is not shown.
