@@ -13,17 +13,11 @@ import { onlyKeysWrong, unknownKeys } from './keys'
 import type { ScanInfo } from '../../shared/scans'
 import type { AlignmentSaid } from '../scans/said'
 import { regionLost, scanFor } from './scanTools'
+import { type AddMarkArgs, type HighlightArgs, type ResolveMarkArgs, FOV, INTENTS, MEASURES, SHAPES } from './schemas'
 import {
-  type AddMarkArgs,
-  type HighlightArgs,
-  type ResolveMarkArgs,
   type ToolDeps,
   type ToolResult,
-  FOV,
-  INTENTS,
   MARK_ID,
-  MEASURES,
-  SHAPES,
   behind,
   built,
   failure,

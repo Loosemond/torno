@@ -8,7 +8,9 @@ import type { Camera, LookRequest, LookResult, ShowRequest, ViewState } from '..
 import type { ObjectInfo } from '../../shared/workspace'
 import type { NearestAnchor } from '../marks/reanchor'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
-import { describeTool, lookTool, marksTool, sceneTool, showTool, TOOLS, type ToolDeps } from './tools'
+import { TOOLS } from './schemas'
+import { describeTool, marksTool, type ToolDeps } from './tools'
+import { lookTool, sceneTool, showTool } from './viewTools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 const STAND: ObjectInfo = { id: 'helmet-stand', name: 'helmet-stand', dir: '/ws/helmet-stand', model: 'stand.py' }

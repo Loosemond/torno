@@ -6,7 +6,8 @@ import type { ScanAlignment, ScanInfo } from '../../shared/scans'
 import type { Camera, ViewState } from '../../shared/view'
 import { KernelError } from '../kernel/client'
 import { scanClashTool, scanDeviationTool, scansTool } from './scanTools'
-import { type ToolDeps, type ToolResult, TOOLS } from './tools'
+import { TOOLS } from './schemas'
+import type { ToolDeps, ToolResult } from './tools'
 
 // The agent's tools for scans, against stand-ins for the kernel, the scans and the marks: what is asked of the
 // kernel is kept, and what it says is whatever the test gives it to say, in the shapes `scanclash.py` answers in.

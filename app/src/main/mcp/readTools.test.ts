@@ -7,7 +7,9 @@ import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState
 import { KernelError } from '../kernel/client'
 import { addMarkTool } from './markTools'
 import { MAX_SECTION_POINTS, checkTool, measureTool, sectionTool, thinned } from './readTools'
-import { type ToolDeps, type ToolResult, describeTool, lookTool, sceneTool, showTool, TOOLS } from './tools'
+import { TOOLS } from './schemas'
+import { type ToolDeps, type ToolResult, describeTool } from './tools'
+import { lookTool, sceneTool, showTool } from './viewTools'
 
 // The tools the agent reads the part with, against stand-ins for the kernel,
 // the marks and the window: what is asked of each is kept, and what the
