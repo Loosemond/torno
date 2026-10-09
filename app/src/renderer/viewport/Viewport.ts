@@ -53,6 +53,8 @@ type Vec3 = [number, number, number]
 const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C', user: '#CF3F2C', panel: '#FAF9F6', axisX: '#9A3350', axisY: '#4C7F2C', axisZ: '#2E5FA9' }
 
 const SETTLE_MS = 150
+/** How near the handle of the section's plane the pointer must be to take hold of it, in pixels. */
+export const SECTION_HANDLE_REACH_PX = 12
 const MOVE_MS = 240
 /** How far a stale part's colour is taken towards the background. */
 const STALE_FADE = 0.6
@@ -485,7 +487,8 @@ export class Viewport {
     const at = this.canvasPoint(clientX, clientY)
     if (!at) return null
     this.syncMatrices()
-    const parts = [...this.entries.values()].filter((e) => e.built.group.visible).map((e) => ({ key: e.part.key, name: e.part.name, built: e.built }))
+    // Not what is switched off, nor what the section leaves nothing of.
+    const parts = [...this.entries.values()].filter((e) => e.built.group.visible && !this.section.removed(e.built)).map((e) => ({ key: e.part.key, name: e.part.name, built: e.built }))
     const keeps = this.section.keeps()
     const picked = pickUnder(parts, this.camera, at.ndc, at.size, { ...opts, cut: keeps && { keeps } })
     this.onCut = picked.cut
@@ -497,9 +500,11 @@ export class Viewport {
   /**
    * Cuts the parts by a plane, or by none: what is on the side its normal
    * points to is not drawn, and each closed solid shows its cut face in its
-   * own colour, a step darker. A part that is not a closed solid is cut open.
-   * The marks, the grid and the gizmo are not cut. With a section, only what
-   * is drawn can be pointed at: on a cut face `pick` finds nothing.
+   * own colour, a step darker. A part that is not a closed solid is cut open,
+   * and one the plane only touches or leaves nothing of is not drawn at all.
+   * The marks, the grid and the gizmo are not cut; a mark anchored in the half
+   * taken away is drawn dimmed. With a section, only what is drawn can be
+   * pointed at: on a cut face `pick` finds nothing.
    *
    * Cheap enough to call with every move of a drag: the frame is drawn once.
    */
@@ -519,6 +524,19 @@ export class Viewport {
     this.invalidate()
   }
 
+  /** Whether a point of the window is on the handle of the plane, or within `SECTION_HANDLE_REACH_PX` of it. False while there is no handle. */
+  onSectionHandle(clientX: number, clientY: number): boolean {
+    this.syncMatrices()
+    const span = this.section.handleSpan((at) => mmPerPx(this.camera, at, this.canvas.clientHeight || 1))
+    if (!span) return false
+    const [ax, ay] = this.project(span[0].toArray())
+    const [bx, by] = this.project(span[1].toArray())
+    const [dx, dy] = [bx - ax, by - ay]
+    const length = dx * dx + dy * dy
+    const t = length > 0 ? Math.min(Math.max(((clientX - ax) * dx + (clientY - ay) * dy) / length, 0), 1) : 0
+    return Math.hypot(ax + dx * t - clientX, ay + dy * t - clientY) <= SECTION_HANDLE_REACH_PX
+  }
+
   /** The box the section is laid across: around every part of the layout shown, switched on or not, in the object frame. */
   sectionBox(): { min: Vec3; max: Vec3 } {
     const { min, max } = this.boxOfLayout(this.layout)
@@ -533,6 +551,9 @@ export class Viewport {
   private cutBy(plane: SectionPlane | null, layout: string, decor: boolean): void {
     this.section.showDecor(decor)
     this.section.set(plane, this.boxOfLayout(layout))
+    this.marks.setSection(plane)
+    // A picture is drawn at once, with the parts it shows already switched on; the screen's frame asks in `draw`.
+    if (!decor) this.section.outline()
   }
 
   /** A sphere around everything drawn in the layout shown: the parts and the grid, the marks, the plane of the section. */
@@ -609,25 +630,6 @@ export class Viewport {
    */
   renderImage(request: ImageRequest | (() => ImageRequest)): Promise<Picture> {
     return this.pictures.render(request)
-  }
-
-  /**
-   * What drawing the view as it is costs: `count` frames drawn one after the
-   * other, each waited for until the graphics card has finished it. The mean
-   * and the worst, in milliseconds. For the tests, which watch that a section
-   * stays cheap.
-   */
-  timeFrames(count: number): { count: number; meanMs: number; worstMs: number } {
-    const gl = this.renderer.getContext()
-    let worst = 0
-    const started = performance.now()
-    for (let i = 0; i < count; i++) {
-      const before = performance.now()
-      this.draw()
-      gl.finish()
-      worst = Math.max(worst, performance.now() - before)
-    }
-    return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
   }
 
   /** Matches the drawing buffer to the canvas's size on the page. Call when the canvas is resized. */
@@ -967,6 +969,7 @@ export class Viewport {
     this.camera.updateMatrixWorld()
     this.marks.update(this.camera, size)
     this.section.sizeHandle((at) => mmPerPx(this.camera, at, size.height))
+    this.section.outline()
     this.renderer.render(this.scene, this.camera)
     this.drawLabels(size)
     for (const cb of this.drawnListeners) cb()

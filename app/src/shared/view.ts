@@ -49,6 +49,15 @@ export function sectionOf(value: unknown): SectionPlane | null {
   return { origin, normal: [normal[0] / length + 0, normal[1] / length + 0, normal[2] / length + 0] }
 }
 
+/**
+ * A section as it is kept: the point of its plane to the millionth of a
+ * millimetre, so that what is left of adding and taking away tenths reaches
+ * neither the scene file nor what the agent is told.
+ */
+export function snappedSection(plane: SectionPlane): SectionPlane {
+  return { origin: plane.origin.map((c) => Math.round(c * 1e6) / 1e6 + 0) as [number, number, number], normal: plane.normal }
+}
+
 /** Said to the agent of a section that is no plane. */
 export const NOT_A_PLANE = 'section is not a plane: give origin and normal as three numbers each, the normal not all zeros'
 

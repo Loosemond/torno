@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { number } from '../../shared/format'
 import { useAgentHighlight } from '../state/agent'
 import { actions, useStore } from '../state/store'
 import { setTool, useTool } from '../state/tools'
-import { setFromFace, useFromFace } from '../tools/sectionTool'
-import { atOffset, axisOf, flipped, planeOnAxis, sectionExtent, sectionOffset, shownMm, type Axis } from '../viewport/section'
+import { NUDGE_FINE_MM, NUDGE_MM, setFromFace, useFromFace } from '../tools/sectionTool'
+import { atOffset, axisOf, flipped, keepsNothing, planeOnAxis, sectionExtent, sectionOffset, type Axis } from '../viewport/section'
 import type { Viewport } from '../viewport/Viewport'
 
 const AXES: Axis[] = ['x', 'y', 'z']
@@ -16,6 +17,11 @@ const AXES: Axis[] = ['x', 'y', 'z']
  *
  * The slider moves the plane in the viewport as it is dragged and the plane
  * is kept when it is let go; the number beside it follows without a render.
+ * With the slider in focus the arrow keys nudge the plane as they do with the
+ * tool: a millimetre, with Shift a tenth.
+ *
+ * A plane that leaves nothing of the parts (one kept from another layout, or
+ * from before a part shrank) says so, with a way back to the middle.
  */
 export function SectionBar({ viewport }: { viewport: Viewport }) {
   const section = useStore((s) => s.section)
@@ -36,7 +42,7 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
   // The slider and the number are the DOM's own while they are being changed: nothing of a drag is React's.
   useEffect(() => {
     if (slider.current) slider.current.value = String(offset)
-    if (field.current && document.activeElement !== field.current) field.current.value = section ? shownMm(offset) : ''
+    if (field.current && document.activeElement !== field.current) field.current.value = section ? number(offset) : ''
   }, [offset, section, extent.min, extent.max])
 
   useEffect(() => {
@@ -46,27 +52,37 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
     const preview = (): void => {
       const plane = at()
       viewport.setSection(plane)
-      if (field.current) field.current.value = shownMm(sectionOffset(plane, box))
+      if (field.current) field.current.value = number(sectionOffset(plane, box))
     }
     const keep = (): void => actions.setSection(at())
+    // The browser's own step for a key is a share of the range: a millimetre is what an arrow is everywhere else.
+    const nudge = (e: KeyboardEvent): void => {
+      const way = e.key === 'ArrowUp' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? -1 : 0
+      if (way === 0 || e.ctrlKey || e.metaKey || e.altKey) return
+      e.preventDefault()
+      actions.setSection(atOffset(section, box, sectionOffset(section, box) + way * (e.shiftKey ? NUDGE_FINE_MM : NUDGE_MM)))
+    }
     range.addEventListener('input', preview)
     range.addEventListener('change', keep)
+    range.addEventListener('keydown', nudge)
     return () => {
       range.removeEventListener('input', preview)
       range.removeEventListener('change', keep)
+      range.removeEventListener('keydown', nudge)
     }
   }, [viewport, section, box])
 
   if (!section && !inHand) return null
 
   const along = section ? axisOf(section.normal) : null
+  const nothingLeft = section !== null && keepsNothing(box, section)
   const typed = (): void => {
     const input = field.current
     if (!input || !section) return
     const text = input.value.trim().replace(',', '.')
     const mm = text === '' ? Number.NaN : Number(text)
-    if (Number.isFinite(mm) && shownMm(mm) !== shownMm(offset)) actions.setSection(atOffset(section, box, mm))
-    else input.value = shownMm(offset)
+    if (Number.isFinite(mm) && number(mm) !== number(offset)) actions.setSection(atOffset(section, box, mm))
+    else input.value = number(offset)
   }
   // Above the selection and what the agent points at, which have the bottom edge.
   const raised = (selected ? 1 : 0) + (pointedOut ? 1 : 0)
@@ -128,13 +144,13 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
           spellCheck={false}
           autoComplete="off"
           aria-label="Offset in millimetres"
-          defaultValue={section ? shownMm(offset) : ''}
+          defaultValue={section ? number(offset) : ''}
           disabled={!section}
           onFocus={(e) => e.currentTarget.select()}
           onBlur={typed}
           onKeyDown={(e) => {
             if (e.key === 'Enter') typed()
-            else if (e.key === 'Escape') e.currentTarget.value = shownMm(offset)
+            else if (e.key === 'Escape') e.currentTarget.value = number(offset)
             else return
             e.preventDefault()
             e.stopPropagation()
@@ -161,6 +177,17 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
       >
         Off
       </button>
+      {section && nothingLeft && (
+        <>
+          <span className="viewbar-rule" aria-hidden="true" />
+          <span className="section-note" role="status">
+            Everything is on the cut side
+          </span>
+          <button type="button" className="bar-button" title="Put the plane through the middle of the parts" onClick={() => actions.setSection(atOffset(section, box, 0))}>
+            Reset
+          </button>
+        </>
+      )}
     </div>
   )
 }

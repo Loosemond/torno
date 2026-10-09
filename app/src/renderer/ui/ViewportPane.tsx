@@ -256,7 +256,20 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         }
         return { count, hits, meanMs: (performance.now() - started) / count, worstMs: worst }
       },
-      timeFrames: (count = 20) => viewport.timeFrames(count),
+      timeFrames: (count = 20) => {
+        // What drawing the view as it is costs: each frame waited for until the graphics card has finished it.
+        const gl = viewport.canvas.getContext('webgl2')
+        const draw = (viewport as unknown as { draw(): void }).draw.bind(viewport)
+        let worst = 0
+        const started = performance.now()
+        for (let i = 0; i < count; i++) {
+          const before = performance.now()
+          draw()
+          gl?.finish()
+          worst = Math.max(worst, performance.now() - before)
+        }
+        return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
+      },
       markScreen: (id) => {
         const box = canvasBox(viewport)
         const label = viewport.markLabel(id)

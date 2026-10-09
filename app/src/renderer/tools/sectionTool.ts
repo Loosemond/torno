@@ -1,10 +1,11 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
+import { number } from '../../shared/format'
 import type { Vec3 } from '../../shared/marks'
 import type { SectionPlane } from '../../shared/view'
 import { actions, store } from '../state/store'
 import type { Hit } from '../viewport/picking'
-import { atOffset, planeFromFace, planeRect, sectionExtent, sectionOffset, shownMm } from '../viewport/section'
+import { atOffset, planeFromFace, planeRect, sectionExtent, sectionOffset } from '../viewport/section'
 import type { ViewportPointer } from '../viewport/Viewport'
 import { DESCRIBE_WITHIN_MS, DRAG_PX, dot, sub, within, type Tool, type ToolContext } from './Tool'
 
@@ -23,6 +24,11 @@ export function setFromFace(fromFace: boolean): void {
 /** Said at the pointer while a face is waited for. */
 export const PICK_A_FACE = 'Click a flat face to put the plane on it'
 export const NOT_FLAT = 'That face is not flat: the plane needs a flat one'
+export const NOT_CONFIRMED = 'The kernel has not said that face is flat: click it again'
+
+/** By how much an arrow key moves the plane, in millimetres, and with Shift. */
+export const NUDGE_MM = 1
+export const NUDGE_FINE_MM = 0.1
 
 /** Looking along the plane's normal more nearly than this (as a cosine), a drag has no way along it on screen: it goes by its height instead. */
 const ALONG_VIEW = 0.98
@@ -52,21 +58,28 @@ interface Drag {
 }
 
 /**
- * The section tool: with a plane on, dragging anywhere in the viewport moves
- * it along its normal (with Alt the drag turns the camera, as with any tool
- * that takes every press), and the arrow keys nudge it by a millimetre, with
- * Shift by a tenth. While a face is waited for (`sectionStore.fromFace`), a
- * click on a flat face puts the plane on it instead; the kernel says whether
- * it is flat, and which way it faces.
+ * The section tool. The plane has a handle, an arrow at its middle: a drag
+ * that starts on it moves the plane along its normal, and the cursor says
+ * where that is. A drag that starts anywhere else turns the camera as with
+ * any tool: a cut is looked at from all sides. The arrow keys nudge the plane
+ * by a millimetre, with Shift by a tenth. While a face is waited for
+ * (`sectionStore.fromFace`), a click on a flat face puts the plane on it: the
+ * kernel says whether it is flat, and where and how it lies.
  *
  * The plane moves in the viewport with every move of the drag and is kept
- * (`actions.setSection`) once, when the drag is let go.
+ * (`actions.setSection`) once, when the drag is let go; Escape, or putting
+ * the tool down, leaves it where it was when the drag began.
  */
 export function sectionTool(): Tool {
   let drag: Drag | null = null
 
+  const boxOf = (ctx: ToolContext) => ctx.viewport.sectionBox?.() ?? ctx.viewport.bounds()
+  const setCursor = (ctx: ToolContext, cursor: string): void => {
+    if (ctx.viewport.canvas) ctx.viewport.canvas.style.cursor = cursor
+  }
+
   const moved = (e: ViewportPointer, d: Drag, ctx: ToolContext): SectionPlane => {
-    const box = ctx.viewport.sectionBox?.() ?? ctx.viewport.bounds()
+    const box = boxOf(ctx)
     const { min, max } = sectionExtent(box, d.from.normal)
     const now = d.start === null ? null : alongNormal(e.ray, d.at, d.from.normal)
     // Up the screen is along the normal where the view gives no other way of telling.
@@ -74,12 +87,15 @@ export function sectionTool(): Tool {
     return atOffset(d.from, box, sectionOffset(d.from, box) + by)
   }
 
-  const end = (ctx: ToolContext): void => {
+  /** The drag is over: the plane is kept as it has it, or put back where it was. */
+  const end = (ctx: ToolContext, keep: boolean): void => {
     const d = drag
     drag = null
     ctx.viewport.setNavigation(true)
     ctx.readout.hide()
-    if (d?.to) actions.setSection(d.to)
+    if (!d?.to) return
+    if (keep) actions.setSection(d.to)
+    else ctx.viewport.setSection?.(d.from)
   }
 
   const fromFace = async (hit: Hit, ctx: ToolContext, client: [number, number]): Promise<void> => {
@@ -87,12 +103,13 @@ export function sectionTool(): Tool {
     const said = await within(ctx.describe(hit.ref), DESCRIBE_WITHIN_MS)
     const now = store.getState()
     if (now.objectId !== objectId || now.revision !== revision || now.layout !== layout || !sectionStore.getState().fromFace) return
-    if (said?.kind === 'face' && said.type !== 'plane') return ctx.readout.say(client, NOT_FLAT)
-    // The kernel's normal is exact; which of its two ways is out of the part, the surface under the pointer says.
-    let normal = hit.normal
-    if (said?.kind === 'face' && said.normal) normal = hit.normal && dot(said.normal, hit.normal) < 0 ? (said.normal.map((c) => -c) as Vec3) : said.normal
-    const plane = planeFromFace({ point: hit.point, normal })
-    if (!plane) return
+    // Only the kernel knows a face is flat: without its word the plane is put nowhere.
+    if (said?.kind !== 'face' || (said.type === 'plane' && !said.normal)) return ctx.readout.say(client, NOT_CONFIRMED)
+    if (said.type !== 'plane' || !said.normal) return ctx.readout.say(client, NOT_FLAT)
+    // Where and how the kernel says the face lies; which of the normal's two ways is out of the part, the surface under the pointer says.
+    const normal = hit.normal && dot(said.normal, hit.normal) < 0 ? (said.normal.map((c) => -c) as Vec3) : said.normal
+    const plane = planeFromFace({ point: said.center, normal })
+    if (!plane) return ctx.readout.say(client, NOT_CONFIRMED)
     setFromFace(false)
     ctx.viewport.setHover(null)
     ctx.readout.hide()
@@ -101,9 +118,10 @@ export function sectionTool(): Tool {
 
   return {
     id: 'section',
-    cursor: 'ns-resize',
+    cursor: 'default',
     onPointer(e: ViewportPointer, ctx: ToolContext) {
       if (sectionStore.getState().fromFace) {
+        setCursor(ctx, 'crosshair')
         if (e.type === 'click') {
           // The face under the pointer, also within reach of one of its edges.
           const face = e.hit?.kind === 'face' ? e.hit : ctx.viewport.pick(e.client[0], e.client[1], { edges: false })
@@ -121,26 +139,35 @@ export function sectionTool(): Tool {
         return
       }
 
-      if (e.type === 'down') {
+      if (!drag) {
+        const onHandle = e.type !== 'cancel' && ctx.viewport.onSectionHandle?.(e.client[0], e.client[1]) === true
+        // The cursor says where the plane can be taken hold of; while a button is held elsewhere, the camera is being turned.
+        if (e.buttons === 0 || e.type === 'down') setCursor(ctx, onHandle ? 'ns-resize' : '')
         const plane = ctx.viewport.getSection?.() ?? null
-        // With Alt the press is the camera's.
-        if (!(e.buttons & 1) || e.alt || !plane) return
-        const at = planeRect(plane, ctx.viewport.sectionBox?.() ?? ctx.viewport.bounds()).centre
+        if (e.type !== 'down' || !(e.buttons & 1) || !onHandle || !plane) return
+        const at = planeRect(plane, boxOf(ctx)).centre
         drag = { from: plane, at, start: alongNormal(e.ray, at, plane.normal), client: e.client, to: null }
         ctx.viewport.setNavigation(false, { wheel: true })
         return
       }
-      if (!drag) return
-      if (e.type === 'cancel' || e.type === 'up' || !(e.buttons & 1)) return end(ctx)
+      // The pointer left the view with the button held: the drag goes on when it comes back.
+      if (e.type === 'cancel' && e.buttons & 1) return
+      if (e.type === 'cancel' || e.type === 'up' || !(e.buttons & 1)) return end(ctx, true)
       if (e.type !== 'move') return
       if (!drag.to && Math.hypot(e.client[0] - drag.client[0], e.client[1] - drag.client[1]) < DRAG_PX) return
       drag.to = moved(e, drag, ctx)
       ctx.viewport.setSection?.(drag.to)
-      ctx.readout.show(e.client, `${shownMm(sectionOffset(drag.to, ctx.viewport.sectionBox?.() ?? ctx.viewport.bounds()))} mm`)
+      ctx.readout.show(e.client, `${number(sectionOffset(drag.to, boxOf(ctx)))} mm`)
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
-      if (e.key === 'Escape' && sectionStore.getState().fromFace) {
+      if (e.key === 'Escape') {
+        if (drag) {
+          end(ctx, false)
+          return true
+        }
+        if (!sectionStore.getState().fromFace) return false
         setFromFace(false)
+        setCursor(ctx, '')
         ctx.viewport.setHover(null)
         ctx.readout.hide()
         return true
@@ -148,14 +175,14 @@ export function sectionTool(): Tool {
       const way = e.key === 'ArrowUp' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? -1 : 0
       const plane = store.getState().section
       if (way === 0 || !plane || drag) return false
-      const box = ctx.viewport.sectionBox?.() ?? ctx.viewport.bounds()
-      // To the micron: tenths added up are not tenths to the last digit.
-      actions.setSection(atOffset(plane, box, Math.round((sectionOffset(plane, box) + way * (e.shiftKey ? 0.1 : 1)) * 1000) / 1000))
+      const box = boxOf(ctx)
+      actions.setSection(atOffset(plane, box, sectionOffset(plane, box) + way * (e.shiftKey ? NUDGE_FINE_MM : NUDGE_MM)))
       return true
     },
     cancel(ctx: ToolContext) {
-      if (drag) end(ctx)
+      if (drag) end(ctx, false)
       setFromFace(false)
+      setCursor(ctx, '')
       ctx.viewport.setHover(null)
       ctx.readout.hide()
     }

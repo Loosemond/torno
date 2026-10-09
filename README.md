@@ -119,6 +119,21 @@ The tools, each with its key:
 | `A` | Arrow | Drag from a part: an arrow of that length. With Shift it runs along the surface normal or a principal axis. |
 | `D` | Draw | Press and draw. On a locked view (an orthographic front, back, left, right, top or bottom, not turned since; a padlock shows on its button) the stroke is a profile in millimetres on the plane that faces you. On any other view it lies on the surface. Alt-drag turns the camera with this tool in hand. |
 | `S` | Shape | Click places a box, cylinder, sphere or plane, to add, remove, keep out or refer to. A gizmo moves it (`G`), turns it (`R`) or sizes it (`T`), and its row has the exact numbers. |
+| `X` | Section | Cuts the parts by a plane, to look inside. A bar at the bottom of the viewport sets it. |
+
+**Section.** With `X` a bar appears at the bottom of the viewport: X, Y and Z
+put a plane across that axis through the middle of the parts, "From face" puts
+it on the next flat face you click, the slider and the number beside it say
+how far along its normal the plane is from the middle of the parts, "Flip"
+takes away the other side and "Off" shows the parts whole again. What is on
+the side the plane's arrow points to is not drawn. Each solid part is closed
+where it is cut, in its own colour a step darker; a part that is not a closed
+solid (a scan, an open shell) is cut open. Drag the arrow on the plane to move
+it; a drag anywhere else turns the camera as ever. The arrow keys move it by
+1 mm, with Shift by 0.1 mm. On a cut face there is nothing of the model to
+pick, and the pointer says so; a mark on what was cut away stays, drawn
+faint. The bar stays while there is a section, whichever tool is in hand. The
+pictures the agent takes are cut the same way.
 
 `Esc` drops what is being dragged, then puts the tool down for Select. In a
 note, `Enter` saves and `Esc` leaves it for later. A note is also kept when
@@ -251,7 +266,7 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 
 | File | What |
 |---|---|
-| `.torno/scene.json` | the layout and layer visibility you last chose |
+| `.torno/scene.json` | the layout, the layer visibility and the section (`section`: a plane's `origin` and `normal`) you last chose |
 | `.torno/marks.json` | the marks of the object: yours and the agent's, with their notes, anchors and status |
 | `.torno/session.json` | the id of the conversation to resume |
 | `.torno/views/<n>.png` | the pictures the agent asked for, the latest 20 |

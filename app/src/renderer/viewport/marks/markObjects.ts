@@ -91,13 +91,15 @@ interface Sizing {
   ticks: Array<{ object: THREE.Object3D; along: THREE.Vector3 }>
   /** Dashed ones: dash and gap in pixels, measured where the mark is. */
   dashes: Array<{ material: LineMaterial; dash: number; gap: number; at: THREE.Vector3 }>
+  /** Everything drawn, as its two passes: the one seen where a part is in front, and the one seen where none is. */
+  twins: Array<{ behind: THREE.Object3D; front: THREE.Object3D }>
   active: boolean
 }
 
 /** Collects what a mark is made of while it is built. */
 class Parts {
   readonly root = new THREE.Group()
-  readonly sizing: Sizing = { constant: [], lines: [], dashes: [], ticks: [], active: false }
+  readonly sizing: Sizing = { constant: [], lines: [], dashes: [], ticks: [], twins: [], active: false }
 
   /**
    * `behind` is what is left of the mark where a part is in front of it: more of a dimension, whose lines
@@ -131,6 +133,7 @@ class Parts {
       object.raycast = () => {} // never picked
       group.add(object)
     }
+    this.sizing.twins.push({ behind: group.children[0], front: group.children[1] })
     return group
   }
 
@@ -530,6 +533,20 @@ function acrossLine(along: THREE.Vector3, at: THREE.Vector3, camera: THREE.Camer
 }
 
 /** Whether the mark is the one being worked on: its lines are drawn wider, and a stroke shows its plane. Takes effect at the next `rescale`. */
+/**
+ * Whether a mark is drawn dimmed all over: as it is where a part is in front
+ * of it, wherever it is. For a mark on what a section has taken away: it no
+ * longer shows what it is on.
+ */
+export function setDimmed(object: THREE.Object3D, dimmed: boolean): void {
+  const sizing = object.userData.sizing as Sizing | undefined
+  for (const { behind, front } of sizing?.twins ?? []) {
+    front.visible = !dimmed
+    const material = (behind as THREE.Mesh).material as THREE.Material
+    material.depthFunc = dimmed ? THREE.AlwaysDepth : THREE.GreaterDepth
+  }
+}
+
 export function setActive(object: THREE.Object3D, active: boolean): void {
   const sizing = object.userData.sizing as Sizing | undefined
   if (sizing) sizing.active = active

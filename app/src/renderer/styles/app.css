@@ -1755,6 +1755,12 @@ button {
   outline: none;
 }
 
+/* Said in the bar when the plane leaves nothing to see. */
+.section-note {
+  padding: 0 var(--space-1) 0 var(--space-2);
+  color: var(--muted);
+}
+
 .section-offset span {
   flex: none;
   font-size: 10.5px;

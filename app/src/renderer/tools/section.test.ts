@@ -5,7 +5,7 @@ import type { SectionPlane } from '../../shared/view'
 import { actions, store } from '../state/store'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { NOT_FLAT, PICK_A_FACE, alongNormal, sectionStore, sectionTool, setFromFace } from './sectionTool'
+import { NOT_CONFIRMED, NOT_FLAT, PICK_A_FACE, alongNormal, sectionStore, sectionTool, setFromFace } from './sectionTool'
 import { CUT_FACE, routePointer, type ToolContext } from './Tool'
 
 const BOX = { min: [-20, -15, -2.5] as Vec3, max: [20, 15, 22.5] as Vec3 }
@@ -14,6 +14,7 @@ const SIDE: Described = { kind: 'face', ref: 'assembly:base/F1', type: 'plane', 
 
 /** From the front: the ray looks along +Y through (x, z), and the client pixel is (x, -z). */
 function pointer(type: ViewportPointer['type'], x: number, z: number, opts: { hit?: Hit | null; alt?: boolean; cut?: boolean; buttons?: number } = {}): ViewportPointer {
+  // The handle of the plane is drawn where the tests say it is: `fake` answers by the client pixel.
   const buttons = opts.buttons ?? (type === 'up' || type === 'click' ? 0 : 1)
   return { type, hit: opts.hit ?? null, ray: { origin: [x, -100, z], direction: [0, 1, 0] }, client: [x, -z], buttons, shift: false, alt: opts.alt ?? false, ...(opts.cut ? { cut: true } : {}) }
 }
@@ -23,8 +24,13 @@ function fake(over: Partial<ToolContext> = {}) {
   const shown: Array<SectionPlane | null> = []
   const navigation: boolean[] = []
   const said: string[] = []
+  const cursors: string[] = []
+  const canvas = { style: { set cursor(value: string) { cursors.push(value) } } } as unknown as HTMLCanvasElement
   const ctx: ToolContext = {
     viewport: {
+      canvas,
+      // The handle stands on the plane at x = 0, and reaches 40 px up from it on screen.
+      onSectionHandle: (x, y) => plane !== null && Math.abs(x) <= 12 && -y >= plane.origin[2] - 12 && -y <= plane.origin[2] + 52,
       setHover: () => {},
       setNavigation: (on) => void navigation.push(on),
       setDraft: () => {},
@@ -52,7 +58,7 @@ function fake(over: Partial<ToolContext> = {}) {
     openNote: () => {},
     ...over
   }
-  return { ctx, shown, navigation, said }
+  return { ctx, shown, navigation, said, cursors }
 }
 
 const settled = async (): Promise<void> => {
@@ -77,7 +83,7 @@ describe('alongNormal', () => {
   })
 })
 
-describe('dragging the plane', () => {
+describe('dragging the plane by its handle', () => {
   it('moves it along its normal with the pointer, in the viewport only, and keeps it once, when it is let go', () => {
     const tool = sectionTool()
     const { ctx, shown, navigation } = fake()
@@ -93,6 +99,27 @@ describe('dragging the plane', () => {
     tool.onPointer(pointer('up', 6, 17.5), ctx)
     expect(store.getState()).toMatchObject({ section: { origin: [0, 0, 17.5], normal: [0, 0, 1] }, edits: edits + 1 })
     expect(navigation).toEqual([false, true])
+  })
+
+  it('leaves a drag that starts anywhere else to the camera, with or without Alt', () => {
+    const tool = sectionTool()
+    const { ctx, shown, navigation } = fake()
+    tool.onPointer(pointer('down', 60, 10), ctx)
+    tool.onPointer(pointer('move', 60, 18), ctx)
+    tool.onPointer(pointer('up', 60, 18), ctx)
+    expect(navigation).toEqual([])
+    expect(shown).toEqual([])
+    expect(store.getState().section).toEqual(Z)
+  })
+
+  it('shows by the cursor where the plane can be taken hold of, and nowhere else', () => {
+    const tool = sectionTool()
+    const { ctx, cursors } = fake()
+    expect(tool.cursor).toBe('default')
+    tool.onPointer(pointer('move', 60, 10, { buttons: 0 }), ctx)
+    tool.onPointer(pointer('move', 3, 20, { buttons: 0 }), ctx)
+    tool.onPointer(pointer('move', 80, 20, { buttons: 0 }), ctx)
+    expect(cursors).toEqual(['', 'ns-resize', ''])
   })
 
   it('stops at the ends of the parts', () => {
@@ -114,27 +141,47 @@ describe('dragging the plane', () => {
     expect(shown.at(-1)!.origin[1]).toBeCloseTo(3)
   })
 
-  it('leaves a press with Alt to the camera, and does nothing without a plane', () => {
-    const tool = sectionTool()
-    const withAlt = fake()
-    tool.onPointer(pointer('down', 0, 10, { alt: true }), withAlt.ctx)
-    tool.onPointer(pointer('move', 0, 20, { alt: true }), withAlt.ctx)
-    expect(withAlt.navigation).toEqual([])
-    expect(withAlt.shown).toEqual([])
-
+  it('does nothing without a plane', () => {
     actions.setSection(null)
+    const tool = sectionTool()
     const none = fake()
     tool.onPointer(pointer('down', 0, 10), none.ctx)
     tool.onPointer(pointer('move', 0, 20), none.ctx)
     expect(none.navigation).toEqual([])
   })
 
-  it('keeps what it has when the tool is put down in the middle of a drag', () => {
+  it('goes back to where the plane was on Escape, and when the tool is put down in the middle of a drag: only letting go keeps it', () => {
+    const tool = sectionTool()
+    const first = fake()
+    const edits = store.getState().edits
+    tool.onPointer(pointer('down', 0, 10), first.ctx)
+    tool.onPointer(pointer('move', 0, 15), first.ctx)
+    expect(tool.onKey!({ key: 'Escape' } as KeyboardEvent, first.ctx)).toBe(true)
+    expect(first.shown.at(-1)).toEqual(Z)
+    expect(first.navigation).toEqual([false, true])
+    // What is left of the drag moves nothing, and letting go keeps nothing.
+    tool.onPointer(pointer('move', 0, 19), first.ctx)
+    tool.onPointer(pointer('up', 0, 19), first.ctx)
+    expect(first.shown.at(-1)).toEqual(Z)
+
+    const second = fake()
+    tool.onPointer(pointer('down', 0, 10), second.ctx)
+    tool.onPointer(pointer('move', 0, 15), second.ctx)
+    tool.cancel(second.ctx)
+    expect(second.shown.at(-1)).toEqual(Z)
+    expect(store.getState()).toMatchObject({ section: Z, edits })
+    // Escape with nothing under way is not the tool's.
+    expect(tool.onKey!({ key: 'Escape' } as KeyboardEvent, second.ctx)).toBe(false)
+  })
+
+  it('carries on when the pointer leaves the view with the button held, and keeps the plane when it comes back let go', () => {
     const tool = sectionTool()
     const { ctx } = fake()
     tool.onPointer(pointer('down', 0, 10), ctx)
     tool.onPointer(pointer('move', 0, 15), ctx)
-    tool.cancel(ctx)
+    tool.onPointer(pointer('cancel', 0, 16), ctx)
+    expect(store.getState().section).toEqual(Z)
+    tool.onPointer(pointer('move', 0, 16, { buttons: 0 }), ctx)
     expect(store.getState().section?.origin[2]).toBe(15)
   })
 })
@@ -167,18 +214,19 @@ describe('the arrow keys', () => {
 describe('from a face', () => {
   const side: Hit = { partKey: 'assembly:base', part: 'base', kind: 'face', index: 1, ref: 'base/F1', point: [20, 3, 1], normal: [1, 0, 0], distance: 80 }
 
-  it('puts the plane on the flat face clicked, with the kernel\'s normal, and stops waiting', async () => {
+  it('puts the plane on the flat face clicked, where and as the kernel says the face is, and stops waiting', async () => {
     const tool = sectionTool()
-    const { ctx, said } = fake({ describe: async () => ({ ...SIDE, normal: [-1, 0, 0] }) })
+    // The kernel's own point of the face, and its normal the other way round than the surface faces.
+    const { ctx, said } = fake({ describe: async () => ({ ...SIDE, center: [20, 0, 0], normal: [-1, 0, 0] }) })
     setFromFace(true)
     tool.onPointer(pointer('move', 0, 0, { buttons: 0 }), ctx)
     expect(said).toEqual([PICK_A_FACE])
     tool.onPointer(pointer('down', 0, 0, { hit: side }), ctx)
     tool.onPointer(pointer('up', 0, 0, { hit: side }), ctx)
-    tool.onPointer(pointer('click', 0, 0, { hit: side }), ctx)
+    tool.onPointer(pointer('click', 0, 0, { hit: { ...side, point: [20.0000004, 3, 1] } }), ctx)
     await settled()
     // Out of the part, as the surface under the pointer faces, whichever way the kernel's normal runs.
-    expect(store.getState().section).toEqual({ origin: [20, 3, 1], normal: [1, 0, 0] })
+    expect(store.getState().section).toEqual({ origin: [20, 0, 0], normal: [1, 0, 0] })
     expect(sectionStore.getState().fromFace).toBe(false)
   })
 
@@ -193,13 +241,17 @@ describe('from a face', () => {
     expect(sectionStore.getState().fromFace).toBe(true)
   })
 
-  it('takes the surface\'s own normal when the kernel cannot say', async () => {
+  it('puts the plane nowhere while the kernel has not said the face is flat: it cannot say, or says nothing of a plane', async () => {
     const tool = sectionTool()
-    const { ctx } = fake({ describe: async () => null })
-    setFromFace(true)
-    tool.onPointer(pointer('click', 0, 0, { hit: side }), ctx)
-    await settled()
-    expect(store.getState().section).toEqual({ origin: [20, 3, 1], normal: [1, 0, 0] })
+    for (const describe of [async () => null, async () => ({ ...SIDE, normal: null }), () => Promise.reject(new Error('timeout'))]) {
+      const { ctx, said } = fake({ describe })
+      setFromFace(true)
+      tool.onPointer(pointer('click', 0, 0, { hit: side }), ctx)
+      await settled()
+      expect(said).toEqual([NOT_CONFIRMED])
+      expect(store.getState().section).toEqual(Z)
+      expect(sectionStore.getState().fromFace).toBe(true)
+    }
   })
 
   it('does not drag the plane meanwhile, and Escape stops waiting', () => {

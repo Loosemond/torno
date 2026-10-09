@@ -121,12 +121,36 @@ While iterating run the focused test; run all four suites before a commit.
   nothing else in the UI uses those colours. A picture for the agent draws
   every mark alike: no active mark, no selection, no hover, no gizmo. A mark
   on a part that is not drawn is not drawn either, on screen or in a picture.
-- Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `M`
+- Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `X`
+  section, `M`
   measure (`T` there: the wall under the pointer); `G`, `R`, `T` for the gizmo
   of the active shape. A tool is a `Tool`
   (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
+
+## Section
+
+- One plane per object view (`SectionPlane` in `shared/view.ts`: `origin` and
+  a unit `normal`, object frame; what is on the side the normal points to is
+  not drawn). It is view state: `store.section`, saved in `scene.json`
+  (`section`), reported in `ViewState`, drawn in `look` pictures unless they
+  ask for another plane or none. The agent's `show` sets it for now, never in
+  the saved file. It never changes geometry or marks.
+- Drawing is `viewport/section.ts`: the parts' materials are clipped, and each
+  closed solid (`BuiltPart.solid`) gets its cut face by stencil counting, per
+  part, with an outline from the mesh. A part that is no closed solid is cut
+  open. What lies in the plane is kept (`KEPT_WITHIN_MM`); a part the plane
+  only touches or leaves nothing of is not drawn (`keepsNothing`). Marks,
+  grid and gizmo are not cut; a mark anchored in the half taken away is drawn
+  dimmed (`MarkLayer.setSection`).
+- Picking sees what is drawn (`pickUnder`): on a cut face nothing is hit and
+  the pointer says so.
+- The Section tool (`tools/sectionTool.ts`) moves the plane only by a drag
+  that starts on its handle; any other drag turns the camera. The bar is
+  `ui/SectionBar.tsx`. The plane moves in the viewport during a drag and is
+  kept in the store once, on release, to the millionth of a millimetre.
+- Numbers shown or told of a section go through `shared/format.ts`.
 
 ## Kernel invariants
 

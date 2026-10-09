@@ -4,7 +4,7 @@ import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
-import { sectionOf, type SectionPlane, type ViewName } from '../../shared/view'
+import { sectionOf, snappedSection, type SectionPlane, type ViewName } from '../../shared/view'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
 
@@ -182,8 +182,9 @@ export const actions = {
    * let go, a field is left, a button is pressed. It is the person's own
    * choice, whatever the agent had shown, and is what the scene file keeps.
    */
-  setSection(section: SectionPlane | null): void {
+  setSection(plane: SectionPlane | null): void {
     const s = store.getState()
+    const section = plane && snappedSection(plane)
     if (samePlane(section, s.section) && !s.shownByAgent?.section) return
     const { section: _theirsAgain, ...shownByAgent } = s.shownByAgent ?? { visible: {} }
     store.setState({ section, edits: s.edits + 1, shownByAgent: s.shownByAgent && shownByAgent })

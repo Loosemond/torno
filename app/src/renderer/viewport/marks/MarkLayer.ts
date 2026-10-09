@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { type Mark, type ShapeMark, type Vec3, markAnchors } from '../../../shared/marks'
+import type { SectionPlane } from '../../../shared/view'
 import { mmPerPx, place, project, type Chip, type Placed, type Size } from './labels'
-import { build, dispose, markPoints, rescale, setActive, type MarkColours } from './markObjects'
+import { build, dispose, labelAnchor, markPoints, rescale, setActive, setDimmed, type MarkColours } from './markObjects'
 
 /**
  * A mark as it is while the pointer is still making it: a pin where it was
@@ -41,6 +42,7 @@ export class MarkLayer {
   /** The names of the parts of that layout that are switched off: marks on them are not shown either. */
   private hidden: ReadonlySet<string> = NO_PARTS
   private active: string | null = null
+  private section: SectionPlane | null = null
   private draft: { is: Draft; object: THREE.Object3D } | null = null
 
   constructor(colours: MarkColours) {
@@ -120,6 +122,7 @@ export class MarkLayer {
     const entry = { mark, drawnAs, object: build(mark, this.colours, 1) }
     entry.object.visible = this.shows(mark)
     setActive(entry.object, mark.id === this.active)
+    setDimmed(entry.object, cutAway(mark, this.section))
     this.entries.set(mark.id, entry)
     this.group.add(entry.object)
   }
@@ -138,6 +141,16 @@ export class MarkLayer {
 
   private shows(mark: Mark, layout: string | null = this.layout, hidden: ReadonlySet<string> = this.hidden): boolean {
     return mark.layout === layout && !onHidden(mark, hidden)
+  }
+
+  /**
+   * The plane the parts are cut by, or null. The marks are not cut; one that
+   * is anchored in the half taken away is drawn dimmed all over, as where a
+   * part covers it: what it is on is not there to be seen.
+   */
+  setSection(section: SectionPlane | null): void {
+    this.section = section
+    for (const entry of this.entries.values()) setDimmed(entry.object, cutAway(entry.mark, section))
   }
 
   /** The mark being worked on, or null. */
@@ -218,6 +231,21 @@ export class MarkLayer {
 }
 
 const NO_PARTS: ReadonlySet<string> = new Set()
+
+/** Further than this beyond the plane, in millimetres, is in the half taken away: what lies in the plane is kept. */
+const CUT_BEYOND_MM = 1e-3
+
+/**
+ * Whether a mark is in the half a section takes away: by where it is
+ * anchored, or failing that where its label hangs. A dimension is, like on
+ * parts that are switched off, only when both its ends are.
+ */
+export function cutAway(mark: Mark, section: SectionPlane | null): boolean {
+  if (!section) return false
+  const anchors = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)
+  const points = anchors.length > 0 ? anchors.map((anchor) => anchor.point) : [labelAnchor(mark).point]
+  return points.every((at) => section.normal.reduce((sum, c, i) => sum + c * (at[i] - section.origin[i]), 0) > CUT_BEYOND_MM)
+}
 
 /** Whether a mark is on one of the parts named: the part its anchor ties it to. A mark on no part is on none. */
 export function onHidden(mark: Mark, hidden: ReadonlySet<string>): boolean {

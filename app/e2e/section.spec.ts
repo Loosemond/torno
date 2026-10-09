@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Hit } from '../src/renderer/viewport/picking'
-import type { LookRequest, SectionPlane, ViewState } from '../src/shared/view'
+import type { Camera, LookRequest, SectionPlane, ViewState } from '../src/shared/view'
 
 // The section: a plane that takes half of the parts away and shows what they
 // are inside. Set from the bar and with the tool, drawn in pictures, kept in
@@ -53,6 +53,7 @@ test.afterAll(async () => {
 
 type Vec3 = [number, number, number]
 const state = (p: Page = page): Promise<TornoState> => p.evaluate(() => window.__tornoTest!.state())
+const camera = (p: Page = page): Promise<Camera> => p.evaluate(() => window.__tornoTest!.camera())
 const section = async (p: Page = page): Promise<SectionPlane | null> => (await state(p)).section
 const bar = (p: Page = page) => p.locator('.sectionbar')
 const offset = (p: Page = page) => bar(p).getByRole('textbox', { name: 'Offset in millimetres' })
@@ -71,6 +72,8 @@ async function cutAt(axis: 'X' | 'Y' | 'Z', mm: number, p: Page = page): Promise
   await bar(p).getByRole('button', { name: `Cut across ${axis}` }).click()
   await offset(p).fill(String(mm))
   await offset(p).press('Enter')
+  // Out of the field: the keys are the view's again.
+  await offset(p).blur()
 }
 
 interface Sampled {
@@ -223,31 +226,63 @@ test('the section is told to main with the view, and kept in scene.json', async 
   await expect.poll(() => saved().section, { timeout: 5_000 }).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, 1] })
 })
 
-test('dragging in the viewport with the tool moves the plane along its normal, and the arrow keys nudge it', async () => {
+test('a drag from the handle moves the plane along its normal; a drag from anywhere else turns the camera; the arrow keys nudge it', async () => {
   await page.keyboard.press('x')
+  const canvas = page.locator('.viewport-canvas canvas').first()
+  // The handle stands on the plane at the middle of the parts, on the post's axis: the cursor says it can be taken hold of there.
   const [x, y] = await pageXY([0, 0, HALF_POST])
-  // From where the plane is to where z = 18 is drawn on the post's axis.
+  await page.mouse.move(x, y - 10)
+  await expect.poll(() => canvas.evaluate((el: HTMLElement) => el.style.cursor)).toBe('ns-resize')
+  // To where z = 18 is drawn on the post's axis.
   const [, toY] = await pageXY([0, 0, 18])
-  await page.mouse.move(x, y)
   await page.mouse.down()
-  await page.mouse.move(x, (y + toY) / 2)
+  await page.mouse.move(x, (y - 10 + toY - 10) / 2)
   // Nothing is kept while the plane moves.
   expect(await section()).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, 1] })
   await expect(readout()).toHaveText(/mm$/)
-  await page.mouse.move(x, toY)
+  await page.mouse.move(x, toY - 10)
   await page.mouse.up()
   const dragged = (await section())!
   expect(dragged.normal).toEqual([0, 0, 1])
   expect(dragged.origin[2]).toBeGreaterThan(17)
   expect(dragged.origin[2]).toBeLessThan(19)
+  // Kept to the millionth of a millimetre, whatever the pointer made of it.
+  expect(Math.abs(dragged.origin[2] * 1e6 - Math.round(dragged.origin[2] * 1e6))).toBeLessThan(1e-6)
+
+  // Escape in the middle of a drag puts the plane back.
+  const [hx, hy] = await pageXY(dragged.origin)
+  await page.mouse.move(hx, hy - 10)
+  await page.mouse.down()
+  await page.mouse.move(hx, hy - 60)
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  expect(await section()).toEqual(dragged)
+  await expect(page.locator('.tool-button[data-tool="section"]')).toHaveAttribute('aria-pressed', 'true')
+
+  // Away from the handle the pointer turns the camera, as with any tool: the plane stays.
+  const before = await camera()
+  const [bx, by] = await pageXY([18, -12, 0])
+  await page.mouse.move(bx, by)
+  expect(await canvas.evaluate((el: HTMLElement) => el.style.cursor)).toBe('')
+  await page.mouse.down()
+  await page.mouse.move(bx + 40, by + 10)
+  await page.mouse.move(bx + 80, by + 25)
+  await page.mouse.up()
+  expect(await section()).toEqual(dragged)
+  expect((await camera()).position).not.toEqual(before.position)
+  await page.keyboard.press('1')
 
   await cutAt('Z', 2.5)
   await page.locator('.viewport-canvas').click({ position: { x: 5, y: 5 } }) // out of the field
   await page.keyboard.press('ArrowUp')
   expect((await section())!.origin[2]).toBe(13.5)
   await page.keyboard.press('Shift+ArrowDown')
-  expect((await section())!.origin[2]).toBeCloseTo(13.4, 9)
+  expect((await section())!.origin[2]).toBe(13.4)
   await expect(offset()).toHaveValue('3.4')
+  // Up and down again leaves no trace of the sum: the number is the number.
+  await page.keyboard.press('Shift+ArrowDown')
+  await page.keyboard.press('Shift+ArrowUp')
+  expect((await section())!.origin[2]).toBe(13.4)
 })
 
 test('the slider moves the plane across the parts, and keeps it when it is let go', async () => {
@@ -260,9 +295,60 @@ test('the slider moves the plane across the parts, and keeps it when it is let g
   })
   // Moved in the view and in the number beside it, not kept yet.
   await expect(offset()).toHaveValue('-6')
-  expect((await section())!.origin[2]).toBeCloseTo(13.4, 9)
+  expect((await section())!.origin[2]).toBe(13.4)
   await slider.evaluate((el: HTMLInputElement) => el.dispatchEvent(new Event('change', { bubbles: true })))
   expect(await section()).toEqual({ origin: [0, 0, 4], normal: [0, 0, 1] })
+  // With the slider in focus the arrows are a millimetre, and a tenth with Shift, as everywhere.
+  await page.keyboard.press('ArrowRight')
+  expect(await section()).toEqual({ origin: [0, 0, 5], normal: [0, 0, 1] })
+  await page.keyboard.press('Shift+ArrowLeft')
+  expect(await section()).toEqual({ origin: [0, 0, 4.9], normal: [0, 0, 1] })
+  await page.keyboard.press('Shift+ArrowLeft')
+  await expect(offset()).toHaveValue('-5.2')
+  await cutAt('Z', -6)
+})
+
+test('a part the plane only touches is not drawn at all: no sheet of the post on the base it stands on', async () => {
+  // On the top of the base, where the post begins.
+  await cutAt('Z', 2.5 - 10)
+  expect(await section()).toEqual({ origin: [0, 0, 2.5], normal: [0, 0, 1] })
+  const touching = await look({ view: 'top', marks: false }, [CENTRE, ON_BASE])
+  const baseAlone = await look({ view: 'top', marks: false, section: null, parts: ['base'] }, [CENTRE, ON_BASE])
+  // Under where the post stood, the top of the base in the base's own colour, as lit as beside it.
+  expect(near(touching.at[0], baseAlone.at[0], 1), `where the post stood is ${touching.at[0]}, the base alone ${baseAlone.at[0]}`).toBe(true)
+  expect(near(touching.at[0], touching.at[1], 2)).toBe(true)
+  expect(near(touching.at[0], POST_CUT, 12)).toBe(false)
+  // And it is the base that is pointed at there, not a cut face.
+  await page.keyboard.press('v')
+  expect(await pickOver([0, 0, 2.5])).toMatchObject({ part: 'base', kind: 'face' })
+  const [x, y] = await pageXY([0, 0, 2.5])
+  await page.mouse.move(x, y)
+  await expect(readout().locator('.pick-readout-ref')).toHaveText(/^base\/F/)
+  await page.keyboard.press('x')
+
+  // Flipped there, it is the base that is gone whole and the post that stands whole.
+  await bar().getByRole('button', { name: 'Flip' }).click()
+  const flipped = await look({ view: 'bottom', marks: false }, [CENTRE, [0.5, 0.75]])
+  const postAlone = await look({ view: 'bottom', marks: false, section: null, parts: ['post'] }, [CENTRE, [0.5, 0.75]])
+  expect(near(flipped.at[0], postAlone.at[0], 1)).toBe(true)
+  expect(near(flipped.at[1], SURFACE, 30)).toBe(true)
+  await bar().getByRole('button', { name: 'Flip' }).click()
+})
+
+test('a plane that leaves nothing of the parts says so, with a way back to the middle', async () => {
+  const note = bar().getByRole('status')
+  await expect(note).toHaveCount(0)
+  // A plane kept from another layout, or from before the parts shrank: far below everything.
+  const show = (request: object): Promise<void> =>
+    app.evaluate(({ BrowserWindow }, req) => BrowserWindow.getAllWindows()[0].webContents.send('view:show', { id: 987653, request: req }), request)
+  await show({ objectId: 'bracket', section: { origin: [0, 0, -40], normal: [0, 0, 1] } })
+  await expect(note).toHaveText('Everything is on the cut side')
+  const empty = await look({ view: 'iso', marks: false }, [CENTRE])
+  expect(near(empty.at[0], SURFACE, 30)).toBe(true)
+  await bar().getByRole('button', { name: 'Reset' }).click()
+  expect(await section()).toEqual({ origin: [0, 0, 10], normal: [0, 0, 1] })
+  await expect(note).toHaveCount(0)
+  await cutAt('Z', -6)
 })
 
 test('from face puts the plane on a flat face that is clicked, and refuses a round one', async () => {
@@ -282,8 +368,8 @@ test('from face puts the plane on a flat face that is clicked, and refuses a rou
   await page.mouse.down()
   await page.mouse.up()
   await expect.poll(async () => (await section())?.normal).toEqual([1, 0, 0])
-  const onFace = (await section())!
-  expect(onFace.origin[0]).toBeCloseTo(20, 4)
+  // Where the kernel says the face is: its own point of it, exactly on x = 20.
+  expect(await section()).toEqual({ origin: [20, 0, 0], normal: [1, 0, 0] })
   await expect(bar().getByRole('button', { name: 'From face' })).toHaveAttribute('aria-pressed', 'false')
   await expect(offset()).toHaveValue('20')
   // On the face nothing is cut yet: the face is still there to be picked.
@@ -330,6 +416,27 @@ test('the agent\'s show cuts by a plane for now: the scene file goes on saying w
   await page.getByRole('button', { name: 'Show post' }).click()
   await expect.poll(() => JSON.parse(readFileSync(sceneFile(), 'utf8')).layers.post, { timeout: 5_000 }).toEqual({ visible: true })
   expect(saved().section).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, 1] })
+})
+
+test('a mark on what the plane took away stays, drawn dimmed: it no longer shows what it is on', async () => {
+  await page.keyboard.press('x')
+  await cutAt('Z', HALF_POST - 10)
+  // A pin on the top of the post, 10 mm above the plane.
+  const pin = await page.evaluate(() =>
+    window.torno.marks.add('bracket', { kind: 'pin', author: 'user', note: '', layout: 'assembly', revision: window.__tornoTest!.state().revision, camera: window.__tornoTest!.camera(), anchor: { point: [0, 0, 22.5], normal: [0, 0, 1], part: 'post', ref: 'post/F1' } } as never)
+  )
+  // From the front the picture is 33 mm high around z = 10: the pin's dot is 12.5 mm above its middle.
+  // Two pixels higher, in the half of the dot that stands clear of the post.
+  const dot: [number, number] = [0.5, 0.5 - 12.5 / 33 - 2 / 960]
+  const RED = [0xcf, 0x3f, 0x2c]
+  const whole = await look({ view: 'front', section: null }, [dot])
+  expect(near(whole.at[0], RED, 12), `the pin on the whole post is ${whole.at[0]}`).toBe(true)
+  const cut = await look({ view: 'front' }, [dot])
+  // Still there, over the empty ground, at about a third of its colour.
+  expect(near(cut.at[0], RED, 40), `the pin over the cut is ${cut.at[0]}`).toBe(false)
+  expect(near(cut.at[0], SURFACE, 12)).toBe(false)
+  expect(cut.at[0][0]).toBeGreaterThan(cut.at[0][2] + 15) // reddish
+  await page.evaluate((id) => window.torno.marks.remove('bracket', id), (pin as { id: string }).id)
 })
 
 test('off shows the parts whole again, and the file has no section', async () => {

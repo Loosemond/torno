@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { MeshBVH } from 'three-mesh-bvh'
+import { number } from '../../shared/format'
 import type { SectionPlane } from '../../shared/view'
 import type { BuiltPart } from './partMesh'
 
@@ -63,7 +64,9 @@ export function sectionOffset(plane: SectionPlane, box: Box): number {
 export function atOffset(plane: SectionPlane, box: Box, mm: number): SectionPlane {
   if (!Number.isFinite(mm)) return plane
   const { min, max } = sectionExtent(box, plane.normal)
-  return movedAlongNormal(plane, Math.min(Math.max(mm, min), max) - sectionOffset(plane, box))
+  // To the millionth of a millimetre: what is left of adding tenths is not an offset anyone asked for.
+  const to = Math.round(Math.min(Math.max(mm, min), max) * 1e6) / 1e6
+  return movedAlongNormal(plane, to - sectionOffset(plane, box))
 }
 
 /** The axis a normal runs along and which way, or null for a plane across none. */
@@ -72,19 +75,14 @@ export function axisOf(normal: Vec3): { axis: Axis; sign: 1 | -1 } | null {
   return i < 0 ? null : { axis: AXES[i], sign: normal[i] > 0 ? 1 : -1 }
 }
 
-/** A number as it is shown: four significant digits at most, without the zeros that say nothing. */
-export function shownMm(value: number): string {
-  return String(Number(value.toPrecision(4)) + 0)
-}
-
 /** A section in words, for the caption of a picture: where the plane is, and which side of it is not drawn. */
 export function describeSection(plane: SectionPlane): string {
   const along = axisOf(plane.normal)
   if (along) {
     const i = AXES.indexOf(along.axis)
-    return `cut at ${along.axis} = ${shownMm(plane.origin[i])}, ${along.sign > 0 ? '+' : '-'}${along.axis.toUpperCase()} side removed`
+    return `cut at ${along.axis} = ${number(plane.origin[i])}, ${along.sign > 0 ? '+' : '-'}${along.axis.toUpperCase()} side removed`
   }
-  return `cut through (${plane.origin.map(shownMm).join(', ')}), side along (${plane.normal.map(shownMm).join(', ')}) removed`
+  return `cut through (${plane.origin.map(number).join(', ')}), side along (${plane.normal.map(number).join(', ')}) removed`
 }
 
 /**
@@ -139,6 +137,28 @@ function unit(v: Vec3): Vec3 {
  */
 export const KEPT_WITHIN_MM = 1e-3
 
+/**
+ * How far into the half that is kept the furthest corner of a box reaches, in
+ * millimetres: negative for a box that is wholly in the half taken away.
+ */
+export function keptDepth(box: Box, plane: SectionPlane): number {
+  const n = plane.normal
+  let depth = 0
+  for (let i = 0; i < 3; i++) depth += -n[i] * ((box.min[i] + box.max[i]) / 2 - plane.origin[i]) + (Math.abs(n[i]) * (box.max[i] - box.min[i])) / 2
+  return depth
+}
+
+/**
+ * Whether a section leaves nothing of what is in a box: no corner of it
+ * reaches into the half that is kept by more than what counts as lying in the
+ * plane. Such a part only touches the plane (it rests on the face the plane
+ * was put on) or is beyond it: it is not drawn at all, where the rule that
+ * what lies in the plane is kept would leave a sheet of it.
+ */
+export function keepsNothing(box: Box, plane: SectionPlane): boolean {
+  return keptDepth(box, plane) <= 2 * KEPT_WITHIN_MM
+}
+
 /** How much of black the cut face of a part has over the part's own colour: a step darker, like sawn stock beside a finished face. */
 export const CAP_SHADE = 0.24
 
@@ -151,7 +171,8 @@ export function capColour(hex: string): string {
 const BLACK = new THREE.Color(0, 0, 0)
 /** Drawn after the parts (0) and before what is highlighted on them (1 and up): each part's three passes one after the other. */
 const ORDER_FROM = 0.0001
-const ORDER_STEP = 0.0001
+/** The rectangle of the plane comes after every cut face. */
+const ORDER_UNTIL = 0.8
 /** The handle on screen, in pixels. */
 const HANDLE = { shaft: 34, head: 11, headRadius: 4.5, shaftRadius: 0.8, foot: 2.6 }
 
@@ -165,6 +186,8 @@ interface Cap {
   face: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
   /** Where the plane meets the part's surface: the outline of the cut face, drawn like the part's edges. */
   rim: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>
+  /** The plane, in the part's own frame, the outline was last worked out for; empty for none. */
+  rimOf: string
 }
 
 /**
@@ -230,8 +253,9 @@ export class SectionCut {
   private readonly parts = new Set<BuiltPart>()
   private readonly caps = new Map<BuiltPart, Cap>()
   private readonly looks = new Map<BuiltPart, Look>()
-  private made = 0
-  private readonly outline: THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>
+  /** The parts the plane leaves nothing of: not drawn while it is where it is. */
+  private readonly gone = new Set<BuiltPart>()
+  private readonly frame: THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>
   private readonly handle = new THREE.Group()
   private readonly handleMaterial = new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false, transparent: true })
   private handleShown = false
@@ -243,10 +267,10 @@ export class SectionCut {
     this.planes = [this.clip]
     const corners = new THREE.BufferGeometry()
     corners.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3))
-    this.outline = new THREE.LineLoop(corners, new THREE.LineBasicMaterial({ transparent: true, opacity: 0.7, depthWrite: false }))
-    this.outline.matrixAutoUpdate = false
-    this.outline.frustumCulled = false
-    this.outline.renderOrder = 0.9
+    this.frame = new THREE.LineLoop(corners, new THREE.LineBasicMaterial({ transparent: true, opacity: 0.7, depthWrite: false }))
+    this.frame.matrixAutoUpdate = false
+    this.frame.frustumCulled = false
+    this.frame.renderOrder = 0.9
 
     // Along +Z from the origin, in pixels: a foot on the plane, a shaft and a head.
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(HANDLE.shaftRadius, HANDLE.shaftRadius, HANDLE.shaft, 8).rotateX(Math.PI / 2).translate(0, 0, HANDLE.shaft / 2), this.handleMaterial)
@@ -258,7 +282,7 @@ export class SectionCut {
     }
     this.handle.add(shaft, head, foot)
     this.decor.name = 'section'
-    this.decor.add(this.outline, this.handle)
+    this.decor.add(this.frame, this.handle)
     this.decor.visible = false
   }
 
@@ -285,7 +309,7 @@ export class SectionCut {
 
   /** The colours of the rectangle and of the handle. */
   setColours(outline: string, handle: string): void {
-    this.outline.material.color.set(outline)
+    this.frame.material.color.set(outline)
     this.handleMaterial.color.set(handle)
   }
 
@@ -315,17 +339,73 @@ export class SectionCut {
     return sphere
   }
 
-  /** A part is drawn from now on: it is cut like the others. */
+  /** A part is drawn from now on: it is cut like the others, once `set` or `place` has been called with it where it belongs. */
   add(built: BuiltPart): void {
     this.parts.add(built)
     this.clipPart(built)
-    this.place()
+  }
+
+  /** Whether the plane leaves nothing of a part (`keepsNothing`): it is not drawn, and is not there to be pointed at. */
+  removed(built: BuiltPart): boolean {
+    return this.gone.has(built)
+  }
+
+  /** The handle as it is drawn, from its foot on the plane to its tip, in the object frame; null while it is not drawn. */
+  handleSpan(mmPerPx: (at: THREE.Vector3) => number): [THREE.Vector3, THREE.Vector3] | null {
+    if (!this.plane || !this.handleShown || !this.decorShown) return null
+    const reach = (HANDLE.shaft + HANDLE.head) * mmPerPx(this.centre)
+    return [this.centre.clone(), this.centre.clone().addScaledVector(new THREE.Vector3().fromArray(this.plane.normal), reach)]
+  }
+
+  /**
+   * Works out the outlines of the cut faces that are about to be drawn: of
+   * the parts that are, where the plane goes through them, and only when the
+   * plane is another than the outline was last worked out for. Call before
+   * drawing. Returns how many it worked out.
+   */
+  outline(): number {
+    const plane = this.plane
+    if (!plane) return 0
+    const n = new THREE.Vector3().fromArray(plane.normal)
+    const origin = new THREE.Vector3().fromArray(plane.origin)
+    const inverse = new THREE.Matrix4()
+    const exact = new THREE.Plane()
+    let worked = 0
+    for (const [built, cap] of this.caps) {
+      if (!built.group.visible || this.gone.has(built)) continue
+      // In the part's own frame, like its edges.
+      exact.setFromNormalAndCoplanarPoint(n, origin).applyMatrix4(inverse.copy(built.group.matrix).invert())
+      const key = `${exact.normal.x},${exact.normal.y},${exact.normal.z},${exact.constant}`
+      if (key === cap.rimOf) continue
+      cap.rimOf = key
+      const geometry = built.mesh.geometry
+      if (!geometry.boundingBox) geometry.computeBoundingBox()
+      if (!exact.intersectsBox(geometry.boundingBox!)) {
+        cap.rim.geometry.setDrawRange(0, 0)
+        continue
+      }
+      worked += 1
+      const was = cap.rim.geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+      const { segments, count } = cutOutline(geometry, exact, was?.array as Float32Array | undefined)
+      if (was?.array === segments) was.needsUpdate = true
+      else {
+        // Grown: a buffer keeps the length it was made with.
+        cap.rim.geometry.dispose()
+        cap.rim.geometry = new THREE.BufferGeometry()
+        cap.rim.geometry.setAttribute('position', new THREE.BufferAttribute(segments, 3))
+      }
+      cap.rim.geometry.setDrawRange(0, count * 2)
+    }
+    return worked
   }
 
   /** A part is going: what was made for it goes first. */
   forget(built: BuiltPart): void {
     this.parts.delete(built)
     this.looks.delete(built)
+    this.gone.delete(built)
+    built.mesh.visible = true
+    built.edges.visible = true
     const cap = this.caps.get(built)
     if (!cap) return
     this.caps.delete(built)
@@ -344,10 +424,15 @@ export class SectionCut {
     if (cap) lookCap(cap, look)
   }
 
-  /** Brings what is drawn in line with the plane and with where the parts are. Call when a part was moved. */
+  /**
+   * Brings what is drawn in line with the plane and with where the parts are.
+   * Call when a part was moved. The outlines of the cut faces are left for
+   * `outline`, which is asked before a frame is drawn.
+   */
   place(): void {
     const plane = this.plane
     this.decor.visible = this.decorShown && plane !== null
+    this.sortOut()
     if (!plane) return
     const n = new THREE.Vector3().fromArray(plane.normal)
     const origin = new THREE.Vector3().fromArray(plane.origin)
@@ -358,35 +443,59 @@ export class SectionCut {
     const v = n.clone().cross(u)
     this.centre.fromArray(rect.centre)
     this.quad.makeBasis(u.clone().multiplyScalar(rect.width), v.clone().multiplyScalar(rect.height), n).setPosition(this.centre)
-    this.outline.matrix.copy(this.quad)
+    this.frame.matrix.copy(this.quad)
     this.handle.position.copy(this.centre)
     this.handle.quaternion.setFromUnitVectors(Z, n)
 
     const inverse = new THREE.Matrix4()
-    const exact = new THREE.Plane()
+    // Each part's three passes one after the other, numbered from the parts there are now.
+    const step = Math.min(0.0001, (ORDER_UNTIL - ORDER_FROM) / Math.max(this.caps.size * 3, 1))
+    let pass = 0
     for (const [built, cap] of this.caps) {
       // The quad is of the object frame, and hangs under the part to be hidden with it.
-      built.group.updateMatrix()
       cap.face.matrix.copy(inverse.copy(built.group.matrix).invert()).multiply(this.quad)
-      // The outline, in the part's own frame like its edges.
-      exact.setFromNormalAndCoplanarPoint(n, origin).applyMatrix4(inverse)
-      const was = cap.rim.geometry.getAttribute('position') as THREE.BufferAttribute | undefined
-      const { segments, count } = cutOutline(built.mesh.geometry, exact, was?.array as Float32Array | undefined)
-      if (was?.array === segments) was.needsUpdate = true
-      else {
-        // Grown: a buffer keeps the length it was made with.
-        cap.rim.geometry.dispose()
-        cap.rim.geometry = new THREE.BufferGeometry()
-        cap.rim.geometry.setAttribute('position', new THREE.BufferAttribute(segments, 3))
+      for (const mesh of [cap.back, cap.front, cap.face]) mesh.renderOrder = ORDER_FROM + pass++ * step
+      // The outline with the cut face: it is of the same pass.
+      cap.rim.renderOrder = cap.face.renderOrder
+    }
+  }
+
+  /**
+   * Says of each part whether the plane leaves anything of it, and has those
+   * it leaves nothing of not drawn: neither their surface and edges (the
+   * sheet of them that lies in the plane) nor a cut face.
+   */
+  private sortOut(): void {
+    const plane = this.plane
+    const local = new THREE.Matrix4()
+    const point = new THREE.Vector3()
+    const normal = new THREE.Vector3()
+    for (const built of this.parts) {
+      let gone = false
+      if (plane) {
+        // In the part's own frame, where its box is tight around it.
+        built.group.updateMatrix()
+        local.copy(built.group.matrix).invert()
+        const geometry = built.mesh.geometry
+        if (!geometry.boundingBox) geometry.computeBoundingBox()
+        const { min, max } = geometry.boundingBox!
+        point.fromArray(plane.origin).applyMatrix4(local)
+        normal.fromArray(plane.normal).transformDirection(local)
+        gone = !geometry.boundingBox!.isEmpty() && keepsNothing({ min: min.toArray(), max: max.toArray() }, { origin: point.toArray(), normal: normal.toArray() })
       }
-      cap.rim.geometry.setDrawRange(0, count * 2)
+      if (gone) this.gone.add(built)
+      else this.gone.delete(built)
+      built.mesh.visible = !gone
+      built.edges.visible = !gone
+      const cap = this.caps.get(built)
+      if (cap) for (const mesh of [cap.back, cap.front, cap.face, cap.rim]) mesh.visible = plane !== null && !gone
     }
   }
 
   dispose(): void {
     for (const built of [...this.parts]) this.forget(built)
-    this.outline.geometry.dispose()
-    this.outline.material.dispose()
+    this.frame.geometry.dispose()
+    this.frame.material.dispose()
     for (const child of this.handle.children) (child as THREE.Mesh).geometry.dispose()
     this.handleMaterial.dispose()
   }
@@ -409,11 +518,9 @@ export class SectionCut {
       const look = this.looks.get(built)
       if (look) lookCap(cap, look)
     }
-    if (cap) for (const mesh of [cap.back, cap.front, cap.face, cap.rim]) mesh.visible = planes !== null
   }
 
   private makeCap(built: BuiltPart): Cap {
-    const order = ORDER_FROM + this.made++ * 3 * ORDER_STEP
     const count = (side: THREE.Side, op: THREE.StencilOp): THREE.MeshBasicMaterial =>
       new THREE.MeshBasicMaterial({
         side,
@@ -450,15 +557,14 @@ export class SectionCut {
     // A part that is not closed after all leaves counts where the quad does not reach: none is left for the next part.
     face.onAfterRender = (renderer) => renderer.clearStencil()
     const rim = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial())
-    const meshes = [back, front, face, rim]
-    meshes.forEach((mesh, i) => {
-      // The outline with the cut face: it is of the same pass.
-      mesh.renderOrder = order + Math.min(i, 2) * ORDER_STEP
+    rim.geometry.setDrawRange(0, 0)
+    // Their place in the order of drawing is given by `place`.
+    for (const mesh of [back, front, face, rim]) {
       mesh.frustumCulled = false
       mesh.raycast = () => {} // never picked: a cut face is no face of the model
       built.group.add(mesh)
-    })
-    return { back, front, face, rim }
+    }
+    return { back, front, face, rim, rimOf: '' }
   }
 }
 
