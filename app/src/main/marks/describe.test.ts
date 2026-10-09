@@ -167,6 +167,8 @@ describe('describeMark', () => {
     expect(describeMark(mark({ ...pin, checkedRevision: 11 }), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here" [not checked against r12]')
     expect(describeMark(mark(pin), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here" [not checked against r12]')
     expect(describeMark(mark({ ...pin, checkedRevision: 12 }), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here"')
+    // Any other build than this one: revisions count anew when an object is opened again.
+    expect(describeMark(mark({ ...pin, checkedRevision: 13 }), { revision: 12 })).toBe('M6 pin on lid/F2 at (1, 2, 3): "here" [not checked against r12]')
     // After what the last check found, when it found something.
     expect(describeMark(mark({ ...pin, checkedRevision: 11, anchorState: 'drifted' }), { revision: 12 })).toBe(
       'M6 pin placed on lid/F2 at (1, 2, 3): "here" [moved since it was placed: check it] [not checked against r12]'

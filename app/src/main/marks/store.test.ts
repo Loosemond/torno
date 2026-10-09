@@ -499,6 +499,19 @@ describe('what is on disk', () => {
     expect(await store.list('bracket')).toEqual([])
   })
 
+  it('does not take from the file which build a mark was checked against: that was said in another run, whose revisions are not these', async () => {
+    await store.add('bracket', pin())
+    await store.reanchor('bracket', [{ id: 'M1', judged: [ANCHOR], anchors: [{ ...ANCHOR, arranged: [35, 0, 0] }], anchorState: 'ok', checkedRevision: 12 }])
+    expect(onDisk('bracket').marks[0].checkedRevision).toBe(12)
+    // The next run reads the file: the spread recorded is kept, the revision is not.
+    const next = (await newStore().list('bracket'))[0] as PinMark
+    expect(next).not.toHaveProperty('checkedRevision')
+    expect(next.anchor.arranged).toEqual([35, 0, 0])
+    // So is a workspace left and opened again in the same run.
+    store.forget()
+    expect((await store.list('bracket'))[0]).not.toHaveProperty('checkedRevision')
+  })
+
   it('a corrupt file is kept aside, said once, and a fresh list started', async () => {
     mkdirSync(join(dirs.bracket, '.torno'))
     writeFileSync(join(dirs.bracket, '.torno', 'marks.json'), '{"next": 2, "marks": [')

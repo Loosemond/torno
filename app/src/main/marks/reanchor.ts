@@ -145,9 +145,10 @@ function spreadOf(scene: Scene, layout: string, part: string): Vec3 | null {
   return found ? (found.arranged ?? NOT_SPREAD) : null
 }
 
-const withSpread = (anchor: Anchor, arranged: Vec3): Anchor => {
+/** An anchor that says how far its part is spread; null for one that says nothing of it. */
+const withSpread = (anchor: Anchor, arranged: Vec3 | null): Anchor => {
   const { arranged: _was, ...rest } = anchor
-  return arranged.some((c) => c !== 0) ? { ...rest, arranged } : rest
+  return arranged ? { ...rest, arranged: [arranged[0], arranged[1], arranged[2]] } : rest
 }
 
 /** A mark, or what a mark is put on again, with `change` made to the anchor that ties it to the geometry. */
@@ -158,10 +159,11 @@ function withAnchor<M extends Mark | NewMark>(mark: M, change: (anchor: Anchor) 
 
 /**
  * A mark as main keeps it when it is placed: its anchor says how far its part
- * is spread on the build it was placed on, when that is the last build, which
- * is the only one main knows. Whatever the placer said of it is not kept. Of
- * a mark placed on another build nothing is said, and the first check takes
- * the mark to be where it is.
+ * is spread on the build it was placed on (zeros for a part that was not
+ * moved), when that is the last build, which is the only one main knows.
+ * Whatever the placer said of it is not kept. Of a mark placed on another
+ * build, or on no part of the layout, nothing is said, and the first check
+ * takes the mark to be where it is.
  */
 export function asPlaced<M extends Mark | NewMark>(mark: M, last: LastBuild | undefined): M {
   return withAnchor(mark, (anchor) => placedAnchor(anchor, mark.layout, mark.revision, last))
@@ -175,20 +177,19 @@ export function asReplaced(placed: Replacement, layout: string, last: LastBuild 
 }
 
 function placedAnchor(anchor: Anchor, layout: string, revision: number, last: LastBuild | undefined): Anchor {
-  const spread = last?.revision === revision && typeof anchor.part === 'string' ? spreadOf(last.scene, layout, anchor.part) : null
-  return withSpread(anchor, spread ?? NOT_SPREAD)
+  return withSpread(anchor, last?.revision === revision && typeof anchor.part === 'string' ? spreadOf(last.scene, layout, anchor.part) : null)
 }
 
 /**
  * How far a mark has to move to stay where it was put on its part, now that
  * the build spreads that part by `now`: the difference to the spread its
- * anchor records. Nothing for a mark that was never checked and records
- * none: it comes from before spreads were recorded, or was placed on a build
- * main no longer has, and is taken to be where it is.
+ * anchor records. Nothing for an anchor that records none: the mark comes
+ * from before spreads were recorded, or was placed on a build main no longer
+ * had, and is taken to be where it is.
  */
-function shiftOf(mark: Mark, primary: Anchor, now: Vec3): Vec3 | null {
-  if (primary.arranged === undefined && mark.checkedRevision === undefined) return null
-  const was = primary.arranged ?? NOT_SPREAD
+function shiftOf(primary: Anchor, now: Vec3): Vec3 | null {
+  const was = primary.arranged
+  if (was === undefined) return null
   const by: Vec3 = [now[0] - was[0], now[1] - was[1], now[2] - was[2]]
   return by.some((c) => c !== 0) ? by : null
 }
@@ -249,7 +250,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
     const primary = markAnchors(original)[0]
     const now = primary?.part === undefined ? null : spreadOf(scene, original.layout, primary.part)
     if (!primary || now === null) return { original, shift: null, mark: original }
-    const shift = shiftOf(original, primary, now)
+    const shift = shiftOf(primary, now)
     return { original, shift, mark: withAnchor(shift ? translated(original, shift) : original, (anchor) => withSpread(anchor, now)) }
   })
   const marks = checked.map((one) => one.mark)

@@ -296,6 +296,9 @@ export class MarkStore {
         if (!file) {
           const loaded = await loadMarksFile(dir, () => this.now())
           file = loaded.file
+          // Which build a mark was checked against is of the run that checked it: revisions count anew in
+          // this one, and a number read from the file would pass for one of them.
+          for (const mark of file.marks) delete mark.checkedRevision
           if (loaded.problem) this.problems.set(dir, loaded.problem)
           if (epoch === this.epoch) {
             this.files.set(dir, file)

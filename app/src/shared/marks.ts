@@ -10,9 +10,12 @@ export interface Anchor {
   descriptor?: string      // from the kernel: "plane, normal +Z, z = 20, 1180 mm²"
   /**
    * How far its part had been spread for display (`Part.arranged`) on the build
-   * the anchor was placed on or last checked against. Absent means not at all.
-   * Main sets it: when the part is spread otherwise by a later build, the mark
-   * is moved by the difference, so it stays where it was put on the part.
+   * the anchor was placed on or last checked against: zeros for a part that
+   * was not moved. Main sets it. When a later build spreads the part
+   * otherwise, the mark is moved by the difference, so it stays where it was
+   * put on the part. Absent: never recorded (a mark from before this was
+   * kept, or one on no part), and the next check records it without moving
+   * the mark.
    */
   arranged?: Vec3
   /** The edge the point is on, when it is on one: `lid/E40`. Then `ref` is that edge too. */
@@ -42,7 +45,12 @@ interface MarkBase {
   acknowledged?: boolean
   /** It has been given to the agent with a prompt at least once. Set by main; only ever true. */
   sentBefore?: boolean
-  /** The revision of the last build its anchors were checked against. Set by main. Absent: never checked. */
+  /**
+   * The revision of the last build its anchors were checked against. Set by
+   * main. Absent: not checked in this run of torno. Revisions count from 1
+   * each time an object is opened, so what a file says of an earlier run is
+   * dropped when it is read.
+   */
   checkedRevision?: number
 }
 export interface PinMark extends MarkBase { kind: 'pin'; anchor: Anchor }
@@ -121,7 +129,7 @@ export function strokeSamples(mark: Mark, most = STROKE_SAMPLES): Vec3[] {
  * `revision` is that of the last build that worked; with none, nothing is unchecked.
  */
 export function isUnchecked(mark: Mark, revision: number | undefined): boolean {
-  return mark.status !== 'resolved' && revision !== undefined && revision > 0 && (mark.checkedRevision ?? 0) < revision
+  return mark.status !== 'resolved' && revision !== undefined && revision > 0 && mark.checkedRevision !== revision
 }
 
 /** A mark the agent resolved and the person has not yet said they have seen: it stays among the open ones in the panel. */

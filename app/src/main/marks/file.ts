@@ -221,7 +221,7 @@ function anchorOf(value: unknown): Anchor | null {
   if (typeof value.ref === 'string') anchor.ref = value.ref
   if (typeof value.descriptor === 'string') anchor.descriptor = value.descriptor
   const arranged = tuple<Vec3>(value.arranged, 3)
-  if (arranged && arranged.some((c) => c !== 0)) anchor.arranged = arranged
+  if (arranged) anchor.arranged = arranged
   if (typeof value.edge === 'string') anchor.edge = value.edge
   if (Array.isArray(value.between) && value.between.length === 2 && value.between.every((ref) => typeof ref === 'string')) anchor.between = [value.between[0], value.between[1]]
   return anchor

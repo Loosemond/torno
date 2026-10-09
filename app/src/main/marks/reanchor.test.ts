@@ -490,7 +490,7 @@ describe('reanchorAll', () => {
       expect((await byId()).M1).toMatchObject({ position: [65, 7, 20], anchor: { point: [59, 0, 12] } })
     })
 
-    it('a part no longer spread takes its marks back with it, and says nothing of a spread', async () => {
+    it('a part no longer spread takes its marks back with it, and says it is not spread', async () => {
       await store.add('bracket', pin(ON_SPREAD, PRINT))
       await run()
       scene = sceneOf(['print:base', 'print:post'])
@@ -498,7 +498,12 @@ describe('reanchorAll', () => {
       await run()
       const back = (await byId()).M1 as PinMark
       expect(back.anchor.point).toEqual([4, 0, 12])
-      expect(back.anchor).not.toHaveProperty('arranged')
+      expect(back.anchor.arranged).toEqual([0, 0, 0])
+      // And out again by all of it, though the part had been where the model put it.
+      scene = spreadBy(20)
+      revision = 3
+      await run()
+      expect(((await byId()).M1 as PinMark).anchor).toMatchObject({ point: [24, 0, 12], arranged: [20, 0, 0] })
     })
 
     it('a mark whose part is gone stays where it is, and moves by all that changed when the part is back', async () => {
@@ -521,6 +526,22 @@ describe('reanchorAll', () => {
       await store.add('bracket', pin(legacy, PRINT))
       await run()
       expect((await byId()).M1).toMatchObject({ checkedRevision: 1, anchor: { point: [54, 0, 12], arranged: [50, 0, 0] } })
+      // From then on it moves with its part like any other.
+      scene = spreadBy(55)
+      revision = 2
+      await run()
+      expect((await byId()).M1).toMatchObject({ anchor: { point: [59, 0, 12], arranged: [55, 0, 0] } })
+    })
+
+    it('a mark checked in an earlier run moves by what changed since, though this run has not checked it yet', async () => {
+      await store.add('bracket', pin(ON_SPREAD, PRINT))
+      await run()
+      // torno is started again: what the file says of the check is of another run, and the model changed meanwhile.
+      store = new MarkStore({ dirOf: (id) => dirs[id] })
+      expect((await store.list('bracket'))[0]).not.toHaveProperty('checkedRevision')
+      scene = spreadBy(58)
+      await run()
+      expect((await byId()).M1).toMatchObject({ checkedRevision: 1, anchor: { point: [62, 0, 12], arranged: [58, 0, 0] } })
     })
 
     it('a query that fails moves nothing: the mark is moved when it can be judged where it would be', async () => {
@@ -605,14 +626,14 @@ describe('reanchorAll', () => {
       expect(anchorsOf(asked[0].args)).toEqual([{ part: 'base', point: [20, 3, 2.5], edge: 'base/E5' }])
       const kept = (await byId()).M1 as PinMark
       expect(kept.anchorState).toBe('ok')
-      expect(kept.anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E5', edge: 'base/E5', between: ['base/F1', 'base/F4'], descriptor: 'line, 30 mm' })
+      expect(kept.anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E5', edge: 'base/E5', between: ['base/F1', 'base/F4'], descriptor: 'line, 30 mm', arranged: [0, 0, 0] })
     })
 
     it('follows the edge to its new number when the kernel finds the point on another', async () => {
       await store.add('bracket', pin({ ...ON_EDGE, edge: 'base/E5', between: ['base/F1', 'base/F4'] }))
       answer = edge({ edgeFound: true, edgeDistance: 12, edgeDescriptor: 'line, 30 mm', edgeBetween: ['base/F0', 'base/F2'], support: 'edge', edgeUnder: 'base/E9', edgeUnderDescriptor: 'line, 31 mm', between: ['base/F1', 'base/F6'] })
       await run()
-      expect(((await byId()).M1 as PinMark).anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E9', edge: 'base/E9', between: ['base/F1', 'base/F6'], descriptor: 'line, 31 mm' })
+      expect(((await byId()).M1 as PinMark).anchor).toEqual({ point: [20, 3, 2.5], part: 'base', ref: 'base/E9', edge: 'base/E9', between: ['base/F1', 'base/F6'], descriptor: 'line, 31 mm', arranged: [0, 0, 0] })
     })
 
     it('has drifted when no edge is under it any more, and keeps the edge it was put on', async () => {
@@ -627,7 +648,7 @@ describe('reanchorAll', () => {
       answer = edge({ support: 'edge', edgeUnder: 'base/E2', edgeUnderDescriptor: 'circle, radius 4, 25.13 mm', between: ['base/F4'] })
       await run()
       // A seam, or the rim of a hole in one face: there are not two faces to name.
-      expect(((await byId()).M1 as PinMark).anchor).toEqual({ point: [5, 3, 2.5], part: 'base', ref: 'base/E2', edge: 'base/E2', descriptor: 'circle, radius 4, 25.13 mm' })
+      expect(((await byId()).M1 as PinMark).anchor).toEqual({ point: [5, 3, 2.5], part: 'base', ref: 'base/E2', edge: 'base/E2', descriptor: 'circle, radius 4, 25.13 mm', arranged: [0, 0, 0] })
     })
 
     it('judgePin leaves a pin on a face as judge does', () => {
@@ -907,8 +928,14 @@ describe('asPlaced', () => {
   it('says in the anchor how far its part is spread on the build the mark was placed on, whatever the window said', () => {
     const placed = asPlaced({ ...pin({ ...ON, arranged: [1, 2, 3] }), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as PinMark
     expect(placed.anchor.arranged).toEqual([50, 0, 0])
+    // A part that was not moved: said, as zeros.
     const onBase = asPlaced({ ...pin({ point: [0, 0, 1], part: 'base', arranged: [1, 2, 3] }), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as PinMark
-    expect(onBase.anchor).not.toHaveProperty('arranged')
+    expect(onBase.anchor.arranged).toEqual([0, 0, 0])
+    // On no part, or on none the layout has: nothing to say.
+    const inSpace = asPlaced({ ...pin({ point: [90, 0, 1], arranged: [1, 2, 3] }), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as PinMark
+    expect(inSpace.anchor).toEqual({ point: [90, 0, 1] })
+    const onNone = asPlaced({ ...pin({ point: [0, 0, 1], part: 'gone', arranged: [1, 2, 3] }), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as PinMark
+    expect(onNone.anchor).not.toHaveProperty('arranged')
     const start = asPlaced({ ...arrow(ON), layout: 'print', revision: 4 } as NewMark, { revision: 4, scene }) as ArrowMark
     expect(start.from.arranged).toEqual([50, 0, 0])
   })

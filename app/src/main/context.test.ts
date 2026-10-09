@@ -350,7 +350,8 @@ describe('contextFor', () => {
     it('holds the limit with 200 marks open and a build that failed at length', () => {
       const traceback = Array.from({ length: 12 }, (_, i) => `frame ${i + 1} ${'x'.repeat(900)}`).join('\n')
       const build: BuildState = { objectId: 'bracket', status: 'failed', revision: 2, stale: true, error: { kind: 'exception', message: 'm'.repeat(900), traceback } }
-      const marks = [...Array.from({ length: 200 }, (_, i) => pin(i + 1, { status: 'sent' })), pin(201, { note: 'n'.repeat(2000) }), pin(202)]
+      // Checked against r2, the build still on show.
+      const marks = [...Array.from({ length: 200 }, (_, i) => pin(i + 1, { status: 'sent', checkedRevision: 2 })), pin(201, { note: 'n'.repeat(2000), checkedRevision: 2 }), pin(202, { checkedRevision: 2 })]
       const context = contextFor(deps({ build, scene: SCENE }), 'bracket', marks)
       expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
       // The build keeps a third of the room; the marks are told all the same.

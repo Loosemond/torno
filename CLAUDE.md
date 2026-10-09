@@ -67,16 +67,20 @@ While iterating run the focused test; run all four suites before a commit.
   `anchorState` says `drifted` or `orphaned`. Whatever reports a mark says so:
   the agent is told nothing it cannot rely on.
   - The one way a mark moves: its anchor records how far its part was spread
-    for display (`Anchor.arranged`), and when a build spreads the part
-    otherwise, everything the mark holds moves by the difference before it is
-    judged. Main sets `arranged` (`asPlaced`), never the window.
+    for display (`Anchor.arranged`, zeros for a part that was not moved), and
+    when a build spreads the part otherwise, everything the mark holds moves
+    by the difference before it is judged. An anchor that records none (a
+    mark from before) is not moved: the check records it. Main sets
+    `arranged` (`asPlaced`), never the window.
   - A check writes what it judged each mark from; `MarkStore.reanchor` passes
     over a mark whose anchors are no longer those (it was put somewhere else
     meanwhile).
   - `checkedRevision` is the build a mark was last checked against. An open
-    mark with a lower one is unchecked (`isUnchecked`), and every report of it
-    says so. A check that could not say of every mark is tried again after 2,
-    10 and 30 s (`retrying`).
+    mark with any other than the last build's is unchecked (`isUnchecked`),
+    and every report of it says so. Revisions count from 1 in every run, so
+    the store drops what a file says of it when the file is read. A check
+    that could not say of every mark is tried again after 2, 10 and 30 s
+    (`retrying`).
   - A pin whose point is on an edge is on that edge (`judgePin`): its anchor
     has `edge` and, when two faces meet there, `between`.
 - Status: `draft` until a `UserPromptSubmit` hook has carried the mark to the
@@ -88,8 +92,9 @@ While iterating run the focused test; run all four suites before a commit.
   `resolvedBy`, `acknowledged`, `sentBefore`, `checkedRevision`) is never
   taken from the window or from a tool's arguments. A mark the agent resolved
   stays in the panel's main list until the person acknowledges it.
-- The MCP tools (`src/main/mcp/tools.ts`): `scene`, `look`, `marks`,
-  `describe`, `highlight`, `show`, `add_mark`, `resolve_mark`. `show` changes
+- The MCP tools (`src/main/mcp/tools.ts`, and those that place and resolve
+  marks in `mcp/markTools.ts`): `scene`, `look`, `marks`, `describe`,
+  `highlight`, `show`, `add_mark`, `resolve_mark`. `show` changes
   the view for now and is never saved to `scene.json`; it is refused while a
   button is held in the viewport. `marks`, `describe` and `add_mark` say which
   revision they answer from, and that it is stale while a newer build runs or

@@ -209,9 +209,11 @@ describe('marks file', () => {
   })
 
   it('keeps of those only what they can be', () => {
-    const odd = sanitiseMark(pin({ sentBefore: 'yes', checkedRevision: '12', resolvedBy: 'agent', acknowledged: true, anchor: { ...ANCHOR, arranged: [0, 0, 0], edge: 5, between: ['base/F1'] } }))
-    // A draft is resolved by nobody; a spread of nothing is none; one face is not two.
+    const odd = sanitiseMark(pin({ sentBefore: 'yes', checkedRevision: '12', resolvedBy: 'agent', acknowledged: true, anchor: { ...ANCHOR, arranged: [0, 0], edge: 5, between: ['base/F1'] } }))
+    // A draft is resolved by nobody; a spread is three numbers; one face is not two.
     expect(odd).toEqual(pin())
+    // A part that was not moved says so: that is not the same as saying nothing.
+    expect(sanitiseMark(pin({ anchor: { ...ANCHOR, arranged: [0, 0, 0] } }))).toEqual(pin({ anchor: { ...ANCHOR, arranged: [0, 0, 0] } }))
     expect(sanitiseMark(pin({ status: 'resolved', resolvedBy: 'someone', acknowledged: true }))).toEqual(pin({ status: 'resolved' }))
     // Only a mark the agent resolved can have been acknowledged.
     expect(sanitiseMark(pin({ status: 'resolved', resolvedBy: 'user', acknowledged: true }))).toEqual(pin({ status: 'resolved', resolvedBy: 'user' }))
