@@ -57,8 +57,8 @@ async function said(deps: RegionDeps, objectId: string, scan: ScanInfo, bits: Ui
 
 /** Writes a mask for a mark that is about to be written, once the scan is seen to be the mesh the numbers are of. */
 async function written(deps: RegionDeps, objectId: string, scan: ScanInfo, stem: string, bits: Uint8Array): Promise<void> {
-  // It was not read again or removed while they were worked out.
-  if (meshIdentity(await scanOf(deps, objectId, scan.id)) !== meshIdentity(scan)) throw new Error(`${scan.id} was imported again while the region was being kept: paint it again`)
+  // It was not read again, converted or removed while they were worked out.
+  if (meshIdentity(await scanOf(deps, objectId, scan.id)) !== meshIdentity(scan)) throw new Error(`${scan.id} was read again or converted while the region was being kept: paint it again`)
   writing.add(`${objectId} ${scan.id} ${stem}`)
   await deps.scans.writeMask(objectId, scan.id, stem, bits)
 }

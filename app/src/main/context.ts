@@ -148,8 +148,12 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
     for (const [i, mark] of listed.entries()) {
       const tag = tagOf(mark)
       // A mark's coordinates and refs are in the frame of its layout, which may not be the one named above.
-      // A region is of its scan in every layout: it is told in the one named above.
-      const line = `${describeMark(mark, { revision, ...(opts.scans ? { scans: opts.scans } : {}), ...(named ? { layout: named } : {}), ...(tag ? { tag } : {}) })}${mark.layout === named || mark.kind === 'region' ? '' : ` [in layout ${mark.layout}]`}`
+      // A region is of its scan in every layout: it is told in the one named above. Where none is (the object
+      // is not the one open), in the first of its build, else its own, and its line says which: a place with no
+      // layout named is no place. One whose scan is gone is told nowhere.
+      const told = named ?? (mark.kind === 'region' ? (deps.scene(objectId)?.scene.layouts[0] ?? mark.layout) : undefined)
+      const where = mark.kind === 'region' ? (named || mark.anchorState === 'orphaned' ? '' : ` [in layout ${told}]`) : mark.layout === named ? '' : ` [in layout ${mark.layout}]`
+      const line = `${describeMark(mark, { revision, ...(opts.scans ? { scans: opts.scans } : {}), ...(told ? { layout: told } : {}), ...(tag ? { tag } : {}) })}${where}`
       const after = listed.length - i - 1
       // Room is kept for the line that says how many are left out, should the next one not fit.
       if (used + 1 + line.length + (after > 0 ? 1 + more(after).length : 0) > CONTEXT_LIMIT) {

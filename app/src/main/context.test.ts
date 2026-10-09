@@ -639,6 +639,20 @@ describe('scans', () => {
     expect(told.text).not.toContain('not checked')
   })
 
+  // Milestone 5 (T6): of an object that is not the one open no layout is named above: the region's own line names the one it is told in.
+  it('tells a draft region of an object that is not open in the first layout of its build, and says which', () => {
+    const region = { id: 'M7', kind: 'region', scan: 'S1', author: 'user', note: 'loom', status: 'draft', anchorState: 'ok', layout: 'print', revision: 4, camera: CAMERA, createdAt: '', triangles: 4812, area: 31000, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, -0.5], max: [-10, -10, 0.5] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 0.42 }, box: { centre: [-15, -15, 0], axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], half: [5, 5, 0.5] } } } as unknown as Mark
+    const elsewhere = (scans: ScanInfo[], mark = region): string => contextFor(deps({ build: OK, scene: SCENE, open: 'gear' }), 'bracket', [mark], { scans }).text.split('\n').find((line) => line.includes('M7 region'))!
+    // Aligned in the build's first layout: it has its place there, though it was painted in print.
+    expect(elsewhere([scan('S1', { assembly: BY_PAIRS })])).toBe('M7 region on scan S1: 4,812 triangles, ≈ 31000 mm², centre ≈ (-14, -13, 3), ≈ 10 × 10 × 1 mm, within a box of ≈ 10 × 10 × 1 mm, flat about a plane with normal ≈ (0, 0, 1): "loom" [in layout assembly]')
+    expect(elsewhere([scan('S1', { print: BY_PAIRS })])).toMatch(/^M7 region on scan S1 \(not aligned in assembly, so it has no place in the model’s frame\): .*: "loom" \[in layout assembly\]$/)
+    // Before anything is built there is no first layout: its own is the one it is told in, and is named.
+    const unbuilt = contextFor(deps({ open: 'gear' }), 'bracket', [region], { scans: [scan('S1', { print: BY_PAIRS })] }).text
+    expect(unbuilt.split('\n').find((line) => line.includes('M7 region'))).toMatch(/: "loom" \[in layout print\]$/)
+    // One whose scan is gone is nowhere: no layout is named for it.
+    expect(elsewhere([], { ...region, anchorState: 'orphaned' } as Mark)).toBe('M7 region on scan S1 [its scan is gone]: "loom"')
+  })
+
   it('says the scans in one line after the status, and nothing when there are none', () => {
     const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: [], scans: [{ id: 'S1', visible: true, opacity: 0.6, loaded: true }, { id: 'S2', visible: false, opacity: 1, loaded: true }] }
     const text = contextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', [], { scans: [scan('S1', { print: BY_PAIRS }), scan('S2')] }).text

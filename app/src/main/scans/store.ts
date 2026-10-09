@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, realpath, rm, stat as statFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, realpath, rm, rmdir, stat as statFile, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Vec3 } from '../../shared/marks'
 import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, SCAN_FORMATS, UNIT_MM } from '../../shared/scans'
@@ -378,7 +378,12 @@ export class ScanStore {
     } catch (e) {
       if (!committed && fresh !== null) await removeMesh(folder, fresh)
       // Its folder went with it, and what the process then says is of a folder that is not there.
-      if (!committed && (await this.isGone(place, id))) throw new Error(`${id} was removed while it was being imported again`)
+      if (!committed && (await this.isGone(place, id))) {
+        // Unless the removal came before this made the folder again for the new mesh: then it is this one's to
+        // take away, empty as it now is. Never one that holds anything, and never through a link.
+        if ((await linkRefusal(dir, id).catch(() => 'not known')) === null) await rmdir(folder).catch(() => {})
+        throw new Error(`${id} was removed while it was being imported again`)
+      }
       throw new Error(e instanceof Error ? e.message : String(e))
     } finally {
       busy.delete(id)

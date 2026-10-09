@@ -355,6 +355,19 @@ describe('a region of a scan', () => {
     expect(describeMark(REGION, { scans: [scan('S1', rough as never)] })).toMatch(/\[S1 is only roughly aligned: it has 2 pairs of points\]$/)
   })
 
+  // Milestone 5 (T3): the doubt was in the line only; whoever reads the data reads a place with no word on how far to rely on it.
+  it('gives in a region’s data how the alignment it is placed by stands, in a word', () => {
+    const placed = { print: at([100, 0, 5]) }
+    const rough = { print: { ...(placed.print as object), rough: 'it has 2 pairs of points' } }
+    expect(markData(REGION, 12, [scan('S1', rough as never, held('print'))])).toMatchObject({ aligned: true, alignment: 'rough' })
+    expect(markData(REGION, 12, [scan('S1', placed, held('print'))])).toMatchObject({ aligned: true, alignment: 'aligned' })
+    expect(markData(REGION, 12, [scan('S1', placed)])).toMatchObject({ aligned: true, alignment: 'not checked' })
+    expect(markData(REGION, 12, [scan('S1', placed, { print: { revision: 12, of: 4, off: 2, worst: 6.2, moved: [] } })])).toMatchObject({ aligned: true, alignment: 'in doubt' })
+    // Where it has no place there is no alignment to speak of: `aligned` says so.
+    expect(markData(REGION, 12, [scan('S1')])).toMatchObject({ aligned: false })
+    expect(markData(REGION, 12, [scan('S1')])).not.toHaveProperty('alignment')
+  })
+
   it('says of an orphaned region why, as far as that is known, and gives nothing of the mesh it was of (M6, M7)', () => {
     const orphaned = { ...REGION, anchorState: 'orphaned' } as Mark
     expect(describeMark(orphaned, { scans: [] })).toBe('M7 region on scan S1 [its scan is gone]: "wiring loom"')

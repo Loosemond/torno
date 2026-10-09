@@ -74,11 +74,12 @@ function asMeasured(mark: Mark, revision: number | undefined): string {
  * A region holds `scan`, `triangles`, `area`, its `size` along its own axes
  * and whether it is `flat`, and, where its scan is aligned in the layout
  * asked (`toldIn`), `centroid`, `axes`, `bbox` and `plane` in the object
- * frame of that layout. Never `local`: that is in the scan's own frame,
+ * frame of that layout, with how that alignment stands in a word
+ * (`alignment`: aligned, rough, in doubt, not checked). Never `local`: that is in the scan's own frame,
  * which is main's and the window's. One that is orphaned holds none of it.
  */
 export function markData(mark: Mark, revision: number | undefined, scans?: readonly ScanInfo[], layout?: string): object {
-  if (mark.kind === 'region') return regionData(mark, layout, scans)
+  if (mark.kind === 'region') return regionData(mark, layout, scans, revision)
   if (mark.kind !== 'dimension') return mark
   if (mark.status !== 'resolved' && measuredValue(mark, revision) !== undefined) return mark
   const { value: _value, how: _how, points: _points, verdict: _verdict, ...rest } = mark
@@ -194,7 +195,7 @@ function regionDoubt(mark: RegionMark, opts: { revision?: number; layout?: strin
   return doubts.length > 0 ? ` [${doubts.join('; ')}]` : ''
 }
 
-function regionData(mark: RegionMark, layout: string | undefined, scans: readonly ScanInfo[] | undefined): object {
+function regionData(mark: RegionMark, layout: string | undefined, scans: readonly ScanInfo[] | undefined, revision: number | undefined): object {
   // What only main reads: where it is in its scan's own frame, which mesh it is of, which file holds it.
   const { local, mesh: _mesh, mask: _mask, ...rest } = mark
   if (mark.anchorState === 'orphaned') {
@@ -207,7 +208,8 @@ function regionData(mark: RegionMark, layout: string | undefined, scans: readonl
   const size = local.box.half.map((half) => 2 * half)
   if (!placed) return { ...rest, toldIn: told, aligned: false, size, flat: isFlat(local.box), approximate: REGION_APPROXIMATE }
   const { there } = placed
-  return { ...rest, toldIn: told, aligned: true, area: there.area, centroid: there.centroid, size: there.box.half.map((half) => 2 * half), axes: there.box.axes, bbox: there.bbox, bboxOf: 'a box along the axes of the layout that the region lies within: not its size', plane: there.plane, flat: there.flat, approximate: REGION_APPROXIMATE }
+  // How far its place is to be relied on, in a word, as every tool says it of that alignment: its line says why.
+  return { ...rest, toldIn: told, aligned: true, alignment: alignmentSaid(placed.scan, told, revision).state, area: there.area, centroid: there.centroid, size: there.box.half.map((half) => 2 * half), axes: there.box.axes, bbox: there.bbox, bboxOf: 'a box along the axes of the layout that the region lies within: not its size', plane: there.plane, flat: there.flat, approximate: REGION_APPROXIMATE }
 }
 
 function what(mark: Mark, opts: { revision?: number; layout?: string; scans?: readonly ScanInfo[] }): string {

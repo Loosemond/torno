@@ -324,10 +324,10 @@ describe('keeping', () => {
     const tool = regionTool()
     stroke(tool, ctx)
     const count = painted.set!.count
-    answer = async () => Promise.reject(new Error('S1 was imported again while the region was being kept: paint it again'))
+    answer = async () => Promise.reject(new Error('S1 was read again or converted while the region was being kept: paint it again'))
     await keepRegion(ctx)
-    expect(said).toContain('S1 was imported again while the region was being kept: paint it again')
-    expect(regionStore.getState()).toMatchObject({ refused: 'S1 was imported again while the region was being kept: paint it again', count, sending: false })
+    expect(said).toContain('S1 was read again or converted while the region was being kept: paint it again')
+    expect(regionStore.getState()).toMatchObject({ refused: 'S1 was read again or converted while the region was being kept: paint it again', count, sending: false })
     expect(painted.set!.count).toBe(count)
     expect(notes).toEqual([])
   })
@@ -778,6 +778,31 @@ describe('painting a kept region again', () => {
     await vi.waitFor(() => expect(tinted.at(-1)).toEqual(['M4']))
     toolStore.setState({ tool: 'region' })
     expect(tinted.at(-1)).toEqual([])
+    off()
+    store.setState({ marks: [] })
+  })
+
+  // Milestone 5 (R3): a mask that could not be read is not given up for as long as the object is open.
+  it('asks again for a mask that failed to read once the scans are told anew, and not before', async () => {
+    const { ctx } = fake()
+    const tinted: string[][] = []
+    const viewport = { ...ctx.viewport, setRegions: (regions: Array<{ id: string }>) => void tinted.push(regions.map((region) => region.id)) }
+    let asked = 0
+    let fails = true
+    vi.stubGlobal('window', { torno: { scans: { mask: async () => ((asked += 1), fails ? Promise.reject(new Error('EIO')) : maskOf(5, 6, 7)) } } })
+    store.setState({ marks: [kept] })
+    toolStore.setState({ tool: 'select' })
+    const off = connectRegion(viewport as never)
+    await vi.waitFor(() => expect(asked).toBe(1))
+    // Once main has said it could not be read.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Whatever else changes, it is not asked for again: a mask that is really gone would be asked for without end.
+    store.setState({ marks: [{ ...(kept as object) }] as never })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(asked).toBe(1)
+    fails = false
+    actions.setScans({ objectId: 'bracket', scans: [scanInfo('S1')] })
+    await vi.waitFor(() => expect([asked, tinted.at(-1)]).toEqual([2, ['M4']]))
     off()
     store.setState({ marks: [] })
   })

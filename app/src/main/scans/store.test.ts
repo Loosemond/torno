@@ -1049,6 +1049,49 @@ describe('ScanStore, after its second review', () => {
     await expect(again).rejects.toThrow('S1 was removed while it was being imported again')
     expect(existsSync(join(scansDir(), 'S1', 'mesh.1.bin'))).toBe(false)
   })
+
+  // Milestone 5 (S6): the removal took the folder, and the re-import that was under way made it again for its mesh.
+  it('leaves no folder of a scan that was removed while it was read again', async () => {
+    let release!: () => void
+    let begin!: () => void
+    const begun = new Promise<void>((resolve) => (begin = resolve))
+    let hold = false
+    const scans = store({
+      ...importer,
+      async import(from, out, opts, onStage) {
+        if (hold) {
+          await new Promise<void>((resolve) => {
+            release = resolve
+            begin()
+          })
+        }
+        return importer.import(from, out, opts, onStage)
+      }
+    })
+    await scans.import('bracket', source)
+    hold = true
+    const again = scans.reimport('bracket', 'S1')
+    await begun
+    await scans.remove('bracket', 'S1')
+    // As when the removal comes between the re-import taking its turn and making its folder: the folder is there again, for the new mesh.
+    mkdirSync(join(scansDir(), 'S1'))
+    release()
+    await expect(again).rejects.toThrow('S1 was removed while it was being imported again')
+    expect(existsSync(join(scansDir(), 'S1'))).toBe(false)
+    // Only its own, and only when nothing else is in it: a folder that holds anything is not this re-import's to delete.
+    hold = false
+    await scans.import('bracket', source)
+    hold = true
+    const held = new Promise<void>((resolve) => (begin = resolve))
+    const second = scans.reimport('bracket', 'S2')
+    await held
+    await scans.remove('bracket', 'S2')
+    mkdirSync(join(scansDir(), 'S2'))
+    writeFileSync(join(scansDir(), 'S2', 'notes.txt'), 'kept')
+    release()
+    await expect(second).rejects.toThrow('S2 was removed while it was being imported again')
+    expect(readdirSync(join(scansDir(), 'S2'))).toEqual(['notes.txt'])
+  })
 })
 
 // M6

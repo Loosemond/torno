@@ -231,6 +231,8 @@ const stateFiles = new StateFiles({ object: findObject, build: buildState, scene
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 // Where a region is told to be follows its scan's alignment.
 scans.on('changed', ({ objectId }) => stateFiles.changed(objectId))
+// A mask that did not read for a region is asked for again: what the scans are has changed.
+scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
 
 /**
  * What a test needs of main that it cannot reach through the window. `pickFolder`

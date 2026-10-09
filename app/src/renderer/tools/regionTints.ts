@@ -25,7 +25,8 @@ function regionsOf(s: TornoState, editing: string | null): Array<{ mark: Extract
 /**
  * Has a viewport tint the regions kept on their scans: each from the bits of its mask, asked of main once,
  * when the mark first appears (and again for another mesh of its scan). A mask that is gone, or is of another
- * mesh, tints nothing: main says of the mark that it is orphaned. Returns what undoes it.
+ * mesh, tints nothing: main says of the mark that it is orphaned; it is asked for again when the scans are
+ * told anew. Returns what undoes it.
  */
 export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void {
   /** By mark and mesh: the bits main gave, or that they were asked for (null), or that they are no region of that mesh (false). */
@@ -50,7 +51,7 @@ export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void 
           }
           tell(store.getState())
         },
-        // Gone from the disk: main says so of the mark when it next looks. Not asked again for this mesh.
+        // Gone from the disk, or not read: main says so of the mark when it next looks. Not asked again until the scans are told anew.
         () => void bits.set(key, false)
       )
     }
@@ -61,6 +62,8 @@ export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void 
   }
   tell(store.getState())
   const off = store.subscribe((s, prev) => {
+    // Main told the scans anew: a mask that failed to read may read now, and is asked for once more.
+    if (s.scans !== prev.scans) for (const [key, have] of bits) if (have === false) bits.delete(key)
     if (s.marks !== prev.marks || s.scans !== prev.scans || s.objectId !== prev.objectId) tell(s)
   })
   const offEditing = regionStore.subscribe((r, prev) => {

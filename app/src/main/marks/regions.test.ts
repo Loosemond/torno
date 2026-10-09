@@ -232,6 +232,9 @@ describe('a region goes with the mesh it was painted on (M5)', () => {
     writeFileSync(maskOf('M1'), Buffer.concat([mask.subarray(0, 16), Buffer.alloc(9)]))
     expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
     writeFileSync(maskOf('M1'), mask)
+    // Milestone 5 (M12): a mask that did not read is not read at every listing: again once the scans are told anew.
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+    marks.scansChanged('bracket')
     expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
     // Orphaned because the scan was read again from a changed source: the mesh it records is not the scan's.
     await marks.orphanRegions('bracket', 'S1', ['M2'])
@@ -240,6 +243,29 @@ describe('a region goes with the mesh it was painted on (M5)', () => {
     writeFileSync(join(dir, '.torno', 'marks.json'), JSON.stringify(file))
     marks.forget()
     expect((await marks.list('bracket'))[1].anchorState).toBe('orphaned')
+  })
+
+  // Milestone 5 (M12)
+  it('reads a mask that did not read once, however often the marks are listed, until the scans change', async () => {
+    const read: string[] = []
+    const reads = maskReadsOf(scans)
+    marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans), maskReads: (objectId, scan, stem) => (read.push(`${scan}/${stem}`), reads(objectId, scan, stem)) })
+    scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
+    await addRegion(deps(), 'bracket', region())
+    rmSync(maskOf('M1'))
+    await tendRegions(deps(), 'bracket')
+    await marks.list('bracket')
+    await marks.list('bracket')
+    expect(read).toEqual(['S1/M1'])
+    // The scans change (here: one is renamed): it is asked for once more.
+    await scans.rename('bracket', 'S1', 'again.stl')
+    await marks.list('bracket')
+    await marks.list('bracket')
+    expect(read).toEqual(['S1/M1', 'S1/M1'])
+    // Another workspace: nothing of the one that was left is remembered.
+    marks.forget()
+    await marks.list('bracket')
+    expect(read).toHaveLength(3)
   })
 
   it('leaves a mark from before meshes were recorded as it is, while its scan is there', async () => {

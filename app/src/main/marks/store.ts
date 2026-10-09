@@ -87,6 +87,9 @@ export class MarkStore {
    * `meshes` says which mesh each scan of an object has now (`meshIdentity`, by scan id), or null when that is
    * not known: a region is held against it whenever the marks are listed.
    */
+  /** The masks that did not read when an orphaned region was looked at, each by its object's folder, its scan and its stem: until that object's scans change (`scansChanged`). */
+  private unread = new Set<string>()
+
   constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date; meshes?(objectId: string): Promise<Map<string, string> | null>; maskReads?(objectId: string, scan: string, stem: string): Promise<boolean> }) {}
 
   on<E extends keyof MarkEvents>(event: E, cb: (m: MarkEvents[E]) => void): void {
@@ -97,6 +100,17 @@ export class MarkStore {
   forget(): void {
     this.epoch += 1
     this.files.clear()
+    this.unread.clear()
+  }
+
+  /**
+   * The scans of an object were told anew (`ScanStore`'s `changed`): a mask of its that did not read is asked
+   * for again when the marks are next listed. Until then it is not read at every listing.
+   */
+  scansChanged(objectId: string): void {
+    const dir = this.deps.dirOf(objectId)
+    if (dir === undefined) return
+    for (const key of this.unread) if (key.startsWith(`${dir}\n`)) this.unread.delete(key)
   }
 
   /**
@@ -120,7 +134,8 @@ export class MarkStore {
    *
    * And the other way: an orphaned region whose scan is there again with the very mesh the mark records, and
    * whose mask reads for it (`maskReads`), is of that scan as it ever was. Its cause has passed (a scans file
-   * that was lost and put back, a mask restored): it is back, and that is said once.
+   * that was lost and put back, a mask restored): it is back, and that is said once. A mask that did not read
+   * is asked for again once the scans are told anew, not at every listing (`scansChanged`).
    */
   async list(objectId: string): Promise<Mark[]> {
     const marks = await this.turn(objectId, (file) => structuredClone(file.marks))
@@ -131,7 +146,11 @@ export class MarkStore {
     const back: RegionMark[] = []
     for (const mark of all) {
       if (mark.anchorState !== 'orphaned' || mark.mesh === undefined || meshes.get(mark.scan) !== mark.mesh || !this.deps.maskReads) continue
+      // By the mask's own name, in its object's folder: one that did not read is not read again until the scans are told anew.
+      const key = `${this.deps.dirOf(objectId)}\n${mark.scan}/${maskStem(mark)}`
+      if (this.unread.has(key)) continue
       if (await this.deps.maskReads(objectId, mark.scan, maskStem(mark)).catch(() => false)) back.push(mark)
+      else this.unread.add(key)
     }
     if (lost.length === 0 && back.length === 0) return marks
     if (lost.length > 0) await this.orphaned(objectId, lost)
