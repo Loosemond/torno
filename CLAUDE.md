@@ -170,10 +170,12 @@ While iterating run the focused test; run all four suites before a commit.
     (`src/main/context.ts`). A draft dimension is
     told with the drafts. The status line counts every unresolved dimension
     that fails, sent or not.
-- The MCP tools (`src/main/mcp/tools.ts`, which holds every input schema and
-  description; those that place and resolve marks in `mcp/markTools.ts`; those
-  that read the part in `mcp/readTools.ts`; those that ask about scans in
-  `mcp/scanTools.ts`): `scene`, `look`, `marks`,
+- The MCP tools (`src/main/mcp/schemas.ts` holds every input schema and
+  description, and `TOOLS`; `mcp/tools.ts` registers them and holds what
+  every tool shares, with `marks` and `describe`; `scene`, `look` and `show`
+  are in `mcp/viewTools.ts`; those that place and resolve marks in
+  `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
+  that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `show`, `add_mark`, `resolve_mark`, `measure`,
   `section`, `check`, `scans`, `scan_clash`, `scan_deviation`. `show` changes
   the view for now and is never saved to `scene.json`; it is refused while a
@@ -285,8 +287,10 @@ While iterating run the focused test; run all four suites before a commit.
   shown on the row, and changed there by `convert`. Above 2,000,000 triangles
   the import reduces the mesh and says so.
 - Main is the only writer of `.torno/scans.json` and of `.torno/scans/`
-  (`src/main/scans/store.ts`): one change at a time per object, written
-  atomically before it is told. Ids are `S1`, `S2`, … per object, never
+  (`src/main/scans/store.ts`, with a region's mask files in
+  `scans/masks.ts` and what an alignment becomes when it is kept, undone,
+  held or checked in `scans/alignments.ts`, each a scan made of a scan):
+  one change at a time per object, written atomically before it is told. Ids are `S1`, `S2`, … per object, never
   reused, also when `scans.json` is lost and a folder `S<n>` is still there.
   Visibility, opacity and colour mode are view state, in `scene.json`
   (`scans`); what `show` sets of them never reaches that file.
@@ -299,7 +303,11 @@ While iterating run the focused test; run all four suites before a commit.
     never ended, an unnamed mesh only while the named one is there, nothing
     through a link, nothing beside a `scans.json` that was set aside. Nothing
     is written through a link either (`ownFolders`: `.torno`, `.torno/scans`,
-    a scan's folder).
+    a scan's folder), and nothing else is deleted through one (`linkRefusal`
+    in `masks.ts`): not a mask, not a scan's folder when the scan is removed
+    (the removal is refused and the scan kept), and the sweep clears nothing
+    where `.torno` or `.torno/scans` is one. A re-import that a removal
+    overtook takes away the folder it made again, only when it is empty.
   - What `scans.json` says is bounded as it is read (`scans/file.ts`): a
     layout name and a source path are one line, 200 and 4,096 characters at
     most; a mesh whose header gives no box is refused (`parseScanMesh`).
@@ -343,11 +351,16 @@ While iterating run the focused test; run all four suites before a commit.
     })` (`checkingAlignments`, and the marks' `retrying`, whose `restore` is
     true only for the run a person's act or a tool asked for); when the
     kernel no longer holds the build it records why (`uncheckedFor`, `the
-    kernel no longer holds this build`) and waits for the next `scene`.
+    kernel no longer holds this build`) and waits for the next `scene`. When
+    the model, as it is, does not build either (`NotBuilding`, which
+    `Builds.query` throws then, asked to restore or not), that is the reason
+    recorded (`NOT_BUILDING`), and it is not tried again. The scans' store is
+    looked up at each run of the check, as the marks' is.
   - `Builds.query` restores a build the kernel let go, for a tool or an act
     of the person; but not sources that have just failed to build
     (`Entry.failure`, until a source changes or a rebuild is asked for): it
-    then rejects saying there is no build to answer from. `BuildState.letGo`
+    then rejects saying there is no build to answer from, and that one comes
+    when a source changes or Rebuild is pressed. `BuildState.letGo`
     (`memory`) says the kernel let the object's build go to make room
     (`build.started`'s `retired`, or a `no_build` with `reason: "memory"`);
     `letGoText` words it for the status line and for `scene`.
@@ -397,7 +410,11 @@ While iterating run the focused test; run all four suites before a commit.
     (`scanNumber`, `scanVector`; under 0.05 mm is `under 0.1 mm`); the data
     keeps the kernel's. A reading closes with how the scan is aligned and,
     of a fit, that its RMS is of the clicked points (`RMS_OF_CLICKS`):
-    never a word on how true the scan is. What else is known of an
+    never a word on how true the scan is. The fit's own figures (RMS, worst,
+    where a hand left the pairs, a floor's plane) are told to 0.1 mm too in
+    whatever main says (`tenth` in `said.ts`, given to `alignmentText`); the
+    window shows the person theirs to the thousandth, and the data keeps
+    them in full. What else is known of an
     alignment (`standing.note`) is said once a reply, in the reading.
     `scan_deviation` says the least distance, and that `within` is where the
     looking stops.
@@ -428,7 +445,14 @@ While iterating run the focused test; run all four suites before a commit.
     region as it was and is said as a problem line. Orphaning is undone when
     its cause passes: `list` brings back an orphaned region whose scan is
     there again with the mesh the mark records and a mask that reads
-    (`maskReads`), and says so once (`M7 is back: …`).
+    (`maskReads`), and says so once (`M7 is back: …`). A mask that did not
+    read is asked for again once the scans are told anew
+    (`MarkStore.scansChanged`), not at every listing; so is one the window
+    could not get for its tints (`regionTints.ts`). A region's data says in a
+    word how the alignment it is placed by stands (`alignment`, as
+    `alignmentSaid().state`); a draft region of an object that is not the
+    one open is told in the first layout of its build, and its line says
+    which (`[in layout assembly]`).
   - A conversion keeps the triangles and restates the numbers and the mesh
     (`convertScan`); when that fails the scan's regions are orphaned, with why.
   - "Edit" on its row takes its mask in hand as a painting; "Keep" writes a
@@ -438,7 +462,9 @@ While iterating run the focused test; run all four suites before a commit.
   - The kernel leaves out of `ignore` only the scan vertices every triangle
     round which is painted, and as crossings only painted triangles: the rim
     of a region still counts. Asked for alone (`region`), its rim is its own.
-  - The Region tool (`tools/regionTool.ts`) takes the scan only where it is
+  - The Region tool (`tools/regionTool.ts`; what is painted and not yet
+    kept, and what the bar and a mark's row do with it, is the registry in
+    `tools/regionPainting.ts`) takes the scan only where it is
     what is drawn at the pixel under the pointer: not behind a part in front
     of it, not in the half a section took away. The brush is a ball round
     that point. A stamp takes nothing a part hides: with a part in front of
@@ -477,7 +503,17 @@ While iterating run the focused test; run all four suites before a commit.
   A named view frames the parts; `look`'s `frame: 'all'` and "Frame" on a
   scan's row take the scans in, and a caption says when a scan reaches
   beyond the picture (`beyondNote`), when spread parts are not where a scan
-  drawn has them (`spreadBesideScans`), and which scans have no mesh.
+  drawn has them (`spreadBesideScans`), and which scans have no mesh. The
+  camera reaches for a scan no further than `SCAN_REACH` (200) times the
+  sphere round the parts (`reaching`); a scan drawn that lies further is cut
+  by the far plane, and says so (`beyondReach`: `ScanLayerState.clipped`,
+  the chip "not all in view" on its row from `store.scansClipped`, which
+  the viewport sets with every view it reports, and `reaches beyond the
+  view: not all of it is drawn` in a picture's caption).
+- The align bar is `ui/AlignBar.tsx`, its three bodies `ui/align/`
+  (`FloorBody`, `PairsBody`, `NudgeBody`, and `format.ts` for what they
+  share); the field one number is typed in is `ui/Field.tsx`, the Region
+  bar's too.
 - Refs and numbers in a sentence are set in the monospace face by
   `ui/numbered.tsx`, a ref whole. `.torno/views/` ignores itself for git.
 - What the window says of its scans (`ViewState.scans`) is sanitised in main
@@ -613,9 +649,11 @@ window on it.
   scans, `.regions()` for what is tinted,
   `window.__tornoTerm.text()` for what the terminal shows, and
   `globalThis.__tornoMain` in main (`app.evaluate`) for the MCP address, the
-  mark store (to leave the marks an agent would), the scan store (`scans`) and
+  mark store (to leave the marks an agent would), the scan store (`scans`),
   `marksChecks(objectId)`
-  (started and finished counts: equal when no check of the marks is under way).
+  (started and finished counts: equal when no check of the marks is under way)
+  and `letGo(objectId)`, which has an object's status say that the kernel let
+  its build go to make room: no test's kernel is short of memory.
 - `page.mouse` and `page.keyboard` work on the hidden window: marks are placed
   in tests with real pointer events through the tools.
 - A test works on a temporary copy of `kernel/tests/fixtures/ws`, never on
