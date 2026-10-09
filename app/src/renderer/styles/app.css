@@ -801,6 +801,20 @@ button {
   color: var(--accent);
 }
 
+/* What the last build did to the surface a mark is on. */
+.mark-anchor {
+  flex: none;
+  font-size: var(--text-small);
+}
+
+.mark-anchor[data-state='drifted'] {
+  color: var(--warn);
+}
+
+.mark-anchor[data-state='orphaned'] {
+  color: var(--fail);
+}
+
 .mark-row[data-status='resolved'] .mark-chip,
 .mark-row[data-elsewhere] .mark-chip {
   opacity: 0.55;

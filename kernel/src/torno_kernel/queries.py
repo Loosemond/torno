@@ -63,9 +63,10 @@ def nearest(shapes: dict[str, Any], layout: str, anchors: list[Any]) -> list[dic
     An anchor is ``{"part": name, "point": [x, y, z]}``, in the object frame of
     that layout. The answer names the face the nearest point is on (without the
     layout: ``lid/F12``), with the point, the face's outward normal there, the
-    distance between the two in mm, and the face's descriptor. Where the
-    nearest point is on an edge or a corner, the face is the adjacent one of
-    lowest index. A part the layout does not have is ``found: false``.
+    distance between the two in mm, and the face's descriptor (null for a
+    face that cannot be described). Where the nearest point is on an edge or a
+    corner, the face is the adjacent one of lowest index. A part the layout
+    does not have is ``found: false``.
     """
     layouts = list(dict.fromkeys(key.split(":", 1)[0] for key in shapes))
     if not any(key.startswith(f"{layout}:") for key in shapes):
@@ -125,7 +126,8 @@ class _Surface:
         TopExp.MapShapes_s(self._shape, TopAbs_FACE, self._index)
         self._kinds = {"edge": TopAbs_EDGE, "vertex": TopAbs_VERTEX}
         self._around: dict[str, Any] = {}  # faces around each edge, and each vertex, once asked
-        self._described: dict[int, dict[str, Any]] = {}
+        self._descriptors: dict[int, str | None] = {}
+        self._extrema: Any = None  # holds the part taken apart and boxed, once asked
 
     def nearest(self, part: str, key: str, point: list[float]) -> dict[str, Any]:
         from build123d import Face, Vector
@@ -133,42 +135,68 @@ class _Surface:
         from OCP.BRepExtrema import BRepExtrema_DistShapeShape
         from OCP.gp import gp_Pnt
 
-        vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*point)).Vertex()
-        extrema = BRepExtrema_DistShapeShape(vertex, self._shape)
-        if not extrema.IsDone() or extrema.NbSolution() < 1:
+        if self._extrema is None:
+            # The part is the first shape, loaded once: taking it apart and
+            # boxing its faces is most of the work, and is the same for every
+            # point asked about.
+            self._extrema = BRepExtrema_DistShapeShape()
+            self._extrema.LoadS1(self._shape)
+        extrema = self._extrema
+        extrema.LoadS2(BRepBuilderAPI_MakeVertex(gp_Pnt(*point)).Vertex())
+        if not extrema.Perform() or extrema.NbSolution() < 1:
             raise QueryError("exception", f"no nearest point on {key} could be computed")
         # Several points may be equally near (the middle of a slot): the one on
         # the face of lowest index is taken, so the answer does not change
         # from one build to the next.
         index, on = min(
-            (self._face_under(extrema.SupportTypeShape2(i), extrema.SupportOnShape2(i)), i)
+            (self._face_under(key, extrema.SupportTypeShape1(i), extrema.SupportOnShape1(i)), i)
             for i in range(1, extrema.NbSolution() + 1)
         )
-        at = extrema.PointOnShape2(on)
+        at = extrema.PointOnShape1(on)
         at = Vector(at.X(), at.Y(), at.Z())
         try:
             normal = _xyz(Face(self._faces[index]).normal_at(at))
         except Exception:
             normal = None
-        if index not in self._described:
-            self._described[index] = _describe_face(f"{key}/F{index}", self._faces[index])
         return {
             "point": _xyz(at),
             "normal": normal,
             "ref": f"{part}/F{index}",
             "distance": float(extrema.Value()),
-            "descriptor": self._described[index]["descriptor"],
+            "descriptor": self._descriptor(key, index),
         }
 
-    def _face_under(self, support_type: Any, support: Any) -> int:
+    def _descriptor(self, key: str, index: int) -> str | None:
+        """The descriptor of a face, or None for one that cannot be described."""
+        if index not in self._descriptors:
+            try:
+                described = _describe_face(f"{key}/F{index}", self._faces[index])["descriptor"]
+            except Exception:
+                # One odd face is not a reason to say nothing of the other anchors.
+                described = None
+            self._descriptors[index] = described
+        return self._descriptors[index]
+
+    def _face_under(self, key: str, support_type: Any, support: Any) -> int:
         """The index of the face a nearest point is on: of the lowest, on an edge or a corner."""
         from OCP.BRepExtrema import BRepExtrema_SupportType
 
         if support_type == BRepExtrema_SupportType.BRepExtrema_IsInFace:
-            return self._index.FindIndex(support) - 1
-        on_edge = support_type == BRepExtrema_SupportType.BRepExtrema_IsOnEdge
-        around = self._faces_around("edge" if on_edge else "vertex")
-        return min(self._index.FindIndex(face) for face in around.FindFromKey(support)) - 1
+            numbers = [self._index.FindIndex(support)]
+        else:
+            on_edge = support_type == BRepExtrema_SupportType.BRepExtrema_IsOnEdge
+            around = self._faces_around("edge" if on_edge else "vertex")
+            # Nothing around it when the edge or the corner is of no face: a wire in the part.
+            faces = around.FindFromKey(support) if around.Contains(support) else []
+            numbers = [self._index.FindIndex(face) for face in faces]
+        # FindIndex answers 0 for a shape the map does not have: taken as an
+        # index that would be -1, the last face.
+        if not numbers or min(numbers) < 1:
+            raise QueryError(
+                "exception",
+                f"the point of {key} nearest to the anchor is on none of its faces",
+            )
+        return min(numbers) - 1
 
     def _faces_around(self, kind: str) -> Any:
         from ocp_tessellate.ocp_utils import (

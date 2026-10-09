@@ -60,6 +60,8 @@ While iterating run the focused test; run all four suites before a commit.
   four stay alive: a fifth folder retires the one least recently built or
   queried, whose queries are then `no_build`. A query names its folder (`dir`)
   and has 30 s, after which it is answered `timeout` and the worker left alone.
+  Until that worker next sends a frame, new queries to it are answered
+  `timeout` at once: it answers one at a time, and is still busy with that one.
   A worker leaves through `os._exit`.
 - **prctl.** Each worker sets `PR_SET_PDEATHSIG` to SIGKILL, so it dies with
   the supervisor even when that is killed, and `PR_SET_DUMPABLE` to 0, so a

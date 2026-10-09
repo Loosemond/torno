@@ -47,6 +47,11 @@ def face_of(shapes, key: str, **facts) -> dict:
         (-0.0, "0"),
         (1e-12, "0"),
         (-1e-12, "0"),
+        # What modelling leaves where it means nothing.
+        (-0.0000001, "0"),
+        (9e-7, "0"),
+        (0.000002, "0.000002"),
+        (-0.00025, "-0.00025"),
     ],
 )
 def test_numbers_have_at_most_four_significant_digits_and_no_trailing_zeros(value, text):
@@ -267,6 +272,60 @@ def test_nearest_on_an_edge_or_a_corner_is_the_adjacent_face_of_lowest_index(sha
     assert on_corner["descriptor"] == named["descriptor"]
 
 
+def test_nearest_of_many_anchors_on_a_part_is_what_each_alone_would_get(shapes):
+    # One search of the part serves every anchor on it: none is answered with another's result.
+    points = [[5, 3, 5.5], [5, 3, 2], [23, 3, 5.5], [23, 18, 5.5], [-30, 0, 0], [5, 3, -4.5], [0, 0, 0]]
+    together = nearest(shapes, "assembly", *(("base", point) for point in points), ("post", [7, 0, 12]))
+    alone = [nearest(shapes, "assembly", ("base", point))[0] for point in points]
+    assert together[:-1] == alone
+    assert [a["distance"] for a in alone[:3]] == pytest.approx([3, 0.5, math.hypot(3, 3)])
+    assert together[-1] == nearest(shapes, "assembly", ("post", [7, 0, 12]))[0]
+
+
+def test_nearest_on_a_face_that_cannot_be_described_still_answers_every_anchor(shapes, monkeypatch):
+    top = face_of(shapes, "assembly:base", normal=[0, 0, 1])["ref"]
+    describe_face = queries._describe_face
+
+    def odd(ref, face):
+        if ref == top:
+            raise RuntimeError("no parameter range")
+        return describe_face(ref, face)
+
+    monkeypatch.setattr(queries, "_describe_face", odd)
+    above, below = nearest(shapes, "assembly", ("base", [5, 3, 5.5]), ("base", [5, 3, -4.5]))
+    assert above["found"] is True
+    assert above["ref"] == top.removeprefix("assembly:")
+    assert above["distance"] == pytest.approx(3)
+    assert above["descriptor"] is None
+    assert below["descriptor"] == "plane, normal -Z, z = -2.5, 1200 mm²"
+
+
+def test_nearest_point_on_no_face_of_the_part_is_an_error_not_its_last_face(shapes):
+    from build123d import Box
+    from OCP.BRepExtrema import BRepExtrema_SupportType as On
+
+    surface = queries._Surface(shapes["assembly:base"])
+    own = topo.faces(shapes["assembly:base"])[3]
+    assert surface._face_under("assembly:base", On.BRepExtrema_IsInFace, own) == 3
+    # A face, an edge and a corner that are not the part's: its map of faces does not have them.
+    stranger = Box(1, 2, 3)
+    foreign = [
+        (On.BRepExtrema_IsInFace, topo.faces(stranger)[0]),
+        (On.BRepExtrema_IsOnEdge, topo.edges(stranger)[0]),
+        (On.BRepExtrema_IsVertex, stranger.vertices()[0].wrapped),
+    ]
+    for support_type, support in foreign:
+        with pytest.raises(queries.QueryError) as e:
+            surface._face_under("assembly:base", support_type, support)
+        assert e.value.kind == "exception"
+        assert e.value.message == "the point of assembly:base nearest to the anchor is on none of its faces"
+
+
+def test_face_at_a_coordinate_of_modelling_noise_is_at_zero():
+    facts = {"type": "plane", "normal": [0, 0, 1], "center": [3, 4, -0.0000001], "area": 100}
+    assert descriptor("face", facts) == "plane, normal +Z, z = 0, 100 mm²"
+
+
 def test_nearest_missing_part_is_not_found_and_the_others_are_answered(shapes):
     anchors = nearest(shapes, "assembly", ("gone", [0, 0, 0]), ("base", [5, 3, 5.5]))
     assert anchors[0] == {"part": "gone", "found": False}
@@ -368,3 +427,37 @@ def test_nearest_after_a_rebuild_with_other_topology_names_the_face_now_there():
     assert nearest({"main:slab": Box(40, 30, 5)}, "main", ("plate", point)) == [
         {"part": "plate", "found": False}
     ]
+
+
+def test_morph_fixture_moves_its_top_and_loses_its_post(tmp_path):
+    """The model the app's re-anchoring is tried on: what ``variant.txt`` says is what is built."""
+    import shutil
+
+    folder = tmp_path / "morph"
+    shutil.copytree(WS / "morph", folder, ignore=shutil.ignore_patterns("__pycache__"))
+
+    def built(variant):
+        (folder / "variant.txt").write_text(variant)
+        return build_scene(load_scene(folder, "morph.py"), "morph.py")[2]
+
+    a = built("a")
+    assert sorted(a) == ["main:plate", "main:post"]
+    assert len(topo.faces(a["main:plate"])) == 6
+    on_top, on_post = nearest(a, "main", ("plate", [14, 9, 2.5]), ("post", [0, 0, 22.5]))
+    assert on_top["distance"] == pytest.approx(0, abs=1e-9)
+    assert on_top["descriptor"] == "plane, normal +Z, z = 2.5, 1200 mm²"
+    assert on_post["distance"] == pytest.approx(0, abs=1e-9)
+
+    b = built("b")
+    assert sorted(b) == ["main:plate"]
+    assert len(topo.faces(b["main:plate"])) == 10
+    moved, lost = nearest(b, "main", ("plate", [14, 9, 2.5]), ("post", [0, 0, 22.5]))
+    assert moved["distance"] == pytest.approx(3)
+    assert moved["normal"] == pytest.approx([0, 0, 1])
+    assert moved["descriptor"] == "plane, normal +Z, z = 5.5, 1064 mm²"
+    assert moved["ref"] != on_top["ref"]
+    assert lost == {"part": "post", "found": False}
+
+    (folder / "variant.txt").write_text("c")
+    with pytest.raises(Exception, match="it must say a or b"):
+        load_scene(folder, "morph.py")

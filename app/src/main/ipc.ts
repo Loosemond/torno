@@ -13,6 +13,7 @@ import { Builds, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveLook } from './look'
+import { coalesced, reanchorAll } from './marks/reanchor'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
@@ -81,6 +82,23 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   builds.on('scene', ({ objectId, revision, scene, blob }) =>
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
   )
+  // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
+  // marks are on: each mark is checked against it. One check at a time per object; a build that
+  // succeeds during one is checked after it, and what was found for the build before is dropped.
+  const reanchor = coalesced((objectId) => {
+    const store = marks
+    if (!store) return Promise.resolve()
+    return reanchorAll(
+      {
+        marks: store,
+        query: (id, name, args) => builds.query(id, name, args),
+        // None once the workspace is left: nothing is asked or written for it any more.
+        scene: (id) => (current === ws ? builds.scene(id)?.scene : undefined)
+      },
+      objectId
+    )
+  })
+  builds.on('scene', ({ objectId }) => reanchor(objectId))
   current = ws
   return info
 }

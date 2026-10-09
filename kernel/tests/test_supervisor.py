@@ -750,6 +750,58 @@ def test_query_not_answered_in_time_is_a_timeout_and_the_worker_is_left_alone(ro
     assert sup._live == {"/object": live}
 
 
+def test_after_a_timeout_later_queries_are_timeouts_at_once_until_the_worker_answers(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.3)
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    other, other_end = routed.worker("/other")
+    sup._live["/object"] = live
+    sup._live["/other"] = other
+    routed.request(id="slow", op="query", dir="/object", name="nearest", args={})
+    sup._step()
+    sup._step()  # the deadline passes
+    assert [f["error"]["kind"] for f in routed.sent()] == ["timeout"]
+
+    # The worker is still busy with that one: the next is not made to wait for it.
+    routed.request(id="second", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    routed.request(id="elsewhere", op="query", dir="/other", name="describe", args={"ref": "a:b"})
+    start = time.monotonic()
+    sup._step()
+    assert time.monotonic() - start < 0.2
+    assert routed.sent() == [
+        {
+            "id": "second",
+            "ok": False,
+            "error": {
+                "kind": "timeout",
+                "message": "the build of /object is still busy with a query it did not answer "
+                "within 0.3 s; ask again when it has",
+            },
+        }
+    ]
+    # It was not sent on, so nothing waits for an answer; another object's worker is asked as ever.
+    assert live.queries == []
+    assert [id for id, _ in other.queries] == ["elsewhere"]
+    other_end.sendall(frame({"id": "elsewhere", "ok": True, "result": {"n": 2}}))
+    sup._step()
+    assert routed.sent() == [{"id": "elsewhere", "ok": True, "result": {"n": 2}}]
+
+    # Its late answer is dropped, and says it is free again.
+    live_end.sendall(frame({"id": "slow", "ok": True, "result": {}}))
+    sup._step()
+    assert routed.sent() == []
+    routed.request(id="third", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    sup._step()
+    assert [id for id, _ in live.queries] == ["third"]
+    live_end.sendall(frame({"id": "third", "ok": True, "result": {"n": 3}}))
+    sup._step()
+    assert routed.sent() == [{"id": "third", "ok": True, "result": {"n": 3}}]
+    assert sup._live == {"/other": other, "/object": live}
+    assert not gone(live.pid)
+
+
 def test_the_wait_ends_at_the_earlier_of_the_build_and_query_deadlines(routed, monkeypatch):
     from torno_kernel import supervisor
 

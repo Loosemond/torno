@@ -12,6 +12,9 @@ _AXES = "XYZ"
 # A direction this close to an axis is named after it.
 _ON_AXIS = math.cos(math.radians(0.5))
 _ZERO = 1e-9
+# A length, an area or a coordinate smaller than this is what modelling leaves
+# where it means nothing: a face "at z = -0.0000001" is at 0.
+_NOISE = 1e-6
 
 
 def descriptor(kind: str, facts: dict[str, Any]) -> str:
@@ -36,11 +39,14 @@ def descriptor(kind: str, facts: dict[str, Any]) -> str:
 
 
 def number(value: float) -> str:
-    """A number with at most four significant digits and no trailing zeros."""
+    """A number with at most four significant digits and no trailing zeros.
+
+    Millimetres are meant: a magnitude under a millionth is written ``0``.
+    """
     value = float(value)
     if not math.isfinite(value):
         return str(value)
-    if abs(value) < _ZERO:
+    if abs(value) < _NOISE:
         return "0"
     decimals = 3 - math.floor(math.log10(abs(value)))
     rounded = round(value, decimals)

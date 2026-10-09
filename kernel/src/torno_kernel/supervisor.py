@@ -130,6 +130,8 @@ class _Worker:
     decoder: _Decoder = field(default_factory=_Decoder)
     # Queries sent and not yet answered, oldest first: (id, when to give up on it).
     queries: list[tuple[Any, float]] = field(default_factory=list)
+    # A query to it timed out and it has sent nothing since: it is still busy with that one.
+    stalled: bool = False
 
     def answered(self, id: Any) -> bool:
         """Take the query ``id`` off the list. False if it was not waiting for an answer."""
@@ -263,6 +265,16 @@ class Supervisor:
             )
             return
         self._live[dir] = self._live.pop(dir)  # the most recently used
+        if live.stalled:
+            # It answers one query at a time: this one would only wait its own 30 s behind
+            # the one that was given up on.
+            self._fail(
+                id,
+                "timeout",
+                f"the build of {dir} is still busy with a query it did not answer "
+                f"within {QUERY_TIMEOUT:g} s; ask again when it has",
+            )
+            return
         query = {"id": id, "name": request.get("name"), "args": request.get("args")}
         live.queries.append((id, time.monotonic() + QUERY_TIMEOUT))
         try:
@@ -332,9 +344,11 @@ class Supervisor:
                 return  # an earlier frame of this chunk ended it
             elif not isinstance(header, dict):
                 self._live_died(worker)
-            elif worker.answered(header.get("id")):
-                self._send(header, blob)
-            # Otherwise the answer to a query already given up on: it is dropped.
+            else:
+                worker.stalled = False  # it has got past whatever kept it
+                if worker.answered(header.get("id")):
+                    self._send(header, blob)
+                # Otherwise the answer to a query already given up on: it is dropped.
 
     def _build_finished(self, worker: _Worker, result: dict[str, Any], blob: bytes) -> None:
         self._building = None
@@ -407,6 +421,7 @@ class Supervisor:
         """Answer the queries a live worker has had for too long. The worker is left alone."""
         while worker.queries and worker.queries[0][1] <= now:
             id, _ = worker.queries.pop(0)
+            worker.stalled = True
             self._fail(
                 id,
                 "timeout",

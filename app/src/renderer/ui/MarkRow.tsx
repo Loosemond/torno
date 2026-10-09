@@ -14,10 +14,13 @@ const ANCHOR_NOTE = {
   drifted: 'The surface it was on has moved since it was placed',
   orphaned: 'The part it was on is gone'
 } as const
+/** What the row says of a mark the last build left off its surface, or without its part. */
+const ANCHOR_BADGE = { drifted: 'moved: check it', orphaned: 'its part is gone' } as const
 
 /**
  * One mark in the panel: its number, what kind it is, its note (click to
- * write it), whether the agent has been sent it, and what can be done with it.
+ * write it), whether the last build moved the surface it is on or dropped its
+ * part, whether the agent has been sent it, and what can be done with it.
  * `change` and `remove` are the panel's, which says so when main refuses.
  */
 export function MarkRow({
@@ -105,6 +108,11 @@ export function MarkRow({
             e.stopPropagation()
           }}
         />
+      )}
+      {!resolved && mark.anchorState !== 'ok' && (
+        <span className="mark-anchor" data-state={mark.anchorState} title={ANCHOR_NOTE[mark.anchorState]}>
+          {ANCHOR_BADGE[mark.anchorState]}
+        </span>
       )}
       {elsewhere && <span className="mark-layout num">{mark.layout}</span>}
       {!resolved && (

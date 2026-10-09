@@ -105,7 +105,7 @@ const sceneFile = () => join(root, 'bracket', '.torno', 'scene.json')
 
 test('the object list shows the objects; one that cannot be built is muted, with the reason', async () => {
   const rows = page.locator('.object-row')
-  await expect(rows).toHaveText(['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'noscene', 'plain', 'slow', 'two'])
+  await expect(rows).toHaveText(['bracket', 'broken', 'chatty', 'crash', 'exits', 'makers', 'morph', 'noscene', 'plain', 'slow', 'two'])
   const two = page.getByRole('button', { name: 'two', exact: true })
   await expect(two).toHaveAttribute('title', /more than one model file in .*two: a\.py, b\.py/)
   await expect(two).toHaveAttribute('data-problem', '')
