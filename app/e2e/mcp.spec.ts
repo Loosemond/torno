@@ -840,6 +840,8 @@ let hollow: Client
 const DEVIATION = { near: [0x8a, 0x45, 0x94], far: [0xd3, 0xd8, 0xdf], inside: [0x22, 0x25, 0x2a] }
 const near = (rgb: number[], to: number[]): boolean => rgb.every((c, i) => Math.abs(c - to[i]) <= 3)
 /** Where the sheet is put: as it was imported, by three pairs of points that are not in a line and that it leaves nothing apart. */
+/** What a picture's caption says of that alignment: what it rests on, and that no build can say whether it holds. */
+const BASIS = '3 pairs, RMS 0 mm; tied to no point of the model: not checked against builds'
 const AS_IMPORTED = {
   transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 },
   steps: ['pairs'],
@@ -867,10 +869,13 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
   expect((await call(hollow, 'look', { view: 'front', size: 256 })).text).toContain('scans S1 (not aligned in assembly: drawn where it was imported)')
 
   await app.evaluate((_electron, alignment) => (globalThis as any).__tornoMain.scans.align('hollow', 'S1', 'assembly', { ...alignment, at: new Date().toISOString() }), AS_IMPORTED)
+  // Task 5's fix round 1: an alignment says so until it was checked against the build there is. Kept through the store, as here, it is
+  // checked by nobody: what the check finds of one tied to no point of the model is put there by hand.
+  await app.evaluate((_electron, revision) => (globalThis as any).__tornoMain.scans.checked('hollow', 'S1', 'assembly', { revision, of: 0, off: 0, worst: 0, moved: [] }), (await state()).revision)
   const clash = JSON.parse((await call(hollow, 'scan_clash', { part: 'tub' })).text)
   expect(clash).toMatchObject({ layout: 'assembly', scan: 'S1', exact: false, alignment: { state: 'aligned', by: 'by 3 pairs (rms 0 mm, worst 0 mm)', pairs: 3 }, inside: { count: 400, crossing: 0 }, points: { scan: 400, touching: 0 } })
   expect(clash.deepest.depth).toBeCloseTo(1, 6)
-  expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(rms 0 mm, worst 0 mm\): a depth under that says nothing\.$/)
+  expect(clash.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r\d+\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at .* under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by 3 pairs \(rms 0 mm, worst 0 mm\): a depth under that says nothing \(tied to no point of the model: not checked against builds\)\.$/)
   const lid = JSON.parse((await call(hollow, 'scan_clash', { part: 'lid' })).text)
   expect(lid.inside.count).toBe(0)
   expect(lid.reading).toContain('no scan point is within 5 mm of the part')
@@ -898,12 +903,13 @@ test('the agent lists a scan, is refused until it is aligned, and then reads a c
 test('look draws the scans or leaves them out, and colours one by its distance to a part in the colours its caption gives', async () => {
   const withScan = await call(hollow, 'look', { view: 'front', size: 256 })
   const without = await call(hollow, 'look', { view: 'front', size: 256, scans: false })
-  expect(withScan.text).toContain(' · scans S1 · ')
+  // Task 5's fix round 1: the caption says what the alignment rests on, and what no build can say of it.
+  expect(withScan.text).toContain(` · scans S1 (${BASIS}) · `)
   expect(without.text).not.toContain('scans')
   // From below, with the tub left out: the sheet is seen in front of the lid, and every point of it is in the tub's floor.
   const inside = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'tub' } })
   expect(inside.isError).toBe(false)
-  expect(inside.text).toContain(' · scans S1 · scan S1 coloured by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A) · ')
+  expect(inside.text).toContain(` · scans S1 (${BASIS}) · scan S1 coloured by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A) · `)
   expect(near((await pixelAt(inside.content[0].data!, 0.5, 0.5)).rgb, DEVIATION.inside)).toBe(true)
   // Against the lid it is 37 mm away: beyond 20 mm it has the far colour, and within 74 mm it is half way along the ramp.
   const beyond = await call(hollow, 'look', { view: 'bottom', size: 256, parts: ['lid'], scanColour: { part: 'lid' } })
@@ -921,7 +927,7 @@ test('look draws the scans or leaves them out, and colours one by its distance t
 test("show switches the scans for now, not in the user's saved view, and the prompt tells the agent of them in one line", async () => {
   const thin = await call(hollow, 'show', { scans: ['S1'], scanOpacity: 0.5 })
   expect(thin.isError).toBe(false)
-  expect(thin.text).toContain(' · scans S1 at 50 % · ')
+  expect(thin.text).toContain(` · scans S1 at 50 % (${BASIS}) · `)
   await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.scans()))[0].opacity).toBe(0.5)
   const shown = await call(hollow, 'show', { scans: [] })
   expect(shown.isError).toBe(false)
@@ -939,7 +945,7 @@ test("show switches the scans for now, not in the user's saved view, and the pro
   const argv: string[] = JSON.parse(/READY (\[.*\])/s.exec((await terminal()).replace(/\n/g, ''))![1])
   for (const tool of ['scans', 'scan_clash', 'scan_deviation']) expect(argv[argv.indexOf('--append-system-prompt') + 1]).toContain(`mcp__torno__${tool}`)
   await prompt()
-  await expect.poll(async () => times(await said(), 'Scans: S1 sheet.stl, aligned in assembly by 3 pairs (rms 0 mm, worst 0 mm), hidden.')).toBe(1)
+  await expect.poll(async () => times(await said(), 'Scans: S1 sheet.stl, aligned in assembly by 3 pairs (rms 0 mm, worst 0 mm) (tied to no point of the model: not checked against builds), hidden.')).toBe(1)
 })
 
 // Set TORNO_SHOTS=<dir> to write the drawings the agent is given of a section there: the measures plate

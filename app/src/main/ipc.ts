@@ -5,7 +5,7 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
 import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
-import { type AlignMade, type NewAlignment, type ScanUnit, type ScanUp, SCAN_FORMATS } from '../shared/scans'
+import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { ViewState } from '../shared/view'
@@ -18,7 +18,7 @@ import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, foll
 import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
-import { checkAlignments, tiedToMoved } from './scans/alignCheck'
+import { type AlignCheckDeps, checkAlignments, heldNow, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { type ScanStore, frameOf } from './scans/store'
 import { loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
@@ -47,6 +47,8 @@ interface OpenWorkspace {
   reanchor?: Retrying
   /** Has the alignments of an object's scans checked against its last build. */
   alignChecks?: Retrying
+  /** How the model is asked where the points of an alignment are. */
+  nearest?: AlignCheckDeps['nearest']
   kernel: KernelClient
   builds: Builds
   opened: Set<string> // ids of the objects being watched and built
@@ -70,6 +72,15 @@ const checks = new Map<string, { started: number; finished: number }>()
 /** How many checks of an object's marks against its build were started and have ended: equal when none is under way. For tests. */
 export function marksChecks(objectId: string): { started: number; finished: number } {
   return { ...(checks.get(objectId) ?? { started: 0, finished: 0 }) }
+}
+
+/**
+ * The scans of an object were asked for (a tool, the prompt's line): when an alignment among them was not
+ * checked against the last build, it is asked for again. A check that gave up is not given up for good.
+ */
+export function recheckAlignments(objectId: string, listed: ScanInfo[]): void {
+  const last = current?.builds.scene(objectId)
+  if (last && uncheckedOn(listed, last.scene.layouts, last.revision)) current?.alignChecks?.(objectId)
 }
 
 /** Told where the build of an object stands, each time that changes, once `registerIpc` has been given it. */
@@ -140,18 +151,20 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   ws.reanchor = reanchor
   // And every alignment of its scans: whether the model is still under the points it was tied to, and whether
   // torno spreads the layout's parts as it did then. Found and said, never moved or fitted again.
-  const alignChecks = retrying((objectId) => {
-    const store = scans
-    if (!store) return Promise.resolve(true)
-    return checkAlignments(
-      {
-        scans: store,
-        scene: (id) => (current === ws ? builds.scene(id) : undefined),
-        nearest: async (id, layout, anchors: AskedAnchor[]) => nearestReply(await builds.query(id, 'nearest', { layout, anchors }), anchors)
-      },
-      objectId
-    )
-  })
+  // A check that could not say is tried again after a while, three times (`retrying`); what it leaves unsaid is
+  // not silence: an alignment with no check of the last build says "not checked against rN" wherever it is
+  // reported (`standingOf`), and is checked again at the next build, or when the scans are next asked for.
+  const nearest: AlignCheckDeps['nearest'] = async (id, layout, anchors: AskedAnchor[]) => nearestReply(await builds.query(id, 'nearest', { layout, anchors }), anchors)
+  ws.nearest = nearest
+  const alignChecks = retrying(
+    (objectId) => {
+      const store = scans
+      if (!store) return Promise.resolve(true)
+      return checkAlignments({ scans: store, scene: (id) => (current === ws ? builds.scene(id) : undefined), nearest }, objectId)
+    },
+    undefined,
+    'check the alignments of the scans of'
+  )
   builds.on('scene', ({ objectId }) => alignChecks(objectId))
   ws.alignChecks = alignChecks
   current = ws
@@ -422,6 +435,12 @@ export function registerIpc(
     return scans
   }
 
+  /** Has the alignments of an object's scans checked against its last build once something was done to them. */
+  const checked = <T>(objectId: string, kept: Promise<T>): Promise<T> =>
+    kept.then((info) => {
+      current?.alignChecks?.(objectId)
+      return info
+    })
   // As for the marks: the renderer names the object, and the store finds its folder.
   ipcMain.handle('scans:list', (_event, objectId: string) => requireScans().list(String(objectId)))
   ipcMain.handle('scans:pick', async (event): Promise<string | null> => {
@@ -432,7 +451,8 @@ export function registerIpc(
     return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
   })
   ipcMain.handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
-  ipcMain.handle('scans:reimport', (_event, objectId: string, id: string) => requireScans().reimport(String(objectId), String(id)))
+  // Read again, a scan may be another mesh: what the last build makes of its alignments is asked anew.
+  ipcMain.handle('scans:reimport', (_event, objectId: string, id: string) => checked(String(objectId), requireScans().reimport(String(objectId), String(id))))
   ipcMain.handle('scans:convert', (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) => requireScans().convert(String(objectId), String(id), as))
   ipcMain.handle('scans:rename', (_event, objectId: string, id: string, name: string) => requireScans().rename(String(objectId), String(id), name))
   ipcMain.handle('scans:remove', (_event, objectId: string, id: string) => requireScans().remove(String(objectId), String(id)))
@@ -441,11 +461,6 @@ export function registerIpc(
   // What only main says of an alignment is said here: how the parts of that layout are spread on the last build,
   // when, and which build that is. An alignment is of the build it was fitted on: one made on another than the
   // last is refused, as a dimension placed on another is. Then it is checked against that build, like every other.
-  const checked = <T>(objectId: string, kept: Promise<T>): Promise<T> =>
-    kept.then((info) => {
-      current?.alignChecks?.(objectId)
-      return info
-    })
   ipcMain.handle('scans:align', (_event, objectId: string, id: string, layout: string, alignment: NewAlignment | null, made?: AlignMade) => {
     if (alignment === null || alignment === undefined) return requireScans().align(String(objectId), String(id), layout, null)
     const last = lastScene(String(objectId))
@@ -460,7 +475,15 @@ export function registerIpc(
     return checked(String(objectId), requireScans().align(String(objectId), String(id), layout, { ...Object(alignment), frame, at: new Date().toISOString(), revision }, accepted))
   })
   ipcMain.handle('scans:undoAlign', (_event, objectId: string, id: string, layout: string) => checked(String(objectId), requireScans().undoAlign(String(objectId), String(id), layout)))
-  ipcMain.handle('scans:alignHolds', (_event, objectId: string, id: string, layout: string) => requireScans().alignmentHolds(String(objectId), String(id), layout))
+  // "Still right": the model as it stands now is what the alignment is held against from here on, and that is asked of the kernel first.
+  ipcMain.handle('scans:alignHolds', async (_event, objectId: string, id: string, layout: string) => {
+    const ws = requireWorkspace()
+    const scan = (await requireScans().list(String(objectId))).find((one) => one.id === String(id))
+    const alignment = scan ? alignmentOf(scan, String(layout)) : null
+    if (!scan || !alignment) throw new Error(`${String(id)} is not aligned in ${String(layout)}`)
+    const holds = await heldNow({ scene: (o) => lastScene(o), nearest: ws.nearest! }, String(objectId), String(layout), alignment)
+    return checked(String(objectId), requireScans().alignmentHolds(String(objectId), String(id), String(layout), holds))
+  })
   // A copy with a buffer of its own, as the blob of a scene is sent.
   ipcMain.handle('scans:mesh', async (_event, objectId: string, id: string) => toArrayBuffer(await requireScans().mesh(String(objectId), String(id))))
 

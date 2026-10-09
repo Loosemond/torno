@@ -3,7 +3,7 @@ import { type StoreApi, createStore } from 'zustand/vanilla'
 import { type PairFit, apply, compose, fitFew, fitPairs, inverse, rotate, toFloor, unitHint } from '../../shared/align'
 import { number } from '../../shared/format'
 import type { Vec3 } from '../../shared/marks'
-import { type NewAlignment, type ScanAlignment, type ScanInfo, type ScanPair, type ScanTransform, type ScanUnit, IDENTITY } from '../../shared/scans'
+import { type NewAlignment, type ScanAlignment, type ScanInfo, type ScanPair, type ScanTransform, type ScanUnit, IDENTITY, MAX_PAIRS } from '../../shared/scans'
 
 /** How a scan is being aligned: by laying its floor down, by pairs of points, or by hand. */
 export type AlignMode = 'floor' | 'pairs' | 'nudge'
@@ -39,49 +39,62 @@ export interface AlignState {
   sending: NewAlignment | null
   /** Why main did not keep the last alignment asked of it. */
   refused: string | null
+  /** What happened to what was in hand, when it was put down from elsewhere (a build): said in the bar's line until something is picked again. */
+  notice: string | null
   /** Counts the times the handles are to be put on the scan anew, as it then is: a drag was not kept. */
   again: number
 }
 
 const NOTHING_IN_HAND = { pairs: [], floor: null, onto: null, choosingFace: false, flip: false, points: [], asking: null, sending: null, refused: null } satisfies Partial<AlignState>
 
-export const alignStore: StoreApi<AlignState> = createStore<AlignState>(() => ({ scan: null, mode: 'pairs', scale: false, height: 0, pivot: null, handle: 'translate', again: 0, ...NOTHING_IN_HAND }))
+export const alignStore: StoreApi<AlignState> = createStore<AlignState>(() => ({ scan: null, mode: 'pairs', scale: false, height: 0, pivot: null, handle: 'translate', again: 0, notice: null, ...NOTHING_IN_HAND }))
 
 export function useAlign<T>(pick: (s: AlignState) => T): T {
   return useZustand(alignStore, pick)
 }
 
 /** Puts down what is in hand of an alignment being made: the pairs, the floor, a question that waits. Which scan, which way and where it is held stay. */
-export function dropDraft(): void {
-  alignStore.setState({ ...NOTHING_IN_HAND, scale: false })
+export function dropDraft(notice: string | null = null): void {
+  alignStore.setState({ ...NOTHING_IN_HAND, scale: false, notice })
+}
+
+/** Whether anything is in hand that an alignment would be made of. */
+export function hasDraft(state: Pick<AlignState, 'pairs' | 'floor' | 'points'>): boolean {
+  return state.pairs.length > 0 || state.floor !== null || state.points.length > 0
 }
 
 /** Another scan to align, or none: what was in hand was of the one before. */
 export function setAlignScan(scan: string | null): void {
-  if (alignStore.getState().scan !== scan) alignStore.setState({ ...NOTHING_IN_HAND, scale: false, pivot: null, scan })
+  if (alignStore.getState().scan !== scan) alignStore.setState({ ...NOTHING_IN_HAND, scale: false, notice: null, pivot: null, scan })
 }
 
 /** Another way of aligning: what was in hand of the one before is put down. */
 export function setAlignMode(mode: AlignMode): void {
-  if (alignStore.getState().mode !== mode) alignStore.setState({ ...NOTHING_IN_HAND, scale: false, mode })
+  if (alignStore.getState().mode !== mode) alignStore.setState({ ...NOTHING_IN_HAND, scale: false, notice: null, mode })
 }
 
-/** The scan the tool works on: the one chosen, while it is still a scan of the object; else the one scan there is; else none. */
+/**
+ * The scan the tool works on: the one chosen; with none chosen, the one scan there is; else none. A scan that
+ * was chosen and is gone is none: what was picked on it is not the next scan's.
+ */
 export function scanInHand(chosen: string | null, scans: ScanInfo[]): ScanInfo | null {
-  return scans.find((scan) => scan.id === chosen) ?? (scans.length === 1 ? scans[0] : null)
+  if (chosen !== null) return scans.find((scan) => scan.id === chosen) ?? null
+  return scans.length === 1 ? scans[0] : null
 }
 
-/** A point of the scan was clicked: it is the scan end of the first pair that has none, or of a new pair. */
+/** A point of the scan was clicked: it is the scan end of the first pair that has none, or of a new pair. No more than `MAX_PAIRS`: the same pairs come back when there is no room. */
 export function withScanEnd(pairs: PairDraft[], local: Vec3): PairDraft[] {
   const at = pairs.findIndex((pair) => pair.scan === undefined)
-  return at < 0 ? [...pairs, { scan: local }] : pairs.map((pair, i) => (i === at ? { ...pair, scan: local } : pair))
+  if (at < 0) return pairs.length >= MAX_PAIRS ? pairs : [...pairs, { scan: local }]
+  return pairs.map((pair, i) => (i === at ? { ...pair, scan: local } : pair))
 }
 
 /** A point of the model was clicked or typed: the model end of the first pair that has none, or of a new pair. */
 export function withModelEnd(pairs: PairDraft[], point: Vec3, part?: string): PairDraft[] {
   const end: PairDraft = { model: point, ...(part === undefined ? {} : { part }) }
   const at = pairs.findIndex((pair) => pair.model === undefined)
-  return at < 0 ? [...pairs, end] : pairs.map((pair, i) => (i === at ? { ...pair, ...end } : pair))
+  if (at < 0) return pairs.length >= MAX_PAIRS ? pairs : [...pairs, end]
+  return pairs.map((pair, i) => (i === at ? { ...pair, ...end } : pair))
 }
 
 /** The model end of one pair, typed: it is on no part. A pair past the last is a new one. */
@@ -164,7 +177,7 @@ export function sizeNote(fit: Pick<PairFit, 'freeScale'>, unit: ScanUnit): strin
   const hint = unitHint(fit.freeScale, unit)
   if (hint) {
     const [times, way] = hint.factor >= 1 ? [hint.factor, 'larger'] : [1 / hint.factor, 'smaller']
-    return `These points fit ${number(times)} × ${way}: this scan looks like it is in ${hint.unit}, and was imported as ${unit}. Change its unit on its row.`
+    return `These points fit ${number(times)} × ${way}: this scan looks like it is in ${hint.unit}, and was imported as ${unit}.`
   }
   if (!(Math.abs(fit.freeScale - 1) > 0.005)) return null
   // A free scale under one: the scan must shrink to fit, so it measures larger than the model.
@@ -231,9 +244,12 @@ export function withoutLastEnd(pairs: PairDraft[]): PairDraft[] {
  * The one short line that says what to do next. `moved` are the parts of the layout torno moved for display;
  * `current` is the alignment main has.
  */
-export function nextLine(state: AlignState, scan: ScanInfo | null, scans: number, current: ScanAlignment | null): string {
+export function nextLine(state: AlignState, scan: ScanInfo | null, scans: number, current: ScanAlignment | null, view: { visible?: boolean } = {}): string {
   if (!scan) return scans === 0 ? 'Import a scan first' : 'Choose the scan to align'
+  // What is not drawn cannot be clicked.
+  if (view.visible === false) return `${scan.id} is switched off: show it on its row to align it`
   if (state.asking) return 'Keep it as a rough alignment, or go on'
+  if (state.notice && !hasDraft(state)) return state.notice
   if (state.mode === 'nudge') return 'Drag the handles or type values. Click the scan to hold it there'
   if (state.mode === 'floor') {
     if (state.choosingFace) return 'Click a flat face of the model to lay the floor on'
@@ -242,6 +258,7 @@ export function nextLine(state: AlignState, scan: ScanInfo | null, scans: number
   }
   const whole = wholeOf(state.pairs).length
   if (expects(state.pairs) === 'model') return 'Now the same point on the model, or type it'
+  if (state.pairs.length >= MAX_PAIRS) return `${MAX_PAIRS} pairs is the most an alignment keeps: apply, or remove one`
   if (whole === 0) return 'Click a point on the scan'
   if (proposed(state, current)?.few) return whole < 3 ? `Click another point on the scan: ${whole} of 3 pairs` : 'Click a point on the scan that is well off the line of the others'
   return 'Apply, or click another point on the scan to tighten the fit'

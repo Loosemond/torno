@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
 import type { ScanAlignment } from '../../shared/scans'
 import type { NearestAnchor } from '../marks/reanchor'
-import { anchoredPoints, checkAlignments, judgeAlignment, tiedToMoved } from './alignCheck'
+import { anchoredPoints, checkAlignments, heldNow, judgeAlignment, tiedToMoved, uncheckedOn } from './alignCheck'
 
 const part = (name: string, arranged?: [number, number, number]): Part =>
   ({ key: `print:${name}`, name, layout: 'print', bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, ...(arranged ? { arranged } : {}) }) as Part
@@ -101,5 +101,37 @@ describe('and besides', () => {
     expect(tiedToMoved({ steps: ['floor'], floor: { part: 'tray', point: [0, 0, 0] } }, frame)).toEqual([])
     // Moved by hand afterwards: the pairs are what it was once fitted to, and tie nothing anew.
     expect(tiedToMoved({ ...ALIGNED, steps: ['pairs', 'nudge'] }, frame)).toEqual([])
+  })
+
+  // Fix round 1 (R-check): what the person confirmed is the ground a later build is judged from.
+  it('judges a confirmed alignment against how far its points then were: what was confirmed is not raised again, what moved since is', () => {
+    const confirmed: ScanAlignment = { ...ALIGNED, confirmed: { at: '', held: [6.2, 0, null] } }
+    const parts = [part('tray'), part('lid', [45, 0, 0])]
+    // As it was when it was confirmed: the first point 6.2 mm off, the lid's part gone.
+    expect(judgeAlignment(confirmed, parts.slice(0, 1), [found('tray', 6.2), found('tray', 0.2), { part: 'lid', found: false }], 13)).toEqual({ revision: 13, of: 3, off: 0, worst: 6.2, moved: [] })
+    // Further off than it was by more than a mark may be: raised.
+    expect(judgeAlignment(confirmed, parts, [found('tray', 7.5), found('tray', 0.2), found('lid', 0)], 13)).toMatchObject({ off: 1, worst: 7.5 })
+    // And a point that was under the model then, and is not now.
+    expect(judgeAlignment(confirmed, parts, [found('tray', 6.2), found('tray', 3), found('lid', 0)], 13)).toMatchObject({ off: 1 })
+  })
+
+  it('says how far each point of an alignment is from its part, for what is recorded when it is confirmed', async () => {
+    const scene = { revision: 12, scene: { model: 'm.py', layouts: ['print'], parts: [part('tray')], seconds: 0, output: '' } }
+    const deps = { scans: { list: async () => [] as never, checked: async () => {} }, scene: () => scene }
+    expect(await heldNow({ ...deps, nearest: async () => [found('tray', 6.2), found('tray', 0), { part: 'lid', found: false }] }, 'box', 'print', ALIGNED)).toEqual({ revision: 12, frame: { tray: [0, 0, 0] }, held: [6.2, 0, null] })
+    // Tied to nothing: nothing is asked.
+    expect(await heldNow({ ...deps, nearest: async () => Promise.reject(new Error('not asked')) }, 'box', 'print', { ...ALIGNED, pairs: undefined })).toEqual({ revision: 12, frame: { tray: [0, 0, 0] }, held: [] })
+    await expect(heldNow({ ...deps, nearest: async () => Promise.reject(new Error('the kernel exited')) }, 'box', 'print', ALIGNED)).rejects.toThrow('the model could not be asked where its points are now (the kernel exited): try again')
+    await expect(heldNow({ ...deps, scene: () => undefined, nearest: async () => [] }, 'box', 'print', ALIGNED)).rejects.toThrow('no build of this object has a layout named print')
+  })
+
+  it('is to be asked for again when an alignment of a layout the build has was not checked against it', () => {
+    const ok = { revision: 12, of: 3, off: 0, worst: 0, moved: [] }
+    const one = (checks: Record<string, typeof ok>) => [{ id: 'S1', alignments: { print: ALIGNED, assembly: ALIGNED }, checks }] as never
+    expect(uncheckedOn(one({ print: ok }), ['print'], 12)).toBe(false)
+    expect(uncheckedOn(one({ print: { ...ok, revision: 11 } }), ['print'], 12)).toBe(true)
+    expect(uncheckedOn(one({}), ['print'], 12)).toBe(true)
+    // A layout the build has not is nothing to check.
+    expect(uncheckedOn(one({}), ['main'], 12)).toBe(false)
   })
 })

@@ -1,13 +1,13 @@
 import { apply, compose, fitPlane, fitPlaneTrimmed, inverse, nudged, reckoned } from '../../shared/align'
 import { number } from '../../shared/format'
 import type { Quat, Vec3 } from '../../shared/marks'
-import { type NewAlignment, type ScanAlignment, type ScanInfo, type ScanTransform, type ScanUnit, IDENTITY, UNIT_MM, alignmentOf } from '../../shared/scans'
-import { type AlignState, alignStore, asKept, dropDraft, expects, movedAlignment, previewOf, scanInHand, setAlignScan, stepBack, withModelEnd, withScanEnd, withoutLastEnd } from '../state/align'
+import { type NewAlignment, type ScanAlignment, type ScanInfo, type ScanTransform, type ScanUnit, IDENTITY, MAX_PAIRS, UNIT_MM, alignmentOf } from '../../shared/scans'
+import { type AlignState, alignStore, asKept, dropDraft, expects, hasDraft, movedAlignment, previewOf, scanInHand, setAlignScan, stepBack, withModelEnd, withScanEnd, withoutLastEnd } from '../state/align'
 import { store } from '../state/store'
 import { toolStore } from '../state/tools'
 import type { AlignPoint } from '../viewport/alignPoints'
 import type { Hit } from '../viewport/picking'
-import type { ScanHit } from '../viewport/scans'
+import { type ScanHit, meshOf } from '../viewport/scans'
 import type { Viewport, ViewportPointer } from '../viewport/Viewport'
 import { DESCRIBE_WITHIN_MS, dot, within, type Tool, type ToolContext } from './Tool'
 
@@ -17,6 +17,9 @@ export const CHOOSE_SCAN = 'Choose the scan to align, in the bar'
 /** Said of a face the floor cannot be laid on. */
 export const FLAT_FACE = 'Click a flat face'
 export const NOT_SAID_FLAT = 'The kernel has not said that face is flat: click it again'
+export const NO_DIRECTION = 'The kernel gave that face no direction: click another'
+/** Said at the pointer when a click would begin one pair more than an alignment keeps. */
+export const FULL = `${MAX_PAIRS} pairs is the most an alignment keeps`
 export const NO_PATCH = 'No flat patch here: click a flatter part of the scan'
 /** Said of a part torno set beside the others for display: where it is drawn is not where the model has it. */
 export function movedPart(part: string): string {
@@ -40,8 +43,9 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 
 /**
  * Has main keep an alignment of the scan in hand, in the layout shown, as made on the build on show. One that
- * is rough is first asked about (`alignStore.asking`), unless the person has said yes (`yes`) or it is a scan
- * already kept as rough being moved by hand again. A scale is said to be chosen only when it was. While main
+ * whose fit of pairs is rough is first asked about (`alignStore.asking`), unless the person has said yes (`yes`)
+ * or it is one already kept as rough being moved by hand again. A floor alone, or a scan placed by hand, is
+ * kept as what it is, with no question. A scale is said to be chosen only when it was. While main
  * has not answered the scan is drawn where it was asked to be (`sending`); what main refuses is said (`refused`).
  */
 export async function keepAlignment(made: NewAlignment, yes = false): Promise<void> {
@@ -88,24 +92,38 @@ export async function clearAlignment(): Promise<void> {
 }
 
 /**
- * Has the scan in hand read as being in another unit: the one click the bar offers when a fit says the unit is
- * wrong. Its alignments are dropped by main, as from its row. The scan ends in hand are of the scan's own
- * frame, which the change stretches about its origin: they are stretched with it, so the pairs stand.
+ * Has the scan in hand read as being in another unit: what the bar offers when a fit says the unit is wrong.
+ * One click while the scan is aligned in no layout. Changing the unit drops every alignment it has: with any,
+ * nothing is done until the person has said yes (`yes`), and the layouts that would lose theirs are answered,
+ * for the question. True once it is done, false when main refused (said in `refused`).
+ *
+ * The scan ends in hand are of the scan's own frame, which the change stretches about its origin: they are
+ * stretched with it, so the pairs stand.
  */
-export async function readAs(unit: ScanUnit): Promise<void> {
+export async function readAs(unit: ScanUnit, yes = false): Promise<boolean | string[]> {
   const hand = inHand()
-  if (!hand) return
+  if (!hand) return false
   const { scan, objectId } = hand
+  const aligned = Object.keys(scan.alignments)
+  if (aligned.length > 0 && !yes) return aligned
   const factor = UNIT_MM[unit] / UNIT_MM[scan.imported.unit]
+  const { pairs, pivot } = alignStore.getState()
+  const stretched = (p: Vec3): Vec3 => [p[0] * factor, p[1] * factor, p[2] * factor]
   try {
+    converting = scan.id
     await window.torno.scans.convert(objectId, scan.id, { unit, up: scan.imported.up })
-    const { pairs, pivot } = alignStore.getState()
-    const stretched = (p: Vec3): Vec3 => [p[0] * factor, p[1] * factor, p[2] * factor]
     alignStore.setState({ pairs: pairs.map((pair) => (pair.scan ? { ...pair, scan: stretched(pair.scan) } : pair)), pivot: pivot && stretched(pivot), floor: null, points: [], scale: false, refused: null })
+    return true
   } catch (e) {
     alignStore.setState({ refused: messageOf(e) })
+    return false
+  } finally {
+    converting = null
   }
 }
+
+/** The scan `readAs` is converting: its mesh is another when that is done, and what is in hand is brought along rather than put down. */
+let converting: string | null = null
 
 /** Where the scan is drawn while the tool is in hand, and where main has it. */
 function standing(state: AlignState, current: ScanAlignment | null): { drawn: ScanTransform; kept: ScanTransform } {
@@ -143,7 +161,7 @@ export function alignTool(): Tool {
     const { min, max } = scan.imported.bbox
     return Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * standing.s * PATCH_OF_DIAGONAL * patch
   }
-  const untint = (ctx: ToolContext): void => void ctx.viewport.scanPatch?.(null, 0)
+  const untint = (ctx: ToolContext): void => void ctx.viewport.scanPatch(null, 0)
   const quiet = (ctx: ToolContext): void => {
     ctx.viewport.setHover(null)
     ctx.readout.hide()
@@ -159,8 +177,11 @@ export function alignTool(): Tool {
     // Only the kernel knows a face is flat, and where and how it lies.
     if (said?.kind !== 'face') return ctx.readout.say(client, NOT_SAID_FLAT)
     if (said.type !== 'plane' || !said.normal) return ctx.readout.say(client, FLAT_FACE)
+    if (!(Math.hypot(...said.normal) > 1e-9)) return ctx.readout.say(client, NO_DIRECTION)
     const normal = face.normal && dot(said.normal, face.normal) < 0 ? (said.normal.map((c) => -c + 0) as Vec3) : said.normal
-    alignStore.setState({ choosingFace: false, onto: { origin: said.center, normal, part: face.part }, refused: null })
+    // How the kernel says the face lies, at the point that was clicked: that is on the face, which the middle
+    // of a face with a hole in it, or of an L, is not; and it is what later builds are asked about.
+    alignStore.setState({ choosingFace: false, onto: { origin: face.point, normal, part: face.part }, refused: null })
     quiet(ctx)
   }
 
@@ -178,7 +199,7 @@ export function alignTool(): Tool {
     const radius = radiusOf(scan, drawn)
     if (!click) {
       // The patch in hand stays tinted: the pointer shows another only while there is none.
-      if (!state.floor && state.points.length === 0) ctx.viewport.scanPatch?.(on, radius, { tint: true })
+      if (!state.floor && state.points.length === 0) ctx.viewport.scanPatch(on, radius, { tint: true })
       if (on && !state.floor) ctx.readout.say(e.client, `${scan.id}: a patch ${number(2 * radius)} mm across`)
       else ctx.readout.hide()
       return
@@ -194,7 +215,7 @@ export function alignTool(): Tool {
       if (!plane) return alignStore.setState({ points: points.slice(0, 2), refused: 'Those three points are in a line: click one that is off it' })
       return alignStore.setState({ points: [], floor: { plane: { ...plane, used: 3 }, facing: as.direction(on.normal), of: 3 }, refused: null })
     }
-    const found = ctx.viewport.scanPatch?.(on, radius, { tint: true })
+    const found = ctx.viewport.scanPatch(on, radius, { tint: true })
     const plane = found && fitPlaneTrimmed(found.points, found.weights)
     if (!found || !plane) return ctx.readout.say(e.client, NO_PATCH)
     alignStore.setState({ points: [], floor: { plane: { origin: as.point(plane.origin), normal: as.direction(plane.normal), rms: plane.rms * (kept.s / drawn.s), used: plane.used }, facing: as.direction(on.normal), of: found.points.length }, refused: null })
@@ -213,10 +234,12 @@ export function alignTool(): Tool {
       else ctx.readout.hide()
       return
     }
-    if (which === 'scan' && on) return alignStore.setState({ pairs: withScanEnd(state.pairs, on.local), refused: null })
-    if (which !== 'model' || !part) return
-    if (ctx.moved?.(part.part)) return ctx.readout.say(e.client, movedPart(part.part))
-    alignStore.setState({ pairs: withModelEnd(state.pairs, part.point, part.part), refused: null })
+    if (which !== 'scan' && which !== 'model') return
+    if (which === 'model' && part && ctx.moved?.(part.part)) return ctx.readout.say(e.client, movedPart(part.part))
+    const pairs = which === 'scan' && on ? withScanEnd(state.pairs, on.local) : part ? withModelEnd(state.pairs, part.point, part.part) : state.pairs
+    // No room for one pair more: said, not dropped in silence.
+    if (pairs === state.pairs) return ctx.readout.say(e.client, FULL)
+    alignStore.setState({ pairs, refused: null })
   }
 
   return {
@@ -263,7 +286,7 @@ export function alignTool(): Tool {
         const at = ctx.viewport.pointerAt?.()
         if (hand && at && !state.floor && state.points.length === 0) {
           const hit = ctx.viewport.pickScan(at[0], at[1])
-          ctx.viewport.scanPatch?.(hit?.scan === hand.scan.id ? hit : null, radiusOf(hand.scan, standing(state, hand.current).drawn), { tint: true })
+          ctx.viewport.scanPatch(hit?.scan === hand.scan.id ? hit : null, radiusOf(hand.scan, standing(state, hand.current).drawn), { tint: true })
         }
         return true
       }
@@ -340,15 +363,25 @@ export function connectAlign(viewport: Pick<Viewport, 'previewScan' | 'showAlign
     const holding = JSON.stringify([scan.id, state.handle, pivot, kept, state.again])
     if (holding === held) return
     held = holding
-    viewport.editScan(scan.id, state.handle, pivot, ({ move, turn }: { move: Vec3; turn: Quat }) => void keepAlignment(movedAlignment(current, nudged(kept, pivot, move, turn), 'nudge')))
+    // Added to the alignment there is when the drag is let go, which may say more by then than when the handles were put on.
+    viewport.editScan(scan.id, state.handle, pivot, ({ move, turn }: { move: Vec3; turn: Quat }) => void keepAlignment(movedAlignment(inHand()?.current ?? null, nudged(kept, pivot, move, turn), 'nudge')))
   }
 
   refresh()
   const offAlign = alignStore.subscribe(refresh)
   const offTool = toolStore.subscribe(refresh)
   const offStore = store.subscribe((s, prev) => {
+    const state = alignStore.getState()
+    const had = scanInHand(state.scan, prev.scans)
+    const has = scanInHand(state.scan, s.scans)
     if (s.objectId !== prev.objectId) setAlignScan(null)
-    else if (s.layout !== prev.layout || s.revision !== prev.revision) dropDraft()
+    // The scan that was named is gone: what was picked on it goes with it, and is not the next scan's.
+    else if (state.scan !== null && !has) setAlignScan(null)
+    // Another scan in hand, or another mesh of the same one (converted, read again): its points are elsewhere.
+    else if (had && (!has || has.id !== had.id || (meshOf(has) !== meshOf(had) && converting !== has.id))) dropDraft()
+    else if (s.layout !== prev.layout) dropDraft()
+    // A build lands while the person is picking: what was pointed at was of the build before. Said, since the agent builds often.
+    else if (s.revision !== prev.revision) dropDraft(hasDraft(state) ? `The build changed: pick the ${state.mode === 'floor' ? 'floor' : 'pairs'} again` : null)
     refresh()
   })
   return () => {

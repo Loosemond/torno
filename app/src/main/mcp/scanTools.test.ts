@@ -18,11 +18,16 @@ const SCENE: Scene = { model: 'box.py', layouts: ['assembly', 'print'], parts: [
 const PRINT_ONLY: Scene = { ...SCENE, layouts: ['print'], parts: [part('print', 'tub'), part('print', 'lid', { arranged: [45, 0, 0] })] }
 const CAMERA: Camera = { position: [100, -80, 60], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const OK: BuildState = { objectId: 'box', status: 'ok', revision: 12, seconds: 1, stale: false }
-const pairs = [1.8, 3.4, 0.9, 1.2].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual }))
+// Each model end was clicked on the tub: the alignment is tied to the model, and a build can say whether it holds.
+const pairs = [1.8, 3.4, 0.9, 1.2].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], part: 'tub', residual }))
 const BY_PAIRS: ScanAlignment = { transform: { t: [1, 2, 3], q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs, rms: 2.1, frame: {}, at: '' }
-const TYPED: ScanAlignment = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '', rough: 'it was placed by hand, with no pairs of points to say how well' }
+// Task 5's fix round 1 (R-basis): a scan placed by hand is not rough, it is said to be by hand; rough is a doubtful fit of pairs.
+const TYPED: ScanAlignment = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' }
+const ROUGH: ScanAlignment = { ...BY_PAIRS, pairs: pairs.slice(0, 2), rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan' }
+/** What the last build's check found of each alignment, unless a test says otherwise: that it holds, on r12. */
+const checkedOn = (alignments: Record<string, ScanAlignment>, revision = 12) => Object.fromEntries(Object.keys(alignments).map((layout) => [layout, { revision, of: 4, off: 0, worst: 0, moved: [] }]))
 const scan = (id: string, alignments: Record<string, ScanAlignment> = {}, more: Partial<ScanInfo> = {}): ScanInfo =>
-  ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 936823, triangles: 1607144, colours: 'texture', bbox: { min: [-1258.9, -1175.3, 0], max: [1258.9, 1175.3, 1493.6] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks: {}, ...more }) as ScanInfo
+  ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 936823, triangles: 1607144, colours: 'texture', bbox: { min: [-1258.9, -1175.3, 0], max: [1258.9, 1175.3, 1493.6] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks: checkedOn(alignments), ...more }) as ScanInfo
 const REGION = { id: 'M7', kind: 'region', scan: 'S1', author: 'user', note: 'wiring loom', status: 'sent', anchorState: 'ok', layout: 'print', revision: 12, camera: CAMERA, createdAt: '', triangles: 4812, area: 31000, local: { centroid: [0, 0, 0], bbox: { min: [0, 0, 0], max: [1, 1, 1] }, plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 1 } } } as unknown as Mark
 const CLASHED = {
   part: 'tub', scan: 'S1', points: { scan: 936823, candidates: 13476, checked: 13476, ignored: 0, touching: 0 },
@@ -82,11 +87,21 @@ describe('scans', () => {
     expect(data(await scansTool(fake([]), 'box', {}))).toMatchObject({ scans: [], reading: 'no scans: the user imports one in the Scans panel of the torno window' })
     const stale = scan('S1', { assembly: BY_PAIRS }, { checks: { assembly: { revision: 12, of: 4, off: 2, worst: 6.2, moved: [] } } })
     expect(data(await scansTool(fake([stale]), 'box', {})).scans[0].alignment.stale).toBe('the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r12: check the alignment')
-    const rough = data(await scansTool(fake([scan('S1', { assembly: TYPED }, { meshState: 'missing', sourceState: 'missing' })], undefined, { busy: ['S1'] }), 'box', {}))
-    expect(rough.scans[0]).toMatchObject({ mesh: 'missing', busy: true, source: { state: 'missing' }, alignment: { state: 'aligned', rough: 'it was placed by hand, with no pairs of points to say how well' } })
+    const rough = data(await scansTool(fake([scan('S1', { assembly: ROUGH }, { meshState: 'missing', sourceState: 'missing' })], undefined, { busy: ['S1'] }), 'box', {}))
+    expect(rough.scans[0]).toMatchObject({ mesh: 'missing', busy: true, source: { state: 'missing' }, alignment: { state: 'aligned', basis: 'pairs', rough: ROUGH.rough } })
     expect(rough.reading).toBe(
-      'S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned roughly in assembly by typed values (it was placed by hand, with no pairs of points to say how well), shown at 60 %, its mesh is gone, its source is missing, being converted or imported again.'
+      'S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned roughly in assembly by 2 pairs (rms 2.1 mm, worst 3.4 mm) (it has 2 pairs of points: it takes three that are not in a line to fix a scan), shown at 60 %, its mesh is gone, its source is missing, being converted or imported again.'
     )
+    // Task 5's fix round 1: what an alignment rests on is said, and what no build can say of it; one not checked against this build says so.
+    const byHand = data(await scansTool(fake([scan('S1', { assembly: TYPED })]), 'box', {}))
+    expect(byHand.scans[0].alignment).toMatchObject({ state: 'aligned', basis: 'hand', by: 'by hand (typed values)', tied: 0, note: 'tied to no point of the model: not checked against builds' })
+    expect(byHand.scans[0].alignment).not.toHaveProperty('rough')
+    expect(byHand.reading).toContain('aligned in assembly by hand (typed values) (tied to no point of the model: not checked against builds), shown at 60 %')
+    const unchecked = data(await scansTool(fake([scan('S1', { assembly: BY_PAIRS }, { checks: { assembly: { revision: 11, of: 4, off: 0, worst: 0, moved: [] } } })]), 'box', {}))
+    expect(unchecked.scans[0].alignment).toMatchObject({ unchecked: true, stale: 'it was not checked against r12', tied: 4 })
+    expect(unchecked.reading).toContain('aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (not checked against r12), shown at 60 %')
+    const confirmed = data(await scansTool(fake([scan('S1', { assembly: { ...BY_PAIRS, confirmed: { revision: 12, at: '', held: [0, 0, 0, 0] } } })]), 'box', {}))
+    expect(confirmed.reading).toContain('aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (confirmed by the user on r12), shown at 60 %')
   })
 
   it('answers for the layout asked, and refuses one the build has not', async () => {
@@ -178,10 +193,20 @@ describe('scan_clash', () => {
     expect(said.note).toBe(`S1's alignment may no longer hold: ${doubt}`)
     expect(said.reading).toMatch(new RegExp(`^scan_clash tub vs S1 \\(assembly, r12\\): S1's alignment may no longer hold: ${doubt.replace(/[()]/g, '\\$&')}\\. ≈ 2,168 scan points inside`))
     expect(said.inside.count).toBe(2168)
-    const rough = data(await scanClashTool(fake([scan('S1', { assembly: TYPED })]), 'box', { part: 'tub' }))
-    expect(rough.alignment).toMatchObject({ state: 'aligned', by: 'by typed values', rough: TYPED.rough })
-    expect(rough.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1 is only roughly aligned: it was placed by hand, with no pairs of points to say how well\. ≈ 2,168 /)
-    expect(rough.reading).toMatch(/ S1 is aligned by typed values\.$/)
+    const rough = data(await scanClashTool(fake([scan('S1', { assembly: ROUGH })]), 'box', { part: 'tub' }))
+    expect(rough.alignment).toMatchObject({ state: 'aligned', basis: 'pairs', rough: ROUGH.rough })
+    expect(rough.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan\. ≈ 2,168 /)
+    // Task 5's fix round 1 (R-basis): a scan placed by hand, or laid on its floor alone, is answered for, with what it rests on said first.
+    const byHand = data(await scanClashTool(fake([scan('S1', { assembly: TYPED })]), 'box', { part: 'tub' }))
+    expect(byHand.alignment).toMatchObject({ state: 'aligned', basis: 'hand', by: 'by hand (typed values)' })
+    expect(byHand.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1 was placed by hand: no fit says how well\. ≈ 2,168 /)
+    expect(byHand.reading).toMatch(/ S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
+    const floor = data(await scanClashTool(fake([scan('S1', { assembly: { ...TYPED, steps: ['floor'], rms: 0.4, floor: { part: 'tub', point: [0, 0, 0] } } })]), 'box', { part: 'tub' }))
+    expect(floor.alignment).toMatchObject({ state: 'aligned', basis: 'floor', tied: 1 })
+    expect(floor.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1 is aligned by its floor only: where it is on that floor is as imported\. ≈ 2,168 /)
+    // And one that was not checked against the build asked about says that first.
+    const unchecked = data(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS }, { checks: {} })]), 'box', { part: 'tub' }))
+    expect(unchecked.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1's alignment was not checked against r12: whether it still holds on it is not known\. ≈ 2,168 /)
   })
 
   it('says which build it answers from, and that it is stale while a newer one runs or has failed', async () => {

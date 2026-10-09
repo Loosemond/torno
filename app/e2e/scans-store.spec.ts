@@ -85,8 +85,9 @@ function rejection(which: Refused, path = ''): Promise<string | null> {
         unreadable: () => window.torno.scans.import('bracket', path),
         nowhere: () => window.torno.scans.align('bracket', 'S1', 'nowhere', identity, { revision: window.__tornoTest!.state().revision, rough: true }),
         otherBuild: () => window.torno.scans.align('bracket', 'S1', window.__tornoTest!.state().layout, identity, { revision: window.__tornoTest!.state().revision + 1, rough: true }),
-        noBuild: () => window.torno.scans.align('bracket', 'S1', window.__tornoTest!.state().layout, identity),
-        rough: () => window.torno.scans.align('bracket', 'S1', window.__tornoTest!.state().layout, identity, { revision: window.__tornoTest!.state().revision })
+        // Against the bridge's type, which asks for it: what main does with a caller that leaves it out.
+        noBuild: () => (window.torno.scans.align as unknown as (...args: unknown[]) => Promise<unknown>)('bracket', 'S1', window.__tornoTest!.state().layout, identity),
+        rough: () => window.torno.scans.align('bracket', 'S1', window.__tornoTest!.state().layout, { ...identity, steps: ['pairs'], pairs: [{ scan: [0, 0, 0], model: [0, 0, 0], residual: 0 }, { scan: [9, 0, 0], model: [9, 0, 0], residual: 0 }] }, { revision: window.__tornoTest!.state().revision })
       }
       return calls[which]().then(
         () => null,
@@ -182,8 +183,10 @@ test('an alignment is kept with how the layout was spread, and dropped when the 
   const revision = (await state()).revision
   expect(await rejection('otherBuild')).toBe(`that alignment was made on r${revision + 1}, the build is r${revision}: align again`)
   expect(await rejection('noBuild')).toBe('an alignment says which build it was made on')
-  expect(await rejection('rough')).toBe('this alignment is rough (it was placed by hand, with no pairs of points to say how well): it is kept only once that is accepted')
-  expect(alignment).toMatchObject({ revision, rough: 'it was placed by hand, with no pairs of points to say how well', before: null })
+  // Fix round 1 (R-basis): rough is a doubtful fit of pairs; a scan placed by hand is kept as that, and says so.
+  expect(await rejection('rough')).toBe('this alignment is rough (it has 2 pairs of points: it takes three that are not in a line to fix a scan): it is kept only once that is accepted')
+  expect(alignment).toMatchObject({ revision, basis: 'hand', before: null })
+  expect(alignment).not.toHaveProperty('rough')
 
   const converted: ScanInfo = await page.evaluate(() => window.torno.scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' }))
   expect(converted).toMatchObject({ imported: { unit: 'cm', up: 'z', assumed: { unit: false, up: false }, triangles: 12, bbox: { min: [-200, -150, -25], max: [200, 150, 25] } }, alignments: {} })

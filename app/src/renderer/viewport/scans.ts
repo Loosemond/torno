@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { type MeshBVH, acceleratedRaycast } from 'three-mesh-bvh'
 import type { Vec3 } from '../../shared/marks'
-import { IDENTITY, MIN_SCAN_OPACITY, alignmentOf, doubtOf, type ScanInfo, type ScanTransform, type ScanView } from '../../shared/scans'
+import { IDENTITY, MIN_SCAN_OPACITY, alignmentOf, standingOf, type ScanInfo, type ScanTransform, type ScanView } from '../../shared/scans'
 import { STALE_FADE, mix } from './palette'
 import { buildScanBvh } from './scanBvh'
 import { SCAN_OFFSET_FACTOR, buildScan, disposeScan, fadeOwn, placeScan, type BuiltScan } from './scanMesh'
@@ -21,8 +21,12 @@ export interface ScanLayerState {
   transform: ScanTransform
 }
 
-/** What is drawn of a scan, and what must be said of it with a picture: whether it is aligned in the layout drawn, why that may no longer hold, and why it is only rough. */
-export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null; rough: string | null }
+/**
+ * What is drawn of a scan, and what must be said of it with a picture: whether it is aligned in the layout
+ * drawn, what that rests on (`basis`), why it may no longer hold or was not checked against the build on show
+ * (`stale`), why its fit is rough, and what else is to be known of it (`note`). As `standingOf` says them.
+ */
+export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null; rough: string | null; basis: string | null; note: string | null }
 
 /** Makes the bounds tree of a scan's geometry; `stop` says the mesh was let go of meanwhile (`buildScanBvh`). */
 export type TreeBuilder = (geometry: THREE.BufferGeometry, stop: AbortSignal) => Promise<{ tree: MeshBVH; how: 'worker' | 'main' }>
@@ -102,6 +106,8 @@ export class ScanLayer {
   readonly group = new THREE.Group()
   private entries: Entry[] = []
   private layout = ''
+  /** The build on show, 0 for none: what an alignment's check is held against. */
+  private revision = 0
   /** How each is looked at, by id. Kept for a scan whose mesh, or whose record, has yet to come. */
   private readonly views = new Map<string, ScanView>()
   private look = { plain: '#B4AFA5', surface: '#F1EFEA' }
@@ -124,10 +130,11 @@ export class ScanLayer {
     private readonly build: TreeBuilder = (geometry, stop) => buildScanBvh(geometry, undefined, stop)
   ) {}
 
-  /** The scans of the object on show, and the layout shown: which there are and where each stands. Their meshes come by `load`. */
-  set(scans: ScanInfo[], layout: string): void {
+  /** The scans of the object on show, the layout shown and the build on show: which there are and where each stands. Their meshes come by `load`. */
+  set(scans: ScanInfo[], layout: string, revision = this.revision): void {
     const had = new Map(this.entries.map((entry) => [entry.info.id, entry]))
     this.layout = layout
+    this.revision = revision
     this.entries = scans.map((info) => {
       const entry = had.get(info.id)
       had.delete(info.id)
@@ -420,8 +427,8 @@ export class ScanLayer {
     return this.entries
       .filter((entry) => entry.built)
       .map((entry) => {
-        const alignment = alignmentOf(entry.info, layout)
-        return { id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry), aligned: alignment !== null, stale: doubtOf(entry.info, layout), rough: alignment?.rough ?? null }
+        const { aligned, stale, rough, basis, note } = standingOf(entry.info, layout, this.revision)
+        return { id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry), aligned, stale, rough, basis, note }
       })
   }
 

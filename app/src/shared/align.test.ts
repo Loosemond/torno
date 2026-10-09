@@ -201,16 +201,24 @@ describe('what an alignment is worth', () => {
   it('is rough with no pairs, with fewer than three, with pairs in a line, or with pairs left far apart', () => {
     const at = (pairs: ReturnType<typeof pair>[], steps: Array<'floor' | 'pairs' | 'nudge' | 'typed'> = ['pairs'], t: [number, number, number] = [5, 0, 1]) => reckoned({ transform: { t, q: I, s: 1 }, steps, pairs }).rough
     expect(at(THREE_PAIRS)).toBeUndefined()
-    expect(roughOf({ steps: ['floor'] })).toBe('a floor alone says how the scan stands, not where it is on that floor')
-    expect(roughOf({ steps: ['floor', 'nudge'] })).toBe('it was placed by hand, with no pairs of points to say how well')
-    expect(roughOf({ steps: ['typed'], pairs: [] })).toBe('it was placed by hand, with no pairs of points to say how well')
+    // Fix round 1 (R-basis): a floor alone and a scan placed by hand are what they are, said as that: not rough.
+    expect(roughOf({ steps: ['floor'] })).toBeNull()
+    expect(roughOf({ steps: ['floor', 'nudge'] })).toBeNull()
+    expect(roughOf({ steps: ['typed'], pairs: [] })).toBeNull()
     expect(at(THREE_PAIRS.slice(0, 2))).toBe('it has 2 pairs of points: it takes three that are not in a line to fix a scan')
     expect(at(THREE_PAIRS.slice(0, 1))).toBe('it has 1 pair of points: it takes three that are not in a line to fix a scan')
     expect(at([pair([0, 0, 0], [5, 0, 1]), pair([10, 0, 0], [15, 0, 1]), pair([20, 0, 0], [25, 0, 1])])).toBe('its pairs of points are in a line: how it is turned about that line is not fixed')
-    // Moved 6 mm off its pairs: more than the 5 mm that is still an alignment.
+    // A fit that leaves its pairs 6 mm apart: more than the 5 mm that is still an alignment.
     expect(ROUGH_RMS_MM).toBe(5)
-    expect(at(THREE_PAIRS, ['pairs', 'typed'], [5, 0, 7])).toBe('its pairs of points are left 6 mm apart (rms): more than 5 mm')
-    expect(at(THREE_PAIRS, ['pairs', 'typed'], [5, 0, 5])).toBeUndefined()
+    expect(at(THREE_PAIRS, ['pairs'], [5, 0, 7])).toBe('its pairs of points are left 6 mm apart (rms): more than 5 mm')
+    expect(at(THREE_PAIRS, ['pairs'], [5, 0, 5])).toBeUndefined()
+    // Fitted well and then moved by hand: by hand, said as that, and how far its pairs now are is in its text. Not a doubtful fit.
+    expect(at(THREE_PAIRS, ['pairs', 'typed'], [5, 0, 27])).toBeUndefined()
+    // But two pairs stay two pairs, wherever a hand puts it afterwards.
+    expect(at(THREE_PAIRS.slice(0, 2), ['pairs', 'nudge'], [5, 0, 27])).toBe('it has 2 pairs of points: it takes three that are not in a line to fix a scan')
+    // And what follows from the steps is worked out with the rest, whatever was said of it.
+    expect(reckoned({ transform: { t: [0, 0, 0], q: I, s: 1 }, steps: ['pairs', 'nudge'] as Array<'pairs' | 'nudge'>, pairs: THREE_PAIRS, basis: 'hand' as const })).toMatchObject({ basis: 'pairs', movedByHand: true })
+    expect(reckoned({ transform: { t: [0, 0, 0], q: I, s: 1 }, steps: ['floor'] as Array<'floor'>, movedByHand: true as const })).toEqual({ transform: { t: [0, 0, 0], q: I, s: 1 }, steps: ['floor'], basis: 'floor' })
   })
 })
 
@@ -278,5 +286,12 @@ describe('pairs that are nearly in a line', () => {
     expect(fitPlane(points, [1, 1, -1, 1])).toBeNull()
     expect(fitPlane(points, [1, 1, Number.NaN, 1])).toBeNull()
     expect(fitPlane(points, [1, 2, 3, 4])).not.toBeNull()
+  })
+})
+
+describe('toFloor, of a plane with no direction', () => {
+  it('refuses with a reason, rather than turn the scan no way in silence', () => {
+    expect(() => toFloor({ origin: [0, 0, 0], normal: [0, 0, 0] }, [0, 0, 1])).toThrow('a plane with no direction cannot be laid down: its normal is zero')
+    expect(() => toFloor({ origin: [0, 0, 0], normal: [0, 0, 1] }, [0, 0, 1], { origin: [0, 0, 0], normal: [0, Number.NaN, 0] })).toThrow('a plane with no direction')
   })
 })

@@ -34,7 +34,7 @@ function fake(over: Partial<ToolContext> = {}) {
       setHover: () => {},
       setNavigation: (on) => void navigation.push(on),
       setDraft: () => {},
-      lockedView: () => null, pickScan: () => null,
+      lockedView: () => null, pickScan: () => null, scanPatch: () => null,
       pick: () => null,
       bounds: () => BOX,
       sectionBox: () => BOX,

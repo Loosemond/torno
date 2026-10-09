@@ -3,7 +3,7 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'nod
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { number } from '../../shared/format'
-import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, SCAN_FORMATS, UNIT_MM, alignmentOf } from '../../shared/scans'
+import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, MAX_PAIRS, SCAN_FORMATS, UNIT_MM, alignmentOf } from '../../shared/scans'
 import { loadScansFile, sanitiseAlignment, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
 import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, removeMesh, scanFolder, sweep } from './meshfiles'
@@ -337,11 +337,16 @@ export class ScanStore {
           if (!again) throw new Error(`the import of ${name} did not say what it wrote: ${id} is as it was`)
           sourceChanged = again.source.sha256 !== scan.source.sha256
           // Of another file than the one each was aligned with: said with the scan until it is aligned again, or said to hold.
-          if (sourceChanged) for (const alignment of Object.values(again.alignments)) alignment.sourceChanged = true
+          // And of the one each took the place of: an undo brings back an alignment of the same scan.
+          if (sourceChanged) {
+            for (const alignment of Object.values(again.alignments)) {
+              alignment.sourceChanged = true
+              if (alignment.before) alignment.before.sourceChanged = true
+            }
+          }
           meshChanged = again.imported.vertices !== scan.imported.vertices || again.imported.triangles !== scan.imported.triangles
           file.scans[at] = again
-          // Of another mesh than the one they were checked with.
-          if (sourceChanged || meshChanged) this.checks.get(dir)?.delete(id)
+          // What the last build's check found stays: it is of the model's points, and says nothing of the mesh.
           return again
         },
         () => {
@@ -414,7 +419,9 @@ export class ScanStore {
         scan.alignments = Object.fromEntries(others)
         return
       }
-      const kept = sanitiseAlignment({ ...Object(alignment), before: undefined, sourceChanged: undefined })
+      const given = Object(alignment).pairs
+      if (Array.isArray(given) && given.length > MAX_PAIRS) throw new Error(`an alignment keeps ${MAX_PAIRS} pairs at most: this one has ${given.length}`)
+      const kept = sanitiseAlignment({ ...Object(alignment), before: undefined, sourceChanged: undefined, confirmed: undefined })
       if (!kept) throw new Error('that is not an alignment: its transform, its steps, its frame or its time is missing, or a number is not finite')
       if (kept.scaled && accepted.scaled !== true) throw new Error(`this alignment changes the size of the scan (× ${number(kept.transform.s)}): it is kept only when that scale was chosen`)
       if (kept.rough !== undefined && accepted.rough !== true) throw new Error(`this alignment is rough (${kept.rough}): it is kept only once that is accepted`)
@@ -441,14 +448,26 @@ export class ScanStore {
     )
   }
 
-  /** The person says an alignment still holds though the scan was read again from a changed source: it is no longer said to be in doubt for that. */
-  alignmentHolds(objectId: string, id: string, layout: string): Promise<ScanInfo> {
+  /**
+   * The person looked and says an alignment still holds, whatever put it in doubt: a scan read again from a
+   * changed source, a build that moved the model or spread the layout otherwise. It is no longer said to be in
+   * doubt for that: `holds` is the model as it now is (the build, how its parts are spread, how far each point
+   * the alignment is tied to is from its part), and later builds are judged from there (`judgeAlignment`).
+   * That it was confirmed is kept and said. Nothing of the alignment itself is changed.
+   */
+  alignmentHolds(objectId: string, id: string, layout: string, holds: { revision: number; frame: Record<string, Vec3>; held: Array<number | null> }): Promise<ScanInfo> {
     return this.of(objectId, (place) =>
       this.change(place, (file) => {
         const scan = file.scans[indexOf(file, id)]
         const now = alignmentOf(scan, layout)
         if (!now) throw new Error(`${scan.id} is not aligned in ${String(layout)}`)
-        delete now.sourceChanged
+        const kept = sanitiseAlignment({ ...now, frame: holds.frame, confirmed: { revision: holds.revision, at: this.now().toISOString(), held: holds.held }, sourceChanged: undefined })
+        if (!kept) throw new Error('that is not how a model stands: its frame or its points are missing')
+        if (now.before !== undefined) kept.before = now.before
+        scan.alignments[layout] = kept
+        // What was found of it was held against what it was held against before.
+        const checks = this.checks.get(place.dir)?.get(scan.id)
+        if (checks) delete checks[layout]
         return scan
       }).then((scan) => this.infoOf(place.dir, scan))
     )

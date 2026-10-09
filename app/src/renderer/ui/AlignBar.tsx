@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { type PairFit, WEAK_SPREAD, unitHint } from '../../shared/align'
 import { fitNumber, number } from '../../shared/format'
 import type { Vec3 } from '../../shared/marks'
-import { type ScanAlignment, type ScanInfo, IDENTITY, alignmentOf, alignmentText, doubtOf } from '../../shared/scans'
+import { type ScanAlignment, type ScanInfo, type ScanUnit, IDENTITY, alignmentOf, alignmentText, standingOf } from '../../shared/scans'
 import { useAgentHighlight } from '../state/agent'
 import { type AlignMode, type AlignState, type PairDraft, alignStore, floorWarning, movedAlignment, nextLine, proposed, scanInHand, setAlignMode, setAlignScan, sizeNote, useAlign, withTypedEnd } from '../state/align'
 import { store, useStore } from '../state/store'
@@ -55,6 +55,8 @@ export function AlignBar() {
   const scans = useStore((s) => s.scans)
   const layout = useStore((s) => s.layout)
   const scene = useStore((s) => s.scene)
+  const revision = useStore((s) => (s.scene ? s.revision : 0))
+  const views = useStore((s) => s.scanViews)
   const section = useStore((s) => s.section !== null)
   const selected = useStore((s) => s.selection.length > 0)
   const pointedOut = useAgentHighlight() !== null
@@ -65,7 +67,11 @@ export function AlignBar() {
   const scan = scanInHand(state.scan, scans)
   const current = scan ? alignmentOf(scan, layout) : null
   const proposal = scan ? proposed(state, current) : null
-  const doubt = scan ? doubtOf(scan, layout) : null
+  const hidden = scan ? views[scan.id]?.visible === false : false
+  const standing = scan ? standingOf(scan, layout, revision) : null
+  // What calls for a look, as against a check that has only not come yet.
+  const doubt = standing?.stale?.endsWith(': check the alignment') ? standing.stale : null
+  const waiting = standing?.stale && !doubt ? standing.stale : null
   // The parts of this layout torno set beside the others for display: where they are drawn is not where the model has them.
   const parts = scene?.parts.filter((part) => part.layout === layout) ?? []
   const moved = parts.filter((part) => part.arranged !== undefined).map((part) => part.name)
@@ -104,7 +110,7 @@ export function AlignBar() {
       </div>
 
       <p className="alignbar-next" role="status">
-        {nextLine(state, scan, scans.length, current)}
+        {nextLine(state, scan, scans.length, current, { visible: !hidden })}
       </p>
 
       {scan && moved.length > 0 && (
@@ -117,17 +123,7 @@ export function AlignBar() {
       {scan && state.mode === 'pairs' && <PairsBody state={state} scan={scan} fit={proposal?.fit ?? null} need={proposal?.need ?? null} />}
       {scan && state.mode === 'nudge' && <NudgeBody key={`${scan.id} ${layout}`} state={state} current={current} disabled={busy || state.asking !== null} />}
 
-      {state.asking && (
-        <div className="alignbar-ask" role="alertdialog" aria-label="Keep a rough alignment?">
-          <p>{numbered(`${capital(state.asking.why)}. Keep it as a rough alignment? It is said to be rough wherever the scan is reported.`)}</p>
-          <button type="button" className="button" onClick={declineRough}>
-            Not yet
-          </button>
-          <button type="button" className="button" disabled={busy} onClick={() => void keepAlignment(state.asking!.made, true)}>
-            Keep as rough
-          </button>
-        </div>
-      )}
+      {state.asking && <AskRough why={state.asking.why} busy={busy} onKeep={() => void keepAlignment(state.asking!.made, true)} />}
       {state.refused && (
         <p className="alignbar-note selectable" role="alert" data-part="refused">
           {numbered(state.refused)}
@@ -137,11 +133,11 @@ export function AlignBar() {
       {scan && (
         <div className="alignbar-foot">
           <p className="alignbar-state" data-aligned={current ? '' : undefined}>
-            {current ? numbered(alignmentText(current)) : 'Not aligned here'}
+            {current ? numbered(`Aligned ${alignmentText(current)}`) : 'Not aligned here'}
             {current?.rough && <span data-part="rough"> · rough: {numbered(current.rough)}</span>}
           </p>
-          <button type="button" className="bar-button" disabled={!undo || busy} title={undo ? `Puts back the alignment before the last ${undo}` : 'Nothing to undo'} onClick={() => void undoAlignment()}>
-            Undo{undo ? ` ${undo}` : ''}
+          <button type="button" className="bar-button" disabled={!undo || busy} title={undo ? `Undo the last step (${undo}): puts back the alignment before it` : 'Nothing to undo'} onClick={() => void undoAlignment()}>
+            Undo
           </button>
           <button type="button" className="bar-button" disabled={!current || busy} title="The scan is aligned to nothing in this layout any more" onClick={() => setClearing(true)}>
             Clear
@@ -159,17 +155,22 @@ export function AlignBar() {
           )}
         </div>
       )}
-      {doubt && (
+      {doubt && scan && (
         <p className="alignbar-note" data-part="stale">
-          {capital(doubt)}.
-          {current?.sourceChanged && scan && (
-            <>
-              {' '}
-              <button type="button" className="link-button" title="The alignment still holds for the scan as it was read again" onClick={() => void window.torno.scans.alignHolds(store.getState().objectId ?? '', scan.id, layout).catch((e: unknown) => alignStore.setState({ refused: e instanceof Error ? e.message : String(e) }))}>
-                Still right
-              </button>
-            </>
-          )}
+          {numbered(capital(doubt))}.{' '}
+          <button type="button" className="link-button" title="You looked, and the scan is where it should be: later builds are held against the model as it is now" onClick={() => void window.torno.scans.alignHolds(store.getState().objectId ?? '', scan.id, layout).catch((e: unknown) => alignStore.setState({ refused: e instanceof Error ? e.message : String(e) }))}>
+            Still right
+          </button>
+        </p>
+      )}
+      {waiting && (
+        <p className="alignbar-note" data-part="unchecked">
+          {numbered(capital(waiting))}: it is asked again.
+        </p>
+      )}
+      {standing?.note && (
+        <p className="alignbar-note" data-part="note">
+          {numbered(capital(standing.note))}.
         </p>
       )}
       {clearing && scan && (
@@ -191,6 +192,41 @@ export function AlignBar() {
 }
 
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
+
+/**
+ * The question before a doubtful fit is kept, in the bar. A dialog: the button that keeps nothing has the focus
+ * while it is asked, Escape presses it, and the focus goes back to where it was once it is answered.
+ */
+function AskRough({ why, busy, onKeep }: { why: string; busy: boolean; onKeep: () => void }) {
+  const decline = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const before = document.activeElement
+    decline.current?.focus()
+    return () => {
+      if (before instanceof HTMLElement && before.isConnected) before.focus()
+    }
+  }, [])
+  return (
+    <div
+      className="alignbar-ask"
+      role="alertdialog"
+      aria-label="Keep a rough alignment?"
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return
+        e.stopPropagation()
+        declineRough()
+      }}
+    >
+      <p>{numbered(`${capital(why)}. Keep it as a rough alignment? It is said to be rough wherever the scan is reported.`)}</p>
+      <button type="button" className="button" ref={decline} onClick={declineRough}>
+        Not yet
+      </button>
+      <button type="button" className="button" disabled={busy} onClick={onKeep}>
+        Keep as rough
+      </button>
+    </div>
+  )
+}
 
 /** Part names as a sentence has them, each in the monospace face: `lid, clip and tray`. */
 function numberedNames(names: string[]): ReactNode[] {
@@ -304,6 +340,14 @@ function PairsBody({ state, scan, fit, need }: { state: AlignState; scan: ScanIn
   const hint = fit ? unitHint(fit.freeScale, scan.imported.unit) : null
   const layouts = Object.keys(scan.alignments)
   const weak = fit && need === null && fit.spread < WEAK_SPREAD
+  /** The unit to read the scan in, while it waits for a yes: changing it drops the alignments the scan has. */
+  const [unitAsked, setUnitAsked] = useState<{ unit: ScanUnit; layouts: string[] } | null>(null)
+  const read = (unit: ScanUnit, yes = false): void => {
+    setUnitAsked(null)
+    void readAs(unit, yes).then((went) => {
+      if (Array.isArray(went)) setUnitAsked({ unit, layouts: went })
+    })
+  }
   return (
     <div className="alignbar-body" data-mode="pairs">
       {pairs.length > 0 && (
@@ -316,7 +360,7 @@ function PairsBody({ state, scan, fit, need }: { state: AlignState; scan: ScanIn
       {fit && need === null && (
         <p className="alignbar-fit" data-warn={weak ? '' : undefined}>
           rms <span className="num">{fitNumber(fit.rms)}</span> mm · worst <span className="num">{fitNumber(fit.residuals[worst])}</span> mm (pair <span className="num">{worstPair + 1}</span>)
-          {weak && <span data-part="warning"> · the points are almost in a line: add one well off it</span>}
+          {weak && <span data-part="warning"> · these points are nearly in a line: how the scan is turned about it is poorly fixed</span>}
         </p>
       )}
       {need !== null && (
@@ -331,21 +375,20 @@ function PairsBody({ state, scan, fit, need }: { state: AlignState; scan: ScanIn
         <p className="alignbar-note" data-part="size">
           {note && numbered(note)}{' '}
           {hint && (
-            <button
-              type="button"
-              className="link-button"
-              title={`Reads ${scan.id} as ${hint.unit}: the pairs stay${layouts.length > 0 ? `, and its alignment in ${layouts.join(', ')} is dropped` : ''}`}
-              onClick={() => void readAs(hint.unit)}
-            >
+            <button type="button" className="link-button" title={layouts.length > 0 ? `Reads ${scan.id} as ${hint.unit}, once you have said yes: its alignments would be dropped` : `Reads ${scan.id} as ${hint.unit}: the pairs stay`} onClick={() => read(hint.unit)}>
               Read it as <span className="num">{hint.unit}</span>
             </button>
           )}
-          {/* Said, not only done: changing the unit is what drops them. */}
-          {hint && layouts.length > 0 && <> (drops its alignment in {numberedNames(layouts)})</>}
           <label className="align-check">
             <input type="checkbox" checked={scale} onChange={(e) => alignStore.setState({ scale: e.target.checked })} /> Keep this scale
           </label>
         </p>
+      )}
+      {/* The same question the scan's row asks: a change of unit drops every alignment the scan has. */}
+      {unitAsked && (
+        <Confirm label={`Drop the alignment of ${scan.id}?`} accept="Change" cancel="Keep as it is" onCancel={() => setUnitAsked(null)} onAccept={() => read(unitAsked.unit, true)}>
+          Reading <span className="num">{scan.id}</span> as <span className="num">{unitAsked.unit}</span> drops its alignment in {numberedNames(unitAsked.layouts)}. The pairs in hand stay.
+        </Confirm>
       )}
     </div>
   )
@@ -362,16 +405,17 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
     alignStore.setState({ pairs: withTypedEnd(alignStore.getState().pairs, n, point as Vec3), refused: null })
   }
   return (
-    <li className="align-pair" ref={row}>
+    <li
+      className="align-pair"
+      ref={row}
+      onBlur={(e) => {
+        // Leaving the three fields keeps what they hold, as Enter does: a number typed is not lost to a click on Apply.
+        if (!e.currentTarget.contains(e.relatedTarget)) keep()
+      }}
+    >
       <span className="align-pair-n num">{n + 1}</span>
-      <span className="align-pair-scan" data-missing={pair.scan ? undefined : ''}>
-        {pair.scan ? (
-          <>
-            scan <span className="num">{coords(pair.scan)}</span>
-          </>
-        ) : (
-          'scan: click it'
-        )}
+      <span className="align-pair-scan" data-missing={pair.scan ? undefined : ''} title={pair.scan ? `The point of the scan, in the scan's own frame: (${pair.scan.join(', ')}) mm` : undefined}>
+        {pair.scan ? <span className="num">{coords(pair.scan)}</span> : 'click the scan'}
       </span>
       <span className="align-pair-to" aria-hidden="true">
         →
@@ -389,6 +433,7 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
           autoComplete="off"
           aria-label={`Model ${axis} of pair ${n + 1}`}
           placeholder={axis}
+          title={pair.model ? `${pair.model[i]} mm` : undefined}
           defaultValue={pair.model ? number(pair.model[i]) : ''}
           onFocus={(e) => e.currentTarget.select()}
           onKeyDown={(e) => {
@@ -399,8 +444,8 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
           }}
         />
       ))}
-      <span className="align-pair-residual num" data-worst={worst ? '' : undefined}>
-        {residual === null ? '' : `${fitNumber(residual)} mm`}
+      <span className="align-pair-residual num" data-worst={worst ? '' : undefined} title={residual === null ? undefined : `The fit leaves this pair ${fitNumber(residual)} mm apart`}>
+        {residual === null ? '' : fitNumber(residual)}
       </span>
       <button type="button" className="icon-button align-pair-remove" aria-label={`Remove pair ${n + 1}`} title="Remove this pair" onClick={() => alignStore.setState({ pairs: alignStore.getState().pairs.filter((_, i) => i !== n) })}>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
@@ -421,7 +466,8 @@ function NudgeBody({ state, current, disabled }: { state: AlignState; current: S
   const [angles, setAngles] = useState<Vec3 | null>(null)
   // A rotation and its negative are the same turn.
   const sameTurn = (a: readonly number[], b: readonly number[]): boolean => Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) > 1 - 1e-9
-  const degrees = angles && sameTurn(quatOf(angles), transform.q) ? angles : (eulerOf(transform.q).map((d) => Math.round(d * 100) / 100 + 0) as Vec3)
+  // In full: a field shows two decimals, and typing one angle leaves the other two as they are, not as they are shown.
+  const degrees = angles && sameTurn(quatOf(angles), transform.q) ? angles : eulerOf(transform.q)
   const withOne = (of: Vec3, index: number, value: number): Vec3 => of.map((c, i) => (i === index ? value : c)) as Vec3
   const keep = (made: ScanAlignment['transform']): void => void keepAlignment(movedAlignment(current, made, 'typed'))
   return (

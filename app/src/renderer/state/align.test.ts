@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { apply, reckoned, rotate } from '../../shared/align'
 import type { Vec3 } from '../../shared/marks'
-import type { ScanAlignment, ScanInfo } from '../../shared/scans'
+import { type ScanAlignment, type ScanInfo, MAX_PAIRS } from '../../shared/scans'
 import { type AlignState, type FloorDraft, type PairDraft, alignStore, asKept, expects, fitOf, floorAlignment, floorWarning, movedAlignment, nextLine, pairsAlignment, previewOf, proposed, scanInHand, sizeNote, stepBack, withModelEnd, withScanEnd, withTypedEnd } from './align'
 
 describe('the pairs in hand', () => {
@@ -52,8 +52,9 @@ describe('what is added to an alignment', () => {
 describe('sizeNote', () => {
   const fit = (freeScale: number) => ({ transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, residuals: [], rms: 0, freeScale }) as never
   it('says a unit when the size is one, a per cent when it is off, and nothing when it fits', () => {
-    expect(sizeNote(fit(1000.2), 'mm')).toBe('These points fit 1000 × larger: this scan looks like it is in m, and was imported as mm. Change its unit on its row.')
-    expect(sizeNote(fit(0.0393), 'in')).toBe('These points fit 25.4 × smaller: this scan looks like it is in mm, and was imported as in. Change its unit on its row.')
+    // Changed in fix round 1 (D1): the bar offers the change beside this, so it does not send the person to the row.
+    expect(sizeNote(fit(1000.2), 'mm')).toBe('These points fit 1000 × larger: this scan looks like it is in m, and was imported as mm.')
+    expect(sizeNote(fit(0.0393), 'in')).toBe('These points fit 25.4 × smaller: this scan looks like it is in mm, and was imported as in.')
     expect(sizeNote(fit(0.982), 'mm')).toBe('The scan measures 1.8 % larger than the model between these points.')
     expect(sizeNote(fit(1.02), 'mm')).toBe('The scan measures 2 % smaller than the model between these points.')
     expect(sizeNote(fit(1.002), 'mm')).toBeNull()
@@ -131,8 +132,10 @@ describe('what is in hand, and what it would make', () => {
     const scans = [{ id: 'S1' }, { id: 'S2' }] as ScanInfo[]
     expect(scanInHand(null, scans)).toBeNull()
     expect(scanInHand('S2', scans)?.id).toBe('S2')
-    expect(scanInHand('S9', scans.slice(0, 1))?.id).toBe('S1')
+    expect(scanInHand(null, scans.slice(0, 1))?.id).toBe('S1')
     expect(scanInHand(null, [])).toBeNull()
+    // Fix round 1: a scan that was named and is gone is not quietly taken for the one that is left.
+    expect(scanInHand('S9', scans.slice(0, 1))).toBeNull()
   })
 })
 
@@ -170,5 +173,32 @@ describe('a floor laid on a face of the model', () => {
     const kept = { t: [0, 0, 0] as Vec3, q: [0, 0, 0, 1] as [number, number, number, number], s: 1 }
     expect(asKept(drawn, kept).point([5, 0, 0])).toEqual([5, 0, 30])
     expect(asKept(drawn, kept).direction([0, 0, 1])).toEqual([0, 0, 1])
+  })
+})
+
+// Fix round 1.
+describe('what the bar says, further', () => {
+  const state = (over: Partial<AlignState>): AlignState => ({ ...alignStore.getInitialState(), ...over })
+  const scan = { id: 'S1' } as ScanInfo
+
+  it('says why a scan that is switched off cannot be clicked', () => {
+    expect(nextLine(state({ mode: 'pairs' }), scan, 1, null, { visible: false })).toBe('S1 is switched off: show it on its row to align it')
+    expect(nextLine(state({ mode: 'nudge' }), scan, 1, null, { visible: false })).toBe('S1 is switched off: show it on its row to align it')
+  })
+
+  it('says that a build put down what was in hand, until something is picked again', () => {
+    const told = state({ mode: 'pairs', notice: 'The build changed: pick the pairs again' })
+    expect(nextLine(told, scan, 1, null)).toBe('The build changed: pick the pairs again')
+    expect(nextLine({ ...told, pairs: [{ scan: [0, 0, 0] }] }, scan, 1, null)).toBe('Now the same point on the model, or type it')
+  })
+
+  it('takes no more pairs than an alignment keeps, and says so', () => {
+    const full: PairDraft[] = Array.from({ length: MAX_PAIRS }, (_, n) => ({ scan: [n, 0, 0] as Vec3, model: [n, 1, 0] as Vec3 }))
+    expect(withScanEnd(full, [9, 9, 9])).toBe(full)
+    expect(withModelEnd(full, [9, 9, 9])).toBe(full)
+    expect(nextLine(state({ mode: 'pairs', pairs: full }), scan, 1, null)).toBe('64 pairs is the most an alignment keeps: apply, or remove one')
+    // The last pair may still be finished.
+    const open = [...full.slice(0, -1), { scan: [1, 2, 3] as Vec3 }]
+    expect(withModelEnd(open, [9, 9, 9])).toHaveLength(MAX_PAIRS)
   })
 })

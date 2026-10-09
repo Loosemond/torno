@@ -196,7 +196,8 @@ describe('show', () => {
       const edits = store.getState().edits
       show({ scans: ['S1'], scanOpacity: 0.4 })
       expect(store.getState().scanViews).toEqual({ S1: { visible: true, opacity: 0.4 }, S2: { opacity: 0.8, visible: false } })
-      expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · scans S1 at 40 % · perspective', objectId: 'bracket', revision: 3, stale: false } }])
+      // Task 5's fix round 1: the caption says what the alignment rests on, that this build's check has not come, and what no build can say of it.
+      expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · scans S1 at 40 % (by hand; it was not checked against r3; tied to no point of the model: not checked against builds) · perspective', objectId: 'bracket', revision: 3, stale: false } }])
       expect(store.getState().edits).toBe(edits)
       expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, scans: { S2: { opacity: 0.8 } } })
     })

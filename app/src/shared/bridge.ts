@@ -73,10 +73,15 @@ export interface TornoBridge {
      * that changes the scan's size, is kept only with that yes. Main adds how that build's parts are spread, when,
      * the residuals and why it is rough.
      */
-    align(objectId: string, id: string, layout: string, alignment: NewAlignment | null, made?: AlignMade): Promise<ScanInfo>
+    align(objectId: string, id: string, layout: string, alignment: NewAlignment, made: AlignMade): Promise<ScanInfo>
+    /** With null: the scan is aligned to nothing in that layout any more. */
+    align(objectId: string, id: string, layout: string, alignment: null): Promise<ScanInfo>
     /** Puts back the alignment the scan had in that layout before the last one was kept. Rejects when there is none to go back to. */
     undoAlign(objectId: string, id: string, layout: string): Promise<ScanInfo>
-    /** The person says the alignment still holds, though the scan was imported again from a changed source. */
+    /**
+     * The person looked and says the alignment still holds, whatever put it in doubt. Main asks the kernel where the
+     * model points it is tied to are now, and holds later builds against that; rejects when the kernel cannot say.
+     */
     alignHolds(objectId: string, id: string, layout: string): Promise<ScanInfo>
     /** The scan's `mesh.bin`, for `parseScanMesh`. */
     mesh(objectId: string, id: string): Promise<ArrayBuffer>

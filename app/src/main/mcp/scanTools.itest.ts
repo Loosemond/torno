@@ -29,7 +29,7 @@ const TYPED: ScanAlignment = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 
 /** A sheet in the tub's floor, which is 2 mm thick from z = 0: 400 vertices 1 mm apart, each 1 mm deep. */
 const SHEET = grid(20, 1, () => 1)
 const record = (alignments: Record<string, ScanAlignment>, more: Partial<ScanInfo> = {}): ScanInfo =>
-  ({ id: 'S1', name: 'sheet.stl', source: { path: '/nowhere/sheet.stl', bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'mm', up: 'z', assumed: { unit: true, up: true }, vertices: 400, triangles: 722, colours: 'none', bbox: { min: [-9.5, -9.5, 1], max: [9.5, 9.5, 1] }, area: 361, at: '' }, alignments, sourceState: 'missing', meshState: 'ok', checks: {}, ...more }) as ScanInfo
+  ({ id: 'S1', name: 'sheet.stl', source: { path: '/nowhere/sheet.stl', bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'mm', up: 'z', assumed: { unit: true, up: true }, vertices: 400, triangles: 722, colours: 'none', bbox: { min: [-9.5, -9.5, 1], max: [9.5, 9.5, 1] }, area: 361, at: '' }, alignments, sourceState: 'missing', meshState: 'ok', checks: Object.fromEntries(Object.keys(alignments).map((layout) => [layout, { revision: 1, of: 0, off: 0, worst: 0, moved: [] }])), ...more }) as ScanInfo
 
 type Content = Array<{ type: string; text?: string }>
 async function call(name: string, args: Record<string, unknown> = {}): Promise<{ isError: boolean; text: string; data: any; image: boolean }> {
@@ -99,8 +99,8 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
   it('scans lists the scan with how it is aligned, and that nothing of it is exact', async () => {
     const { data } = await call('scans')
     expect(data).toMatchObject({ layout: 'assembly', revision: 1, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
-    expect(data.scans).toMatchObject([{ id: 'S1', triangles: 722, mesh: 'ok', source: { state: 'missing' }, alignment: { state: 'aligned', by: 'by typed values' }, size: [19, 19, 0], bbox: { min: [-9.5, -9.5, 1], max: [9.5, 9.5, 1] } }])
-    expect(data.reading).toBe('S1 sheet.stl: 722 triangles, 19 × 19 × 0 mm, from mm, Z up (assumed), aligned in assembly by typed values, its source is missing.')
+    expect(data.scans).toMatchObject([{ id: 'S1', triangles: 722, mesh: 'ok', source: { state: 'missing' }, alignment: { state: 'aligned', by: 'by hand (typed values)' }, size: [19, 19, 0], bbox: { min: [-9.5, -9.5, 1], max: [9.5, 9.5, 1] } }])
+    expect(data.reading).toBe('S1 sheet.stl: 722 triangles, 19 × 19 × 0 mm, from mm, Z up (assumed), aligned in assembly by hand (typed values) (tied to no point of the model: not checked against builds), its source is missing.')
   })
 
   it('scan_clash counts the scan points inside a part, with the deepest taken on the B-rep, and is clear of another', async () => {
@@ -111,12 +111,12 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
     expect(tub.data.deepest.depth).toBeCloseTo(1, 6)
     expect(tub.data.deepest.under).toMatch(/^tub\/F\d+$/)
     expect(tub.data.sampling).toMatchObject({ every: 1, partial: false, retakesFailed: 0 })
-    expect(tub.data.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r1\): ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at \(-?[\d.]+, -?[\d.]+, 1\) under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by typed values\.$/)
+    expect(tub.data.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. ≈ 400 scan points inside the part in 1 cluster, deepest 1 mm at \(-?[\d.]+, -?[\d.]+, 1\) under tub\/F\d+; no scan triangle crosses its surface\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
     const lid = await call('scan_clash', { part: 'lid', margin: 50 })
     expect(lid.data.inside.count).toBe(0)
     // The lid's underside is at z = 38: the sheet is 37 mm under it.
     expect(lid.data.nearest.distance).toBeCloseTo(37, 6)
-    expect(lid.data.reading).toMatch(/^scan_clash lid vs S1 \(assembly, r1\): no scan point is inside the part \(≈ 400 checked within 50 mm of it\) and no scan triangle crosses its surface; nearest 37 mm from lid\/F\d+\. S1 is aligned by typed values\.$/)
+    expect(lid.data.reading).toMatch(/^scan_clash lid vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. no scan point is inside the part \(≈ 400 checked within 50 mm of it\) and no scan triangle crosses its surface; nearest 37 mm from lid\/F\d+\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
   })
 
   it('scan_deviation says how far a part lies from the scan, from either side, and of some faces', async () => {
@@ -124,12 +124,12 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
     expect(far.isError).toBe(false)
     expect(far.data).toMatchObject({ layout: 'assembly', revision: 1, scan: 'S1', part: 'lid', from: 'scan', exact: false, samples: 400, compared: 400, beyond: 0, sampling: { asked: 10000, partial: false, unsure: 0 } })
     expect(far.data.distance.min).toBeCloseTo(37, 3)
-    expect(far.data.reading).toMatch(/^scan_deviation lid vs S1 \(assembly, r1\): ≈ 37 mm median, 37 mm mean, 37 mm at most \(95 % within 37 mm\), from 400 scan points to the part \(10,000 were asked: no more are within 100 mm of it\); none of them are inside the part; furthest at \(.*\) from lid\/F\d+\. S1 is aligned by typed values\.$/)
+    expect(far.data.reading).toMatch(/^scan_deviation lid vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. ≈ 37 mm median, 37 mm mean, 37 mm at most \(95 % within 37 mm\), from 400 scan points to the part \(10,000 were asked: no more are within 100 mm of it\); none of them are inside the part; furthest at \(.*\) from lid\/F\d+\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
     // Within 10 mm only: most of the tub is further from the sheet in its floor than that.
     const near = await call('scan_deviation', { part: 'tub', samples: 500, within: 10 })
     expect(near.data).toMatchObject({ from: 'part', samples: 500, sampling: { asked: 500 } })
     expect(near.data.beyond).toBeGreaterThan(0)
-    expect(near.data.reading).toMatch(/^scan_deviation tub vs S1 \(assembly, r1\): ≈ [\d.]+ mm median, .* from \d+ points of the part to the scan; the scan is inside the part at \d+ of them; \d+ more had no scan within 10 mm; furthest at /)
+    expect(near.data.reading).toMatch(/^scan_deviation tub vs S1 \(assembly, r1\): S1 was placed by hand: no fit says how well\. ≈ [\d.]+ mm median, .* from \d+ points of the part to the scan; the scan is inside the part at \d+ of them; \d+ more had no scan within 10 mm; furthest at /)
     // The lid's underside alone: the kernel is asked by the face's number, which describe gives.
     const faces = scene.parts.find((p) => p.key === 'assembly:lid')!.faceCount
     let under = -1
@@ -140,14 +140,14 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
     const face = await call('scan_deviation', { part: 'lid', faces: [`lid/F${under}`], within: 100, samples: 200 })
     expect(face.data).toMatchObject({ faces: [under], from: 'part', samples: 200 })
     expect(face.data.distance.min).toBeCloseTo(37, 3)
-    expect(face.data.reading).toContain(`scan_deviation lid/F${under} vs S1 (assembly, r1): ≈ `)
+    expect(face.data.reading).toContain(`scan_deviation lid/F${under} vs S1 (assembly, r1): S1 was placed by hand: no fit says how well. ≈ `)
   })
 
   it('measure takes a point of the scan, and says the distance is approximate though the kernel took it exactly', async () => {
     const { data } = await call('measure', { kind: 'distance', a: { scan: 'S1', point: [0.5, 0.5, 1] }, b: 'lid' })
     expect(data).toMatchObject({ layout: 'assembly', revision: 1, kind: 'distance', exact: false, scan: 'S1', approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact' })
     expect(data.value).toBeCloseTo(37, 6)
-    expect(data.reading).toMatch(/^≈ 37 mm .*, approximate \(S1 is a scan\), \(0\.5, 0\.5, 1\) on S1 to lid\. S1 is aligned by typed values\.$/)
+    expect(data.reading).toMatch(/^S1 was placed by hand: no fit says how well\. ≈ 37 mm .*, approximate \(S1 is a scan\), \(0\.5, 0\.5, 1\) on S1 to lid\. S1 is aligned by hand \(typed values\) \(tied to no point of the model: not checked against builds\)\.$/)
   })
 
   it('section cuts the scan by the same plane as the parts, and tells its line in the plane’s own axes', async () => {
@@ -159,7 +159,7 @@ describe('the scan tools, through the MCP server and the real kernel', () => {
     // The sheet is 19 mm long across the plane, at z = 1.
     const us = data.scan.polylines[0].points.flat() as number[]
     expect(Math.max(...us.map(Math.abs))).toBeCloseTo(9.5, 6)
-    expect(data.reading).toContain('≈ S1 (a scan, approximate) crosses the plane in 1 line. S1 is aligned by typed values.')
+    expect(data.reading).toContain('≈ S1 (a scan, approximate) crosses the plane in 1 line. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).')
     expect(data.image).toBe('not drawn: no window in this test')
   })
 

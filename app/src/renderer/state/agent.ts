@@ -12,7 +12,7 @@ import {
   NOT_A_PLANE,
   sectionOf
 } from '../../shared/view'
-import { type ScanView, MIN_SCAN_OPACITY, alignmentOf, doubtOf } from '../../shared/scans'
+import { type ScanView, MIN_SCAN_OPACITY, standingOf } from '../../shared/scans'
 import { colorFor, colorsByName } from '../viewport/palette'
 import { scansNote } from '../viewport/picture'
 import { describeSection } from '../viewport/section'
@@ -99,7 +99,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // The scans left on, as a picture's caption says them: from what main keeps of each, in the layout now shown.
   const shown = after.scans
     .filter((scan) => scan.meshState === 'ok' && after.scanViews[scan.id]?.visible !== false)
-    .map((scan) => ({ id: scan.id, opacity: after.scanViews[scan.id]?.opacity ?? 1, aligned: alignmentOf(scan, layout) !== null, stale: doubtOf(scan, layout), rough: alignmentOf(scan, layout)?.rough ?? null }))
+    .map((scan) => ({ id: scan.id, opacity: after.scanViews[scan.id]?.opacity ?? 1, ...standingOf(scan, layout, after.scene ? after.revision : 0) }))
   return {
     caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,

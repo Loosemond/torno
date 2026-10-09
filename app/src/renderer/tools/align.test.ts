@@ -10,7 +10,7 @@ import { toolStore } from '../state/tools'
 import type { Hit } from '../viewport/picking'
 import type { ScanHit } from '../viewport/scans'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { CHOOSE_SCAN, FLAT_FACE, NO_SCAN, alignTool, connectAlign, keepAlignment, movedPart, undoAlignment } from './alignTool'
+import { CHOOSE_SCAN, FLAT_FACE, NO_SCAN, alignTool, connectAlign, keepAlignment, movedPart, readAs, undoAlignment } from './alignTool'
 import type { ToolContext } from './Tool'
 
 // The Align tool, with a viewport that says what it is asked: in the style of measure.test.ts.
@@ -271,8 +271,8 @@ describe('the align tool, by the floor', () => {
     expect(said.at(-1)).toBe(movedPart('lid'))
     tool.onPointer(pointer('click', { part: onPart([3, 3, 2.5]) }), ctx)
     await settled()
-    // Where and how the kernel says the face lies, not where it was clicked.
-    expect(alignStore.getState()).toMatchObject({ choosingFace: false, onto: { origin: [0, 0, 2.5], normal: [0, 0, 1], part: 'base' } })
+    // How the kernel says the face lies, at the point that was clicked: the middle of a face with a hole, or of an L, is not on the part.
+    expect(alignStore.getState()).toMatchObject({ choosingFace: false, onto: { origin: [3, 3, 2.5], normal: [0, 0, 1], part: 'base' } })
   })
 
   it('draws the scan where the floor in hand would lay it', () => {
@@ -305,31 +305,41 @@ describe('the align tool, by hand', () => {
     expect(edits.at(-1)).toMatchObject({ id: null })
   })
 
-  it('a drag let go asks before it keeps a scan placed by hand, and then tells main once, with the build it was made on', async () => {
+  // Changed in fix round 1 (R-basis): a scan placed by hand is kept as that, with no question.
+  it('a drag let go tells main once, with the build it was made on, and the scan stays drawn where it was let go meanwhile', async () => {
+    let answered: (() => void) | undefined
+    answer = () => new Promise((resolve) => (answered = () => resolve(scanInfo('S1'))))
     const { viewport, edits, previews } = fake()
     const off = connectAlign(viewport)
     edits.at(-1)!.change({ move: [0, 5, 0], turn: [0, 0, 0, 1] })
     await settled()
-    // Placed by hand with no pairs: rough. Nothing is asked of main until the person says yes.
-    expect(asked).toEqual([])
-    expect(alignStore.getState().asking).toMatchObject({ why: 'it was placed by hand, with no pairs of points to say how well', made: { steps: ['nudge'], transform: { t: [0, 5, 0] } } })
+    expect(alignStore.getState().asking).toBeNull()
+    expect(asked).toEqual([{ what: 'align', args: ['bracket', 'S1', 'assembly', { transform: { t: [0, 5, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['nudge'] }, { revision: 7, rough: false, scaled: false }] }])
     expect(previews.at(-1)).toEqual(['S1', { t: [0, 5, 0], q: [0, 0, 0, 1], s: 1 }])
-    await keepAlignment(alignStore.getState().asking!.made, true)
-    expect(asked).toEqual([{ what: 'align', args: ['bracket', 'S1', 'assembly', { transform: { t: [0, 5, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['nudge'] }, { revision: 7, rough: true, scaled: false }] }])
+    answered!()
+    await settled()
     expect(alignStore.getState()).toMatchObject({ asking: null, sending: null, refused: null })
     off()
   })
 
-  it('one that is rough already is moved again without being asked about again', async () => {
-    const rough = { transform: { ...IDENTITY, t: [0, 5, 0] as Vec3 }, steps: ['nudge' as const], rough: 'it was placed by hand, with no pairs of points to say how well', frame: {}, at: '' }
-    store.setState({ scans: [scanInfo('S1', { alignments: { assembly: rough } })] })
+  it('a fit of two pairs that was kept as rough is moved by hand without being asked about again; one moved for the first time off a good fit is not asked about at all', async () => {
+    const pair = (scan: Vec3, model: Vec3) => ({ scan, model, residual: 0 })
+    const two = { transform: { ...IDENTITY, t: [5, 0, 1] as Vec3 }, steps: ['pairs' as const], pairs: [pair([0, 0, 0], [5, 0, 1]), pair([10, 0, 0], [15, 0, 1])], rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan', frame: {}, at: '' }
+    store.setState({ scans: [scanInfo('S1', { alignments: { assembly: two } })] })
     const { viewport, edits } = fake()
     const off = connectAlign(viewport)
-    expect(edits.at(-1)).toMatchObject({ pivot: [0, 5, 0] })
     edits.at(-1)!.change({ move: [1, 0, 0], turn: [0, 0, 0, 1] })
     await settled()
     expect(asked).toHaveLength(1)
-    expect(asked[0].args[3]).toMatchObject({ steps: ['nudge'], transform: { t: [1, 5, 0] } })
+    expect(asked[0].args[3]).toMatchObject({ steps: ['pairs', 'nudge'], transform: { t: [6, 0, 1] } })
+    expect(asked[0].args[4]).toMatchObject({ rough: true })
+    // Three good pairs, then 20 mm by hand: by hand, and said as that. Not a doubtful fit, so no question.
+    const three = { ...two, pairs: [...two.pairs, pair([0, 10, 0], [5, 10, 1])], rough: undefined }
+    store.setState({ scans: [scanInfo('S1', { alignments: { assembly: three } })] })
+    edits.at(-1)!.change({ move: [0, 0, 20], turn: [0, 0, 0, 1] })
+    await settled()
+    expect(alignStore.getState().asking).toBeNull()
+    expect(asked[1].args[4]).toMatchObject({ rough: false })
     off()
   })
 
@@ -403,5 +413,79 @@ describe('the align tool, and what it works on', () => {
     alignStore.setState({ scale: true })
     await keepAlignment({ transform: { ...IDENTITY, s: 2 }, steps: ['pairs'], pairs, scaled: true })
     expect(asked[1].args[4]).toMatchObject({ scaled: true })
+  })
+})
+
+// Fix round 1.
+describe('what is in hand never outlives what it was picked on', () => {
+  const twoPairs = [{ scan: [1, 2, 3] as Vec3, model: [0, 0, 0] as Vec3 }, { scan: [4, 5, 6] as Vec3 }]
+
+  it('is put down when the scan it was picked on is removed: the pairs are not the next scan’s', () => {
+    store.setState({ scans: [scanInfo('S1'), scanInfo('S2')] })
+    const { viewport } = fake()
+    const off = connectAlign(viewport)
+    setAlignScan('S1')
+    alignStore.setState({ pairs: twoPairs })
+    store.setState({ scans: [scanInfo('S2')] })
+    expect(alignStore.getState()).toMatchObject({ scan: null, pairs: [] })
+    off()
+  })
+
+  it('is put down when the scan’s mesh is another: converted or read again, its points are elsewhere', () => {
+    const { viewport } = fake()
+    const off = connectAlign(viewport)
+    alignStore.setState({ mode: 'floor', floor: { plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 0, used: 3 }, facing: [0, 0, 1] } })
+    const one = scanInfo('S1')
+    // Only what main says of it changed (a check came in): what is in hand stays.
+    store.setState({ scans: [{ ...one, checks: { assembly: { revision: 7, of: 0, off: 0, worst: 0, moved: [] } } }] })
+    expect(alignStore.getState().floor).not.toBeNull()
+    store.setState({ scans: [{ ...one, imported: { ...one.imported, unit: 'cm', at: 'later' } }] })
+    expect(alignStore.getState().floor).toBeNull()
+    off()
+  })
+
+  it('says so when a build puts down pairs that were being picked, and says nothing when nothing was in hand', () => {
+    const { viewport } = fake()
+    const off = connectAlign(viewport)
+    store.setState({ revision: 8 })
+    expect(alignStore.getState().notice).toBeNull()
+    alignStore.setState({ pairs: twoPairs })
+    store.setState({ revision: 9 })
+    expect(alignStore.getState()).toMatchObject({ pairs: [], notice: 'The build changed: pick the pairs again' })
+    alignStore.setState({ mode: 'floor', notice: null, floor: { plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 0, used: 3 }, facing: [0, 0, 1] } })
+    store.setState({ revision: 10 })
+    expect(alignStore.getState()).toMatchObject({ floor: null, notice: 'The build changed: pick the floor again' })
+    off()
+  })
+})
+
+describe('a face to lay the floor on', () => {
+  it('is refused when the kernel gives it no direction', async () => {
+    setAlignMode('floor')
+    const tool = alignTool()
+    const { ctx, said } = fake({ describe: async () => ({ ...TOP, normal: [0, 0, 0] }) })
+    alignStore.setState({ choosingFace: true })
+    tool.onPointer(pointer('click', { part: onPart([3, 3, 2.5]) }), ctx)
+    await settled()
+    expect(said.at(-1)).toBe('The kernel gave that face no direction: click another')
+    expect(alignStore.getState().onto).toBeNull()
+  })
+})
+
+describe('reading the scan in another unit from the bar', () => {
+  it('is one click only while the scan is aligned nowhere: with an alignment to lose, it says which and waits', async () => {
+    const converted: unknown[] = []
+    ;(globalThis as unknown as { window: { torno: { scans: Record<string, unknown> } } }).window.torno.scans.convert = async (...args: unknown[]) => void converted.push(args)
+    alignStore.setState({ pairs: [{ scan: [10, 20, 30], model: [1, 2, 3] }] })
+    expect(await readAs('cm')).toBe(true)
+    expect(converted).toEqual([['bracket', 'S1', { unit: 'cm', up: 'z' }]])
+    // The scan ends are of the scan's own frame, which the change stretches about its origin.
+    expect(alignStore.getState().pairs).toEqual([{ scan: [100, 200, 300], model: [1, 2, 3] }])
+    const aligned = { transform: IDENTITY, steps: ['typed' as const], frame: {}, at: '' }
+    store.setState({ scans: [scanInfo('S1', { alignments: { print: aligned, assembly: aligned } })] })
+    expect(await readAs('m')).toEqual(['print', 'assembly'])
+    expect(converted).toHaveLength(1)
+    expect(await readAs('m', true)).toBe(true)
+    expect(converted).toHaveLength(2)
   })
 })

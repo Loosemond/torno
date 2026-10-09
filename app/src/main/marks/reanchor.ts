@@ -462,7 +462,7 @@ export const RETRY_BUSY_MS = 30_000
  * `cancel` ends it, as when the workspace it checks for is closed: what was
  * waiting is dropped, and nothing is checked from then on, asked or not.
  */
-export function retrying(check: (objectId: string) => Promise<Checked>, log: (message: string) => void = console.error): Retrying {
+export function retrying(check: (objectId: string) => Promise<Checked>, log: (message: string) => void = console.error, what = RE_ANCHOR): Retrying {
   /** By object: how many times it has been tried again, and the wait for the next. */
   const waiting = new Map<string, { tried: number; timer?: NodeJS.Timeout }>()
   let cancelled = false
@@ -486,7 +486,7 @@ export function retrying(check: (objectId: string) => Promise<Checked>, log: (me
         }, after)
       }
     }
-  }, log)
+  }, log, what)
   const ask = (objectId: string): void => {
     if (cancelled) return
     clearTimeout(waiting.get(objectId)?.timer)
@@ -504,12 +504,15 @@ export function retrying(check: (objectId: string) => Promise<Checked>, log: (me
 /** Asks for the marks of an object to be checked (`retrying`); `cancel` ends that for good. */
 export type Retrying = ((objectId: string) => void) & { cancel(): void }
 
+/** What a run that rejects is said to have failed at, unless whoever asks says otherwise. */
+const RE_ANCHOR = 're-anchor the marks of'
+
 /**
  * `run`, one at a time per object: asked for an object while it runs for that
  * one, it runs once more afterwards, however often it was asked. A run that
  * rejects is logged and nothing more.
  */
-export function coalesced(run: (objectId: string) => Promise<void>, log: (message: string) => void = console.error): (objectId: string) => void {
+export function coalesced(run: (objectId: string) => Promise<void>, log: (message: string) => void = console.error, what = RE_ANCHOR): (objectId: string) => void {
   /** The objects it is running for, and whether it was asked again for them meanwhile. */
   const running = new Map<string, { again: boolean }>()
   return (objectId) => {
@@ -526,7 +529,7 @@ export function coalesced(run: (objectId: string) => Promise<void>, log: (messag
         try {
           await run(objectId)
         } catch (e) {
-          log(`cannot re-anchor the marks of ${objectId}: ${messageOf(e)}`)
+          log(`cannot ${what} ${objectId}: ${messageOf(e)}`)
         }
       } while (mine.again)
       running.delete(objectId)

@@ -46,6 +46,17 @@ describe('the scans a picture has, in its caption', () => {
     expect(scansNote([{ id: 'S1', opacity: 1, aligned: true, stale: 'x: check the alignment', rough }], 'print')).toBe(` · scans S1 (its alignment in print may no longer hold: x: check the alignment; it is rough: ${rough})`)
     expect(scansNote([{ id: 'S1', opacity: 1, aligned: false, stale: null, rough: null }], 'print')).toBe(' · scans S1 (not aligned in print: drawn where it was imported)')
   })
+
+  // Fix round 1 (R-basis, R-check): what an alignment rests on is said first, and what else is to be known of it last.
+  it('say what each alignment rests on, that one was not checked against the build drawn, and what no build can say', () => {
+    const scan = { id: 'S1', opacity: 1, aligned: true, stale: null, rough: null, note: null }
+    expect(scansNote([{ ...scan, basis: 'floor only' }], 'print')).toBe(' · scans S1 (floor only)')
+    expect(scansNote([{ ...scan, basis: 'by hand', note: 'tied to no point of the model: not checked against builds' }], 'print')).toBe(' · scans S1 (by hand; tied to no point of the model: not checked against builds)')
+    expect(scansNote([{ ...scan, basis: '4 pairs, RMS 0.8 mm, scaled, then moved by hand' }], 'print')).toBe(' · scans S1 (4 pairs, RMS 0.8 mm, scaled, then moved by hand)')
+    expect(scansNote([{ ...scan, basis: '4 pairs, RMS 0.8 mm', stale: 'it was not checked against r13' }], 'print')).toBe(' · scans S1 (4 pairs, RMS 0.8 mm; it was not checked against r13)')
+    expect(scansNote([{ ...scan, basis: '2 pairs, RMS 0 mm', rough: 'it has 2 pairs of points', stale: 'x: check the alignment' }], 'print')).toBe(' · scans S1 (2 pairs, RMS 0 mm; its alignment in print may no longer hold: x: check the alignment; it is rough: it has 2 pairs of points)')
+    expect(scansNote([{ ...scan, basis: '4 pairs, RMS 0.8 mm', note: 'confirmed by the user on r12' }], 'print')).toBe(' · scans S1 (4 pairs, RMS 0.8 mm; confirmed by the user on r12)')
+  })
 })
 
 describe('a scan coloured by its distance to a part, in the caption', () => {

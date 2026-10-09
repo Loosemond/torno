@@ -6,7 +6,7 @@ import { writeFileAtomic } from './atomic'
 import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
-import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, placedMark, queryObject, registerIpc } from './ipc'
+import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart } from './kernel/client'
 import { latestView, requestHighlight, requestLook, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
@@ -206,7 +206,12 @@ const toolDeps: ToolDeps = {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
   },
   query: queryObject,
-  scans: (objectId) => scans.list(objectId),
+  scans: async (objectId) => {
+    const listed = await scans.list(objectId)
+    // An alignment that was not checked against the last build is asked about again, now that someone wants to know.
+    recheckAlignments(objectId, listed)
+    return listed
+  },
   scanPaths: (objectId, id) => scans.paths(objectId, id),
   scansBusy: (objectId) => scans.working(objectId),
   sectionDrawing(req) {

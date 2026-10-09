@@ -38,7 +38,7 @@ function fake(opts: { locked?: 'front' | null; pick?: (x: number, y: number, opt
       lockedView: () => opts.locked ?? null,
       pick: (x, y, o) => opts.pick?.(x, y, o) ?? null,
       bounds: () => BOUNDS,
-      pickScan: () => null
+      pickScan: () => null, scanPatch: () => null
     },
     readout: { show: (_at, ref, detail) => void said.push(`${ref} | ${detail ?? ''}`), describe: () => {}, say: (_at, message) => void said.push(message), hide: () => {} },
     objectId: 'bracket',

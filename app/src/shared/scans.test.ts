@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { box, meshBin } from '../test/scanFixtures'
-import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, doubtOf, importText, maskBits, maskFile, parseScanMesh, staleText } from './scans'
+import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, basisOf, basisText, doubtOf, importText, standingOf, maskBits, maskFile, parseScanMesh, staleText } from './scans'
 
 describe('parseScanMesh', () => {
   it('gives views of the vertices, the colours and the triangles of a mesh.bin', () => {
@@ -53,8 +53,8 @@ describe('what is said of a scan', () => {
     expect(alignmentText(aligned)).toBe('by floor only (plane rms 0.8 mm): its place in that plane is as imported')
     const pairs = [1.8, 3.4, 0.9, 1.2].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual }))
     expect(alignmentText({ ...aligned, steps: ['floor', 'pairs'], pairs, rms: 2.1 })).toBe('by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)')
-    expect(alignmentText({ ...aligned, steps: ['pairs', 'nudge'], pairs, rms: 2.1, scaled: true })).toBe('by 4 pairs (rms 2.1 mm, worst 3.4 mm), scaled + nudge')
-    expect(alignmentText({ ...aligned, steps: ['typed'], rms: undefined })).toBe('by typed values')
+    expect(alignmentText({ ...aligned, steps: ['pairs', 'nudge'], pairs, rms: 2.1, scaled: true })).toBe('by 4 pairs (rms 2.1 mm, worst 3.4 mm), scaled, then moved by hand')
+    expect(alignmentText({ ...aligned, steps: ['typed'], rms: undefined })).toBe('by hand (typed values)')
   })
 
   // Task 5: what a fit leaves is said to the thousandth of a millimetre, never with the digits of rounding error.
@@ -95,7 +95,7 @@ describe('and besides', () => {
     expect(staleText({ revision: 7, of: 3, off: 1, worst: 12.345, moved: ['lid', 'tray'] })).toBe(
       'torno has moved lid, tray for display since it was aligned, and the model is no longer under 1 of its 3 points (worst 12.35 mm off) on r7: check the alignment'
     )
-    expect(alignmentText(aligned)).toBe('by floor + nudge')
+    expect(alignmentText(aligned)).toBe('by floor only, then moved by hand: its place in that plane is as it was put by hand')
     expect(alignmentText({ ...aligned, steps: ['floor'] })).toBe('by floor only: its place in that plane is as imported')
   })
 
@@ -110,3 +110,78 @@ describe('and besides', () => {
   })
 })
 
+// Fix round 1: how an alignment was made is said in plain words (R-basis), and one notion of doubt (R-check).
+describe('how an alignment was made', () => {
+  const T = { t: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], s: 1 }
+  const pair = (residual: number) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual })
+  const made = (steps: ScanAlignment['steps'], more: Partial<ScanAlignment> = {}): ScanAlignment => ({ transform: T, steps, frame: {}, at: '', ...more })
+  const four = [0.8, 0.5, 0.9, 0.7].map(pair)
+
+  it('is by pairs, by a floor or by hand, and says when it was moved by hand afterwards', () => {
+    expect(basisOf(made(['pairs'], { pairs: four }))).toEqual({ basis: 'pairs', movedByHand: false })
+    expect(basisOf(made(['floor', 'pairs'], { pairs: four }))).toEqual({ basis: 'pairs', movedByHand: false })
+    expect(basisOf(made(['pairs', 'typed'], { pairs: four }))).toEqual({ basis: 'pairs', movedByHand: true })
+    // Moved by hand, then fitted anew with too few pairs: the fit is what it rests on now.
+    expect(basisOf(made(['floor', 'nudge', 'pairs'], { pairs: four.slice(0, 2) }))).toEqual({ basis: 'pairs', movedByHand: false })
+    expect(basisOf(made(['floor']))).toEqual({ basis: 'floor', movedByHand: false })
+    expect(basisOf(made(['floor', 'nudge']))).toEqual({ basis: 'floor', movedByHand: true })
+    expect(basisOf(made(['nudge', 'typed']))).toEqual({ basis: 'hand', movedByHand: false })
+    // A step of pairs with no pairs kept is no fit to rest on.
+    expect(basisOf(made(['pairs', 'nudge']))).toEqual({ basis: 'hand', movedByHand: false })
+  })
+
+  it('is said short, for a row and a caption', () => {
+    expect(basisText(made(['floor'], { rms: 0.4 }))).toBe('floor only')
+    expect(basisText(made(['typed']))).toBe('by hand')
+    expect(basisText(made(['pairs'], { pairs: four, rms: 0.8 }))).toBe('4 pairs, RMS 0.8 mm')
+    expect(basisText(made(['pairs', 'nudge'], { pairs: four, rms: 0.8, scaled: true }))).toBe('4 pairs, RMS 0.8 mm, scaled, then moved by hand')
+    expect(basisText(made(['floor', 'typed']))).toBe('floor only, then moved by hand')
+    expect(basisText(made(['pairs'], { pairs: [pair(0)], rms: 0 }))).toBe('1 pair, RMS 0 mm')
+  })
+
+  it('is said at length, with what a floor leaves open said once', () => {
+    expect(alignmentText(made(['nudge']))).toBe('by hand (nudge)')
+    expect(alignmentText(made(['nudge', 'typed']))).toBe('by hand (nudge + typed values)')
+    expect(alignmentText(made(['floor', 'pairs', 'typed'], { pairs: four, rms: 0.8 }))).toBe('by floor + 4 pairs (rms 0.8 mm, worst 0.9 mm), then moved by hand')
+  })
+})
+
+describe('how an alignment stands against a build', () => {
+  const T = { t: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], s: 1 }
+  const tied = { scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], part: 'tub', residual: 0 }
+  const fitted: ScanAlignment = { transform: T, steps: ['pairs'], pairs: [tied, tied, tied], rms: 0, frame: {}, at: '' }
+  const ok = { revision: 12, of: 3, off: 0, worst: 0.1, moved: [] }
+
+  it('holds only when it was checked against the last build: without that it says so, as an unchecked mark does', () => {
+    expect(standingOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 12)).toEqual({ aligned: true, basis: '3 pairs, RMS 0 mm', rough: null, stale: null, unchecked: false, note: null })
+    // The check there is, is of the build before: nothing is known of this one.
+    expect(doubtOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 13)).toBe('it was not checked against r13')
+    expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print', 13)).toBe('it was not checked against r13')
+    expect(standingOf({ alignments: { print: fitted }, checks: {} }, 'print', 13)).toMatchObject({ stale: 'it was not checked against r13', unchecked: true })
+    // With another reason beside it.
+    expect(doubtOf({ alignments: { print: { ...fitted, sourceChanged: true } }, checks: {} }, 'print', 13)).toBe('the scan was imported again from a source that had changed since it was aligned, and it was not checked against r13: check the alignment')
+    // Before any build, and for whoever knows of none, nothing is said of a check.
+    expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print')).toBeNull()
+    expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print', 0)).toBeNull()
+    expect(standingOf({ alignments: {}, checks: {} }, 'print', 12)).toEqual({ aligned: false, basis: null, rough: null, stale: null, unchecked: false, note: null })
+  })
+
+  it('says of one tied to no point of the model that no build can say whether it holds: a note, not a doubt', () => {
+    const loose: ScanAlignment = { transform: T, steps: ['typed'], frame: {}, at: '' }
+    const said = standingOf({ alignments: { print: loose }, checks: { print: { revision: 12, of: 0, off: 0, worst: 0, moved: [] } } }, 'print', 12)
+    expect(said).toMatchObject({ basis: 'by hand', stale: null, note: 'tied to no point of the model: not checked against builds' })
+    // A floor on a face of a part is tied to it; typed ends are tied to nothing.
+    expect(standingOf({ alignments: { print: { ...loose, steps: ['floor'], floor: { part: 'tub', point: [0, 0, 0] } } }, checks: { print: { ...ok, of: 1 } } }, 'print', 12).note).toBeNull()
+    expect(standingOf({ alignments: { print: { ...fitted, pairs: fitted.pairs!.map(({ part: _none, ...rest }) => rest) } }, checks: { print: { ...ok, of: 0 } } }, 'print', 12).note).toBe('tied to no point of the model: not checked against builds')
+  })
+
+  it('says that the person confirmed it, until something puts it in doubt again', () => {
+    const confirmed: ScanAlignment = { ...fitted, confirmed: { revision: 12, at: '2026-10-09T10:00:00.000Z', held: [0, 6.2, null] } }
+    expect(standingOf({ alignments: { print: confirmed }, checks: { print: ok } }, 'print', 12).note).toBe('confirmed by the user on r12')
+    // From an earlier run: which build that was is not known any more.
+    expect(standingOf({ alignments: { print: { ...confirmed, confirmed: { at: '2026-10-09T10:00:00.000Z', held: [] } } }, checks: { print: ok } }, 'print', 12).note).toBe('confirmed by the user')
+    const doubted = standingOf({ alignments: { print: confirmed }, checks: { print: { ...ok, off: 1, worst: 9 } } }, 'print', 12)
+    expect(doubted.stale).toBe('the model is no longer under 1 of its 3 points (worst 9 mm off) on r12: check the alignment')
+    expect(doubted.note).toBeNull()
+  })
+})

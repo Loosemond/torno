@@ -1,6 +1,6 @@
 import type { Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
-import type { AlignmentCheck, ScanAlignment } from '../../shared/scans'
+import { type AlignmentCheck, type ScanAlignment, type ScanInfo, standingOf } from '../../shared/scans'
 import { isBusy } from '../kernel/client'
 import { type AskedAnchor, type NearestAnchor, answered } from '../marks/reanchor'
 import { tolerance } from '../marks/tolerance'
@@ -30,21 +30,25 @@ export function anchoredPoints(alignment: ScanAlignment): Array<{ part: string; 
  * mark may be and still be on it (`tolerance`). `moved` names the parts torno spreads otherwise than when it
  * was aligned (`alignment.frame`): of the parts the alignment is tied to, or, for one tied to none (typed,
  * nudged, a floor on the ground), of every part of the layout. A part the frame says nothing of came with a
- * later build: it was never where it is not.
+ * later build: it was never where it is not. An alignment the person confirmed (`confirmed.held`) is judged
+ * from how far each point was then: what was confirmed is not raised again, what moved since is.
  */
 export function judgeAlignment(alignment: ScanAlignment, parts: Part[], nearest: Array<NearestAnchor | undefined>, revision: number): AlignmentCheck {
   const points = anchoredPoints(alignment)
   let off = 0
   let worst = 0
+  // What the person confirmed is the ground it is judged from: how far each point then was, or that its part was not there.
+  const held = alignment.confirmed?.held
   points.forEach(({ part }, i) => {
     const said = nearest[i]
     const there = parts.find((p) => p.name === part)
+    const was = held?.[i]
     if (!there || !answered(said)) {
-      off += 1
+      if (was !== null) off += 1
       return
     }
     worst = Math.max(worst, said.distance)
-    if (said.distance > tolerance(there.bbox)) off += 1
+    if (said.distance > (was ?? 0) + tolerance(there.bbox)) off += 1
   })
   const tied = new Set(points.map((point) => point.part))
   const moved = parts
@@ -64,6 +68,35 @@ export function tiedToMoved(alignment: Pick<ScanAlignment, 'steps' | 'pairs' | '
   const tied = last === 'pairs' ? (alignment.pairs ?? []).map((pair) => pair.part) : last === 'floor' ? [alignment.floor?.part] : []
   const moved = (part: string | undefined): part is string => part !== undefined && Object.hasOwn(frame, part) && frame[part].some((c) => Math.abs(c) > SPREAD_EPSILON)
   return [...new Set(tied.filter(moved))]
+}
+
+/**
+ * The model as it stands under an alignment now, for what is recorded when the person says it still holds
+ * (`ScanStore.alignmentHolds`): the last build, how it spreads the layout, and how far each point the alignment
+ * is tied to is from its part, null for one whose part is not there. Rejects when there is no such build, or
+ * the kernel cannot say: nothing is confirmed against what is not known.
+ */
+export async function heldNow(deps: Pick<AlignCheckDeps, 'scene' | 'nearest'>, objectId: string, layout: string, alignment: ScanAlignment): Promise<{ revision: number; frame: Record<string, Vec3>; held: Array<number | null> }> {
+  const last = deps.scene(objectId)
+  const parts = last?.scene.parts.filter((part) => part.layout === layout) ?? []
+  if (!last || parts.length === 0) throw new Error(`no build of this object has a layout named ${layout}: there is nothing to hold the alignment against`)
+  const frame = Object.fromEntries(parts.map((part): [string, Vec3] => [part.name, part.arranged ? [...part.arranged] : [...NOT_SPREAD]]))
+  const points = anchoredPoints(alignment)
+  if (points.length === 0) return { revision: last.revision, frame, held: [] }
+  let nearest: NearestAnchor[]
+  try {
+    nearest = await deps.nearest(objectId, layout, points)
+  } catch (e) {
+    throw new Error(`the model could not be asked where its points are now (${e instanceof Error ? e.message : String(e)}): try again`)
+  }
+  if (nearest.length !== points.length || nearest.some((one) => one?.found === true && !answered(one))) throw new Error('the model could not say where every point is now: try again')
+  if (deps.scene(objectId)?.scene !== last.scene) throw new Error('the model was built again meanwhile: look again')
+  return { revision: last.revision, frame, held: nearest.map((one) => (answered(one) ? one.distance : null)) }
+}
+
+/** Whether some alignment, of a layout the last build has, was not checked against that build: a check is then to be asked for again. */
+export function uncheckedOn(scans: Array<Pick<ScanInfo, 'alignments' | 'checks'>>, layouts: string[], revision: number): boolean {
+  return scans.some((scan) => Object.keys(scan.alignments).some((layout) => layouts.includes(layout) && standingOf(scan, layout, revision).unchecked))
 }
 
 export interface AlignCheckDeps {

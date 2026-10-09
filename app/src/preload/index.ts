@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { TornoBridge } from '../shared/bridge'
+import type { AlignMade, NewAlignment } from '../shared/scans'
 
 // Channel names are those listed in src/main/ipc.ts.
 function subscribe<T>(channel: string, cb: (message: T) => void): () => void {
@@ -67,7 +68,7 @@ const bridge: TornoBridge = {
     convert: (objectId, id, as) => invokePlain('scans:convert', objectId, id, as),
     rename: (objectId, id, name) => invokePlain('scans:rename', objectId, id, name),
     remove: (objectId, id) => invokePlain('scans:remove', objectId, id),
-    align: (objectId, id, layout, alignment, made) => invokePlain('scans:align', objectId, id, layout, alignment, made),
+    align: (objectId: string, id: string, layout: string, alignment: NewAlignment | null, made?: AlignMade) => invokePlain('scans:align', objectId, id, layout, alignment, made),
     undoAlign: (objectId, id, layout) => invokePlain('scans:undoAlign', objectId, id, layout),
     alignHolds: (objectId, id, layout) => invokePlain('scans:alignHolds', objectId, id, layout),
     mesh: (objectId, id) => invokePlain('scans:mesh', objectId, id),

@@ -12,6 +12,10 @@ export interface ScanTransform { t: Vec3; q: Quat; s: number }
 export const IDENTITY: ScanTransform = { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }
 
 export type AlignStep = 'floor' | 'pairs' | 'nudge' | 'typed'
+/** What an alignment rests on. */
+export type AlignBasis = 'pairs' | 'floor' | 'hand'
+/** The most pairs an alignment keeps. */
+export const MAX_PAIRS = 64
 /** One pair of an alignment: a point of the scan, in the scan frame, and where it belongs, in the object frame of the layout. */
 export interface ScanPair { scan: Vec3; model: Vec3; part?: string /* the part the model point was clicked on */; residual: number /* mm, after the fit */ }
 export interface ScanAlignment {
@@ -31,18 +35,33 @@ export interface ScanAlignment {
   /** The build it was made on. Of this run: dropped when the file is read, like a mark's `checkedRevision`. */
   revision?: number
   /**
-   * Why it is only rough, when it is: no pairs of points, fewer than three, pairs in a line, or pairs left further
-   * apart than `ROUGH_RMS_MM` (`roughOf` in `shared/align.ts`). Worked out by main, and kept only once the person
-   * said yes to it. Whatever reports the scan says so.
+   * What it rests on: a fit of pairs of points, a floor laid down, or a hand (handles, typed values); and whether
+   * a fit or a floor was moved by hand afterwards. Worked out by main from the steps and the pairs (`basisOf`),
+   * never taken; whatever reports the scan says it in plain words (`basisText`, `alignmentText`).
+   */
+  basis?: AlignBasis
+  movedByHand?: true
+  /**
+   * Why its fit of pairs is doubtful, when it is: fewer than three pairs, pairs in or almost in a line, or pairs
+   * the fit leaves further apart than `ROUGH_RMS_MM` (`roughOf` in `shared/align.ts`). Worked out by main, and
+   * kept only once the person said yes to it. Whatever reports the scan says so. A floor alone, or a scan placed
+   * by hand, is not rough: it is what its `basis` says.
    */
   rough?: string
+  /**
+   * The person looked and said it still holds ("Still right"): when, on which build of this run (dropped when the
+   * file is read), and how far each of the model points it is tied to (`anchoredPoints`, in order) then was from
+   * its part, null for one whose part was not there. A later build is judged against that, so that what was
+   * confirmed is not raised again. Main's alone; gone when it is aligned anew.
+   */
+  confirmed?: { revision?: number; at: string; held: Array<number | null> }
   /** The scan was imported again from a source that was no longer the file it was aligned with. Until it is aligned again, or the person says it still holds. */
   sourceChanged?: true
   /** The alignment this one took the place of, for one undo: null when the scan was not aligned there before. Absent when there is nothing to undo. */
   before?: Omit<ScanAlignment, 'before'> | null
 }
 /** What only main says of an alignment: never taken from the window or from a tool's arguments. */
-export const ALIGNMENT_MAIN_ONLY = ['frame', 'at', 'revision', 'rough', 'sourceChanged', 'before'] as const
+export const ALIGNMENT_MAIN_ONLY = ['frame', 'at', 'revision', 'basis', 'movedByHand', 'rough', 'sourceChanged', 'confirmed', 'before'] as const
 /** What a caller gives to align: main adds the rest. */
 export type NewAlignment = Omit<ScanAlignment, (typeof ALIGNMENT_MAIN_ONLY)[number]>
 /**
@@ -163,37 +182,102 @@ export function alignmentOf(scan: Pick<Scan, 'alignments'>, layout: string): Sca
   return Object.hasOwn(scan.alignments, layout) ? scan.alignments[layout] : null
 }
 
+/** Said of what was not checked against the build there is. */
+const notChecked = (revision: number): string => `it was not checked against r${revision}`
+
 /**
- * Why an alignment may no longer hold, as a sentence, or null: what the last check against a build found, and
- * whether the scan itself was read again from a changed source since. One notion, with its reasons.
+ * Why an alignment may no longer hold, as a sentence, or null: what the last check against a build found,
+ * whether the scan itself was read again from a changed source since, and, with `unchecked` (a build's number),
+ * that it was not checked against that build. One notion, with its reasons.
  */
-export function staleText(check: AlignmentCheck | undefined, alignment?: Pick<ScanAlignment, 'sourceChanged'> | null): string | null {
+export function staleText(check: AlignmentCheck | undefined, alignment?: Pick<ScanAlignment, 'sourceChanged'> | null, unchecked?: number): string | null {
   const why: string[] = []
   if (alignment?.sourceChanged) why.push('the scan was imported again from a source that had changed since it was aligned')
   if (check && check.moved.length > 0) why.push(`torno has moved ${check.moved.join(', ')} for display since it was aligned`)
   if (check && check.off > 0) why.push(`the model is no longer under ${count(check.off)} of its ${count(check.of)} points (worst ${number(check.worst)} mm off) on r${check.revision}`)
+  if (unchecked !== undefined) {
+    // By itself it is no call to look, only to wait: the check is tried again.
+    if (why.length === 0) return notChecked(unchecked)
+    why.push(notChecked(unchecked))
+  }
   return why.length > 0 ? `${why.join(', and ')}: check the alignment` : null
 }
 
-/** Why the alignment of a scan in a layout may no longer hold (`staleText`); null when it holds as far as is known, or the scan is not aligned there. */
-export function doubtOf(scan: Pick<ScanInfo, 'alignments' | 'checks'>, layout: string): string | null {
-  const alignment = alignmentOf(scan, layout)
-  return alignment ? staleText(Object.hasOwn(scan.checks, layout) ? scan.checks[layout] : undefined, alignment) : null
+/** What an alignment rests on, from how it came to be: the last fit of pairs it keeps, else a floor, else a hand; and whether a hand moved it after that. */
+export function basisOf(alignment: Pick<ScanAlignment, 'steps' | 'pairs'>): { basis: AlignBasis; movedByHand: boolean } {
+  const { steps } = alignment
+  const fitted = (alignment.pairs?.length ?? 0) > 0 ? steps.lastIndexOf('pairs') : -1
+  const at = fitted >= 0 ? fitted : steps.lastIndexOf('floor')
+  if (at < 0) return { basis: 'hand', movedByHand: false }
+  return { basis: fitted >= 0 ? 'pairs' : 'floor', movedByHand: steps.slice(at + 1).some((step) => step === 'nudge' || step === 'typed') }
 }
 
-/** `by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)`; `by floor only: its place in that plane is as imported`. */
+/** How an alignment was made, short: `floor only`, `by hand`, `4 pairs, RMS 0.8 mm`, each with `, then moved by hand` when it was. For a row and a caption. */
+export function basisText(alignment: Pick<ScanAlignment, 'steps' | 'pairs' | 'rms' | 'scaled'>): string {
+  const { basis, movedByHand } = basisOf(alignment)
+  const pairs = alignment.pairs?.length ?? 0
+  const what = basis === 'hand' ? 'by hand' : basis === 'floor' ? 'floor only' : `${count(pairs)} ${pairs === 1 ? 'pair' : 'pairs'}${alignment.rms === undefined ? '' : `, RMS ${fitNumber(alignment.rms)} mm`}`
+  return `${what}${alignment.scaled ? ', scaled' : ''}${movedByHand ? ', then moved by hand' : ''}`
+}
+
+/** How many points of the model an alignment is tied to: the model ends of its pairs that were clicked on a part, and a floor laid on a face. */
+export function tiedPoints(alignment: Pick<ScanAlignment, 'pairs' | 'floor'>): number {
+  return (alignment.pairs ?? []).filter((pair) => pair.part !== undefined).length + (alignment.floor?.part !== undefined ? 1 : 0)
+}
+
+/** Said of an alignment no build can be asked about. A note, not a doubt. */
+export const TIED_TO_NOTHING = 'tied to no point of the model: not checked against builds'
+
+/**
+ * How the alignment of a scan in a layout stands, for whatever reports the scan: what it rests on (`basis`),
+ * why its fit is doubtful (`rough`), why it may no longer hold (`stale`: `staleText`), whether that is only
+ * that it was not checked against the last build (`unchecked`), and what else is to be known of it (`note`:
+ * that no build can say anything of it, that the person confirmed it).
+ */
+export interface Standing { aligned: boolean; basis: string | null; rough: string | null; stale: string | null; unchecked: boolean; note: string | null }
+
+/**
+ * `revision` is the last build, 0 or absent for none: an alignment whose check is missing, or of another build,
+ * was not checked against it, and says so, as an unchecked mark does.
+ */
+export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks'>, layout: string, revision?: number): Standing {
+  const alignment = alignmentOf(scan, layout)
+  if (!alignment) return { aligned: false, basis: null, rough: null, stale: null, unchecked: false, note: null }
+  const found = Object.hasOwn(scan.checks, layout) ? scan.checks[layout] : undefined
+  const built = revision !== undefined && revision > 0
+  const check = built && found?.revision !== revision ? undefined : found
+  const unchecked = built && check === undefined
+  const stale = staleText(check, alignment, unchecked ? revision : undefined)
+  const notes = [
+    ...(tiedPoints(alignment) === 0 ? [TIED_TO_NOTHING] : []),
+    // Until the next doubt: what was confirmed is then in question again.
+    ...(alignment.confirmed && (stale === null || (unchecked && stale === notChecked(revision!))) ? [`confirmed by the user${alignment.confirmed.revision === undefined ? '' : ` on r${alignment.confirmed.revision}`}`] : [])
+  ]
+  return { aligned: true, basis: basisText(alignment), rough: alignment.rough ?? null, stale, unchecked, note: notes.length > 0 ? notes.join('; ') : null }
+}
+
+/** Why the alignment of a scan in a layout may no longer hold (`standingOf`); null when it holds as far as is known, or the scan is not aligned there. */
+export function doubtOf(scan: Pick<ScanInfo, 'alignments' | 'checks'>, layout: string, revision?: number): string | null {
+  return standingOf(scan, layout, revision).stale
+}
+
+/**
+ * How an alignment was made, at length: `by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)`, `by hand (typed values)`,
+ * `by floor only (plane rms 0.8 mm): its place in that plane is as imported`; with `, then moved by hand` when
+ * a fit or a floor was.
+ */
 export function alignmentText(alignment: ScanAlignment): string {
+  const { basis, movedByHand } = basisOf(alignment)
   const pairs = alignment.pairs ?? []
   const rms = alignment.rms === undefined ? null : `rms ${fitNumber(alignment.rms)} mm`
+  const moved = movedByHand ? ', then moved by hand' : ''
+  const word = (step: AlignStep): string => (step === 'typed' ? 'typed values' : step)
+  if (basis === 'hand') return `by hand (${[...new Set(alignment.steps.filter((step) => step === 'nudge' || step === 'typed'))].map(word).join(' + ') || 'handles'})`
   // A floor says how high the scan stands and how it leans, and nothing of where it is on that floor.
-  if (alignment.steps.length === 1 && alignment.steps[0] === 'floor') return `by floor only${rms ? ` (plane ${rms})` : ''}: its place in that plane is as imported`
-  const said = alignment.steps.map((step) => {
-    if (step === 'typed') return 'typed values'
-    if (step !== 'pairs') return step
-    const fit = [...(rms ? [rms] : []), ...(pairs.length > 0 ? [`worst ${fitNumber(Math.max(...pairs.map((pair) => pair.residual)))} mm`] : [])]
-    return `${count(pairs.length)} ${pairs.length === 1 ? 'pair' : 'pairs'}${fit.length > 0 ? ` (${fit.join(', ')})` : ''}${alignment.scaled ? ', scaled' : ''}`
-  })
-  return `by ${said.join(' + ')}`
+  if (basis === 'floor') return `by floor only${rms ? ` (plane ${rms})` : ''}${moved}: its place in that plane is ${movedByHand ? 'as it was put by hand' : 'as imported'}`
+  const fit = [...(rms ? [rms] : []), `worst ${fitNumber(Math.max(...pairs.map((pair) => pair.residual)))} mm`]
+  const fitted = `${count(pairs.length)} ${pairs.length === 1 ? 'pair' : 'pairs'} (${fit.join(', ')})${alignment.scaled ? ', scaled' : ''}`
+  return `by ${alignment.steps.slice(0, alignment.steps.lastIndexOf('pairs')).includes('floor') ? 'floor + ' : ''}${fitted}${moved}`
 }
 
 /** `2518 × 2351 × 1494 mm, from m, Y up (assumed)`. */

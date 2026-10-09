@@ -122,7 +122,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   // viewport, each asked for once by its scan's id. Main alone knows where a mesh is kept.
   const asked = new Set<string>()
   const applyScans = (s: TornoState) => {
-    viewport.setScans(s.scans)
+    viewport.setScans(s.scans, s.scene ? s.revision : 0)
     // Every scan, each time: the viewport remembers how one is looked at by id, and ids repeat between objects.
     for (const { id } of s.scans) {
       const view = s.scanViews[id]
@@ -249,7 +249,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.marks !== prev.marks || shown(s) !== shown(prev)) viewport.setMarks(s.marks, shown(s))
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
     if (s.objectId !== prev.objectId) asked.clear()
-    if (s.scans !== prev.scans || s.scanViews !== prev.scanViews) {
+    // With the build on show: whether an alignment was checked against it is said with every picture.
+    if (s.scans !== prev.scans || s.scanViews !== prev.scanViews || shown(s) !== shown(prev)) {
       applyScans(s)
       if (s.objectId === prev.objectId) report()
     }

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, alignmentOf, doubtOf, importText } from '../../shared/scans'
+import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, importText, standingOf } from '../../shared/scans'
 import { setAlignScan } from '../state/align'
 import { actions, store, useStore } from '../state/store'
 import { setTool } from '../state/tools'
@@ -108,16 +108,22 @@ export function ScansPanel() {
   )
 }
 
-/** The one thing to know first of a scan in the layout shown, and what there is to say of it in a sentence. */
-function stateOf(scan: ScanInfo, layout: string): { state: string; text: string; said: string | null } {
-  if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', said: null }
-  const alignment = alignmentOf(scan, layout)
-  // One notion of "may no longer hold", with its reasons: what the last build's check found, and a source that changed.
-  const stale = doubtOf(scan, layout)
-  if (stale) return { state: 'stale', text: 'check alignment', said: stale }
-  if (!alignment) return { state: 'unaligned', text: 'not aligned here', said: null }
-  if (alignment.rough) return { state: 'rough', text: 'rough alignment', said: alignment.rough }
-  return { state: 'aligned', text: 'aligned', said: null }
+/**
+ * The one thing to know first of a scan in the layout shown, on the build on show: its state in a word, what its
+ * alignment rests on (`basis`), what there is to say of the state in a sentence (`said`), and what else is to be
+ * known (`note`). `confirm` when the person can say it still holds: whatever put it in doubt but a check that
+ * has not come yet, which is only to be waited for.
+ */
+function stateOf(scan: ScanInfo, layout: string, revision: number): { state: string; text: string; basis: string | null; said: string | null; note: string | null; confirm: boolean } {
+  const standing = standingOf(scan, layout, revision)
+  const { basis, note } = standing
+  if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', basis: null, said: null, note: null, confirm: false }
+  if (!standing.aligned) return { state: 'unaligned', text: 'not aligned here', basis: null, said: null, note: null, confirm: false }
+  // One notion of "may no longer hold", with its reasons: what the last build's check found, a source that changed.
+  if (standing.stale?.endsWith(': check the alignment')) return { state: 'stale', text: 'check alignment', basis, said: standing.stale, note, confirm: true }
+  if (standing.stale) return { state: 'unchecked', text: 'not checked yet', basis, said: `${standing.stale}: it is asked again`, note, confirm: false }
+  if (standing.rough) return { state: 'rough', text: 'rough alignment', basis, said: standing.rough, note, confirm: false }
+  return { state: 'aligned', text: 'aligned', basis, said: null, note, confirm: false }
 }
 
 /** How a scan was read, where that was a guess: `Read as metres, Y up`; null when the person chose both. */
@@ -149,7 +155,8 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
   const opacity = view?.opacity ?? 1
   const coloured = scan.imported.colours !== 'none'
   const plain = !coloured || view?.colour === 'plain'
-  const state = stateOf(scan, layout)
+  const revision = useStore((s) => (s.scene ? s.revision : 0))
+  const state = stateOf(scan, layout, revision)
   const meshGone = scan.meshState === 'missing'
   const source = scan.sourceState === 'missing' ? 'source missing' : scan.sourceState === 'changed' ? 'source changed' : null
   const layouts = Object.keys(scan.alignments)
@@ -207,6 +214,8 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
         <span className="chip" data-state={state.state} title={state.said ?? undefined}>
           {state.text}
         </span>
+        {/* What the alignment rests on, in plain words: a floor alone, a hand, so many pairs and how well they fit. */}
+        {state.basis && <span className="scan-basis">· {numbered(state.basis)}</span>}
         {source && (
           <span className="chip" data-state={source === 'source missing' ? 'source-missing' : 'source-changed'} title={`${scan.source.path}${source === 'source missing' ? ' is no longer there' : ' is not the file that was imported'}. The scan goes on working from what torno made of it`}>
             {source}
@@ -238,16 +247,17 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
       {state.said && (
         <p className="scan-said" data-state={state.state}>
           {numbered(state.said)}
-          {alignmentOf(scan, layout)?.sourceChanged && (
+          {state.confirm && (
             <>
               {' '}
-              <button type="button" className="link-button" aria-label={`The alignment of ${id} is still right`} title="The alignment still holds for the scan as it was read again" onClick={() => void asked(objectId, window.torno.scans.alignHolds(objectId, id, layout))}>
+              <button type="button" className="link-button" aria-label={`The alignment of ${id} is still right`} title="You looked, and the scan is where it should be: later builds are held against the model as it is now" onClick={() => void asked(objectId, window.torno.scans.alignHolds(objectId, id, layout))}>
                 Still right
               </button>
             </>
           )}
         </p>
       )}
+      {state.note && <p className="scan-said" data-part="note">{numbered(capital(state.note))}.</p>}
       {meshGone && (
         <p className="scan-said">
           Its mesh is gone from the disk: it cannot be drawn or checked.{' '}
@@ -331,6 +341,8 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
     </li>
   )
 }
+
+const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
 /** Layout names as a sentence has them, each in the monospace face: `print and assembly`. */
 function numberedList(names: string[]): ReactNode[] {

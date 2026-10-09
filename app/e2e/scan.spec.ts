@@ -61,14 +61,19 @@ const picture = (request: LookRequest, p: Page = page) =>
  * Stands a scan `t` away from where it was imported, as three pairs of points that fit exactly would: an alignment
  * that is not rough, made on the build on show (main refuses one made on another).
  */
-const place = (id: string, t: [number, number, number], p: Page = page) =>
-  p.evaluate(
+async function place(id: string, t: [number, number, number], p: Page = page): Promise<void> {
+  await p.evaluate(
     ({ id, t }) => {
       const pairs = ([[0, 0, 0], [10, 0, 0], [0, 10, 0]] as [number, number, number][]).map((scan) => ({ scan, model: [scan[0] + t[0], scan[1] + t[1], scan[2] + t[2]] as [number, number, number], residual: 0 }))
       return window.torno.scans.align('bracket', id, 'assembly', { transform: { t, q: [0, 0, 0, 1], s: 1 }, steps: ['pairs'], pairs }, { revision: window.__tornoTest!.state().revision })
     },
     { id, t }
   )
+  // Checked against the build on show: until then every report of it says that it was not.
+  await expect.poll(() => p.evaluate((id) => { const s = window.__tornoTest!.state(); return s.scans.find((scan) => scan.id === id)?.checks.assembly?.revision === s.revision }, id)).toBe(true)
+}
+/** What a picture's caption says of a scan `place` aligned: what it rests on, and that no build can say whether it holds (its ends are on no part). */
+const PLACED = '3 pairs, RMS 0 mm; tied to no point of the model: not checked against builds'
 const scansFile = () => JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scans.json'), 'utf8'))
 
 test.beforeAll(async () => {
@@ -109,7 +114,7 @@ test('a picture has the scan unless it is asked without, and says which', async 
   expect(without.caption).not.toContain('scans')
   await place('S1', [0, 0, 1])
   await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
-  expect((await picture({ view: 'iso', size: 256 })).caption).toContain(' · scans S1 · ')
+  expect((await picture({ view: 'iso', size: 256 })).caption).toContain(` · scans S1 (${PLACED}) · `)
   expect((await picture({ view: 'iso', size: 256, layout: 'print' })).caption).toContain(' · scans S1 (not aligned in print: drawn where it was imported) · ')
   await page.evaluate(() => window.torno.scans.align('bracket', 'S1', 'assembly', null))
   await expect(row('S1').locator('.chip[data-state="unaligned"]')).toHaveText('not aligned here')
@@ -270,7 +275,7 @@ test('a scan whose mesh is gone says so, is not drawn, and has its source read a
   await expect.poll(async () => (await scans())[0], { timeout: 30_000 }).toMatchObject({ id: 'S2', loaded: true, aligned: true })
   await expect(row('S2').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
   await expect(row('S3')).toHaveCount(0)
-  expect((await picture({ view: 'iso', size: 256 })).caption).toContain(' · scans S2 · ')
+  expect((await picture({ view: 'iso', size: 256 })).caption).toContain(` · scans S2 (${PLACED}) · `)
 })
 
 // Task 4: pointing at a scan.
@@ -370,6 +375,8 @@ test.describe('a large scan', () => {
     const hit = await page.evaluate(([fx, fy]) => window.__tornoTest!.pickScanAt(fx, fy), [fx, fy])
     expect(hit).toMatchObject({ scan: 'S1' })
     expect(Math.hypot(hit!.local[0] - 10.5, hit!.local[1] + 20.5)).toBeLessThan(1.5)
-    expect(hit!.triangle).toBeLessThan(199_712)
+    // The triangle told is the cell's own, by its number in the file: cell (i, j) of the sheet is triangles 2 (316 i + j) and the next.
+    const cell = 2 * (316 * Math.floor(hit!.local[0] + 158) + Math.floor(hit!.local[1] + 158))
+    expect([cell, cell + 1]).toContain(hit!.triangle)
   })
 })

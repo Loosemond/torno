@@ -279,10 +279,10 @@ export class Viewport {
     this.invalidate()
   }
 
-  /** The scans of the object on show: each is drawn where its alignment for the layout shown puts it, once its mesh has come (`setScanMesh`). */
-  setScans(scans: ScanInfo[]): void {
+  /** The scans of the object on show, and the build on show (what their alignments' checks are held against): each is drawn where its alignment for the layout shown puts it, once its mesh has come (`setScanMesh`). */
+  setScans(scans: ScanInfo[], revision?: number): void {
     this.scanInfos = scans
-    this.scans.set(scans, this.layout)
+    this.scans.set(scans, this.layout, revision)
     this.extent = this.measured()
   }
 

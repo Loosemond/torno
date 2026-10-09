@@ -35,7 +35,7 @@ describe('ScanLayer', () => {
     layer.setView('S2', { visible: false })
     layer.setView('S1', { opacity: 0.6 })
     // Changed in fix round 1 (I1): what is drawn of a scan says whether it is aligned in the layout drawn.
-    expect(layer.shown()).toEqual([{ id: 'S1', visible: true, opacity: 0.6, aligned: false, stale: null, rough: null }, { id: 'S2', visible: false, opacity: 1, aligned: false, stale: null, rough: null }])
+    expect(layer.shown()).toEqual([{ id: 'S1', visible: true, opacity: 0.6, aligned: false, stale: null, rough: null, basis: null, note: null }, { id: 'S2', visible: false, opacity: 1, aligned: false, stale: null, rough: null, basis: null, note: null }])
     const mesh = layer.group.children[0].children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.Material>
     expect(mesh.material).toMatchObject({ transparent: true, opacity: 0.6, depthWrite: false })
     const back = layer.showOnly(['S2'])
@@ -551,8 +551,14 @@ describe('a scan drawn somewhere else for now', () => {
   })
 
   it('says of an aligned scan that it is rough, when it is', async () => {
-    const layer = await layerWith({ print: { ...aligned([0, 0, 0]).print, rough: 'it was placed by hand, with no pairs of points to say how well' } })
-    expect(layer.shown()[0]).toMatchObject({ aligned: true, rough: 'it was placed by hand, with no pairs of points to say how well' })
+    const layer = await layerWith({ print: { ...aligned([0, 0, 0]).print, rough: 'it has 2 pairs of points' } })
+    expect(layer.shown()[0]).toMatchObject({ aligned: true, rough: 'it has 2 pairs of points' })
+    // Fix round 1: what it rests on, what no build can say of it, and that it was not checked against the build on show.
+    expect(layer.shown()[0]).toMatchObject({ basis: 'by hand', note: 'tied to no point of the model: not checked against builds', stale: null })
+    layer.set([scan('S1', { alignments: aligned([0, 0, 0]) })], 'print', 13)
+    expect(layer.shown()[0].stale).toBe('it was not checked against r13')
+    layer.set([scan('S1', { alignments: aligned([0, 0, 0]), checks: { print: { revision: 13, of: 0, off: 0, worst: 0, moved: [] } } })], 'print')
+    expect(layer.shown()[0].stale).toBeNull()
     const changed = await layerWith({ print: { ...aligned([0, 0, 0]).print, sourceChanged: true } })
     expect(changed.shown()[0].stale).toBe('the scan was imported again from a source that had changed since it was aligned: check the alignment')
   })

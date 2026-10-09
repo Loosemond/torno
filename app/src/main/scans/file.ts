@@ -1,7 +1,7 @@
 import { copyFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Quat, Vec3 } from '../../shared/marks'
-import type { AlignStep, Scan, ScanAlignment, ScanImport, ScanPair, ScanSource, ScanTransform, ScansFile } from '../../shared/scans'
+import { type AlignStep, type Scan, type ScanAlignment, type ScanImport, type ScanPair, type ScanSource, type ScanTransform, type ScansFile, MAX_PAIRS } from '../../shared/scans'
 import { canonical, reckoned } from '../../shared/align'
 import { writeFileAtomic } from '../atomic'
 import { MESH, MESH_NAME, SCAN_ID, nextFolderId } from './meshfiles'
@@ -11,8 +11,7 @@ const NAME = 'scans.json'
 
 /** The longest name a scan keeps, in characters. */
 export const MAX_SCAN_NAME = 80
-/** The most pairs an alignment keeps. */
-export const MAX_PAIRS = 64
+export { MAX_PAIRS }
 /** The most steps an alignment says it was made by: the last ones. */
 export const MAX_STEPS = 8
 /** The longest name of a part an alignment keeps: a longer one names no part. */
@@ -77,8 +76,10 @@ export async function loadScansFile(dir: string, now: () => Date = () => new Dat
 }
 
 function forgetRevision(alignment: ScanAlignment): void {
-  delete alignment.revision
-  if (alignment.before) delete (alignment.before as ScanAlignment).revision
+  for (const one of [alignment, ...(alignment.before ? [alignment.before as ScanAlignment] : [])]) {
+    delete one.revision
+    if (one.confirmed) delete one.confirmed.revision
+  }
 }
 
 /** Writes `<dir>/.torno/scans.json`, creating the folder. Readers see the old file or the new one, never half of one. */
@@ -236,8 +237,12 @@ export function sanitiseAlignment(value: unknown): ScanAlignment | null {
     if (arranged && isPartName(part)) frame.push([part, arranged])
   }
   alignment.frame = Object.fromEntries(frame)
-  if (typeof value.revision === 'number' && Number.isSafeInteger(value.revision) && value.revision >= 1) alignment.revision = value.revision
+  if (isRevision(value.revision)) alignment.revision = value.revision
   if (value.sourceChanged === true) alignment.sourceChanged = true
+  if (isRecord(value.confirmed) && typeof value.confirmed.at === 'string' && Array.isArray(value.confirmed.held)) {
+    const held = value.confirmed.held.slice(0, MAX_PAIRS + 1).map((mm) => (isNumber(mm) && mm >= 0 ? mm : null))
+    alignment.confirmed = { ...(isRevision(value.confirmed.revision) ? { revision: value.confirmed.revision } : {}), at: value.confirmed.at, held }
+  }
   // One step back and no further: what was before the one before is not kept.
   if (value.before === null) alignment.before = null
   else if (value.before !== undefined) {
@@ -268,6 +273,11 @@ function tuple<T extends number[]>(value: unknown, length: T['length']): T | nul
 
 function oneOf<const T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {
   return typeof value === 'string' && allowed.includes(value)
+}
+
+/** A build's number in a run: a whole one from 1. */
+function isRevision(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
 }
 
 function isPartName(value: unknown): value is string {
