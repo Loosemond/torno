@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
+import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import { actions, partsInLayout, sceneFileOf, store, visibleKeys } from './store'
 
@@ -154,5 +155,72 @@ describe('opening an object', () => {
     actions.applyBuild(build({}))
     actions.openObject('two', { layers: {} })
     expect(store.getState()).toMatchObject({ objectId: 'two', scene: null, build: null, revision: 0, layers: {} })
+  })
+})
+
+describe('marks', () => {
+  function pin(id: string, note: string): Mark {
+    return {
+      id,
+      kind: 'pin',
+      author: 'user',
+      note,
+      status: 'draft',
+      anchorState: 'ok',
+      layout: 'assembly',
+      revision: 1,
+      camera: { position: [100, -100, 80], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
+      createdAt: '2026-10-09T12:00:00.000Z',
+      anchor: { point: [0, 0, 20], part: 'base', ref: 'base/F4' }
+    }
+  }
+
+  it('an object opens with none, then has the ones main lists for it', () => {
+    expect(store.getState().marks).toEqual([])
+    const listed = [pin('M1', 'here'), pin('M2', 'and here')]
+    actions.setMarks({ objectId: 'bracket', marks: listed })
+    expect(store.getState().marks).toBe(listed)
+  })
+
+  it('follows every change main tells of, with the whole list', () => {
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here')] })
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), pin('M2', 'new')] })
+    expect(store.getState().marks.map((m) => m.id)).toEqual(['M1', 'M2'])
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M2', 'new')] })
+    expect(store.getState().marks.map((m) => m.id)).toEqual(['M2'])
+  })
+
+  it('does not take the marks of an object that is not the open one', () => {
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here')] })
+    actions.setMarks({ objectId: 'two', marks: [pin('M1', 'on two')] })
+    expect(store.getState().marks.map((m) => m.note)).toEqual(['here'])
+  })
+
+  it('switching object swaps them: none until the other object\'s are listed, and the old ones do not come back', () => {
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here')] })
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().marks).toEqual([])
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'late answer')] })
+    expect(store.getState().marks).toEqual([])
+    actions.setMarks({ objectId: 'two', marks: [pin('M1', 'on two')] })
+    expect(store.getState().marks.map((m) => m.note)).toEqual(['on two'])
+  })
+
+  it('keeps what main said was wrong with the marks file of the open object, until another is opened', () => {
+    expect(store.getState().marksProblem).toBeNull()
+    actions.setMarksProblem({ objectId: 'two', message: 'not ours' })
+    expect(store.getState().marksProblem).toBeNull()
+    actions.setMarksProblem({ objectId: 'bracket', message: 'The marks file of this object could not be read.' })
+    actions.setMarks({ objectId: 'bracket', marks: [] })
+    expect(store.getState().marksProblem).toBe('The marks file of this object could not be read.')
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().marksProblem).toBeNull()
+  })
+
+  it('leaving the workspace leaves none', () => {
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here')] })
+    actions.setMarksProblem({ objectId: 'bracket', message: 'x' })
+    actions.setWorkspace(null)
+    expect(store.getState()).toMatchObject({ marks: [], marksProblem: null })
   })
 })

@@ -67,6 +67,11 @@ async function openObject(id: string): Promise<void> {
     const state = await window.torno.object.open(id)
     // Its build events may have overtaken this answer; they are the newer.
     if (!store.getState().build) actions.applyBuild(state)
+    // After the open: that is when main learns the folder of an object made a moment ago.
+    await window.torno.marks.list(id).then(
+      (marks) => actions.setMarks({ objectId: id, marks }),
+      (e: unknown) => actions.setMarksProblem({ objectId: id, message: e instanceof Error ? e.message : String(e) })
+    )
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     actions.applyBuild({ objectId: id, status: 'failed', revision: 0, stale: false, error: { kind: 'open', message } })
@@ -84,6 +89,8 @@ function useMain(): void {
       if (live && !store.getState().workspaceKnown) showWorkspace(info)
     })
     const offBuild = window.torno.object.onBuild(actions.applyBuild)
+    const offMarks = window.torno.marks.onChanged(actions.setMarks)
+    const offMarksProblem = window.torno.marks.onProblem(actions.setMarksProblem)
 
     // Layer and layout changes are written to <object>/.torno/scene.json, once they stop coming.
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -113,6 +120,8 @@ function useMain(): void {
     return () => {
       live = false
       offBuild()
+      offMarks()
+      offMarksProblem()
       offStore()
       window.removeEventListener('pagehide', flush)
       flush()

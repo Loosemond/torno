@@ -5,6 +5,7 @@ import { startHttp } from './http'
 import { contextFor } from './context'
 import { buildState, closeWorkspace, findObject, lastScene, openObjectId, openWorkspace, registerIpc } from './ipc'
 import { latestView, requestLook } from './look'
+import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
@@ -105,6 +106,9 @@ function createWindow(): BrowserWindow {
 
 let sessions: Sessions | null = null
 
+/** The marks of the objects of the open workspace, whose folders are those of the last scan. */
+const marks = new MarkStore({ dirOf: (id) => findObject(id)?.dir })
+
 /** What the MCP tools and the text attached to a prompt are made from: the open workspace and the window. */
 const toolDeps: ToolDeps = {
   object: findObject,
@@ -160,6 +164,7 @@ void app.whenReady().then(async () => {
   registerIpc({
     onWorkspaceChosen: (root) => void rememberWorkspace(root),
     sessions,
+    marks,
     // A folder dialog is a window on the person's desktop: under test there is none.
     pickFolder: isTest
       ? async () => {

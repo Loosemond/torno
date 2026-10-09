@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
+import type { MarkPatch, NewMark } from '../shared/marks'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { LookResult, ViewState } from '../shared/view'
@@ -11,6 +12,7 @@ import { Builds, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveLook } from './look'
+import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
@@ -19,11 +21,13 @@ import { scanWorkspace } from './workspace'
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
 //           object:open, object:rebuild, object:sceneFile,
-//           session:current, session:start, session:stop
+//           session:current, session:start, session:stop,
+//           marks:list, marks:add, marks:update, marks:remove
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply,
 //           session:write, session:resize
 //   to the renderer: object:build, object:scene, view:look (sent by src/main/look.ts),
-//           session:data, session:status, workspace:requested (sent by src/main/index.ts)
+//           session:data, session:status, workspace:requested (sent by src/main/index.ts),
+//           marks:changed, marks:problem
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the last scan
@@ -37,6 +41,9 @@ let current: OpenWorkspace | null = null
 
 /** The agent sessions, once `registerIpc` has been given them. They belong to the objects of the open workspace. */
 let sessions: Sessions | null = null
+
+/** The marks of the objects of the open workspace, once `registerIpc` has been given them. */
+let marks: MarkStore | null = null
 
 function broadcast(channel: string, message: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -91,6 +98,8 @@ export async function closeWorkspace(): Promise<void> {
   if (!ws) return
   current = null
   forgetViews()
+  // The next workspace may have an object of the same name, or this folder may change while it is closed.
+  marks?.forget()
   // Not waited for: an agent that ignores the hangup is killed two seconds later.
   void sessions?.stopAll()
   for (const id of ws.opened) ws.builds.close(id)
@@ -126,6 +135,7 @@ export function lastScene(id: string): { revision: number; scene: Scene } | unde
  * `onWorkspaceChosen` is told the root of every workspace the person opens
  * from the window, so that it can be opened again at the next start.
  * `sessions` backs the session pane; without it there are no sessions.
+ * `marks` backs the marks of the objects; without it there are none.
  * `pickFolder` answers "Open folder" in place of the dialog, which tests must
  * never open.
  */
@@ -133,6 +143,7 @@ export function registerIpc(
   opts: {
     onWorkspaceChosen?: (root: string) => void
     sessions?: Sessions
+    marks?: MarkStore
     /** Stands in for the folder dialog: the folder to open, or null for none. */
     pickFolder?: () => Promise<string | null>
   } = {}
@@ -143,6 +154,14 @@ export function registerIpc(
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')
     return sessions
+  }
+
+  marks = opts.marks ?? null
+  marks?.on('changed', (m) => broadcast('marks:changed', m))
+  marks?.on('problem', (m) => broadcast('marks:problem', m))
+  const requireMarks = (): MarkStore => {
+    if (!marks) throw new Error('marks are not available')
+    return marks
   }
 
   const chosen = (info: WorkspaceInfo): WorkspaceInfo => {
@@ -234,6 +253,14 @@ export function registerIpc(
   ipcMain.on('session:resize', (_event, sessionId: string, cols: number, rows: number) => {
     sessions?.resize(String(sessionId), cols, rows)
   })
+
+  // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
+  ipcMain.handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
+  ipcMain.handle('marks:add', (_event, objectId: string, mark: NewMark) => requireMarks().add(String(objectId), mark))
+  ipcMain.handle('marks:update', (_event, objectId: string, id: string, patch: MarkPatch) =>
+    requireMarks().update(String(objectId), String(id), patch)
+  )
+  ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => requireMarks().remove(String(objectId), String(id)))
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

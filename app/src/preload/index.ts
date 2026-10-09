@@ -10,6 +10,20 @@ function subscribe<T>(channel: string, cb: (message: T) => void): () => void {
   }
 }
 
+/** An invoke whose rejection carries the message main gave, without what Electron puts before it. */
+async function invokePlain<T>(channel: string, ...args: unknown[]): Promise<T> {
+  try {
+    return await ipcRenderer.invoke(channel, ...args)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    throw new Error(message.replace(/^Error invoking remote method '[^']*': (Error: )?/, ''))
+  }
+}
+
+// Declared here and backed by the tasks that use them: geometry.describe,
+// view.onShow, view.onHighlight and session.insert do nothing yet.
+const notYet = (): (() => void) => () => {}
+
 const bridge: TornoBridge = {
   workspace: {
     current: () => ipcRenderer.invoke('workspace:current'),
@@ -29,7 +43,20 @@ const bridge: TornoBridge = {
   view: {
     report: (v) => ipcRenderer.send('view:report', v),
     onLook: (cb) => subscribe('view:look', cb),
-    lookReply: (id, result) => ipcRenderer.send('view:lookReply', id, result)
+    lookReply: (id, result) => ipcRenderer.send('view:lookReply', id, result),
+    onShow: notYet,
+    onHighlight: notYet
+  },
+  marks: {
+    list: (objectId) => invokePlain('marks:list', objectId),
+    add: (objectId, mark) => invokePlain('marks:add', objectId, mark),
+    update: (objectId, id, patch) => invokePlain('marks:update', objectId, id, patch),
+    remove: (objectId, id) => invokePlain('marks:remove', objectId, id),
+    onChanged: (cb) => subscribe('marks:changed', cb),
+    onProblem: (cb) => subscribe('marks:problem', cb)
+  },
+  geometry: {
+    describe: () => Promise.reject(new Error('not implemented'))
   },
   session: {
     current: (objectId) => ipcRenderer.invoke('session:current', objectId),
@@ -38,7 +65,8 @@ const bridge: TornoBridge = {
     resize: (sessionId, cols, rows) => ipcRenderer.send('session:resize', sessionId, cols, rows),
     stop: (sessionId) => ipcRenderer.invoke('session:stop', sessionId),
     onData: (cb) => subscribe('session:data', cb),
-    onStatus: (cb) => subscribe('session:status', cb)
+    onStatus: (cb) => subscribe('session:status', cb),
+    insert: () => {}
   }
 }
 

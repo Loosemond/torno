@@ -4,3 +4,5 @@ export interface ViewState { objectId: string; layout: string; camera: Camera; v
 export interface LookRequest { view?: 'current' | ViewName | Camera; layout?: string; parts?: string[] /* names */; size?: number }
 /** A picture, and what the window drew to make it: the object it had open, that object's revision, and whether its parts were stale. */
 export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean }
+/** What the agent asks the window to show: an object, and of it a view, a layout, some parts (by name). */
+export interface ShowRequest { objectId: string; view?: ViewName | Camera; layout?: string; parts?: string[] }

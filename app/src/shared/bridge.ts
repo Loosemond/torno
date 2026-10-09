@@ -1,7 +1,9 @@
 import type { BuildState } from './build'
+import type { Described } from './geometry'
+import type { Mark, MarkPatch, NewMark } from './marks'
 import type { Scene } from './scene'
 import type { SceneFile } from './scenefile'
-import type { LookRequest, LookResult, ViewState } from './view'
+import type { LookRequest, LookResult, ShowRequest, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
 
 export interface TornoBridge {
@@ -24,6 +26,21 @@ export interface TornoBridge {
     report(v: ViewState): void
     onLook(cb: (m: { id: number; request: LookRequest }) => void): () => void
     lookReply(id: number, result: LookResult | { error: string }): void
+    onShow(cb: (m: ShowRequest) => void): () => void
+    onHighlight(cb: (m: { objectId: string; layout: string; refs: string[]; note?: string }) => void): () => void
+  }
+  /** The marks of an object, kept by main in <object>/.torno/marks.json. Calls reject with a plain message. */
+  marks: {
+    list(objectId: string): Promise<Mark[]>
+    add(objectId: string, mark: NewMark): Promise<Mark>
+    update(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
+    remove(objectId: string, id: string): Promise<void>
+    onChanged(cb: (m: { objectId: string; marks: Mark[] }) => void): () => void
+    /** Something about an object's marks file the person should know, said once: a file that could not be read was set aside. */
+    onProblem(cb: (m: { objectId: string; message: string }) => void): () => void
+  }
+  geometry: {
+    describe(objectId: string, layout: string, ref: string): Promise<Described>   // rejects with a plain message
   }
   session: {
     /** What there is for an object: its running session, and whether an earlier conversation can be resumed. */
@@ -35,6 +52,7 @@ export interface TornoBridge {
     stop(sessionId: string): Promise<void>
     onData(cb: (m: { sessionId: string; data: string }) => void): () => void
     onStatus(cb: (m: { sessionId: string; status: SessionStatus }) => void): () => void
+    insert(sessionId: string, text: string): void     // bracketed paste at the cursor, never submitted
   }
 }
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_input' | 'exited'

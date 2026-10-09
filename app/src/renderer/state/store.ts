@@ -2,6 +2,7 @@ import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
+import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
@@ -32,6 +33,10 @@ export interface TornoState {
   layout: string
   /** By part name, so a setting holds in every layout. */
   layers: Record<string, LayerSettings>
+  /** The marks of the open object, as main last told them. */
+  marks: Mark[]
+  /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
+  marksProblem: string | null
   ortho: boolean
   /** Counts changes of layout and layers made by hand: what the scene file is saved for. */
   edits: number
@@ -39,7 +44,7 @@ export interface TornoState {
   sessions: Record<string, SessionView>
 }
 
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {} }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -106,6 +111,16 @@ export const actions = {
   setLayer(name: string, settings: LayerSettings): void {
     const s = store.getState()
     store.setState({ layers: { ...s.layers, [name]: { ...s.layers[name], ...settings } }, edits: s.edits + 1 })
+  },
+
+  /** The marks of an object, as loaded or as changed. Those of an object that is not the open one are not kept. */
+  setMarks(m: { objectId: string; marks: Mark[] }): void {
+    if (m.objectId === store.getState().objectId) store.setState({ marks: m.marks })
+  },
+
+  /** Main said what was wrong with an object's marks file. It stays until another object is opened. */
+  setMarksProblem(m: { objectId: string; message: string }): void {
+    if (m.objectId === store.getState().objectId) store.setState({ marksProblem: m.message })
   },
 
   setOrtho(ortho: boolean): void {
