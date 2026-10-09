@@ -1,0 +1,166 @@
+import { useEffect, useMemo, useRef } from 'react'
+import { useAgentHighlight } from '../state/agent'
+import { actions, useStore } from '../state/store'
+import { setTool, useTool } from '../state/tools'
+import { setFromFace, useFromFace } from '../tools/sectionTool'
+import { atOffset, axisOf, flipped, planeOnAxis, sectionExtent, sectionOffset, shownMm, type Axis } from '../viewport/section'
+import type { Viewport } from '../viewport/Viewport'
+
+const AXES: Axis[] = ['x', 'y', 'z']
+
+/**
+ * The section, floating at the bottom of the viewport while the parts are cut
+ * or the Section tool is in hand: a plane across an axis or on a face, how far
+ * along its normal it is from the middle of the parts, which side it takes
+ * away, and off.
+ *
+ * The slider moves the plane in the viewport as it is dragged and the plane
+ * is kept when it is let go; the number beside it follows without a render.
+ */
+export function SectionBar({ viewport }: { viewport: Viewport }) {
+  const section = useStore((s) => s.section)
+  const scene = useStore((s) => s.scene)
+  const layout = useStore((s) => s.layout)
+  const selected = useStore((s) => s.selection.length > 0)
+  const pointedOut = useAgentHighlight() !== null
+  const inHand = useTool() === 'section'
+  const fromFace = useFromFace()
+  const slider = useRef<HTMLInputElement>(null)
+  const field = useRef<HTMLInputElement>(null)
+
+  // The box the plane is laid across is the viewport's, which has the scene and the layout by the time this is drawn.
+  const box = useMemo(() => viewport.sectionBox(), [viewport, scene, layout])
+  const extent = section ? sectionExtent(box, section.normal) : { min: 0, max: 0 }
+  const offset = section ? sectionOffset(section, box) : 0
+
+  // The slider and the number are the DOM's own while they are being changed: nothing of a drag is React's.
+  useEffect(() => {
+    if (slider.current) slider.current.value = String(offset)
+    if (field.current && document.activeElement !== field.current) field.current.value = section ? shownMm(offset) : ''
+  }, [offset, section, extent.min, extent.max])
+
+  useEffect(() => {
+    const range = slider.current
+    if (!range || !section) return
+    const at = (): typeof section => atOffset(section, box, Number(range.value))
+    const preview = (): void => {
+      const plane = at()
+      viewport.setSection(plane)
+      if (field.current) field.current.value = shownMm(sectionOffset(plane, box))
+    }
+    const keep = (): void => actions.setSection(at())
+    range.addEventListener('input', preview)
+    range.addEventListener('change', keep)
+    return () => {
+      range.removeEventListener('input', preview)
+      range.removeEventListener('change', keep)
+    }
+  }, [viewport, section, box])
+
+  if (!section && !inHand) return null
+
+  const along = section ? axisOf(section.normal) : null
+  const typed = (): void => {
+    const input = field.current
+    if (!input || !section) return
+    const text = input.value.trim().replace(',', '.')
+    const mm = text === '' ? Number.NaN : Number(text)
+    if (Number.isFinite(mm) && shownMm(mm) !== shownMm(offset)) actions.setSection(atOffset(section, box, mm))
+    else input.value = shownMm(offset)
+  }
+  // Above the selection and what the agent points at, which have the bottom edge.
+  const raised = (selected ? 1 : 0) + (pointedOut ? 1 : 0)
+
+  return (
+    <div className="sectionbar" role="toolbar" aria-label="Section" data-raised={raised || undefined}>
+      <div className="viewbar-group" role="group" aria-label="Plane across an axis">
+        {AXES.map((axis) => (
+          <button
+            key={axis}
+            type="button"
+            className="bar-button section-axis num"
+            data-axis={axis}
+            aria-label={`Cut across ${axis.toUpperCase()}`}
+            aria-pressed={along?.axis === axis}
+            title={`Cut across ${axis.toUpperCase()}, through the middle of the parts`}
+            onClick={() => {
+              setFromFace(false)
+              actions.setSection(planeOnAxis(axis, box))
+            }}
+          >
+            {axis.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="bar-button"
+        aria-pressed={fromFace}
+        title="Put the plane on a flat face: click the face"
+        onClick={() => {
+          // The tool first: taking it up puts down whatever was waited for.
+          const wait = !fromFace
+          setTool('section')
+          setFromFace(wait)
+        }}
+      >
+        From face
+      </button>
+      <span className="viewbar-rule" aria-hidden="true" />
+      <input
+        ref={slider}
+        className="section-slider"
+        type="range"
+        aria-label="Offset along the normal"
+        title="Where the plane is along its normal, from the middle of the parts"
+        min={extent.min}
+        max={extent.max}
+        step="any"
+        defaultValue={offset}
+        disabled={!section}
+      />
+      <label className="section-offset" data-disabled={section ? undefined : ''}>
+        <input
+          ref={field}
+          className="num"
+          type="text"
+          inputMode="decimal"
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Offset in millimetres"
+          defaultValue={section ? shownMm(offset) : ''}
+          disabled={!section}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={typed}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') typed()
+            else if (e.key === 'Escape') e.currentTarget.value = shownMm(offset)
+            else return
+            e.preventDefault()
+            e.stopPropagation()
+            e.currentTarget.select()
+          }}
+        />
+        <span className="num" aria-hidden="true">
+          mm
+        </span>
+      </label>
+      <span className="viewbar-rule" aria-hidden="true" />
+      <button type="button" className="bar-button" disabled={!section} title="Take away the other side" onClick={() => section && actions.setSection(flipped(section))}>
+        Flip
+      </button>
+      <button
+        type="button"
+        className="bar-button"
+        disabled={!section}
+        title="Show the parts whole again"
+        onClick={() => {
+          setFromFace(false)
+          actions.setSection(null)
+        }}
+      >
+        Off
+      </button>
+    </div>
+  )
+}

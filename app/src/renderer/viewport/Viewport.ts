@@ -2,17 +2,18 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
-import type { Camera, ViewName } from '../../shared/view'
+import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
 import { labelAnchor, markPoints } from './marks/markObjects'
-import type { Placed } from './marks/labels'
+import { mmPerPx, type Placed } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { chipSize, drawLabels, overlayFonts, type LabelStyle } from './overlay'
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
-import { type Hit, pickParts } from './picking'
+import { type Hit, pickUnder } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
 import { PointerRouter, type ViewportPointer } from './pointer'
+import { SectionCut } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
 
@@ -98,6 +99,10 @@ export class Viewport {
   private disposed = false
 
   private readonly highlights = new Highlights()
+  /** The section through the parts: what is highlighted on them is cut with them. */
+  private readonly section = new SectionCut((planes) => this.highlights.setClipping(planes))
+  /** Whether the last `pick` ended on the cut face of a solid. */
+  private onCut = false
   private readonly marks = new MarkLayer(markColours(LIGHT_THEME))
   /** The marks of the object as last given, resolved ones too: `focusMark` goes to any of them. */
   private allMarks: Mark[] = []
@@ -110,7 +115,9 @@ export class Viewport {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    // The stencil is what the cut faces of a section are counted in (section.ts).
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true })
+    this.renderer.localClippingEnabled = true
     // Pictures for the agent are encoded by hand to match these two (see Encoder in picture.ts).
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.NoToneMapping
@@ -128,7 +135,7 @@ export class Viewport {
     this.ground.material.depthWrite = false
     this.ground.renderOrder = -1
     this.ground.frustumCulled = false
-    this.scene.add(this.ground, this.marks.group)
+    this.scene.add(this.ground, this.marks.group, this.section.decor)
 
     this.labelCanvas = canvas.parentElement ? document.createElement('canvas') : null
     if (this.labelCanvas) {
@@ -154,7 +161,7 @@ export class Viewport {
       },
       preview: (id, shape) => {
         this.marks.preview(id, shape)
-        this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+        this.extent = this.measured()
         this.invalidate()
       },
       dragging: (on) => this.pointer.gizmoDragging(on),
@@ -170,6 +177,7 @@ export class Viewport {
       camera: () => this.camera,
       canvasPoint: (x, y) => this.canvasPoint(x, y),
       pick: (x, y) => this.pick(x, y),
+      pickedCut: () => this.onCut,
       syncMatrices: () => this.syncMatrices(),
       view: () => this.getCamera(),
       setView: (c) => {
@@ -192,6 +200,8 @@ export class Viewport {
       cameraFor: (view, aspect, extent) => this.pictureCamera(view, aspect, extent),
       hiddenParts: (layout, drawn) => this.hiddenParts(layout, drawn),
       hideGizmo: () => this.gizmo.hide(),
+      section: () => this.section.get(),
+      cutBy: (plane, layout, decor) => this.cutBy(plane, layout, decor),
       layGround: (layout) => this.rebuildGround(layout),
       groundExtent: () => this.groundExtent,
       tintPicks: (layout) => this.tintPicks(layout),
@@ -225,6 +235,7 @@ export class Viewport {
         entry = { part, built: buildPart(part, blob) }
         this.entries.set(part.key, entry)
         this.scene.add(entry.built.group)
+        this.section.add(entry.built)
       }
       // `loc` is the tessellator's local → object transform; it can differ between builds of the same shape.
       entry.built.group.position.fromArray(part.loc.t)
@@ -257,7 +268,7 @@ export class Viewport {
     this.allMarks = marks
     this.marks.setMarks(marks)
     this.showMarks()
-    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.extent = this.measured()
     this.tintPicks(this.layout)
     this.gizmo.place()
     this.invalidate()
@@ -278,7 +289,7 @@ export class Viewport {
     this.gizmo.edit(id, mode, onChange)
     // As main has them: a drag that came to nothing leaves no trace.
     this.marks.setMarks(this.allMarks)
-    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.extent = this.measured()
     this.gizmo.place()
     this.invalidate()
   }
@@ -340,7 +351,7 @@ export class Viewport {
    */
   setDraft(draft: Draft | null): void {
     this.marks.setDraft(draft)
-    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.extent = this.measured()
     this.invalidate()
   }
 
@@ -367,7 +378,7 @@ export class Viewport {
     if (entry && (was?.visible !== false) !== (this.layers.get(key)?.visible !== false)) {
       // The marks on a part come and go with it.
       this.showMarks()
-      this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+      this.extent = this.measured()
       this.tintPicks(this.layout)
       this.gizmo.place()
     }
@@ -475,7 +486,58 @@ export class Viewport {
     if (!at) return null
     this.syncMatrices()
     const parts = [...this.entries.values()].filter((e) => e.built.group.visible).map((e) => ({ key: e.part.key, name: e.part.name, built: e.built }))
-    return pickParts(parts, this.camera, at.ndc, at.size, opts)
+    const keeps = this.section.keeps()
+    const picked = pickUnder(parts, this.camera, at.ndc, at.size, { ...opts, cut: keeps && { keeps } })
+    this.onCut = picked.cut
+    return picked.hit
+  }
+
+  // ---- the section ----
+
+  /**
+   * Cuts the parts by a plane, or by none: what is on the side its normal
+   * points to is not drawn, and each closed solid shows its cut face in its
+   * own colour, a step darker. A part that is not a closed solid is cut open.
+   * The marks, the grid and the gizmo are not cut. With a section, only what
+   * is drawn can be pointed at: on a cut face `pick` finds nothing.
+   *
+   * Cheap enough to call with every move of a drag: the frame is drawn once.
+   */
+  setSection(plane: SectionPlane | null): void {
+    this.cutBy(plane, this.layout, true)
+    this.extent = this.measured()
+    this.invalidate()
+  }
+
+  getSection(): SectionPlane | null {
+    return this.section.get()
+  }
+
+  /** Whether the plane has its handle: an arrow at its middle, along its normal, while the plane is the pointer's to drag. */
+  showSectionHandle(shown: boolean): void {
+    this.section.showHandle(shown)
+    this.invalidate()
+  }
+
+  /** The box the section is laid across: around every part of the layout shown, switched on or not, in the object frame. */
+  sectionBox(): { min: Vec3; max: Vec3 } {
+    const { min, max } = this.boxOfLayout(this.layout)
+    return { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] }
+  }
+
+  private boxOfLayout(layout: string): { min: number[]; max: number[] } {
+    return boxOf(this.partsOf(layout)) ?? EMPTY_BOX
+  }
+
+  /** Cuts by a plane laid across a layout's parts; `decor` says whether the plane itself is drawn. */
+  private cutBy(plane: SectionPlane | null, layout: string, decor: boolean): void {
+    this.section.showDecor(decor)
+    this.section.set(plane, this.boxOfLayout(layout))
+  }
+
+  /** A sphere around everything drawn in the layout shown: the parts and the grid, the marks, the plane of the section. */
+  private measured(): THREE.Sphere {
+    return this.section.extend(this.marks.extend(this.groundExtent.clone(), this.layout))
   }
 
   /** Where a point of the object frame falls in the window, in client pixels. */
@@ -549,6 +611,25 @@ export class Viewport {
     return this.pictures.render(request)
   }
 
+  /**
+   * What drawing the view as it is costs: `count` frames drawn one after the
+   * other, each waited for until the graphics card has finished it. The mean
+   * and the worst, in milliseconds. For the tests, which watch that a section
+   * stays cheap.
+   */
+  timeFrames(count: number): { count: number; meanMs: number; worstMs: number } {
+    const gl = this.renderer.getContext()
+    let worst = 0
+    const started = performance.now()
+    for (let i = 0; i < count; i++) {
+      const before = performance.now()
+      this.draw()
+      gl.finish()
+      worst = Math.max(worst, performance.now() - before)
+    }
+    return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
+  }
+
   /** Matches the drawing buffer to the canvas's size on the page. Call when the canvas is resized. */
   resize(): void {
     const width = this.canvas.clientWidth
@@ -577,6 +658,7 @@ export class Viewport {
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored)
     this.controls.dispose()
     this.gizmo.dispose()
+    this.section.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
     this.highlights.dispose()
@@ -592,6 +674,7 @@ export class Viewport {
 
   private discard(entry: Entry): void {
     this.highlights.forget(entry.built)
+    this.section.forget(entry.built)
     this.scene.remove(entry.built.group)
     disposePart(entry.built)
   }
@@ -600,8 +683,10 @@ export class Viewport {
   private refresh(): void {
     for (const entry of this.entries.values()) this.applyLook(entry)
     this.groundExtent = this.rebuildGround(this.layout)
+    // The parts may have moved, and the plane is laid across those of this layout.
+    this.cutBy(this.section.get(), this.layout, true)
     this.showMarks()
-    this.extent = this.marks.extend(this.groundExtent.clone(), this.layout)
+    this.extent = this.measured()
     this.highlights.apply(this.partNamed) // the refs may name other geometry now, or none
     this.tintPicks(this.layout)
     this.gizmo.place() // a shape of another layout is not there to hold
@@ -665,6 +750,7 @@ export class Viewport {
       material.opacity = opacity
       material.depthWrite = !transparent
     }
+    this.section.look(built, fade(base), opacity, fade(edgeTint(base)))
     built.group.visible = part.layout === this.layout && layer?.visible !== false
   }
 
@@ -737,6 +823,7 @@ export class Viewport {
     this.gizmo.setColours(toHex(this.theme.axisX), toHex(this.theme.axisY), toHex(this.theme.axisZ), toHex(this.theme.ink))
     this.highlights.setColors(this.theme)
     this.marks.setColours(markColours(this.theme))
+    this.section.setColours(toHex(this.theme.muted), toHex(this.theme.accent))
     this.showMarks()
     this.scene.background = new THREE.Color(this.theme.surface)
     this.ground.material.color.set(this.theme.hairline)
@@ -879,6 +966,7 @@ export class Viewport {
     const size = { width: this.canvas.clientWidth, height: this.canvas.clientHeight }
     this.camera.updateMatrixWorld()
     this.marks.update(this.camera, size)
+    this.section.sizeHandle((at) => mmPerPx(this.camera, at, size.height))
     this.renderer.render(this.scene, this.camera)
     this.drawLabels(size)
     for (const cb of this.drawnListeners) cb()

@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import type { Part } from '../../shared/scene'
-import type { Camera, ViewName } from '../../shared/view'
+import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import { MARK_LAYERS, type Highlights } from './highlight'
 import type { MarkLayer } from './marks/MarkLayer'
 import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayFonts, overlayUnit, type LabelStyle } from './overlay'
+import { describeSection } from './section'
 import { visibleHeight } from './views'
 
 /** What to draw for a picture: a view, a layout and the keys of the parts to show. `size` is the long edge in pixels. */
@@ -14,6 +15,8 @@ export interface ImageRequest {
   size?: number
   /** Whether the marks of the layout are drawn, with their numbers. True when left out. */
   marks?: boolean
+  /** What the parts are cut by: `'current'`, and when left out, the section on screen; null for none; or a plane of the picture's own. */
+  section?: SectionPlane | 'current' | null
 }
 
 export interface Picture {
@@ -63,6 +66,10 @@ export interface PictureHost {
   hiddenParts(layout: string, drawn: ReadonlySet<string>): Set<string>
   /** Takes the gizmo out of what is drawn; returns what puts it back. */
   hideGizmo(): () => void
+  /** The section on screen, or null. */
+  section(): SectionPlane | null
+  /** Cuts the parts by a plane laid across a layout's parts, or by none; `decor` says whether the plane itself is drawn. */
+  cutBy(plane: SectionPlane | null, layout: string, decor: boolean): void
   /** Lays the grid under a layout's parts and returns a sphere around the parts and the grid. */
   layGround(layout: string): THREE.Sphere
   /** That sphere for the layout on screen, as last laid. */
@@ -89,6 +96,8 @@ export interface PictureState {
   layout: string
   shown: readonly PicturePart[]
   withMarks: boolean
+  /** What the parts are cut by, or null. The plane itself is not drawn. */
+  section: SectionPlane | null
   /** The names of the layout's parts the picture leaves out: a mark on one is left out with it. */
   notDrawn: ReadonlySet<string>
   width: number
@@ -102,8 +111,8 @@ export interface PictureState {
  * Nothing in here waits: no frame on screen sees the scene in between.
  *
  * A picture is of the parts and the marks: not of what the person points at,
- * of what they hold a shape by, of which mark they are working on, or of what
- * is not a mark yet.
+ * of what they hold a shape by, of which mark they are working on, of what
+ * is not a mark yet, or of the plane they cut by (the cut itself is in it).
  */
 export function asPictured<T>(host: PictureHost, state: PictureState, draw: (extent: THREE.Sphere) => T): T {
   const otherLayout = state.layout !== host.layout()
@@ -112,6 +121,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
   host.highlights.setVisible(false)
   const showGizmo = host.hideGizmo()
   const active = host.marks.activeId
+  const cut = host.section()
   // Fat lines take their width in pixels from the renderer's viewport, which is the
   // canvas's whatever is being drawn to: for the picture it is the picture's size.
   const onScreen = host.renderer.getViewport(new THREE.Vector4())
@@ -119,6 +129,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     host.renderer.setViewport(0, 0, state.width, state.height)
     for (const p of parts) p.built.group.visible = false
     for (const p of state.shown) p.built.group.visible = true
+    host.cutBy(state.section, state.layout, false)
     let extent = otherLayout ? host.layGround(state.layout) : host.groundExtent()
     host.marks.setActive(null)
     host.marks.show(state.withMarks ? state.layout : null, state.notDrawn)
@@ -134,6 +145,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     host.renderer.setViewport(onScreen)
     host.renderer.setRenderTarget(null)
     for (const [p, visible] of before) p.built.group.visible = visible
+    host.cutBy(cut, host.layout(), true)
     showGizmo()
     host.highlights.setVisible(true)
     host.marks.setActive(active)
@@ -188,12 +200,13 @@ export class PictureMaker {
     }
 
     const withMarks = req.marks !== false
+    const section = req.section === undefined || req.section === 'current' ? host.section() : req.section
     // A mark on a part the picture leaves out is left out with it.
     const notDrawn = host.hiddenParts(req.layout, wanted)
     const unit = overlayUnit(width, height)
 
     // Everything from here to the end of `asPictured` is synchronous, so no frame on screen sees it.
-    const { camera, pixels } = asPictured(host, { layout: req.layout, shown, withMarks, notDrawn, width, height }, (extent) => {
+    const { camera, pixels } = asPictured(host, { layout: req.layout, shown, withMarks, section, notDrawn, width, height }, (extent) => {
       const camera = host.cameraFor(view, aspect, extent)
       // In the picture's own pixels: a dot is as large a share of a big picture as of a small one.
       host.marks.update(camera, { width, height }, unit)
@@ -234,7 +247,8 @@ export class PictureMaker {
 
     const names = shown.map((p) => p.part.name).join(', ') || 'none'
     const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names} · ${projection} · ${width}×${height}`
+    const cutNote = section ? ` · ${describeSection(section)}` : ''
+    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${cutNote} · ${projection} · ${width}×${height}`
     return { png, width, height, caption }
   }
 
@@ -253,7 +267,8 @@ export class PictureMaker {
       width,
       height,
       // Linear light, so half floats: eight bits would band in the shadows.
-      drawn: new THREE.WebGLRenderTarget(width, height, { samples: 4, type: THREE.HalfFloatType }),
+      // With a stencil: the cut faces of a section are counted in it.
+      drawn: new THREE.WebGLRenderTarget(width, height, { samples: 4, type: THREE.HalfFloatType, stencilBuffer: true }),
       encoded: new THREE.WebGLRenderTarget(width, height, { depthBuffer: false })
     }
     return this.targets

@@ -171,6 +171,24 @@ describe('show', () => {
     expect(theirs).toEqual({ layout: 'assembly', layers: { post: { opacity: 0.5 } } })
   })
 
+  it('cuts the parts by the plane asked for, says so, and leaves the scene file as the person had it', () => {
+    show({ section: { origin: [0, 0, 12.5], normal: [0, 0, 3] } })
+    expect(store.getState().section).toEqual({ origin: [0, 0, 12.5], normal: [0, 0, 1] })
+    expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · cut at z = 12.5, +Z side removed · perspective', objectId: 'bracket', revision: 3, stale: false } }])
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
+    // Null takes it away again; a show that says nothing of it leaves it.
+    show({ layout: 'print' })
+    expect(store.getState().section).not.toBeNull()
+    show({ section: null })
+    expect(store.getState().section).toBeNull()
+  })
+
+  it('refuses a section that is no plane, and changes nothing', () => {
+    show({ layout: 'print', section: { origin: [0, 0, 1], normal: [0, 0, 0] } })
+    expect(replies).toEqual([{ id: 9, result: { error: 'section is not a plane: give origin and normal as three numbers each, the normal not all zeros' } }])
+    expect(store.getState()).toMatchObject({ layout: 'assembly', section: null })
+  })
+
   it('is refused while the person has a button down in the viewport, and changes nothing', () => {
     busy = true
     show({ view: 'top', layout: 'print', parts: ['post'] })

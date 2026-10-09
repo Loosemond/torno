@@ -176,4 +176,13 @@ describe('latestView', () => {
     forgetViews()
     expect(latestView('bracket')).toBeUndefined()
   })
+
+  it('keeps the section of a view when it is a plane, and nothing of one that is not', () => {
+    reportView({ ...view('bracket', 'assembly'), section: { origin: [0, 0, 12.5], normal: [0, 0, 4] } })
+    expect(latestView('bracket')?.section).toEqual({ origin: [0, 0, 12.5], normal: [0, 0, 1] })
+    reportView({ ...view('bracket', 'assembly'), section: { origin: [0, 0, 12.5], normal: ['up'] } as never })
+    expect(latestView('bracket')).toEqual(view('bracket', 'assembly'))
+    reportView({ ...view('bracket', 'assembly'), section: null })
+    expect(latestView('bracket')).toEqual(view('bracket', 'assembly'))
+  })
 })

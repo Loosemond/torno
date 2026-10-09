@@ -1614,6 +1614,153 @@ button {
   background: transparent;
 }
 
+/* ---- Section: the plane the parts are cut by, at the bottom of the viewport like the selection ---- */
+
+.sectionbar {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+/* Above the selection, and above what the agent points at: each has a row of its own. */
+.sectionbar[data-raised='1'] {
+  bottom: calc(var(--space-3) + 40px);
+}
+
+.sectionbar[data-raised='2'] {
+  bottom: calc(var(--space-3) + 80px);
+}
+
+/* The three axes in their own colours, as on the gizmo: this letter is that direction. */
+.section-axis {
+  width: 26px;
+  padding: 0;
+  font-weight: 500;
+}
+
+.section-axis[data-axis='x'] {
+  color: var(--axis-x);
+}
+
+.section-axis[data-axis='y'] {
+  color: var(--axis-y);
+}
+
+.section-axis[data-axis='z'] {
+  color: var(--axis-z);
+}
+
+.sectionbar .bar-button:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.sectionbar .bar-button:disabled:hover {
+  background: transparent;
+}
+
+/* A rule to slide along: a hairline with a mark at the middle of the parts, and the plane as a tick across it. */
+.section-slider {
+  appearance: none;
+  flex: 0 1 168px;
+  min-width: 72px;
+  height: 26px;
+  margin: 0 var(--space-2) 0 var(--space-1);
+  background:
+    linear-gradient(var(--muted), var(--muted)) center / 1px 7px no-repeat,
+    linear-gradient(var(--hairline), var(--hairline)) center / 100% 1px no-repeat;
+  cursor: ew-resize;
+}
+
+.section-slider::-webkit-slider-runnable-track {
+  height: 26px;
+  background: transparent;
+}
+
+.section-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 3px;
+  height: 16px;
+  margin-top: 5px;
+  border: 0;
+  border-radius: 1.5px;
+  background: var(--accent);
+}
+
+.section-slider:focus-visible {
+  outline: none;
+}
+
+.section-slider:focus-visible::-webkit-slider-thumb {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.section-slider:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.section-slider:disabled::-webkit-slider-thumb {
+  background: var(--muted);
+}
+
+.section-offset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  height: 22px;
+  padding: 0 6px;
+  border: var(--divider);
+  border-radius: 4px;
+  background: var(--panel);
+  cursor: text;
+}
+
+.section-offset:focus-within {
+  border-color: var(--accent);
+}
+
+.section-offset[data-disabled] {
+  opacity: 0.45;
+}
+
+.section-offset input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-small);
+  text-align: right;
+}
+
+.section-offset input:focus-visible {
+  outline: none;
+}
+
+.section-offset span {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
 /* ---- What the agent points at: a line where the selection is shown, in the colour of its marks ---- */
 
 .agent-line {

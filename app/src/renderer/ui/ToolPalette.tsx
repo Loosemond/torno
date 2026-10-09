@@ -221,6 +221,13 @@ export const ICONS: Record<ToolName, ReactNode> = {
     </Icon>
   ),
   shape: SHAPE_ICONS.box,
+  // A block sawn through: the half that is kept, the half that is taken away, and the plane between them.
+  section: (
+    <Icon>
+      <path d="M3.750 8v4.750h8.500V8M1.500 8h13" />
+      <path d="M3.750 6V3.250h8.500V6" strokeDasharray="1.5 2" />
+    </Icon>
+  ),
   // A rule, laid across: its edge and its graduations.
   measure: (
     <Icon>

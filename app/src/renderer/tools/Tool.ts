@@ -25,7 +25,7 @@ export interface Tool {
 }
 
 /** What a tool may do to the viewport. */
-export type ToolViewport = Pick<Viewport, 'setHover' | 'setNavigation' | 'setDraft' | 'lockedView' | 'pick' | 'bounds'>
+export type ToolViewport = Pick<Viewport, 'setHover' | 'setNavigation' | 'setDraft' | 'lockedView' | 'pick' | 'bounds'> & Partial<Pick<Viewport, 'getSection' | 'setSection' | 'sectionBox'>>
 
 /**
  * What a tool works with, as it is when the event arrives: the object on show,
@@ -110,13 +110,26 @@ export function clickGuard(): { begin(client: [number, number]): (() => void) | 
 /**
  * Hands a pointer event to a tool, unless the parts on screen are stale: their
  * refs would name other geometry in the new build, so nothing is pointed at
- * and the pointer is told why.
+ * and the pointer is told why. On the cut face of a section the tool is told
+ * of nothing there, like beside the parts, and the pointer is told what it is on.
  */
 export function routePointer(tool: Tool, e: ViewportPointer, ctx: ToolContext): void {
-  if (ctx.stale === null) return tool.onPointer(e, ctx)
-  if (e.hit) ctx.readout.say(e.client, ctx.stale)
-  else ctx.readout.hide()
+  if (ctx.stale !== null) {
+    if (e.hit) ctx.readout.say(e.client, ctx.stale)
+    else ctx.readout.hide()
+    return
+  }
+  tool.onPointer(e, ctx)
+  // After the tool, which has just put away whatever it said of nothing.
+  if (e.cut && tool.id !== 'section') ctx.readout.say(e.client, CUT_FACE)
 }
+
+/**
+ * Said at the pointer on the cut face of a section, whichever tool is in hand
+ * but the one that moves the plane: what a section draws is no face of the
+ * model, so there is nothing there to pick, pin or measure.
+ */
+export const CUT_FACE = 'That is the cut face: nothing of the model to pick'
 
 /**
  * Where a mark is anchored, from what the pointer was on: the point, the

@@ -71,6 +71,14 @@ export class Highlights {
     }
   }
 
+  /** What every tint and line is clipped by: the planes of a section, or null for none. */
+  setClipping(planes: THREE.Plane[] | null): void {
+    for (const state of Object.values(this.layers)) {
+      state.tint.clippingPlanes = planes
+      state.line.clippingPlanes = planes
+    }
+  }
+
   /** What a layer highlights from now on. Returns false when that is what it already did. */
   set(layer: HighlightLayer, refs: string[]): boolean {
     const state = this.layers[layer]

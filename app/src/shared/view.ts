@@ -7,15 +7,52 @@ export interface Camera { position: [number, number, number]; target: [number, n
 export interface SelectionReport { revision: number; total: number; refs: Array<{ ref: string; descriptor?: string }> }
 /** The most refs of a selection that are reported. */
 export const MAX_SELECTION_REPORTED = 8
-export interface ViewState { objectId: string; layout: string; camera: Camera; visible: string[] /* part keys */; selection?: SelectionReport }
-export interface LookRequest { view?: 'current' | ViewName | Camera; layout?: string; parts?: string[] /* names */; size?: number; marks?: boolean /* draw the marks and their numbers; true when absent */ }
+/**
+ * A section through the parts: a plane in the object frame, in millimetres. What is on the side `normal`
+ * points to is not drawn; the side it points away from is kept. `normal` has length 1.
+ */
+export interface SectionPlane { origin: [number, number, number]; normal: [number, number, number] }
+export interface ViewState { objectId: string; layout: string; camera: Camera; visible: string[] /* part keys */; selection?: SelectionReport; section?: SectionPlane | null /* the cut on screen; null or absent for none */ }
+export interface LookRequest {
+  view?: 'current' | ViewName | Camera
+  layout?: string
+  parts?: string[] /* names */
+  size?: number
+  marks?: boolean /* draw the marks and their numbers; true when absent */
+  /** The cut the picture is drawn with: `'current'` (and when absent) the one on screen, null for none, or a plane of its own. */
+  section?: SectionPlane | 'current' | null
+}
 /** A picture, and what the window drew to make it: the object it had open, that object's revision, and whether its parts were stale. */
 export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean }
 /** What the agent asks the window to show: an object, and of it a view, a layout, some parts (by name). */
-export interface ShowRequest { objectId: string; view?: ViewName | Camera; layout?: string; parts?: string[] }
+export interface ShowRequest { objectId: string; view?: ViewName | Camera; layout?: string; parts?: string[]; section?: SectionPlane | null /* a cut to put on screen, or null to take it away; absent leaves it */ }
 /** What the window did for a `ShowRequest`: what it now shows, as the caption of a picture would say it, and of which object and build. */
 export interface ShowResult { caption: string; objectId: string; revision: number; stale: boolean }
 /** What the agent asks the window to point out to the person: refs of the layout shown, tinted in the agent's colour, with a note. */
 export interface HighlightRequest { objectId: string; layout: string; refs: string[]; note?: string }
 /** What the window pointed out, and of which object and build. */
 export interface HighlightResult { objectId: string; layout: string; refs: string[]; revision: number }
+
+/**
+ * A section plane out of whatever was given (a file, a request): three finite
+ * numbers for a point and three for a direction that is one, which is made a
+ * unit vector. Null for anything else.
+ */
+export function sectionOf(value: unknown): SectionPlane | null {
+  const said = value as { origin?: unknown; normal?: unknown } | null
+  if (typeof said !== 'object' || said === null) return null
+  const origin = triple(said.origin)
+  const normal = triple(said.normal)
+  if (!origin || !normal) return null
+  const length = Math.hypot(...normal)
+  if (!(length > 1e-9) || !Number.isFinite(length)) return null
+  return { origin, normal: [normal[0] / length + 0, normal[1] / length + 0, normal[2] / length + 0] }
+}
+
+/** Said to the agent of a section that is no plane. */
+export const NOT_A_PLANE = 'section is not a plane: give origin and normal as three numbers each, the normal not all zeros'
+
+function triple(value: unknown): [number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every((n) => typeof n === 'number' && Number.isFinite(n))) return null
+  return [value[0], value[1], value[2]]
+}

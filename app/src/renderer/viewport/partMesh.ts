@@ -10,6 +10,12 @@ export interface BuiltPart {
   edges: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>
   /** Whether the part is a solid made of a mesh (see `isFaceted`). */
   faceted: boolean
+  /**
+   * Whether the part is a closed B-rep solid: the kernel found it valid and
+   * with a volume, and it is not faceted. Only such a part has a cut face
+   * when a section goes through it; any other is cut open.
+   */
+  solid: boolean
   /** Index offset at which each face's triangles start, with the total at the end. */
   faceStarts: Uint32Array
   /**
@@ -94,7 +100,8 @@ export function buildPart(part: Part, blob: ArrayBuffer): BuiltPart {
   group.quaternion.fromArray(part.loc.q)
   group.add(mesh, edges)
 
-  return { group, mesh, edges, faceStarts, edgeStarts, faceted }
+  const solid = !faceted && part.valid && part.volume > 0
+  return { group, mesh, edges, faceStarts, edgeStarts, faceted, solid }
 }
 
 /** Frees what `buildPart` made: the geometries, their bounds tree and the materials. */

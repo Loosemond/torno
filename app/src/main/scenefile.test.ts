@@ -72,4 +72,15 @@ describe('scene file', () => {
     writeFileSync(join(dir, '.torno', 'scene.json'), '[1, 2]')
     expect(await loadSceneFile(dir)).toEqual({ layers: {} })
   })
+
+  it('keeps a section that is a plane, its normal a unit vector, and drops one that is not', async () => {
+    await saveSceneFile(dir, { layers: {}, section: { origin: [0, 0, 12.5], normal: [0, 0, 2] } })
+    expect(await loadSceneFile(dir)).toEqual({ layers: {}, section: { origin: [0, 0, 12.5], normal: [0, 0, 1] } })
+    await saveSceneFile(dir, { layers: {}, section: null })
+    expect(JSON.parse(readFileSync(join(dir, '.torno', 'scene.json'), 'utf8'))).toEqual({ layers: {} })
+    for (const not of [{ origin: [0, 0, 1], normal: [0, 0, 0] }, { origin: [0, 0, null], normal: [0, 0, 1] }, { origin: [0, 0], normal: [0, 0, 1] }, 'z', 4]) {
+      writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layout: 'print', layers: {}, section: not }))
+      expect(await loadSceneFile(dir)).toEqual({ layout: 'print', layers: {} })
+    }
+  })
 })

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Buf, Part } from '../../shared/scene'
 import { buildPart } from './partMesh'
-import { closestOnSegment, edgeOfSegment, parseRef, pickEdge, pickParts, type Pickable, projectSegments, refOf, segmentsNear } from './picking'
+import { closestOnSegment, edgeOfSegment, parseRef, pickEdge, pickParts, pickUnder, type Pickable, projectSegments, refOf, segmentsNear } from './picking'
 
 describe('edgeOfSegment', () => {
   // Three edges of 2, 0 and 3 segments.
@@ -236,5 +236,130 @@ describe('pickParts', () => {
     expect(pickParts([base, skin], camera, over(104, 0.5), size)).toMatchObject({ part: 'plate', kind: 'edge', index: 0 })
     // The nearer part's own faces are hit as faces.
     expect(pickParts([base, cover], camera, over(104, 3), size)).toMatchObject({ part: 'cover', kind: 'face' })
+  })
+})
+
+/**
+ * A box from `min` to `max` in the object frame, closed: six faces of two
+ * triangles each, in the order -X +X -Y +Y -Z +Z, and one edge, along X at
+ * its `min` corner. `solid` says whether the kernel calls it one.
+ */
+function box(name: string, min: [number, number, number], max: [number, number, number], solid = true): Pickable {
+  const [x0, y0, z0] = min
+  const [x1, y1, z1] = max
+  // Each face's corners, counter-clockwise seen from outside.
+  const faces: Array<{ n: number[]; corners: number[][] }> = [
+    { n: [-1, 0, 0], corners: [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]] },
+    { n: [1, 0, 0], corners: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]] },
+    { n: [0, -1, 0], corners: [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]] },
+    { n: [0, 1, 0], corners: [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]] },
+    { n: [0, 0, -1], corners: [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]] },
+    { n: [0, 0, 1], corners: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]] }
+  ]
+  const { blob, mesh } = pack({
+    vertices: new Float32Array(faces.flatMap((f) => f.corners.flat())),
+    normals: new Float32Array(faces.flatMap((f) => [...f.n, ...f.n, ...f.n, ...f.n])),
+    triangles: new Uint32Array(faces.flatMap((_, i) => [0, 1, 2, 0, 2, 3].map((c) => i * 4 + c))),
+    edges: new Float32Array([x0, y0, z0, x1, y0, z0]),
+    trianglesPerFace: new Uint32Array([2, 2, 2, 2, 2, 2]),
+    segmentsPerEdge: new Uint32Array([1]),
+    faceTypes: new Uint32Array(6),
+    edgeTypes: new Uint32Array(1)
+  })
+  const part: Part = {
+    key: `assembly:${name}`,
+    name,
+    layout: 'assembly',
+    loc: { t: [0, 0, 0], q: [0, 0, 0, 1] },
+    bbox: { min, max },
+    volume: solid ? (x1 - x0) * (y1 - y0) * (z1 - z0) : 0,
+    faceCount: 6,
+    edgeCount: 1,
+    triangleCount: 12,
+    valid: true,
+    hash: name,
+    mesh
+  }
+  const built = buildPart(part, blob)
+  built.group.updateMatrixWorld(true)
+  return { key: part.key, name, built }
+}
+
+describe('pointing at parts that a section cuts', () => {
+  // Looking along +Y at a 20 mm square around (5, 0, 5), 10 px to the millimetre.
+  const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 1000)
+  camera.up.set(0, 0, 1)
+  camera.position.set(5, -50, 5)
+  camera.lookAt(5, 0, 5)
+  camera.updateMatrixWorld()
+  const behind = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 1000)
+  behind.up.set(0, 0, 1)
+  behind.position.set(5, 80, 5)
+  behind.lookAt(5, 0, 5)
+  behind.updateMatrixWorld()
+  const size = { width: 200, height: 200 }
+  const over = (x: number, z: number) => ({ x: (x - 5) / 10, y: (z - 5) / 10 })
+  const mirrored = (x: number, z: number) => ({ x: -(x - 5) / 10, y: (z - 5) / 10 })
+  /** Everything nearer the eye than y is taken away: what is kept is where y is more. */
+  const cutAt = (y: number) => ({ keeps: new THREE.Plane(new THREE.Vector3(0, 1, 0), -y) })
+
+  const block = box('block', [0, 0, 0], [10, 10, 10])
+
+  it('builds the box as a solid, and a part without a volume as none', () => {
+    expect(block.built.solid).toBe(true)
+    expect(box('shell', [0, 0, 0], [10, 10, 10], false).built.solid).toBe(false)
+  })
+
+  it('finds nothing on the cut face of a solid, and says that is what it is', () => {
+    expect(pickUnder([block], camera, over(5, 5), size)).toMatchObject({ hit: { ref: 'block/F2' }, cut: false })
+    expect(pickUnder([block], camera, over(5, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    // Beside the part there is no cut face, and nothing.
+    expect(pickUnder([block], camera, over(12, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: false })
+  })
+
+  it('does not hit what the plane takes away: the pointer goes on to what is behind', () => {
+    const near = box('near', [0, -8, 0], [10, -6, 10])
+    const far = box('far', [0, 20, 0], [10, 22, 10])
+    expect(pickParts([near, far], camera, over(5, 5), size)).toMatchObject({ part: 'near' })
+    const hit = pickParts([near, far], camera, over(5, 5), size, { cut: cutAt(4) })!
+    expect(hit).toMatchObject({ part: 'far', kind: 'face', index: 2, ref: 'far/F2' })
+    expect(hit.point[1]).toBeCloseTo(20)
+    expect(hit.normal![1]).toBeCloseTo(-1)
+    // Measured along the ray, like any hit.
+    expect(hit.distance).toBeCloseTo(pickParts([far], camera, over(5, 5), size)!.distance)
+  })
+
+  it('keeps a face that lies in the plane itself', () => {
+    // The plane as it is put on a face: the face is drawn, and is there to be picked.
+    expect(pickUnder([block], camera, over(5, 5), size, { cut: { keeps: new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e-3) } })).toMatchObject({ hit: { ref: 'block/F2' }, cut: false })
+  })
+
+  it('sees a solid from the side that is kept as if it were whole', () => {
+    // From behind, the plane is met inside the part, but after its back wall.
+    expect(pickUnder([block], behind, mirrored(5, 5), size, { cut: cutAt(4) })).toMatchObject({ hit: { ref: 'block/F3' }, cut: false })
+  })
+
+  it('looks into a part that is no closed solid: its far wall is hit from inside', () => {
+    const shell = box('shell', [0, 0, 0], [10, 10, 10], false)
+    const picked = pickUnder([shell], camera, over(5, 5), size, { cut: cutAt(4) })
+    expect(picked).toMatchObject({ hit: { ref: 'shell/F3' }, cut: false })
+    expect(picked.hit!.point[1]).toBeCloseTo(10)
+  })
+
+  it('counts one cut face per part: a solid behind another is covered by the cut face in front', () => {
+    const second = box('second', [2, 12, 2], [8, 30, 8])
+    expect(pickUnder([block, second], camera, over(5, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    // With the plane behind the first part, the second is what is seen: its own front face.
+    expect(pickUnder([block, second], camera, over(5, 5), size, { cut: cutAt(11) })).toMatchObject({ hit: { ref: 'second/F2' }, cut: false })
+  })
+
+  it('does not pick an edge the plane takes away, nor one behind a cut face', () => {
+    // The box's one edge runs along X at y = 0, z = 0.
+    expect(pickParts([block], camera, over(5, 0.2), size)).toMatchObject({ kind: 'edge', index: 0 })
+    expect(pickUnder([block], camera, over(5, 0.2), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    // An edge of a part further back, behind the first part's cut face.
+    const back = box('back', [0, 14, 0], [10, 16, 10])
+    expect(pickUnder([block, back], camera, over(5, 0.2), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    expect(pickParts([back], camera, over(5, 0.2), size, { cut: cutAt(4) })).toMatchObject({ part: 'back', kind: 'edge' })
   })
 })

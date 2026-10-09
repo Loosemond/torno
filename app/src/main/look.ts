@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import { type HighlightRequest, type HighlightResult, type LookRequest, type LookResult, type SelectionReport, type ShowRequest, type ShowResult, type ViewState, MAX_SELECTION_REPORTED } from '../shared/view'
+import { type HighlightRequest, type HighlightResult, type LookRequest, type LookResult, type SelectionReport, type ShowRequest, type ShowResult, type ViewState, MAX_SELECTION_REPORTED, sectionOf } from '../shared/view'
 
 // What the agent asks of the window is done by the renderer, which owns the
 // viewport: a picture of it (`view:look`), a change of what it shows
@@ -89,12 +89,14 @@ const MAX_SELECTED_DESCRIPTOR = 200
  * there. The selection goes to the agent with the next prompt, so only what
  * is one is kept of it: a revision, at most eight refs on one line each, and
  * how many are selected in all. A total that is not a count, or is less than
- * the refs given, is taken to be as many as were given.
+ * the refs given, is taken to be as many as were given. Of a section only a
+ * plane is kept, its normal a unit vector.
  */
 export function reportView(v: ViewState): void {
-  const { selection: said, ...view } = v
+  const { selection: said, section: cut, ...view } = v
   const selection = selectionOf(said)
-  views.set(v.objectId, selection ? { ...view, selection } : view)
+  const section = sectionOf(cut)
+  views.set(v.objectId, { ...view, ...(selection ? { selection } : {}), ...(section ? { section } : {}) })
 }
 
 function selectionOf(value: unknown): SelectionReport | null {

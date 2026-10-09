@@ -20,6 +20,8 @@ export interface ViewportPointer {
   shift: boolean
   /** Alt is held: a tool that takes every press leaves this one to the camera. */
   alt: boolean
+  /** The pointer is on the cut face of a section: `hit` is null, since what a section draws is no face of the model. */
+  cut?: boolean
 }
 
 /** A press released within this many pixels and milliseconds of where and when it was made is a click, not a drag. */
@@ -57,6 +59,8 @@ export interface PointerHost {
   canvasPoint(clientX: number, clientY: number): { ndc: { x: number; y: number } } | null
   /** What a point of the window is on. */
   pick(clientX: number, clientY: number): Hit | null
+  /** Whether that last `pick` found nothing because the point is on the cut face of a section. */
+  pickedCut?(): boolean
   /** Brings the matrices a ray is cast with up to date. */
   syncMatrices(): void
   /** The camera as it is, and a way to put it elsewhere at once, ending a move under way. */
@@ -147,8 +151,9 @@ export class PointerRouter {
     // Nothing is pointed at while a drag turns the camera.
     const turning = kind === 'move' && e.buttons !== 0 && host.orbit.enabled
     const hit = kind === 'cancel' || turning ? null : host.pick(e.clientX, e.clientY)
+    const cut = kind !== 'cancel' && !turning && hit === null && host.pickedCut?.() === true
     host.syncMatrices()
-    const event = { hit, ray: pointerRay(host.camera(), at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey }
+    const event = { hit, ray: pointerRay(host.camera(), at.ndc), client: [e.clientX, e.clientY] as [number, number], buttons: e.buttons, shift: e.shiftKey, alt: e.altKey, ...(cut ? { cut } : {}) }
     cb({ type: kind, ...event })
     if (kind === 'up' && isClick(press, { button: e.button, x: e.clientX, y: e.clientY, at: e.timeStamp })) cb({ type: 'click', ...event })
   }

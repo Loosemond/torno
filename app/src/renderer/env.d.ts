@@ -16,6 +16,8 @@ declare global {
       pickAt(fx: number, fy: number, opts?: { edges?: boolean }): Hit | null
       /** How long `count` picks spread over the canvas take, as a pointer move makes them: the mean and the worst, in milliseconds, and how many were on a part. */
       timePicks(count?: number, opts?: { edges?: boolean }): { count: number; hits: number; meanMs: number; worstMs: number }
+      /** What drawing the view as it is costs, over `count` frames: the mean and the worst, in milliseconds. */
+      timeFrames(count?: number): { count: number; meanMs: number; worstMs: number }
       /** Where a point of the object frame falls on the canvas, as such fractions. */
       project(point: [number, number, number]): [number, number]
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */

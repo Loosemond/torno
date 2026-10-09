@@ -1,6 +1,7 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { HighlightRequest, HighlightResult, LookRequest, LookResult, ShowRequest, ShowResult } from '../../shared/view'
+import { type HighlightRequest, type HighlightResult, type LookRequest, type LookResult, type ShowRequest, type ShowResult, NOT_A_PLANE, sectionOf } from '../../shared/view'
+import { describeSection } from '../viewport/section'
 import type { Viewport } from '../viewport/Viewport'
 import { actions, partsInLayout, store } from './store'
 
@@ -34,7 +35,7 @@ export function dismissHighlight(): void {
 /**
  * Change what the window shows of the open object as the agent asked: the
  * layout, which parts are switched on (those named, and no other of that
- * layout), the camera. Everything is checked before anything is changed, and
+ * layout), the plane they are cut by (or none), the camera. Everything is checked before anything is changed, and
  * nothing is while a button is held in the viewport. The change is for now:
  * it is not what the scene file keeps. The answer says what is shown then, as
  * the caption of a picture would.
@@ -50,9 +51,12 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
     if (!parts.some((p) => p.name === name)) throw new Error(`unknown part '${name}'; parts in layout ${layout}: ${parts.map((p) => p.name).join(', ')}`)
   }
 
+  const section = req.section === undefined || req.section === null ? req.section : sectionOf(req.section)
+  if (section === null && req.section !== null) throw new Error(NOT_A_PLANE)
+
   // The viewport follows the store as this is set, so the camera below is fitted to what it leaves on.
   // For now only: what the person had chosen stays what their scene file says.
-  actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {})
+  actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {}, section)
   if (req.view !== undefined) viewport.setView(req.view, true)
 
   const after = store.getState()
@@ -63,7 +67,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // Where the camera is going, not where it is on the way: a named view keeps the projection there is.
   const ortho = typeof req.view === 'object' ? req.view.ortho : viewport.getCamera().ortho
   return {
-    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'} · ${ortho ? 'orthographic' : 'perspective'}`,
+    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${after.section ? ` · ${describeSection(after.section)}` : ''} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,
     revision: after.revision,
     stale: after.build?.stale ?? false

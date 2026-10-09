@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from './atomic'
 import type { LayerSettings, SceneFile } from '../shared/scenefile'
+import { sectionOf } from '../shared/view'
 
 export type { LayerSettings, SceneFile }
 
@@ -50,6 +51,9 @@ function clean(value: unknown): SceneFile {
   const file: SceneFile = { layers: {} }
   if (!isRecord(value)) return file
   if (typeof value.layout === 'string') file.layout = value.layout
+  // A plane, its normal a unit vector, or nothing: a section that is not one is no section.
+  const section = sectionOf(value.section)
+  if (section) file.section = section
   if (!isRecord(value.layers)) return file
   for (const [name, raw] of Object.entries(value.layers)) {
     if (!isRecord(raw)) continue

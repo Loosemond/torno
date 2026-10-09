@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Scene } from '../../shared/scene'
-import { type LookRequest, type LookResult, type ViewState, MAX_SELECTION_REPORTED } from '../../shared/view'
+import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
 import { connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
@@ -10,6 +10,7 @@ import { drawTool } from '../tools/drawTool'
 import { measureTool } from '../tools/measureTool'
 import { commitMark, replaceMark } from '../tools/pickMarks'
 import { pinTool } from '../tools/pinTool'
+import { sectionTool } from '../tools/sectionTool'
 import { selectTool } from '../tools/selectTool'
 import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
@@ -17,6 +18,7 @@ import { Readout } from '../viewport/highlight'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
 import { NotePopover } from './NotePopover'
+import { SectionBar } from './SectionBar'
 import { Selection } from './Selection'
 import { ToolPalette } from './ToolPalette'
 import { TYPING } from './typing'
@@ -27,12 +29,19 @@ const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output:
 /**
  * A picture of the open object for the agent. `parts` are names in the layout
  * asked for (the one shown, by default); without them, the parts switched on.
- * The answer names the object, the revision and whether the parts were stale,
+ * They are cut as on screen unless the request says otherwise: by a plane of
+ * its own, or by none. The answer names the object, the revision and whether the parts were stale,
  * all read in the turn the picture is drawn in: a build that lands while the
  * PNG is being made does not change what the picture is said to be of.
  */
 async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
   let drawn: { objectId: string; revision: number; stale: boolean } | undefined
+  let section: SectionPlane | 'current' | null = 'current'
+  if (req.section === null) section = null
+  else if (req.section !== undefined && req.section !== 'current') {
+    section = sectionOf(req.section)
+    if (!section) throw new Error(NOT_A_PLANE)
+  }
   const picture = await viewport.renderImage(() => {
     const s = store.getState()
     if (!s.objectId || !s.scene) throw new Error('no build yet')
@@ -50,7 +59,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       }
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section }
   })
   return { ...picture, ...drawn! }
 }
@@ -78,7 +87,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const report = () => {
     const s = store.getState()
     if (!s.objectId || !s.scene) return
-    const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s) }
+    const view: ViewState = { objectId: s.objectId, layout: s.layout, camera: viewport.getCamera(), visible: visibleKeys(s), ...(s.section ? { section: s.section } : {}) }
     // What is selected goes to the agent with the next prompt: the refs, each with the kernel's line once it has come.
     if (s.selection.length > 0) {
       const { objectId, revision, layout } = s
@@ -142,7 +151,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // The one pointer subscription: every event goes to the tool in use, and to
   // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
-  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), measure: measureTool() }
+  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), section: sectionTool(), measure: measureTool() }
   let tool = tools[toolStore.getState().tool]
   const putDown = () => {
     tool?.cancel(context())
@@ -152,6 +161,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const pickUp = () => {
     tool = tools[toolStore.getState().tool]
     viewport.canvas.style.cursor = tool?.cursor ?? ''
+    // The plane of a section has its handle while it is the pointer's to drag.
+    viewport.showSectionHandle(tool?.id === 'section')
   }
   pickUp()
   const offTool = toolStore.subscribe(() => {
@@ -174,6 +185,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   viewport.setMarks(store.getState().marks)
   viewport.setActiveMark(store.getState().activeMark)
+  viewport.setSection(store.getState().section)
   // The gizmo on the active mark while it is a shape, and the keys that say what it does.
   const offShape = connectShapeEdit(viewport)
 
@@ -181,6 +193,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // A mark that can no longer be put somewhere else here (it is gone, resolved, or of another layout or object) is left be.
     if (toolStore.getState().replacing && replacingIn(s) === null) endReplace()
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
+    // The cut is of the object: another object has its own, or none.
+    if (s.section !== prev.section) viewport.setSection(s.section)
     if (s.selection !== prev.selection && s.objectId === prev.objectId && s.scene === prev.scene && s.layout === prev.layout) reportSelection(s)
     if (s.marks !== prev.marks) viewport.setMarks(s.marks)
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
@@ -195,7 +209,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.build !== prev.build) viewport.setStale((s.build?.stale ?? false) && s.scene !== null)
     if (s.layout !== prev.layout) viewport.setLayout(s.layout)
     if (s.layers !== prev.layers) applyLayers(s)
-    if (s.layout !== prev.layout || s.layers !== prev.layers) report()
+    if (s.layout !== prev.layout || s.layers !== prev.layers || s.section !== prev.section) report()
     // After the layout: a mark of another layout is gone to once that layout is shown.
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
   })
@@ -242,6 +256,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         }
         return { count, hits, meanMs: (performance.now() - started) / count, worstMs: worst }
       },
+      timeFrames: (count = 20) => viewport.timeFrames(count),
       markScreen: (id) => {
         const box = canvasBox(viewport)
         const label = viewport.markLabel(id)
@@ -319,6 +334,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
           <ViewBar viewport={viewport} />
           <ToolPalette />
           <Selection viewport={viewport} />
+          <SectionBar viewport={viewport} />
           <AgentLine />
           <NotePopover viewport={viewport} />
         </>

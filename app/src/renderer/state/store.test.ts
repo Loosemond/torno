@@ -512,3 +512,75 @@ describe('the running session of the open object', () => {
     expect(runningSession(store.getState())).toBeUndefined()
   })
 })
+
+describe('the section', () => {
+  const Z = { origin: [0, 0, 12], normal: [0, 0, 1] } satisfies NonNullable<ReturnType<typeof store.getState>['section']>
+  const X = { origin: [3, 0, 0], normal: [1, 0, 0] } satisfies typeof Z
+
+  beforeEach(() => actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET }))
+
+  it('is none for an object whose scene file has none, and the file\'s when it has one', () => {
+    expect(store.getState().section).toBeNull()
+    actions.openObject('two', { layers: {}, section: { origin: [0, 0, 12], normal: [0, 0, 2] } })
+    expect(store.getState().section).toEqual(Z)
+    actions.openObject('plain', { layers: {}, section: { origin: [0, 0, 12], normal: [0, 0, 0] } })
+    expect(store.getState().section).toBeNull()
+  })
+
+  it('set by hand is an edit, and is what the scene file keeps; none is left out of the file', () => {
+    const edits = store.getState().edits
+    actions.setSection(Z)
+    expect(store.getState()).toMatchObject({ section: Z, edits: edits + 1 })
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, section: Z })
+    actions.setSection({ ...Z })
+    expect(store.getState().edits).toBe(edits + 1) // the same plane is no change
+    actions.setSection(null)
+    expect(store.getState().edits).toBe(edits + 2)
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
+  })
+
+  it('stays through a build and a change of layout, and goes with the object', () => {
+    actions.setSection(Z)
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: rebuilt(BRACKET, 'assembly:post') })
+    actions.setLayout('print')
+    expect(store.getState().section).toEqual(Z)
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().section).toBeNull()
+  })
+
+  it('shown by the agent is on screen, counts as no edit, and is not what the scene file keeps', () => {
+    actions.setSection(Z)
+    const edits = store.getState().edits
+    actions.showForAgent('assembly', {}, X)
+    expect(store.getState()).toMatchObject({ section: X, edits })
+    expect(sceneFileOf(store.getState()).section).toEqual(Z)
+    // Taken away by the agent, it is still the person's in the file.
+    actions.showForAgent('assembly', {}, null)
+    expect(store.getState().section).toBeNull()
+    expect(sceneFileOf(store.getState()).section).toEqual(Z)
+    // Back to what they had: nothing of the agent's is left.
+    actions.showForAgent('assembly', {}, { ...Z })
+    expect(store.getState().shownByAgent).toBeNull()
+  })
+
+  it('shown by the agent where the person had none leaves the file without one', () => {
+    actions.showForAgent('assembly', {}, X)
+    actions.setLayer('base', { opacity: 0.5 })
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: { base: { opacity: 0.5 } } })
+    expect(store.getState().section).toEqual(X)
+  })
+
+  it('is left alone by a show that says nothing of it', () => {
+    actions.setSection(Z)
+    actions.showForAgent('print', { base: false })
+    expect(store.getState().section).toEqual(Z)
+    expect(store.getState().shownByAgent).toEqual({ layout: 'assembly', visible: { base: undefined } })
+  })
+
+  it('is the person\'s again once they set it by hand, even to the plane the agent showed', () => {
+    actions.showForAgent('assembly', {}, X)
+    actions.setSection({ ...X })
+    expect(sceneFileOf(store.getState()).section).toEqual(X)
+    expect(store.getState().shownByAgent?.section).toBeUndefined()
+  })
+})

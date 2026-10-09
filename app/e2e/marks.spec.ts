@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { TOOLS } from '../src/renderer/state/tools'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Mark, MarksFile, NewMark } from '../src/shared/marks'
 import type { Camera, LookRequest } from '../src/shared/view'
@@ -120,7 +121,10 @@ test('with no marks, the panel says how to leave one', async () => {
   await openObject('bracket')
   const panel = page.getByRole('region', { name: 'Marks' })
   await expect(panel).toContainText('Point at the part to leave a note for the agent.')
-  await expect(panel.getByRole('list', { name: 'Tool keys' }).locator('li')).toHaveText(['Ppin', 'Aarrow', 'Ddraw', 'Sshape'])
+  // Every tool but Select, each with its key before its name.
+  const keys = TOOLS.filter((t) => t.name !== 'select').map((t) => `${t.key}${t.label.toLowerCase()}`)
+  expect(keys).toEqual(expect.arrayContaining(['Ppin', 'Aarrow', 'Ddraw', 'Sshape', 'Xsection']))
+  await expect(panel.getByRole('list', { name: 'Tool keys' }).locator('li')).toHaveText(keys)
   await expect(rows()).toHaveCount(0)
   // Nothing to draw: a picture with marks is the picture without.
   expect((await differing(MARKED, PLAIN)).all).toBe(0)

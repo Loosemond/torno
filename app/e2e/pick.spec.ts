@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
+import { TOOLS } from '../src/renderer/state/tools'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { Camera } from '../src/shared/view'
 
@@ -95,13 +96,15 @@ const ON_BASE: Vec3 = [14, 9, 2.5] // on the top of the base, clear of the post
 const ON_POST: Vec3 = [0, 0, 22.5] // the middle of the top of the post, and above the middle of the base
 const model = () => join(root, 'bracket', 'bracket.py')
 
-test('the palette shows the five tools, each with its key', async () => {
+test('the palette shows the tools, each with its key', async () => {
   await openFromAbove()
   const tools = page.getByRole('toolbar', { name: 'Tools' }).getByRole('button')
-  await expect(tools).toHaveCount(5)
+  // One button for every tool there is, and no other.
+  await expect(tools).toHaveCount(TOOLS.length)
+  await expect(page.getByRole('button', { name: 'Section', exact: true })).toHaveAttribute('title', 'Section (X)')
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('title', 'Select (V)')
-  for (const name of ['Pin', 'Arrow', 'Draw', 'Shape']) await expect(page.getByRole('button', { name, exact: true })).toBeEnabled()
+  for (const name of ['Pin', 'Arrow', 'Draw', 'Shape', 'Section']) await expect(page.getByRole('button', { name, exact: true })).toBeEnabled()
   await page.keyboard.press('s')
   await expect(page.getByRole('button', { name: 'Shape', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.keyboard.press('v')

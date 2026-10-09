@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { MeshBVH } from 'three-mesh-bvh'
 import { type BuiltPart, faceOfTriangle } from './partMesh'
 
 type Vec3 = [number, number, number]
@@ -170,6 +171,17 @@ const va = new THREE.Vector3()
 const vb = new THREE.Vector3()
 const vp = new THREE.Vector3()
 
+/** A section through the parts, as pointing needs it: what the plane keeps is on its positive side (`SectionCut.keeps`). */
+export interface Cut {
+  keeps: THREE.Plane
+}
+
+/** What a pointer is on: a face or an edge, or nothing. `cut` says the nothing is the cut face of a solid: what a section drew, and no face of the model. */
+export interface Picked {
+  hit: Hit | null
+  cut: boolean
+}
+
 /**
  * What a pointer at `ndc` (-1 to 1 across the canvas, y up) is on, among the
  * parts given: the nearest face under it, or an edge within six pixels of it
@@ -177,19 +189,35 @@ const vp = new THREE.Vector3()
  * canvas in CSS pixels. The world matrices of the camera and the parts must be
  * current. Faceted parts have no edges to pick: theirs are creases, not edges
  * of the model.
+ *
+ * With a section (`cut`), what the plane takes away is not there to be
+ * pointed at: the first face or edge the plane keeps is what is hit, and where
+ * the plane itself is met first inside a solid part, nothing is.
  */
+export function pickUnder(
+  parts: Pickable[],
+  camera: THREE.Camera,
+  ndc: { x: number; y: number },
+  size: { width: number; height: number },
+  opts: { edges?: boolean; cut?: Cut | null } = {}
+): Picked {
+  const cut = opts.cut ?? null
+  aim(camera, ndc.x, ndc.y)
+  const ray = raycaster.ray.clone()
+  const seen = firstSeen(parts, cut)
+  const edge = opts.edges === false ? null : nearestEdge(parts, camera, ray, [((ndc.x + 1) / 2) * size.width, ((1 - ndc.y) / 2) * size.height], size, cut)
+  return edge ? { hit: edge, cut: false } : { hit: seen.face, cut: seen.cut }
+}
+
+/** The face or edge `pickUnder` finds, or null. */
 export function pickParts(
   parts: Pickable[],
   camera: THREE.Camera,
   ndc: { x: number; y: number },
   size: { width: number; height: number },
-  opts: { edges?: boolean } = {}
+  opts: { edges?: boolean; cut?: Cut | null } = {}
 ): Hit | null {
-  aim(camera, ndc.x, ndc.y)
-  const ray = raycaster.ray.clone()
-  const face = nearestFace(parts)
-  if (opts.edges === false) return face
-  return nearestEdge(parts, camera, ray, [((ndc.x + 1) / 2) * size.width, ((1 - ndc.y) / 2) * size.height], size) ?? face
+  return pickUnder(parts, camera, ndc, size, opts).hit
 }
 
 /** The ray a pointer at `ndc` looks along, in the object frame. */
@@ -225,7 +253,71 @@ function nearestFace(parts: Pickable[]): Hit | null {
   return { partKey: part.key, part: part.name, kind: 'face', index, ref: refOf(part.name, 'face', index), point: hit.point.toArray(), normal, distance: hit.distance }
 }
 
-function nearestEdge(parts: Pickable[], camera: THREE.Camera, ray: THREE.Ray, pointer: [number, number], size: { width: number; height: number }): Hit | null {
+/** What the raycaster's ray meets first of what is drawn: a face, or the cut face of a solid; and how far along the ray. */
+interface Seen {
+  face: Hit | null
+  cut: boolean
+  distance: number | null
+}
+
+const localRay = new THREE.Ray()
+const inverse = new THREE.Matrix4()
+const world = new THREE.Vector3()
+/** Two crossings of a surface nearer than this along the ray are one, met on two triangles that share an edge. In millimetres. */
+const SAME_CROSSING_MM = 1e-6
+
+/**
+ * The first thing the raycaster's ray meets. With a section, of each part
+ * every crossing of its surface is looked at, nearest first: the first one the
+ * plane keeps (from in front, unless the part is cut open and shown from both
+ * sides) is the face seen; and where the ray meets the plane inside a solid
+ * part (it leaves that part's surface once more often than it enters it, from
+ * there on) before any such face, what is seen is the cut face.
+ */
+function firstSeen(parts: Pickable[], cut: Cut | null): Seen {
+  if (!cut) {
+    const face = nearestFace(parts)
+    return { face, cut: false, distance: face?.distance ?? null }
+  }
+  const { ray } = raycaster
+  const crossing = ray.distanceToPlane(cut.keeps)
+  let best: { part: Pickable; hit: THREE.Intersection; distance: number; point: THREE.Vector3 } | null = null
+  let capped = false
+  for (const part of parts) {
+    const { mesh, solid } = part.built
+    const tree = mesh.geometry.boundsTree as MeshBVH | undefined
+    if (!tree) continue
+    // The parts are placed, never scaled: a distance along the ray is the same in the part's own frame.
+    localRay.copy(ray).applyMatrix4(inverse.copy(mesh.matrixWorld).invert())
+    const hits = tree.raycast(localRay, THREE.DoubleSide).sort((a, b) => a.distance - b.distance)
+    let inside = 0
+    let last: { distance: number; front: boolean } | null = null
+    let found = false
+    for (const hit of hits) {
+      const front = (hit.face?.normal.dot(localRay.direction) ?? -1) < 0
+      if (last && last.front === front && hit.distance - last.distance < SAME_CROSSING_MM) continue
+      last = { distance: hit.distance, front }
+      if (solid && crossing !== null && hit.distance > crossing) inside += front ? -1 : 1
+      if (found || (solid && !front)) continue
+      world.copy(hit.point).applyMatrix4(mesh.matrixWorld)
+      if (cut.keeps.distanceToPoint(world) < 0) continue
+      found = true
+      if (!best || hit.distance < best.distance) best = { part, hit, distance: hit.distance, point: world.clone() }
+    }
+    if (inside > 0) capped = true
+  }
+  if (capped && crossing !== null && (!best || crossing < best.distance - SAME_CROSSING_MM)) return { face: null, cut: true, distance: crossing }
+  if (!best) return { face: null, cut: false, distance: null }
+  const { part, hit } = best
+  const index = faceOfTriangle(part.built.faceStarts, hit.faceIndex ?? -1)
+  if (index < 0) return { face: null, cut: false, distance: null }
+  const local = hit.normal ?? hit.face?.normal
+  const normal = local ? local.clone().transformDirection(part.built.mesh.matrixWorld).toArray() : null
+  const face: Hit = { partKey: part.key, part: part.name, kind: 'face', index, ref: refOf(part.name, 'face', index), point: best.point.toArray(), normal, distance: best.distance }
+  return { face, cut: false, distance: best.distance }
+}
+
+function nearestEdge(parts: Pickable[], camera: THREE.Camera, ray: THREE.Ray, pointer: [number, number], size: { width: number; height: number }, cut: Cut | null): Hit | null {
   const near: { part: Pickable; segment: number; distance: number }[] = []
   for (const part of parts) {
     const { built } = part
@@ -255,14 +347,19 @@ function nearestEdge(parts: Pickable[], camera: THREE.Camera, ray: THREE.Ray, po
     va.fromBufferAttribute(positions, segment * 2).applyMatrix4(world)
     vb.fromBufferAttribute(positions, segment * 2 + 1).applyMatrix4(world)
     const point = closestOnSegment(va.toArray(), vb.toArray(), origin, direction)
+    // Taken away by the section: not there to be picked, and no reason to give up on the others.
+    if (cut && cut.keeps.distanceToPoint(vp.fromArray(point)) < 0) {
+      tried.delete(id)
+      continue
+    }
 
     // Seen from the eye, is a face in front of that point of the edge? The
     // faces the edge bounds are at its own depth, and do not count.
     vp.fromArray(point).project(camera)
     aim(camera, vp.x, vp.y)
     const depth = vp.fromArray(point).sub(raycaster.ray.origin).dot(raycaster.ray.direction)
-    const front = nearestFace(parts)
-    if (front && front.distance < depth - EDGE_BEHIND_MM) continue
+    const front = firstSeen(parts, cut)
+    if (front.distance !== null && front.distance < depth - EDGE_BEHIND_MM) continue
 
     const distance = vp.fromArray(point).sub(ray.origin).dot(ray.direction)
     return { partKey: part.key, part: part.name, kind: 'edge', index, ref: refOf(part.name, 'edge', index), point, normal: null, distance }

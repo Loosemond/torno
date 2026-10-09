@@ -4,7 +4,7 @@ import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
-import type { ViewName } from '../../shared/view'
+import { sectionOf, type SectionPlane, type ViewName } from '../../shared/view'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
 
@@ -40,6 +40,12 @@ export interface TornoState {
   layout: string
   /** By part name, so a setting holds in every layout. */
   layers: Record<string, LayerSettings>
+  /**
+   * The plane the parts are cut by, or null: part of how the object is looked
+   * at. It changes when a drag of the plane is let go or a field is left,
+   * never while the plane moves.
+   */
+  section: SectionPlane | null
   /** The marks of the open object, as main last told them. */
   marks: Mark[]
   /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
@@ -73,9 +79,10 @@ export interface TornoState {
    * (undefined for a part they had never switched). It is what the scene file
    * keeps (`sceneFileOf`): an agent that changes the view does not rewrite the
    * person's saved settings. A choice the person makes by hand afterwards is
-   * theirs again, and is taken out of here.
+   * theirs again, and is taken out of here. `section` is there when the agent
+   * cut the parts otherwise: `theirs` is the person's plane, or null for none.
    */
-  shownByAgent: { layout?: string; visible: Record<string, boolean | undefined> } | null
+  shownByAgent: { layout?: string; visible: Record<string, boolean | undefined>; section?: { theirs: SectionPlane | null } } | null
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
   sessions: Record<string, SessionView>
 }
@@ -83,7 +90,7 @@ export interface TornoState {
 const NOTHING_SELECTED: string[] = []
 const NOTHING_PICKED: Record<string, PickedAt> = {}
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, marks: [], marksProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, marks: [], marksProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -118,7 +125,7 @@ export const actions = {
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */
   openObject(objectId: string, file: SceneFile): void {
-    store.setState({ ...NO_OBJECT, objectId, layout: file.layout ?? '', layers: file.layers })
+    store.setState({ ...NO_OBJECT, objectId, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section) })
   },
 
   applyBuild(build: BuildState): void {
@@ -155,8 +162,8 @@ export const actions = {
     const s = store.getState()
     if (layout === s.layout || !s.scene?.layouts.includes(layout)) return
     // The person's own choice from here on, whatever the agent had shown.
-    const shownByAgent = s.shownByAgent && { visible: s.shownByAgent.visible }
-    store.setState({ ...layoutChange(s, layout), edits: s.edits + 1, shownByAgent })
+    const { layout: _theirsAgain, ...shownByAgent } = s.shownByAgent ?? { visible: {} }
+    store.setState({ ...layoutChange(s, layout), edits: s.edits + 1, shownByAgent: s.shownByAgent && shownByAgent })
   },
 
   /** Change some settings of one part; the others keep their values. */
@@ -171,12 +178,25 @@ export const actions = {
   },
 
   /**
+   * Cut the parts by a plane, or by none, by hand: when a drag of the plane is
+   * let go, a field is left, a button is pressed. It is the person's own
+   * choice, whatever the agent had shown, and is what the scene file keeps.
+   */
+  setSection(section: SectionPlane | null): void {
+    const s = store.getState()
+    if (samePlane(section, s.section) && !s.shownByAgent?.section) return
+    const { section: _theirsAgain, ...shownByAgent } = s.shownByAgent ?? { visible: {} }
+    store.setState({ section, edits: s.edits + 1, shownByAgent: s.shownByAgent && shownByAgent })
+  },
+
+  /**
    * Show a layout, and of its parts those switched on in `visible` (by name),
-   * because the agent asked: for now, and not for keeps. What the person had
+   * because the agent asked: for now, and not for keeps. With `section`, cut
+   * them by that plane too, or by none for null. What the person had
    * chosen is remembered (`shownByAgent`) and is what the scene file goes on
    * saying; this counts as no edit of theirs.
    */
-  showForAgent(layout: string, visible: Record<string, boolean>): void {
+  showForAgent(layout: string, visible: Record<string, boolean>, section?: SectionPlane | null): void {
     const s = store.getState()
     if (!s.scene?.layouts.includes(layout)) return
     const theirs = { ...s.shownByAgent, visible: { ...s.shownByAgent?.visible } }
@@ -194,7 +214,12 @@ export const actions = {
       else if ((theirs.visible[name] !== false) === on) delete theirs.visible[name]
       layers = { ...layers, [name]: { ...layers[name], visible: on } }
     }
-    const none = theirs.layout === undefined && Object.keys(theirs.visible).length === 0
+    if (section !== undefined && !samePlane(section, s.section)) {
+      next.section = section
+      if (!theirs.section) theirs.section = { theirs: s.section }
+      else if (samePlane(theirs.section.theirs, section)) delete theirs.section // back to what they had
+    }
+    const none = theirs.layout === undefined && Object.keys(theirs.visible).length === 0 && !theirs.section
     store.setState({ ...next, layers, shownByAgent: none ? null : theirs })
   },
 
@@ -323,8 +348,9 @@ export function visibleKeys(s: TornoState, layout = s.layout): string[] {
 
 /**
  * What `<object>/.torno/scene.json` should hold for the open object: the
- * layout and the layers as the person chose them. Where the agent's `show`
- * has something else on screen, it is the person's choice that is kept.
+ * layout, the layers and the section as the person chose them. Where the
+ * agent's `show` has something else on screen, it is the person's choice that
+ * is kept.
  */
 export function sceneFileOf(s: TornoState): SceneFile {
   const layout = s.shownByAgent?.layout ?? s.layout
@@ -335,7 +361,14 @@ export function sceneFileOf(s: TornoState): SceneFile {
     if (Object.keys(theirs).length > 0) layers[name] = theirs
     else delete layers[name]
   }
-  return { ...(layout ? { layout } : {}), layers }
+  const section = s.shownByAgent?.section ? s.shownByAgent.section.theirs : s.section
+  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}) }
+}
+
+/** Whether two sections are the same: both none, or the same plane to the last digit. */
+export function samePlane(a: SectionPlane | null, b: SectionPlane | null): boolean {
+  if (a === null || b === null) return a === b
+  return a.origin.every((c, i) => c === b.origin[i]) && a.normal.every((c, i) => c === b.normal[i])
 }
 
 /** What changes with the layout shown: the selection and the note go, and the active mark unless it is of that layout. */
