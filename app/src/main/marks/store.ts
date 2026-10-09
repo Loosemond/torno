@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from 'node:util'
-import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type Measurement, type NewMark, type Replacement, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, REGION_KEYS, markAnchors, translated } from '../../shared/marks'
+import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type Measurement, type NewMark, type Replacement, type RegionMark, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, REGION_KEYS, markAnchors, translated } from '../../shared/marks'
 import type { RegionStats } from '../../shared/regions'
+
+/** What main says of a region: what it is, which mesh of its scan it is of, and which painting of it its mask holds. */
+export type RegionSaid = RegionStats & { mesh?: string; mask?: number }
 import { loadMarksFile, sanitiseMark, saveMarksFile } from './file'
 
 /** What a check of a mark against a build found (`reanchorAll`), for `MarkStore.reanchor` to write. */
@@ -80,7 +83,11 @@ export class MarkStore {
   private epoch = 0
   private listeners: { [E in keyof MarkEvents]: Array<(m: MarkEvents[E]) => void> } = { changed: [], problem: [], unchecked: [] }
 
-  constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date }) {}
+  /**
+   * `meshes` says which mesh each scan of an object has now (`meshIdentity`, by scan id), or null when that is
+   * not known: a region is held against it whenever the marks are listed.
+   */
+  constructor(private deps: { dirOf(objectId: string): string | undefined; now?(): Date; meshes?(objectId: string): Promise<Map<string, string> | null> }) {}
 
   on<E extends keyof MarkEvents>(event: E, cb: (m: MarkEvents[E]) => void): void {
     this.listeners[event].push(cb)
@@ -105,8 +112,29 @@ export class MarkStore {
     return wait()
   }
 
-  list(objectId: string): Promise<Mark[]> {
+  /**
+   * The marks of an object. A region goes with the mesh it was painted on: one whose scan is no longer among
+   * the object's, or has another mesh than the mark records, is orphaned here, before it is told to anyone.
+   * So nothing that lists the marks is given a region of another mesh as if it were of this one, whatever
+   * was cut short between the scan changing and its regions being seen to.
+   */
+  async list(objectId: string): Promise<Mark[]> {
+    const marks = await this.turn(objectId, (file) => structuredClone(file.marks))
+    const regions = marks.filter((mark): mark is RegionMark => mark.kind === 'region' && mark.anchorState !== 'orphaned')
+    const meshes = regions.length > 0 ? await this.deps.meshes?.(objectId).catch(() => null) : null
+    if (!meshes) return marks
+    const lost = regions.filter((mark) => !meshes.has(mark.scan) || (mark.mesh !== undefined && meshes.get(mark.scan) !== mark.mesh)).map((mark) => mark.id)
+    if (lost.length === 0) return marks
+    await this.orphaned(objectId, lost)
     return this.turn(objectId, (file) => structuredClone(file.marks))
+  }
+
+  /** Says something about an object's marks the person should know, as `problem` does of its file: once, and until it is dismissed. */
+  report(objectId: string, message: string): Promise<void> {
+    return this.turn(objectId, (_file, dir, epoch) => {
+      this.problems.set(dir, message)
+      if (epoch === this.epoch) this.emit('problem', { objectId, message })
+    })
   }
 
   /**
@@ -134,7 +162,7 @@ export class MarkStore {
    * once the mark has its number and before anything is written or told. If
    * it rejects, there is no mark, and the number is given to the next.
    */
-  add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft', measured?: Measurement, region?: { stats: RegionStats; before(id: string): Promise<void> }): Promise<Mark> {
+  add(objectId: string, mark: NewMark, status: 'draft' | 'sent' = 'draft', measured?: Measurement, region?: { stats: RegionSaid; before(id: string): Promise<void> }): Promise<Mark> {
     return this.change(
       objectId,
       (file) => {
@@ -162,10 +190,14 @@ export class MarkStore {
    * region no longer holds. Nothing is written when none changes.
    */
   orphanRegions(objectId: string, scan: string, ids?: readonly string[]): Promise<void> {
+    return this.orphaned(objectId, ids, scan)
+  }
+
+  private orphaned(objectId: string, ids?: readonly string[], scan?: string): Promise<void> {
     return this.change(objectId, (file) => {
       let any = false
       for (const mark of file.marks) {
-        if (mark.kind !== 'region' || mark.scan !== scan || mark.anchorState === 'orphaned' || (ids !== undefined && !ids.includes(mark.id))) continue
+        if (mark.kind !== 'region' || (scan !== undefined && mark.scan !== scan) || mark.anchorState === 'orphaned' || (ids !== undefined && !ids.includes(mark.id))) continue
         mark.anchorState = 'orphaned'
         if (mark.status === 'sent') mark.status = 'draft'
         any = true
@@ -180,7 +212,7 @@ export class MarkStore {
    * untouched; one that is gone, orphaned or no region is passed over. Nothing else of a mark changes, its
    * status least of all: the person said nothing new of it.
    */
-  restateRegions(objectId: string, changes: Array<{ id: string; stats: RegionStats }>): Promise<void> {
+  restateRegions(objectId: string, changes: Array<{ id: string; stats: RegionSaid }>): Promise<void> {
     return this.change(objectId, (file) => {
       let any = false
       for (const { id, stats } of changes) {
@@ -194,6 +226,35 @@ export class MarkStore {
       }
       return any ? undefined : UNCHANGED
     }).then(() => {})
+  }
+
+  /**
+   * A region was painted again: what it is now, of which mesh, and which painting its mask holds. `before` is
+   * run once the mark is found and may be changed, and before anything is written or told: the new mask is
+   * written there, and if that rejects the mark is as it was. One the agent was sent is a draft again, and is
+   * told as changed. Not of a region that is orphaned (it is of no mesh) or resolved (reopen it first).
+   */
+  repaintRegion(objectId: string, id: string, said: RegionSaid, before: () => Promise<void>): Promise<Mark> {
+    return this.change(
+      objectId,
+      (file) => {
+        const at = indexOf(file, id)
+        const mark = file.marks[at]
+        if (mark.kind !== 'region') throw new Error(`${id} is a ${mark.kind}, not a region: it has no triangles to paint again`)
+        if (mark.anchorState === 'orphaned') throw new Error(`${id} is of a scan that is gone or was read again: delete it and paint a new one`)
+        if (mark.status === 'resolved') throw new Error(`${id} is resolved: reopen it first`)
+        const now = sanitiseMark({ ...mark, ...said })
+        if (!now) throw new Error(`that is not a valid change to ${id}`)
+        if (mark.status === 'sent') {
+          now.status = 'draft'
+          now.sentBefore = true
+        }
+        file.marks[at] = now
+        return now
+      },
+      [],
+      () => before()
+    )
   }
 
   /**

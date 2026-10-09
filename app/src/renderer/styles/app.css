@@ -1551,6 +1551,16 @@ button {
   background: var(--accent-wash);
 }
 
+/* A button of a bar that cannot be pressed now: fainter, and it does not answer the pointer. One rule for every bar. */
+.bar-button:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.bar-button:disabled:hover {
+  background: transparent;
+}
+
 .bar-button[aria-pressed='true'],
 .bar-button[aria-expanded='true'] {
   background: var(--accent-wash);
@@ -1870,15 +1880,6 @@ button {
   display: none;
 }
 
-.selection .bar-button:disabled {
-  color: var(--muted);
-  opacity: 0.55;
-}
-
-.selection .bar-button:disabled:hover {
-  background: transparent;
-}
-
 /* ---- Section: the plane the parts are cut by, at the bottom of the viewport like the selection ---- */
 
 .sectionbar {
@@ -1925,15 +1926,6 @@ button {
 
 .section-axis[data-axis='z'] {
   color: var(--axis-z);
-}
-
-.sectionbar .bar-button:disabled {
-  color: var(--muted);
-  opacity: 0.55;
-}
-
-.sectionbar .bar-button:disabled:hover {
-  background: transparent;
 }
 
 /* A rule to slide along: a hairline with a mark at the middle of the parts, and the plane as a tick across it. */
@@ -2668,15 +2660,6 @@ button {
   flex: none;
 }
 
-.alignbar .bar-button:disabled {
-  color: var(--muted);
-  opacity: 0.55;
-}
-
-.alignbar .bar-button:disabled:hover {
-  background: transparent;
-}
-
 .alignbar-apply:not(:disabled) {
   background: var(--accent);
   color: var(--panel);
@@ -2747,6 +2730,7 @@ button {
 
 .regionbar-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   min-width: 0;
@@ -2778,15 +2762,6 @@ button {
   width: 0;
   margin: 3px 2px;
   border-left: var(--divider);
-}
-
-.regionbar .bar-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.regionbar .bar-button:disabled:hover {
-  background: none;
 }
 
 .regionbar-row[data-part='foot'] {
@@ -2845,4 +2820,21 @@ button {
   border: 1px solid var(--user-mark);
   background: color-mix(in srgb, var(--user-mark) 10%, transparent);
   pointer-events: none;
+}
+
+/* A painting waits while another tool is in hand: a dot on the Region tool, in the colour of what it will be. */
+.tool-button[data-waiting]::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--user-mark);
+}
+
+.regionbar-editing {
+  padding: 0 6px;
+  color: var(--muted);
 }

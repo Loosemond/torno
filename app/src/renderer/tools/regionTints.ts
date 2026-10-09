@@ -1,5 +1,7 @@
 import type { Mark } from '../../shared/marks'
+import { maskStem } from '../../shared/regions'
 import { maskBits } from '../../shared/scans'
+import { regionStore } from '../state/region'
 import { store, type TornoState } from '../state/store'
 import type { KeptRegion } from '../viewport/scanTints'
 import { meshOf } from '../viewport/scans'
@@ -8,13 +10,13 @@ import type { Viewport } from '../viewport/Viewport'
 // The regions kept, as the window draws them: each a tint on its scan, from the bits of its mask.
 
 /** The regions to tint: those of the object on show that are open and still of their scan's mesh, each with the bits of its mask once main has given them. */
-function regionsOf(s: TornoState): Array<{ mark: Extract<Mark, { kind: 'region' }>; key: string; triangles: number }> {
+function regionsOf(s: TornoState, editing: string | null): Array<{ mark: Extract<Mark, { kind: 'region' }>; key: string; triangles: number }> {
   const wanted: ReturnType<typeof regionsOf> = []
   for (const mark of s.marks) {
     if (mark.kind !== 'region' || mark.status === 'resolved' || mark.anchorState === 'orphaned') continue
     const scan = s.scans.find((one) => one.id === mark.scan)
     // By the mesh its scan has: read again, the scan has another, and the mark says so once main has looked.
-    if (scan && scan.meshState === 'ok') wanted.push({ mark, key: `${s.objectId} ${mark.id} ${meshOf(scan)}`, triangles: scan.imported.triangles })
+    if (scan && scan.meshState === 'ok' && mark.id !== editing) wanted.push({ mark, key: `${s.objectId} ${maskStem(mark)} ${meshOf(scan)}`, triangles: scan.imported.triangles })
   }
   return wanted
 }
@@ -29,14 +31,15 @@ export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void 
   const bits = new Map<string, Uint8Array | null | false>()
   let told: KeptRegion[] = []
   const tell = (s: TornoState): void => {
-    const wanted = regionsOf(s)
+    // One that is being painted again is drawn as that painting, not as it was kept.
+    const wanted = regionsOf(s, regionStore.getState().editing)
     const now: KeptRegion[] = []
     for (const { mark, key, triangles } of wanted) {
       const have = bits.get(key)
-      if (have) now.push({ id: mark.id, scan: mark.scan, layout: mark.layout, author: mark.author, bits: have })
+      if (have) now.push({ id: mark.id, scan: mark.scan, author: mark.author, bits: have })
       if (have !== undefined || !s.objectId) continue
       bits.set(key, null)
-      window.torno.scans.mask(s.objectId, mark.scan, mark.id).then(
+      window.torno.scans.mask(s.objectId, mark.scan, maskStem(mark)).then(
         (file) => {
           try {
             bits.set(key, maskBits(new Uint8Array(file), triangles).slice())
@@ -50,7 +53,7 @@ export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void 
       )
     }
     for (const key of bits.keys()) if (!wanted.some((one) => one.key === key)) bits.delete(key)
-    if (now.length === told.length && now.every((region, n) => region.id === told[n].id && region.bits === told[n].bits && region.layout === told[n].layout && region.author === told[n].author)) return
+    if (now.length === told.length && now.every((region, n) => region.id === told[n].id && region.bits === told[n].bits && region.author === told[n].author)) return
     told = now
     viewport.setRegions(now)
   }
@@ -58,8 +61,12 @@ export function tintRegions(viewport: Pick<Viewport, 'setRegions'>): () => void 
   const off = store.subscribe((s, prev) => {
     if (s.marks !== prev.marks || s.scans !== prev.scans || s.objectId !== prev.objectId) tell(s)
   })
+  const offEditing = regionStore.subscribe((r, prev) => {
+    if (r.editing !== prev.editing) tell(store.getState())
+  })
   return () => {
     off()
+    offEditing()
     viewport.setRegions([])
   }
 }

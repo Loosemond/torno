@@ -57,7 +57,7 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     )
     for (const layout of [...new Set(open.map((m) => m.layout))]) {
       lines.push('', `In layout ${layout}:`, '')
-      for (const mark of open) if (mark.layout === layout) lines.push(`- ${describeMark(mark, { revision: last?.revision, ...(scans ? { scans } : {}) })}`)
+      for (const mark of open) if (mark.layout === layout) lines.push(`- ${describeMark(mark, { revision: last?.revision, layout, ...(scans ? { scans } : {}) })}`)
     }
   }
   return `${lines.join('\n')}\n`

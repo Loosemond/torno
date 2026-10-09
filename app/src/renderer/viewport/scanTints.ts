@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { type SetWatcher, PaintedIndex, TriangleSet, tintIndex } from './scanPaint'
 import type { BuiltScan } from './scanMesh'
 
-/** A region that was kept, as the window draws it: its mark's number, its scan, the layout its mark is of, who made it, and its triangles as the bits of its mask. */
-export interface KeptRegion { id: string; scan: string; layout: string; author: 'user' | 'agent'; bits: Uint8Array }
+/** A region that was kept, as the window draws it: its mark's number, its scan, who made it, and its triangles as the bits of its mask. It is of its scan in every layout. */
+export interface KeptRegion { id: string; scan: string; author: 'user' | 'agent'; bits: Uint8Array }
 
 /** How much of a mark's colour a region lays over its scan: the scan's own colours stay readable under it. */
 export const REGION_OPACITY = 0.4
@@ -28,7 +28,6 @@ export class ScanTints {
   private painting: { scan: string; set: TriangleSet; index: PaintedIndex; built: BuiltScan; mesh: Tint } | null = null
   private colours = { user: '#B8336A', agent: '#1F7A5C' }
   private planes: THREE.Plane[] | null = null
-  private layout = ''
   /** While a picture is made: whether it draws the marks. The set in hand is in no picture. */
   private pictured: { regions: boolean } | null = null
 
@@ -50,15 +49,14 @@ export class ScanTints {
     if (this.painting) this.painting.mesh.material.clippingPlanes = planes
   }
 
-  /** The layout drawn, and, while a picture is made, whether it draws the marks: the regions of that layout are shown, like its other marks. */
-  show(layout: string, pictured: { regions: boolean } | null = null): void {
-    this.layout = layout
+  /** While a picture is made, whether it draws the marks: the regions are tinted with them. Null on screen, where they always are. */
+  show(pictured: { regions: boolean } | null = null): void {
     this.pictured = pictured
     for (const { of, mesh } of this.kept.values()) mesh.visible = this.shows(of)
     if (this.painting) this.painting.mesh.visible = pictured === null
   }
 
-  /** The regions kept, of every layout: those whose scan's mesh is there are drawn, the others once it has come (`sync`). */
+  /** The regions kept: those whose scan's mesh is there are drawn, the others once it has come (`sync`). */
   setRegions(regions: KeptRegion[]): void {
     this.regions = regions
     this.sync()
@@ -146,8 +144,8 @@ export class ScanTints {
     this.kept.clear()
   }
 
-  private shows(region: KeptRegion): boolean {
-    return region.layout === this.layout && this.pictured?.regions !== false
+  private shows(_region: KeptRegion): boolean {
+    return this.pictured?.regions !== false
   }
 
   private stopPainting(): void {

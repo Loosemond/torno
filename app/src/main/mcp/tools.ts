@@ -79,7 +79,7 @@ export interface ToolDeps {
   /** The scans of an object, as main keeps them. Rejects with a text. */
   scans(objectId: string): Promise<ScanInfo[]>
   /** Where a scan's mesh and a region's mask are on the disk, for the kernel: of the scans as `scans` last read them, so it is asked at once after. */
-  scanPaths(objectId: string, id: string): { mesh: string; mask(markId: string): string } | undefined
+  scanPaths(objectId: string, id: string): { mesh: string; mask(stem: string): string } | undefined
   /** The numbers of the scans whose files an import or a conversion is writing now: nothing is read of those meanwhile. */
   scansBusy(objectId: string): string[]
   /** A 2D drawing of what the kernel says a plane cuts, made by the window, whichever object it shows. Rejects with a text. */
@@ -189,7 +189,8 @@ const marksInput = {
   status: z
     .enum(['draft', 'sent', 'resolved', 'open'])
     .optional()
-    .describe('Only the marks of that status: draft (not yet given to you with a prompt), sent, resolved, or open for all that are not resolved. Default: all.')
+    .describe('Only the marks of that status: draft (not yet given to you with a prompt), sent, resolved, or open for all that are not resolved. Default: all.'),
+  layout: z.string().optional().describe(`${layoutText} A region of a scan is told where the scan stands in that layout; every other mark is in its own.`)
 }
 
 const describeInput = {
@@ -314,6 +315,7 @@ const resolveMarkInput = {
 
 export interface MarksArgs {
   status?: 'draft' | 'sent' | 'resolved' | 'open'
+  layout?: string
 }
 export interface DescribeArgs {
   ref: string
@@ -368,7 +370,7 @@ export const TOOLS = {
   },
   marks: {
     description:
-      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles and area, and, where its scan is aligned in its layout, centroid, bbox and plane in the frame of that layout, all approximate, and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
+      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
@@ -678,12 +680,20 @@ export const noMark = (id: string, marks: Mark[]): ToolResult => failure(`no mar
  * A region of a scan is told where the scan's alignment in its layout puts
  * it, which takes the `scans` of the object (`scansFor`).
  */
-const withLine = (mark: Mark, revision?: number, scans?: readonly ScanInfo[]): object => ({ ...markData(mark, revision, scans), line: describeMark(mark, { revision, ...(scans ? { scans } : {}) }) })
+const withLine = (mark: Mark, revision?: number, scans?: readonly ScanInfo[], layout?: string): object => ({ ...markData(mark, revision, scans, layout), line: describeMark(mark, { revision, ...(layout ? { layout } : {}), ...(scans ? { scans } : {}) }) })
+
+/** The layout a region is told in by a tool: the one asked for, else the one on screen, else the build's first; none before a build, or for a layout the build has not (the region is then told in its own). */
+function regionLayout(deps: ToolDeps, objectId: string, asked: string | undefined): string | undefined {
+  const scene = deps.scene(objectId)?.scene
+  const layout = scene ? layoutFor(deps, objectId, scene, asked) : undefined
+  return typeof layout === 'string' ? layout : undefined
+}
 
 /** The scans of an object, for telling its regions: asked for only when one of the marks is a region; none when they cannot be read. */
 export async function scansFor(deps: ToolDeps, objectId: string, marks: readonly Mark[]): Promise<ScanInfo[] | undefined> {
   if (!marks.some((mark) => mark.kind === 'region')) return undefined
-  return deps.scans(objectId).catch(() => [])
+  // Not read: what a region is told from is then not known, and it is not told as if its scan were gone.
+  return deps.scans(objectId).catch(() => undefined)
 }
 
 /** Why the last successful build of an object is not of its model as it now is: a build is running, or the latest failed. '' otherwise. */
@@ -711,7 +721,8 @@ export async function marksTool(deps: ToolDeps, objectId: string, args: MarksArg
   const build = ofBuild(deps, objectId)
   const listed = marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted))
   const scans = await scansFor(deps, objectId, listed)
-  return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined, scans)) })
+  const layout = regionLayout(deps, objectId, args.layout)
+  return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined, scans, layout)) })
 }
 
 /**
@@ -731,7 +742,7 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
     if ('content' in marks) return marks
     const mark = marks.find((m) => m.id === args.ref)
     const build = ofBuild(deps, objectId)
-    return mark ? json({ ...build, mark: withLine(mark, build.revision ?? undefined, await scansFor(deps, objectId, [mark])) }) : noMark(args.ref, marks)
+    return mark ? json({ ...build, mark: withLine(mark, build.revision ?? undefined, await scansFor(deps, objectId, [mark]), regionLayout(deps, objectId, args.layout)) }) : noMark(args.ref, marks)
   }
   const found = built(deps, objectId)
   if ('content' in found) return found

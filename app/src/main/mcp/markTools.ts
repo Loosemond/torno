@@ -564,7 +564,8 @@ export async function resolveMarkTool(deps: ToolDeps, objectId: string, args: Re
     const mark = await deps.updateMark(objectId, args.id, { status: 'resolved', ...(note ? { resolvedNote: note } : {}) })
     const unmeasured = mark.kind === 'dimension' ? `\n${mark.id} is no longer measured.` : ''
     const scans = await scansFor(deps, objectId, [mark])
-    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision, ...(scans ? { scans } : {}) })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}${unmeasured}` }] }
+    const told = mark.kind === 'region' ? deps.view(objectId)?.layout : undefined
+    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision, ...(told ? { layout: told } : {}), ...(scans ? { scans } : {}) })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}${unmeasured}` }] }
   } catch (e) {
     return failure(messageOf(e))
   }

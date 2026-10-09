@@ -11,6 +11,7 @@ import { cannotStart } from './kernel/client'
 import { latestView, requestHighlight, requestLook, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
+import { meshesOf } from './marks/regions'
 import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
 import { kernelDir } from './paths'
@@ -135,7 +136,8 @@ function createWindow(): BrowserWindow {
 let sessions: Sessions | null = null
 
 /** The marks of the objects of the open workspace, whose folders are those of the last scan. */
-const marks = new MarkStore({ dirOf: (id) => findObject(id)?.dir })
+// A region is held against the mesh its scan has whenever the marks are listed (`meshesOf`).
+const marks: MarkStore = new MarkStore({ dirOf: (id) => findObject(id)?.dir, meshes: (objectId) => meshesOf(scans)(objectId) })
 
 /** What runs the import process in the open workspace, once a scan was imported there: one at a time, and stopped when it is left. */
 let importer: { root: string; run: Importer } | null = null

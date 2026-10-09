@@ -52,6 +52,7 @@ const bridge: TornoBridge = {
     list: (objectId) => invokePlain('marks:list', objectId),
     add: (objectId, mark) => invokePlain('marks:add', objectId, mark),
     addRegion: (objectId, region) => invokePlain('marks:addRegion', objectId, region),
+    repaintRegion: (objectId, id, bits) => invokePlain('marks:repaintRegion', objectId, id, bits),
     update: (objectId, id, patch) => invokePlain('marks:update', objectId, id, patch),
     remove: (objectId, id) => invokePlain('marks:remove', objectId, id),
     replace: (objectId, id, placed) => invokePlain('marks:replace', objectId, id, placed),

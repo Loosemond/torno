@@ -105,7 +105,8 @@ export interface DimensionMark extends MarkBase {
  * A part of a scan the person painted, and named with its note: "wiring loom, can be pushed aside". Its
  * triangles are a bitset beside the scan's mesh (`.torno/scans/<scan>/<id>.mask`), which only main writes.
  * It is tied to no part and to no build: its `anchorState` follows its scan, `orphaned` once that is removed
- * or its mesh is another than the one the region was painted on.
+ * or its mesh is another than the one the region was painted on. It is of its scan in every layout: `layout`
+ * is only where it was painted.
  */
 export interface RegionMark extends MarkBase {
   kind: 'region'
@@ -117,10 +118,16 @@ export interface RegionMark extends MarkBase {
     centroid: Vec3               // area-weighted
     bbox: { min: Vec3; max: Vec3 }
     plane: { origin: Vec3; normal: Vec3; rms: number }   // best fit through the triangles' centroids
+    /** The box it fills along its own axes: its middle, the three axes (longest side first, each of length one) and half its size along each. */
+    box: { centre: Vec3; axes: [Vec3, Vec3, Vec3]; half: Vec3 }
   }
+  /** Which mesh of its scan it was painted on (`meshIdentity`). Main's alone; absent on a mark from before it was recorded. */
+  mesh?: string
+  /** Which painting of it its mask holds, once it was painted again (`maskStem`): the file is `<id>.<n>.mask`. Main's alone. */
+  mask?: number
 }
 /** What main alone says of a region, from the scan's mesh and the mask: no caller supplies these. */
-export const REGION_KEYS = ['triangles', 'area', 'local'] as const
+export const REGION_KEYS = ['triangles', 'area', 'local', 'mesh', 'mask'] as const
 export type Mark = PinMark | PickMark | ArrowMark | StrokeMark | ShapeMark | DimensionMark | RegionMark
 export type MarkKind = Mark['kind']
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never

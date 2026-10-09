@@ -59,8 +59,23 @@ describe('gathering triangles', () => {
     const below: number[] = []
     gatherBox(sheet.tree, sheet.geometry, planes, new THREE.Vector3(0, 0, -100), (t) => below.push(t))
     expect(below).toEqual([])
-    gatherBox(sheet.tree, sheet.geometry, planes, new THREE.Vector3(0, 0, -100), (t) => below.push(t), true)
+    gatherBox(sheet.tree, sheet.geometry, planes, new THREE.Vector3(0, 0, -100), (t) => below.push(t), { away: true })
     expect(below.sort((a, b) => a - b)).toEqual(expected)
+    // Fix round 1: "through" takes both sides, and nothing of the half a section has taken away is taken (M4).
+    const both: number[] = []
+    gatherBox(sheet.tree, sheet.geometry, planes, new THREE.Vector3(0, 0, -100), (t) => both.push(t), { through: true })
+    expect(both.sort((a, b) => a - b)).toEqual(expected)
+    // A section that keeps x <= 1.5.
+    const keeps = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1.5)
+    const kept: number[] = []
+    gatherBox(sheet.tree, sheet.geometry, planes, new THREE.Vector3(0, 0, 100), (t) => kept.push(t), { keeps })
+    expect(kept.sort((a, b) => a - b)).toEqual(expected.filter((t) => sheet.centroid(t).x <= 1.5))
+    expect(kept.length).toBeGreaterThan(0)
+    expect(kept.length).toBeLessThan(expected.length)
+    const brushed: number[] = []
+    gatherSphere(sheet.tree, sheet.geometry, new THREE.Vector3(1.5, 0, 0), 2, UP, (t) => brushed.push(t), keeps)
+    expect(brushed.length).toBeGreaterThan(0)
+    expect(brushed.every((t) => sheet.centroid(t).x <= 1.5)).toBe(true)
   })
 })
 

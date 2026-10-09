@@ -357,16 +357,47 @@ While iterating run the focused test; run all four suites before a commit.
   layout and the alignment with its rms. `measure` with a scan end forces
   `exact` false whatever the kernel says of the distance.
 - A region is a mark of kind `region` (`main/marks/regions.ts`): its
-  triangles are `<id>/<mark>.mask`, a bit each, of the triangle count of the
-  mesh it was painted on. The window sends the bits (`NewRegion.bits`), never
-  a path; main checks them against the mesh, works out its numbers
-  (`REGION_KEYS`, `shared/regions.ts`), held in the scan's own frame under
-  `local` and told in the object frame of its layout, and writes the mask. A
-  mask of another triangle count is never applied: the region is orphaned
-  when its scan is removed, when the scan is imported again and the mesh or
-  the source's hash changed, and when its mask is gone or does not fit
-  (`orphanLost`). A conversion keeps the triangles and restates the numbers.
-  `add_mark` has no such kind: only the person paints.
+  triangles are `<id>/<stem>.mask` (`maskStem`: `M7`, and `M7.2` once it was
+  painted again), a bit each, of the triangle count of the mesh it was
+  painted on. The window sends the bits (`NewRegion.bits`), never a path;
+  main checks them against the mesh, works out its numbers (`REGION_KEYS`,
+  `shared/regions.ts`), held in the scan's own frame under `local`, and
+  writes the mask before the mark. `add_mark` has no such kind: only the
+  person paints.
+  - It is of its scan in every layout: `layout` is only where it was
+    painted. It is drawn, numbered and listed in whichever layout is shown,
+    and told in the layout asked (`describeMark`'s `layout`: the one on show
+    for the prompt, a tool's `layout` argument), where the scan's alignment
+    there puts it, or as having no place there.
+  - Its size is that of its own box (`local.box`: the axes it spreads along,
+    from the second moments of its surface), told as `≈ 200 × 10 × 2 mm, its
+    long side along (…)`; the box along the layout's axes is told as what it
+    lies `within`. Flat is thin against its lesser side (`isFlat`), the same
+    however the scan is turned. Every number of it has `≈`.
+  - The mark records the mesh it was painted on (`mesh`, `meshIdentity`: the
+    source's hash, the counts, unit and up). `MarkStore.list` orphans a region
+    whose scan is gone or has another mesh, whenever the marks are listed:
+    there is no second step to skip. A mask that is gone or of another
+    triangle count orphans too (`tendRegions`, when the window lists the
+    scans); a mask that could not be read for any other reason leaves the
+    region as it was and is said as a problem line. Orphaned is one way.
+  - A conversion keeps the triangles and restates the numbers and the mesh
+    (`convertScan`); when that fails the scan's regions are orphaned, with why.
+  - "Edit" on its row takes its mask in hand as a painting; "Keep" writes a
+    new mask file, then the mark with its numbers anew (a sent one is a draft
+    again, `(changed)`), then removes the old file (`repaintRegion`). A mask no
+    mark names is cleared away by `tendRegions`.
+  - The kernel leaves out of `ignore` only the scan vertices every triangle
+    round which is painted, and as crossings only painted triangles: the rim
+    of a region still counts. Asked for alone (`region`), its rim is its own.
+  - The Region tool (`tools/regionTool.ts`) takes the scan only where it is
+    what is drawn at the pixel: not behind a part in front of it, not in the
+    half a section took away; a box takes what faces the eye unless "Through"
+    is chosen, and does not look at what hides what. It works while the build
+    is stale. A painting is discarded by "Clear" alone, and `Z` brings that
+    back; another tool, `Escape` or another object parks it (per object, in
+    this run, not on the disk), the palette's Region button shows a dot, and
+    `Escape` in the middle of a stroke gives up that stroke only.
 - In the window a scan's bounds tree is built in a worker
   (`viewport/scanBvh.worker.ts`), indirect, so triangle numbers hold; a scan
   is drawn before it can be pointed at. A scan drawn at 95 % or more blocks

@@ -60,12 +60,28 @@ const ON_TOP: Vec3[] = [[-15, -10, 2.5], [15, 10, 2.5], [-15, 10, 2.5], [12, -8,
 const bar = (p: Page = page) => p.locator('.alignbar')
 
 /** Clicks where a point of the scan's own frame is drawn. */
+/**
+ * Waits until the view has stopped turning. A press finishes a move of the camera before it is answered (Task 8,
+ * fix round 1), so a click is aimed only once the view is where it was sent: aimed in the middle of the move, it
+ * would land where the view ends up.
+ */
+async function still(): Promise<void> {
+  let last = ''
+  await expect.poll(async () => {
+    const now = JSON.stringify(await page.evaluate(() => window.__tornoTest!.camera()))
+    const same = now === last
+    last = now
+    return same
+  }).toBe(true)
+}
 async function clickScan(local: Vec3): Promise<void> {
+  await still()
   const [fx, fy] = await page.evaluate((local) => window.__tornoTest!.projectScan('S1', local), local)
   const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
   await page.mouse.click(canvas.x + fx * canvas.width, canvas.y + fy * canvas.height)
 }
 async function clickModel(point: Vec3): Promise<void> {
+  await still()
   const [fx, fy] = await page.evaluate((point) => window.__tornoTest!.project(point), point)
   const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
   await page.mouse.click(canvas.x + fx * canvas.width, canvas.y + fy * canvas.height)

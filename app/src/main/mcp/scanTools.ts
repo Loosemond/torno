@@ -5,6 +5,7 @@ import type { Part, Scene } from '../../shared/scene'
 import { type ScanAlignment, type ScanInfo, type ScanTransform, MIN_SCAN_OPACITY, importText } from '../../shared/scans'
 import type { ScanColouring } from '../../shared/view'
 import { number, vector } from '../marks/describe'
+import { maskStem } from '../../shared/regions'
 import { type AlignmentSaid, alignmentSaid, shownText } from '../scans/said'
 import { checkRef } from './markTools'
 import { clean, ofOneBuild, refusal } from './readTools'
@@ -73,7 +74,7 @@ export interface ScanAsked {
   aligned: AlignmentSaid
   wire: { id: string; path: string; transform: ScanTransform }
   /** Where a region's mask is. */
-  mask(markId: string): string
+  mask(stem: string): string
 }
 
 /**
@@ -102,7 +103,7 @@ export async function scanFor(deps: ToolDeps, objectId: string, layout: string, 
   const aligned = alignmentSaid(scan, layout, revision)
   if (aligned.refused !== null || !aligned.alignment) return failure(aligned.refused ?? `${scan.id} is not aligned in layout ${layout}`)
   const { alignment } = aligned
-  return { scan, alignment, aligned, wire: { id: scan.id, path: paths.mesh, transform: alignment.transform }, mask: (markId) => paths.mask(markId) }
+  return { scan, alignment, aligned, wire: { id: scan.id, path: paths.mesh, transform: alignment.transform }, mask: (stem) => paths.mask(stem) }
 }
 
 /**
@@ -175,7 +176,7 @@ async function masksOf(deps: ToolDeps, objectId: string, asked: ScanAsked, ids: 
     const region = regions.find((mark) => mark.id === id)
     if (!region) return failure(regions.length > 0 ? `${id} is not a region of ${asked.scan.id}; its regions: ${regions.map((mark) => mark.id).join(', ')}` : `${id} is not a region of ${asked.scan.id}, which has no regions: the user paints one on the scan`)
     if (region.anchorState === 'orphaned') return failure(regionLost(id, asked.scan.id))
-    masks.push(asked.mask(id))
+    masks.push(asked.mask(maskStem(region)))
   }
   return masks
 }

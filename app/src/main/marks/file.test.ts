@@ -393,13 +393,26 @@ describe('a dimension', () => {
 })
 
 describe('a region', () => {
-  const region = (over: object = {}): object => ({ ...BASE, id: 'M7', kind: 'region', scan: 'S1', triangles: 4812, area: 31000, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, 0], max: [-10, -10, 0] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 4.2 } }, ...over })
+  const BOX = { centre: [-15, -15, 0], axes: [[0.6, 0.8, 0], [-0.8, 0.6, 0], [0, 0, 1]], half: [7, 3, 0.5] }
+  const region = (over: object = {}): object => ({ ...BASE, id: 'M7', kind: 'region', scan: 'S1', triangles: 4812, area: 31000, local: { centroid: [-15, -15, 0], bbox: { min: [-20, -20, 0], max: [-10, -10, 0] }, plane: { origin: [-15, -15, 0], normal: [0, 0, 1], rms: 4.2 }, box: BOX }, ...over })
   const local = (over: object): object => ({ ...(region() as { local: object }).local, ...over })
 
   it('loads whole, and with nothing a region does not have', () => {
     expect(sanitiseMark(JSON.parse(JSON.stringify(region())))).toEqual(region())
     expect(sanitiseMark(region({ bits: [1, 2, 3], anchor: ANCHOR, mask: '/etc/passwd' }))).toEqual(region())
     expect(markAnchors(sanitiseMark(region())!)).toEqual([])
+    // What main records of it: the mesh it was painted on, and which painting its mask holds.
+    expect(sanitiseMark(region({ mesh: 'ab|8|12|mm|z', mask: 2 }))).toMatchObject({ mesh: 'ab|8|12|mm|z', mask: 2 })
+    expect(sanitiseMark(region({ mesh: 7, mask: 0 }))).toEqual(region())
+    expect(sanitiseMark(region({ mask: 1.5 }))).toEqual(region())
+  })
+
+  it('kept before it had a box of its own has the box of the scan’s frame for one: it is within it', () => {
+    const { box: _box, ...old } = (region() as { local: Record<string, unknown> }).local
+    expect((sanitiseMark(region({ local: old })) as { local: { box: object } }).local.box).toEqual({ centre: [-15, -15, 0], axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], half: [5, 5, 0] })
+    // A box that is none is no region.
+    expect(sanitiseMark(region({ local: local({ box: { centre: [0, 0, 0], axes: [[1, 0, 0]], half: [1, 1, 1] } }) }))).toBeNull()
+    expect(sanitiseMark(region({ local: local({ box: { centre: [0, 0, 0], axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], half: [1, -1, 1] } }) }))).toBeNull()
   })
 
   it('is dropped when its scan is no scan, it has no triangle, or a number of it is not finite', () => {

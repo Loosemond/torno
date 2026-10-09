@@ -27,6 +27,11 @@ export function fitNumber(mm: number): string {
   return number(Math.round(mm * 1000) / 1000)
 }
 
+/** How many of something: a whole number with its thousands set apart, `1,598,472`. */
+export function count(n: number): string {
+  return n.toLocaleString('en-US')
+}
+
 /** What names a build (`r12`) or a part's face or edge (`plate/E7`) in a sentence. */
 const NAMED = /(\br\d+\b|[\w.-]+\/[FE]\d+\b)/
 

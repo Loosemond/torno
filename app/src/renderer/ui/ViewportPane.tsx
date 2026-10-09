@@ -20,7 +20,6 @@ import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
 import { Readout } from '../viewport/highlight'
 import { meshOf } from '../viewport/scans'
-import type { ScanTints } from '../viewport/scanTints'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
 import { AlignBar } from './AlignBar'
@@ -193,7 +192,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       describe: (ref) => describeWhole(objectId, revision, layout, ref),
       commit: (mark) => commitMark(objectId, mark),
       moved: (part) => s.scene?.parts.some((p) => p.layout === layout && p.name === part && p.arranged !== undefined) === true,
-      openNote: (mark) => actions.openNote({ objectId, layout: mark.layout, id: mark.id }),
+      // A region's note opens in the layout shown: it is of its scan in every one.
+      openNote: (mark) => actions.openNote({ objectId, layout: mark.kind === 'region' ? layout : mark.layout, id: mark.id }),
       replacing: replacingIn(s),
       replace: (id, placed) => replaceMark(objectId, id, placed),
       endReplace
@@ -352,7 +352,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
       },
       scans: () => viewport.scanState(),
-      regions: () => (viewport as unknown as { scans: { tints: ScanTints } }).scans.tints.state(),
+      regions: () => viewport.regionState(),
       markScreen: (id) => {
         const box = canvasBox(viewport)
         const label = viewport.markLabel(id)

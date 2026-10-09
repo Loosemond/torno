@@ -3,13 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Mark, NewRegion, RegionMark } from '../../shared/marks'
-import { popcount } from '../../shared/regions'
 import { grid, meshBin, stl } from '../../test/scanFixtures'
 import type { ImportReply, Importer } from '../scans/importer'
 import { ScanStore } from '../scans/store'
 import { MarkStore } from './store'
 import { UNIT_MM } from '../../shared/scans'
-import { addRegion, orphanLost, removeMark, restateRegions } from './regions'
+import { type RegionDeps, addRegion, convertScan, meshesOf, removeMark, repaintRegion, restateRegions, tendRegions } from './regions'
 
 // A region is kept by main from what the window painted: against the real stores, in a folder of the test's own.
 
@@ -53,8 +52,8 @@ beforeEach(async () => {
   mkdirSync(dir)
   source = join(root, 'sheet.stl')
   writeFileSync(source, stl(sheet))
-  marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined) })
   scans = new ScanStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), importer: () => importer })
+  marks = new MarkStore({ dirOf: (id) => (id === 'bracket' ? dir : undefined), meshes: meshesOf(scans) })
   told = []
   marks.on('changed', (m) => told.push(m.marks))
   await scans.import('bracket', source)
@@ -130,18 +129,18 @@ describe('the life of a region with its scan and its mark', () => {
     await addRegion(deps(), 'bracket', region()) // M1 on S1
     await addRegion(deps(), 'bracket', region({ scan: 'S2' })) // M2 on S2
     await addRegion(deps(), 'bracket', region({ scan: 'S2', bits: bits([9]) })) // M3 on S2
-    await orphanLost(deps(), 'bracket')
+    await tendRegions(deps(), 'bracket')
     expect((await marks.list('bracket')).map((m) => m.anchorState)).toEqual(['ok', 'ok', 'ok'])
     await scans.remove('bracket', 'S1')
     // Its mask is another mesh's: written for 16 triangles.
     const stale = readFileSync(maskOf('M3', 'S2'))
     stale.writeUInt32LE(16, 12)
     writeFileSync(maskOf('M3', 'S2'), stale.subarray(0, 18))
-    await orphanLost(deps(), 'bracket')
+    await tendRegions(deps(), 'bracket')
     expect((await marks.list('bracket')).map((m) => m.anchorState)).toEqual(['orphaned', 'ok', 'orphaned'])
     // One whose mask is gone has no triangles to be of.
     rmSync(maskOf('M2', 'S2'))
-    await orphanLost(deps(), 'bracket')
+    await tendRegions(deps(), 'bracket')
     expect((await marks.list('bracket')).map((m) => m.anchorState)).toEqual(['orphaned', 'orphaned', 'orphaned'])
   })
 
@@ -150,15 +149,14 @@ describe('the life of a region with its scan and its mark', () => {
     writeFileSync(join(dir, '.torno', 'scans.json'), 'not json')
     scans.forget()
     marks.forget()
-    await orphanLost(deps(), 'bracket')
+    await tendRegions(deps(), 'bracket')
     expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
   })
 
   it('says a region anew from the mesh its scan has once that was converted: the same triangles, elsewhere', async () => {
     const kept = (await addRegion(deps(), 'bracket', region({ note: 'loom' }))) as RegionMark
     await marks.markSent('bracket')
-    await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
-    await restateRegions(deps(), 'bracket', 'S1')
+    await convertScan(deps(), 'bracket', 'S1', { unit: 'cm', up: 'z' })
     const [now] = (await marks.list('bracket')) as RegionMark[]
     expect(now).toMatchObject({ id: 'M1', note: 'loom', status: 'sent', anchorState: 'ok', triangles: 2 })
     expect(now.area).toBeCloseTo(kept.area * 100, 6)
@@ -173,8 +171,137 @@ describe('the life of a region with its scan and its mark', () => {
     await restateRegions(deps(), 'bracket', 'S1')
     expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
   })
+})
 
-  it('counts what it keeps', () => {
-    expect(popcount(bits([0, 1, 31]))).toBe(3)
+// Fix round 1.
+describe('a region goes with the mesh it was painted on (M5)', () => {
+  it('records which mesh that is, and is orphaned when the marks are listed once its scan has another, with no second step', async () => {
+    const kept = (await addRegion(deps(), 'bracket', region())) as RegionMark
+    expect(kept.mesh).toBe(`${reply().source!.sha256}|25|32|mm|z`)
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
+    // The same counts from another file: nothing but the record of the mesh tells them apart. Nobody orphans by hand.
+    const file = JSON.parse(readFileSync(join(dir, '.torno', 'scans.json'), 'utf8'))
+    file.scans[0].source.sha256 = 'cd'.repeat(32)
+    writeFileSync(join(dir, '.torno', 'scans.json'), JSON.stringify(file))
+    scans.forget()
+    expect((await marks.list('bracket'))[0]).toMatchObject({ anchorState: 'orphaned', status: 'draft' })
+    expect(told[told.length - 1][0].anchorState).toBe('orphaned')
+  })
+
+  it('is orphaned when the marks are listed once its scan is gone, and left alone while the scans are not known', async () => {
+    await addRegion(deps(), 'bracket', region())
+    writeFileSync(join(dir, '.torno', 'scans.json'), 'not json')
+    scans.forget()
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
+    await scans.dismissProblem('bracket')
+    // A new, empty list was started: now it is known that there is no S1.
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+  })
+
+  it('leaves a mark from before meshes were recorded as it is, while its scan is there', async () => {
+    await addRegion(deps(), 'bracket', region())
+    const file = JSON.parse(readFileSync(join(dir, '.torno', 'marks.json'), 'utf8'))
+    delete file.marks[0].mesh
+    writeFileSync(join(dir, '.torno', 'marks.json'), JSON.stringify(file))
+    marks.forget()
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
+  })
+})
+
+describe('a mask that cannot be read (I2)', () => {
+  /** The scans, but for a mask that the disk will not give. */
+  const failing = (why: Error): RegionDeps => ({ marks, scans: Object.assign(Object.create(scans), { mask: async () => Promise.reject(why) }) })
+
+  it('orphans nothing when the disk fails, and says so; orphans when the mask is gone', async () => {
+    await addRegion(deps(), 'bracket', region())
+    const problems: string[] = []
+    marks.on('problem', (m) => problems.push(m.message))
+    await tendRegions(failing(Object.assign(new Error('EMFILE: too many open files'), { code: 'EMFILE' })), 'bracket')
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
+    expect(problems).toEqual(['The triangles of M1 (EMFILE: too many open files) could not be read from the disk just now. It is left as it was.'])
+    expect(await marks.problem('bracket')).toBe(problems[0])
+    rmSync(maskOf('M1'))
+    await tendRegions(deps(), 'bracket')
+    expect((await marks.list('bracket'))[0].anchorState).toBe('orphaned')
+  })
+
+  it('orphans the regions of a scan that was converted when they cannot be said anew, with why: never numbers of the scan as it was', async () => {
+    const kept = (await addRegion(deps(), 'bracket', region())) as RegionMark
+    const problems: string[] = []
+    marks.on('problem', (m) => problems.push(m.message))
+    await convertScan(failing(new Error('EACCES: permission denied')), 'bracket', 'S1', { unit: 'cm', up: 'z' })
+    const [now] = (await marks.list('bracket')) as RegionMark[]
+    expect(now.anchorState).toBe('orphaned')
+    expect(now.area).toBe(kept.area)
+    expect(problems).toEqual(['The regions of S1 could not be worked out again after it was converted (EACCES: permission denied): they are of the scan as it was, and have to be painted again.'])
+  })
+
+  it('does not orphan the regions of a scan while it is being converted, though its mesh is already another', async () => {
+    await addRegion(deps(), 'bracket', region())
+    let during: string | undefined
+    const slow: RegionDeps = { marks, scans: Object.assign(Object.create(scans), { convert: async (...args: Parameters<ScanStore['convert']>) => {
+      const converted = await scans.convert(...args)
+      // Converted, and its regions not yet said anew: something lists the marks.
+      during = (await marks.list('bracket'))[0].anchorState
+      return converted
+    } }) }
+    await convertScan(slow, 'bracket', 'S1', { unit: 'cm', up: 'z' })
+    expect(during).toBe('ok')
+    expect((await marks.list('bracket'))[0]).toMatchObject({ anchorState: 'ok', mesh: `${reply().source!.sha256}|25|32|cm|z` })
+  })
+})
+
+describe('painting a kept region again', () => {
+  it('writes its triangles as a new file, says its numbers anew, then removes the old file; one the agent had is a draft again', async () => {
+    const kept = (await addRegion(deps(), 'bracket', region({ note: 'loom' }))) as RegionMark
+    await marks.markSent('bracket')
+    const old = readFileSync(maskOf('M1'))
+    const again = (await repaintRegion(deps(), 'bracket', 'M1', bits([0, 1, 2, 3]))) as RegionMark
+    expect(again).toMatchObject({ id: 'M1', note: 'loom', status: 'draft', sentBefore: true, anchorState: 'ok', triangles: 4, mask: 1, mesh: kept.mesh })
+    expect(again.area).toBeCloseTo(200, 9)
+    expect(existsSync(maskOf('M1'))).toBe(false)
+    expect([...readFileSync(maskOf('M1.1')).subarray(16)]).toEqual([0b1111, 0, 0, 0])
+    expect(old.length).toBe(20)
+    // And again: the next file, never the one there is.
+    const third = (await repaintRegion(deps(), 'bracket', 'M1', new Uint8Array(bits([9]).buffer) as never)) as RegionMark
+    expect(third).toMatchObject({ triangles: 1, mask: 2 })
+    expect([existsSync(maskOf('M1.1')), existsSync(maskOf('M1.2'))]).toEqual([false, true])
+    // Deleting the mark takes the file it names.
+    await removeMark(deps(), 'bracket', 'M1')
+    expect(existsSync(maskOf('M1.2'))).toBe(false)
+  })
+
+  it('leaves the region as it was when the mark cannot be written, or what was sent is no region of that mesh', async () => {
+    await addRegion(deps(), 'bracket', region())
+    await expect(repaintRegion(deps(), 'bracket', 'M1', bits([]))).rejects.toThrow('a region needs at least one triangle')
+    await expect(repaintRegion(deps(), 'bracket', 'M1', bits([1], 9))).rejects.toThrow('9 bytes of triangles do not fit')
+    await expect(repaintRegion(deps(), 'bracket', 'M9', bits([1]))).rejects.toThrow('no mark M9')
+    await marks.update('bracket', 'M1', { status: 'resolved' })
+    await expect(repaintRegion(deps(), 'bracket', 'M1', bits([1]))).rejects.toThrow('M1 is resolved: reopen it first')
+    expect(existsSync(maskOf('M1.1'))).toBe(false)
+    await marks.update('bracket', 'M1', { status: 'draft' })
+    mkdirSync(join(dir, '.torno', `marks.json.${process.pid}.tmp`))
+    await expect(repaintRegion(deps(), 'bracket', 'M1', bits([1]))).rejects.toThrow()
+    expect([existsSync(maskOf('M1')), existsSync(maskOf('M1.1'))]).toEqual([true, false])
+    expect((await marks.list('bracket'))[0]).toMatchObject({ triangles: 2 })
+    rmSync(join(dir, '.torno', `marks.json.${process.pid}.tmp`), { recursive: true })
+    await marks.orphanRegions('bracket', 'S1')
+    await expect(repaintRegion(deps(), 'bracket', 'M1', bits([1]))).rejects.toThrow('M1 is of a scan that is gone or was read again')
+  })
+})
+
+describe('masks no mark names (M8)', () => {
+  it('are cleared away when the object\'s regions are seen to, and those a mark names are not', async () => {
+    await addRegion(deps(), 'bracket', region())
+    await repaintRegion(deps(), 'bracket', 'M1', bits([3]))
+    // Left by a keep that was cut short between the mask and the mark, and by a repaint cut short before the old file went.
+    writeFileSync(maskOf('M7'), readFileSync(maskOf('M1.1')))
+    writeFileSync(maskOf('M1'), readFileSync(maskOf('M1.1')))
+    writeFileSync(join(dir, '.torno', 'scans', 'S1', 'notes.mask.txt'), 'not torno\'s')
+    expect((await scans.masks('bracket', 'S1')).sort()).toEqual(['M1', 'M1.1', 'M7'])
+    await tendRegions(deps(), 'bracket')
+    expect(await scans.masks('bracket', 'S1')).toEqual(['M1.1'])
+    expect(existsSync(join(dir, '.torno', 'scans', 'S1', 'notes.mask.txt'))).toBe(true)
+    expect((await marks.list('bracket'))[0].anchorState).toBe('ok')
   })
 })

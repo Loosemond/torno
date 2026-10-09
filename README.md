@@ -354,12 +354,21 @@ parts again. It tells what it finds; it never moves a scan by itself.
 **Regions** (`B`). Drag over a scan to paint a part of it: a brush whose
 radius is in the bar (`[`, `]`), "Erase" (`E`, or Ctrl held), "Box"
 (Shift-drag) for what a rectangle covers, "Grow to flat" to take in the flat
-surface round what is painted, "Undo" (`Z`), "Clear". "Keep" (`Enter`) makes
-it a mark with a number and a note, such as "wiring loom, can be pushed
-aside"; `Esc` drops what was painted. A region is tinted on the scan in your
-mark colour, travels to the agent like any mark, and is how you tell it what
-a part of the scan is. Removing a scan leaves its regions as marks that say
-their scan is gone.
+surface round what is painted, "Undo" (`Z`), "Clear". What is seen is what is
+painted: the brush takes nothing behind a part that is in front of the scan,
+nor of what a section has cut away; a box takes what faces you (also what
+something in front hides), and the far side too with "Through". "Keep"
+(`Enter`) makes it a mark with a number and a note, such as "wiring loom, can
+be pushed aside". A painting is never lost by accident: only "Clear" puts it
+down, and "Undo" brings that back; with another tool in hand, after `Esc`, or
+while another object is open, it waits (the Region button shows a dot) until
+you keep or clear it, for as long as torno runs. "Edit" on a region's row
+takes it in hand to paint it again; the agent is then told it changed. A
+region is tinted on the scan in your mark colour in every layout, travels to
+the agent like any mark, told where the scan stands in the layout shown, and
+is how you tell it what a part of the scan is. Removing a scan leaves its
+regions as marks that say their scan is gone; so does importing it again from
+a file that changed.
 
 **Where a scan can be checked.** A scan is checked only against parts that are
 where the model puts them. A `print` layout whose parts overlap is spread by
@@ -630,7 +639,8 @@ S1 Micra.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assume
 
 **`scan_clash`** takes `part`, and optionally `scan` (when there are
 several), `margin` (how far round the part scan points are looked at, 0 to
-50 mm, 5 by default), `ignore` (region marks to leave out) and `layout`. It
+50 mm, 5 by default), `ignore` (region marks to leave out: the scan points
+every triangle round which is painted, so a region's rim still counts) and `layout`. It
 counts the scan's vertices inside the part, by ray parity on the mesh the
 part is drawn with, groups them in clusters with the deepest point of each,
 counts the scan's triangles that cross the part's surface, and names the
@@ -700,7 +710,7 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 | `.torno/marks.json` | the marks of the object: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured |
 | `.torno/scans.json` | the scans of the object: where each source file is and its hash, how it was imported, and its alignment in each layout |
 | `.torno/scans/<id>/mesh.bin` | the scan as torno draws and checks it, in millimetres and Z up (`mesh.<n>.bin` once it was converted or imported again). `.torno/scans/.gitignore` keeps the meshes out of git: a clone has the record, and its row offers "Import again" |
-| `.torno/scans/<id>/<mark>.mask` | the triangles of a region, a bit each |
+| `.torno/scans/<id>/<mark>.mask` | the triangles of a region, a bit each (`<mark>.<n>.mask` once it was painted again) |
 | `.torno/session.json` | the id of the conversation to resume |
 | `.torno/views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 |
 | `.torno/state.md` | the build, the parts, the scans and the open marks as text, for an agent without torno's tools. Its first line says when it was written: nothing keeps it current once torno has quit |

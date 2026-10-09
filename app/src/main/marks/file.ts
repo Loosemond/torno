@@ -201,7 +201,25 @@ function regionOf(base: Omit<RegionMark, 'kind' | 'scan' | 'triangles' | 'area' 
   const origin = tuple<Vec3>(plane.origin, 3)
   const normal = tuple<Vec3>(plane.normal, 3)
   if (!centroid || !min || !max || !origin || !normal || !isNumber(plane.rms) || plane.rms < 0) return null
-  return { ...base, kind: 'region', scan: value.scan, triangles: value.triangles, area: value.area, local: { centroid, bbox: { min, max }, plane: { origin, normal, rms: plane.rms } } }
+  // Its own box. A mark kept before there was one has the box of the scan's frame for it: within it, if not its size.
+  const own = isRecord(local.box) ? local.box : null
+  const axes = own && Array.isArray(own.axes) && own.axes.length === 3 ? own.axes.map((axis) => tuple<Vec3>(axis, 3)) : null
+  const centre = own ? tuple<Vec3>(own.centre, 3) : null
+  const half = own ? tuple<Vec3>(own.half, 3) : null
+  if (own && !(centre && half && axes?.every((axis) => axis !== null) && half.every((h) => h >= 0))) return null
+  const box: RegionMark['local']['box'] = own
+    ? { centre: centre!, axes: axes as [Vec3, Vec3, Vec3], half: half! }
+    : { centre: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2], axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], half: [(max[0] - min[0]) / 2, (max[1] - min[1]) / 2, (max[2] - min[2]) / 2] }
+  return {
+    ...base,
+    kind: 'region',
+    scan: value.scan,
+    triangles: value.triangles,
+    area: value.area,
+    local: { centroid, bbox: { min, max }, plane: { origin, normal, rms: plane.rms }, box },
+    ...(typeof value.mesh === 'string' && value.mesh !== '' && value.mesh.length <= 200 ? { mesh: value.mesh } : {}),
+    ...(isNumber(value.mask) && Number.isSafeInteger(value.mask) && value.mask >= 1 && value.mask < 1e9 ? { mask: value.mask } : {})
+  }
 }
 
 /** The longest account of how a value was taken that a dimension keeps. */

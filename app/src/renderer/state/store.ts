@@ -357,8 +357,9 @@ export const actions = {
     const before = store.getState()
     const mark = before.marks.find((m) => m.id === id)
     // A mark of a layout the build no longer has cannot be shown: nothing is made of it, and the row says why.
-    if (!mark || (before.scene !== null && !before.scene.layouts.includes(mark.layout))) return
-    actions.setLayout(mark.layout)
+    // A region is of its scan in every layout: it is gone to where the person is.
+    if (!mark || (mark.kind !== 'region' && before.scene !== null && !before.scene.layouts.includes(mark.layout))) return
+    if (mark.kind !== 'region') actions.setLayout(mark.layout)
     const s = store.getState()
     store.setState({ activeMark: id, markFocus: s.markFocus + 1, noting: s.noting === id ? id : null })
   },
@@ -486,7 +487,8 @@ export function samePlane(a: SectionPlane | null, b: SectionPlane | null): boole
 /** What changes with the layout shown: the selection and the note go, and the active mark unless it is of that layout. */
 function layoutChange(s: TornoState, layout: string): Partial<TornoState> {
   // A mark is of one layout: the active one does not follow to another.
-  const activeMark = s.marks.find((m) => m.id === s.activeMark)?.layout === layout ? s.activeMark : null
+  const active = s.marks.find((m) => m.id === s.activeMark)
+  const activeMark = active && (active.kind === 'region' || active.layout === layout) ? s.activeMark : null
   // A note is written where its mark can be seen: it closes.
   return { layout, ...NO_SELECTION, activeMark, noting: null }
 }

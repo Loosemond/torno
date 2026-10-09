@@ -14,7 +14,7 @@ import { TriangleSet, gatherSphere } from '../../renderer/viewport/scanPaint'
 import { grid, meshBin, stl } from '../../test/scanFixtures'
 import { type HttpRouter, startHttp } from '../http'
 import { type RunningKernel, startKernel } from '../kernel/client'
-import { addRegion } from '../marks/regions'
+import { addRegion, meshesOf, repaintRegion } from '../marks/regions'
 import { MarkStore } from '../marks/store'
 import type { ImportReply, Importer } from '../scans/importer'
 import { ScanStore } from '../scans/store'
@@ -84,8 +84,8 @@ beforeAll(async () => {
     stop() {}
   }
   const dirOf = (id: string): string | undefined => (id === 'hollow' ? dir : undefined)
-  marks = new MarkStore({ dirOf })
   scans = new ScanStore({ dirOf, importer: () => importer })
+  marks = new MarkStore({ dirOf, meshes: meshesOf(scans) })
   await scans.import('hollow', source)
   await scans.align('hollow', 'S1', 'assembly', TYPED)
   await scans.checked('hollow', 'S1', 'assembly', { revision: 1, of: 0, off: 0, worst: 0, moved: [] })
@@ -148,7 +148,10 @@ describe('a painted region, through the MCP server and the real kernel', () => {
     expect(data.marks[0]).toMatchObject({ id: 'M1', kind: 'region', scan: 'S1', triangles: painted.count, flat: true, plane: { rms: 0 } })
     expect(data.marks[0].local).toBeUndefined()
     expect(data.marks[0].centroid.map((c: number) => Math.round(c * 10) / 10)).toEqual([-5, -5, 1])
-    expect(data.marks[0].line).toMatch(new RegExp(`^M1 region on scan S1: ${painted.count} triangles, ≈ [\\d.]+ mm², centre \\(-5, -5, 1\\), box [\\d.]+ × [\\d.]+ × 0 mm, flat to 0 mm about a plane with normal \\(0, 0, -?1\\): "cable, can be pushed aside"$`))
+    expect(data.marks[0].line).toMatch(new RegExp(`^M1 region on scan S1: ${painted.count} triangles, ≈ [\\d.]+ mm², centre ≈ \\(-5, -5, 1\\), ≈ [\\d.]+ × [\\d.]+ × 0 mm(, its long side along \\([^)]*\\))?, within a box of ≈ 7 × 7 × 0 mm, flat about a plane with normal ≈ \\(0, 0, 1\\): "cable, can be pushed aside"$`))
+    expect(data.marks[0]).toMatchObject({ toldIn: 'assembly', aligned: true, bbox: { min: [-8.5, -8.5, 1], max: [-1.5, -1.5, 1] } })
+    for (const key of ['local', 'mesh', 'mask']) expect(data.marks[0]).not.toHaveProperty(key)
+    expect(region.mesh).toBe(`${'ab'.repeat(32)}|400|722|mm|z`)
     const scansSaid = await call('scans')
     expect(scansSaid.data.scans[0].regions).toEqual(['M1 "cable, can be pushed aside"'])
     expect(scansSaid.data.reading).toContain('1 region')
@@ -196,17 +199,19 @@ describe('a painted region, through the MCP server and the real kernel', () => {
     const before = (await call('scan_clash', { part: 'tub', ignore: ['M1'] })).data.points.ignored
     const larger = await brush([-5, -5, 1], 6)
     expect(larger.count).toBeGreaterThan(painted.count * 3)
-    // Main's own way of writing it: a new file each time.
-    await scans.writeMask('hollow', 'S1', 'M1', larger.bits)
+    // As "Edit" and "Keep" do: a new file, then the mark, then the old file goes.
+    const again = (await repaintRegion({ marks, scans }, 'hollow', 'M1', larger.bits)) as RegionMark
+    expect(again).toMatchObject({ id: 'M1', triangles: larger.count, mask: 1 })
     const after = (await call('scan_clash', { part: 'tub', ignore: ['M1'] })).data
     expect(after.points.ignored).toBeGreaterThan(before * 2)
     expect(after.inside.count).toBe(400 - after.points.ignored)
-    await scans.writeMask('hollow', 'S1', 'M1', painted.bits)
+    expect((await call('marks')).data.marks[0]).toMatchObject({ triangles: larger.count, status: 'draft' })
+    await repaintRegion({ marks, scans }, 'hollow', 'M1', painted.bits)
     expect((await call('scan_clash', { part: 'tub', ignore: ['M1'] })).data.points.ignored).toBe(before)
   })
 
   it('is refused in the kernel’s words when its mask is of another mesh, and in main’s once it is orphaned', async () => {
-    const path = scans.paths('hollow', 'S1')!.mask('M1')
+    const path = scans.paths('hollow', 'S1')!.mask('M1.2')
     const kept = maskFile(painted.bits, 722)
     writeFileSync(path, maskFile(new Uint8Array(Math.ceil(700 / 8)), 700))
     const other = await call('scan_clash', { part: 'tub', ignore: ['M1'] })

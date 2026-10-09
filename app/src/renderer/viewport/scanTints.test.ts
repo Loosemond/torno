@@ -30,8 +30,8 @@ describe('the regions kept', () => {
     const { layer: made } = layer()
     made.setLook({ plain: '#B4AFA5', surface: '#F1EFEA', marks: { user: '#b8336a', agent: '#1f7a5c' } }, false)
     made.tints.setRegions([
-      { id: 'M1', scan: 'S1', layout: 'assembly', author: 'user', bits: bitsOf(0, 1, 2) },
-      { id: 'M2', scan: 'S1', layout: 'assembly', author: 'agent', bits: bitsOf(9) }
+      { id: 'M1', scan: 'S1', author: 'user', bits: bitsOf(0, 1, 2) },
+      { id: 'M2', scan: 'S1', author: 'agent', bits: bitsOf(9) }
     ])
     const built = made.built('S1')!
     const [user, agent] = tintsOf(made)
@@ -54,16 +54,16 @@ describe('the regions kept', () => {
     expect(made.tints.state().regions.map((region) => region.colour)).toEqual(['#e0709a', '#4fb894'])
   })
 
-  it('are drawn only in the layout of their mark, only while the scan is, and cut by the section with it', () => {
+  it('are drawn in every layout, since they are of the scan wherever it stands, only while the scan is, and cut by the section with it', () => {
     const { layer: made } = layer()
     made.tints.setRegions([
-      { id: 'M1', scan: 'S1', layout: 'assembly', author: 'user', bits: bitsOf(0) },
-      { id: 'M2', scan: 'S1', layout: 'print', author: 'user', bits: bitsOf(1) }
+      { id: 'M1', scan: 'S1', author: 'user', bits: bitsOf(0) },
+      { id: 'M2', scan: 'S1', author: 'user', bits: bitsOf(1) }
     ])
     const shown = (): boolean[] => made.tints.state().regions.map((region) => region.visible)
-    expect(shown()).toEqual([true, false])
+    expect(shown()).toEqual([true, true])
     made.set([scan('S1')], 'print')
-    expect(shown()).toEqual([false, true])
+    expect(shown()).toEqual([true, true])
     // Switched off, the scan's group is not drawn, and neither is anything in it.
     made.setView('S1', { visible: false })
     expect(made.built('S1')!.group.visible).toBe(false)
@@ -73,40 +73,35 @@ describe('the regions kept', () => {
     expect(tintsOf(made).map((tint) => (tint.material as THREE.Material).clippingPlanes)).toEqual([planes, planes])
   })
 
-  it('are tinted in a picture of their layout unless it leaves the marks out, and are put back after', () => {
+  it('are tinted in a picture unless it leaves the marks out, and are put back after', () => {
     const { layer: made } = layer()
-    made.tints.setRegions([
-      { id: 'M1', scan: 'S1', layout: 'assembly', author: 'user', bits: bitsOf(0) },
-      { id: 'M2', scan: 'S1', layout: 'print', author: 'user', bits: bitsOf(1) }
-    ])
+    made.tints.setRegions([{ id: 'M1', scan: 'S1', author: 'user', bits: bitsOf(0) }])
     const set = new TriangleSet(1682)
     set.add(40)
     made.tints.paint('S1', set)
     const shown = (): boolean[] => made.tints.state().regions.map((region) => region.visible)
     const back = made.showOnly(['S1'], 'print')
-    expect(shown()).toEqual([false, true])
+    expect(shown()).toEqual([true])
     // What is being painted is no mark yet: it is in no picture.
     expect(made.tints.state().painting).toMatchObject({ visible: false })
     back()
-    expect(shown()).toEqual([true, false])
     expect(made.tints.state().painting).toMatchObject({ visible: true })
-    made.showOnly(['S1'], 'assembly', false)()
     const without = made.showOnly(['S1'], 'assembly', false)
-    expect(shown()).toEqual([false, false])
+    expect(shown()).toEqual([false])
     without()
-    expect(shown()).toEqual([true, false])
+    expect(shown()).toEqual([true])
   })
 
   it('are not drawn from bits of another mesh, and go with the mesh they were drawn over', () => {
     const { layer: made } = layer()
-    made.tints.setRegions([{ id: 'M1', scan: 'S1', layout: 'assembly', author: 'user', bits: new Uint8Array(9) }, { id: 'M2', scan: 'S9', layout: 'assembly', author: 'user', bits: bitsOf(1) }])
+    made.tints.setRegions([{ id: 'M1', scan: 'S1', author: 'user', bits: new Uint8Array(9) }, { id: 'M2', scan: 'S9', author: 'user', bits: bitsOf(1) }])
     expect(made.tints.state().regions).toEqual([])
     const bits = bitsOf(5)
-    made.tints.setRegions([{ id: 'M1', scan: 'S1', layout: 'assembly', author: 'user', bits }])
+    made.tints.setRegions([{ id: 'M1', scan: 'S1', author: 'user', bits }])
     expect(tintsOf(made)).toHaveLength(1)
     // The same regions told again: nothing is made anew.
     const [before] = tintsOf(made)
-    made.tints.setRegions([{ id: 'M1', scan: 'S1', layout: 'assembly', author: 'user', bits }])
+    made.tints.setRegions([{ id: 'M1', scan: 'S1', author: 'user', bits }])
     expect(tintsOf(made)[0]).toBe(before)
     // The scan read again is another mesh: its regions are drawn over the new one once it has come.
     made.set([scan('S1', '2026-10-11T09:00:00.000Z')], 'assembly')

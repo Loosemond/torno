@@ -427,8 +427,8 @@ export class ScanLayer {
    * For a picture: only these are drawn (none for null), each as it is on
    * screen, but where the picture's layout puts it when that is another.
    * Returns what puts the screen back. Throws, having changed nothing, for an
-   * id that is no scan of the object. The regions of that layout are tinted
-   * on the scans drawn unless `regions` is false (a picture without marks);
+   * id that is no scan of the object. The regions are tinted on the scans
+   * drawn unless `regions` is false (a picture without marks);
    * the set being painted is in no picture.
    */
   showOnly(ids: string[] | null, layout = this.layout, regions = true): () => void {
@@ -437,12 +437,12 @@ export class ScanLayer {
     this.pictured = { ids: new Set(ids ?? []), layout }
     for (const entry of this.entries) this.apply(entry)
     if (this.tint) this.tint.mesh.visible = false
-    this.tints.show(layout, { regions })
+    this.tints.show({ regions })
     return () => {
       this.pictured = null
       for (const entry of this.entries) this.apply(entry)
       if (this.tint) this.tint.mesh.visible = true
-      this.tints.show(this.layout)
+      this.tints.show()
     }
   }
 
@@ -526,8 +526,7 @@ export class ScanLayer {
       if (entry.built) this.group.add(entry.built.group)
       this.apply(entry)
     }
-    // After the meshes: a region is drawn over the mesh its scan has now, in the layout shown.
-    this.tints.show(this.layout)
+    // After the meshes: a region is drawn over the mesh its scan has now.
     this.tints.sync()
     this.redraw()
   }

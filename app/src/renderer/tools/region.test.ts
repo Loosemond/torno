@@ -13,8 +13,9 @@ import type { BrushRing } from '../viewport/brushRing'
 import type { TriangleSet } from '../viewport/scanPaint'
 import type { ScanHit } from '../viewport/scans'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { NOT_INDEXED, NOTHING_PAINTED, NO_SCAN, boxPlanes, clearRegion, growRegion, keepRegion, regionTool, undoStroke } from './regionTool'
-import type { ToolContext } from './Tool'
+import { toolStore } from '../state/tools'
+import { CLEARED, IN_HAND, KEEPING, NOT_INDEXED, NOTHING_PAINTED, NO_SCAN, boxPlanes, clearRegion, connectRegion, editRegion, forgetPaintings, growRegion, keepRegion, regionTool, undoStroke, waiting } from './regionTool'
+import { type ToolContext, routePointer } from './Tool'
 
 // The Region tool, with a viewport that has a real tree over a sheet of 30 × 30 vertices a millimetre apart
 // (1,682 triangles, from -14.5 to 14.5), seen from above.
@@ -35,9 +36,12 @@ function built() {
 const onScan = (x: number, y: number, scan = 'S1'): ScanHit => ({ scan, triangle: 0, point: [x, y, 0], local: [x, y, 0], normal: [0, 0, 1], distance: 100 })
 /** Where the pointer is on the sheet, or null beside it: what `pickScan` answers. */
 let under: ScanHit | null = null
-function pointer(type: ViewportPointer['type'], at: [number, number] | null, opts: { buttons?: number; shift?: boolean; alt?: boolean; ctrl?: boolean } = {}): ViewportPointer {
+function pointer(type: ViewportPointer['type'], at: [number, number] | null, opts: { buttons?: number; shift?: boolean; alt?: boolean; ctrl?: boolean; part?: number } = {}): ViewportPointer {
   under = at ? onScan(at[0], at[1]) : null
   const [x, y] = at ?? [99, 99]
+  // A part seen at this pixel, so far along the ray: the scan is 100 along it.
+  const part = opts.part === undefined ? null : ({ partKey: 'assembly:lid', part: 'lid', kind: 'face', index: 1, ref: 'lid/F1', point: [x, y, 100 - opts.part], normal: [0, 0, 1], distance: opts.part } as never)
+  if (part) return { type, hit: part, ray: { origin: [x, y, 100], direction: [0, 0, -1] }, client: [x, -y], buttons: opts.buttons ?? 0, shift: opts.shift ?? false, alt: opts.alt ?? false }
   // Client pixels are the sheet's millimetres, y down the screen as up the sheet: enough for a box from above.
   return { type, hit: null, ray: { origin: [x, y, 100], direction: [0, 0, -1] }, client: [x, -y], buttons: opts.buttons ?? 0, shift: opts.shift ?? false, alt: opts.alt ?? false, ...(opts.ctrl ? { ctrl: true } : {}) }
 }
@@ -50,7 +54,11 @@ function fake(over: { tree?: boolean } = {}) {
   const rings: Array<BrushRing | null> = []
   const notes: Mark[] = []
   const painted: { scan: string | null; set: TriangleSet | null; touched: number } = { scan: null, set: null, touched: 0 }
+  const cut: { plane: { origin: Vec3; normal: Vec3 } | null } = { plane: null }
   const viewport = {
+    getSection: () => cut.plane,
+    setRegions: () => {},
+    getCamera: () => CAMERA,
     setHover: () => {},
     setNavigation: (on: boolean) => void navigation.push(on),
     setDraft: () => {},
@@ -80,7 +88,7 @@ function fake(over: { tree?: boolean } = {}) {
     commit: async () => ({}) as Mark,
     openNote: (mark: Mark) => void notes.push(mark)
   } as unknown as ToolContext
-  return { ctx, said, navigation, rings, notes, painted }
+  return { ctx, said, navigation, rings, notes, painted, cut }
 }
 
 let asked: Array<{ objectId: string; region: NewRegion }> = []
@@ -92,11 +100,13 @@ beforeEach(() => {
   vi.stubGlobal('window', { torno: { marks: { addRegion: (objectId: string, region: NewRegion) => (asked.push({ objectId, region }), answer(region)) } } })
   store.setState({ objectId: 'bracket', layout: 'assembly', revision: 4, scans: [scanInfo('S1')], scanViews: {} })
   alignStore.setState({ scan: null })
-  clearRegion()
-  regionStore.setState({ radius: 2, erase: false, mode: 'brush', refused: null, notice: null })
+  forgetPaintings()
+  toolStore.setState({ tool: 'region' })
+  regionStore.setState({ radius: 2, erase: false, through: false, mode: 'brush', refused: null, notice: null, editing: null, scan: null, count: 0, area: 0, canUndo: false, sending: false })
 })
 afterEach(() => {
-  clearRegion()
+  forgetPaintings()
+  toolStore.setState({ tool: 'select' })
   vi.unstubAllGlobals()
 })
 
@@ -210,8 +220,10 @@ describe('the brush', () => {
     expect(painted.set!.count).toBe(first)
     undoStroke()
     expect([painted.set!.count, regionStore.getState().canUndo]).toEqual([0, false])
+    const touched = painted.touched
     undoStroke()
-    expect(painted.touched).toBeGreaterThan(6)
+    // Nothing left to take back: nothing is touched.
+    expect([painted.set?.count ?? 0, painted.touched]).toEqual([0, touched])
   })
 })
 
@@ -334,20 +346,100 @@ describe('keeping', () => {
   })
 })
 
-describe('putting it down', () => {
-  it('empties the set with Escape and leaves the tool to be put down; Clear empties it and stays', () => {
+describe('putting it down (I5): a painting is never lost by accident', () => {
+  it('is discarded by Clear alone, and Undo brings that back', () => {
     const { ctx, painted } = fake()
     const tool = regionTool()
     stroke(tool, ctx)
+    const count = painted.set!.count
     clearRegion()
     expect(painted.scan).toBeNull()
-    expect(regionStore.getState()).toMatchObject({ count: 0, canUndo: false })
-    stroke(tool, ctx)
-    expect(painted.set!.count).toBeGreaterThan(0)
-    // Not the tool's to keep: the pane then takes up Select.
-    expect(tool.onKey!(key('Escape'), ctx)).toBe(false)
-    expect(painted.scan).toBeNull()
+    expect(regionStore.getState()).toMatchObject({ count: 0, canUndo: true, notice: CLEARED })
+    expect(tool.onKey!(key('z'), ctx)).toBe(true)
+    expect(painted.scan).toBe('S1')
+    expect(painted.set!.count).toBe(count)
+    expect(regionStore.getState()).toMatchObject({ count, notice: null })
+    // Its strokes can still be taken back one by one.
+    undoStroke()
     expect(regionStore.getState().count).toBe(0)
+    // Once something else is painted, what was cleared is gone for good.
+    stroke(tool, ctx)
+    clearRegion()
+    tool.onPointer(pointer('down', [8, 8], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [8, 8]), ctx)
+    const dab = painted.set!.count
+    undoStroke()
+    undoStroke()
+    expect(painted.set!.count).toBe(0)
+    expect(dab).toBeLessThan(count)
+  })
+
+  it('waits when Escape is pressed: the key is not the tool\'s, and what is painted is there when the tool is taken up again', () => {
+    const { ctx, painted } = fake()
+    const off = connectRegion(ctx.viewport as never)
+    const tool = regionTool()
+    stroke(tool, ctx)
+    const count = painted.set!.count
+    expect(tool.onKey!(key('Escape'), ctx)).toBe(false)
+    // As the pane then does.
+    toolStore.setState({ tool: 'select' })
+    expect(painted.scan).toBeNull()
+    expect(regionStore.getState().count).toBe(count)
+    toolStore.setState({ tool: 'region' })
+    expect([painted.scan, painted.set!.count]).toEqual(['S1', count])
+    expect(regionStore.getState().notice).toBe(waiting(count, 'S1'))
+    expect(waiting(1204, 'S1')).toBe('A painting of 1,204 triangles on S1 is waiting: Keep or Clear, or paint on')
+    off()
+  })
+
+  it('gives up only the stroke under way when Escape is pressed in the middle of one', () => {
+    const { ctx, painted, navigation } = fake()
+    const tool = regionTool()
+    stroke(tool, ctx)
+    const count = painted.set!.count
+    tool.onPointer(pointer('down', [0, 8], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('move', [4, 8], { buttons: 1 }), ctx)
+    expect(painted.set!.count).toBeGreaterThan(count)
+    expect(tool.onKey!(key('Escape'), ctx)).toBe(true)
+    expect(painted.set!.count).toBe(count)
+    expect(navigation[navigation.length - 1]).toBe(true)
+    // The moves that follow with the button still held paint nothing, and it was no step.
+    tool.onPointer(pointer('move', [6, 8], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [6, 8]), ctx)
+    expect(painted.set!.count).toBe(count)
+    undoStroke()
+    expect(painted.set!.count).toBe(0)
+    // An erasing stroke given up puts back what it took.
+    stroke(tool, ctx)
+    tool.onPointer(pointer('down', [-6, 0], { buttons: 1, ctrl: true }), ctx)
+    tool.onPointer(pointer('move', [-2, 0], { buttons: 1, ctrl: true }), ctx)
+    expect(painted.set!.count).toBeLessThan(count)
+    tool.onKey!(key('Escape'), ctx)
+    expect(painted.set!.count).toBe(count)
+  })
+
+  it('waits while another object is on show, and is in hand again when its own is back', () => {
+    const { ctx, painted } = fake()
+    const off = connectRegion(ctx.viewport as never)
+    const tool = regionTool()
+    stroke(tool, ctx)
+    const set = painted.set!
+    const count = set.count
+    store.setState({ objectId: 'gear', scans: [scanInfo('S1')] })
+    expect(painted.scan).toBeNull()
+    expect(regionStore.getState()).toMatchObject({ count: 0, canUndo: false })
+    // The other object has a painting of its own, on its own S1.
+    const there = { ...ctx, objectId: 'gear' } as ToolContext
+    tool.onPointer(pointer('down', [8, 8], { buttons: 1 }), there)
+    tool.onPointer(pointer('up', [8, 8]), there)
+    expect(painted.set).not.toBe(set)
+    const other = painted.set!.count
+    store.setState({ objectId: 'bracket', scans: [scanInfo('S1')] })
+    expect(painted.set).toBe(set)
+    expect(regionStore.getState()).toMatchObject({ count, scan: 'S1', notice: waiting(count, 'S1') })
+    store.setState({ objectId: 'gear', scans: [scanInfo('S1')] })
+    expect(regionStore.getState().count).toBe(other)
+    off()
   })
 
   it('ends a stroke that is cut short, and keeps what was painted', () => {
@@ -366,18 +458,190 @@ describe('putting it down', () => {
     expect(painted.set!.count).toBe(count)
   })
 
-  it('drops what was painted on a scan that is gone, or whose mesh is another', () => {
+  it('goes only with its scan, or with the mesh it was painted on, and then says which', () => {
     const { ctx, painted } = fake()
+    const off = connectRegion(ctx.viewport as never)
     const tool = regionTool()
     stroke(tool, ctx)
     store.setState({ scans: [scanInfo('S1', { imported: { ...scanInfo('S1').imported, at: 'later' } })] })
-    tool.onPointer(pointer('move', [0, 0]), ctx)
     expect(regionStore.getState()).toMatchObject({ count: 0, notice: 'S1 was read again: what was painted on it was of the mesh it had' })
+    expect(painted.scan).toBeNull()
     stroke(tool, ctx)
     expect(painted.set!.count).toBeGreaterThan(0)
     store.setState({ scans: [] })
-    tool.onPointer(pointer('move', null), ctx)
-    expect(regionStore.getState().count).toBe(0)
+    expect(regionStore.getState()).toMatchObject({ count: 0, notice: 'S1 is gone: what was painted on it went with it' })
+    off()
+  })
+})
+
+describe('what is seen is what is painted (I1, M4)', () => {
+  it('takes nothing of the scan where a part is in front of it: not at the press, not as the stroke goes, and shows no ring there', () => {
+    const { ctx, painted, navigation, rings } = fake()
+    const tool = regionTool()
+    // The lid is 60 along the ray, the scan 100: the press is the camera's.
+    tool.onPointer(pointer('down', [-6, 0], { buttons: 1, part: 60 }), ctx)
+    tool.onPointer(pointer('up', [-6, 0], { part: 60 }), ctx)
+    expect(navigation).toEqual([])
+    expect(painted.set?.count ?? 0).toBe(0)
+    tool.onPointer(pointer('move', [0, 0], { part: 60 }), ctx)
+    expect(rings[rings.length - 1]).toBeNull()
+    // A stroke that runs under the lid stops there, and goes on where the scan is seen again.
+    tool.onPointer(pointer('down', [-10, 0], { buttons: 1 }), ctx)
+    const open = painted.set!.count
+    tool.onPointer(pointer('move', [-4, 0], { buttons: 1, part: 60 }), ctx)
+    tool.onPointer(pointer('move', [0, 0], { buttons: 1, part: 60 }), ctx)
+    expect(painted.set!.count).toBe(open)
+    tool.onPointer(pointer('move', [10, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [10, 0]), ctx)
+    // Two dabs, with nothing between them: not a band from -10 to 10.
+    expect(painted.set!.count).toBeLessThan(open * 2 + 4)
+    expect(painted.set!.count).toBeGreaterThan(open)
+    // A part behind the scan is in nobody's way.
+    clearRegion()
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1, part: 140 }), ctx)
+    tool.onPointer(pointer('up', [0, 0], { part: 140 }), ctx)
+    expect(painted.set!.count).toBeGreaterThan(0)
+  })
+
+  it('takes nothing of the half a section has taken away, with the brush or with a box', () => {
+    const { ctx, painted, cut } = fake()
+    const tool = regionTool()
+    // What is at a greater x than 0 is cut away.
+    cut.plane = { origin: [0, 0, 0], normal: [1, 0, 0] }
+    tool.onPointer(pointer('down', [-0.5, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [-0.5, 0]), ctx)
+    const middleX = (t: number): number => (SHEET.vertices[SHEET.triangles[t * 3] * 3] + SHEET.vertices[SHEET.triangles[t * 3 + 1] * 3] + SHEET.vertices[SHEET.triangles[t * 3 + 2] * 3]) / 3
+    const all = (): number[] => Array.from({ length: 1682 }, (_, t) => t).filter((t) => painted.set!.has(t))
+    expect(all().length).toBeGreaterThan(4)
+    expect(all().every((t) => middleX(t) <= 1e-6)).toBe(true)
+    clearRegion()
+    tool.onPointer(pointer('down', [-3, -2], { buttons: 1, shift: true }), ctx)
+    tool.onPointer(pointer('up', [3, 2]), ctx)
+    expect(all().length).toBeGreaterThan(10)
+    expect(all().every((t) => middleX(t) <= 1e-6)).toBe(true)
+  })
+})
+
+describe('fix round 1, the smaller things', () => {
+  it('takes a box on the scan pressed on before the one the Align tool had (M1)', () => {
+    store.setState({ scans: [scanInfo('S1'), scanInfo('S2')] })
+    alignStore.setState({ scan: 'S2' })
+    const { ctx, painted } = fake()
+    const tool = regionTool()
+    tool.onPointer(pointer('down', [0, -2], { buttons: 1, shift: true }), ctx)
+    tool.onPointer(pointer('up', [3, 2]), ctx)
+    expect(painted.scan).toBe('S1')
+    expect(painted.set!.count).toBeGreaterThan(10)
+  })
+
+  it('says when growing stopped at the most it adds at once (M2)', () => {
+    const { ctx, painted } = fake()
+    const tool = regionTool()
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [0, 0]), ctx)
+    growRegion()
+    // The whole sheet is under the cap: nothing to say.
+    expect(regionStore.getState().notice).toBeNull()
+    growRegion()
+    expect(regionStore.getState().notice).toBe('Nothing flat with it is within reach')
+    expect(painted.set!.count).toBe(1682)
+  })
+
+  it('takes no press while main is keeping: what was sent is what is kept (M3)', async () => {
+    const { ctx, painted, said } = fake()
+    const tool = regionTool()
+    stroke(tool, ctx)
+    const count = painted.set!.count
+    let done: (mark: Mark) => void = () => {}
+    answer = () => new Promise((resolve) => (done = resolve))
+    void keepRegion(ctx)
+    tool.onPointer(pointer('down', [8, 8], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [8, 8]), ctx)
+    expect(painted.set!.count).toBe(count)
+    expect(said).toContain(KEEPING)
+    done({ id: 'M2', kind: 'region', layout: 'assembly' } as Mark)
+    await vi.waitFor(() => expect(regionStore.getState().sending).toBe(false))
+    expect(popcount(asked[0].region.bits)).toBe(count)
+  })
+
+  it('takes with a box only what faces the eye, unless "through" is chosen', () => {
+    // The sheet seen from below: its triangles face away.
+    const { ctx, painted } = fake()
+    const tool = regionTool()
+    const below = (type: ViewportPointer['type'], at: [number, number], opts: { buttons?: number; shift?: boolean } = {}): ViewportPointer => ({ ...pointer(type, at, opts), ray: { origin: [at[0], at[1], -100], direction: [0, 0, 1] } })
+    const from = { ...CAMERA, position: [0, 0, -100] as Vec3 }
+    const under = { ...ctx, camera: from } as ToolContext
+    // The scan shows its back in the middle of the box: that side is the one seen, and is taken.
+    tool.onPointer(below('down', [0, -2], { buttons: 1, shift: true }), under)
+    tool.onPointer(below('up', [3, 2]), under)
+    const seen = painted.set!.count
+    expect(seen).toBeGreaterThan(10)
+    regionStore.setState({ through: true })
+    clearRegion()
+    tool.onPointer(below('down', [0, -2], { buttons: 1, shift: true }), under)
+    tool.onPointer(below('up', [3, 2]), under)
+    expect(painted.set!.count).toBe(seen)
+  })
+})
+
+describe('while the build is stale (M9)', () => {
+  it('is painted on all the same: a region is of the scan, which no build makes', () => {
+    const { ctx, painted, said } = fake()
+    const stale = { ...ctx, stale: 'The last build failed: picks wait for a build that works' } as ToolContext
+    const tool = regionTool()
+    for (const e of [pointer('down', [-6, 0], { buttons: 1 }), pointer('move', [-2, 0], { buttons: 1 }), pointer('up', [-2, 0])]) routePointer(tool, e, stale)
+    expect(painted.set!.count).toBeGreaterThan(10)
+    expect(said).toEqual([])
+  })
+})
+
+describe('painting a kept region again', () => {
+  const kept = { id: 'M4', kind: 'region', scan: 'S1', author: 'user', status: 'sent', anchorState: 'ok', layout: 'assembly', triangles: 3, area: 1.5 } as never
+  const maskOf = (...triangles: number[]): ArrayBuffer => {
+    const file = new Uint8Array(16 + Math.ceil(1682 / 8))
+    file.set(new TextEncoder().encode('TORNOMSK'))
+    new DataView(file.buffer).setUint32(8, 1, true)
+    new DataView(file.buffer).setUint32(12, 1682, true)
+    for (const t of triangles) file[16 + (t >> 3)] |= 1 << (t & 7)
+    return file.buffer
+  }
+
+  it('takes its triangles in hand as a painting, and Keep makes them the region\'s: no new mark, no note', async () => {
+    const { ctx, painted, notes } = fake()
+    const off = connectRegion(ctx.viewport as never)
+    const repainted: Array<{ id: string; bits: Uint8Array }> = []
+    const masks: string[] = []
+    vi.stubGlobal('window', { torno: { scans: { mask: async (_o: string, _s: string, stem: string) => (masks.push(stem), maskOf(5, 6, 7)) }, marks: { repaintRegion: async (_o: string, id: string, bits: Uint8Array) => (repainted.push({ id, bits }), { id, kind: 'region', layout: 'assembly' }) } } })
+    toolStore.setState({ tool: 'select' })
+    await editRegion({ ...(kept as object), mask: 2 } as never)
+    expect(masks).toEqual(['M4.2'])
+    expect(toolStore.getState().tool).toBe('region')
+    expect([painted.scan, painted.set!.count]).toEqual(['S1', 3])
+    expect(regionStore.getState()).toMatchObject({ editing: 'M4', count: 3, scan: 'S1' })
+    const tool = regionTool()
+    stroke(tool, ctx)
+    const count = painted.set!.count
+    expect(count).toBeGreaterThan(3)
+    await keepRegion(ctx)
+    expect(repainted).toHaveLength(1)
+    expect(repainted[0].id).toBe('M4')
+    expect(popcount(repainted[0].bits)).toBe(count)
+    expect(notes).toEqual([])
+    expect(regionStore.getState()).toMatchObject({ editing: null, count: 0 })
+    off()
+  })
+
+  it('is not taken in hand while another painting is: that one is kept or cleared first', async () => {
+    const { ctx, painted } = fake()
+    const tool = regionTool()
+    stroke(tool, ctx)
+    const set = painted.set
+    let asked = 0
+    vi.stubGlobal('window', { torno: { scans: { mask: async () => ((asked += 1), maskOf(1)) } } })
+    await editRegion(kept)
+    expect(asked).toBe(0)
+    expect(painted.set).toBe(set)
+    expect(regionStore.getState().notice).toBe(IN_HAND)
   })
 })
 

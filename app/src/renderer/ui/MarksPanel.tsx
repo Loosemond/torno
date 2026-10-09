@@ -53,8 +53,9 @@ export function MarksPanel() {
       key={mark.id}
       mark={mark}
       active={mark.id === active}
-      elsewhere={mark.layout !== layout}
-      gone={layouts !== undefined && !layouts.includes(mark.layout)}
+      // A region is of its scan in every layout: it is never elsewhere, and its layout going takes nothing from it.
+      elsewhere={mark.kind !== 'region' && mark.layout !== layout}
+      gone={mark.kind !== 'region' && layouts !== undefined && !layouts.includes(mark.layout)}
       partHidden={hidden(mark)}
       revision={revision}
       change={(patch: MarkPatch) => {

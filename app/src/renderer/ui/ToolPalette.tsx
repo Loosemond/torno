@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ShapeKind } from '../../shared/marks'
 import { BETWEEN, ROUND, SHAPES, TOOLS, setBetween, setRound, setShape, setTool, useBetween, useRound, useShape, useTool, type ToolName } from '../state/tools'
+import { count } from '../../shared/format'
+import { useRegion } from '../state/region'
 import { TYPING } from './typing'
 
 /**
@@ -12,6 +14,8 @@ import { TYPING } from './typing'
 export function ToolPalette() {
   const tool = useTool()
   const shape = useShape()
+  // What is painted on a scan and not yet kept: it waits while another tool is in hand, and the Region tool's button says so.
+  const waiting = useRegion((s) => s.count)
   const [choosing, setChoosing] = useState(false)
   const choice = useRef<HTMLDivElement>(null)
 
@@ -104,10 +108,11 @@ export function ToolPalette() {
             type="button"
             className="tool-button"
             data-tool={t.name}
-            aria-label={t.label}
+            data-waiting={t.name === 'region' && waiting > 0 && tool !== 'region' ? '' : undefined}
+            aria-label={t.name === 'region' && waiting > 0 && tool !== 'region' ? `${t.label}: a painting of ${count(waiting)} triangles is waiting` : t.label}
             aria-pressed={t.name === tool}
             aria-keyshortcuts={t.key}
-            title={t.ready ? `${t.label} (${t.key})` : `${t.label} (${t.key}): not available yet`}
+            title={t.name === 'region' && waiting > 0 && tool !== 'region' ? `${t.label} (${t.key}): a painting of ${count(waiting)} triangles is waiting. Keep or Clear it` : t.ready ? `${t.label} (${t.key})` : `${t.label} (${t.key}): not available yet`}
             disabled={!t.ready}
             onClick={() => setTool(t.name)}
           >

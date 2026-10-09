@@ -29,7 +29,7 @@ const TYPED: ScanAlignment = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 
 const checkedOn = (alignments: Record<string, ScanAlignment>, revision = 3) => Object.fromEntries(Object.keys(alignments).map((layout) => [layout, { revision, of: 4, off: 0, worst: 0, moved: [] }]))
 const scan = (id: string, alignments: Record<string, ScanAlignment> = {}, more: Partial<ScanInfo> = {}): ScanInfo =>
   ({ id, name: `${id}.glb`, source: { path: `/dl/${id}.glb`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'm', up: 'y', assumed: { unit: true, up: true }, vertices: 936823, triangles: 1607144, colours: 'texture', bbox: { min: [-1258.9, -1175.3, 0], max: [1258.9, 1175.3, 1493.6] }, area: 1, at: '' }, alignments, sourceState: 'present', meshState: 'ok', checks: checkedOn(alignments), ...more }) as ScanInfo
-const REGION = { id: 'M7', kind: 'region', scan: 'S1', author: 'user', note: 'wiring loom', status: 'sent', anchorState: 'ok', layout: 'print', revision: 3, camera: CAMERA, createdAt: '', triangles: 4812, area: 31000, local: { centroid: [0, 0, 0], bbox: { min: [0, 0, 0], max: [1, 1, 1] }, plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 1 } } } as unknown as Mark
+const REGION = { id: 'M7', kind: 'region', scan: 'S1', author: 'user', note: 'wiring loom', status: 'sent', anchorState: 'ok', layout: 'print', revision: 3, camera: CAMERA, createdAt: '', triangles: 4812, area: 31000, local: { centroid: [0, 0, 0], bbox: { min: [0, 0, 0], max: [1, 1, 1] }, plane: { origin: [0, 0, 0], normal: [0, 0, 1], rms: 1 }, box: { centre: [0.5, 0.5, 0.5], axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], half: [0.5, 0.5, 0.5] } } } as unknown as Mark
 
 let root: string
 let obj: ObjectInfo

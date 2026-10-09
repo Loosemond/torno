@@ -84,3 +84,44 @@ describe('what a mark is drawn as', () => {
     expect(marks.group.children[0]).not.toBe(drawn)
   })
 })
+
+// Task 8, fix round 1: a region is of its scan in every layout.
+describe('a region of a scan', () => {
+  const region = { ...BASE, id: 'M9', kind: 'region', layout: 'print', scan: 'S1', triangles: 2, area: 100, local: { centroid: [1, 2, 3], bbox: { min: [0, 0, 3], max: [2, 4, 3] }, plane: { origin: [1, 2, 3], normal: [0, 0, 1], rms: 0 }, box: { centre: [1, 2, 3], axes: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], half: [2, 1, 0] } } } as unknown as Mark
+  const camera = new THREE.PerspectiveCamera(35, 4 / 3, 1, 1000)
+  camera.position.set(100, -100, 80)
+  camera.lookAt(0, 0, 10)
+  camera.updateMatrixWorld()
+  const chip = (text: string) => ({ w: 8 * text.length, h: 16 })
+  const scans = (drawn: Record<string, boolean>) => ({
+    // Aligned in assembly, 10 mm along X; as imported anywhere else.
+    placedIn: (scan: string, layout: string) => (scan in drawn ? { t: [layout === 'assembly' ? 10 : 0, 0, 0] as Vec3, q: [0, 0, 0, 1] as [number, number, number, number], s: 1 } : null),
+    drawn: (scan: string) => drawn[scan] === true
+  })
+
+  it('has its number at its middle in whichever layout is shown, where its scan stands there, and none where its scan is not drawn', () => {
+    const marks = new MarkLayer(COLOURS, scans({ S1: true }))
+    marks.setMarks([region])
+    for (const layout of ['assembly', 'print']) {
+      marks.show(layout)
+      expect(marks.labels(layout, camera, { width: 800, height: 600 }, 1, chip).map((label) => label.id)).toEqual(['M9'])
+      expect(marks.markOf(layout, 'M9')).toBe(region)
+    }
+    marks.show('assembly')
+    expect(marks.anchorOf(region).point).toEqual([11, 2, 3])
+    marks.show('print')
+    expect(marks.anchorOf(region).point).toEqual([1, 2, 3])
+    // Switched off on screen; left out of a picture; gone; orphaned.
+    const off = new MarkLayer(COLOURS, scans({ S1: false }))
+    off.setMarks([region])
+    expect(off.labels('assembly', camera, { width: 800, height: 600 }, 1, chip)).toEqual([])
+    expect(marks.labels('assembly', camera, { width: 800, height: 600 }, 1, chip, new Set(['scan:S1']))).toEqual([])
+    // A picture that draws a scan the screen has switched off has its regions' numbers.
+    expect(off.labels('assembly', camera, { width: 800, height: 600 }, 1, chip, new Set()).map((label) => label.id)).toEqual(['M9'])
+    const none = new MarkLayer(COLOURS, scans({}))
+    none.setMarks([region])
+    expect(none.labels('assembly', camera, { width: 800, height: 600 }, 1, chip)).toEqual([])
+    marks.setMarks([{ ...region, anchorState: 'orphaned' } as Mark])
+    expect(marks.labels('assembly', camera, { width: 800, height: 600 }, 1, chip)).toEqual([])
+  })
+})

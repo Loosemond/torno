@@ -115,19 +115,22 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   await pickFile(file)
   await page.getByRole('button', { name: 'Import scan…' }).click()
   await expect.poll(async () => (await scans())[0]?.ready).toBe(true)
-  // The lid is in the way of the sheet: it is switched off to paint.
-  await page.locator('.layer-row[data-layer="lid"]').getByRole('button', { name: 'Show lid' }).click()
   await page.getByRole('button', { name: 'Top', exact: true }).click()
-  // The view turns to it over a moment: the strokes below are made from above.
-  await expect.poll(async () => {
-    const { position, target } = await page.evaluate(() => window.__tornoTest!.camera())
-    return Math.hypot(position[0] - target[0], position[1] - target[1])
-  }).toBeLessThan(0.01)
   await page.keyboard.press('b')
   await expect(bar()).toBeVisible()
   await expect(bar()).toContainText('Drag over the scan to paint the part to name')
   await bar().getByRole('textbox', { name: 'Brush radius' }).fill('3')
   await bar().getByRole('textbox', { name: 'Brush radius' }).press('Enter')
+  // Fix round 1 (I1): the lid is over the sheet, and what is not seen is not painted. A press on it takes nothing: it is the camera's, as beside the scan.
+  await page.mouse.move(...(await at([-10, -8, 39])))
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(bar()).toContainText('0 triangles')
+  expect((await tints()).painting).toBeNull()
+  // (That press also finished the view's turn to Top, M10: the strokes below need no wait for it.)
+  expect(await page.evaluate(() => { const { position, target } = window.__tornoTest!.camera(); return Math.hypot(position[0] - target[0], position[1] - target[1]) })).toBeLessThan(0.01)
+  // The lid is switched off to paint.
+  await page.locator('.layer-row[data-layer="lid"]').getByRole('button', { name: 'Show lid' }).click()
   // One stroke along the sheet's left side, from front to back.
   await page.mouse.move(...(await at([-10, -8, 39])))
   await page.mouse.down()
@@ -163,6 +166,20 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   await page.keyboard.press('z')
   await expect.poll(painted).toBe(first)
 
+  // Fix round 1 (I5): another tool, or Escape, and the painting waits: the Region tool's button says so, and it is in hand again with B.
+  await page.keyboard.press('Escape')
+  await expect(bar()).toHaveCount(0)
+  await expect(page.locator('.tool-button[data-tool="region"]')).toHaveAttribute('data-waiting', '')
+  expect((await tints()).painting).toBeNull()
+  await page.keyboard.press('b')
+  await expect(bar()).toContainText(`A painting of ${first} triangles on S1 is waiting: Keep or Clear, or paint on`)
+  expect((await tints()).painting).toMatchObject({ triangles: first, visible: true })
+  // Clear is the one way it goes, and Undo brings that back.
+  await bar().getByRole('button', { name: 'Clear' }).click()
+  await expect(bar()).toContainText('0 triangles')
+  await bar().getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(painted).toBe(first)
+
   const camera = await page.evaluate(() => window.__tornoTest!.camera())
   await bar().getByRole('button', { name: 'Keep' }).click()
   // The stroke turned no camera, and the note of the new mark is open.
@@ -183,6 +200,7 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   expect([...mask.subarray(16)].reduce((sum, byte) => sum + byte.toString(2).split('1').length - 1, 0)).toBe(region.triangles)
   expect(readFileSync(join(root, 'hollow', '.torno', 'marks.json'), 'utf8')).not.toContain('bits')
 
+  expect(region.mesh).toMatch(/^[0-9a-f]{64}\|900\|1682\|mm\|z$/)
   // On screen: the bar has nothing in hand, the region is tinted from its mask and has its number, and its row says what it is.
   await expect(bar()).toContainText('0 triangles')
   await expect.poll(async () => (await tints()).regions).toEqual([{ id: 'M1', scan: 'S1', triangles: region.triangles, visible: true, colour: expect.stringMatching(/^#[0-9a-f]{6}$/) }])
@@ -212,9 +230,10 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   expect((await call(client, 'scan_clash', { part: 'lid', ignore: ['M1'] })).text).toContain('S1 is not aligned in layout assembly')
   await app.evaluate(() => (globalThis as any).__tornoMain.scans.align('hollow', 'S1', 'assembly', { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: { tub: [0, 0, 0], lid: [0, 0, 0] }, at: new Date().toISOString() }))
   const marks = JSON.parse((await call(client, 'marks')).text).marks
-  expect(marks[0].line).toMatch(/^M1 region on scan S1: [\d,]+ triangles, ≈ [\d.]+ mm², centre \(-?[\d.]+, -?[\d.]+, 39\), box /)
+  expect(marks[0].line).toMatch(/^M1 region on scan S1: [\d,]+ triangles, ≈ [\d.]+ mm², centre ≈ \(-?[\d.]+, -?[\d.]+, 39\), ≈ [\d.]+ × [\d.]+ × 0 mm, its long side along \(-?[\d.]+, (1|0\.99\d*), 0\), within a box of ≈ [\d.]+ × [\d.]+ × 0 mm, flat about a plane with normal ≈ \(0, 0, 1\): /)
   expect(marks[0].local).toBeUndefined()
-  expect(marks[0]).toMatchObject({ scan: 'S1', triangles: region.triangles, flat: true, bbox: { min: [expect.any(Number), expect.any(Number), 39], max: [expect.any(Number), expect.any(Number), 39] } })
+  for (const key of ['local', 'mesh', 'mask']) expect(marks[0]).not.toHaveProperty(key)
+  expect(marks[0]).toMatchObject({ scan: 'S1', triangles: region.triangles, toldIn: 'assembly', aligned: true, flat: true, bbox: { min: [expect.any(Number), expect.any(Number), 39], max: [expect.any(Number), expect.any(Number), 39] } })
   const all = JSON.parse((await call(client, 'scan_clash', { part: 'lid' })).text)
   expect(all.inside.count).toBe(900)
   const left = JSON.parse((await call(client, 'scan_clash', { part: 'lid', ignore: ['M1'] })).text)
@@ -230,6 +249,40 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   const measured = JSON.parse((await call(client, 'measure', { kind: 'distance', a: 'M1', b: 'tub' })).text)
   expect(measured.reading).toMatch(/the centroid of region M1 \(S1\) at \(-?[\d.]+, -?[\d.]+, 39\) to tub/)
   expect(measured.exact).toBe(false)
+})
+
+test('a kept region is painted again from its row: a new mask, the same mark, and the agent is told it changed', async () => {
+  const before = (await state()).marks[0] as RegionMark
+  expect(before.status).toBe('sent')
+  await page.locator('.mark-row[data-mark="M1"]').hover()
+  await page.getByRole('button', { name: 'Edit M1', exact: true }).click()
+  await expect(bar()).toContainText('Painting M1 again')
+  await expect.poll(painted).toBe(before.triangles)
+  // While it is in hand it is drawn as the painting, not as it was kept.
+  await expect.poll(async () => (await tints()).regions).toEqual([])
+  // A dab on the other side of the sheet.
+  await page.mouse.move(...(await at([8, 0, 39])))
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect.poll(painted).toBeGreaterThan(before.triangles)
+  const now = await painted()
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => ((await state()).marks[0] as RegionMark).triangles).toBe(now)
+  const after = (await state()).marks[0] as RegionMark
+  expect(after).toMatchObject({ id: 'M1', note: 'wiring loom, can be pushed aside', status: 'draft', sentBefore: true, mask: 1, mesh: before.mesh })
+  // No note opened: it has one.
+  await expect(page.locator('.note-popover')).toHaveCount(0)
+  expect(existsSync(join(root, 'hollow', '.torno', 'scans', 'S1', 'M1.mask'))).toBe(false)
+  const mask = readFileSync(join(root, 'hollow', '.torno', 'scans', 'S1', 'M1.1.mask'))
+  expect([...mask.subarray(16)].reduce((sum, byte) => sum + byte.toString(2).split('1').length - 1, 0)).toBe(now)
+  await expect.poll(async () => (await tints()).regions).toMatchObject([{ id: 'M1', triangles: now }])
+  // The kernel is given the new file: more points are left out than before.
+  const client = await connect('hollow')
+  const left = JSON.parse((await call(client, 'scan_clash', { part: 'lid', ignore: ['M1'] })).text)
+  expect(left.inside.count).toBe(900 - left.points.ignored)
+  expect(left.points.ignored).toBeGreaterThan(20)
+  await prompt()
+  await expect.poll(said).toContain('(changed)M1regiononscanS1:')
 })
 
 test('a region goes on as a mark when its scan is removed, and says so', async () => {

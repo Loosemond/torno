@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { exactText, shownDimension } from '../../shared/dimension'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
-import { number } from '../../shared/format'
+import { count, number } from '../../shared/format'
 import { actions, store, useStore } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
+import { editRegion } from '../tools/regionTool'
 import { labelText } from '../viewport/marks/labels'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { ShapeFields } from './ShapeFields'
@@ -124,7 +125,7 @@ export function MarkRow({
 
   const what = [
     KIND_NAME[mark.kind],
-    mark.kind === 'shape' ? `${mark.shape}, ${mark.intent}` : mark.kind === 'dimension' ? mark.measure : mark.kind === 'region' ? `${mark.scan} · ${mark.triangles.toLocaleString('en-US')} ${mark.triangles === 1 ? 'triangle' : 'triangles'}` : '',
+    mark.kind === 'shape' ? `${mark.shape}, ${mark.intent}` : mark.kind === 'dimension' ? mark.measure : mark.kind === 'region' ? `${mark.scan} · ${count(mark.triangles)} ${mark.triangles === 1 ? 'triangle' : 'triangles'}` : '',
     elsewhere ? `in layout ${mark.layout}` : ''
   ]
     .filter(Boolean)
@@ -157,7 +158,7 @@ export function MarkRow({
       </span>
       {mark.kind === 'dimension' && <DimensionValue mark={mark} revision={revision} />}
       {mark.kind === 'region' && (
-        <span className="mark-value num" title={`${mark.triangles.toLocaleString('en-US')} ${mark.triangles === 1 ? 'triangle' : 'triangles'} of ${mark.scan}, ≈ ${number(mark.area)} mm² of its mesh`}>
+        <span className="mark-value num" title={`${count(mark.triangles)} ${mark.triangles === 1 ? 'triangle' : 'triangles'} of ${mark.scan}, ≈ ${number(mark.area)} mm² of its mesh`}>
           {mark.scan}
         </span>
       )}
@@ -248,6 +249,11 @@ export function MarkRow({
             <ReplaceIcon />
           </button>
         )}
+        {mark.kind === 'region' && !resolved && mark.anchorState === 'ok' && mark.author === 'user' && (
+          <button type="button" className="icon-button" aria-label={`Edit ${mark.id}`} title="Edit: take its triangles in hand and paint it again" onClick={() => void editRegion(mark)}>
+            <BrushIcon />
+          </button>
+        )}
         <button type="button" className="icon-button" aria-label={`Go to ${mark.id}`} title={gone ? LAYOUT_GONE : 'Go to its view'} disabled={gone} onClick={() => actions.focusMark(mark.id)}>
           <FocusIcon />
         </button>
@@ -309,6 +315,15 @@ function Glyph({ children }: { children: ReactNode }) {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {children}
     </svg>
+  )
+}
+
+/** A brush: paint it again. */
+function BrushIcon() {
+  return (
+    <Glyph>
+      <path d="m8.750 7.750 4.300-5.200a.9.900 0 0 1 1.400 1.150L10.250 9M8.750 7.750 10.250 9c.3 1.600-.9 3-2.750 2.750-.9-.1-1.500-.6-1.750-1 .9-.1 1.300-.6 1.500-1.500.150-.8.7-1.350 1.500-1.500Z" />
+    </Glyph>
   )
 }
 

@@ -16,7 +16,7 @@ import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
 import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
 import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
-import { type RegionDeps, addRegion, orphanLost, removeMark, restateRegions } from './marks/regions'
+import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, tendRegions } from './marks/regions'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
 import { type AlignCheckDeps, checkAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
@@ -434,6 +434,8 @@ export function registerIpc(
   ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => (scans ? removeMark(regions(), String(objectId), String(id)) : requireMarks().remove(String(objectId), String(id))))
   // What the person painted on a scan: main works out what it is from the mesh, and writes its triangles beside it.
   ipcMain.handle('marks:addRegion', (_event, objectId: string, region: NewRegion) => addRegion(regions(), String(objectId), region))
+  // A region painted again: the same mark, of the triangles sent; main writes them as a new mask and says the numbers anew.
+  ipcMain.handle('marks:repaintRegion', (_event, objectId: string, id: string, bits: Uint8Array) => repaintRegion(regions(), String(objectId), String(id), bits))
   ipcMain.handle('marks:replace', async (_event, objectId: string, id: string, placed: Replacement) => {
     const store = requireMarks()
     const layout = (await store.list(String(objectId))).find((m) => m.id === String(id))?.layout
@@ -463,7 +465,7 @@ export function registerIpc(
     // The window asks: an alignment that was not checked against the last build is asked about again.
     recheckAlignments(String(objectId), listed)
     // And a region whose scan or whose mask was lost while torno was not looking says so.
-    if (marks) void orphanLost(regions(), String(objectId)).catch((e) => console.error(`cannot check the regions of ${String(objectId)} against its scans: ${e instanceof Error ? e.message : String(e)}`))
+    if (marks) void tendRegions(regions(), String(objectId)).catch((e) => console.error(`cannot check the regions of ${String(objectId)} against its scans: ${e instanceof Error ? e.message : String(e)}`))
     return listed
   })
   ipcMain.handle('scans:pick', async (event): Promise<string | null> => {
@@ -482,11 +484,9 @@ export function registerIpc(
     return read
   })
   // Its triangles are the same and are elsewhere: what its regions say of themselves is worked out again from the mesh it has now.
-  ipcMain.handle('scans:convert', async (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) => {
-    const converted = await requireScans().convert(String(objectId), String(id), as)
-    if (marks) await restateRegions(regions(), String(objectId), converted.id).catch((e) => console.error(`cannot say the regions of ${converted.id} anew: ${e instanceof Error ? e.message : String(e)}`))
-    return converted
-  })
+  ipcMain.handle('scans:convert', (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) =>
+    marks ? convertScan(regions(), String(objectId), String(id), as) : requireScans().convert(String(objectId), String(id), as)
+  )
   ipcMain.handle('scans:rename', (_event, objectId: string, id: string, name: string) => requireScans().rename(String(objectId), String(id), name))
   // Its regions go on as marks, with their notes, and say that their scan is gone.
   ipcMain.handle('scans:remove', async (_event, objectId: string, id: string) => {

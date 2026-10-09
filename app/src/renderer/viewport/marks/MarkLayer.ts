@@ -62,15 +62,18 @@ export class MarkLayer {
     this.group.name = 'marks'
   }
 
-  /** Where the middle of a region is in the layout of its mark, as its scan stands there; null when its scan is not there, or is no longer the mesh it was painted on. */
-  private readonly regionAt = (mark: RegionMark): Vec3 | null => {
-    const placed = mark.anchorState === 'orphaned' ? null : this.scans?.placedIn(mark.scan, mark.layout)
+  /** Where the middle of a region is in a layout, as its scan stands there; null when its scan is not there, or is no longer the mesh it was painted on. */
+  private readonly regionIn = (layout: string) => (mark: RegionMark): Vec3 | null => {
+    const placed = mark.anchorState === 'orphaned' ? null : this.scans?.placedIn(mark.scan, layout)
     return placed ? apply(placed, mark.local.centroid) : null
   }
 
+  /** Whether a mark is of a layout: its own, and a region of every one, since it is of its scan wherever that stands. */
+  private readonly of = (mark: Mark, layout: string | null): boolean => (mark.kind === 'region' ? layout !== null : mark.layout === layout)
+
   /** Where a mark's label hangs, as this layer draws it (`labelAnchor`). */
   anchorOf(mark: Mark): ReturnType<typeof labelAnchor> {
-    return labelAnchor(mark, this.regionAt)
+    return labelAnchor(mark, this.regionIn(this.layout ?? mark.layout))
   }
 
   /** The colours changed, as with the colour scheme: everything is made again. */
@@ -177,7 +180,7 @@ export class MarkLayer {
   }
 
   private shows(mark: Mark, layout: string | null = this.layout, hidden: ReadonlySet<string> = this.hidden): boolean {
-    return mark.layout === layout && !onHidden(mark, hidden)
+    return this.of(mark, layout) && !onHidden(mark, hidden)
   }
 
   /**
@@ -185,9 +188,9 @@ export class MarkLayer {
    * screen, is switched off. A view that says what it leaves out (`hidden`, a picture's) names the scans it does
    * not draw as `scan:S1`.
    */
-  private regionHidden(mark: Mark, hidden: ReadonlySet<string> | undefined): boolean {
+  private regionHidden(mark: Mark, layout: string, hidden: ReadonlySet<string> | undefined): boolean {
     if (mark.kind !== 'region') return false
-    if (this.regionAt(mark) === null) return true
+    if (this.regionIn(layout)(mark) === null) return true
     return hidden ? hidden.has(`scan:${mark.scan}`) : this.scans?.drawn(mark.scan) !== true
   }
 
@@ -228,7 +231,7 @@ export class MarkLayer {
    * as `show` was last told, or `hidden` for a view that draws other parts.
    */
   labels(layout: string, camera: THREE.Camera, size: Size, unit: number, chip: Chip, hidden?: ReadonlySet<string>): Placed[] {
-    return place(project(this.marksOf(layout, hidden), camera, size, unit, this.revision, this.regionAt), chip, size, unit)
+    return place(project(this.marksOf(layout, hidden), camera, size, unit, this.revision, this.regionIn(layout)), chip, size, unit)
   }
 
   /**
@@ -254,7 +257,7 @@ export class MarkLayer {
   /** A mark of a layout, among those drawn: not one on a part that is switched off. */
   markOf(layout: string, id: string): Mark | undefined {
     const mark = this.entries.get(id)?.mark
-    return mark?.layout === layout && !onHidden(mark, this.hidden) && !this.regionHidden(mark, undefined) ? mark : undefined
+    return mark && this.of(mark, layout) && !onHidden(mark, this.hidden) && !this.regionHidden(mark, layout, undefined) ? mark : undefined
   }
 
   dispose(): void {
@@ -264,7 +267,7 @@ export class MarkLayer {
 
   /** The marks of a layout that are drawn, in the order of their numbers, so that a label keeps its place as others come and go after it. */
   private marksOf(layout: string, hidden?: ReadonlySet<string>): Mark[] {
-    return [...this.entries.values()].map((e) => e.mark).filter((m) => m.layout === layout && !onHidden(m, hidden ?? this.hidden) && !this.regionHidden(m, hidden)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
+    return [...this.entries.values()].map((e) => e.mark).filter((m) => this.of(m, layout) && !onHidden(m, hidden ?? this.hidden) && !this.regionHidden(m, layout, hidden)).sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
   }
 
   private clear(): void {

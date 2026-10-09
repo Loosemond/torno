@@ -194,6 +194,7 @@ export class Viewport {
       pick: (x, y) => this.pick(x, y),
       pickedCut: () => this.onCut,
       syncMatrices: () => this.syncMatrices(),
+      settle: this.onControlStart,
       view: () => this.getCamera(),
       setView: (c) => {
         this.move.drop()
@@ -301,6 +302,11 @@ export class Viewport {
 
   scanState(): ScanLayerState[] {
     return this.scans.state()
+  }
+
+  /** What is tinted on the scans: the regions kept and the set being painted. */
+  regionState(): ReturnType<ScanLayer['tints']['state']> {
+    return this.scans.tints.state()
   }
 
   /** A scan's bounds tree, how it was made and the mesh it is of; null until it is there. For what works on a scan's triangles (the region brush). */
@@ -957,8 +963,10 @@ export class Viewport {
     this.onCameraChange()
   }
 
+  /** A press takes over from a camera move: the view is where it was going, at once, and the press is answered there. */
   private readonly onControlStart = (): void => {
-    this.move.drop() // the user takes over from a camera move
+    const to = this.move.finish()
+    if (to) this.applyCamera(to)
   }
 
   private readonly onCameraChange = (): void => {

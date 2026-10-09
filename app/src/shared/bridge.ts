@@ -43,6 +43,8 @@ export interface TornoBridge {
     add(objectId: string, mark: NewMark): Promise<Mark>
     /** Keeps what was painted on a scan as a region mark: main works out its count, area and place from the mesh, and writes its triangles beside it. Rejects for no triangle, or bits that are not of that scan's mesh. */
     addRegion(objectId: string, region: NewRegion): Promise<Mark>
+    /** A kept region painted again: the same mark and note, of these triangles (the bits of a mask). One the agent was sent is a draft again. */
+    repaintRegion(objectId: string, id: string, bits: Uint8Array): Promise<Mark>
     update(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
     remove(objectId: string, id: string): Promise<void>
     /** Puts a pin, a pick or an arrow somewhere else on a part: the same mark and note, tied where it was clicked. An arrow keeps its length and direction. */
@@ -87,8 +89,8 @@ export interface TornoBridge {
     alignHolds(objectId: string, id: string, layout: string): Promise<ScanInfo>
     /** The scan's `mesh.bin`, for `parseScanMesh`. */
     mesh(objectId: string, id: string): Promise<ArrayBuffer>
-    /** The `.mask` of a region of a scan, as the file is: for `maskBits`. */
-    mask(objectId: string, id: string, markId: string): Promise<ArrayBuffer>
+    /** The `.mask` of a region of a scan, as the file is, by its stem (`maskStem`): for `maskBits`. */
+    mask(objectId: string, id: string, stem: string): Promise<ArrayBuffer>
     onChanged(cb: (m: { objectId: string; scans: ScanInfo[] }) => void): () => void
     onProgress(cb: (m: { objectId: string; name: string; stage: string | null }) => void): () => void
     /** Something about an object's scans file the person should know, said once: a file that could not be read was set aside. */

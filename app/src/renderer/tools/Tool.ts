@@ -112,11 +112,13 @@ export function clickGuard(): { begin(client: [number, number]): (() => void) | 
 /**
  * Hands a pointer event to a tool, unless the parts on screen are stale: their
  * refs would name other geometry in the new build, so nothing is pointed at
- * and the pointer is told why. On the cut face of a section the tool is told
+ * and the pointer is told why. A scan is no part of a build: it is painted
+ * on whatever the build is doing. On the cut face of a section the tool is told
  * of nothing there, like beside the parts, and the pointer is told what it is on.
  */
 export function routePointer(tool: Tool, e: ViewportPointer, ctx: ToolContext): void {
-  if (ctx.stale !== null) {
+  // Not the Region tool: what it paints is a scan's, which no build makes or changes.
+  if (ctx.stale !== null && tool.id !== 'region') {
     if (e.hit) ctx.readout.say(e.client, ctx.stale)
     else ctx.readout.hide()
     return

@@ -68,6 +68,8 @@ export class TriangleSet {
   }
 }
 
+/** A triangle whose middle is this far into the half a section takes away is still of what is kept: it is cut, and seen. */
+const KEPT_WITHIN = 1e-6
 const sphere = new THREE.Sphere()
 const middle = new THREE.Vector3()
 const normal = new THREE.Vector3()
@@ -76,15 +78,17 @@ const towardsEye = new THREE.Vector3()
 
 /**
  * Calls `each` with the triangles whose centroid is within `radius` of `centre` (the scan's own frame) and,
- * when `towards` is given, that face it: whose normal has a share along it. Each once, in no order.
+ * when `towards` is given, that face it: whose normal has a share along it. Each once, in no order. With
+ * `keeps`, the plane of a section in the scan's frame, only those on the side it keeps (its positive side): what
+ * a cut has taken away is not drawn, and is not taken.
  */
-export function gatherSphere(tree: MeshBVH, _geometry: THREE.BufferGeometry, centre: THREE.Vector3, radius: number, towards: THREE.Vector3 | null, each: (triangle: number) => void): void {
+export function gatherSphere(tree: MeshBVH, _geometry: THREE.BufferGeometry, centre: THREE.Vector3, radius: number, towards: THREE.Vector3 | null, each: (triangle: number) => void, keeps: THREE.Plane | null = null): void {
   sphere.set(centre, radius)
   tree.shapecast({
     intersectsBounds: (box) => box.intersectsSphere(sphere),
     intersectsTriangle: (triangle, index) => {
       triangle.getMidpoint(middle)
-      if (sphere.containsPoint(middle) && (towards === null || triangle.getNormal(normal).dot(towards) > 0)) each(index)
+      if (sphere.containsPoint(middle) && (keeps === null || keeps.distanceToPoint(middle) >= -KEPT_WITHIN) && (towards === null || triangle.getNormal(normal).dot(towards) > 0)) each(index)
       return false
     }
   })
@@ -93,10 +97,12 @@ export function gatherSphere(tree: MeshBVH, _geometry: THREE.BufferGeometry, cen
 /**
  * Calls `each` with the triangles whose centroid is on the inner side of every plane (a frustum through a
  * rectangle of the screen, in the scan's own frame: a plane's normal points inwards) and that face `eye`, a
- * point; with `away`, those that face away from it instead (a scan wound the other way round shows its back).
- * It does not look at what hides what: a triangle behind another that faces the eye is taken too.
+ * point; with `away`, those that face away from it instead (a scan wound the other way round shows its back);
+ * with `through`, those that face either way. With `keeps`, only those on the side a section keeps. It does
+ * not look at what hides what: a triangle behind another that faces the eye is taken too.
  */
-export function gatherBox(tree: MeshBVH, _geometry: THREE.BufferGeometry, planes: THREE.Plane[], eye: THREE.Vector3, each: (triangle: number) => void, away = false): void {
+export function gatherBox(tree: MeshBVH, _geometry: THREE.BufferGeometry, planes: THREE.Plane[], eye: THREE.Vector3, each: (triangle: number) => void, opts: { away?: boolean; through?: boolean; keeps?: THREE.Plane | null } = {}): void {
+  const { away = false, through = false, keeps = null } = opts
   tree.shapecast({
     // A box that is wholly on the outer side of one plane holds nothing.
     intersectsBounds: (box) =>
@@ -106,7 +112,8 @@ export function gatherBox(tree: MeshBVH, _geometry: THREE.BufferGeometry, planes
       }),
     intersectsTriangle: (triangle, index) => {
       triangle.getMidpoint(middle)
-      if (planes.every((plane) => plane.distanceToPoint(middle) >= 0) && triangle.getNormal(normal).dot(towardsEye.copy(eye).sub(middle)) > 0 !== away) each(index)
+      if (!planes.every((plane) => plane.distanceToPoint(middle) >= 0) || (keeps !== null && keeps.distanceToPoint(middle) < -KEPT_WITHIN)) return false
+      if (through || triangle.getNormal(normal).dot(towardsEye.copy(eye).sub(middle)) > 0 !== away) each(index)
       return false
     }
   })

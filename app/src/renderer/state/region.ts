@@ -17,6 +17,10 @@ export interface RegionState {
   radius: number | null
   /** The brush takes triangles out. */
   erase: boolean
+  /** A box takes what faces away from the eye too: the far side of what it goes round. */
+  through: boolean
+  /** The kept region being painted again, by its mark's number; null for a new painting. */
+  editing: string | null
   /** How many triangles are painted, and their area in mm², as of the last stroke that ended. */
   count: number
   area: number
@@ -31,7 +35,7 @@ export interface RegionState {
 
 export const NOTHING_PAINTED_STATE = { scan: null, count: 0, area: 0, canUndo: false, sending: false } satisfies Partial<RegionState>
 
-export const regionStore: StoreApi<RegionState> = createStore<RegionState>(() => ({ mode: 'brush', radius: null, erase: false, refused: null, notice: null, ...NOTHING_PAINTED_STATE }))
+export const regionStore: StoreApi<RegionState> = createStore<RegionState>(() => ({ mode: 'brush', radius: null, erase: false, through: false, editing: null, refused: null, notice: null, ...NOTHING_PAINTED_STATE }))
 
 export function useRegion<T>(pick: (s: RegionState) => T): T {
   return useZustand(regionStore, pick)
@@ -52,14 +56,16 @@ export function usualRadius(scan: Pick<ScanInfo, 'imported'>, scale = 1): number
   return Math.min(Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * scale * BRUSH_OF_DIAGONAL, RADIUS.least), RADIUS.most)
 }
 
+/** Said of a box wherever one can be dragged: it does not look at what hides what. */
+export const BOX_NOTE = 'A box takes what faces you, also what something in front hides'
+export const THROUGH_NOTE = 'A box takes what it goes round, the far side too'
+
 /** The one line of the bar that says what to do next. */
-export function nextLine(state: Pick<RegionState, 'mode' | 'count' | 'notice' | 'refused' | 'sending'>, scans: number): string {
+export function nextLine(state: Pick<RegionState, 'mode' | 'count' | 'notice' | 'refused' | 'sending'> & Partial<Pick<RegionState, 'through' | 'editing'>>, scans: number): string {
   if (scans === 0) return 'Import a scan first: a region is painted on one'
   if (state.sending) return 'Keeping it…'
   if (state.notice) return state.notice
-  if (state.count > 0) return 'Keep it to name it, or paint on. Alt-drag turns the view'
-  return state.mode === 'box' ? 'Drag a box over the scan. Alt-drag turns the view' : 'Drag over the scan to paint the part to name. Alt-drag turns the view'
+  const box = state.mode === 'box' ? `. ${state.through ? THROUGH_NOTE : BOX_NOTE}` : ''
+  if (state.count > 0) return `${state.editing ? `Keep makes this ${state.editing}` : 'Keep it to name it'}, or paint on. Alt-drag turns the view${box}`
+  return state.mode === 'box' ? `Drag a box over the scan${box}. Alt-drag turns the view` : 'Drag over the scan to paint the part to name. Alt-drag turns the view'
 }
-
-/** Said of a box wherever one can be dragged: it does not look at what hides what. */
-export const BOX_NOTE = 'A box takes what faces you, also behind other things'
