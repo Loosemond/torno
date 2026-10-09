@@ -61,16 +61,17 @@ def _build(channel: Any, dir: str, model: str) -> dict[str, Any] | None:
     try:
         layouts = loader.load_scene(Path(dir), model)
         scene, blob, shapes = tess.build_scene(layouts, model)
+        _flush_output()
+        # Inside the try: a scene that cannot be written as JSON (a NaN volume)
+        # is refused before a byte of it is sent, and is a failure like any other.
+        write_frame(channel, {"ok": True, "scene": scene}, blob)
+        return shapes
     except loader.LoadError as e:
         error = {"kind": e.kind, "message": e.message, "traceback": e.traceback}
     except SystemExit as e:
         error = _exception(f"{model} exited instead of defining a scene: sys.exit({e.code!r})")
     except BaseException as e:
         error = _exception(str(e) or type(e).__name__)
-    else:
-        _flush_output()
-        write_frame(channel, {"ok": True, "scene": scene}, blob)
-        return shapes
     _flush_output()
     write_frame(channel, {"ok": False, "error": error})
     return None

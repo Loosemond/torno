@@ -32,6 +32,12 @@ class Kernel:
         write_frame(self.proc.stdin, {"id": self._next_id, "op": op, **fields})
         return self._next_id
 
+    def send_raw(self, header: str) -> None:
+        """Send a frame whose header is this text, whatever it is."""
+        encoded = header.encode("utf-8")
+        self.proc.stdin.write(_PREFIX.pack(len(encoded), 0) + encoded)
+        self.proc.stdin.flush()
+
     def recv(self, timeout: float) -> tuple[dict, bytes]:
         """The next frame. Raises TimeoutError, or EOFError if the kernel closed its end."""
         deadline = time.monotonic() + timeout

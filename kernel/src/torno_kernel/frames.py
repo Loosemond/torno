@@ -12,8 +12,14 @@ _PREFIX = struct.Struct(">II")
 
 
 def write_frame(fp: BinaryIO, header: dict, blob: bytes = b"") -> None:
-    """Write one frame to ``fp`` and flush it."""
-    encoded = json.dumps(header, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    """Write one frame to ``fp`` and flush it.
+
+    Raises ValueError, before anything is written, for a header that holds NaN
+    or an infinity: Python would write them as bare words, which are not JSON.
+    """
+    encoded = json.dumps(
+        header, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
     fp.write(_PREFIX.pack(len(encoded), len(blob)))
     fp.write(encoded)
     if blob:

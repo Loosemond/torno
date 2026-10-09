@@ -1,6 +1,7 @@
 """Find an object's model file, import it and collect its scene."""
 
 import importlib.util
+import inspect
 import sys
 import traceback as tb_module
 from pathlib import Path
@@ -8,6 +9,7 @@ from types import ModuleType, TracebackType
 from typing import Any
 
 _PRINT_FUNCTIONS = ("printables", "printable")
+_MAKER_PREFIX = "make_"
 
 
 class LoadError(Exception):
@@ -21,17 +23,23 @@ class LoadError(Exception):
 
 
 def choose_model(dir: Path) -> Path:
-    """Return the one model file in an object folder.
+    """Return the model file of an object folder.
 
-    Candidates are the top-level ``*.py`` files that are not tests.
+    Candidates are the top-level ``*.py`` files that are not tests, dotfiles
+    or ``__init__.py``. Of several, the one named after the folder is the
+    model, with ``-`` and ``_`` treated alike (``helmet-stand/helmet_stand.py``).
+    The app's ``scanWorkspace`` chooses by the same rule.
     """
-    candidates = sorted(p for p in dir.glob("*.py") if p.is_file() and not _is_test_file(p.name))
+    candidates = sorted(p for p in dir.glob("*.py") if p.is_file() and _is_candidate(p.name))
     if not candidates:
         raise LoadError("no_model", f"no model file in {dir}")
-    if len(candidates) > 1:
-        names = ", ".join(p.name for p in candidates)
-        raise LoadError("no_model", f"more than one model file in {dir}: {names}")
-    return candidates[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    named = [p for p in candidates if _same_name(p.stem, dir.name)]
+    if len(named) == 1:
+        return named[0]
+    names = ", ".join(p.name for p in candidates)
+    raise LoadError("no_model", f"more than one model file in {dir}: {names}")
 
 
 def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
@@ -45,10 +53,16 @@ def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
     except Exception as e:
         raise LoadError("exception", str(e), _model_traceback(e, path)) from e
     if not scene:
-        raise LoadError(
-            "no_scene", f"{model} defines no assembly(), printables() or top-level shapes"
-        )
+        raise LoadError("no_scene", _no_scene(module, model))
     return scene
+
+
+def _is_candidate(name: str) -> bool:
+    return not (name.startswith(".") or name == "__init__.py" or _is_test_file(name))
+
+
+def _same_name(a: str, b: str) -> bool:
+    return a.replace("-", "_") == b.replace("-", "_")
 
 
 def _is_test_file(name: str) -> bool:
@@ -67,19 +81,82 @@ def _import_model(path: Path) -> ModuleType:
 
 
 def _collect_scene(module: ModuleType) -> dict[str, dict[str, Any]]:
-    """Layouts by convention if the model follows it, else its top-level shapes."""
+    """The model's layouts, by the first convention it follows.
+
+    ``Params`` with ``assembly(p)`` or ``printables(p)``; else ``Params`` with
+    ``make_<part>(p)`` functions, as the layout ``main``; else its top-level
+    shapes, as ``main`` too.
+    """
     print_function = next((f for f in _PRINT_FUNCTIONS if hasattr(module, f)), None)
     has_assembly = hasattr(module, "assembly")
+    layouts: dict[str, dict[str, Any]] = {}
     if hasattr(module, "Params") and (has_assembly or print_function):
         params = module.Params()
-        layouts = {}
         if has_assembly:
             layouts["assembly"] = _parts(module.assembly(params), "assembly")
         if print_function:
             layouts["print"] = _parts(getattr(module, print_function)(params), print_function)
     else:
-        layouts = {"main": _top_level_shapes(module)}
+        if hasattr(module, "Params"):
+            layouts["main"] = _made_parts(module)
+        if not layouts.get("main"):
+            layouts["main"] = _top_level_shapes(module)
     return {layout: parts for layout, parts in layouts.items() if parts}
+
+
+def _makers(module: ModuleType) -> dict[str, Any]:
+    """The model's own ``make_<part>`` functions that take the parameters alone, by part name."""
+    makers = {}
+    for name, value in vars(module).items():
+        if not name.startswith(_MAKER_PREFIX) or name == _MAKER_PREFIX:
+            continue
+        # Its own: a maker imported from a library is a tool of the model, not a part of it.
+        if not inspect.isfunction(value) or value.__module__ != module.__name__:
+            continue
+        if _takes_one_argument(value):
+            makers[name.removeprefix(_MAKER_PREFIX)] = value
+    return makers
+
+
+def _takes_one_argument(function: Any) -> bool:
+    """Whether ``function(p)`` is a complete call: one required parameter, a positional one."""
+    try:
+        parameters = inspect.signature(function).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    required = [
+        p
+        for p in parameters
+        if p.default is p.empty and p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
+    ]
+    return len(required) == 1 and required[0].kind is not required[0].KEYWORD_ONLY
+
+
+def _made_parts(module: ModuleType) -> dict[str, Any]:
+    """Call every maker with ``Params()`` and keep what comes back as a solid shape."""
+    makers = _makers(module)
+    if not makers:
+        return {}
+    params = module.Params()
+    made = {name: maker(params) for name, maker in makers.items()}
+    return {name: value for name, value in made.items() if _is_solid_shape(value)}
+
+
+def _no_scene(module: ModuleType, model: str) -> str:
+    """Say what was looked for, and what stood in the way of what was found."""
+    found = [f"{name}(p)" for name in ("assembly", *_PRINT_FUNCTIONS) if hasattr(module, name)]
+    found += [f"{_MAKER_PREFIX}{name}(p)" for name in _makers(module)]
+    if found and not hasattr(module, "Params"):
+        them = "it" if len(found) == 1 else "them"
+        return (
+            f"{model} defines {_and(found)} but no Params class to call {them} with, "
+            "and no top-level shapes"
+        )
+    return f"{model} defines no assembly(p), printables(p), make_<part>(p) or top-level shapes"
+
+
+def _and(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def _parts(result: Any, function: str) -> dict[str, Any]:
@@ -92,14 +169,18 @@ def _parts(result: Any, function: str) -> dict[str, Any]:
 
 
 def _top_level_shapes(module: ModuleType) -> dict[str, Any]:
-    # build123d comes from the user's workspace, so it is imported only here.
-    from build123d import Shape
-
     return {
         name: value
         for name, value in vars(module).items()
-        if not name.startswith("_") and isinstance(value, Shape) and value.solids()
+        if not name.startswith("_") and _is_solid_shape(value)
     }
+
+
+def _is_solid_shape(value: Any) -> bool:
+    # build123d comes from the user's workspace, so it is imported only here.
+    from build123d import Shape
+
+    return isinstance(value, Shape) and bool(value.solids())
 
 
 def _model_traceback(e: BaseException, path: Path) -> str:

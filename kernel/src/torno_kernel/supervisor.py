@@ -12,6 +12,7 @@ reading from both even when either pipelines faster than it reads.
 
 import io
 import json
+import math
 import os
 import select
 import signal
@@ -27,7 +28,8 @@ from typing import Any, BinaryIO
 from . import worker as worker_module
 from .frames import write_frame
 
-DEFAULT_TIMEOUT = 300.0
+DEFAULT_TIMEOUT = 600.0
+MAX_TIMEOUT = 86400.0  # a day; a longer wait is also more than the event loop can sleep
 OUTPUT_LINES = 200
 _OUTPUT_TAIL_BYTES = 1 << 20
 _TERM_GRACE = 0.5  # seconds a replaced worker gets to exit on SIGTERM
@@ -35,6 +37,28 @@ _EXIT_GRACE = 2.0  # seconds a worker that closed its socket gets to finish dyin
 _DRAIN_GRACE = 1.0  # seconds the client gets to read the last replies at exit
 _WRITE_CHUNK = 1 << 18
 _PREFIX = struct.Struct(">II")
+
+
+def build_timeout(value: Any) -> float | None:
+    """The seconds a build may take, given a request's ``timeout``. None if it is no good.
+
+    The default when the request names none; at most MAX_TIMEOUT. A timeout
+    that is not a positive, finite number is refused.
+    """
+    if value is None:
+        return DEFAULT_TIMEOUT
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return min(float(value), MAX_TIMEOUT)
+
+
+def _is_result(header: Any) -> bool:
+    """Whether a worker's frame is a build result: ``ok`` with a scene, or not with an error."""
+    if not isinstance(header, dict):
+        return False
+    return isinstance(header.get("scene" if header.get("ok") else "error"), dict)
 
 
 class _Decoder:
@@ -191,13 +215,14 @@ class Supervisor:
         if not isinstance(dir, str) or not isinstance(model, str):
             self._fail(id, "bad_request", "build needs dir and model, both strings")
             return
+        timeout = build_timeout(timeout)
         if timeout is None:
-            timeout = DEFAULT_TIMEOUT
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-            self._fail(id, "bad_request", "build timeout must be a positive number of seconds")
+            self._fail(
+                id, "bad_request", "build timeout must be a positive, finite number of seconds"
+            )
             return
         self._cancel_building("replaced by a newer build")
-        self._building = self._fork(id, dir, model, float(timeout))
+        self._building = self._fork(id, dir, model, timeout)
         self._send({"id": id, "event": "build.started", "pid": self._building.pid})
 
     def _query(self, id: Any, request: dict[str, Any]) -> None:
@@ -263,7 +288,14 @@ class Supervisor:
             return
         for header, blob in worker.decoder.feed(chunk):
             if worker is self._building:
-                self._build_finished(worker, header, blob)
+                if _is_result(header):
+                    self._build_finished(worker, header, blob)
+                else:
+                    self._build_garbled(worker)
+            elif worker is not self._live:
+                return  # an earlier frame of this chunk ended it
+            elif not isinstance(header, dict):
+                self._live_died(worker)
             else:
                 if header.get("id") in worker.queries:
                     worker.queries.remove(header.get("id"))
@@ -304,13 +336,25 @@ class Supervisor:
             output=self._take_output(worker),
         )
 
+    def _build_garbled(self, worker: _Worker) -> None:
+        """The building worker sent something that is not a result: it is past trusting."""
+        self._building = None
+        self._stop(worker, signal.SIGKILL)
+        self._fail(
+            worker.request_id,
+            "crash",
+            "the build process sent a result that could not be read",
+            output=self._take_output(worker),
+        )
+
     def _time_out(self, worker: _Worker) -> None:
         self._building = None
         self._stop(worker, signal.SIGKILL)
         self._fail(
             worker.request_id,
             "timeout",
-            f"the build did not finish within {worker.timeout:g} s and was stopped",
+            f"the build did not finish within {worker.timeout:g} s and was stopped; "
+            "set TORNO_BUILD_TIMEOUT to a number of seconds to allow more",
             output=self._take_output(worker),
         )
 

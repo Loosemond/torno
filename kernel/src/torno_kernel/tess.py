@@ -5,8 +5,12 @@ from typing import Any
 
 import numpy as np
 
+from . import arrange
+
 DEVIATION = 0.1
 ANGULAR_TOLERANCE = 0.2
+# The layout whose parts are spread out when they overlap (see arrange.spread).
+ARRANGED_LAYOUT = "print"
 
 # Scene mesh key → (ocp-tessellate key, little-endian dtype in the blob).
 _BUFFERS = {
@@ -29,16 +33,26 @@ def build_scene(
     Returns the Scene dict (without ``seconds`` and ``output``), the blob its
     buffers point into, and the shapes by part key, in the object frame, for
     queries.
+
+    Parts of the print layout that overlap are first moved apart along X. The
+    shape itself is moved, so the mesh, the bounding box and the shape kept for
+    queries all agree; the part says how far in ``arranged``.
     """
     blob = bytearray()
     parts = []
     shapes = {}
     for layout, named in layouts.items():
+        moves: dict[str, list[float]] = {}
+        if layout == ARRANGED_LAYOUT:
+            named, moves = arrange.spread(named)
         # One layout at a time, so a name may repeat across layouts.
         for name, shape, mesh, loc, cache_id in _tessellate(named):
             key = f"{layout}:{name}"
             shapes[key] = shape
-            parts.append(_part(key, name, layout, shape, mesh, loc, cache_id, blob))
+            part = _part(key, name, layout, shape, mesh, loc, cache_id, blob)
+            if name in moves:
+                part["arranged"] = moves[name]
+            parts.append(part)
     scene = {"model": model, "layouts": list(layouts), "parts": parts}
     return scene, bytes(blob), shapes
 

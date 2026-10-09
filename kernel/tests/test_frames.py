@@ -81,3 +81,12 @@ def test_reads_whole_frame_from_a_stream_that_returns_short_reads():
     fp = io.BytesIO()
     write_frame(fp, {"id": 9}, b"payload")
     assert read_frame(Trickle(fp.getvalue())) == ({"id": 9}, b"payload")
+
+
+def test_refuses_a_header_that_is_not_json():
+    # Python would write NaN and Infinity as bare words, which no JSON parser reads.
+    for value in (float("nan"), float("inf")):
+        stream = io.BytesIO()
+        with pytest.raises(ValueError):
+            write_frame(stream, {"volume": value})
+        assert stream.getvalue() == b""

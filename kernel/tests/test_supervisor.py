@@ -136,8 +136,88 @@ def test_hang_is_killed_at_the_deadline_and_the_kernel_survives(kernel, ws):
     assert reply["id"] == id
     assert reply["ok"] is False
     assert reply["error"]["kind"] == "timeout"
+    assert reply["error"]["message"] == (
+        "the build did not finish within 2 s and was stopped; "
+        "set TORNO_BUILD_TIMEOUT to a number of seconds to allow more"
+    )
     assert "starting slow work" in reply["error"]["output"]
     build_bracket(kernel, ws)
+
+
+def test_default_timeout_is_ten_minutes():
+    from torno_kernel import supervisor
+
+    assert supervisor.DEFAULT_TIMEOUT == 600
+    assert supervisor.MAX_TIMEOUT == 86400
+
+
+@pytest.mark.parametrize("timeout", ["NaN", "Infinity", "-Infinity", "-1", "0", "true", '"60"'])
+def test_timeout_that_is_not_a_positive_finite_number_is_a_bad_request(kernel, ws, timeout):
+    # Written by hand: NaN and Infinity are what a careless client's JSON holds.
+    dir = str(ws / "bracket")
+    kernel.send_raw(f'{{"id":"t","op":"build","dir":"{dir}","model":"bracket.py","timeout":{timeout}}}')
+    reply, _ = kernel.recv(5)
+    assert reply == {
+        "id": "t",
+        "ok": False,
+        "error": {
+            "kind": "bad_request",
+            "message": "build timeout must be a positive, finite number of seconds",
+        },
+    }
+
+
+def test_enormous_timeout_is_capped_and_the_build_runs(kernel, ws):
+    # 1e300 s from now is no time the event loop can wait until.
+    id = kernel.send("build", dir=str(ws / "bracket"), model="bracket.py", timeout=1e300)
+    assert kernel.recv(5)[0]["event"] == "build.started"
+    reply, _ = kernel.recv(20)
+    assert reply["id"] == id and reply["ok"], reply
+
+
+def test_capped_timeout_is_a_day():
+    from torno_kernel.supervisor import build_timeout
+
+    assert build_timeout(None) == 600
+    assert build_timeout(1e300) == 86400
+    assert build_timeout(86401) == 86400
+    assert build_timeout(90) == 90.0
+    for bad in (float("nan"), float("inf"), -1, 0, True, "60"):
+        assert build_timeout(bad) is None
+
+
+GARBAGE_MODEL = """
+import os, socket, stat, struct
+
+# Stand in for a worker gone wrong: write a frame that is not JSON, or not a
+# result, on the socket the worker answers the supervisor on.
+PAYLOAD = {payload!r}
+for fd in range(3, 64):
+    try:
+        if stat.S_ISSOCK(os.fstat(fd).st_mode):
+            os.write(fd, struct.pack(">II", len(PAYLOAD), 0) + PAYLOAD)
+    except OSError:
+        pass
+import time
+time.sleep(30)
+"""
+
+
+@pytest.mark.parametrize("payload", [b"not json", b"null", b"[1]", b'{"ok":true}', b'{"ok":false}'])
+def test_worker_frame_that_is_no_result_is_a_crash_of_that_build_only(fresh, ws, tmp_path, payload):
+    (tmp_path / "garbage.py").write_text(GARBAGE_MODEL.format(payload=payload))
+    id = fresh.send("build", dir=str(tmp_path), model="garbage.py")
+    started, _ = fresh.recv(5)
+    assert started["event"] == "build.started"
+    reply, _ = fresh.recv(5)
+    assert reply["id"] == id
+    assert reply["ok"] is False
+    assert reply["error"]["kind"] == "crash"
+    assert reply["error"]["message"] == "the build process sent a result that could not be read"
+    assert gone(started["pid"])
+    # The supervisor is still there.
+    assert fresh.proc.poll() is None
+    build_bracket(fresh, ws)
 
 
 def test_new_build_cancels_the_running_one(kernel, ws):
@@ -337,3 +417,22 @@ def test_closing_stdin_exits_and_leaves_no_children(fresh, ws):
     assert fresh.proc.wait(2) == 0
     assert gone(live["pid"])
     assert gone(building["pid"])
+
+
+def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
+    """The worker's one result frame: a NaN in the scene must not end it without one."""
+    from torno_kernel import loader, tess, worker
+    from torno_kernel.frames import read_frame
+
+    monkeypatch.setattr(loader, "load_scene", lambda dir, model: {"main": {}})
+    scene = {"model": "nan.py", "layouts": ["main"], "parts": [{"volume": float("nan")}]}
+    monkeypatch.setattr(tess, "build_scene", lambda layouts, model: (scene, b"blob", {"k": 1}))
+    channel = io.BytesIO()
+    assert worker._build(channel, "/nowhere", "nan.py") is None
+    channel.seek(0)
+    reply, blob = read_frame(channel)
+    assert blob == b""
+    assert reply["ok"] is False
+    assert reply["error"]["kind"] == "exception"
+    assert "Out of range float values are not JSON compliant" in reply["error"]["message"]
+    assert read_frame(channel) is None  # one frame, and nothing half written before it

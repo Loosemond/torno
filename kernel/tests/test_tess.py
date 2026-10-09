@@ -210,3 +210,99 @@ def test_sphere_topped_part_counts_degenerate_edges():
     # The sphere's pole is a degenerate edge, which shape.edges() leaves out.
     assert p["edgeCount"] == 5
     assert len(shape.edges()) == 4
+
+
+# ---- print layouts are spread along X ----
+
+
+def xy_boxes(scene: dict, layout: str) -> list[tuple[float, float, float, float]]:
+    return [
+        (p["bbox"]["min"][0], p["bbox"]["max"][0], p["bbox"]["min"][1], p["bbox"]["max"][1])
+        for p in scene["parts"]
+        if p["layout"] == layout
+    ]
+
+
+def overlapping(boxes) -> bool:
+    return any(
+        a[0] < b[1] and b[0] < a[1] and a[2] < b[3] and b[2] < a[3]
+        for i, a in enumerate(boxes)
+        for b in boxes[i + 1 :]
+    )
+
+
+@pytest.fixture(scope="module")
+def stacked():
+    """Three parts, each posed for the bed at the origin, as printables() often returns them."""
+    from build123d import Box, Cylinder, Pos
+
+    named = {
+        "plate": Pos(0, 0, 1) * Box(40, 30, 2),
+        "post": Pos(0, 5, 10) * Cylinder(4, 20),
+        "cap": Pos(3, -2, 2.5) * Box(10, 10, 5),
+    }
+    volumes = {name: shape.volume for name, shape in named.items()}
+    layouts = {"assembly": dict(named), "print": dict(named)}
+    scene, blob, shapes = build_scene(layouts, "stacked.py")
+    return scene, blob, shapes, volumes
+
+
+def test_overlapping_print_parts_are_spread_side_by_side_along_x(stacked):
+    scene, _, _, _ = stacked
+    boxes = xy_boxes(scene, "print")
+    assert not overlapping(boxes)
+    # In insertion order, 10 mm apart; the first stays where it was.
+    assert boxes[0][0] == pytest.approx(-20, abs=0.01)
+    for a, b in pairwise(boxes):
+        assert b[0] - a[1] == pytest.approx(10, abs=0.05)
+
+
+def test_spread_parts_keep_their_own_y_and_z_and_say_how_far_they_moved(stacked):
+    scene, _, _, _ = stacked
+    plate, post, cap = (part(scene, f"print:{name}") for name in ("plate", "post", "cap"))
+    assert "arranged" not in plate
+    # post: its left edge was at -4, and goes to 20 + 10.
+    assert post["arranged"] == pytest.approx([34, 0, 0], abs=0.01)
+    # cap: its left edge was at -2, and goes to 38 + 10.
+    assert cap["arranged"] == pytest.approx([50, 0, 0], abs=0.01)
+    assert post["bbox"]["min"][1:] == pytest.approx([1, 0], abs=0.05)
+    assert post["bbox"]["max"][1:] == pytest.approx([9, 20], abs=0.05)
+    assert cap["bbox"]["min"][1:] == pytest.approx([-7, 0], abs=0.05)
+
+
+def test_spreading_moves_the_shapes_kept_for_queries_and_changes_no_volume(stacked):
+    scene, _, shapes, volumes = stacked
+    for name, volume in volumes.items():
+        p = part(scene, f"print:{name}")
+        assert p["volume"] == pytest.approx(volume)
+        box = shapes[f"print:{name}"].bounding_box()
+        assert list(box.min) == pytest.approx(p["bbox"]["min"], abs=0.05)
+        assert list(box.max) == pytest.approx(p["bbox"]["max"], abs=0.05)
+
+
+def test_only_the_print_layout_is_spread(stacked):
+    scene, _, shapes, _ = stacked
+    assert overlapping(xy_boxes(scene, "assembly"))
+    for p in scene["parts"]:
+        if p["layout"] == "assembly":
+            assert "arranged" not in p
+    assert shapes["assembly:post"].center().X == pytest.approx(0)
+
+
+def test_a_print_layout_that_does_not_overlap_is_left_alone(bracket):
+    scene, _, shapes = bracket
+    for p in scene["parts"]:
+        assert "arranged" not in p
+    assert shapes["print:post"].center().X == pytest.approx(60)
+
+
+def test_print_parts_that_only_touch_are_left_alone():
+    from build123d import Box, Pos
+
+    layouts = {"print": {"a": Box(10, 10, 2), "b": Pos(10, 0, 0) * Box(10, 10, 2)}}
+    scene, _, _ = build_scene(layouts, "touch.py")
+    assert all("arranged" not in p for p in scene["parts"])
+
+
+def test_spread_scene_is_json_serialisable(stacked):
+    json.dumps(stacked[0], allow_nan=False)
