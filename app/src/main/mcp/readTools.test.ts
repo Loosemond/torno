@@ -106,6 +106,10 @@ function fake(says: (name: string, args: never) => unknown = () => ({}), over: P
 }
 
 /** A scan aligned in the assembly layout by hand (typed values), as main would tell it; `more` is laid over its alignment there. */
+// Alignments as main keeps them (Task 5's fix round 2, m8): a doubtful fit is a fit of pairs, and only one tied to the model can be found off it.
+const tiedPair = (n: number) => ({ scan: [n, n % 2, 0], model: [n, n % 2, 10], part: 'tub', residual: 0 })
+const TWO_PAIRS = { steps: ['pairs'], pairs: [0, 1].map(tiedPair), rms: 0, fitRms: 0, rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan' }
+const FOUR_PAIRS = { steps: ['pairs'], pairs: [0, 1, 2, 3].map(tiedPair), rms: 0, fitRms: 0 }
 const scanned = (more: object = {}, scan: object = {}) => ({
   scans: async () => [{ id: 'S1', name: 'Micra.glb', alignments: { assembly: { transform: { t: [0, 0, 10], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '', ...more } }, meshState: 'ok', checks: { assembly: { revision: 4, of: 0, off: 0, worst: 0, moved: [] } }, ...scan }] as never
 })
@@ -257,9 +261,9 @@ describe('measure', () => {
     expect(text(await measureTool(deps, 'box', { kind: 'angle', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('only a distance is measured to a point of a scan')
     expect(text(await measureTool(fake(), 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
     // A way that already says it is approximate is not followed by the word twice.
-    const rough = fake(() => ({ kind: 'distance', value: 1, unit: 'mm', how: 'minimum, approximate', exact: false }), scanned({ rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan' }))
+    const rough = fake(() => ({ kind: 'distance', value: 1, unit: 'mm', how: 'minimum, approximate', exact: false }), scanned(TWO_PAIRS, { checks: { assembly: { revision: 4, of: 2, off: 0, worst: 0, moved: [] } } }))
     expect(data(await measureTool(rough, 'box', { kind: 'distance', a: 'tub/F5', b: { scan: 'S1', point: [0, 0, 1] } })).reading).toBe(
-      'S1 was placed by hand: no fit says how well. S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) given as a point of S1. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).'
+      'S1 is only roughly aligned: it has 2 pairs of points: it takes three that are not in a line to fix a scan. ≈ 1 mm minimum, approximate (S1 is a scan), tub/F5 to (0, 0, 1) given as a point of S1. S1 is aligned by 2 pairs (rms 0 mm, worst 0 mm).'
     )
   })
 
@@ -465,7 +469,7 @@ describe('section', () => {
   it('tells a scan cut in at most 2,000 points, and says of how many; draws it though no part is cut; says its doubt first', async () => {
     const long = Array.from({ length: 3000 }, (_, i): [number, number] => [i / 10, Math.sin(i / 50) * 20])
     const many = { ...OUTLINE, polylines: [{ points: long, closed: false }, { points: [[0, 0], [1, 0], [1, 1]], closed: true }], omitted: 2, pointsFound: 9000, pointsTold: 3003, thinned: true, bounds: { min: [0, -20], max: [299.9, 20] } }
-    const deps = fake((name) => (name === 'section' ? { ...CUT, parts: [{ ...CUT.parts[0], loops: [], area: 0 }], bounds: null } : many), scanned({}, { checks: { assembly: { revision: 4, of: 4, off: 1, worst: 3, moved: [] } } }))
+    const deps = fake((name) => (name === 'section' ? { ...CUT, parts: [{ ...CUT.parts[0], loops: [], area: 0 }], bounds: null } : many), scanned(FOUR_PAIRS, { checks: { assembly: { revision: 4, of: 4, off: 1, worst: 3, moved: [] } } }))
     const result = await sectionTool(deps, 'box', { plane: { axis: 'z', at: 3 }, scan: 'S1' })
     const said = data(result) as any
     const told = said.scan.polylines.reduce((sum: number, line: { points: unknown[] }) => sum + line.points.length, 0)
@@ -473,7 +477,7 @@ describe('section', () => {
     expect(said.scan).toMatchObject({ points: told, of: 9000, thinned: true, linesOmitted: 2 })
     expect(said.reading).toContain(`crosses the plane in 2 lines, told in ${told.toLocaleString('en-US')} of the 9,000 points found, and 2 more that are not told`)
     expect(said.reading).toBe(
-      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1 was placed by hand: no fit says how well. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, told in " + told.toLocaleString('en-US') + " of the 9,000 points found, and 2 more that are not told. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds)."
+      "plane normal +Z at z = 3 · layout assembly: the plane cuts nothing of the parts. S1's alignment may no longer hold: the model is no longer under 1 of its 4 points (worst 3 mm off) on r4: check the alignment. ≈ S1 (a scan, approximate) crosses the plane in 2 lines, told in " + told.toLocaleString('en-US') + " of the 9,000 points found, and 2 more that are not told. S1 is aligned by 4 pairs (rms 0 mm, worst 0 mm)."
     )
     // The window is given every point the kernel told: the drawing is not made from the thinned ones.
     expect(deps.drawings[0].scan!.polylines[0].points).toHaveLength(3000)

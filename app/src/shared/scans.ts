@@ -35,33 +35,34 @@ export interface ScanAlignment {
   /** The build it was made on. Of this run: dropped when the file is read, like a mark's `checkedRevision`. */
   revision?: number
   /**
-   * What it rests on: a fit of pairs of points, a floor laid down, or a hand (handles, typed values); and whether
-   * a fit or a floor was moved by hand afterwards. Worked out by main from the steps and the pairs (`basisOf`),
-   * never taken; whatever reports the scan says it in plain words (`basisText`, `alignmentText`).
+   * How well its pairs were fitted (rms, mm) by the last fit of pairs it rests on: set by main when the last
+   * step is a fit, and carried unchanged through every move by hand after it. `rms` is where the pairs are now:
+   * the two are one number until a hand moves the scan, and are never said as one after. Main's alone.
    */
-  basis?: AlignBasis
-  movedByHand?: true
+  fitRms?: number
   /**
    * Why its fit of pairs is doubtful, when it is: fewer than three pairs, pairs in or almost in a line, or pairs
-   * the fit leaves further apart than `ROUGH_RMS_MM` (`roughOf` in `shared/align.ts`). Worked out by main, and
-   * kept only once the person said yes to it. Whatever reports the scan says so. A floor alone, or a scan placed
-   * by hand, is not rough: it is what its `basis` says.
+   * the fit left further apart than `ROUGH_RMS_MM` (`roughOf` in `shared/align.ts`: judged on `fitRms`, so it
+   * stays through moves by hand). Worked out by main, and kept only once the person said yes to it. Whatever
+   * reports the scan says so. A floor alone, or a scan placed by hand, is not rough: it is what it rests on
+   * (`basisOf`, worked out from the steps and the pairs wherever it is said, never stored).
    */
   rough?: string
   /**
    * The person looked and said it still holds ("Still right"): when, on which build of this run (dropped when the
-   * file is read), and how far each of the model points it is tied to (`anchoredPoints`, in order) then was from
-   * its part, null for one whose part was not there. A later build is judged against that, so that what was
-   * confirmed is not raised again. Main's alone; gone when it is aligned anew.
+   * file is read), and where the model was then under each point it is tied to (`anchoredPoints`, in order: the
+   * point of the part nearest to it), null for one whose part was not there. A later build is judged against
+   * that: by how far the model has moved from where it was confirmed. Main's alone; gone when it is aligned
+   * anew, kept through a move by hand that leaves the tied points as they are.
    */
-  confirmed?: { revision?: number; at: string; held: Array<number | null> }
+  confirmed?: { revision?: number; at: string; held: Array<Vec3 | null> }
   /** The scan was imported again from a source that was no longer the file it was aligned with. Until it is aligned again, or the person says it still holds. */
   sourceChanged?: true
   /** The alignment this one took the place of, for one undo: null when the scan was not aligned there before. Absent when there is nothing to undo. */
   before?: Omit<ScanAlignment, 'before'> | null
 }
 /** What only main says of an alignment: never taken from the window or from a tool's arguments. */
-export const ALIGNMENT_MAIN_ONLY = ['frame', 'at', 'revision', 'basis', 'movedByHand', 'rough', 'sourceChanged', 'confirmed', 'before'] as const
+export const ALIGNMENT_MAIN_ONLY = ['frame', 'at', 'revision', 'fitRms', 'rough', 'sourceChanged', 'confirmed', 'before'] as const
 /** What a caller gives to align: main adds the rest. */
 export type NewAlignment = Omit<ScanAlignment, (typeof ALIGNMENT_MAIN_ONLY)[number]>
 /**
@@ -104,6 +105,8 @@ export interface ScanInfo extends Scan {
   sourceState: 'present' | 'missing' | 'changed'
   meshState: 'ok' | 'missing'
   checks: Record<string, AlignmentCheck> // by layout; absent for one not checked in this run
+  /** By layout: why the last check of that alignment could say nothing (the kernel could not be asked), and of which build. Gone once a check says something. */
+  unchecked?: Record<string, { revision: number; reason: string }>
 }
 
 /**
@@ -182,15 +185,16 @@ export function alignmentOf(scan: Pick<Scan, 'alignments'>, layout: string): Sca
   return Object.hasOwn(scan.alignments, layout) ? scan.alignments[layout] : null
 }
 
-/** Said of what was not checked against the build there is. */
-const notChecked = (revision: number): string => `it was not checked against r${revision}`
+/** Said of what was not checked against the build there is: that a check is still to come, or why the last one could say nothing. */
+const notChecked = (unchecked: { revision: number; reason?: string }): string =>
+  unchecked.reason === undefined ? `it was not checked against r${unchecked.revision}` : `it could not be checked against r${unchecked.revision}: ${unchecked.reason}`
 
 /**
  * Why an alignment may no longer hold, as a sentence, or null: what the last check against a build found,
- * whether the scan itself was read again from a changed source since, and, with `unchecked` (a build's number),
- * that it was not checked against that build. One notion, with its reasons.
+ * whether the scan itself was read again from a changed source since, and, with `unchecked`, that it was not
+ * checked against that build (with why, once a check has failed). One notion, with its reasons.
  */
-export function staleText(check: AlignmentCheck | undefined, alignment?: Pick<ScanAlignment, 'sourceChanged'> | null, unchecked?: number): string | null {
+export function staleText(check: AlignmentCheck | undefined, alignment?: Pick<ScanAlignment, 'sourceChanged'> | null, unchecked?: { revision: number; reason?: string }): string | null {
   const why: string[] = []
   if (alignment?.sourceChanged) why.push('the scan was imported again from a source that had changed since it was aligned')
   if (check && check.moved.length > 0) why.push(`torno has moved ${check.moved.join(', ')} for display since it was aligned`)
@@ -212,12 +216,25 @@ export function basisOf(alignment: Pick<ScanAlignment, 'steps' | 'pairs'>): { ba
   return { basis: fitted >= 0 ? 'pairs' : 'floor', movedByHand: steps.slice(at + 1).some((step) => step === 'nudge' || step === 'typed') }
 }
 
-/** How an alignment was made, short: `floor only`, `by hand`, `4 pairs, RMS 0.8 mm`, each with `, then moved by hand` when it was. For a row and a caption. */
-export function basisText(alignment: Pick<ScanAlignment, 'steps' | 'pairs' | 'rms' | 'scaled'>): string {
+/** A fit of pairs that a hand moved afterwards: how well it fitted and where its pairs are now, two numbers, each named. */
+function movedFit(alignment: Pick<ScanAlignment, 'rms' | 'fitRms'>, fit: (rms: string) => string): { fitted: string; now: string } {
+  return { fitted: alignment.fitRms === undefined ? '' : ` (${fit(fitNumber(alignment.fitRms))})`, now: alignment.rms === undefined ? '' : `: the pairs are now ${fitNumber(alignment.rms)} mm apart` }
+}
+
+/**
+ * How an alignment was made, short: `floor only`, `by hand`, `4 pairs, RMS 0.8 mm`; a fit or a floor that was
+ * moved by hand says so, and of a fit both how well it fitted and where its pairs are now: `4 pairs (fit RMS
+ * 0.8 mm), then moved by hand: the pairs are now 20 mm apart`. For a row and a caption.
+ */
+export function basisText(alignment: Pick<ScanAlignment, 'steps' | 'pairs' | 'rms' | 'fitRms' | 'scaled'>): string {
   const { basis, movedByHand } = basisOf(alignment)
+  const scaled = alignment.scaled ? ', scaled' : ''
+  if (basis !== 'pairs') return `${basis === 'hand' ? 'by hand' : 'floor only'}${scaled}${movedByHand ? ', then moved by hand' : ''}`
   const pairs = alignment.pairs?.length ?? 0
-  const what = basis === 'hand' ? 'by hand' : basis === 'floor' ? 'floor only' : `${count(pairs)} ${pairs === 1 ? 'pair' : 'pairs'}${alignment.rms === undefined ? '' : `, RMS ${fitNumber(alignment.rms)} mm`}`
-  return `${what}${alignment.scaled ? ', scaled' : ''}${movedByHand ? ', then moved by hand' : ''}`
+  const many = `${count(pairs)} ${pairs === 1 ? 'pair' : 'pairs'}`
+  if (!movedByHand) return `${many}${alignment.rms === undefined ? '' : `, RMS ${fitNumber(alignment.rms)} mm`}${scaled}`
+  const { fitted, now } = movedFit(alignment, (rms) => `fit RMS ${rms} mm`)
+  return `${many}${fitted}${scaled}, then moved by hand${now}`
 }
 
 /** How many points of the model an alignment is tied to: the model ends of its pairs that were clicked on a part, and a floor laid on a face. */
@@ -230,41 +247,44 @@ export const TIED_TO_NOTHING = 'tied to no point of the model: not checked again
 
 /**
  * How the alignment of a scan in a layout stands, for whatever reports the scan: what it rests on (`basis`),
- * why its fit is doubtful (`rough`), why it may no longer hold (`stale`: `staleText`), whether that is only
- * that it was not checked against the last build (`unchecked`), and what else is to be known of it (`note`:
- * that no build can say anything of it, that the person confirmed it).
+ * why its fit is doubtful (`rough`), why it may no longer hold (`stale`: `staleText`), and what else is to be
+ * known of it (`note`: that no build can say anything of it, that the person confirmed it). `unchecked`: it was
+ * not checked against the last build; `waiting`: that is all `stale` says, so there is nothing to look at, only
+ * a check to wait for (`failed`: the last one could say nothing, and `stale` says why).
  */
-export interface Standing { aligned: boolean; basis: string | null; rough: string | null; stale: string | null; unchecked: boolean; note: string | null }
+export interface Standing { aligned: boolean; basis: string | null; rough: string | null; stale: string | null; unchecked: boolean; waiting: boolean; failed: boolean; note: string | null }
 
 /**
  * `revision` is the last build, 0 or absent for none: an alignment whose check is missing, or of another build,
  * was not checked against it, and says so, as an unchecked mark does.
  */
-export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks'>, layout: string, revision?: number): Standing {
+export function standingOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unchecked'>, layout: string, revision?: number): Standing {
   const alignment = alignmentOf(scan, layout)
-  if (!alignment) return { aligned: false, basis: null, rough: null, stale: null, unchecked: false, note: null }
+  if (!alignment) return { aligned: false, basis: null, rough: null, stale: null, unchecked: false, waiting: false, failed: false, note: null }
   const found = Object.hasOwn(scan.checks, layout) ? scan.checks[layout] : undefined
   const built = revision !== undefined && revision > 0
   const check = built && found?.revision !== revision ? undefined : found
   const unchecked = built && check === undefined
-  const stale = staleText(check, alignment, unchecked ? revision : undefined)
+  const failure = unchecked && scan.unchecked && Object.hasOwn(scan.unchecked, layout) && scan.unchecked[layout].revision === revision ? scan.unchecked[layout].reason : undefined
+  const stale = staleText(check, alignment, unchecked ? { revision: revision!, ...(failure === undefined ? {} : { reason: failure }) } : undefined)
+  const waiting = unchecked && staleText(check, alignment) === null
   const notes = [
     ...(tiedPoints(alignment) === 0 ? [TIED_TO_NOTHING] : []),
     // Until the next doubt: what was confirmed is then in question again.
-    ...(alignment.confirmed && (stale === null || (unchecked && stale === notChecked(revision!))) ? [`confirmed by the user${alignment.confirmed.revision === undefined ? '' : ` on r${alignment.confirmed.revision}`}`] : [])
+    ...(alignment.confirmed && (stale === null || waiting) ? [`confirmed by the user${alignment.confirmed.revision === undefined ? '' : ` on r${alignment.confirmed.revision}`}`] : [])
   ]
-  return { aligned: true, basis: basisText(alignment), rough: alignment.rough ?? null, stale, unchecked, note: notes.length > 0 ? notes.join('; ') : null }
+  return { aligned: true, basis: basisText(alignment), rough: alignment.rough ?? null, stale, unchecked, waiting, failed: failure !== undefined, note: notes.length > 0 ? notes.join('; ') : null }
 }
 
 /** Why the alignment of a scan in a layout may no longer hold (`standingOf`); null when it holds as far as is known, or the scan is not aligned there. */
-export function doubtOf(scan: Pick<ScanInfo, 'alignments' | 'checks'>, layout: string, revision?: number): string | null {
+export function doubtOf(scan: Pick<ScanInfo, 'alignments' | 'checks' | 'unchecked'>, layout: string, revision?: number): string | null {
   return standingOf(scan, layout, revision).stale
 }
 
 /**
  * How an alignment was made, at length: `by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)`, `by hand (typed values)`,
  * `by floor only (plane rms 0.8 mm): its place in that plane is as imported`; with `, then moved by hand` when
- * a fit or a floor was.
+ * a fit or a floor was: `by 4 pairs (fit rms 0.8 mm), then moved by hand: the pairs are now 20 mm apart`.
  */
 export function alignmentText(alignment: ScanAlignment): string {
   const { basis, movedByHand } = basisOf(alignment)
@@ -275,9 +295,13 @@ export function alignmentText(alignment: ScanAlignment): string {
   if (basis === 'hand') return `by hand (${[...new Set(alignment.steps.filter((step) => step === 'nudge' || step === 'typed'))].map(word).join(' + ') || 'handles'})`
   // A floor says how high the scan stands and how it leans, and nothing of where it is on that floor.
   if (basis === 'floor') return `by floor only${rms ? ` (plane ${rms})` : ''}${moved}: its place in that plane is ${movedByHand ? 'as it was put by hand' : 'as imported'}`
-  const fit = [...(rms ? [rms] : []), `worst ${fitNumber(Math.max(...pairs.map((pair) => pair.residual)))} mm`]
-  const fitted = `${count(pairs.length)} ${pairs.length === 1 ? 'pair' : 'pairs'} (${fit.join(', ')})${alignment.scaled ? ', scaled' : ''}`
-  return `by ${alignment.steps.slice(0, alignment.steps.lastIndexOf('pairs')).includes('floor') ? 'floor + ' : ''}${fitted}${moved}`
+  const many = `${count(pairs.length)} ${pairs.length === 1 ? 'pair' : 'pairs'}`
+  const before = alignment.steps.slice(0, alignment.steps.lastIndexOf('pairs')).includes('floor') ? 'floor + ' : ''
+  const scaled = alignment.scaled ? ', scaled' : ''
+  if (!movedByHand) return `by ${before}${many} (${[...(rms ? [rms] : []), `worst ${fitNumber(Math.max(...pairs.map((pair) => pair.residual)))} mm`].join(', ')})${scaled}`
+  // How well it fitted, and where a hand left its pairs: two numbers, never one.
+  const { fitted, now } = movedFit(alignment, (was) => `fit rms ${was} mm`)
+  return `by ${before}${many}${fitted}${scaled}${moved}${now}`
 }
 
 /** `2518 × 2351 × 1494 mm, from m, Y up (assumed)`. */

@@ -99,7 +99,12 @@ test('three pairs and a fourth bring a displaced scan onto the model, and say ho
   await bar().getByRole('button', { name: 'Pairs' }).click()
   for (const [n, point] of ON_TOP.entries()) {
     await clickScan(where(point))
-    if (n === 0) await clickModel(point)   // the first model end is clicked on the part
+    if (n === 0) {
+      await clickModel(point)   // the first model end is clicked on the part
+      // Looked at and left: a field that was only focused changes nothing of an end that was clicked (fix round 2, B).
+      await bar().getByRole('textbox', { name: 'Model x of pair 1' }).focus()
+      await bar().locator('.alignbar-next').click()
+    }
     else {
       for (const [axis, value] of (['x', 'y', 'z'] as const).map((axis, i) => [axis, point[i]] as const)) await bar().getByRole('textbox', { name: `Model ${axis} of pair ${n + 1}` }).fill(String(value))
       await bar().getByRole('textbox', { name: `Model z of pair ${n + 1}` }).press('Enter')
@@ -112,6 +117,10 @@ test('three pairs and a fourth bring a displaced scan onto the model, and say ho
   await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
   const kept = await alignment('assembly')
   expect(kept).toMatchObject({ steps: ['pairs'], frame: { base: [0, 0, 0], post: [0, 0, 0] }, pairs: [{ part: 'base' }, {}, {}, {}] })
+  // The clicked end is kept in full, not as its fields show it.
+  expect(kept.pairs![0].model[2]).toBeCloseTo(2.5, 9)
+  expect(kept.pairs![0].model.some((c) => (String(c).split('.')[1] ?? '').length > 6)).toBe(true)
+  expect(kept.pairs![1]).not.toHaveProperty('part')
   expect(kept.rms!).toBeLessThan(0.5)
   // Through the real kernel: the one end that was clicked on the base is still under the model on this build.
   await expect.poll(async () => (await state()).scans[0].checks.assembly).toMatchObject({ revision: (await state()).revision, of: 1, off: 0 })
@@ -162,7 +171,6 @@ test('a tilted floor is laid flat on the ground, and says that is all it is', as
   // A floor alone is kept as what it is, with no question (fix round 1, R-basis): it is said to be floor only wherever the scan is reported.
   await expect.poll(async () => (await alignment('assembly'))?.steps).toEqual(['floor'])
   const kept = await alignment('assembly')
-  expect(kept).toMatchObject({ basis: 'floor' })
   expect(kept).not.toHaveProperty('rough')
   await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
   await expect(row('S1').locator('.scan-basis')).toHaveText('· floor only')
@@ -244,8 +252,18 @@ test('a fit that says the unit is wrong offers the change in one click, keeps no
   await expect(bar().getByRole('alertdialog', { name: 'Keep a rough alignment?' })).toContainText(/Its pairs of points are left \d+(\.\d+)? mm apart \(rms\): more than 5 mm/)
   await bar().getByRole('button', { name: 'Not yet' }).click()
   expect(await alignment('assembly')).toBeUndefined()
-  // One click reads the scan in the unit the fit names; the pairs in hand stand, and now fit.
+  // One click reads the scan in the unit the fit names while it is aligned nowhere. Aligned in another layout, it asks first, naming it.
+  await page.evaluate(() => window.torno.scans.align('bracket', 'S1', 'print', { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] }, { revision: window.__tornoTest!.state().revision }))
+  await expect.poll(async () => Object.keys((await state()).scans[0].alignments)).toEqual(['print'])
   await bar().getByRole('button', { name: 'Read it as mm' }).click()
+  const question = bar().getByRole('alertdialog', { name: 'Drop the alignment of S1?' })
+  await expect(question).toContainText('Reading S1 as mm drops its alignment in print. The pairs in hand stay.')
+  expect((await state()).scans[0].imported.unit).toBe('cm')
+  await question.getByRole('button', { name: 'Keep as it is' }).click()
+  await expect(question).toHaveCount(0)
+  expect((await state()).scans[0].imported.unit).toBe('cm')
+  await bar().getByRole('button', { name: 'Read it as mm' }).click()
+  await question.getByRole('button', { name: 'Change' }).click()
   await expect.poll(async () => (await state()).scans[0].imported.unit).toBe('mm')
   await expect(bar()).toContainText(/rms 0(\.\d+)? mm/)
   await expect(bar().locator('[data-part="size"]')).toHaveCount(0)
@@ -287,7 +305,10 @@ test('Escape steps back one pick, and only then puts the tool down; two pairs ar
   for (const [n, point] of ON_TOP.slice(0, 2).entries()) {
     await clickScan(where(point))
     for (const [axis, value] of (['x', 'y', 'z'] as const).map((axis, i) => [axis, point[i] + (axis === 'z' ? 1 : 0)] as const)) await bar().getByRole('textbox', { name: `Model ${axis} of pair ${n + 1}` }).fill(String(value))
-    await bar().getByRole('textbox', { name: `Model z of pair ${n + 1}` }).press('Enter')
+    // The first by Enter; the second by leaving its fields: what was typed is kept either way.
+    if (n === 0) await bar().getByRole('textbox', { name: `Model z of pair ${n + 1}` }).press('Enter')
+    else await bar().locator('.alignbar-next').click()
+    await expect(bar().locator('.align-pair').nth(n).locator('.align-pair-part')).toHaveText('→ typed')
   }
   await expect(bar().locator('.alignbar-next')).toHaveText('Click another point on the scan: 2 of 3 pairs')
   await expect(bar().getByRole('button', { name: 'Apply' })).toBeDisabled()
@@ -437,12 +458,14 @@ test('a build that takes the model from under a point raises a doubt; "Still rig
   await row('S1').getByRole('button', { name: 'The alignment of S1 is still right' }).click()
   await expect.poll(async () => (await alignment('print')).confirmed?.revision).toBe(built)
   const confirmed = (await alignment('print')).confirmed!
+  // Where the tray was under the point: at its end, 3 mm from it.
   expect(confirmed.held).toHaveLength(1)
-  expect(confirmed.held[0]!).toBeCloseTo(3, 1)
+  expect(confirmed.held[0]![0]).toBeCloseTo(15, 3)
+  expect(Math.hypot(confirmed.held[0]![0] - 18, confirmed.held[0]![1] - 6, confirmed.held[0]![2] - 4)).toBeCloseTo(3, 1)
   await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
   await expect(row('S1').locator('.scan-said[data-part="note"]')).toHaveText(`Confirmed by the user on r${built}.`)
   // Nothing of the alignment itself was changed.
-  expect((await alignment('print')).pairs?.[0]).toMatchObject({ part: 'tray', model: [expect.closeTo(18, 0), expect.closeTo(6, 0), 4] })
+  expect((await alignment('print')).pairs?.[0]).toMatchObject({ part: 'tray', model: [expect.closeTo(18, 0), expect.closeTo(6, 0), expect.closeTo(4, 6)] })
 
   // Built again as it is: what was confirmed is not raised again.
   writeFileSync(join(root, 'spread', 'width.txt'), '30.0\n')
@@ -450,9 +473,43 @@ test('a build that takes the model from under a point raises a doubt; "Still rig
   await expect.poll(async () => (await state()).scans[0].checks.print?.revision, { timeout: 60_000 }).toBe((await state()).revision)
   expect((await state()).scans[0].checks.print).toMatchObject({ of: 1, off: 0 })
   await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
-  // Moved further, it is raised.
-  writeFileSync(join(root, 'spread', 'width.txt'), '20\n')
+  // Back as it was when it was fitted: the model is under the point again, 3 mm from where it was confirmed. Raised (fix round 2, A).
+  writeFileSync(join(root, 'spread', 'width.txt'), '40\n')
   await expect.poll(async () => (await state()).scans[0].checks.print?.off, { timeout: 60_000 }).toBe(1)
   await expect(row('S1').locator('.chip[data-state="stale"]')).toHaveText('check alignment')
   await page.keyboard.press('Escape')
+})
+
+// Fix round 2 (D3): at a 1280 px window nothing of a pair's row is cut, by the widths the window computes.
+test('a pair’s row shows a point of a scan the size of a room uncut at a 1280 px window', async () => {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 800))
+  await open('bracket')
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(1280)
+  await page.keyboard.press('l')
+  await bar().getByRole('button', { name: 'Pairs' }).click()
+  await clickScan(where(ON_TOP[0]))
+  await expect(bar().locator('.align-pair')).toHaveCount(1)
+  const widths = await bar().locator('.align-pair').first().evaluate((row) => {
+    const cell = row.querySelector<HTMLElement>('.align-pair-scan')!
+    cell.textContent = '(-1258.9, -1258.9, -1258.9)'
+    const fields = [...row.querySelectorAll<HTMLInputElement>('input')]
+    for (const field of fields) field.value = '-1258.9'
+    const bar = row.closest<HTMLElement>('.alignbar')!
+    return {
+      cell: [cell.scrollWidth, cell.clientWidth],
+      fields: fields.map((field) => [field.scrollWidth, field.clientWidth]),
+      row: [row.scrollWidth, row.clientWidth, row.getBoundingClientRect().height],
+      bar: [bar.getBoundingClientRect().width, bar.parentElement!.getBoundingClientRect().width, bar.getBoundingClientRect().height, bar.parentElement!.getBoundingClientRect().height]
+    }
+  })
+  expect(widths.cell[0]).toBeLessThanOrEqual(widths.cell[1])
+  for (const [scroll, client] of widths.fields) expect(scroll).toBeLessThanOrEqual(client)
+  expect(widths.row[0]).toBeLessThanOrEqual(widths.row[1])
+  expect(widths.row[2]).toBe(30)
+  // Within the view, and no more than a third of its height.
+  expect(widths.bar[0]).toBeLessThanOrEqual(widths.bar[1] - 24)
+  expect(widths.bar[2]).toBeLessThanOrEqual(Math.max(widths.bar[3] / 3, 150) + 1)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await expect(bar()).toHaveCount(0)
 })

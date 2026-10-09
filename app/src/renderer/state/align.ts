@@ -35,6 +35,8 @@ export interface AlignState {
   handle: 'translate' | 'rotate'
   /** An alignment that is rough, waiting for the person's yes, and why it is. */
   asking: { made: NewAlignment; why: string } | null
+  /** The unit the scan in hand would be read in, waiting for a yes: the change would drop its alignment in these layouts. */
+  unitAsked: { unit: ScanUnit; layouts: string[] } | null
   /** An alignment main was asked to keep and has not answered for yet: the scan is drawn there meanwhile. */
   sending: NewAlignment | null
   /** Why main did not keep the last alignment asked of it. */
@@ -45,7 +47,7 @@ export interface AlignState {
   again: number
 }
 
-const NOTHING_IN_HAND = { pairs: [], floor: null, onto: null, choosingFace: false, flip: false, points: [], asking: null, sending: null, refused: null } satisfies Partial<AlignState>
+const NOTHING_IN_HAND = { pairs: [], floor: null, onto: null, choosingFace: false, flip: false, points: [], asking: null, unitAsked: null, sending: null, refused: null } satisfies Partial<AlignState>
 
 export const alignStore: StoreApi<AlignState> = createStore<AlignState>(() => ({ scan: null, mode: 'pairs', scale: false, height: 0, pivot: null, handle: 'translate', again: 0, notice: null, ...NOTHING_IN_HAND }))
 

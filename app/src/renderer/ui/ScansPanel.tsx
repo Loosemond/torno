@@ -110,20 +110,23 @@ export function ScansPanel() {
 
 /**
  * The one thing to know first of a scan in the layout shown, on the build on show: its state in a word, what its
- * alignment rests on (`basis`), what there is to say of the state in a sentence (`said`), and what else is to be
- * known (`note`). `confirm` when the person can say it still holds: whatever put it in doubt but a check that
- * has not come yet, which is only to be waited for.
+ * alignment rests on (`basis`), what there is to say of the state in a sentence (`said`), why its fit is
+ * doubtful when the state is another (`rough`), and what else is to be known (`note`). `confirm` when the
+ * person can say it still holds: whatever put it in doubt but a check that has not come, which is only to be
+ * waited for.
  */
-function stateOf(scan: ScanInfo, layout: string, revision: number): { state: string; text: string; basis: string | null; said: string | null; note: string | null; confirm: boolean } {
+function stateOf(scan: ScanInfo, layout: string, revision: number): { state: string; text: string; basis: string | null; said: string | null; rough: string | null; note: string | null; confirm: boolean } {
   const standing = standingOf(scan, layout, revision)
-  const { basis, note } = standing
-  if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', basis: null, said: null, note: null, confirm: false }
-  if (!standing.aligned) return { state: 'unaligned', text: 'not aligned here', basis: null, said: null, note: null, confirm: false }
+  const { basis, note, rough } = standing
+  const none = { basis: null, said: null, rough: null, note: null, confirm: false }
+  if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', ...none }
+  if (!standing.aligned) return { state: 'unaligned', text: 'not aligned here', ...none }
+  // A check that is on its way, or will be tried again: nothing to look at. One that failed says why; it is tried again every 30 s.
+  if (standing.waiting) return { state: 'unchecked', text: 'not checked yet', basis, said: standing.failed ? `${standing.stale}. It is tried again every 30 s` : null, rough, note, confirm: false }
   // One notion of "may no longer hold", with its reasons: what the last build's check found, a source that changed.
-  if (standing.stale?.endsWith(': check the alignment')) return { state: 'stale', text: 'check alignment', basis, said: standing.stale, note, confirm: true }
-  if (standing.stale) return { state: 'unchecked', text: 'not checked yet', basis, said: `${standing.stale}: it is asked again`, note, confirm: false }
-  if (standing.rough) return { state: 'rough', text: 'rough alignment', basis, said: standing.rough, note, confirm: false }
-  return { state: 'aligned', text: 'aligned', basis, said: null, note, confirm: false }
+  if (standing.stale) return { state: 'stale', text: 'check alignment', basis, said: standing.stale, rough, note, confirm: true }
+  if (rough) return { state: 'rough', text: 'rough alignment', basis, said: rough, rough: null, note, confirm: false }
+  return { state: 'aligned', text: 'aligned', basis, said: null, rough: null, note, confirm: false }
 }
 
 /** How a scan was read, where that was a guess: `Read as metres, Y up`; null when the person chose both. */
@@ -257,6 +260,8 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           )}
         </p>
       )}
+      {/* A doubtful fit is said whatever else is: it does not wait for the check to come, or for the doubt to go. */}
+      {state.rough && <p className="scan-said" data-part="rough">{numbered(`Rough: ${state.rough}`)}.</p>}
       {state.note && <p className="scan-said" data-part="note">{numbered(capital(state.note))}.</p>}
       {meshGone && (
         <p className="scan-said">

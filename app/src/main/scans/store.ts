@@ -1,9 +1,12 @@
 import { copyFile, mkdir, readFile, realpath, rm, stat as statFile, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { number } from '../../shared/format'
 import { type AlignmentCheck, type Reimported, type Scan, type ScanAlignment, type ScanInfo, type ScanUnit, type ScanUp, type ScansFile, MAX_PAIRS, SCAN_FORMATS, UNIT_MM, alignmentOf } from '../../shared/scans'
+import { reckoned } from '../../shared/align'
+import { anchoredPoints } from './alignCheck'
 import { loadScansFile, sanitiseAlignment, sanitiseScan, saveScansFile, scanName } from './file'
 import type { ImportReply, Importer } from './importer'
 import { IMPORTING, MESH, freshMeshName, ignoreMeshes, meshName, removeMesh, scanFolder, sweep } from './meshfiles'
@@ -44,6 +47,8 @@ export class ScanStore {
   private turns = new Map<string, Promise<unknown>>()
   /** By object folder, then scan: what the last check of each alignment found. Of this run: never written. */
   private checks = new Map<string, Map<string, Record<string, AlignmentCheck>>>()
+  /** By object folder, then scan, then layout: why the last check of that alignment could say nothing, and of which build. Of this run. */
+  private failures = new Map<string, Map<string, Record<string, { revision: number; reason: string }>>>()
   /** The imports and the conversions under way. */
   private runs = new Set<Promise<unknown>>()
   /** By object folder: the ids whose folder an import or a conversion under way is writing in. Kept across `forget`: the process is not ended by it. */
@@ -69,6 +74,7 @@ export class ScanStore {
     this.epoch += 1
     this.files.clear()
     this.checks.clear()
+    this.failures.clear()
   }
 
   /**
@@ -421,11 +427,17 @@ export class ScanStore {
       }
       const given = Object(alignment).pairs
       if (Array.isArray(given) && given.length > MAX_PAIRS) throw new Error(`an alignment keeps ${MAX_PAIRS} pairs at most: this one has ${given.length}`)
-      const kept = sanitiseAlignment({ ...Object(alignment), before: undefined, sourceChanged: undefined, confirmed: undefined })
-      if (!kept) throw new Error('that is not an alignment: its transform, its steps, its frame or its time is missing, or a number is not finite')
+      const candidate = sanitiseAlignment({ ...Object(alignment), before: undefined, sourceChanged: undefined, confirmed: undefined, fitRms: undefined })
+      if (!candidate) throw new Error('that is not an alignment: its transform, its steps, its frame or its time is missing, or a number is not finite')
+      const was = alignmentOf(scan, layout)
+      const byHand = ['nudge', 'typed'].includes(candidate.steps[candidate.steps.length - 1])
+      // How well its pairs were fitted: of this fit when it is one, else what main kept of the fit these very pairs came from. Never a caller's.
+      const fitRms = candidate.steps[candidate.steps.length - 1] === 'pairs' ? candidate.rms : was && byHand && samePairs(was, candidate) ? was.fitRms : undefined
+      const kept = reckoned({ ...candidate, ...(fitRms === undefined ? {} : { fitRms }) })
+      // Moved by hand with the model's points where they were: what the person confirmed of those is still so.
+      if (was?.confirmed && byHand && isDeepStrictEqual(anchoredPoints(was), anchoredPoints(kept))) kept.confirmed = structuredClone(was.confirmed)
       if (kept.scaled && accepted.scaled !== true) throw new Error(`this alignment changes the size of the scan (× ${number(kept.transform.s)}): it is kept only when that scale was chosen`)
       if (kept.rough !== undefined && accepted.rough !== true) throw new Error(`this alignment is rough (${kept.rough}): it is kept only once that is accepted`)
-      const was = alignmentOf(scan, layout)
       kept.before = was ? withoutBefore(was) : null
       scan.alignments = Object.fromEntries([...others, [layout, kept]])
     })
@@ -455,12 +467,17 @@ export class ScanStore {
    * the alignment is tied to is from its part), and later builds are judged from there (`judgeAlignment`).
    * That it was confirmed is kept and said. Nothing of the alignment itself is changed.
    */
-  alignmentHolds(objectId: string, id: string, layout: string, holds: { revision: number; frame: Record<string, Vec3>; held: Array<number | null> }): Promise<ScanInfo> {
+  alignmentHolds(objectId: string, id: string, layout: string, holds: { revision: number; frame: Record<string, Vec3>; held: Array<Vec3 | null> } | null): Promise<ScanInfo> {
     return this.of(objectId, (place) =>
       this.change(place, (file) => {
         const scan = file.scans[indexOf(file, id)]
         const now = alignmentOf(scan, layout)
         if (!now) throw new Error(`${scan.id} is not aligned in ${String(layout)}`)
+        // With nothing of the model to hold it against (null): only that the scan was read again is no longer a doubt.
+        if (holds === null) {
+          delete now.sourceChanged
+          return scan
+        }
         const kept = sanitiseAlignment({ ...now, frame: holds.frame, confirmed: { revision: holds.revision, at: this.now().toISOString(), held: holds.held }, sourceChanged: undefined })
         if (!kept) throw new Error('that is not how a model stands: its frame or its points are missing')
         if (now.before !== undefined) kept.before = now.before
@@ -481,6 +498,8 @@ export class ScanStore {
       edit(scan, Object.entries(scan.alignments).filter(([name]) => name !== layout))
       const checks = this.checks.get(place.dir)?.get(scan.id)
       if (checks) delete checks[layout]
+      const failed = this.failures.get(place.dir)?.get(scan.id)
+      if (failed) delete failed[layout]
       return scan
     }).then((scan) => this.infoOf(place.dir, scan))
   }
@@ -490,11 +509,31 @@ export class ScanStore {
    * the scans. A scan that is no longer there, or no longer aligned in that
    * layout, is passed over: it changed while the check ran.
    */
-  checked(objectId: string, id: string, layout: string, check: AlignmentCheck | null): Promise<void> {
-    return this.of(objectId, (place) => this.checking(place, id, layout, check))
+  checked(objectId: string, id: string, layout: string, check: AlignmentCheck | null, judged?: Pick<ScanAlignment, 'at' | 'confirmed'>): Promise<void> {
+    return this.of(objectId, (place) => this.checking(place, id, layout, check, judged))
   }
 
-  private checking(place: Place, id: string, layout: string, check: AlignmentCheck | null): Promise<void> {
+  /**
+   * A check of an alignment could say nothing (the kernel could not be asked), of which build and why: told with
+   * the scans (`ScanInfo.unchecked`) until a check says something of it, so that "not checked" has its reason.
+   */
+  uncheckedFor(objectId: string, id: string, layout: string, why: { revision: number; reason: string }): Promise<void> {
+    return this.of(objectId, (place) =>
+      this.turn(place, async (file) => {
+        const scan = file.scans.find((s) => s.id === id)
+        if (!scan || place.epoch !== this.epoch || !Object.hasOwn(scan.alignments, layout)) return
+        const ofObject = this.failures.get(place.dir) ?? new Map<string, Record<string, { revision: number; reason: string }>>()
+        const ofScan = ofObject.get(scan.id) ?? {}
+        if (ofScan[layout]?.revision === why.revision && ofScan[layout].reason === why.reason) return
+        Object.defineProperty(ofScan, layout, { value: { ...why }, enumerable: true, writable: true, configurable: true })
+        this.failures.set(place.dir, ofObject.set(scan.id, ofScan))
+        const scans = await this.told(place.dir, file)
+        if (place.epoch === this.epoch) this.emit('changed', { objectId: place.objectId, scans })
+      })
+    )
+  }
+
+  private checking(place: Place, id: string, layout: string, check: AlignmentCheck | null, judged?: Pick<ScanAlignment, 'at' | 'confirmed'>): Promise<void> {
     const { objectId, dir, epoch } = place
     return this.turn(place, async (file) => {
       const scan = file.scans.find((s) => s.id === id)
@@ -506,7 +545,13 @@ export class ScanStore {
         delete ofScan[layout]
       } else {
         if (!Object.hasOwn(scan.alignments, layout)) return
+        // Judged as it was when the check was asked: made anew or confirmed since, it is another to judge, and has its own check.
+        const now = scan.alignments[layout]
+        if (judged && (now.at !== judged.at || now.confirmed?.at !== judged.confirmed?.at || !isDeepStrictEqual(now.confirmed?.held, judged.confirmed?.held))) return
         Object.defineProperty(ofScan, layout, { value: structuredClone(check), enumerable: true, writable: true, configurable: true })
+        // A check has said something: why an earlier one could not is no longer to be said.
+        const failed = this.failures.get(dir)?.get(scan.id)
+        if (failed) delete failed[layout]
       }
       this.checks.set(dir, ofObject.set(scan.id, ofScan))
       const scans = await this.told(dir, file)
@@ -592,7 +637,8 @@ export class ScanStore {
     const [source, mesh] = await Promise.all([this.stat(scan.source.path).catch(() => null), this.isFile(join(scanFolder(dir, scan.id), meshName(scan)))])
     // By its size and its time: the hash is not taken again, which would read the whole file at every listing.
     const sourceState = !source?.isFile() ? 'missing' : source.size !== scan.source.bytes || source.mtimeMs !== scan.source.mtimeMs ? 'changed' : 'present'
-    return { ...structuredClone(scan), sourceState, meshState: mesh ? 'ok' : 'missing', checks: structuredClone(this.checks.get(dir)?.get(scan.id) ?? {}) }
+    const failed = this.failures.get(dir)?.get(scan.id)
+    return { ...structuredClone(scan), sourceState, meshState: mesh ? 'ok' : 'missing', checks: structuredClone(this.checks.get(dir)?.get(scan.id) ?? {}), ...(failed && Object.keys(failed).length > 0 ? { unchecked: structuredClone(failed) } : {}) }
   }
 
   private told(dir: string, file: ScansFile): Promise<ScanInfo[]> {
@@ -711,6 +757,12 @@ export class ScanStore {
 export function frameOf(scene: Scene | undefined, layout: string): Record<string, Vec3> | null {
   const parts = scene?.parts.filter((part) => part.layout === layout) ?? []
   return parts.length > 0 ? Object.fromEntries(parts.map((part): [string, Vec3] => [part.name, part.arranged ? [...part.arranged] : [0, 0, 0]])) : null
+}
+
+/** Whether two alignments have the same pairs of points: the same scan ends and model ends, in order. */
+function samePairs(a: ScanAlignment, b: ScanAlignment): boolean {
+  const ends = (alignment: ScanAlignment): unknown => (alignment.pairs ?? []).map((pair) => [pair.scan, pair.model])
+  return (a.pairs?.length ?? 0) > 0 && isDeepStrictEqual(ends(a), ends(b))
 }
 
 /** An alignment as it is kept for an undo: without what was before it. */

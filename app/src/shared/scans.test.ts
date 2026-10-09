@@ -53,7 +53,8 @@ describe('what is said of a scan', () => {
     expect(alignmentText(aligned)).toBe('by floor only (plane rms 0.8 mm): its place in that plane is as imported')
     const pairs = [1.8, 3.4, 0.9, 1.2].map((residual) => ({ scan: [0, 0, 0] as [number, number, number], model: [0, 0, 0] as [number, number, number], residual }))
     expect(alignmentText({ ...aligned, steps: ['floor', 'pairs'], pairs, rms: 2.1 })).toBe('by floor + 4 pairs (rms 2.1 mm, worst 3.4 mm)')
-    expect(alignmentText({ ...aligned, steps: ['pairs', 'nudge'], pairs, rms: 2.1, scaled: true })).toBe('by 4 pairs (rms 2.1 mm, worst 3.4 mm), scaled, then moved by hand')
+    // Changed in fix round 2 (C): how well it fitted and where its pairs are now are two numbers, each named.
+    expect(alignmentText({ ...aligned, steps: ['pairs', 'nudge'], pairs, rms: 2.1, fitRms: 0.4, scaled: true })).toBe('by 4 pairs (fit rms 0.4 mm), scaled, then moved by hand: the pairs are now 2.1 mm apart')
     expect(alignmentText({ ...aligned, steps: ['typed'], rms: undefined })).toBe('by hand (typed values)')
   })
 
@@ -134,7 +135,9 @@ describe('how an alignment was made', () => {
     expect(basisText(made(['floor'], { rms: 0.4 }))).toBe('floor only')
     expect(basisText(made(['typed']))).toBe('by hand')
     expect(basisText(made(['pairs'], { pairs: four, rms: 0.8 }))).toBe('4 pairs, RMS 0.8 mm')
-    expect(basisText(made(['pairs', 'nudge'], { pairs: four, rms: 0.8, scaled: true }))).toBe('4 pairs, RMS 0.8 mm, scaled, then moved by hand')
+    expect(basisText(made(['pairs', 'nudge'], { pairs: four, rms: 20, fitRms: 0.8, scaled: true }))).toBe('4 pairs (fit RMS 0.8 mm), scaled, then moved by hand: the pairs are now 20 mm apart')
+    // With no fit on record (a file from before): only where they are now, said as that.
+    expect(basisText(made(['pairs', 'nudge'], { pairs: four, rms: 20 }))).toBe('4 pairs, then moved by hand: the pairs are now 20 mm apart')
     expect(basisText(made(['floor', 'typed']))).toBe('floor only, then moved by hand')
     expect(basisText(made(['pairs'], { pairs: [pair(0)], rms: 0 }))).toBe('1 pair, RMS 0 mm')
   })
@@ -142,7 +145,7 @@ describe('how an alignment was made', () => {
   it('is said at length, with what a floor leaves open said once', () => {
     expect(alignmentText(made(['nudge']))).toBe('by hand (nudge)')
     expect(alignmentText(made(['nudge', 'typed']))).toBe('by hand (nudge + typed values)')
-    expect(alignmentText(made(['floor', 'pairs', 'typed'], { pairs: four, rms: 0.8 }))).toBe('by floor + 4 pairs (rms 0.8 mm, worst 0.9 mm), then moved by hand')
+    expect(alignmentText(made(['floor', 'pairs', 'typed'], { pairs: four, rms: 20, fitRms: 0.8 }))).toBe('by floor + 4 pairs (fit rms 0.8 mm), then moved by hand: the pairs are now 20 mm apart')
   })
 })
 
@@ -153,17 +156,23 @@ describe('how an alignment stands against a build', () => {
   const ok = { revision: 12, of: 3, off: 0, worst: 0.1, moved: [] }
 
   it('holds only when it was checked against the last build: without that it says so, as an unchecked mark does', () => {
-    expect(standingOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 12)).toEqual({ aligned: true, basis: '3 pairs, RMS 0 mm', rough: null, stale: null, unchecked: false, note: null })
+    expect(standingOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 12)).toEqual({ aligned: true, basis: '3 pairs, RMS 0 mm', rough: null, stale: null, unchecked: false, waiting: false, failed: false, note: null })
     // The check there is, is of the build before: nothing is known of this one.
     expect(doubtOf({ alignments: { print: fitted }, checks: { print: ok } }, 'print', 13)).toBe('it was not checked against r13')
     expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print', 13)).toBe('it was not checked against r13')
-    expect(standingOf({ alignments: { print: fitted }, checks: {} }, 'print', 13)).toMatchObject({ stale: 'it was not checked against r13', unchecked: true })
+    expect(standingOf({ alignments: { print: fitted }, checks: {} }, 'print', 13)).toMatchObject({ stale: 'it was not checked against r13', unchecked: true, waiting: true, failed: false })
+    // Fix round 2 (D, m1): once a check has failed it says why, and of which build; and whether not being checked is all there is to say is a field, not the shape of a sentence.
+    const failed = { alignments: { print: fitted }, checks: {}, unchecked: { print: { revision: 13, reason: 'the kernel exited' } } }
+    expect(standingOf(failed, 'print', 13)).toMatchObject({ stale: 'it could not be checked against r13: the kernel exited', unchecked: true, waiting: true, failed: true })
+    // Why a check of another build failed says nothing of this one.
+    expect(standingOf(failed, 'print', 14)).toMatchObject({ stale: 'it was not checked against r14', failed: false })
+    expect(standingOf({ alignments: { print: { ...fitted, sourceChanged: true } }, checks: {} }, 'print', 13)).toMatchObject({ unchecked: true, waiting: false })
     // With another reason beside it.
     expect(doubtOf({ alignments: { print: { ...fitted, sourceChanged: true } }, checks: {} }, 'print', 13)).toBe('the scan was imported again from a source that had changed since it was aligned, and it was not checked against r13: check the alignment')
     // Before any build, and for whoever knows of none, nothing is said of a check.
     expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print')).toBeNull()
     expect(doubtOf({ alignments: { print: fitted }, checks: {} }, 'print', 0)).toBeNull()
-    expect(standingOf({ alignments: {}, checks: {} }, 'print', 12)).toEqual({ aligned: false, basis: null, rough: null, stale: null, unchecked: false, note: null })
+    expect(standingOf({ alignments: {}, checks: {} }, 'print', 12)).toEqual({ aligned: false, basis: null, rough: null, stale: null, unchecked: false, waiting: false, failed: false, note: null })
   })
 
   it('says of one tied to no point of the model that no build can say whether it holds: a note, not a doubt', () => {
@@ -176,7 +185,7 @@ describe('how an alignment stands against a build', () => {
   })
 
   it('says that the person confirmed it, until something puts it in doubt again', () => {
-    const confirmed: ScanAlignment = { ...fitted, confirmed: { revision: 12, at: '2026-10-09T10:00:00.000Z', held: [0, 6.2, null] } }
+    const confirmed: ScanAlignment = { ...fitted, confirmed: { revision: 12, at: '2026-10-09T10:00:00.000Z', held: [[0, 0, 0], [0, 0, 6.2], null] } }
     expect(standingOf({ alignments: { print: confirmed }, checks: { print: ok } }, 'print', 12).note).toBe('confirmed by the user on r12')
     // From an earlier run: which build that was is not known any more.
     expect(standingOf({ alignments: { print: { ...confirmed, confirmed: { at: '2026-10-09T10:00:00.000Z', held: [] } } }, checks: { print: ok } }, 'print', 12).note).toBe('confirmed by the user')

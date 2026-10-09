@@ -279,10 +279,11 @@ export function fitFew(scan: Vec3[], model: Vec3[], from: ScanTransform): PairFi
  * Why an alignment's fit of pairs is doubtful, or null: fewer than three pairs, pairs in or almost in a line,
  * or pairs the fit leaves further apart than `ROUGH_RMS_MM`. Of the pairs as they are: their residuals are to
  * be worked out first (`reckoned`). An alignment that rests on no pairs (a floor, a hand) is not rough: it is
- * what its basis says. Nor is a good fit that a hand moved afterwards: that it was is said, and how far its
- * pairs now are; what stays doubtful there is only what was doubtful of the pairs themselves.
+ * what its basis says. A fit is judged by how well it fitted (`fitRms`, which main keeps through every move by
+ * hand after it): a good fit moved by hand is not rough, a rough one stays rough wherever a hand puts it; with
+ * no such number it is judged by how far apart its pairs are as it stands.
  */
-export function roughOf(alignment: Pick<ScanAlignment, 'steps'> & { pairs?: ScanPair[] }): string | null {
+export function roughOf(alignment: Pick<ScanAlignment, 'steps'> & { pairs?: ScanPair[]; fitRms?: number }): string | null {
   const pairs = alignment.pairs ?? []
   const { basis, movedByHand } = basisOf(alignment)
   if (basis !== 'pairs') return null
@@ -290,28 +291,25 @@ export function roughOf(alignment: Pick<ScanAlignment, 'steps'> & { pairs?: Scan
   const wide = Math.min(spreadOf(pairs.map((pair) => pair.scan)), spreadOf(pairs.map((pair) => pair.model)))
   if (wide < LINE_SPREAD) return 'its pairs of points are in a line: how it is turned about that line is not fixed'
   if (wide < WEAK_SPREAD) return 'its pairs of points are almost in a line: how it is turned about that line is poorly fixed'
-  const rms = rmsOf(pairs.map((pair) => pair.residual))
-  return !movedByHand && rms > ROUGH_RMS_MM ? `its pairs of points are left ${fitNumber(rms)} mm apart (rms): more than ${ROUGH_RMS_MM} mm` : null
+  // How well they were fitted, when that is known: a hand that moves the scan afterwards makes a fit neither better nor worse.
+  const fitted = alignment.fitRms !== undefined
+  const rms = alignment.fitRms ?? rmsOf(pairs.map((pair) => pair.residual))
+  return rms > ROUGH_RMS_MM ? `its pairs of points ${fitted && movedByHand ? 'were fitted' : 'are left'} ${fitNumber(rms)} mm apart (rms): more than ${ROUGH_RMS_MM} mm` : null
 }
 
-type Reckoned = Partial<Pick<ScanAlignment, 'rms' | 'scaled' | 'rough' | 'basis' | 'movedByHand'>>
+type Reckoned = Partial<Pick<ScanAlignment, 'rms' | 'scaled' | 'rough'>>
 
 /**
  * An alignment with what follows from its transform, its steps and its pairs worked out, whatever it said of
  * them: how far each pair is left apart and, when it has pairs, their rms (without, the rms is its floor's and
- * is left); whether its size was changed; what it rests on and whether a hand moved it after; and why its fit
- * is doubtful, when it is.
+ * is left); whether its size was changed; and why its fit is doubtful, when it is (by `fitRms`, when it has one).
  */
-export function reckoned<A extends Pick<ScanAlignment, 'transform' | 'steps'> & Partial<Pick<ScanAlignment, 'pairs'>>>(alignment: A): A & Reckoned {
+export function reckoned<A extends Pick<ScanAlignment, 'transform' | 'steps'> & Partial<Pick<ScanAlignment, 'pairs' | 'fitRms'>>>(alignment: A): A & Reckoned {
   const made: A & Reckoned = { ...alignment }
   if (made.pairs) made.pairs = made.pairs.map((pair) => ({ ...pair, residual: Math.hypot(...sub(apply(made.transform, pair.scan), pair.model)) }))
   if (made.pairs && made.pairs.length > 0) made.rms = rmsOf(made.pairs.map((pair) => pair.residual))
   if (Math.abs(made.transform.s - 1) > 1e-9) made.scaled = true
   else delete made.scaled
-  const { basis, movedByHand } = basisOf(made)
-  made.basis = basis
-  if (movedByHand) made.movedByHand = true
-  else delete made.movedByHand
   const rough = roughOf(made)
   if (rough) made.rough = rough
   else delete made.rough

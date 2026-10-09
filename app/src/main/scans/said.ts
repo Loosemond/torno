@@ -18,7 +18,10 @@ export interface AlignmentData {
   by?: string
   steps?: AlignStep[]
   pairs?: number
+  /** Of a fit of pairs: how far apart they are as the scan stands (mm). Of a floor: of its patch about its plane. */
   rms?: number
+  /** How well the pairs were fitted (mm), which a move by hand afterwards does not change: `rms` is then where they are now. */
+  fitRms?: number
   worst?: number
   scaled?: boolean
   /** Why it is only rough, when it is. */
@@ -69,7 +72,7 @@ export function alignmentSaid(scan: Pick<ScanInfo, 'id' | 'alignments' | 'checks
   const standing = standingOf(scan, layout, revision)
   const doubt = standing.stale
   // Not checked and nothing else: there is nothing to look at, only nothing known of this build.
-  const onlyUnchecked = standing.unchecked && doubt !== null && !doubt.endsWith(': check the alignment')
+  const onlyUnchecked = standing.waiting
   const rough = alignment.rough ?? null
   const pairs = alignment.pairs ?? []
   const by = alignmentText(alignment)
@@ -84,6 +87,7 @@ export function alignmentSaid(scan: Pick<ScanInfo, 'id' | 'alignments' | 'checks
     steps: alignment.steps,
     ...(pairs.length > 0 ? { pairs: pairs.length } : {}),
     ...(alignment.rms === undefined ? {} : { rms: tidy(alignment.rms) }),
+    ...(alignment.fitRms === undefined ? {} : { fitRms: tidy(alignment.fitRms) }),
     ...(pairs.length > 0 ? { worst: tidy(Math.max(...pairs.map((pair) => pair.residual))) } : {}),
     ...(alignment.scaled ? { scaled: true } : {}),
     ...(rough ? { rough } : {}),
@@ -93,8 +97,8 @@ export function alignmentSaid(scan: Pick<ScanInfo, 'id' | 'alignments' | 'checks
     ...(standing.note ? { note: standing.note } : {})
   }
   // What is beside the point of how it is aligned, and still to be known: in brackets, after it.
-  const aside = [...(onlyUnchecked ? [`not checked against r${revision}`] : []), ...(standing.note ? [standing.note] : [])]
-  const holds = doubt ? (onlyUnchecked ? `${scan.id}'s alignment was not checked against r${revision}: whether it still holds on it is not known` : `${scan.id}'s alignment may no longer hold: ${doubt}`) : null
+  const aside = [...(onlyUnchecked ? [standing.failed ? doubt!.replace(/^it /, '') : `not checked against r${revision}`] : []), ...(standing.note ? [standing.note] : [])]
+  const holds = doubt ? (onlyUnchecked ? (standing.failed ? `${scan.id}'s alignment ${doubt!.replace(/^it /, '')}: whether it still holds on that build is not known` : `${scan.id}'s alignment was not checked against r${revision}: whether it still holds on it is not known`) : `${scan.id}'s alignment may no longer hold: ${doubt}`) : null
   // What it rests on, first, when that is no fit: whoever reads a depth must know there is none behind where the scan stands.
   const rests = basis === 'floor' ? `${scan.id} is aligned by its floor only: where it is on that floor is ${movedByHand ? 'as it was put by hand' : 'as imported'}. ` : basis === 'hand' ? `${scan.id} was placed by hand: no fit says how well. ` : movedByHand ? `${scan.id} was moved by hand after it was fitted. ` : ''
   return {

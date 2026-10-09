@@ -35,7 +35,7 @@ describe('ScanLayer', () => {
     layer.setView('S2', { visible: false })
     layer.setView('S1', { opacity: 0.6 })
     // Changed in fix round 1 (I1): what is drawn of a scan says whether it is aligned in the layout drawn.
-    expect(layer.shown()).toEqual([{ id: 'S1', visible: true, opacity: 0.6, aligned: false, stale: null, rough: null, basis: null, note: null }, { id: 'S2', visible: false, opacity: 1, aligned: false, stale: null, rough: null, basis: null, note: null }])
+    expect(layer.shown()).toEqual([{ id: 'S1', visible: true, opacity: 0.6, aligned: false, stale: null, rough: null, basis: null, note: null, waiting: false }, { id: 'S2', visible: false, opacity: 1, aligned: false, stale: null, rough: null, basis: null, note: null, waiting: false }])
     const mesh = layer.group.children[0].children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.Material>
     expect(mesh.material).toMatchObject({ transparent: true, opacity: 0.6, depthWrite: false })
     const back = layer.showOnly(['S2'])

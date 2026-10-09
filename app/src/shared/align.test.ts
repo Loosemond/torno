@@ -212,13 +212,16 @@ describe('what an alignment is worth', () => {
     expect(ROUGH_RMS_MM).toBe(5)
     expect(at(THREE_PAIRS, ['pairs'], [5, 0, 7])).toBe('its pairs of points are left 6 mm apart (rms): more than 5 mm')
     expect(at(THREE_PAIRS, ['pairs'], [5, 0, 5])).toBeUndefined()
-    // Fitted well and then moved by hand: by hand, said as that, and how far its pairs now are is in its text. Not a doubtful fit.
-    expect(at(THREE_PAIRS, ['pairs', 'typed'], [5, 0, 27])).toBeUndefined()
+    // Changed in fix round 2 (C): a fit is judged by how well it fitted (`fitRms`), wherever a hand put it afterwards.
+    const moved = (fitRms: number | undefined, t: [number, number, number]) => reckoned({ transform: { t, q: I, s: 1 }, steps: ['pairs', 'typed'] as Array<'pairs' | 'typed'>, pairs: THREE_PAIRS, ...(fitRms === undefined ? {} : { fitRms }) }).rough
+    // Fitted well, then moved 26 mm by hand: not a doubtful fit.
+    expect(moved(0.4, [5, 0, 27])).toBeUndefined()
+    // Fitted 40 mm off, then put right by hand: as doubtful a fit as it was.
+    expect(moved(40, [5, 0, 1])).toBe('its pairs of points were fitted 40 mm apart (rms): more than 5 mm')
+    // With no fit on record it is judged as it stands.
+    expect(moved(undefined, [5, 0, 27])).toBe('its pairs of points are left 26 mm apart (rms): more than 5 mm')
     // But two pairs stay two pairs, wherever a hand puts it afterwards.
     expect(at(THREE_PAIRS.slice(0, 2), ['pairs', 'nudge'], [5, 0, 27])).toBe('it has 2 pairs of points: it takes three that are not in a line to fix a scan')
-    // And what follows from the steps is worked out with the rest, whatever was said of it.
-    expect(reckoned({ transform: { t: [0, 0, 0], q: I, s: 1 }, steps: ['pairs', 'nudge'] as Array<'pairs' | 'nudge'>, pairs: THREE_PAIRS, basis: 'hand' as const })).toMatchObject({ basis: 'pairs', movedByHand: true })
-    expect(reckoned({ transform: { t: [0, 0, 0], q: I, s: 1 }, steps: ['floor'] as Array<'floor'>, movedByHand: true as const })).toEqual({ transform: { t: [0, 0, 0], q: I, s: 1 }, steps: ['floor'], basis: 'floor' })
   })
 })
 

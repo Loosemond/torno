@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Scan, ScanAlignment, ScanInfo } from '../../shared/scans'
+import { type Scan, type ScanAlignment, type ScanInfo, basisOf } from '../../shared/scans'
 import { box, meshBin, stl } from '../../test/scanFixtures'
 import type { ImportReply, Importer } from './importer'
 import type { Scene } from '../../shared/scene'
@@ -285,10 +285,11 @@ describe('ScanStore', () => {
     await expect(scans.align('bracket', 'S1', 'assembly', two)).rejects.toThrow('this alignment is rough (it has 2 pairs of points: it takes three that are not in a line to fix a scan): it is kept only once that is accepted')
     expect(file().scans[0].alignments).toEqual({})
     // A fit of three pairs that are not in a line needs no yes, and is not rough; the caller's word for it counts for nothing.
-    const sound = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, rough: 'so they say', basis: 'hand', movedByHand: true })).alignments.assembly
+    const sound = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, rough: 'so they say' })).alignments.assembly
     expect(sound).not.toHaveProperty('rough')
-    expect(sound).toMatchObject({ basis: 'pairs' })
-    expect(sound).not.toHaveProperty('movedByHand')
+    // What it rests on is worked out from its steps and its pairs wherever it is said, and is in no file (fix round 2, m7).
+    expect(basisOf(sound)).toEqual({ basis: 'pairs', movedByHand: false })
+    expect(sound).not.toHaveProperty('basis')
     const rough = (await scans.align('bracket', 'S1', 'print', two, YES)).alignments.print
     expect(rough.rough).toBe('it has 2 pairs of points: it takes three that are not in a line to fix a scan')
     expect(file().scans[0].alignments.print.rough).toBe(rough.rough)
@@ -298,16 +299,16 @@ describe('ScanStore', () => {
     const scans = store()
     await scans.import('bracket', source)
     const byHand = (await scans.align('bracket', 'S1', 'assembly', ALIGNED)).alignments.assembly
-    expect(byHand).toMatchObject({ basis: 'hand' })
+    expect(basisOf(byHand)).toEqual({ basis: 'hand', movedByHand: false })
     expect(byHand).not.toHaveProperty('rough')
     const floor = (await scans.align('bracket', 'S1', 'print', { ...ALIGNED, steps: ['floor'], rms: 0.4, floor: { point: [0, 0, 0] } })).alignments.print
-    expect(floor).toMatchObject({ basis: 'floor', rms: 0.4 })
+    expect(floor).toMatchObject({ rms: 0.4 })
+    expect(basisOf(floor)).toEqual({ basis: 'floor', movedByHand: false })
     expect(floor).not.toHaveProperty('rough')
     // A fit moved by hand afterwards says so.
+    await scans.align('bracket', 'S1', 'print', FITTED)
     const moved = (await scans.align('bracket', 'S1', 'print', { ...FITTED, steps: ['pairs', 'nudge'], transform: { ...FITTED.transform, t: [5, 0, 30] } })).alignments.print
-    expect(moved).toMatchObject({ basis: 'pairs', movedByHand: true })
-    expect(moved).not.toHaveProperty('rough')
-    expect(file().scans[0].alignments.print).toMatchObject({ basis: 'pairs', movedByHand: true })
+    expect(basisOf(moved)).toEqual({ basis: 'pairs', movedByHand: true })
   })
 
   it('keeps a scale other than one only when the person chose to keep it', async () => {
@@ -365,6 +366,18 @@ describe('ScanStore', () => {
     expect(held.alignments.print).not.toHaveProperty('sourceChanged')
     expect(file().scans[0].alignments.print).not.toHaveProperty('sourceChanged')
     await expect(later.alignmentHolds('bracket', 'S1', 'nowhere', { revision: 5, frame: {}, held: [] })).rejects.toThrow('S1 is not aligned in nowhere')
+    // Fix round 2: with nothing of the model to hold it against (the last check found it in place), only the doubt of the source goes: no confirmation, the check kept.
+    await later.reimport('bracket', 'S1')
+    await later.align('bracket', 'S1', 'assembly', FITTED)
+    const other: Importer = { ...importer, import: async (...args) => ({ ...(await importer.import(...args)), source: { bytes: 684, sha256: 'ef'.repeat(32) } }) }
+    const third = store(other)
+    await third.reimport('bracket', 'S1')
+    const check = { revision: 5, of: 0, off: 0, worst: 0, moved: [] }
+    await third.checked('bracket', 'S1', 'assembly', check)
+    const plain = await third.alignmentHolds('bracket', 'S1', 'assembly', null)
+    expect(plain.alignments.assembly).not.toHaveProperty('sourceChanged')
+    expect(plain.alignments.assembly).not.toHaveProperty('confirmed')
+    expect(plain.checks).toEqual({ assembly: check })
   })
 
   // Fix round 1 (R-check).
@@ -397,19 +410,71 @@ describe('ScanStore', () => {
     const scans = store()
     await scans.import('bracket', source)
     await scans.align('bracket', 'S1', 'assembly', { ...FITTED, frame: { base: [0, 0, 0], lid: [45, 0, 0] } })
-    const held = await scans.alignmentHolds('bracket', 'S1', 'assembly', { revision: 7, frame: { base: [0, 0, 0], lid: [50, 0, 0] }, held: [0, 6.2, null] })
+    const held = await scans.alignmentHolds('bracket', 'S1', 'assembly', { revision: 7, frame: { base: [0, 0, 0], lid: [50, 0, 0] }, held: [[0, 0, 0], [0, 0, 6.2], null] })
     const kept = held.alignments.assembly
-    expect(kept.confirmed).toEqual({ revision: 7, at: '2026-10-10T09:00:00.000Z', held: [0, 6.2, null] })
+    expect(kept.confirmed).toEqual({ revision: 7, at: '2026-10-10T09:00:00.000Z', held: [[0, 0, 0], [0, 0, 6.2], null] })
     // The layout as torno spreads it now is what later builds are held against.
     expect(kept.frame).toEqual({ base: [0, 0, 0], lid: [50, 0, 0] })
     expect(file().scans[0].alignments.assembly.confirmed).toEqual(kept.confirmed)
     // Which build it was is of this run only.
-    expect((await store().list('bracket'))[0].alignments.assembly.confirmed).toEqual({ at: '2026-10-10T09:00:00.000Z', held: [0, 6.2, null] })
-    // A caller cannot say it was confirmed; and aligned anew, it is not.
+    expect((await store().list('bracket'))[0].alignments.assembly.confirmed).toEqual({ at: '2026-10-10T09:00:00.000Z', held: [[0, 0, 0], [0, 0, 6.2], null] })
+    // A caller cannot say it was confirmed; and fitted anew, it is not.
     const anew = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, confirmed: { revision: 9, at: 'x', held: [] } })).alignments.assembly
     expect(anew).not.toHaveProperty('confirmed')
+    // Moved by hand, with the points it is tied to where they were: what was confirmed of the model is still so (fix round 2, m4).
+    await scans.alignmentHolds('bracket', 'S1', 'assembly', { revision: 8, frame: { base: [0, 0, 0] }, held: [[1, 2, 3]] })
+    const nudged = (await scans.align('bracket', 'S1', 'assembly', { ...FITTED, steps: ['pairs', 'nudge'], transform: { ...FITTED.transform, t: [5, 0, 2] } })).alignments.assembly
+    expect(nudged.confirmed).toMatchObject({ revision: 8, held: [[1, 2, 3]] })
+    // With a model end put on a part, it is tied to another point: that was never confirmed.
+    const tied = { ...FITTED, steps: ['pairs', 'nudge'] as ScanAlignment['steps'], pairs: FITTED.pairs!.map((p, n) => (n === 0 ? { ...p, part: 'base' } : p)) }
+    expect((await scans.align('bracket', 'S1', 'assembly', tied, YES)).alignments.assembly).not.toHaveProperty('confirmed')
     // What was confirmed is what an undo goes back to.
-    expect((await scans.undoAlign('bracket', 'S1', 'assembly')).alignments.assembly.confirmed).toMatchObject({ held: [0, 6.2, null] })
+    expect((await scans.undoAlign('bracket', 'S1', 'assembly')).alignments.assembly.confirmed).toMatchObject({ held: [[1, 2, 3]] })
+  })
+
+  // Fix round 2 (C): how well the pairs were fitted is one number, where a hand left them is another.
+  it('judges a fit of pairs by how well it fitted, through every move by hand after it: a nudge does not launder a rough fit', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    // Fitted 40 mm off its pairs: rough, and kept only on a yes.
+    const off = { ...FITTED, transform: { ...FITTED.transform, t: [5, 0, 41] as [number, number, number] } }
+    await expect(scans.align('bracket', 'S1', 'assembly', off)).rejects.toThrow('its pairs of points are left 40 mm apart (rms): more than 5 mm')
+    // The same, said to have been moved by hand: there is no fit behind it that main knows of, so it is judged as it stands.
+    await expect(scans.align('bracket', 'S1', 'assembly', { ...off, steps: ['pairs', 'nudge'] })).rejects.toThrow('its pairs of points are left 40 mm apart (rms): more than 5 mm')
+    const kept = (await scans.align('bracket', 'S1', 'assembly', off, YES)).alignments.assembly
+    expect(kept.fitRms).toBeCloseTo(40, 9)
+    // Nudged: the fit is as rough as it was, wherever the hand puts it, and what the caller says of the fit counts for nothing.
+    const nudged = { ...off, steps: ['pairs', 'nudge'] as ScanAlignment['steps'], transform: FITTED.transform, fitRms: 0 }
+    await expect(scans.align('bracket', 'S1', 'assembly', nudged)).rejects.toThrow('this alignment is rough')
+    const moved = (await scans.align('bracket', 'S1', 'assembly', nudged, YES)).alignments.assembly
+    expect(moved.fitRms).toBeCloseTo(40, 9)
+    expect(moved.rms).toBeCloseTo(0, 9)
+    expect(moved.rough).toBe('its pairs of points were fitted 40 mm apart (rms): more than 5 mm')
+    // A good fit moved 20 mm by hand is not rough: it fitted well, and is said to have been moved.
+    await scans.align('bracket', 'S1', 'print', FITTED)
+    const far = (await scans.align('bracket', 'S1', 'print', { ...FITTED, steps: ['pairs', 'typed'], transform: { ...FITTED.transform, t: [5, 0, 21] } })).alignments.print
+    expect(far).not.toHaveProperty('rough')
+    expect(far.fitRms).toBeCloseTo(0, 9)
+    expect(far.rms).toBeCloseTo(20, 9)
+    // With other pairs than those that were fitted, what was fitted says nothing.
+    const others = { ...FITTED, steps: ['pairs', 'typed'] as ScanAlignment['steps'], transform: { ...FITTED.transform, t: [5, 0, 21] as [number, number, number] }, pairs: FITTED.pairs!.map((p) => ({ ...p, model: [p.model[0], p.model[1], 2] as [number, number, number] })) }
+    await expect(scans.align('bracket', 'S1', 'print', others)).rejects.toThrow('this alignment is rough')
+  })
+
+  // Fix round 2 (m3).
+  it('keeps nothing a check found of an alignment that was confirmed or made anew while the check ran', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const judged = (await scans.align('bracket', 'S1', 'assembly', FITTED)).alignments.assembly
+    const check = { revision: 3, of: 3, off: 2, worst: 6.2, moved: [] }
+    // "Still right" lands while the check is in flight: its verdict is of the alignment as it was held before.
+    await scans.alignmentHolds('bracket', 'S1', 'assembly', { revision: 3, frame: { base: [0, 0, 0] }, held: [[0, 0, 0], [0, 0, 0], [0, 0, 0]] })
+    await scans.checked('bracket', 'S1', 'assembly', check, judged)
+    expect((await scans.list('bracket'))[0].checks).toEqual({})
+    // Judged as it now is: kept.
+    const now = (await scans.list('bracket'))[0].alignments.assembly
+    await scans.checked('bracket', 'S1', 'assembly', check, now)
+    expect((await scans.list('bracket'))[0].checks).toEqual({ assembly: check })
   })
 
   it('keeps no more pairs than an alignment has room for, and refuses rather than keep a fit of more with the first of them', async () => {

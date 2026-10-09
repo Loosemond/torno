@@ -185,7 +185,7 @@ test('an alignment is kept with how the layout was spread, and dropped when the 
   expect(await rejection('noBuild')).toBe('an alignment says which build it was made on')
   // Fix round 1 (R-basis): rough is a doubtful fit of pairs; a scan placed by hand is kept as that, and says so.
   expect(await rejection('rough')).toBe('this alignment is rough (it has 2 pairs of points: it takes three that are not in a line to fix a scan): it is kept only once that is accepted')
-  expect(alignment).toMatchObject({ revision, basis: 'hand', before: null })
+  expect(alignment).toMatchObject({ revision, steps: ['typed'], before: null })
   expect(alignment).not.toHaveProperty('rough')
 
   const converted: ScanInfo = await page.evaluate(() => window.torno.scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' }))

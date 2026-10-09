@@ -239,8 +239,10 @@ export function sanitiseAlignment(value: unknown): ScanAlignment | null {
   alignment.frame = Object.fromEntries(frame)
   if (isRevision(value.revision)) alignment.revision = value.revision
   if (value.sourceChanged === true) alignment.sourceChanged = true
+  if (isNumber(value.fitRms) && value.fitRms >= 0) alignment.fitRms = value.fitRms
   if (isRecord(value.confirmed) && typeof value.confirmed.at === 'string' && Array.isArray(value.confirmed.held)) {
-    const held = value.confirmed.held.slice(0, MAX_PAIRS + 1).map((mm) => (isNumber(mm) && mm >= 0 ? mm : null))
+    // Where the model was under each tied point; what is no point (a part that was not there, a file of another shape) is none.
+    const held = value.confirmed.held.slice(0, MAX_PAIRS + 1).map((point) => tuple<Vec3>(point, 3))
     alignment.confirmed = { ...(isRevision(value.confirmed.revision) ? { revision: value.confirmed.revision } : {}), at: value.confirmed.at, held }
   }
   // One step back and no further: what was before the one before is not kept.

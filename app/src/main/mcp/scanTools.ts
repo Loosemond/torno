@@ -107,6 +107,18 @@ export async function scanFor(deps: ToolDeps, objectId: string, layout: string, 
   return { scan, alignment, aligned, wire: { id: scan.id, path: paths.mesh, transform: alignment.transform }, mask: (markId) => paths.mask(markId) }
 }
 
+/**
+ * What is said of a scan's alignment once the kernel has answered, for the reply: the kernel answers one thing
+ * at a time, so a tool asked right after a build is answered after that build's check of the alignments, and
+ * what was read before the question ("not checked against rN") is by then no longer so. The same alignment
+ * only: one made anew meanwhile is not what the kernel was asked with.
+ */
+export async function saidNow(deps: ToolDeps, objectId: string, layout: string, revision: number, id: string, was: AlignmentSaid): Promise<AlignmentSaid> {
+  const scan = (await deps.scans(objectId).catch(() => [] as ScanInfo[])).find((one) => one.id === id)
+  const now = scan ? alignmentSaid(scan, layout, revision) : null
+  return now?.alignment && was.alignment && now.alignment.at === was.alignment.at ? now : was
+}
+
 /** How far torno moved a part to set it beside the others, when it did: a part left where the model placed it has none, or zeros. */
 const movedBy = (part: Part | undefined): Vec3 | null => (part?.arranged?.some((c) => Math.abs(c) > 1e-6) ? part.arranged : null)
 const inLayout = (scene: Scene, layout: string): Part[] => scene.parts.filter((p) => p.layout === layout)
@@ -268,7 +280,7 @@ export async function scanClashTool(deps: ToolDeps, objectId: string, args: Scan
     try {
       const said = await deps.query<ScanClashed>(objectId, 'scan_clash', { layout, part: part.name, margin, scan: { ...of.wire, ignore: masks, only: null } })
       if (!finite(said?.inside?.count) || !finite(said.points?.checked) || !Array.isArray(said.inside.clusters)) return failure('the kernel did not answer with a clash')
-      return { got: { layout, of, said } }
+      return { got: { layout, of: { ...of, aligned: await saidNow(deps, objectId, layout, found.revision, of.scan.id, of.aligned) }, said } }
     } catch (e) {
       return refusal(e, layout, 'check against a scan', 'the part or the scan')
     }
@@ -374,7 +386,7 @@ export async function scanDeviationTool(deps: ToolDeps, objectId: string, args: 
     try {
       const said = await deps.query<ScanDeviated>(objectId, 'scan_deviation', { layout, part: part.name, faces, from, within, samples, scan: { ...of.wire, ignore: [], only: masks[0] ?? null } })
       if (!finite(said?.samples) || !finite(said.compared) || typeof said.sampling !== 'object' || said.sampling === null) return failure('the kernel did not answer with a deviation')
-      return { got: { layout, of, faces, said } }
+      return { got: { layout, of: { ...of, aligned: await saidNow(deps, objectId, layout, found.revision, of.scan.id, of.aligned) }, faces, said } }
     } catch (e) {
       return refusal(e, layout, 'check against a scan', 'the part or the scan')
     }

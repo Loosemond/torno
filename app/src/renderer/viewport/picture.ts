@@ -184,7 +184,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
  * last build put in doubt may not be, nor one that is only rough, and one laid on its floor alone or placed by hand
  * is no fit: whoever reads the picture is told what each alignment rests on and what is in doubt of it, with the scan's name.
  */
-export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' | 'aligned' | 'stale'> & Partial<Pick<ShownScan, 'rough' | 'basis' | 'note'>>>, layout: string): string {
+export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' | 'aligned' | 'stale'> & Partial<Pick<ShownScan, 'rough' | 'basis' | 'note' | 'waiting'>>>, layout: string): string {
   if (drawn.length === 0) return ''
   const said = drawn.map((scan) => {
     const thin = scan.opacity < 1 ? ` at ${Math.round(scan.opacity * 100)} %` : ''
@@ -192,7 +192,7 @@ export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' 
     // What it rests on first; then what puts it in doubt, what is doubtful of its fit, and what else is to be known.
     const told = [
       ...(scan.basis ? [scan.basis] : []),
-      ...(scan.stale ? [scan.stale.endsWith(': check the alignment') ? `its alignment in ${layout} may no longer hold: ${scan.stale}` : scan.stale] : []),
+      ...(scan.stale ? [scan.waiting ? scan.stale : `its alignment in ${layout} may no longer hold: ${scan.stale}`] : []),
       ...(scan.rough ? [scan.stale ? `it is rough: ${scan.rough}` : `aligned roughly in ${layout}: ${scan.rough}`] : []),
       ...(scan.note ? [scan.note] : [])
     ]

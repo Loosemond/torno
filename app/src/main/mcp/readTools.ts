@@ -8,7 +8,7 @@ import { number, sizes, vector } from '../marks/describe'
 import { plain, wire } from '../marks/measure'
 import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
-import { type ScanAsked, SCAN_APPROXIMATE, noteOf, scanFor, scanFrame, scanSpread } from './scanTools'
+import { type ScanAsked, SCAN_APPROXIMATE, noteOf, saidNow, scanFor, scanFrame, scanSpread } from './scanTools'
 import { type PlaneArg, type ToolDeps, type ToolResult, SPREAD_NOTE, built, clampSize, failure, layoutFor, messageOf, notOpen, ofBuild, planeArg, tidy } from './tools'
 
 // The tools the agent reads the part with: `measure`, `section` and `check`.
@@ -137,7 +137,10 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
       }
       const end = ({ ref, point }: End): { ref?: string; point?: Vec3 } => ({ ...(ref === undefined ? {} : { ref }), ...(point ? { point } : {}) })
       const request = wire({ kind: args.kind, layout, a: end(a), ...(b ? { b: end(b) } : {}), ...(args.density === undefined ? {} : { density: args.density }) })
-      return { got: { layout, a, b, measured: await deps.query<Measured>(objectId, 'measure', request) } }
+      const measured = await deps.query<Measured>(objectId, 'measure', request)
+      // What is said of a scan's alignment is read once the kernel has answered: a check of this build has been by then.
+      for (const one of ends) if (one.scan) one.scan.aligned = await saidNow(deps, objectId, layout, found.revision, one.scan.id, one.scan.aligned)
+      return { got: { layout, a, b, measured } }
     } catch (e) {
       return refusal(e, layout, 'measurement')
     }
@@ -309,7 +312,7 @@ export async function sectionTool(deps: ToolDeps, objectId: string, args: Sectio
       // By the plane as it was given, as the parts were: the two answers are in the same axes.
       const lines = await deps.query<ScanSectioned>(objectId, 'scan_section', { layout, plane, scan: { ...of.wire, ignore: [], only: null } })
       if (!Array.isArray(lines?.polylines)) return failure('the kernel did not answer with where the plane cuts the scan')
-      return { got: { layout, cut, scan: { of, lines } } }
+      return { got: { layout, cut, scan: { of: { ...of, aligned: await saidNow(deps, objectId, layout, found.revision, of.scan.id, of.aligned) }, lines } } }
     } catch (e) {
       return refusal(e, layout, 'section')
     }

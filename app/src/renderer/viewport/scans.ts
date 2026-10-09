@@ -24,9 +24,10 @@ export interface ScanLayerState {
 /**
  * What is drawn of a scan, and what must be said of it with a picture: whether it is aligned in the layout
  * drawn, what that rests on (`basis`), why it may no longer hold or was not checked against the build on show
- * (`stale`), why its fit is rough, and what else is to be known of it (`note`). As `standingOf` says them.
+ * (`stale`; `waiting` when that is all it says), why its fit is rough, and what else is to be known of it
+ * (`note`). As `standingOf` says them.
  */
-export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null; rough: string | null; basis: string | null; note: string | null }
+export interface ShownScan { id: string; visible: boolean; opacity: number; aligned: boolean; stale: string | null; rough: string | null; basis: string | null; note: string | null; waiting: boolean }
 
 /** Makes the bounds tree of a scan's geometry; `stop` says the mesh was let go of meanwhile (`buildScanBvh`). */
 export type TreeBuilder = (geometry: THREE.BufferGeometry, stop: AbortSignal) => Promise<{ tree: MeshBVH; how: 'worker' | 'main' }>
@@ -427,8 +428,8 @@ export class ScanLayer {
     return this.entries
       .filter((entry) => entry.built)
       .map((entry) => {
-        const { aligned, stale, rough, basis, note } = standingOf(entry.info, layout, this.revision)
-        return { id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry), aligned, stale, rough, basis, note }
+        const { aligned, stale, rough, basis, note, waiting } = standingOf(entry.info, layout, this.revision)
+        return { id: entry.info.id, visible: entry.built!.group.visible, opacity: this.opacityOf(entry), aligned, stale, rough, basis, note, waiting }
       })
   }
 

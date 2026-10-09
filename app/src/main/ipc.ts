@@ -5,7 +5,7 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
 import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
-import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf } from '../shared/scans'
+import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { ViewState } from '../shared/view'
@@ -18,7 +18,7 @@ import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, foll
 import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
-import { type AlignCheckDeps, checkAlignments, heldNow, tiedToMoved, uncheckedOn } from './scans/alignCheck'
+import { type AlignCheckDeps, checkAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { type ScanStore, frameOf } from './scans/store'
 import { loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
@@ -49,6 +49,8 @@ interface OpenWorkspace {
   alignChecks?: Retrying
   /** How the model is asked where the points of an alignment are. */
   nearest?: AlignCheckDeps['nearest']
+  /** Stops the asking again, every 30 s, for alignments that were not checked. */
+  stopChecking?: () => void
   kernel: KernelClient
   builds: Builds
   opened: Set<string> // ids of the objects being watched and built
@@ -167,6 +169,14 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   )
   builds.on('scene', ({ objectId }) => alignChecks(objectId))
   ws.alignChecks = alignChecks
+  // Three quick retries are not the end of it: for as long as an alignment of an open object was not checked
+  // against its last build, the check is asked for again every 30 s, and whenever its scans are listed.
+  ws.stopChecking = keepChecking(
+    () => [...ws.opened],
+    async (objectId) => {
+      if (current === ws && scans) recheckAlignments(objectId, await scans.list(objectId))
+    }
+  )
   current = ws
   return info
 }
@@ -190,6 +200,7 @@ export async function closeWorkspace(): Promise<void> {
   // A check of its marks that failed is not tried again: its timers would outlive it.
   ws.reanchor?.cancel()
   ws.alignChecks?.cancel()
+  ws.stopChecking?.()
   checks.clear()
   // The next workspace may have an object of the same name, or this folder may change while it is closed.
   marks?.forget()
@@ -442,7 +453,12 @@ export function registerIpc(
       return info
     })
   // As for the marks: the renderer names the object, and the store finds its folder.
-  ipcMain.handle('scans:list', (_event, objectId: string) => requireScans().list(String(objectId)))
+  ipcMain.handle('scans:list', async (_event, objectId: string) => {
+    const listed = await requireScans().list(String(objectId))
+    // The window asks: an alignment that was not checked against the last build is asked about again.
+    recheckAlignments(String(objectId), listed)
+    return listed
+  })
   ipcMain.handle('scans:pick', async (event): Promise<string | null> => {
     if (opts.pickFile) return opts.pickFile()
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -481,6 +497,11 @@ export function registerIpc(
     const scan = (await requireScans().list(String(objectId))).find((one) => one.id === String(id))
     const alignment = scan ? alignmentOf(scan, String(layout)) : null
     if (!scan || !alignment) throw new Error(`${String(id)} is not aligned in ${String(layout)}`)
+    // The only doubt is that the scan was read again, and the last build's check found the model where it was:
+    // there is nothing of the model to hold it against anew, and nothing to ask the kernel, which may be busy.
+    const standing = standingOf(scan, String(layout), lastScene(String(objectId))?.revision)
+    const check = scan.checks[String(layout)]
+    if (alignment.sourceChanged && !standing.unchecked && check && check.off === 0 && check.moved.length === 0) return requireScans().alignmentHolds(String(objectId), String(id), String(layout), null)
     const holds = await heldNow({ scene: (o) => lastScene(o), nearest: ws.nearest! }, String(objectId), String(layout), alignment)
     return checked(String(objectId), requireScans().alignmentHolds(String(objectId), String(id), String(layout), holds))
   })

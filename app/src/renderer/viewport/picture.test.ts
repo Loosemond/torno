@@ -53,7 +53,8 @@ describe('the scans a picture has, in its caption', () => {
     expect(scansNote([{ ...scan, basis: 'floor only' }], 'print')).toBe(' · scans S1 (floor only)')
     expect(scansNote([{ ...scan, basis: 'by hand', note: 'tied to no point of the model: not checked against builds' }], 'print')).toBe(' · scans S1 (by hand; tied to no point of the model: not checked against builds)')
     expect(scansNote([{ ...scan, basis: '4 pairs, RMS 0.8 mm, scaled, then moved by hand' }], 'print')).toBe(' · scans S1 (4 pairs, RMS 0.8 mm, scaled, then moved by hand)')
-    expect(scansNote([{ ...scan, basis: '4 pairs, RMS 0.8 mm', stale: 'it was not checked against r13' }], 'print')).toBe(' · scans S1 (4 pairs, RMS 0.8 mm; it was not checked against r13)')
+    // Whether not being checked is all there is to say is a field of what is told (fix round 2, m1).
+    expect(scansNote([{ ...scan, basis: '4 pairs, RMS 0.8 mm', stale: 'it was not checked against r13', waiting: true }], 'print')).toBe(' · scans S1 (4 pairs, RMS 0.8 mm; it was not checked against r13)')
     expect(scansNote([{ ...scan, basis: '2 pairs, RMS 0 mm', rough: 'it has 2 pairs of points', stale: 'x: check the alignment' }], 'print')).toBe(' · scans S1 (2 pairs, RMS 0 mm; its alignment in print may no longer hold: x: check the alignment; it is rough: it has 2 pairs of points)')
     expect(scansNote([{ ...scan, basis: '4 pairs, RMS 0.8 mm', note: 'confirmed by the user on r12' }], 'print')).toBe(' · scans S1 (4 pairs, RMS 0.8 mm; confirmed by the user on r12)')
   })

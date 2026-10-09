@@ -170,6 +170,16 @@ function theWindow(): Promise<BrowserWindow> {
   return win ? Promise.resolve(win) : Promise.reject(new Error('the torno window is closed'))
 }
 
+/**
+ * The scans of an object, for a tool or for the text attached to a prompt. Someone wants to know: an alignment
+ * that was not checked against the last build is asked about again.
+ */
+async function listedScans(objectId: string): ReturnType<ScanStore['list']> {
+  const listed = await scans.list(objectId)
+  recheckAlignments(objectId, listed)
+  return listed
+}
+
 /** What the MCP tools and the text attached to a prompt are made from: the open workspace and the window. */
 const toolDeps: ToolDeps = {
   object: findObject,
@@ -206,12 +216,7 @@ const toolDeps: ToolDeps = {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
   },
   query: queryObject,
-  scans: async (objectId) => {
-    const listed = await scans.list(objectId)
-    // An alignment that was not checked against the last build is asked about again, now that someone wants to know.
-    recheckAlignments(objectId, listed)
-    return listed
-  },
+  scans: (objectId) => listedScans(objectId),
   scanPaths: (objectId, id) => scans.paths(objectId, id),
   scansBusy: (objectId) => scans.working(objectId),
   sectionDrawing(req) {
@@ -273,7 +278,7 @@ void app.whenReady().then(async () => {
     adapter: claudeAdapter(process.env.TORNO_AGENT_CMD),
     // The marks of an object that cannot be read are not a reason to tell the agent nothing of its build.
     // Nor are scans that cannot be read.
-    contextFor: async (id, opts) => contextFor(toolDeps, id, await marks.list(id).catch(() => []), { ...opts, scans: await scans.list(id).catch(() => []) }),
+    contextFor: async (id, opts) => contextFor(toolDeps, id, await marks.list(id).catch(() => []), { ...opts, scans: await listedScans(id).catch(() => []) }),
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
     systemPrompt: SYSTEM_PROMPT,

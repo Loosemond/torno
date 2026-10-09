@@ -9,6 +9,7 @@ import type { AlignPoint } from '../viewport/alignPoints'
 import type { Hit } from '../viewport/picking'
 import { type ScanHit, meshOf } from '../viewport/scans'
 import type { Viewport, ViewportPointer } from '../viewport/Viewport'
+import { eulerOf, quatOf } from './shapeTool'
 import { DESCRIBE_WITHIN_MS, dot, within, type Tool, type ToolContext } from './Tool'
 
 /** Said at the pointer when there is nothing to align, or no telling which. */
@@ -52,9 +53,11 @@ export async function keepAlignment(made: NewAlignment, yes = false): Promise<vo
   const hand = inHand()
   if (!hand) return
   const { scan, current, objectId, layout, revision } = hand
-  const worth = reckoned(made)
   const last = made.steps[made.steps.length - 1]
-  const byHandAgain = (last === 'nudge' || last === 'typed') && current?.rough !== undefined
+  const byHand = last === 'nudge' || last === 'typed'
+  // As main will reckon it: a fit moved by hand is judged by how well it was fitted, which only main says (`fitRms`).
+  const worth = reckoned({ ...made, ...(byHand && current?.fitRms !== undefined ? { fitRms: current.fitRms } : {}) })
+  const byHandAgain = byHand && current?.rough !== undefined
   if (worth.rough !== undefined && !yes && !byHandAgain) {
     alignStore.setState({ asking: { made, why: worth.rough }, refused: null })
     return
@@ -105,7 +108,12 @@ export async function readAs(unit: ScanUnit, yes = false): Promise<boolean | str
   if (!hand) return false
   const { scan, objectId } = hand
   const aligned = Object.keys(scan.alignments)
-  if (aligned.length > 0 && !yes) return aligned
+  if (aligned.length > 0 && !yes) {
+    // Asked in the bar, of this scan: the question goes when another scan is taken in hand.
+    alignStore.setState({ unitAsked: { unit, layouts: aligned } })
+    return aligned
+  }
+  alignStore.setState({ unitAsked: null })
   const factor = UNIT_MM[unit] / UNIT_MM[scan.imported.unit]
   const { pairs, pivot } = alignStore.getState()
   const stretched = (p: Vec3): Vec3 => [p[0] * factor, p[1] * factor, p[2] * factor]
@@ -120,6 +128,16 @@ export async function readAs(unit: ScanUnit, yes = false): Promise<boolean | str
   } finally {
     converting = null
   }
+}
+
+/**
+ * The three angles of a scan (degrees about X, then Y, then Z) with one of them typed. The other two are as
+ * they are, in full, not as their fields show them: `typed` while those three are still the turn the scan has
+ * (many triples are one turn, and the one being typed is the one kept), else worked out from the turn.
+ */
+export function anglesWith(typed: Vec3 | null, q: Quat, index: number, degrees: number): Vec3 {
+  const same = typed !== null && Math.abs(quatOf(typed).reduce((sum, c, i) => sum + c * q[i], 0)) > 1 - 1e-9
+  return (same ? typed : eulerOf(q)).map((angle, i) => (i === index ? degrees : angle)) as Vec3
 }
 
 /** The scan `readAs` is converting: its mesh is another when that is done, and what is in hand is brought along rather than put down. */

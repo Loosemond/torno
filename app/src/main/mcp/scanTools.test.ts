@@ -100,7 +100,7 @@ describe('scans', () => {
     const unchecked = data(await scansTool(fake([scan('S1', { assembly: BY_PAIRS }, { checks: { assembly: { revision: 11, of: 4, off: 0, worst: 0, moved: [] } } })]), 'box', {}))
     expect(unchecked.scans[0].alignment).toMatchObject({ unchecked: true, stale: 'it was not checked against r12', tied: 4 })
     expect(unchecked.reading).toContain('aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (not checked against r12), shown at 60 %')
-    const confirmed = data(await scansTool(fake([scan('S1', { assembly: { ...BY_PAIRS, confirmed: { revision: 12, at: '', held: [0, 0, 0, 0] } } })]), 'box', {}))
+    const confirmed = data(await scansTool(fake([scan('S1', { assembly: { ...BY_PAIRS, confirmed: { revision: 12, at: '', held: [] } } })]), 'box', {}))
     expect(confirmed.reading).toContain('aligned in assembly by 4 pairs (rms 2.1 mm, worst 3.4 mm) (confirmed by the user on r12), shown at 60 %')
   })
 
@@ -209,6 +209,16 @@ describe('scan_clash', () => {
     const floor = data(await scanClashTool(fake([scan('S1', { assembly: { ...TYPED, steps: ['floor'], rms: 0.4, floor: { part: 'tub', point: [0, 0, 0] } } })]), 'box', { part: 'tub' }))
     expect(floor.alignment).toMatchObject({ state: 'aligned', basis: 'floor', tied: 1 })
     expect(floor.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1 is aligned by its floor only: where it is on that floor is as imported\. ≈ 2,168 /)
+    // Task 5's fix round 2 (m5): asked right after a build, the kernel answers after that build's check of the alignments: what is said is read then.
+    const pending = scan('S1', { assembly: BY_PAIRS }, { checks: {} })
+    const racing = fake([pending])
+    let listed = 0
+    racing.scans = async () => (listed++ === 0 ? [pending] : [scan('S1', { assembly: BY_PAIRS })])
+    const settled = data(await scanClashTool(racing, 'box', { part: 'tub' }))
+    expect(settled.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): ≈ 2,168 /)
+    expect(settled.alignment).not.toHaveProperty('unchecked')
+    // The ending of a rough one is as of any fit (restored in fix round 2, m8).
+    expect(rough.reading).toMatch(/ S1 is aligned by 2 pairs \(rms 2\.1 mm, worst 3\.4 mm\): a depth under that says nothing\.$/)
     // And one that was not checked against the build asked about says that first.
     const unchecked = data(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS }, { checks: {} })]), 'box', { part: 'tub' }))
     expect(unchecked.reading).toMatch(/^scan_clash tub vs S1 \(assembly, r12\): S1's alignment was not checked against r12: whether it still holds on it is not known\. ≈ 2,168 /)

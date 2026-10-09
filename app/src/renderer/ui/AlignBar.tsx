@@ -7,7 +7,7 @@ import { useAgentHighlight } from '../state/agent'
 import { type AlignMode, type AlignState, type PairDraft, alignStore, floorWarning, movedAlignment, nextLine, proposed, scanInHand, setAlignMode, setAlignScan, sizeNote, useAlign, withTypedEnd } from '../state/align'
 import { store, useStore } from '../state/store'
 import { useTool } from '../state/tools'
-import { clearAlignment, declineRough, keepAlignment, readAs, undoAlignment } from '../tools/alignTool'
+import { anglesWith, clearAlignment, declineRough, keepAlignment, readAs, undoAlignment } from '../tools/alignTool'
 import { eulerOf, quatOf } from '../tools/shapeTool'
 import { Confirm } from './Confirm'
 
@@ -70,8 +70,9 @@ export function AlignBar() {
   const hidden = scan ? views[scan.id]?.visible === false : false
   const standing = scan ? standingOf(scan, layout, revision) : null
   // What calls for a look, as against a check that has only not come yet.
-  const doubt = standing?.stale?.endsWith(': check the alignment') ? standing.stale : null
-  const waiting = standing?.stale && !doubt ? standing.stale : null
+  const doubt = standing?.stale && !standing.waiting ? standing.stale : null
+  // A check that has failed says why; one that has only not come yet is said by the row's chip, and needs no line here.
+  const failed = standing?.waiting && standing.failed ? standing.stale : null
   // The parts of this layout torno set beside the others for display: where they are drawn is not where the model has them.
   const parts = scene?.parts.filter((part) => part.layout === layout) ?? []
   const moved = parts.filter((part) => part.arranged !== undefined).map((part) => part.name)
@@ -163,9 +164,14 @@ export function AlignBar() {
           </button>
         </p>
       )}
-      {waiting && (
+      {failed && (
         <p className="alignbar-note" data-part="unchecked">
-          {numbered(capital(waiting))}: it is asked again.
+          {numbered(capital(failed))}. It is tried again every <span className="num">30</span> s.
+        </p>
+      )}
+      {standing?.waiting && !failed && (
+        <p className="alignbar-note" data-part="unchecked">
+          Not checked against <span className="num">r{revision}</span> yet.
         </p>
       )}
       {standing?.note && (
@@ -341,13 +347,8 @@ function PairsBody({ state, scan, fit, need }: { state: AlignState; scan: ScanIn
   const layouts = Object.keys(scan.alignments)
   const weak = fit && need === null && fit.spread < WEAK_SPREAD
   /** The unit to read the scan in, while it waits for a yes: changing it drops the alignments the scan has. */
-  const [unitAsked, setUnitAsked] = useState<{ unit: ScanUnit; layouts: string[] } | null>(null)
-  const read = (unit: ScanUnit, yes = false): void => {
-    setUnitAsked(null)
-    void readAs(unit, yes).then((went) => {
-      if (Array.isArray(went)) setUnitAsked({ unit, layouts: went })
-    })
-  }
+  const { unitAsked } = state
+  const read = (unit: ScanUnit, yes = false): void => void readAs(unit, yes)
   return (
     <div className="alignbar-body" data-mode="pairs">
       {pairs.length > 0 && (
@@ -386,7 +387,7 @@ function PairsBody({ state, scan, fit, need }: { state: AlignState; scan: ScanIn
       )}
       {/* The same question the scan's row asks: a change of unit drops every alignment the scan has. */}
       {unitAsked && (
-        <Confirm label={`Drop the alignment of ${scan.id}?`} accept="Change" cancel="Keep as it is" onCancel={() => setUnitAsked(null)} onAccept={() => read(unitAsked.unit, true)}>
+        <Confirm label={`Drop the alignment of ${scan.id}?`} accept="Change" cancel="Keep as it is" onCancel={() => alignStore.setState({ unitAsked: null })} onAccept={() => read(unitAsked.unit, true)}>
           Reading <span className="num">{scan.id}</span> as <span className="num">{unitAsked.unit}</span> drops its alignment in {numberedNames(unitAsked.layouts)}. The pairs in hand stay.
         </Confirm>
       )}
@@ -399,6 +400,8 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
   /** The three fields of the model end, when all three hold a number. */
   const keep = (): void => {
     const inputs = [...(row.current?.querySelectorAll<HTMLInputElement>('input') ?? [])]
+    // Nothing was typed: the end is as it was clicked, on its part and in full, whatever its fields show of it.
+    if (inputs.every((input) => input.value === input.defaultValue)) return
     const point = inputs.map((input) => typed(input.value))
     if (point.length !== 3 || !point.every((c) => Number.isFinite(c))) return
     if (pair.model && point.every((c, i) => Math.abs(c - pair.model![i]) < 1e-9)) return
@@ -414,14 +417,13 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
       }}
     >
       <span className="align-pair-n num">{n + 1}</span>
-      <span className="align-pair-scan" data-missing={pair.scan ? undefined : ''} title={pair.scan ? `The point of the scan, in the scan's own frame: (${pair.scan.join(', ')}) mm` : undefined}>
-        {pair.scan ? <span className="num">{coords(pair.scan)}</span> : 'click the scan'}
-      </span>
-      <span className="align-pair-to" aria-hidden="true">
-        →
-      </span>
-      <span className="align-pair-part num" title={pair.part ?? (pair.model ? 'A typed point, on no part' : undefined)}>
-        {pair.part ?? (pair.model ? 'typed' : '')}
+      <span className="align-pair-ends">
+        <span className="align-pair-scan num" data-missing={pair.scan ? undefined : ''} title={pair.scan ? `The point of the scan, in the scan's own frame: (${pair.scan.join(', ')}) mm` : undefined}>
+          {pair.scan ? coords(pair.scan) : 'click the scan'}
+        </span>
+        <span className="align-pair-part" title={pair.part ?? (pair.model ? 'A typed point, on no part' : undefined)}>
+          → <span className="num">{pair.part ?? (pair.model ? 'typed' : '…')}</span>
+        </span>
       </span>
       {AXES.map((axis, i) => (
         <input
@@ -493,7 +495,7 @@ function NudgeBody({ state, current, disabled }: { state: AlignState; current: S
             value={shown(degrees[i])}
             disabled={disabled}
             commit={(value) => {
-              const next = withOne(degrees, i, value)
+              const next = anglesWith(angles, transform.q, i, value)
               // Kept as typed while the scan is turned so: the same turn has many triples of angles.
               setAngles(next)
               keep({ ...transform, q: quatOf(next) })

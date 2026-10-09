@@ -10,7 +10,8 @@ import { toolStore } from '../state/tools'
 import type { Hit } from '../viewport/picking'
 import type { ScanHit } from '../viewport/scans'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { CHOOSE_SCAN, FLAT_FACE, NO_SCAN, alignTool, connectAlign, keepAlignment, movedPart, readAs, undoAlignment } from './alignTool'
+import { CHOOSE_SCAN, FLAT_FACE, NO_SCAN, alignTool, anglesWith, connectAlign, keepAlignment, movedPart, readAs, undoAlignment } from './alignTool'
+import { quatOf } from './shapeTool'
 import type { ToolContext } from './Tool'
 
 // The Align tool, with a viewport that says what it is asked: in the style of measure.test.ts.
@@ -334,7 +335,8 @@ describe('the align tool, by hand', () => {
     expect(asked[0].args[3]).toMatchObject({ steps: ['pairs', 'nudge'], transform: { t: [6, 0, 1] } })
     expect(asked[0].args[4]).toMatchObject({ rough: true })
     // Three good pairs, then 20 mm by hand: by hand, and said as that. Not a doubtful fit, so no question.
-    const three = { ...two, pairs: [...two.pairs, pair([0, 10, 0], [5, 10, 1])], rough: undefined }
+    // As main keeps it: with how well it was fitted, which a move by hand does not change (fix round 2, C).
+    const three = { ...two, pairs: [...two.pairs, pair([0, 10, 0], [5, 10, 1])], rough: undefined, fitRms: 0 }
     store.setState({ scans: [scanInfo('S1', { alignments: { assembly: three } })] })
     edits.at(-1)!.change({ move: [0, 0, 20], turn: [0, 0, 0, 1] })
     await settled()
@@ -485,7 +487,66 @@ describe('reading the scan in another unit from the bar', () => {
     store.setState({ scans: [scanInfo('S1', { alignments: { print: aligned, assembly: aligned } })] })
     expect(await readAs('m')).toEqual(['print', 'assembly'])
     expect(converted).toHaveLength(1)
+    // The question waits in the bar, for this scan: another scan taken in hand is not asked it (fix round 2, m2).
+    expect(alignStore.getState().unitAsked).toEqual({ unit: 'm', layouts: ['print', 'assembly'] })
+    setAlignScan('S2')
+    expect(alignStore.getState().unitAsked).toBeNull()
+    setAlignScan(null)
+    await readAs('m')
     expect(await readAs('m', true)).toBe(true)
     expect(converted).toHaveLength(2)
+    expect(alignStore.getState().unitAsked).toBeNull()
+  })
+})
+
+// Fix round 2.
+describe('a fit that was rough by how far it left its pairs', () => {
+  it('is still judged by that when it is moved by hand: what main kept of the fit goes into what the window reckons', async () => {
+    const pair = (scan: Vec3, model: Vec3) => ({ scan, model, residual: 0 })
+    const pairs = [pair([0, 0, 0], [5, 0, 1]), pair([10, 0, 0], [15, 0, 1]), pair([0, 10, 0], [5, 10, 1])]
+    // Fitted 0.4 mm off, by main's word; the window never says how well a fit was.
+    const good = { transform: { ...IDENTITY, t: [5, 0, 1] as Vec3 }, steps: ['pairs' as const], pairs, rms: 0, fitRms: 0.4, frame: {}, at: '' }
+    store.setState({ scans: [scanInfo('S1', { alignments: { assembly: good } })] })
+    await keepAlignment({ transform: { ...IDENTITY, t: [5, 0, 31] }, steps: ['pairs', 'typed'], pairs })
+    expect(alignStore.getState().asking).toBeNull()
+    expect(asked[0].args[3]).not.toHaveProperty('fitRms')
+    expect(asked[0].args[4]).toMatchObject({ rough: false })
+    // With no fit on record, moved 30 mm off its pairs: judged as it stands, and asked about.
+    store.setState({ scans: [scanInfo('S1', { alignments: { assembly: { ...good, fitRms: undefined } } })] })
+    await keepAlignment({ transform: { ...IDENTITY, t: [5, 0, 31] }, steps: ['pairs', 'typed'], pairs })
+    expect(alignStore.getState().asking).toMatchObject({ why: 'its pairs of points are left 30 mm apart (rms): more than 5 mm' })
+    expect(asked).toHaveLength(1)
+  })
+})
+
+describe('the angles of a scan, typed one at a time', () => {
+  it('leave the other two as they are, not as their fields show them', () => {
+    const q = quatOf([10.123456, 20.2, 30.333333])
+    const next = anglesWith(null, q, 0, 5)
+    expect(next[0]).toBe(5)
+    expect(next[1]).toBeCloseTo(20.2, 9)
+    expect(next[2]).toBeCloseTo(30.333333, 9)
+    // While they are being typed, the three typed are the three kept: many triples are the same turn.
+    expect(anglesWith([190, 0, 0], quatOf([190, 0, 0]), 2, 45)).toEqual([190, 0, 45])
+    // Turned some other way meanwhile: worked out again from where it is.
+    expect(anglesWith([190, 0, 0], quatOf([0, 0, 90]), 0, 5)[2]).toBeCloseTo(90, 9)
+  })
+})
+
+describe('a face with a hole in its middle', () => {
+  it('has the floor laid on a point that is on it, not on its middle, which is in the hole', async () => {
+    setAlignMode('floor')
+    const tool = alignTool()
+    // A plate with a hole of 5 mm radius through its middle: the kernel's centre of that face is in the hole.
+    const HOLED: Described = { ...TOP, center: [0, 0, 2.5] }
+    const onFace = (p: Vec3): boolean => Math.hypot(p[0], p[1]) >= 5 && Math.abs(p[2] - 2.5) < 1e-9
+    const { ctx } = fake({ describe: async () => HOLED })
+    alignStore.setState({ choosingFace: true })
+    tool.onPointer(pointer('click', { part: onPart([12, 3, 2.5]) }), ctx)
+    await settled()
+    const { onto } = alignStore.getState()
+    expect(onFace(HOLED.center as Vec3)).toBe(false)
+    expect(onFace(onto!.origin)).toBe(true)
+    expect(onto).toMatchObject({ origin: [12, 3, 2.5], normal: [0, 0, 1], part: 'base' })
   })
 })
