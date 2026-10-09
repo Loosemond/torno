@@ -9,10 +9,15 @@ export function dimensionCount(count: number, what: 'fail' | 'not measured'): st
   return `${count === 1 ? 'dimension' : 'dimensions'} ${what === 'fail' && count === 1 ? 'fails' : what}`
 }
 
-/** Makes a mark the active one and brings its row into view in the marks panel. */
+/**
+ * Goes to a mark as its row does (`focusMark`: its layout is shown when it is
+ * of another, and it is the active one), and brings its row into view in the
+ * marks panel. One of a layout the build no longer has is only made active.
+ */
 function goToRow(id: string): void {
+  actions.focusMark(id)
   actions.setActiveMark(id)
-  // Its row is there already: only which is active changes.
+  // Its row is there already, whichever layout is shown: an open mark is never folded away.
   document.querySelector(`.mark-row[data-mark="${id}"]`)?.scrollIntoView({ block: 'nearest' })
 }
 

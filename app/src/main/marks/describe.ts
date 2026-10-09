@@ -48,18 +48,26 @@ function asMeasured(mark: Mark, revision: number | undefined): string {
 }
 
 /**
- * A mark as data for the agent, beside its line. A dimension holds its value,
- * how and between which points it was taken and its verdict only when they
- * are of the build of `revision` (`measuredValue`): data is read before prose,
- * and a value there would be taken for the part's. What it held on another
- * build is `wasValue`, of `wasRevision` when that is known, as its line says.
+ * A mark as data for the agent, beside its line. A dimension holds `value`,
+ * `how`, `points` and `verdict` only when they are of the build of `revision`
+ * (`measuredValue`): data is read before prose, and a value there would be
+ * taken for the part's.
+ *
+ * - What it held on another build is `wasValue`, of `wasRevision` when that
+ *   is known, as its line says.
+ * - A resolved one is no longer measured: what it held when it was last
+ *   measured is `resolvedValue` and `resolvedVerdict`, of `resolvedOnRevision`
+ *   when that is known, whichever build is the last. Never `value`.
  */
 export function markData(mark: Mark, revision: number | undefined): object {
-  if (mark.kind !== 'dimension' || measuredValue(mark, revision) !== undefined) return mark
+  if (mark.kind !== 'dimension') return mark
+  if (mark.status !== 'resolved' && measuredValue(mark, revision) !== undefined) return mark
   const { value: _value, how: _how, points: _points, verdict: _verdict, ...rest } = mark
   const last = lastValue(mark)
+  const on = (key: string): object => (mark.measuredRevision === undefined ? {} : { [key]: mark.measuredRevision })
+  if (mark.status === 'resolved') return last === undefined ? rest : { ...rest, resolvedValue: last, ...(mark.verdict ? { resolvedVerdict: mark.verdict } : {}), ...on('resolvedOnRevision') }
   if (standingOf(mark, revision) !== 'unmeasured' || last === undefined) return rest
-  return { ...rest, wasValue: last, ...(mark.measuredRevision === undefined ? {} : { wasRevision: mark.measuredRevision }) }
+  return { ...rest, wasValue: last, ...on('wasRevision') }
 }
 
 /**

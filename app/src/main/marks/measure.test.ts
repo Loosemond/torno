@@ -17,6 +17,9 @@ const hole = (more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', meas
 const SIX = { kind: 'distance', value: 6.000000000000001, unit: 'mm', how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], exact: true }
 const EIGHT = { kind: 'diameter', value: 8, unit: 'mm', how: 'cylinder', points: [[-14, 5, 0], [-6, 5, 0]], exact: true }
 
+/** `measureDimension` on r3, the build the kernel of these tests has unless a test says otherwise, and the one the ends are of. */
+const onR3 = (deps: Parameters<typeof measureDimension>[0], objectId: string, mark: Parameters<typeof measureDimension>[2]) => measureDimension(deps, objectId, mark, 3)
+
 /** A kernel that answers `measure` as told, and the build there is. */
 function kernel(answer: (args: Record<string, unknown>) => unknown, nearest: (args: Record<string, unknown>) => unknown = () => ({ anchors: [] })) {
   const asked: Array<{ objectId: string; name: string; args: Record<string, unknown> }> = []
@@ -82,23 +85,23 @@ describe('what the kernel is asked of a dimension', () => {
 describe('measureDimension', () => {
   it('asks the kernel about the object, and keeps the value in full, how it was taken, between which points, on which build', async () => {
     const k = kernel(() => SIX)
-    expect(await measureDimension(k, 'measures', distance() as DimensionMark)).toEqual({ value: 6.000000000000001, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], measuredRevision: 3 })
+    expect(await onR3(k, 'measures', distance() as DimensionMark)).toEqual({ value: 6.000000000000001, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]], measuredRevision: 3 })
     expect(k.asked).toEqual([{ objectId: 'measures', name: 'measure', args: { kind: 'distance', a: { ref: 'assembly:plate/F5', point: [5, 3, 3] }, b: { ref: 'assembly:plate/F0', point: [5, 3, -3] } } }])
   })
 
   it('says pass or fail against what was expected', async () => {
     const k = kernel(() => EIGHT)
-    expect(await measureDimension(k, 'measures', hole({ expected: 8.5 }) as DimensionMark)).toMatchObject({ value: 8, verdict: 'fail' })
-    expect(await measureDimension(k, 'measures', hole({ expected: 8.5, tolerance: 0.5 }) as DimensionMark)).toMatchObject({ value: 8, verdict: 'pass' })
-    expect(await measureDimension(k, 'measures', hole({ expected: 8.05 }) as DimensionMark)).toMatchObject({ verdict: 'pass' })
-    expect(await measureDimension(k, 'measures', hole() as DimensionMark)).not.toHaveProperty('verdict')
+    expect(await onR3(k, 'measures', hole({ expected: 8.5 }) as DimensionMark)).toMatchObject({ value: 8, verdict: 'fail' })
+    expect(await onR3(k, 'measures', hole({ expected: 8.5, tolerance: 0.5 }) as DimensionMark)).toMatchObject({ value: 8, verdict: 'pass' })
+    expect(await onR3(k, 'measures', hole({ expected: 8.05 }) as DimensionMark)).toMatchObject({ verdict: 'pass' })
+    expect(await onR3(k, 'measures', hole() as DimensionMark)).not.toHaveProperty('verdict')
   })
 
   it('is not measurable when the kernel no longer has what an end names: no value, and why, without the layout in front of the refs', async () => {
     const k = kernel(() => {
       throw new KernelError('bad_ref', "assembly:plate has no face 9; assembly:plate has 8 faces")
     })
-    const measured = await measureDimension(k, 'measures', hole({ expected: 8 }) as DimensionMark)
+    const measured = await onR3(k, 'measures', hole({ expected: 8 }) as DimensionMark)
     expect(measured).toEqual({ measuredRevision: 3, refused: 'plate has no face 9; plate has 8 faces' })
   })
 
@@ -106,7 +109,7 @@ describe('measureDimension', () => {
     const k = kernel(() => {
       throw new KernelError('bad_request', 'angle is measured between two planar faces, two straight edges, or a planar face and a straight edge; assembly:plate/F9 is a cylinder face')
     })
-    expect(await measureDimension(k, 'measures', distance({ measure: 'angle', b: HOLE }) as DimensionMark)).toEqual({
+    expect(await onR3(k, 'measures', distance({ measure: 'angle', b: HOLE }) as DimensionMark)).toEqual({
       measuredRevision: 3,
       refused: 'angle is measured between two planar faces, two straight edges, or a planar face and a straight edge; plate/F9 is a cylinder face'
     })
@@ -116,31 +119,83 @@ describe('measureDimension', () => {
     const timeout = kernel(() => {
       throw new KernelError('timeout', 'the query took longer than 30 s')
     })
-    const failed = await measureDimension(timeout, 'measures', hole() as DimensionMark).catch((e: unknown) => e)
+    const failed = await onR3(timeout, 'measures', hole() as DimensionMark).catch((e: unknown) => e)
     expect(failed).toBeInstanceOf(Error)
     expect(failed).not.toBeInstanceOf(KernelError)
     expect((failed as Error).message).toBe('the query took longer than 30 s')
-    await expect(measureDimension(kernel(() => ({ kind: 'diameter', value: 'eight' })), 'measures', hole() as DimensionMark)).rejects.toThrow('the kernel did not answer with a measurement')
-    await expect(measureDimension(kernel(() => ({ ...EIGHT, value: NaN })), 'measures', hole() as DimensionMark)).rejects.toThrow('the kernel did not answer with a measurement')
+    await expect(onR3(kernel(() => ({ kind: 'diameter', value: 'eight' })), 'measures', hole() as DimensionMark)).rejects.toThrow('the kernel did not answer with a measurement')
+    await expect(onR3(kernel(() => ({ ...EIGHT, value: NaN })), 'measures', hole() as DimensionMark)).rejects.toThrow('the kernel did not answer with a measurement')
   })
 
-  it('needs a build, and says the value is of the build the kernel answered about', async () => {
+  it('needs the build its ends are of to be the last: with none, or another, the kernel is not asked', async () => {
     const none = kernel(() => EIGHT)
     none.world.revision = undefined
-    await expect(measureDimension(none, 'measures', hole() as DimensionMark)).rejects.toThrow('there is no build of measures to measure on')
-    expect(none.asked).toEqual([])
-    // A build lands while the kernel is asked: the answer may be of either, and it is asked again.
+    await expect(onR3(none, 'measures', hole() as DimensionMark)).rejects.toThrow('there is no build of measures to measure on')
+    const newer = kernel(() => EIGHT)
+    newer.world.revision = 4
+    await expect(onR3(newer, 'measures', hole() as DimensionMark)).rejects.toThrow('measures was built again (r4) since its ends were found on r3')
+    await expect(measureDimension(kernel(() => EIGHT), 'measures', hole() as DimensionMark, undefined)).rejects.toThrow('its ends have not been checked against r3')
+    expect([...none.asked, ...newer.asked]).toEqual([])
+  })
+
+  it('rejects when a build lands while the kernel is asked, and never asks again on that build: the refs are not of it', async () => {
+    // The faces were renumbered: on r4, plate/F9 is another face, and the kernel would measure that one.
     const k = kernel(() => {
-      if (k.asked.length === 1) k.world.revision = 4
-      return { ...EIGHT, value: k.asked.length === 1 ? 8 : 9 }
+      k.world.revision = 4
+      return { ...EIGHT, value: 30 }
     })
-    expect(await measureDimension(k, 'measures', hole() as DimensionMark)).toMatchObject({ value: 9, measuredRevision: 4 })
-    expect(k.asked).toHaveLength(2)
+    await expect(onR3(k, 'measures', hole() as DimensionMark)).rejects.toThrow('measures was built again (r4) since its ends were found on r3')
+    expect(k.asked).toHaveLength(1)
+    // So too when the kernel refused, or failed, as it does of a build it no longer holds.
+    const refusing = kernel(() => {
+      refusing.world.revision = 4
+      throw new KernelError('bad_ref', 'assembly:plate has no face 9')
+    })
+    await expect(onR3(refusing, 'measures', hole() as DimensionMark)).rejects.toThrow('measures was built again (r4)')
+  })
+
+  describe('with an end on an edge, once the build has moved an end of it', () => {
+    const ON_EDGE: Anchor = { point: [20, 3, 3], part: 'plate', ref: 'plate/E7', edge: 'plate/E7', between: ['plate/F5', 'plate/F2'] }
+    const span = (more: object = {}): DimensionMark => ({ ...(distance({ a: ON_EDGE }) as DimensionMark), anchorState: 'drifted', ...more })
+    const near = (more: object) => () => ({ anchors: [{ part: 'plate', found: true, point: [20, 3, 2], normal: [1, 0, 0], ref: 'plate/F2', distance: 1, descriptor: 'plane', ...more }] })
+
+    it('is not measured through an edge that is no longer under its end: the number may be another edge’s now', async () => {
+      const k = kernel(() => ({ ...SIX, value: 12 }), near({ support: 'face', edgeFound: true, edgeDistance: 14 }))
+      expect(await onR3(k, 'measures', span())).toEqual({ measuredRevision: 3, refused: 'the edge plate/E7 it was on is not under its end on r3' })
+      expect(k.asked).toEqual([{ objectId: 'measures', name: 'nearest', args: { layout: 'assembly', anchors: [{ part: 'plate', point: [20, 3, 3], edge: 'plate/E7' }] } }])
+      // Nor when the part has no edge of that number any more.
+      expect(await onR3(kernel(() => SIX, near({ support: 'face', edgeFound: false })), 'measures', span())).toMatchObject({ refused: 'the edge plate/E7 it was on is not under its end on r3' })
+    })
+
+    it('is measured when the edge is under its end still: it was another end that moved', async () => {
+      const k = kernel(() => SIX, near({ support: 'edge', edgeUnder: 'plate/E7', edgeFound: true, edgeDistance: 0 }))
+      expect(await onR3(k, 'measures', span())).toMatchObject({ value: 6.000000000000001, measuredRevision: 3 })
+      expect(k.asked.map((q) => q.name)).toEqual(['nearest', 'measure'])
+      expect(await onR3(kernel(() => SIX, near({ support: 'face', edgeFound: true, edgeDistance: 0.3 })), 'measures', span())).toMatchObject({ value: 6.000000000000001 })
+    })
+
+    it('asks nothing first of ends on faces, nor while no end has moved', async () => {
+      const faces = kernel(() => SIX)
+      await onR3(faces, 'measures', { ...(distance() as DimensionMark), anchorState: 'drifted' })
+      const settled = kernel(() => SIX)
+      await onR3(settled, 'measures', span({ anchorState: 'ok' }))
+      expect([...faces.asked, ...settled.asked].map((q) => q.name)).toEqual(['measure', 'measure'])
+    })
+
+    it('rejects when the kernel does not say what is under the end: nothing is known of the edge then', async () => {
+      const silent = kernel(() => SIX, () => {
+        throw new KernelError('timeout', 'the query took longer than 30 s')
+      })
+      await expect(onR3(silent, 'measures', span())).rejects.toThrow('the query took longer than 30 s')
+      const unsure = kernel(() => SIX, () => ({ anchors: [{ part: 'plate', found: true, error: 'no nearest point' }] }))
+      await expect(onR3(unsure, 'measures', span())).rejects.toThrow('the kernel did not say whether plate/E7 is under its end')
+      expect([...silent.asked, ...unsure.asked].filter((q) => q.name === 'measure')).toEqual([])
+    })
   })
 
   it('keeps points only when they are two points', async () => {
-    expect(await measureDimension(kernel(() => ({ ...EIGHT, points: [[0, 0, 0]] })), 'measures', hole() as DimensionMark)).toEqual({ value: 8, how: 'cylinder', measuredRevision: 3 })
-    expect(await measureDimension(kernel(() => ({ ...EIGHT, points: undefined })), 'measures', hole() as DimensionMark)).toEqual({ value: 8, how: 'cylinder', measuredRevision: 3 })
+    expect(await onR3(kernel(() => ({ ...EIGHT, points: [[0, 0, 0]] })), 'measures', hole() as DimensionMark)).toEqual({ value: 8, how: 'cylinder', measuredRevision: 3 })
+    expect(await onR3(kernel(() => ({ ...EIGHT, points: undefined })), 'measures', hole() as DimensionMark)).toEqual({ value: 8, how: 'cylinder', measuredRevision: 3 })
   })
 })
 
@@ -153,7 +208,7 @@ describe('a thickness', () => {
 
   it('is asked at the point of the face nearest to where it was put', async () => {
     const k = kernel(() => WALL, () => ({ anchors: [{ part: 'plate', found: true, point: [4, 0.01, 0], normal: [-1, 0, 0], ref: 'plate/F9', distance: 0.002, descriptor: 'cylinder' }] }))
-    expect(await measureDimension(k, 'measures', wall())).toMatchObject({ value: 2, how: 'wall, along the normal' })
+    expect(await onR3(k, 'measures', wall())).toMatchObject({ value: 2, how: 'wall, along the normal' })
     expect(k.asked).toEqual([
       { objectId: 'measures', name: 'nearest', args: { layout: 'assembly', anchors: [{ part: 'plate', point: [3.998, 0.01, 0] }] } },
       { objectId: 'measures', name: 'measure', args: { kind: 'thickness', a: { ref: 'assembly:plate/F9', point: [4, 0.01, 0] } } }
@@ -162,12 +217,12 @@ describe('a thickness', () => {
 
   it('is asked where it was put when the nearest point is on another face, or the kernel does not say', async () => {
     const elsewhere = kernel(() => WALL, () => ({ anchors: [{ part: 'plate', found: true, point: [4, 0, 3], normal: [0, 0, 1], ref: 'plate/F5', distance: 0.001, descriptor: 'plane' }] }))
-    await measureDimension(elsewhere, 'measures', wall())
+    await onR3(elsewhere, 'measures', wall())
     expect(elsewhere.asked[1].args).toEqual({ kind: 'thickness', a: { ref: 'assembly:plate/F9', point: [3.998, 0.01, 0] } })
     const failing = kernel(() => WALL, () => {
       throw new KernelError('timeout', 'too long')
     })
-    await measureDimension(failing, 'measures', wall())
+    await onR3(failing, 'measures', wall())
     expect(failing.asked[1].args).toEqual({ kind: 'thickness', a: { ref: 'assembly:plate/F9', point: [3.998, 0.01, 0] } })
   })
 
@@ -175,16 +230,16 @@ describe('a thickness', () => {
     const off = kernel(() => {
       throw new KernelError('bad_request', 'the point is 0.3 mm from assembly:plate/F9: give a point on the face')
     })
-    expect(await measureDimension(off, 'measures', wall())).toEqual({ measuredRevision: 3, refused: 'the point is 0.3 mm from plate/F9: give a point on the face' })
+    expect(await onR3(off, 'measures', wall())).toEqual({ measuredRevision: 3, refused: 'the point is 0.3 mm from plate/F9: give a point on the face' })
     const shell = kernel(() => {
       throw new KernelError('bad_request', 'assembly:plate is not a solid: it has no volume to measure a wall of')
     })
-    expect(await measureDimension(shell, 'measures', wall())).toMatchObject({ refused: 'plate is not a solid: it has no volume to measure a wall of' })
+    expect(await onR3(shell, 'measures', wall())).toMatchObject({ refused: 'plate is not a solid: it has no volume to measure a wall of' })
   })
 
   it('no other measurement asks where its ends are first', async () => {
     const k = kernel(() => EIGHT)
-    await measureDimension(k, 'measures', hole() as DimensionMark)
+    await onR3(k, 'measures', hole() as DimensionMark)
     expect(k.asked.map((a) => a.name)).toEqual(['measure'])
   })
 })
@@ -263,6 +318,25 @@ describe('adding a dimension', () => {
     expect(quick.did).toEqual(['add M1'])
   })
 
+  it('is kept without a value when a build lands while it is being measured: what the kernel said is of neither build for sure', async () => {
+    vi.useFakeTimers()
+    let answer!: (reply: unknown) => void
+    const k = kernel(() => new Promise((resolve) => (answer = resolve)))
+    const store = marks()
+    const logged: string[] = []
+    const adding = addDimension({ ...k, marks: store, log: (m) => logged.push(m) }, 'measures', hole({ expected: 8 }))
+    await vi.advanceTimersByTimeAsync(300)
+    // r4 lands, with its faces numbered otherwise; the kernel answers about plate/F9 as it is there.
+    k.world.revision = 4
+    answer({ ...EIGHT, value: 30 })
+    const added = (await adding) as DimensionMark
+    for (const key of ['value', 'measuredRevision', 'verdict']) expect(added).not.toHaveProperty(key)
+    expect(store.did).toEqual(['add M1'])
+    expect(k.asked).toHaveLength(1)
+    expect(logged).toEqual(['cannot measure a new dimension of measures yet: measures was built again (r4) since its ends were found on r3'])
+    vi.useRealTimers()
+  })
+
   it('is refused when it was placed on another build than the last: its refs are of that build, and the kernel is not asked', async () => {
     const k = kernel(() => EIGHT)
     const store = marks()
@@ -307,11 +381,11 @@ describe('adding a dimension', () => {
 })
 
 describe('measuring a dimension again', () => {
-  it('writes what the kernel says now, and nothing when it could not be asked', async () => {
+  it('writes what the kernel says on the build its ends were checked against, and nothing when it could not be asked', async () => {
     const store = marks()
     const k = kernel(() => EIGHT)
-    const mark = (await addDimension({ ...k, marks: store }, 'measures', hole())) as DimensionMark
-    k.world.revision = 4
+    const added = (await addDimension({ ...k, marks: store }, 'measures', hole())) as DimensionMark
+    const mark = { ...added, checkedRevision: 3 }
     const logged: string[] = []
     await remeasure({ ...kernel(() => ({ ...EIGHT, value: 9 })), marks: store, log: (m) => logged.push(m) }, 'measures', mark)
     expect(store.did.at(-1)).toBe('measured M1 = 9')
@@ -321,6 +395,27 @@ describe('measuring a dimension again', () => {
     await remeasure({ ...kernel(() => { throw new KernelError('timeout', 'too long') }), marks: store, log: (m) => logged.push(m) }, 'measures', mark)
     expect(store.did).toHaveLength(before)
     expect(logged).toEqual(['cannot measure M1 of measures: too long'])
+  })
+
+  it('writes nothing when a build lands while the kernel is asked, or has landed since its ends were checked: that build’s check measures it', async () => {
+    const store = marks()
+    const added = (await addDimension({ ...kernel(() => EIGHT), marks: store }, 'measures', hole())) as DimensionMark
+    const before = store.did.length
+    const logged: string[] = []
+    const k = kernel(() => {
+      k.world.revision = 4
+      return { ...EIGHT, value: 30 }
+    })
+    await remeasure({ ...k, marks: store, log: (m) => logged.push(m) }, 'measures', { ...added, checkedRevision: 3 })
+    await remeasure({ ...k, marks: store, log: (m) => logged.push(m) }, 'measures', { ...added, checkedRevision: 3 })
+    await remeasure({ ...kernel(() => EIGHT), marks: store, log: (m) => logged.push(m) }, 'measures', added)
+    expect(store.did).toHaveLength(before)
+    expect(k.asked).toHaveLength(1)
+    expect(logged).toEqual([
+      'cannot measure M1 of measures: measures was built again (r4) since its ends were found on r3',
+      'cannot measure M1 of measures: measures was built again (r4) since its ends were found on r3',
+      'cannot measure M1 of measures: its ends have not been checked against r3'
+    ])
   })
 })
 

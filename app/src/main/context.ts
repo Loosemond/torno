@@ -23,8 +23,21 @@ const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):
 const MARKS_DATA = '; call mcp__torno__marks for their data'
 const DIMENSIONS_HEAD = 'Dimensions:'
 
-/** `4 pinned dimensions pass` */
-const passing = (count: number): string => `${count} pinned dimension${count === 1 ? ' passes' : 's pass'}`
+/**
+ * `4 pinned dimensions pass`; and of those among them whose end the build
+ * moved, which are measured between what their ends name now, how many and
+ * which: `(1 measured from what is under its ends now: M9)`. Only counted,
+ * they would pass unseen for what they were placed on.
+ */
+function passing(passes: readonly DimensionMark[]): string {
+  const moved = passes.filter((m) => m.anchorState === 'drifted')
+  const said = moved.length === 0 ? '' : ` (${moved.length} measured from what is under ${moved.length === 1 ? 'its' : 'their'} ends now: ${moved.map((m) => m.id).join(', ')})`
+  return `${passes.length} pinned dimension${passes.length === 1 ? ' passes' : 's pass'}${said}`
+}
+
+/** What is said in place of the marks that did not fit, and of the dimensions that did not. */
+const moreMarks = (count: number): string => `… and ${count} more: call mcp__torno__marks`
+const moreDimensions = (count: number): string => `… and ${count} more unmet or unmeasured: call mcp__torno__marks`
 
 export interface ContextDeps {
   object(objectId: string): ObjectInfo | undefined
@@ -80,8 +93,8 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   // Those that are not what the person asked for, or of which that cannot be said on this build.
   const { failing, unmeasured } = unmetDimensions(pinned, revision)
   const unmet = pinned.filter((m) => failing.includes(m) || unmeasured.includes(m))
-  const passes = pinned.filter((m) => standingOf(m, revision) === 'pass').length
-  const passLine = passes > 0 ? passing(passes) : ''
+  const passes = pinned.filter((m) => standingOf(m, revision) === 'pass')
+  const passLine = passes.length > 0 ? passing(passes) : ''
   // Under `Dimensions:` they are listed with every prompt: not once more among the marks this conversation has not seen.
   const still = opts.fresh ? open.filter((m) => m.author === 'user' && !unmet.includes(m as DimensionMark)) : []
   const told = drafts.length > 0 || open.length > 0
@@ -94,15 +107,14 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   if (selected) lines.push(selected)
   const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision)}` : ''
   const named = layoutNamed(deps, objectId)
-  const more = (count: number): string => `… and ${count} more: call mcp__torno__marks`
   // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
-  const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + more(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
+  const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + moreDimensions(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
   let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor
   /**
    * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
    * Nothing at all when there is no room for the head and that count: the marks are still among the open ones.
    */
-  const list = (head: string, listed: readonly Mark[], tagOf: (mark: Mark) => string | undefined): Mark[] => {
+  const list = (head: string, listed: readonly Mark[], tagOf: (mark: Mark) => string | undefined, more = moreMarks): Mark[] => {
     if (listed.length === 0) return []
     if (used + 1 + head.length + 1 + more(listed.length).length > CONTEXT_LIMIT) return []
     // The head is said even when no mark fits under it: the line that counts them needs it.
@@ -135,7 +147,7 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   list(STILL_OPEN_HEAD, still, () => undefined)
   // The room kept for the dimensions is theirs now. The count of those that pass is still to come after them.
   used -= floor - (passLine ? 1 + passLine.length : 0)
-  const listedUnmet = unmet.length > 0 ? list(DIMENSIONS_HEAD, unmet, () => undefined) : []
+  const listedUnmet = unmet.length > 0 ? list(DIMENSIONS_HEAD, unmet, () => undefined, moreDimensions) : []
   if (passLine) lines.push(...(unmet.length > 0 ? [] : [DIMENSIONS_HEAD]), passLine)
   // What has its line above is not named again; never longer than the line room was kept for.
   const rest = open.filter((m) => !listedUnmet.includes(m))

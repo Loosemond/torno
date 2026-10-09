@@ -281,6 +281,14 @@ describe('a dimension in one line', () => {
     for (const key of ['value', 'how', 'verdict', 'wasValue', 'wasRevision']) expect(gone).not.toHaveProperty(key)
     // Moved, and measured on this build from what is under it: its value stands.
     expect(markData(hole({ ...checked, anchorState: 'drifted' }), 4)).toMatchObject({ value: 8 })
+    // Resolved, it is no longer measured: what it held is told as that, whichever build is the last, and never as `value`.
+    for (const last of [4, 5, undefined]) {
+      const resolved = markData(hole({ status: 'resolved', expected: 8, verdict: 'pass', points: [[-14, 5, 0], [-6, 5, 0]] }), last) as Record<string, unknown>
+      for (const key of ['value', 'how', 'points', 'verdict', 'wasValue']) expect(resolved).not.toHaveProperty(key)
+      expect(resolved).toMatchObject({ status: 'resolved', resolvedValue: 8, resolvedVerdict: 'pass', resolvedOnRevision: 4 })
+    }
+    expect(markData(hole({ status: 'resolved', measuredRevision: undefined }), 5)).not.toHaveProperty('resolvedOnRevision')
+    expect(markData(hole({ status: 'resolved', anchorState: 'orphaned' }), 5)).not.toHaveProperty('resolvedValue')
     // Any other mark is as it is.
     const pin = mark({ kind: 'pin', anchor: TOP })
     expect(markData(pin, 4)).toBe(pin)

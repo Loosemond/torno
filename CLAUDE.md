@@ -123,14 +123,25 @@ While iterating run the focused test; run all four suites before a commit.
     picture, `describeMark` and the tools' data): it is `not measured on rN
     (was 6 mm on r11)`, with no verdict. Revisions are of this run, so on the
     first build of a run every dimension is measured.
-  - An end the build moved (`drifted`) is measured from the feature its
+  - An end the build moved (`drifted`) is measured from the face its
     refreshed ref names, and the mark says `[moved since it was placed: check
-    it]`. Only a lost part (`orphaned`) or a refusal by the kernel (`refused`
-    keeps its reason) makes it `not measurable`.
+    it]`. Nothing is ever measured through a ref the check did not confirm or
+    refresh: an end on an edge keeps the edge it was put on when that is no
+    longer under it, and is then not measurable (`the edge plate/E7 it was on
+    is not under its end on r12`), never measured by that number nor from the
+    face under it. Besides that, only a lost part (`orphaned`) or a refusal by
+    the kernel makes it `not measurable`; `refused` keeps the reason.
+  - A measurement is of the build its refs are of: `measureDimension` is
+    given that revision and rejects when the last build is another, before or
+    after the kernel is asked. `MarkStore.reanchor` drops `measuredRevision`
+    of a dimension when it gives an end another ref or point, and
+    `MarkStore.measured` keeps nothing measured through other ends, or for a
+    resolved mark.
   - Sent and unresolved, it is "pinned": with every prompt, under
     `Dimensions:`, each pinned dimension that fails, is not measurable or was
     not measured on the last build has its line, until it passes, and the
-    number that pass is said (`src/main/context.ts`). A draft dimension is
+    number that pass is said, naming those among them that moved
+    (`src/main/context.ts`). A draft dimension is
     told with the drafts. The status line counts every unresolved dimension
     that fails, sent or not.
 - The MCP tools (`src/main/mcp/tools.ts`, and those that place and resolve

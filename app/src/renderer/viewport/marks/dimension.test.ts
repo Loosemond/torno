@@ -159,11 +159,12 @@ describe('the label of a dimension', () => {
   it('a value of another build than the one drawn is what it was: stale, and without its verdict', () => {
     const failing = diameter({ expected: 8.5, verdict: 'fail' })
     expect(labelValue(failing, 1)).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
-    expect(labelValue(failing, 2)).toEqual({ text: '⌀ 8 mm', stale: true })
+    // It says which build it is of: faint alone is easily missed in a picture.
+    expect(labelValue(failing, 2)).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
     // Of a run before this one, or with no build at all.
-    expect(labelValue({ ...failing, measuredRevision: undefined }, 2)).toEqual({ text: '⌀ 8 mm', stale: true })
-    expect(labelValue(failing, 0)).toEqual({ text: '⌀ 8 mm', stale: true })
-    expect(labelValue(failing, undefined)).toEqual({ text: '⌀ 8 mm', stale: true })
+    expect(labelValue({ ...failing, measuredRevision: undefined }, 2)).toEqual({ text: '⌀ 8 mm (earlier)', stale: true })
+    expect(labelValue(failing, 0)).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
+    expect(labelValue(failing, undefined)).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
     expect(labelValue(diameter({ value: undefined, measuredRevision: undefined }), 2)).toEqual({ text: '—' })
     // The layer draws its labels as of the build it was last told of, on screen and in a picture alike.
     const marks = new MarkLayer(COLOURS)
@@ -172,7 +173,7 @@ describe('the label of a dimension', () => {
     marks.show('assembly')
     expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
     marks.setMarks([failing], 2)
-    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', stale: true })
+    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
     // Told of the marks alone, it keeps the build it knew.
     marks.setMarks([{ ...failing, measuredRevision: 2 }])
     expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })

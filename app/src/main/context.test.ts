@@ -509,7 +509,11 @@ describe('contextFor', () => {
 
       it('one whose end the build moved is measured, judged, and says that it moved', () => {
         expect(text([failing(8, { anchorState: 'drifted' }), passing(9, { anchorState: 'drifted' })])).toBe(
-          [STATUS, 'Dimensions:', `${FAIL(8)} [moved since it was placed: check it]`, '1 pinned dimension passes', 'Open marks: M9 (moved); call mcp__torno__marks for their data'].join('\n')
+          [STATUS, 'Dimensions:', `${FAIL(8)} [moved since it was placed: check it]`, '1 pinned dimension passes (1 measured from what is under its ends now: M9)', 'Open marks: M9 (moved); call mcp__torno__marks for their data'].join('\n')
+        )
+        // Only counted, one that passes would pass unseen for what it was placed on: each such is named.
+        expect(text([passing(9, { anchorState: 'drifted' }), passing(10), passing(12, { anchorState: 'drifted' })]).split('\n')[2]).toBe(
+          '3 pinned dimensions pass (2 measured from what is under their ends now: M9, M12)'
         )
       })
 
@@ -550,7 +554,7 @@ describe('contextFor', () => {
         expect(lines[2]).toBe(`${FAIL(1)}: "${'n'.repeat(40)}"`)
         const listed = lines.filter((l) => l.includes('FAIL')).length
         expect(listed).toBeGreaterThan(30)
-        expect(lines.at(-3)).toBe(`… and ${150 - listed} more: call mcp__torno__marks`)
+        expect(lines.at(-3)).toBe(`… and ${150 - listed} more unmet or unmeasured: call mcp__torno__marks`)
         expect(lines.at(-2)).toBe('2 pinned dimensions pass')
         // Those with a line above are not named again; those left out still are.
         expect(lines.at(-1)).toMatch(new RegExp(`^Open marks: M${listed + 1}, M${listed + 2}, `))
@@ -564,7 +568,7 @@ describe('contextFor', () => {
         const at = lines.indexOf('Dimensions:')
         expect(at).toBeGreaterThan(5)
         // The head, then either a line or the count of those left out; and the count of those that pass.
-        expect(lines.slice(at + 1).join('\n')).toMatch(/^(M100 .*\n(M101 .*|… and 1 more: call mcp__torno__marks)|… and 2 more: call mcp__torno__marks)\n1 pinned dimension passes\nOpen marks: /)
+        expect(lines.slice(at + 1).join('\n')).toMatch(/^(M100 .*\n(M101 .*|… and 1 more unmet or unmeasured: call mcp__torno__marks)|… and 2 more unmet or unmeasured: call mcp__torno__marks)\n1 pinned dimension passes\nOpen marks: /)
         // Only the drafts that were listed are turned sent.
         expect(context.sentMarkIds.length).toBeGreaterThan(5)
         expect(context.sentMarkIds.length).toBeLessThan(60)

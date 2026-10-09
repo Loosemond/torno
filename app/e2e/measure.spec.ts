@@ -339,7 +339,7 @@ test('a dimension is given to the agent with the next prompt like any mark, and 
 
 // Dimensions as checks of the part (review focus 1 and 2), on the fixture
 // `gauge`: a plate 40 × 30 standing on z = 0 with a hole at (10, 0), 6 mm
-// thick with a Ø8 hole when `variant.txt` says `a`, 5 mm with a Ø9 hole when
+// thick with a Ø8 hole when `variant.txt` says `a`, 5 mm with a Ø10 hole when
 // it says `b`. The agent is the stand-in, whose `hook` line prints what it
 // would be given with a prompt.
 const gaugeMarks = (): DimensionMark[] => {
@@ -384,7 +384,7 @@ async function buildVariant(variant: 'a' | 'b', revision: number): Promise<void>
 }
 
 const GAUGE_TOP: Vec3 = [-10, 5, 6]
-const GAUGE_HOLE: Vec3 = [10 - 2.83, 2.83, 4.6]
+const GAUGE_HOLE: Vec3 = [10 - 2.83, 2.83, 3.2]
 
 test('on the gauge, the thickness of the plate and the diameter of its hole are measured, and what they should be is typed', async () => {
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
@@ -441,15 +441,16 @@ test('a build that makes the plate 5 mm thick fails them: the rows, the status l
   expect(thickness.a.point[2]).toBeCloseTo(6, 6)
   expect(thickness.points![0][2]).toBeCloseTo(5, 9)
   const hole = gauge('M2')!
-  expect(hole.value).toBeCloseTo(9, 9)
-  expect(hole).toMatchObject({ verdict: 'fail', status: 'sent' })
+  // The wall of the hole is 1 mm further out than where M2 was put: it is measured on the face under it now.
+  expect(hole.value).toBeCloseTo(10, 9)
+  expect(hole).toMatchObject({ verdict: 'fail', anchorState: 'drifted', status: 'sent' })
 
   await expect(row('M1', page).locator('.mark-value')).toHaveText('5 mm')
   await expect(row('M1', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'fail')
   await expect(row('M1', page).locator('.mark-anchor')).toHaveText('moved: check it')
-  await expect(row('M2', page).locator('.mark-value')).toHaveText('⌀ 9 mm')
+  await expect(row('M2', page).locator('.mark-value')).toHaveText('⌀ 10 mm')
   await row('M2', page).click()
-  await expect(row('M2', page).locator('.dimension-verdict')).toHaveText('Fails: 1 over')
+  await expect(row('M2', page).locator('.dimension-verdict')).toHaveText('Fails: 2 over')
 
   // The status line counts them, in the colour of failure, and goes to the first.
   const failing = statusLine().locator('.status-dimensions[data-state="fail"]')
@@ -474,7 +475,7 @@ test('a build that makes the plate 5 mm thick fails them: the rows, the status l
   // The agent is told of both with the prompt, and with the one after: they are not news that is told once.
   for (const _again of [1, 2]) {
     const context = await prompted()
-    expect(context).toMatch(/Dimensions:M1thickness5mmwall,alongthenormal,plate\/F\d+at\(-10,5,6\)\(expected6±0\.05:FAIL,1under\)\[movedsinceitwasplaced:checkit\]M2diameter9mm,plate\/F\d+\(expected8±0\.05:FAIL,1over\)(\[movedsinceitwasplaced:checkit\])?$/)
+    expect(context).toMatch(/Dimensions:M1thickness5mmwall,alongthenormal,plate\/F\d+at\(-10,5,6\)\(expected6±0\.05:FAIL,1under\)\[movedsinceitwasplaced:checkit\]M2diameter10mm,plate\/F\d+\(expected8±0\.05:FAIL,2over\)\[movedsinceitwasplaced:checkit\]$/)
     expect(context).not.toContain('pinneddimension')
     // Each has its line: neither is named again among the open marks.
     expect(context).not.toContain('Openmarks:')
@@ -490,7 +491,7 @@ test('a build that makes the plate 5 mm thick fails them: the rows, the status l
       return ''
     }
   }
-  await expect.poll(stateFile, { timeout: 10_000 }).toMatch(/- M1 thickness 5 mm wall, along the normal, plate\/F\d+ at \(-10, 5, 6\) \(expected 6 ± 0\.05: FAIL, 1 under\) \[moved since it was placed: check it\]\n- M2 diameter 9 mm, plate\/F\d+ \(expected 8 ± 0\.05: FAIL, 1 over\)/)
+  await expect.poll(stateFile, { timeout: 10_000 }).toMatch(/- M1 thickness 5 mm wall, along the normal, plate\/F\d+ at \(-10, 5, 6\) \(expected 6 ± 0\.05: FAIL, 1 under\) \[moved since it was placed: check it\]\n- M2 diameter 10 mm, plate\/F\d+ \(expected 8 ± 0\.05: FAIL, 2 over\) \[moved since it was placed: check it\]/)
 })
 
 test('built as it should be again, they pass: the status line is clear, and the prompt says only the count', async () => {

@@ -2,7 +2,7 @@
 
 ``variant.txt`` holds ``a`` or ``b``. ``a`` is a 40 × 30 × 6 plate standing on
 z = 0, with one Ø8 through hole at (10, 0). ``b`` is the same plate 5 mm
-thick, its top 1 mm lower, and the hole Ø9.
+thick, its top 1 mm lower, and the hole Ø10.
 """
 
 from pathlib import Path
@@ -14,7 +14,7 @@ variant = (Path(__file__).parent / "variant.txt").read_text().strip()
 if variant == "a":
     thickness, hole = 6, 8
 elif variant == "b":
-    thickness, hole = 5, 9
+    thickness, hole = 5, 10
 else:
     raise ValueError(f"variant.txt says {variant!r}; it must say a or b")
 

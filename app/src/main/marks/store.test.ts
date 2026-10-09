@@ -698,6 +698,10 @@ describe('a dimension', () => {
     await store.add('bracket', pin())
     expect(await store.measured('bracket', 'M2', added, EIGHT)).toBeNull()
     expect(await store.measured('bracket', 'M9', added, EIGHT)).toBeNull()
+    // And one resolved meanwhile: it is no longer measured, and keeps what it had when it was resolved.
+    await store.update('bracket', 'M1', { status: 'resolved' })
+    expect(await store.measured('bracket', 'M1', added, { ...EIGHT, value: 9, measuredRevision: 4 })).toBeNull()
+    expect((await store.list('bracket'))[0]).toMatchObject({ status: 'resolved', value: 8, measuredRevision: 2 })
   })
 
   it('does not keep a value that was measured through a ref the check has since replaced', async () => {
@@ -817,6 +821,25 @@ describe('a dimension', () => {
     ])
     const [now] = (await store.list('bracket')) as DimensionMark[]
     expect(now).toMatchObject({ a: { point: [15, 3, 3], ref: 'plate/F7' }, b: { point: [15, 3, -3], ref: 'plate/F2' }, points: [[15, 3, 3], [15, 3, -3]], value: 6, checkedRevision: 2 })
+  })
+
+  it('no longer says which build it was measured on once a check gives an end another ref or another point', async () => {
+    const SIX = { value: 6, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]] as [[number, number, number], [number, number, number]], measuredRevision: 2 }
+    const added = (await store.add('bracket', distance({ expected: 6 }), 'draft', SIX)) as DimensionMark
+    const check = (anchors: Anchor[], more: object = {}) => store.reanchor('bracket', [{ id: 'M1', judged: [added.a, added.b!], anchors, anchorState: 'ok', checkedRevision: 2, ...more }])
+    // More said of the same ends: it is still the measurement of r2.
+    await check([{ ...added.a, descriptor: 'plane, normal +Z' }, added.b!])
+    expect((await store.list('bracket'))[0]).toMatchObject({ value: 6, measuredRevision: 2, verdict: 'pass' })
+    // The second end is on another face now: what was measured through plate/F0 is of no build of this mark.
+    const refreshed = [{ ...added.a, descriptor: 'plane, normal +Z' }, { ...added.b!, ref: 'plate/F3' }]
+    await store.reanchor('bracket', [{ id: 'M1', judged: [refreshed[0], added.b!], anchors: refreshed, anchorState: 'ok', checkedRevision: 2 }])
+    const [now] = (await store.list('bracket')) as DimensionMark[]
+    expect(now).toMatchObject({ value: 6, b: { ref: 'plate/F3' }, checkedRevision: 2 })
+    expect(now).not.toHaveProperty('measuredRevision')
+    // So too when it is moved with its part.
+    const again = (await store.add('bracket', distance(), 'draft', SIX)) as DimensionMark
+    await store.reanchor('bracket', [{ id: 'M2', judged: [again.a, again.b!], anchors: [{ ...again.a, point: [15, 3, 3] }, { ...again.b!, point: [15, 3, -3] }], anchorState: 'ok', shift: [10, 0, 0], checkedRevision: 3 }])
+    expect((await store.list('bracket'))[1]).not.toHaveProperty('measuredRevision')
   })
 
   it('is not put somewhere else by a click', async () => {

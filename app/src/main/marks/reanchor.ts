@@ -4,7 +4,7 @@ import { type Anchor, type AnchorState, type Mark, type NewMark, type Replacemen
 import type { Part, Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError } from '../kernel/client'
-import { type RemeasureDeps, remeasureAll } from './measure'
+import { EDGE_TOLERANCE_MM, type RemeasureDeps, remeasureAll } from './measure'
 import type { MarkStore, Reanchored } from './store'
 
 /**
@@ -52,13 +52,7 @@ export type Judged = { anchor: Anchor; state: AnchorState }
 
 const LEAST_TOLERANCE_MM = 0.5
 const TOLERANCE_OF_DIAGONAL = 0.005
-/**
- * How far from an edge a point may be and still be on it, in mm, whatever the
- * size of the part: edges lie closer to one another than surfaces do (the two
- * of a 1 mm chamfer), and a tolerance that grew with the part would take one
- * for the other.
- */
-export const EDGE_TOLERANCE_MM = 0.5
+export { EDGE_TOLERANCE_MM }
 const WORST_FIRST: AnchorState[] = ['orphaned', 'drifted', 'ok']
 /**
  * A stroke on the surface may run from one part onto the next, and its points

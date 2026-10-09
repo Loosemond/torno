@@ -34,15 +34,18 @@ export interface LabelValue {
 
 /**
  * A dimension's value as its chip writes it on the build `revision`: the
- * value measured on that build, with its verdict; the last one it had,
- * marked stale, when it has not been measured on that build; `—` when it has
- * none. The same on screen and in a picture for the agent.
+ * value measured on that build, with its verdict; the last one it had, with
+ * the build it is of after it (`6 mm (r11)`, `(earlier)` when that was in
+ * another run) and marked stale, when it has not been measured on that
+ * build; `—` when it has none. The same on screen and in a picture for the
+ * agent, where a value that was only fainter would be read as the part's.
  */
 export function labelValue(mark: DimensionMark, revision: number | undefined): LabelValue {
   const value = measuredValue(mark, revision)
   if (value !== undefined) return { text: valueText(mark.measure, value), ...(mark.verdict ? { verdict: mark.verdict } : {}) }
   const last = lastValue(mark)
-  return last !== undefined && isUnmeasured(mark, revision) ? { text: valueText(mark.measure, last), stale: true } : { text: NO_VALUE }
+  if (last === undefined || !isUnmeasured(mark, revision)) return { text: NO_VALUE }
+  return { text: `${valueText(mark.measure, last)} (${mark.measuredRevision === undefined ? 'earlier' : `r${mark.measuredRevision}`})`, stale: true }
 }
 
 /** How large the chip of a label is: of its text and, for a dimension, its value beside it. */

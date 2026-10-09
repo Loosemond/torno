@@ -7,6 +7,8 @@ import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
 import * as file from './file'
 import { type FoundAnchor, RETRY_AFTER_MS, asPlaced, checkMarks, coalesced, followMarks, judge, judgePin, reanchorAll, retrying, tolerance } from './reanchor'
+import { describeMark } from './describe'
+import { addDimension } from './measure'
 import { MarkStore } from './store'
 
 // The real store on a real folder, with its writes counted.
@@ -1029,7 +1031,9 @@ describe('checkMarks: the dimensions are measured on every build, once the marks
     // Two writes: what the check found, then every measurement.
     expect(saves).toHaveBeenCalledTimes(2)
     expect(changes).toHaveLength(2)
-    expect(changes[0].marks.map((m) => (m as DimensionMark).measuredRevision)).toEqual([1, 1, undefined])
+    // Between the two, the dimensions whose ends were given other refs say of no build that they were measured on it.
+    expect(changes[0].marks.map((m) => (m as DimensionMark).measuredRevision)).toEqual([undefined, undefined, undefined])
+    expect(changes[0].marks.map((m) => (m as DimensionMark).value)).toEqual([6, 8, undefined])
     const marks = await byId()
     expect(marks.M1).toMatchObject({ anchorState: 'drifted', a: { point: [-10, 5, 6], ref: 'plate/F2' }, value: 5, measuredRevision: 2, checkedRevision: 2, verdict: 'fail', status: 'sent' })
     expect(marks.M2).toMatchObject({ anchorState: 'drifted', a: { ref: 'plate/F3' }, value: 9, measuredRevision: 2, verdict: 'fail', status: 'sent', points: [[5.5, 0, 3], [14.5, 0, 3]] })
@@ -1107,8 +1111,9 @@ describe('checkMarks: the dimensions are measured on every build, once the marks
     expect(await run()).toBe(false)
     const marks = await byId()
     expect(marks.M1).toMatchObject({ value: 5, measuredRevision: 2 })
-    // Checked against r2, and still holding what it measured on r1: never the value of r2.
-    expect(marks.M2).toMatchObject({ value: 8, measuredRevision: 1, checkedRevision: 2, verdict: 'pass' })
+    // Checked against r2, and still holding what it measured before: of no build now, and never the value of r2.
+    expect(marks.M2).toMatchObject({ value: 8, checkedRevision: 2, verdict: 'pass' })
+    expect(marks.M2).not.toHaveProperty('measuredRevision')
     expect(logged).toEqual(['cannot measure the dimensions of gauge on its last build: M2: the query took longer than 30 s'])
     // Tried again, it is measured.
     measured = answer
@@ -1143,7 +1148,7 @@ describe('checkMarks: the dimensions are measured on every build, once the marks
     // The anchors of r2 were written; no measurement was.
     expect(saves).toHaveBeenCalledTimes(1)
     const marks = await byId()
-    expect([marks.M1.measuredRevision, marks.M2.measuredRevision, marks.M1.value]).toEqual([1, 1, 6])
+    expect([marks.M1.measuredRevision, marks.M2.measuredRevision, marks.M1.value, marks.M2.value]).toEqual([undefined, undefined, 6, 8])
   })
 
   it('passes over a dimension that changed underneath while it was measured, and writes the others', async () => {
@@ -1160,7 +1165,85 @@ describe('checkMarks: the dimensions are measured on every build, once the marks
     await run()
     const marks = await byId()
     expect(marks.M1).toMatchObject({ value: 5, measuredRevision: 2 })
-    expect(marks.M2).toMatchObject({ expected: 9, value: 8, measuredRevision: 1 })
+    expect(marks.M2).toMatchObject({ expected: 9, value: 8 })
+    expect(marks.M2).not.toHaveProperty('measuredRevision')
+  })
+
+  describe('with an end on an edge', () => {
+    // The length of the plate, between its two short top edges.
+    const LEFT: Anchor = { point: [-20, 0, 6], part: 'plate', ref: 'plate/E3' }
+    const RIGHT: Anchor = { point: [20, 0, 6], part: 'plate', ref: 'plate/E7' }
+    const FORTY = { value: 40, how: 'minimum', points: [[-20, 0, 6], [20, 0, 6]] as [[number, number, number], [number, number, number]], measuredRevision: 1 }
+    /** Each end on the edge it names, with the faces that meet there. */
+    const onEdge = ({ part, point, edge }: { part: string; point: number[]; edge?: string }) => ({
+      ...found(part, 'plate/F5', 0, { point: point as [number, number, number] }),
+      support: 'edge',
+      edgeUnder: edge,
+      edgeUnderDescriptor: 'line, 30 mm',
+      between: ['plate/F5', 'plate/F2'],
+      edgeFound: true,
+      edgeDistance: 0,
+      edgeDescriptor: 'line, 30 mm'
+    })
+    /** The plate 5 mm thick: the top edges are 1 mm below where the ends were put, and what is numbered E7 is another edge, 14 mm away. */
+    const offEdge = ({ part, point, edge }: { part: string; point: number[]; edge?: string }) => ({
+      ...found(part, 'plate/F1', 1, { point: [point[0], point[1], 5] }),
+      support: 'edge',
+      edgeUnder: edge === 'plate/E3' ? 'plate/E4' : 'plate/E9',
+      edgeFound: true,
+      edgeDistance: edge === 'plate/E3' ? 1 : 14,
+      edgeDescriptor: 'line, 30 mm'
+    })
+
+    it('is not measured through an edge that is not under its end on that build, says why, and is measured again when the edge is back', async () => {
+      nearest = onEdge as never
+      measured = () => FORTY
+      await store.add('gauge', { ...BASE, kind: 'dimension', measure: 'distance', a: LEFT, b: RIGHT, expected: 40 } as NewMark, 'draft', FORTY)
+      await store.markSent('gauge')
+      expect(await run()).toBe(true)
+      expect((await byId()).M1).toMatchObject({ anchorState: 'ok', value: 40, measuredRevision: 1, verdict: 'pass', a: { ref: 'plate/E3', edge: 'plate/E3' }, b: { ref: 'plate/E7', edge: 'plate/E7' } })
+
+      // The build renumbers the edges. The kernel would answer for plate/E3 and plate/E7 as they are now: 12 mm.
+      scene = sceneOf(['assembly:plate'])
+      revision = 2
+      nearest = offEdge as never
+      measured = () => ({ ...FORTY, value: 12 })
+      asked = []
+      expect(await run()).toBe(true)
+      expect(asked.filter((q) => q.name === 'measure')).toEqual([])
+      const off = (await byId()).M1
+      // The ends keep the edges they were put on, to be found again; there is no value of this build, nor a verdict.
+      expect(off).toMatchObject({ anchorState: 'drifted', measuredRevision: 2, status: 'sent', a: { ref: 'plate/E3' }, b: { ref: 'plate/E7' }, refused: 'the edge plate/E3 it was on is not under its end on r2' })
+      for (const key of ['value', 'how', 'points', 'verdict']) expect(off).not.toHaveProperty(key)
+      expect(describeMark(off, { revision: 2 })).toBe('M1 distance: not measurable (the edge plate/E3 it was on is not under its end on r2), plate/E3 to plate/E7 (expected 40 ± 0.05) [moved since it was placed: check it]')
+
+      // The edges are back where the ends are.
+      scene = sceneOf(['assembly:plate'])
+      revision = 3
+      nearest = onEdge as never
+      measured = () => FORTY
+      expect(await run()).toBe(true)
+      const back = (await byId()).M1
+      expect(back).toMatchObject({ anchorState: 'ok', value: 40, measuredRevision: 3, verdict: 'pass' })
+      expect(back).not.toHaveProperty('refused')
+    })
+  })
+
+  it('a dimension added while a build was landing is kept without a value, and measured by the check of that build', async () => {
+    // Placed on r1; r2 lands while the kernel is asked, and the answer is not kept as that of either.
+    const logged: string[] = []
+    const deps = { marks: store, query, scene: () => (scene ? { revision, scene } : undefined), log: (m: string) => logged.push(m) }
+    measured = ({ kind }) => {
+      thinner()
+      return kind === 'diameter' ? { ...EIGHT, value: 30 } : SIX
+    }
+    const added = (await addDimension(deps, 'gauge', hole({ expected: 8 }))) as DimensionMark
+    expect(added).toMatchObject({ id: 'M1', expected: 8 })
+    for (const key of ['value', 'measuredRevision', 'verdict']) expect(added).not.toHaveProperty(key)
+    expect(logged).toEqual(['cannot measure a new dimension of gauge yet: gauge was built again (r2) since its ends were found on r1'])
+    // The check of r2, which the new mark and the build both call for.
+    expect(await run()).toBe(true)
+    expect((await byId()).M1).toMatchObject({ value: 9, measuredRevision: 2, checkedRevision: 2, verdict: 'fail', a: { ref: 'plate/F3' } })
   })
 })
 

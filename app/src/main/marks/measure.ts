@@ -27,12 +27,12 @@ function target(layout: string, end: MeasureTarget): object {
 }
 
 /** `measure` as it goes to the kernel (`kernel/src/torno_kernel/measure.py`). */
-function wire(args: MeasureArgs): object {
+export function wire(args: MeasureArgs): object {
   return { kind: args.kind, a: target(args.layout, args.a), ...(args.b ? { b: target(args.layout, args.b) } : {}), ...(args.density === undefined ? {} : { density: args.density }) }
 }
 
 /** What the kernel said, as the person reads it: its refs without the layout in front, as they are everywhere in the window. */
-function plain(e: unknown, layout: string): string {
+export function plain(e: unknown, layout: string): string {
   const message = e instanceof Error ? e.message : String(e)
   return layout ? message.replaceAll(`${layout}:`, '') : message
 }
@@ -52,52 +52,108 @@ export function measureRequest(mark: Pick<DimensionMark, 'measure' | 'layout' | 
 const isPoint = (value: unknown): value is Vec3 => Array.isArray(value) && value.length === 3 && value.every((c) => typeof c === 'number' && Number.isFinite(c))
 
 /**
- * Measures a dimension on the last build of its object: the kernel is asked
- * with each end's ref and point, and what comes back is the value in full,
- * how it was taken, the points it was taken between, the revision of the
- * build it is of, and the verdict against what the mark expects. A wall's
- * thickness is asked at the point of the face nearest to the end (`onItsFace`);
- * the end itself stays where it was put.
+ * How far from an edge a point may be and still be on it, in mm, whatever the
+ * size of the part: edges lie closer to one another than surfaces do (the two
+ * of a 1 mm chamfer), and a tolerance that grew with the part would take one
+ * for the other.
+ */
+export const EDGE_TOLERANCE_MM = 0.5
+
+/**
+ * Measures a dimension on the build `revision` of its object, the one its
+ * ends' refs are of: the kernel is asked with each end's ref and point, and
+ * what comes back is the value in full, how it was taken, the points it was
+ * taken between, that revision, and the verdict against what the mark
+ * expects. A wall's thickness is asked at the point of the face nearest to
+ * the end (`onItsFace`); the end itself stays where it was put.
  *
- * A dimension is measured from its ends as they are, whatever the last check
- * said of them: one whose end the build moved is measured from the feature
- * its end names now. Whether its part is still there is the caller's to know.
+ * The kernel measures the feature a ref names, so nothing is asked through a
+ * ref that is not of the build asked:
  *
- * When the kernel says the thing cannot be measured (an end names nothing in
- * this build, or the kind of measurement is not one of such ends), there is
- * no value, and `refused` is why. Anything else that goes wrong (no build, a
- * kernel that does not answer) rejects, with a plain message: nothing is
- * known of the dimension then.
+ * - when the last build is not `revision`, before the kernel is asked or by
+ *   the time it has answered, this rejects. It is never asked again on the
+ *   newer build: the refs are not of that one.
+ * - a dimension whose end the build moved (`anchorState: 'drifted'`) is
+ *   measured from the face its end names now, which the check of the marks
+ *   refreshed. An end on an edge keeps the edge it was put on when that is
+ *   no longer under it, to be found again should it come back, and that
+ *   number may be another edge's now: it is asked first whether the edge is
+ *   under the end (`offItsEdge`), and when it is not there is no value, and
+ *   `refused` says so. Nothing is measured from the face under it instead:
+ *   that would be another measurement.
+ *
+ * Whether its part is still there is the caller's to know. When the kernel
+ * says the thing cannot be measured (an end names nothing in this build, or
+ * the kind of measurement is not one of such ends), there is no value, and
+ * `refused` is why. Anything else that goes wrong (no build, a kernel that
+ * does not answer) rejects, with a plain message: nothing is known of the
+ * dimension then.
  */
 export async function measureDimension(
   deps: MeasureDeps,
   objectId: string,
-  mark: Pick<DimensionMark, 'measure' | 'layout' | 'a' | 'b' | 'expected' | 'tolerance'>
+  mark: Pick<DimensionMark, 'measure' | 'layout' | 'a' | 'b' | 'expected' | 'tolerance'> & Partial<Pick<DimensionMark, 'anchorState'>>,
+  revision: number | undefined
 ): Promise<Measurement> {
-  // A build that lands while the kernel is asked leaves it unsaid which the answer is of: asked again, once.
-  for (let tries = 0; ; tries++) {
-    const before = deps.scene(objectId)?.revision
-    if (before === undefined) throw new Error(`there is no build of ${objectId} to measure on`)
-    const request = measureRequest(mark.measure === 'thickness' ? { ...mark, a: await onItsFace(deps, objectId, mark.layout, mark.a) } : mark)
-    let reply: Partial<Record<'value' | 'how' | 'points', unknown>> | null
-    let refused: string | undefined
-    try {
-      reply = await deps.query(objectId, 'measure', request)
-    } catch (e) {
-      if (!(e instanceof KernelError && (e.kind === 'bad_ref' || e.kind === 'bad_request'))) throw new Error(plain(e, mark.layout))
-      reply = null
-      refused = plain(e, mark.layout)
-    }
-    const measuredRevision = deps.scene(objectId)?.revision
-    if (measuredRevision !== before && tries === 0) continue
-    if (measuredRevision === undefined || measuredRevision !== before) throw new Error(`${objectId} was built again while it was measured`)
-    if (refused !== undefined) return { measuredRevision, refused }
-    if (typeof reply?.value !== 'number' || !Number.isFinite(reply.value) || typeof reply.how !== 'string') throw new Error('the kernel did not answer with a measurement')
-    const { value, how, points } = reply
-    const between: { points?: [Vec3, Vec3] } = Array.isArray(points) && points.length === 2 && isPoint(points[0]) && isPoint(points[1]) ? { points: [points[0], points[1]] } : {}
-    const verdict = verdictOf({ ...mark, value })
-    return { value, how, ...between, measuredRevision, ...(verdict ? { verdict } : {}) }
+  const built = (): number | undefined => deps.scene(objectId)?.revision
+  /** Throws unless the last build is the one the refs are of. */
+  const stillThat = (): void => {
+    const now = built()
+    if (now === undefined) throw new Error(`there is no build of ${objectId} to measure on`)
+    if (revision === undefined) throw new Error(`its ends have not been checked against r${now}`)
+    if (now !== revision) throw new Error(`${objectId} was built again (r${now}) since its ends were found on r${revision}`)
   }
+  stillThat()
+  const between = mark.measure === 'distance' || mark.measure === 'angle'
+  if (mark.anchorState === 'drifted') {
+    for (const end of between && mark.b ? [mark.a, mark.b] : [mark.a]) {
+      const edge = await offItsEdge(deps, objectId, mark.layout, end)
+      stillThat()
+      if (edge !== null) return { measuredRevision: revision, refused: `the edge ${edge} it was on is not under its end on r${revision}` }
+    }
+  }
+  const request = measureRequest(mark.measure === 'thickness' ? { ...mark, a: await onItsFace(deps, objectId, mark.layout, mark.a) } : mark)
+  let reply: Partial<Record<'value' | 'how' | 'points', unknown>> | null
+  let refused: string | undefined
+  try {
+    reply = await deps.query(objectId, 'measure', request)
+  } catch (e) {
+    stillThat()
+    if (!(e instanceof KernelError && (e.kind === 'bad_ref' || e.kind === 'bad_request'))) throw new Error(plain(e, mark.layout))
+    reply = null
+    refused = plain(e, mark.layout)
+  }
+  // A build that landed while the kernel was asked leaves it unsaid which the answer is of.
+  stillThat()
+  if (refused !== undefined) return { measuredRevision: revision, refused }
+  if (typeof reply?.value !== 'number' || !Number.isFinite(reply.value) || typeof reply.how !== 'string') throw new Error('the kernel did not answer with a measurement')
+  const { value, how, points } = reply
+  const taken: { points?: [Vec3, Vec3] } = Array.isArray(points) && points.length === 2 && isPoint(points[0]) && isPoint(points[1]) ? { points: [points[0], points[1]] } : {}
+  const verdict = verdictOf({ ...mark, value })
+  return { value, how, ...taken, measuredRevision: revision, ...(verdict ? { verdict } : {}) }
+}
+
+/**
+ * The edge an end names when that edge is not under the end on the build
+ * there is; null when it is, or when the end names no edge. The kernel says
+ * (`nearest`, asked with the edge): the point lies on the edge of that
+ * number, or within `EDGE_TOLERANCE_MM` of it. Throws when the kernel does
+ * not say: it is then not known what the ref names.
+ */
+async function offItsEdge(deps: Pick<MeasureDeps, 'query'>, objectId: string, layout: string, end: Anchor): Promise<string | null> {
+  const { part, ref } = end
+  if (part === undefined || ref === undefined || !ref.startsWith(`${part}/`) || !/^E\d+$/.test(ref.slice(part.length + 1))) return null
+  type Near = { found?: boolean; error?: unknown; support?: unknown; edgeUnder?: unknown; edgeFound?: unknown; edgeDistance?: unknown }
+  let near: Near | null | undefined
+  try {
+    near = (await deps.query<{ anchors?: Array<Near | null> }>(objectId, 'nearest', { layout, anchors: [{ part, point: end.point, edge: ref }] }))?.anchors?.[0]
+  } catch (e) {
+    throw new Error(plain(e, layout))
+  }
+  if (near?.found === false) return ref
+  if (near?.found !== true || near.error !== undefined) throw new Error(`the kernel did not say whether ${ref} is under its end`)
+  if (near.support === 'edge' && near.edgeUnder === ref) return null
+  return near.edgeFound === true && typeof near.edgeDistance === 'number' && near.edgeDistance <= EDGE_TOLERANCE_MM ? null : ref
 }
 
 /**
@@ -148,7 +204,7 @@ export async function addDimension(deps: MeasureDeps & { marks: Marks; log?(mess
   if (probe.revision !== built) throw new Error(`it was placed on r${probe.revision}, and the part has been built again since (r${built}): measure it again`)
 
   /** What the kernel said; null when it could not be asked. Throws its reason when it refused. */
-  const measuring: Promise<Measurement | null> = measureDimension(deps, objectId, probe).then(
+  const measuring: Promise<Measurement | null> = measureDimension(deps, objectId, probe, probe.revision).then(
     (measured) => measured,
     (e: unknown) => {
       ;(deps.log ?? console.error)(`cannot measure a new dimension of ${objectId} yet: ${e instanceof Error ? e.message : String(e)}`)
@@ -195,13 +251,15 @@ export function dueAfterEdit(patch: unknown, changed: Mark, revision: number | u
 }
 
 /**
- * Measures a dimension again and writes what the kernel says now: its value,
- * or that it is not measurable and why. When the kernel could not be asked,
- * the dimension is left as it is, and that is logged.
+ * Measures a dimension again, on the build its ends were last checked
+ * against, and writes what the kernel says: its value, or that it is not
+ * measurable and why. When the kernel could not be asked, or that build is
+ * no longer the last, the dimension is left as it is, and that is logged:
+ * the check of the newer build measures it.
  */
 export async function remeasure(deps: MeasureDeps & { marks: Pick<MarkStore, 'measured'>; log?(message: string): void }, objectId: string, mark: DimensionMark): Promise<void> {
   try {
-    await deps.marks.measured(objectId, mark.id, mark, await measureDimension(deps, objectId, mark))
+    await deps.marks.measured(objectId, mark.id, mark, await measureDimension(deps, objectId, mark, mark.checkedRevision))
   } catch (e) {
     ;(deps.log ?? console.error)(`cannot measure ${mark.id} of ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
   }
@@ -228,8 +286,9 @@ export interface RemeasureDeps extends MeasureDeps {
  *   It stays not measured on this build, as that check has already reported.
  * - One already measured on this build is not asked about again.
  * - One that lost the part of an end is not measurable, and the kernel is not
- *   asked; nor is one the kernel refuses, which keeps the kernel's reason.
- *   Either has no value from then on.
+ *   asked; nor is one the kernel refuses, which keeps the kernel's reason, nor
+ *   one with an end on an edge that is no longer under it (`measureDimension`).
+ *   Each has no value from then on.
  * - One the kernel could not be asked about (no answer, a timeout) keeps the
  *   value it had, which stays that of the build it was measured on: it is
  *   then not measured on this one. That is logged, once for the whole call.
@@ -257,9 +316,7 @@ export async function remeasureAll(deps: RemeasureDeps, objectId: string): Promi
       continue
     }
     try {
-      const result = await measureDimension(deps, objectId, mark)
-      // Of another build than this call is for: that build's own call measures it.
-      if (result.measuredRevision === revision) changes.push({ id: mark.id, of, result })
+      changes.push({ id: mark.id, of, result: await measureDimension(deps, objectId, mark, revision) })
     } catch (e) {
       failures.push(`${mark.id}: ${e instanceof Error ? e.message : String(e)}`)
     }

@@ -255,7 +255,9 @@ export class MarkStore {
    * mark may have been removed while the check ran. So is a mark whose
    * anchors are no longer the ones that were judged: it was put somewhere
    * else meanwhile, and the check that follows that is of where it is now.
-   * A mark given no anchor keeps the one it has.
+   * A mark given no anchor keeps the one it has. A dimension whose end is
+   * given another point or another ref no longer says which build it was
+   * measured on: its value was taken through the ends it had.
    */
   reanchor(objectId: string, changes: Reanchored[]): Promise<void> {
     return this.change(objectId, (file) => {
@@ -275,6 +277,9 @@ export class MarkStore {
               : {}
         const moved = sanitiseMark({ ...where, ...anchor, anchorState, ...(checkedRevision === undefined ? {} : { checkedRevision }) })
         if (!moved) continue
+        // An end of a dimension is somewhere else, or on something else: what it measured was measured through the
+        // ends it had. Its value is of no build any more, until it is measured through these.
+        if (mark.kind === 'dimension' && moved.kind === 'dimension' && !isDeepStrictEqual(through(mark), through(moved))) delete moved.measuredRevision
         file.marks[at] = moved
         any = true
       }
@@ -297,8 +302,8 @@ export class MarkStore {
     return this.change(objectId, (file) => {
       const at = file.marks.findIndex((m) => m.id === id)
       const mark = file.marks[at]
-      if (mark?.kind !== 'dimension' || mark.measure !== of.measure) return UNCHANGED
-      const through = (d: Pick<DimensionMark, 'a' | 'b'>): unknown[] => [d.a.point, d.a.ref, d.b?.point, d.b?.ref]
+      // A resolved one is no longer measured: a measurement that comes late leaves it as it was resolved.
+      if (mark?.kind !== 'dimension' || mark.status === 'resolved' || mark.measure !== of.measure) return UNCHANGED
       if (!isDeepStrictEqual(through(mark), through(of))) return UNCHANGED
       const now = withMeasurement(mark, result)
       if (!now || isDeepStrictEqual(now, mark)) return UNCHANGED
@@ -423,6 +428,9 @@ function withMeasurement(mark: DimensionMark, result: Measurement): Mark | null 
   const bare = Object.fromEntries(Object.entries(mark).filter(([key]) => !(MEASURED_KEYS as readonly string[]).includes(key)))
   return sanitiseMark({ ...bare, ...Object.fromEntries(MEASURED_KEYS.map((key) => [key, result[key]])) })
 }
+
+/** What a dimension is measured through: where its ends are, and what each names. */
+const through = (d: Pick<DimensionMark, 'a' | 'b'>): unknown[] => [d.a.point, d.a.ref, d.b?.point, d.b?.ref]
 
 /** What an edit returns when it changed nothing. */
 const UNCHANGED = Symbol('unchanged')
