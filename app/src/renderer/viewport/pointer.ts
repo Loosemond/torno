@@ -85,6 +85,11 @@ export class PointerRouter {
   private held = false
   /** The left button's press, until it is released. */
   private press: Press | null = null
+  /** The pointer whose button is down, and whether the canvas has captured it for a tool's drag. */
+  private pointerId: number | null = null
+  private captured = false
+  /** Where the pointer last was, for what is told of it when no event of its own says. */
+  private last: [number, number] = [0, 0]
 
   /** Construct it after the orbit and the gizmo: their listeners on the canvas then run first, and the gizmo has said whether the pointer is on it. */
   constructor(private readonly host: PointerHost) {
@@ -100,10 +105,15 @@ export class PointerRouter {
     this.listener = cb
   }
 
-  /** See `Viewport.setNavigation`. Switched back on while a button is still held, the orbit stays off until the button is let go. */
+  /**
+   * See `Viewport.setNavigation`. Switched back on while a button is still held, the orbit stays off until the button is let go.
+   * Switched off while a button is held, the drag is a tool's: the canvas captures the pointer until the button is let go, so
+   * every move and the release are told wherever the pointer goes, over a palette or out of the window.
+   */
   setNavigation(enabled: boolean, opts: { wheel?: boolean } = {}): void {
     this.navigation = enabled
     this.wheelZooms = !enabled && opts.wheel === true
+    if (!enabled && this.held) this.capture()
     this.host.gizmo.setEnabled(enabled) // a tool that drags has the pointer to itself: no handle lights up under it
     if (!enabled || !this.held) this.host.orbit.enabled = enabled
   }
@@ -131,6 +141,9 @@ export class PointerRouter {
     const { host } = this
     const kind = e.type === 'pointermove' ? 'move' : e.type === 'pointerdown' ? 'down' : e.type === 'pointerup' ? 'up' : 'cancel'
     const press = this.press
+    this.last = [e.clientX, e.clientY]
+    if (kind === 'down') this.pointerId = e.pointerId ?? null
+    else if (kind !== 'move') this.release()
     if (kind === 'down') this.press = e.button === 0 ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null
     else if (kind !== 'move') this.press = null
     this.held = e.buttons !== 0
@@ -159,7 +172,39 @@ export class PointerRouter {
   }
 
   private readonly onReleasedAnywhere = (e: Event): void => {
+    const cutShort = e.type === 'blur' && this.held
     if (e.type === 'blur' || (e as PointerEvent).buttons === 0) this.held = false
+    if (!cutShort) return
+    // The window was left in the middle of a drag: its release will not be told, so the tool is told the drag is over.
+    this.release()
+    this.press = null
+    if (!this.host.gizmo.dragging) this.host.orbit.enabled = this.navigation
+    const at = this.host.canvasPoint(this.last[0], this.last[1])
+    if (this.listener && at) this.listener({ type: 'cancel', hit: null, ray: pointerRay(this.host.camera(), at.ndc), client: this.last, buttons: 0, shift: false, alt: false })
+  }
+
+  private capture(): void {
+    const { canvas } = this.host
+    if (this.captured || this.pointerId === null || typeof canvas.setPointerCapture !== 'function') return
+    try {
+      canvas.setPointerCapture(this.pointerId)
+      this.captured = true
+    } catch {
+      // The pointer is gone already: there is nothing to capture, and its release has been told.
+    }
+  }
+
+  private release(): void {
+    const { canvas } = this.host
+    if (this.captured && this.pointerId !== null && typeof canvas.releasePointerCapture === 'function') {
+      try {
+        canvas.releasePointerCapture(this.pointerId)
+      } catch {
+        // Let go by the browser already.
+      }
+    }
+    this.captured = false
+    this.pointerId = null
   }
 
   /**

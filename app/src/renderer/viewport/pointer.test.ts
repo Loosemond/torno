@@ -37,7 +37,7 @@ const HIT = { ref: 'base/F1' } as Hit
 const VIEW: Camera = { position: [0, -100, 0], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 
 /** An event as the canvas or the window would be given it. */
-function fire(target: EventTarget, type: string, init: Partial<Record<'button' | 'buttons' | 'clientX' | 'clientY' | 'timeStamp' | 'deltaY' | 'deltaMode', number>> = {}): Event {
+function fire(target: EventTarget, type: string, init: Partial<Record<'button' | 'buttons' | 'clientX' | 'clientY' | 'timeStamp' | 'deltaY' | 'deltaMode' | 'pointerId', number>> = {}): Event {
   const event = new Event(type, { cancelable: true })
   const all = { button: 0, buttons: 0, clientX: 0, clientY: 0, timeStamp: 0, deltaY: 0, deltaMode: 0, shiftKey: false, altKey: false, ...init }
   for (const [key, value] of Object.entries(all)) Object.defineProperty(event, key, { value })
@@ -218,6 +218,54 @@ describe('the pointer over the canvas', () => {
     fire(canvas, 'pointerup')
     fire(canvas, 'wheel', { deltaY: -100 })
     expect(orbit.enabled).toBe(false)
+    expect(told()).toEqual([])
+  })
+})
+
+describe('a drag that is a tool\'s', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', new EventTarget())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** A router whose canvas writes down the pointers it is asked to capture and to let go. */
+  function capturing() {
+    const made = router()
+    const asked: string[] = []
+    Object.assign(made.canvas, { setPointerCapture: (id: number) => asked.push(`capture ${id}`), releasePointerCapture: (id: number) => asked.push(`release ${id}`), hasPointerCapture: () => true })
+    return { ...made, asked }
+  }
+
+  it('has the pointer captured from the moment the tool takes the drag, so its moves and its release arrive wherever it goes', () => {
+    const { pointer, canvas, asked } = capturing()
+    // Not before a button is down, and not for a drag the camera has.
+    pointer.setNavigation(false)
+    pointer.setNavigation(true)
+    fire(canvas, 'pointerdown', { buttons: 1, pointerId: 7 })
+    expect(asked).toEqual([])
+    pointer.setNavigation(false, { wheel: true })
+    expect(asked).toEqual(['capture 7'])
+    fire(canvas, 'pointerup', { pointerId: 7 })
+    expect(asked).toEqual(['capture 7', 'release 7'])
+    // The next press is not captured by itself.
+    pointer.setNavigation(true)
+    fire(canvas, 'pointerdown', { buttons: 1, pointerId: 8 })
+    fire(canvas, 'pointerup', { pointerId: 8 })
+    expect(asked).toEqual(['capture 7', 'release 7'])
+  })
+
+  it('is told to the tool as cut short when the window is left with the button held', () => {
+    const { canvas, told } = capturing()
+    fire(canvas, 'pointerdown', { buttons: 1, clientX: 5, clientY: 6 })
+    told()
+    fire(window, 'blur')
+    expect(told()).toEqual(['cancel'])
+    // With no button held there is nothing to cut short.
+    fire(canvas, 'pointerup')
+    told()
+    fire(window, 'blur')
     expect(told()).toEqual([])
   })
 })

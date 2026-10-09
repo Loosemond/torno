@@ -44,6 +44,8 @@ interface LayerState {
 export class Highlights {
   private readonly layers: Record<HighlightLayer, LayerState>
   private readonly hidden = new Set<HighlightLayer>()
+  /** The parts nothing is drawn on for now: those a section leaves nothing of. */
+  private readonly suppressed = new Set<BuiltPart>()
 
   constructor() {
     const make = (name: HighlightLayer): LayerState => ({
@@ -97,15 +99,36 @@ export class Highlights {
     for (const name of layers) {
       if (visible) this.hidden.delete(name)
       else this.hidden.add(name)
-      for (const overlay of this.layers[name].overlays.values()) {
-        overlay.faces.visible = visible && overlay.faces.geometry.groups.length > 0
-        if (overlay.lines) overlay.lines.visible = visible
-      }
+      for (const [built, overlay] of this.layers[name].overlays) this.show(name, built, overlay)
     }
+  }
+
+  /**
+   * Whether nothing is drawn on a part for now, whatever is highlighted on
+   * it: a part that a section leaves nothing of is not drawn, and neither is
+   * what is tinted or thickened on it. What is highlighted is kept, and is
+   * drawn again when this is taken back.
+   */
+  suppress(built: BuiltPart, suppressed: boolean): void {
+    if (suppressed === this.suppressed.has(built)) return
+    if (suppressed) this.suppressed.add(built)
+    else this.suppressed.delete(built)
+    for (const name of NAMES) {
+      const overlay = this.layers[name].overlays.get(built)
+      if (overlay) this.show(name, built, overlay)
+    }
+  }
+
+  /** Brings whether a part's overlay of a layer is drawn in line with the layer being shown and the part not being suppressed. */
+  private show(name: HighlightLayer, built: BuiltPart, overlay: Overlay): void {
+    const visible = !this.hidden.has(name) && !this.suppressed.has(built)
+    overlay.faces.visible = visible && overlay.faces.geometry.groups.length > 0
+    if (overlay.lines) overlay.lines.visible = visible
   }
 
   /** A part is going: what was drawn on it goes first. Its own geometry is left for its owner to free. */
   forget(built: BuiltPart): void {
+    this.suppressed.delete(built)
     for (const state of Object.values(this.layers)) {
       const overlay = state.overlays.get(built)
       if (!overlay) continue
@@ -154,15 +177,15 @@ export class Highlights {
       if (to === undefined || to <= from) continue
       const overlay = this.overlayFor(name, built)
       overlay.faces.geometry.addGroup(from, to - from, 0)
-      overlay.faces.visible = !this.hidden.has(name)
+      this.show(name, built, overlay)
     }
 
     for (const [built, positions] of segments) {
       const overlay = this.overlayFor(name, built)
       const lines = new LineSegments2(new LineSegmentsGeometry().setPositions(positions), state.line)
       lines.renderOrder = LAYERS[name].order + NAMES.length
-      lines.visible = !this.hidden.has(name)
       overlay.lines = lines
+      this.show(name, built, overlay)
       built.group.add(lines)
     }
   }

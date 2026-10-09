@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
 import { sectionOf, snappedSection } from '../../shared/view'
 import { buildPart } from './partMesh'
-import { SectionCut, atOffset, axisOf, capColour, cutOutline, describeSection, keepsNothing, flipped, movedAlongNormal, planeFromFace, planeOnAxis, planeRect, sectionExtent, sectionOffset } from './section'
+import { SectionCut, atOffset, axisOf, capColour, cutOutline, describeSection, keepsNothing, nearSegmentOnScreen, flipped, movedAlongNormal, planeFromFace, planeOnAxis, planeRect, sectionExtent, sectionOffset } from './section'
 
 const BOX = { min: [-20, -15, -2.5], max: [20, 15, 22.5] }
 
@@ -340,5 +340,70 @@ describe('SectionCut', () => {
     const each = (performance.now() - started) / 20
     console.log(`cutOutline, ${ball.index!.count / 3} triangles: ${each.toFixed(2)} ms`)
     expect(each).toBeLessThan(20)
+  })
+})
+
+describe('fix round 2', () => {
+  const SCENE = { min: [-20, -15, -2.5], max: [20, 15, 22.5] }
+
+  it('keeps a flat sheet that lies in the plane, and takes away one that lies beyond it', () => {
+    // A part with no thickness: a sketch, a face. In the plane it is what the plane keeps.
+    const sheet = solid('sheet', [-5, -5, 4], [5, 5, 4])
+    const built = buildPart(sheet.part, sheet.blob)
+    const cut = new SectionCut()
+    cut.add(built)
+    cut.set({ origin: [0, 0, 4], normal: [0, 0, 1] }, SCENE)
+    expect([cut.removed(built), built.mesh.visible]).toEqual([false, true])
+    cut.set({ origin: [0, 0, 4], normal: [0, 0, -1] }, SCENE)
+    expect(cut.removed(built)).toBe(false)
+    cut.set({ origin: [0, 0, 3], normal: [0, 0, 1] }, SCENE)
+    expect([cut.removed(built), built.mesh.visible]).toEqual([true, false])
+  })
+
+  it('says how many of the parts that are drawn it leaves something of, and tells when it leaves nothing of a part and when it does again', () => {
+    const base = solid('base', [-20, -15, -2.5], [20, 15, 2.5])
+    const post = solid('post', [-4, -4, 2.5], [4, 4, 22.5])
+    const built = { base: buildPart(base.part, base.blob), post: buildPart(post.part, post.blob) }
+    const told: string[] = []
+    const cut = new SectionCut(undefined, (part, gone) => told.push(`${part.group.name} ${gone ? 'gone' : 'there'}`))
+    cut.add(built.base)
+    cut.add(built.post)
+    expect(cut.leftToSee()).toEqual({ shown: 2, kept: 2 })
+    // The base taken away whole, the post standing.
+    cut.set({ origin: [0, 0, 2.5], normal: [0, 0, -1] }, SCENE)
+    expect(told).toEqual(['assembly:base gone'])
+    expect(cut.leftToSee()).toEqual({ shown: 2, kept: 1 })
+    // With the post switched off, nothing that is drawn is left.
+    built.post.group.visible = false
+    expect(cut.leftToSee()).toEqual({ shown: 1, kept: 0 })
+    cut.set(null, SCENE)
+    expect(told).toEqual(['assembly:base gone', 'assembly:base there'])
+    expect(cut.leftToSee()).toEqual({ shown: 1, kept: 1 })
+  })
+
+  describe('nearSegmentOnScreen', () => {
+    const camera = new THREE.PerspectiveCamera(35, 1, 1, 1000)
+    camera.position.set(0, -100, 0)
+    camera.up.set(0, 0, 1)
+    camera.lookAt(0, 0, 0)
+    camera.updateMatrixWorld()
+    const size = { width: 400, height: 400 }
+    const at = (x: number, y: number) => nearSegmentOnScreen(camera, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 10), [x, y], size, 12)
+
+    it('is true within reach of a segment in front of the camera, along all of it, and false further off', () => {
+      expect(at(200, 200)).toBe(true) // its foot, at the middle of the view
+      expect(at(205, 150)).toBe(true) // beside it, on the way up
+      expect(at(230, 180)).toBe(false)
+      expect(at(200, 240)).toBe(false) // below its foot
+    })
+
+    it('is false for a segment behind the camera, wherever it would be mirrored to, and for one out of view', () => {
+      const behind = (x: number, y: number) => nearSegmentOnScreen(camera, new THREE.Vector3(0, -200, 0), new THREE.Vector3(0, -200, 10), [x, y], size, 12)
+      for (const [x, y] of [[200, 200], [200, 180], [200, 220], [205, 250]]) expect(behind(x, y)).toBe(false)
+      // One end behind is no handle either.
+      expect(nearSegmentOnScreen(camera, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -200, 0), [200, 200], size, 12)).toBe(false)
+      // Off to the side of what the camera shows.
+      expect(nearSegmentOnScreen(camera, new THREE.Vector3(500, 0, 0), new THREE.Vector3(500, 0, 10), [400, 200], size, 12)).toBe(false)
+    })
   })
 })

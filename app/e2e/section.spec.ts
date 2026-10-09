@@ -109,6 +109,23 @@ const near = (a: number[], b: number[], within = 4): boolean => a.every((v, i) =
 const CENTRE: [number, number] = [0.5, 0.5]
 const ON_BASE: [number, number] = [0.5, 0.75]
 
+/** Goes to the view from the corner and waits until the camera has stopped there: what is aimed at is where it is drawn. */
+async function fromTheCorner(p: Page = page): Promise<number[]> {
+  await p.keyboard.press('1')
+  const at = async (): Promise<number[]> => (await camera(p)).position.map((c) => Math.round(c * 100))
+  let was = await at()
+  await expect
+    .poll(async () => {
+      await p.waitForTimeout(120)
+      const now = await at()
+      const still = now.every((c, i) => c === was[i])
+      was = now
+      return still
+    })
+    .toBe(true)
+  return was
+}
+
 function pickOver(point: Vec3, p: Page = page): Promise<Hit | null> {
   return p.evaluate((at) => {
     const [fx, fy] = window.__tornoTest!.project(at)
@@ -285,6 +302,57 @@ test('a drag from the handle moves the plane along its normal; a drag from anywh
   expect((await section())!.origin[2]).toBe(13.4)
 })
 
+test('a handle drag let go over the bar, off the canvas, is kept all the same, and the camera is the pointer\'s again', async () => {
+  await cutAt('Z', HALF_POST - 10)
+  await page.keyboard.press('x')
+  const home = await fromTheCorner()
+  const [x, y] = await pageXY([0, 0, HALF_POST])
+  const over = (await bar().getByRole('button', { name: 'Flip' }).boundingBox())!
+  const [toX, toY] = [over.x + over.width / 2, over.y + over.height / 2]
+  expect(toY).toBeGreaterThan(y + 100)
+  await page.mouse.move(x, y - 10)
+  await page.mouse.down()
+  await page.mouse.move(x, y + 40)
+  await page.mouse.move((x + toX) / 2, (y + toY) / 2)
+  // Over the bar, which lies on the viewport: the plane still follows, in the view only.
+  await page.mouse.move(toX, toY)
+  expect(await section()).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, 1] })
+  await page.mouse.up()
+  // Kept where the drag had it, the moment it was let go: no button of the bar was pressed by that.
+  const dragged = (await section())!
+  expect(dragged.normal).toEqual([0, 0, 1])
+  expect(dragged.origin[2]).toBeLessThan(HALF_POST - 2)
+  await expect.poll(async () => (await mainView('bracket'))?.section).toEqual(dragged)
+  // Back over the canvas with no button held, nothing more happens to it.
+  await page.mouse.move(x + 150, y)
+  expect(await section()).toEqual(dragged)
+  // And a drag there turns the camera.
+  const before = await camera()
+  await page.mouse.down()
+  await page.mouse.move(x + 190, y + 10)
+  await page.mouse.move(x + 230, y + 25)
+  await page.mouse.up()
+  expect((await camera()).position).not.toEqual(before.position)
+  expect(await section()).toEqual(dragged)
+  // Back to the view from the corner, and at rest there.
+  expect(await fromTheCorner()).toEqual(home)
+
+  // Changed from the bar in the middle of a drag, the section is what the bar made it: the drag is dropped.
+  const [hx, hy] = await pageXY(dragged.origin)
+  await page.mouse.move(hx, hy - 10)
+  await page.mouse.down()
+  await page.mouse.move(hx, hy - 60)
+  await page.evaluate(() => (document.querySelector('.sectionbar button[title="Show the parts whole again"]') as HTMLElement).click())
+  expect(await section()).toBeNull()
+  await page.mouse.move(hx, hy - 80)
+  await page.mouse.up()
+  await page.mouse.move(hx + 100, hy)
+  expect(await section()).toBeNull()
+  // The dropped drag turned nothing either.
+  expect((await camera()).position.map((c) => Math.round(c * 100))).toEqual(home)
+  await cutAt('Z', 3.4)
+})
+
 test('the slider moves the plane across the parts, and keeps it when it is let go', async () => {
   const slider = bar().getByRole('slider', { name: 'Offset along the normal' })
   expect(await slider.evaluate((el: HTMLInputElement) => [Number(el.min), Number(el.max)])).toEqual([-12.5, 12.5])
@@ -338,6 +406,17 @@ test('a part the plane only touches is not drawn at all: no sheet of the post on
 test('a plane that leaves nothing of the parts says so, with a way back to the middle', async () => {
   const note = bar().getByRole('status')
   await expect(note).toHaveCount(0)
+  // It goes by the parts that are switched on. On the top of the base, the base taken away: the post is left to see.
+  await cutAt('Z', 2.5 - 10)
+  await bar().getByRole('button', { name: 'Flip' }).click()
+  await expect(note).toHaveCount(0)
+  // With the post switched off there is nothing.
+  await page.locator('[data-layer="post"]').hover()
+  await page.getByRole('button', { name: 'Show post' }).click()
+  await expect(note).toHaveText('Everything is on the cut side')
+  await page.getByRole('button', { name: 'Show post' }).click()
+  await expect(note).toHaveCount(0)
+  await bar().getByRole('button', { name: 'Flip' }).click()
   // A plane kept from another layout, or from before the parts shrank: far below everything.
   const show = (request: object): Promise<void> =>
     app.evaluate(({ BrowserWindow }, req) => BrowserWindow.getAllWindows()[0].webContents.send('view:show', { id: 987653, request: req }), request)

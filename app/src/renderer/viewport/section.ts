@@ -159,6 +159,42 @@ export function keepsNothing(box: Box, plane: SectionPlane): boolean {
   return keptDepth(box, plane) <= 2 * KEPT_WITHIN_MM
 }
 
+/**
+ * Whether a section leaves nothing of a part, given the box around it. A part
+ * with any thickness across the plane goes by `keepsNothing`: it is gone when
+ * it only touches the plane. A flat sheet (a face, a sketch) has nothing but
+ * what lies in one plane: lying in the section's it is what the section
+ * keeps, and it is gone only when it is beyond it.
+ */
+export function leavesNothing(box: Box, plane: SectionPlane): boolean {
+  const { min, max } = sectionExtent(box, plane.normal)
+  if (max - min > 2 * KEPT_WITHIN_MM) return keepsNothing(box, plane)
+  return keptDepth(box, plane) < -KEPT_WITHIN_MM
+}
+
+/**
+ * Whether a point of a view is within `reach` pixels of a segment as the
+ * camera draws it. `pointer` and `size` are in pixels of the view, from its
+ * top left; the camera's matrices are current. False when either end of the
+ * segment is behind the camera or outside what it shows: nothing is drawn
+ * there to take hold of, and a point behind the eye would be mirrored onto
+ * the view.
+ */
+export function nearSegmentOnScreen(camera: THREE.Camera, a: THREE.Vector3, b: THREE.Vector3, pointer: [number, number], size: { width: number; height: number }, reach: number): boolean {
+  const ends: Array<[number, number]> = []
+  const clip = new THREE.Vector4()
+  for (const end of [a, b]) {
+    clip.set(end.x, end.y, end.z, 1).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix)
+    if (!(clip.w > 0) || Math.abs(clip.x) > clip.w || Math.abs(clip.y) > clip.w || Math.abs(clip.z) > clip.w) return false
+    ends.push([((clip.x / clip.w + 1) / 2) * size.width, ((1 - clip.y / clip.w) / 2) * size.height])
+  }
+  const [[ax, ay], [bx, by]] = ends
+  const [dx, dy] = [bx - ax, by - ay]
+  const length = dx * dx + dy * dy
+  const t = length > 0 ? Math.min(Math.max(((pointer[0] - ax) * dx + (pointer[1] - ay) * dy) / length, 0), 1) : 0
+  return Math.hypot(ax + dx * t - pointer[0], ay + dy * t - pointer[1]) <= reach
+}
+
 /** How much of black the cut face of a part has over the part's own colour: a step darker, like sawn stock beside a finished face. */
 export const CAP_SHADE = 0.24
 
@@ -263,7 +299,15 @@ export class SectionCut {
   private readonly quad = new THREE.Matrix4()
   private readonly centre = new THREE.Vector3()
 
-  constructor(private readonly others: (planes: THREE.Plane[] | null) => void = () => {}) {
+  /**
+   * `others` is told what else is to be clipped by: the planes, or null.
+   * `hide` is told of each part whether the section leaves nothing of it, for
+   * whatever else is drawn on the part and is to go with it.
+   */
+  constructor(
+    private readonly others: (planes: THREE.Plane[] | null) => void = () => {},
+    private readonly hide: (built: BuiltPart, gone: boolean) => void = () => {}
+  ) {
     this.planes = [this.clip]
     const corners = new THREE.BufferGeometry()
     corners.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3))
@@ -345,9 +389,21 @@ export class SectionCut {
     this.clipPart(built)
   }
 
-  /** Whether the plane leaves nothing of a part (`keepsNothing`): it is not drawn, and is not there to be pointed at. */
+  /** Whether the plane leaves nothing of a part (`leavesNothing`): it is not drawn, and is not there to be pointed at. */
   removed(built: BuiltPart): boolean {
     return this.gone.has(built)
+  }
+
+  /** Of the parts that are drawn (switched on, of the layout shown): how many there are, and of how many the section leaves something. */
+  leftToSee(): { shown: number; kept: number } {
+    let shown = 0
+    let kept = 0
+    for (const built of this.parts) {
+      if (!built.group.visible) continue
+      shown += 1
+      if (!this.gone.has(built)) kept += 1
+    }
+    return { shown, kept }
   }
 
   /** The handle as it is drawn, from its foot on the plane to its tip, in the object frame; null while it is not drawn. */
@@ -481,8 +537,9 @@ export class SectionCut {
         const { min, max } = geometry.boundingBox!
         point.fromArray(plane.origin).applyMatrix4(local)
         normal.fromArray(plane.normal).transformDirection(local)
-        gone = !geometry.boundingBox!.isEmpty() && keepsNothing({ min: min.toArray(), max: max.toArray() }, { origin: point.toArray(), normal: normal.toArray() })
+        gone = !geometry.boundingBox!.isEmpty() && leavesNothing({ min: min.toArray(), max: max.toArray() }, { origin: point.toArray(), normal: normal.toArray() })
       }
+      if (gone !== this.gone.has(built)) this.hide(built, gone)
       if (gone) this.gone.add(built)
       else this.gone.delete(built)
       built.mesh.visible = !gone

@@ -4,7 +4,7 @@ import { useAgentHighlight } from '../state/agent'
 import { actions, useStore } from '../state/store'
 import { setTool, useTool } from '../state/tools'
 import { NUDGE_FINE_MM, NUDGE_MM, setFromFace, useFromFace } from '../tools/sectionTool'
-import { atOffset, axisOf, flipped, keepsNothing, planeOnAxis, sectionExtent, sectionOffset, type Axis } from '../viewport/section'
+import { atOffset, axisOf, flipped, planeOnAxis, sectionExtent, sectionOffset, type Axis } from '../viewport/section'
 import type { Viewport } from '../viewport/Viewport'
 
 const AXES: Axis[] = ['x', 'y', 'z']
@@ -20,13 +20,16 @@ const AXES: Axis[] = ['x', 'y', 'z']
  * With the slider in focus the arrow keys nudge the plane as they do with the
  * tool: a millimetre, with Shift a tenth.
  *
- * A plane that leaves nothing of the parts (one kept from another layout, or
- * from before a part shrank) says so, with a way back to the middle.
+ * A plane that leaves nothing of the parts that are switched on (one kept
+ * from another layout, or from before a part shrank) says so, with a way back
+ * to the middle.
  */
 export function SectionBar({ viewport }: { viewport: Viewport }) {
   const section = useStore((s) => s.section)
   const scene = useStore((s) => s.scene)
   const layout = useStore((s) => s.layout)
+  // Which parts are switched on decides whether the plane leaves anything to see.
+  const layers = useStore((s) => s.layers)
   const selected = useStore((s) => s.selection.length > 0)
   const pointedOut = useAgentHighlight() !== null
   const inHand = useTool() === 'section'
@@ -72,10 +75,12 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
     }
   }, [viewport, section, box])
 
+  // Asked of the viewport, which has the scene, the layers and the plane by the time this is drawn: of the parts it draws.
+  const nothingLeft = useMemo(() => viewport.sectionLeavesNothing(), [viewport, section, scene, layout, layers])
+
   if (!section && !inHand) return null
 
   const along = section ? axisOf(section.normal) : null
-  const nothingLeft = section !== null && keepsNothing(box, section)
   const typed = (): void => {
     const input = field.current
     if (!input || !section) return

@@ -174,15 +174,43 @@ describe('dragging the plane by its handle', () => {
     expect(tool.onKey!({ key: 'Escape' } as KeyboardEvent, second.ctx)).toBe(false)
   })
 
-  it('carries on when the pointer leaves the view with the button held, and keeps the plane when it comes back let go', () => {
+  it('is cut short, and the plane put back, when the pointer is taken away or comes back with no button held: only a release that is told keeps it', () => {
+    // The canvas has the pointer captured for the drag, so its release is told wherever it is let go.
     const tool = sectionTool()
-    const { ctx } = fake()
-    tool.onPointer(pointer('down', 0, 10), ctx)
-    tool.onPointer(pointer('move', 0, 15), ctx)
-    tool.onPointer(pointer('cancel', 0, 16), ctx)
-    expect(store.getState().section).toEqual(Z)
-    tool.onPointer(pointer('move', 0, 16, { buttons: 0 }), ctx)
-    expect(store.getState().section?.origin[2]).toBe(15)
+    const edits = store.getState().edits
+    for (const how of [pointer('cancel', 0, 16), pointer('move', 0, 16, { buttons: 0 })]) {
+      const { ctx, shown, navigation } = fake()
+      tool.onPointer(pointer('down', 0, 10), ctx)
+      tool.onPointer(pointer('move', 0, 15), ctx)
+      tool.onPointer(how, ctx)
+      expect(shown.at(-1)).toEqual(Z)
+      expect(navigation).toEqual([false, true])
+      expect(store.getState()).toMatchObject({ section: Z, edits })
+      // Nothing is left of it to be kept later.
+      tool.onPointer(pointer('move', 0, 19, { buttons: 0 }), ctx)
+      tool.onPointer(pointer('up', 0, 19), ctx)
+      expect(store.getState()).toMatchObject({ section: Z, edits })
+    }
+  })
+
+  it('is dropped, and never kept, when the section is changed from elsewhere under it', () => {
+    const tool = sectionTool()
+    for (const change of [() => actions.setSection(null), () => actions.setSection({ origin: [0, 0, 10], normal: [0, 0, -1] })]) {
+      actions.setSection(Z)
+      const { ctx, shown, navigation } = fake()
+      tool.onPointer(pointer('down', 0, 10), ctx)
+      tool.onPointer(pointer('move', 0, 15), ctx)
+      // Off, or Flip, in the bar, with a key or by the agent.
+      change()
+      const after = store.getState().section
+      const moves = shown.length
+      tool.onPointer(pointer('move', 0, 18), ctx)
+      expect(shown).toHaveLength(moves) // the drag moves nothing any more
+      expect(navigation).toEqual([false, true])
+      tool.onPointer(pointer('up', 0, 18), ctx)
+      expect(store.getState().section).toEqual(after)
+    }
+    actions.setSection(Z)
   })
 })
 
@@ -252,6 +280,34 @@ describe('from a face', () => {
       expect(store.getState().section).toEqual(Z)
       expect(sectionStore.getState().fromFace).toBe(true)
     }
+  })
+
+  it('takes no answer for a click that was given up: Escape, and waiting again, start anew', async () => {
+    const tool = sectionTool()
+    let answer: (said: Described) => void = () => {}
+    const { ctx, said } = fake({ describe: () => new Promise<Described>((resolve) => (answer = resolve)) })
+    setFromFace(true)
+    tool.onPointer(pointer('click', 0, 0, { hit: side }), ctx)
+    expect(tool.onKey!({ key: 'Escape' } as KeyboardEvent, ctx)).toBe(true)
+    setFromFace(true)
+    // The kernel's word on the first click comes now, while another click is waited for.
+    answer(SIDE)
+    await settled()
+    expect(store.getState().section).toEqual(Z)
+    expect(sectionStore.getState().fromFace).toBe(true)
+    expect(said).toEqual([])
+    // And of two clicks, only the last is answered.
+    const answers: Array<(said: Described) => void> = []
+    const two = fake({ describe: () => new Promise<Described>((resolve) => answers.push(resolve)) })
+    tool.onPointer(pointer('click', 0, 0, { hit: side }), two.ctx)
+    tool.onPointer(pointer('click', 0, 0, { hit: { ...side, ref: 'base/F3' } }), two.ctx)
+    answers[0]({ ...SIDE, type: 'cylinder' })
+    await settled()
+    expect(two.said).toEqual([])
+    answers[1]({ ...SIDE, center: [0, 15, 0], normal: [0, 1, 0] })
+    await settled()
+    expect(store.getState().section).toEqual({ origin: [0, 15, 0], normal: [0, 1, 0] })
+    actions.setSection(Z)
   })
 
   it('does not drag the plane meanwhile, and Escape stops waiting', () => {

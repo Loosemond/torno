@@ -13,7 +13,7 @@ import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
 import { PointerRouter, type ViewportPointer } from './pointer'
-import { SectionCut } from './section'
+import { SectionCut, nearSegmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection } from './views'
 
@@ -102,7 +102,10 @@ export class Viewport {
 
   private readonly highlights = new Highlights()
   /** The section through the parts: what is highlighted on them is cut with them. */
-  private readonly section = new SectionCut((planes) => this.highlights.setClipping(planes))
+  private readonly section = new SectionCut(
+    (planes) => this.highlights.setClipping(planes),
+    (built, gone) => this.highlights.suppress(built, gone)
+  )
   /** Whether the last `pick` ended on the cut face of a solid. */
   private onCut = false
   private readonly marks = new MarkLayer(markColours(LIGHT_THEME))
@@ -528,15 +531,22 @@ export class Viewport {
 
   /** Whether a point of the window is on the handle of the plane, or within `SECTION_HANDLE_REACH_PX` of it. False while there is no handle. */
   onSectionHandle(clientX: number, clientY: number): boolean {
+    const rect = this.canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return false
     this.syncMatrices()
-    const span = this.section.handleSpan((at) => mmPerPx(this.camera, at, this.canvas.clientHeight || 1))
-    if (!span) return false
-    const [ax, ay] = this.project(span[0].toArray())
-    const [bx, by] = this.project(span[1].toArray())
-    const [dx, dy] = [bx - ax, by - ay]
-    const length = dx * dx + dy * dy
-    const t = length > 0 ? Math.min(Math.max(((clientX - ax) * dx + (clientY - ay) * dy) / length, 0), 1) : 0
-    return Math.hypot(ax + dx * t - clientX, ay + dy * t - clientY) <= SECTION_HANDLE_REACH_PX
+    const span = this.section.handleSpan((at) => mmPerPx(this.camera, at, rect.height))
+    // Not where it would fall if it is behind the camera or out of view: there is no handle drawn there.
+    return span !== null && nearSegmentOnScreen(this.camera, span[0], span[1], [clientX - rect.left, clientY - rect.top], rect, SECTION_HANDLE_REACH_PX)
+  }
+
+  /**
+   * Whether the section leaves nothing to see: parts are drawn (switched on,
+   * in the layout shown), and it leaves nothing of any of them. False with no
+   * section, and when nothing is switched on.
+   */
+  sectionLeavesNothing(): boolean {
+    const { shown, kept } = this.section.leftToSee()
+    return this.section.get() !== null && shown > 0 && kept === 0
   }
 
   /** The box the section is laid across: around every part of the layout shown, switched on or not, in the object frame. */

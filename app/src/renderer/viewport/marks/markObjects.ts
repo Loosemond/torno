@@ -532,7 +532,6 @@ function acrossLine(along: THREE.Vector3, at: THREE.Vector3, camera: THREE.Camer
   return across.normalize()
 }
 
-/** Whether the mark is the one being worked on: its lines are drawn wider, and a stroke shows its plane. Takes effect at the next `rescale`. */
 /**
  * Whether a mark is drawn dimmed all over: as it is where a part is in front
  * of it, wherever it is. For a mark on what a section has taken away: it no
@@ -547,6 +546,7 @@ export function setDimmed(object: THREE.Object3D, dimmed: boolean): void {
   }
 }
 
+/** Whether the mark is the one being worked on: its lines are drawn wider, and a stroke shows its plane. Takes effect at the next `rescale`. */
 export function setActive(object: THREE.Object3D, active: boolean): void {
   const sizing = object.userData.sizing as Sizing | undefined
   if (sizing) sizing.active = active

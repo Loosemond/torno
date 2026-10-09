@@ -118,3 +118,28 @@ describe('Highlights', () => {
     expect(freed).toBe(2)
   })
 })
+
+describe('a part that a section leaves nothing of', () => {
+  it('has nothing tinted or thickened on it while that lasts, whatever is highlighted meanwhile', () => {
+    const built = square()
+    const highlights = new Highlights()
+    const partNamed = (name: string) => (name === 'plate' ? built : undefined)
+    const drawn = () => built.group.children.filter((child) => child !== built.mesh && child !== built.edges).map((child) => child.visible)
+    highlights.set('selection', ['plate/F0', 'plate/E0'])
+    highlights.apply(partNamed)
+    expect(drawn()).toEqual([true, true])
+
+    highlights.suppress(built, true)
+    expect(drawn()).toEqual([false, false])
+    highlights.set('hover', ['plate/F1'])
+    highlights.set('selection', ['plate/F1', 'plate/E0'])
+    highlights.apply(partNamed)
+    expect(drawn().some(Boolean)).toBe(false)
+    highlights.setVisible(false)
+    highlights.setVisible(true)
+    expect(drawn().some(Boolean)).toBe(false)
+
+    highlights.suppress(built, false)
+    expect(drawn().filter(Boolean)).toHaveLength(3) // the selection's face and edge, and the hover
+  })
+})

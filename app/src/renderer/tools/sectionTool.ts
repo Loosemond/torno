@@ -55,6 +55,8 @@ interface Drag {
   client: [number, number]
   /** The plane as the drag has it now; null until the pointer has gone far enough to be dragging. */
   to: SectionPlane | null
+  /** The section the store had when the drag began: once it has another, the drag is of a plane that is no more. */
+  kept: SectionPlane | null
 }
 
 /**
@@ -67,11 +69,17 @@ interface Drag {
  * kernel says whether it is flat, and where and how it lies.
  *
  * The plane moves in the viewport with every move of the drag and is kept
- * (`actions.setSection`) once, when the drag is let go; Escape, or putting
- * the tool down, leaves it where it was when the drag began.
+ * (`actions.setSection`) once, when the drag is let go: the viewport has the
+ * pointer captured meanwhile, so the release is told wherever it happens.
+ * Escape, putting the tool down, or the pointer being taken away (the window
+ * left, the drag cancelled) leaves the plane where it was when the drag
+ * began. A drag under which the section is changed from elsewhere (the bar,
+ * the agent) is dropped: what it had is never kept over that change.
  */
 export function sectionTool(): Tool {
   let drag: Drag | null = null
+  /** Counts the clicks on a face, and every time waiting for one is given up: the kernel's word on an earlier one is not taken. */
+  let asked = 0
 
   const boxOf = (ctx: ToolContext) => ctx.viewport.sectionBox?.() ?? ctx.viewport.bounds()
   const setCursor = (ctx: ToolContext, cursor: string): void => {
@@ -87,22 +95,30 @@ export function sectionTool(): Tool {
     return atOffset(d.from, box, sectionOffset(d.from, box) + by)
   }
 
-  /** The drag is over: the plane is kept as it has it, or put back where it was. */
+  /**
+   * The drag is over: the plane is kept as it has it, or put back where it
+   * was. Neither when the section was changed from elsewhere meanwhile: the
+   * viewport already shows what it was changed to.
+   */
   const end = (ctx: ToolContext, keep: boolean): void => {
     const d = drag
     drag = null
     ctx.viewport.setNavigation(true)
     ctx.readout.hide()
-    if (!d?.to) return
+    if (!d?.to || store.getState().section !== d.kept) return
     if (keep) actions.setSection(d.to)
     else ctx.viewport.setSection?.(d.from)
   }
 
   const fromFace = async (hit: Hit, ctx: ToolContext, client: [number, number]): Promise<void> => {
     const { objectId, revision, layout } = ctx
+    const mine = ++asked
+    // As it is now: waiting given up and taken up again, by a key or in the bar, is another waiting.
+    const waiting = sectionStore.getState()
     const said = await within(ctx.describe(hit.ref), DESCRIBE_WITHIN_MS)
     const now = store.getState()
-    if (now.objectId !== objectId || now.revision !== revision || now.layout !== layout || !sectionStore.getState().fromFace) return
+    // Of this click, while it is still the one waited on: not of one given up with Escape, or followed by another.
+    if (mine !== asked || sectionStore.getState() !== waiting || now.objectId !== objectId || now.revision !== revision || now.layout !== layout || !sectionStore.getState().fromFace) return
     // Only the kernel knows a face is flat: without its word the plane is put nowhere.
     if (said?.kind !== 'face' || (said.type === 'plane' && !said.normal)) return ctx.readout.say(client, NOT_CONFIRMED)
     if (said.type !== 'plane' || !said.normal) return ctx.readout.say(client, NOT_FLAT)
@@ -146,13 +162,13 @@ export function sectionTool(): Tool {
         const plane = ctx.viewport.getSection?.() ?? null
         if (e.type !== 'down' || !(e.buttons & 1) || !onHandle || !plane) return
         const at = planeRect(plane, boxOf(ctx)).centre
-        drag = { from: plane, at, start: alongNormal(e.ray, at, plane.normal), client: e.client, to: null }
+        drag = { from: plane, at, start: alongNormal(e.ray, at, plane.normal), client: e.client, to: null, kept: store.getState().section }
         ctx.viewport.setNavigation(false, { wheel: true })
         return
       }
-      // The pointer left the view with the button held: the drag goes on when it comes back.
-      if (e.type === 'cancel' && e.buttons & 1) return
-      if (e.type === 'cancel' || e.type === 'up' || !(e.buttons & 1)) return end(ctx, true)
+      // Changed from elsewhere under the drag, or taken away (a release is always told: the pointer is captured): nothing is kept.
+      if (store.getState().section !== drag.kept || e.type === 'cancel' || (e.type !== 'up' && !(e.buttons & 1))) return end(ctx, false)
+      if (e.type === 'up') return end(ctx, true)
       if (e.type !== 'move') return
       if (!drag.to && Math.hypot(e.client[0] - drag.client[0], e.client[1] - drag.client[1]) < DRAG_PX) return
       drag.to = moved(e, drag, ctx)
@@ -166,6 +182,7 @@ export function sectionTool(): Tool {
           return true
         }
         if (!sectionStore.getState().fromFace) return false
+        asked += 1
         setFromFace(false)
         setCursor(ctx, '')
         ctx.viewport.setHover(null)
@@ -181,6 +198,7 @@ export function sectionTool(): Tool {
     },
     cancel(ctx: ToolContext) {
       if (drag) end(ctx, false)
+      asked += 1
       setFromFace(false)
       setCursor(ctx, '')
       ctx.viewport.setHover(null)

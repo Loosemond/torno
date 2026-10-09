@@ -244,8 +244,9 @@ const CUT_BEYOND_MM = 1e-3
 
 /**
  * Whether a mark is in the half a section takes away: by where it is
- * anchored, or failing that where its label hangs. A dimension is, like on
- * parts that are switched off, only when both its ends are.
+ * anchored, or failing that where its label hangs. A dimension runs between
+ * its two ends, and is in that half only when both of them are (as
+ * `onHidden` has it of parts that are switched off).
  */
 export function cutAway(mark: Mark, section: SectionPlane | null): boolean {
   if (!section) return false
