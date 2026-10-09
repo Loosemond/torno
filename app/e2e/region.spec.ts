@@ -308,3 +308,60 @@ test('a region goes on as a mark when its scan is removed, and says so', async (
   await page.getByRole('button', { name: 'Delete M1', exact: true }).click()
   await expect.poll(async () => (await state()).marks).toEqual([])
 })
+
+// Milestone 5 (R1): the brush is a ball round the point under the pointer. Beside a part it reaches under it, and takes nothing there.
+test('a stamp beside a part takes nothing the part hides', async () => {
+  await open('plain')
+  // A sheet 3 mm under the plate, which is 20 mm square: seen from above, the plate hides its middle.
+  const sheet = grid(60, 1, () => -3)
+  const file = join(root, 'under.stl')
+  writeFileSync(file, stl(sheet))
+  await pickFile(file)
+  await page.getByRole('button', { name: 'Import scan…' }).click()
+  await expect.poll(async () => (await scans())[0]?.ready).toBe(true)
+  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await expect.poll(async () => {
+    const { position, target } = await page.evaluate(() => window.__tornoTest!.camera())
+    return Math.hypot(position[0] - target[0], position[1] - target[1])
+  }).toBeLessThan(0.01)
+  if (!(await bar().isVisible())) await page.keyboard.press('b')
+  await expect(bar()).toBeVisible()
+  await bar().getByRole('textbox', { name: 'Brush radius' }).fill('6')
+  await bar().getByRole('textbox', { name: 'Brush radius' }).press('Enter')
+  // From the plate's edge outwards, to the first pixel where no part is seen, and 3 px on.
+  const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
+  const onPlate = (x: number, y: number): Promise<boolean> => page.evaluate(([fx, fy]) => window.__tornoTest!.pickAt(fx, fy, { partsOnly: true }) !== null, [(x - canvas.x) / canvas.width, (y - canvas.y) / canvas.height] as const)
+  let [x, y] = await at([8, 0, -3])
+  expect(await onPlate(x, y)).toBe(true)
+  const [far] = await at([14, 0, -3])
+  const outwards = Math.sign(far - x)
+  while (await onPlate(x, y)) x += outwards
+  x += 3 * outwards
+  // A millimetre of the sheet is several pixels: the brush reaches well under the plate.
+  expect(Math.abs(far - x)).toBeGreaterThan(20)
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect.poll(painted).toBeGreaterThan(10)
+  await bar().getByRole('button', { name: 'Keep' }).click()
+  await expect.poll(async () => (await state()).marks.length).toBe(1)
+  await page.keyboard.type('beside the plate')
+  await page.keyboard.press('Enter')
+  const region = (await state()).marks[0] as RegionMark
+  const mask = readFileSync(join(root, 'plain', '.torno', 'scans', region.scan, `${region.id}.mask`)).subarray(16)
+  const middles: Array<[number, number, number]> = []
+  for (let t = 0; t < sheet.triangles.length / 3; t++) {
+    if (!((mask[t >> 3] >> (t & 7)) & 1)) continue
+    const corners = [0, 1, 2].map((n) => sheet.triangles[t * 3 + n] * 3)
+    middles.push([0, 1, 2].map((axis) => (sheet.vertices[corners[0] + axis] + sheet.vertices[corners[1] + axis] + sheet.vertices[corners[2] + axis]) / 3) as [number, number, number])
+  }
+  expect(middles.length).toBe(region.triangles)
+  // Not one of them is drawn where the plate is seen.
+  const hidden = await page.evaluate((middles) => middles.filter((local) => window.__tornoTest!.pickAt(...window.__tornoTest!.projectScan('S1', local), { partsOnly: true }) !== null).length, middles)
+  expect(hidden).toBe(0)
+  // And the ball did reach under it: a whole one would have taken more than was seen, about half as much again.
+  const [cx] = middles.reduce((sum, m) => [sum[0] + m[0] / middles.length, 0, 0] as [number, number, number], [0, 0, 0] as [number, number, number])
+  expect(Math.abs(cx)).toBeGreaterThan(10)
+  expect(middles.every((m) => Math.abs(m[0]) > 9.9)).toBe(true)
+  expect(region.triangles).toBeLessThan(Math.PI * 36 * 2 * 0.75)
+})

@@ -9,6 +9,7 @@ import type { Viewport, ViewportPointer } from '../viewport/Viewport'
 import { boxOutline, boxPlanes } from './regionBox'
 import { CHOOSE_SCAN, KEEPING, NOT_INDEXED, NO_SCAN, type Painting, type Step, areaOf, brushRadius, cleared, current, isSending, join, keepRegion, paintOn, paintingOn, paintings, pointerAt, publish, show, touched, undoStroke, waiting } from './regionPainting'
 import { tintRegions } from './regionTints'
+import { stampTriangles } from './stamp'
 import { DRAG_PX, type Tool, type ToolContext } from './Tool'
 
 export { boxPlanes }
@@ -26,9 +27,22 @@ const MOST_STAMPS = 48
 /** A part this much nearer than the scan along the pointer's ray is in front of it: the scan is not what is seen there. */
 const IN_FRONT_MM = 1e-3
 
+/** The eight points of a stamp's rim that are asked about, as the cosine and sine of where each is round it. */
+const RIM = Array.from({ length: 8 }, (_, n): [number, number] => [Math.cos((n * Math.PI) / 4), Math.sin((n * Math.PI) / 4)])
+
 const a = new THREE.Vector3()
 const b = new THREE.Vector3()
 const c = new THREE.Vector3()
+
+/** The middle of a triangle of a geometry, in its own frame, into `out`. */
+function centroid(geometry: THREE.BufferGeometry, triangle: number, out: THREE.Vector3): THREE.Vector3 {
+  const position = geometry.getAttribute('position')
+  const index = geometry.index!.array
+  a.fromBufferAttribute(position, index[triangle * 3])
+  b.fromBufferAttribute(position, index[triangle * 3 + 1])
+  c.fromBufferAttribute(position, index[triangle * 3 + 2])
+  return out.copy(a).add(b).add(c).divideScalar(3)
+}
 
 export function regionTool(): Tool {
   /** What a held press is doing: a stroke of the brush, or a box. */
@@ -41,6 +55,10 @@ export function regionTool(): Tool {
   const towards = new THREE.Vector3()
   const normal = new THREE.Vector3()
   const along = new THREE.Vector3()
+  const world = new THREE.Vector3()
+  const rim = new THREE.Vector3()
+  const middle = new THREE.Vector3()
+  const seen = new THREE.Vector3()
   type Found = NonNullable<ReturnType<Viewport['scanTree']>>
 
   /** Whether a triangle of a scan faces away from a direction, in the scan's own frame: it is seen from behind, as every triangle of a scan wound the other way round is. */
@@ -107,12 +125,17 @@ export function regionTool(): Tool {
     }
   }
 
-  /** The brush at what the pointer is on, as a stroke goes: set down along the way from where it last was. */
+  /**
+   * The brush at what the pointer is on, as a stroke goes: set down along the way from where it last was. A stamp
+   * is a ball round a point of the scan, and takes nothing of it that a part hides.
+   */
   const brush = (e: ViewportPointer, hit: ScanHit, ctx: ToolContext): void => {
     if (drag?.kind !== 'stroke') return
     const hand = drag.of
     const found = ctx.viewport.scanTree?.(hand.scan)
-    if (!found) return
+    // Where a point is drawn is what says whether a part hides it: a viewport that cannot say paints nothing.
+    if (!found || !ctx.viewport.project) return
+    const project = (point: THREE.Vector3): [number, number] => ctx.viewport.project!(point.toArray())
     const scale = found.built.group.scale.x
     const radius = brushRadius(hand.scan, ctx.viewport) / scale
     inverse.copy(found.built.group.matrix).invert()
@@ -121,13 +144,56 @@ export function regionTool(): Tool {
     if (facesAway(found, hit.triangle, towards)) towards.negate()
     const keeps = kept(ctx)
     const take = change(hand, found.built.mesh.geometry, drag.erase, drag.step)
+    const geometry = found.built.mesh.geometry
+    const { matrix } = found.built.group
+    const { erase } = drag
+    // How far a point of the object frame is along the ray that sees it, as a pick measures a part: from the eye, or from the plane the rays of a camera with no eye start on.
+    const origin = new THREE.Vector3().fromArray(e.ray.origin)
+    const forward = new THREE.Vector3().fromArray(e.ray.direction)
+    const depthOf = (point: THREE.Vector3): number => (ctx.camera.ortho ? seen.copy(point).sub(origin).dot(forward) : point.distanceTo(origin))
+    /** Whether a part is drawn in front of a point of the object frame: at its pixel a part is nearer. */
+    const partBefore = (point: THREE.Vector3): boolean => {
+      const [x, y] = project(point)
+      const part = ctx.viewport.pick(x, y, { partsOnly: true })
+      return part !== null && part.distance < depthOf(point) - IN_FRONT_MM
+    }
+    // Across the screen, a brush radius long: from the middle of a stamp to its rim as it is seen.
+    const across = new THREE.Vector3().fromArray(ctx.camera.target).sub(new THREE.Vector3().fromArray(ctx.camera.position)).cross(new THREE.Vector3().fromArray(ctx.camera.up))
+    if (across.lengthSq() < 1e-12) across.set(1, 0, 0)
+    across.normalize().multiplyScalar(radius * scale)
+    // What was asked of a triangle holds for the whole event: the stamps of one overlap, and the camera is still.
+    const asked = new Map<number, boolean>()
+    const hidden = (triangle: number): boolean => {
+      let is = asked.get(triangle)
+      if (is === undefined) asked.set(triangle, (is = partBefore(centroid(geometry, triangle, middle).applyMatrix4(matrix))))
+      return is
+    }
+    /** One stamp, at a point of the scan's own frame: what a part hides of the scan under it is left (`stampTriangles`). */
+    const stamp = (at: THREE.Vector3): void => {
+      // Only what the stamp would change: what is asked about is then what is still to take.
+      const gathered: number[] = []
+      gatherSphere(found.tree, geometry, at, radius, towards, (t) => void (hand.set.has(t) === erase && gathered.push(t)), keeps)
+      if (gathered.length === 0) return
+      // The middle of the stamp and eight points of its rim, on the screen: a part in front of the scan at any of them may hide some of it.
+      world.copy(at).applyMatrix4(matrix)
+      const [x, y] = project(world)
+      const [rx, ry] = project(rim.copy(world).add(across))
+      const pixels = Math.hypot(rx - x, ry - y)
+      const reach = depthOf(world) - IN_FRONT_MM
+      const before = (px: number, py: number): boolean => {
+        const part = ctx.viewport.pick(px, py, { partsOnly: true })
+        return part !== null && part.distance < reach
+      }
+      const blocked = [before(x, y), ...RIM.map(([cos, sin]) => before(x + pixels * cos, y + pixels * sin))]
+      for (const t of stampTriangles(gathered, blocked, hidden)) take(t)
+    }
     centre.fromArray(hit.local)
     const from = drag.last
     if (from) {
       const steps = Math.min(Math.floor(from.distanceTo(centre) / (radius * STAMP_EVERY)), MOST_STAMPS)
-      for (let n = 1; n < steps; n++) gatherSphere(found.tree, found.built.mesh.geometry, along.copy(from).lerp(centre, n / steps), radius, towards, take, keeps)
+      for (let n = 1; n < steps; n++) stamp(along.copy(from).lerp(centre, n / steps))
     }
-    gatherSphere(found.tree, found.built.mesh.geometry, centre, radius, towards, take, keeps)
+    stamp(centre)
     drag.last = (drag.last ?? new THREE.Vector3()).copy(centre)
     touched()
   }

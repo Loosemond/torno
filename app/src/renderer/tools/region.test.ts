@@ -57,6 +57,8 @@ function fake(over: { tree?: boolean } = {}) {
   const notes: Mark[] = []
   const painted: { scan: string | null; set: TriangleSet | null; touched: number } = { scan: null, set: null, touched: 0 }
   const cut: { plane: { origin: Vec3; normal: Vec3 } | null } = { plane: null }
+  /** How far along its ray a part is seen at a point of the sheet, or null for none there: what `pick` answers of the parts alone. `asked` counts the picks. */
+  const parts: { at: ((x: number, y: number) => number | null) | null; asked: number } = { at: null, asked: 0 }
   const viewport = {
     getSection: () => cut.plane,
     setRegions: () => {},
@@ -65,7 +67,13 @@ function fake(over: { tree?: boolean } = {}) {
     setNavigation: (on: boolean) => void navigation.push(on),
     setDraft: () => {},
     lockedView: () => null,
-    pick: () => null,
+    pick: (clientX: number, clientY: number) => {
+      parts.asked += 1
+      const distance = parts.at?.(clientX, -clientY) ?? null
+      return distance === null ? null : { partKey: 'assembly:lid', part: 'lid', kind: 'face', index: 1, ref: 'lid/F1', point: [clientX, -clientY, 100 - distance], normal: [0, 0, 1], distance }
+    },
+    // Client pixels are the sheet's millimetres, y down the screen: as `pointer` has them.
+    project: (point: Vec3): [number, number] => [point[0], -point[1]],
     pickScan: () => under,
     scanPatch: () => null,
     bounds: () => ({ min: [-20, -15, -3] as Vec3, max: [20, 15, 3] as Vec3 }),
@@ -90,7 +98,7 @@ function fake(over: { tree?: boolean } = {}) {
     commit: async () => ({}) as Mark,
     openNote: (mark: Mark) => void notes.push(mark)
   } as unknown as ToolContext
-  return { ctx, said, navigation, rings, notes, painted, cut }
+  return { ctx, said, navigation, rings, notes, painted, cut, parts }
 }
 
 let asked: Array<{ objectId: string; region: NewRegion }> = []
@@ -528,6 +536,71 @@ describe('what is seen is what is painted (I1, M4)', () => {
     tool.onPointer(pointer('down', [0, 0], { buttons: 1, part: 140 }), ctx)
     tool.onPointer(pointer('up', [0, 0], { part: 140 }), ctx)
     expect(painted.set!.count).toBeGreaterThan(0)
+  })
+
+  // Milestone 5 (R1): the brush is a ball round the point under the pointer, and a part may be in front of some of it.
+  const middleOf = (t: number): [number, number] => {
+    const index = SHEET.triangles
+    return [0, 1].map((axis) => (SHEET.vertices[index[t * 3] * 3 + axis] + SHEET.vertices[index[t * 3 + 1] * 3 + axis] + SHEET.vertices[index[t * 3 + 2] * 3 + axis]) / 3) as [number, number]
+  }
+
+  it('takes with a stamp nothing a part hides: beside a part, only what is seen of the scan under the brush', () => {
+    const { ctx, painted, parts } = fake()
+    const tool = regionTool()
+    regionStore.setState({ radius: 4 })
+    // The lid is in front of the sheet wherever x is above 2: the pointer is beside it, and the brush reaches under it.
+    parts.at = (x) => (x > 2 ? 60 : null)
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [0, 0]), ctx)
+    let seen = 0
+    for (let t = 0; t < 1682; t++) {
+      const [x, y] = middleOf(t)
+      if (painted.set!.has(t)) expect(x).toBeLessThanOrEqual(2)
+      else if (x < 1.9 && Math.hypot(x, y) < 3) throw new Error(`triangle ${t} at ${x}, ${y} is in sight and was left out`)
+      if (painted.set!.has(t)) seen += 1
+    }
+    expect(seen).toBeGreaterThan(20)
+    // And it takes off no more than it would put on.
+    parts.at = null
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [0, 0]), ctx)
+    const whole = painted.set!.count
+    expect(whole).toBeGreaterThan(seen)
+    parts.at = (x) => (x > 2 ? 60 : null)
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1, ctrl: true }), ctx)
+    tool.onPointer(pointer('up', [0, 0], { ctrl: true }), ctx)
+    expect(painted.set!.count).toBe(whole - seen)
+  })
+
+  it('asks about no triangle where no part is in front of the brush: not beside one further off, not before one behind the scan', () => {
+    const { ctx, painted, parts } = fake()
+    const tool = regionTool()
+    regionStore.setState({ radius: 4 })
+    // A part behind the sheet under the whole brush, and one in front of it out of the brush's reach.
+    parts.at = (x) => (x > 6 ? 60 : 140)
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [0, 0]), ctx)
+    // The middle of the brush and the eight points of its rim, and no more.
+    expect(parts.asked).toBe(9)
+    for (let t = 0; t < 1682; t++) if (Math.hypot(...middleOf(t)) < 3 && !painted.set!.has(t)) throw new Error(`triangle ${t} was left out`)
+  })
+
+  it('asks about 400 triangles a stamp at most, and leaves the rest for the next: none is taken unasked', () => {
+    const { ctx, painted, parts } = fake()
+    const tool = regionTool()
+    regionStore.setState({ radius: 14 })
+    parts.at = (x) => (x > 13 ? 60 : null)
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [0, 0]), ctx)
+    const first = painted.set!.count
+    expect(first).toBeGreaterThan(300)
+    expect(first).toBeLessThanOrEqual(400)
+    expect(parts.asked).toBeLessThanOrEqual(9 + 400)
+    // The next stamp asks about those the first left, not about the same again.
+    tool.onPointer(pointer('down', [0, 0], { buttons: 1 }), ctx)
+    tool.onPointer(pointer('up', [0, 0]), ctx)
+    expect(painted.set!.count).toBeGreaterThan(first + 300)
+    for (let t = 0; t < 1682; t++) if (painted.set!.has(t)) expect(middleOf(t)[0]).toBeLessThanOrEqual(13)
   })
 
   it('takes nothing of the half a section has taken away, with the brush or with a box', () => {

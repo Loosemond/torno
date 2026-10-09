@@ -10,7 +10,7 @@ import { clearRegion, growRegion, keepRegion, undoStroke } from '../tools/region
 import { Field } from './Field'
 
 const MODES: { mode: RegionMode; label: string; title: string }[] = [
-  { mode: 'brush', label: 'Brush', title: 'Drag over the scan to paint it where the pointer sees it. The brush is a ball round that point: beside a part it also takes scan the part hides, so hide the part or use a small brush there. Ctrl-drag takes paint off' },
+  { mode: 'brush', label: 'Brush', title: 'Drag over the scan to paint it where the pointer sees it. The brush is a ball round that point, and takes nothing a part hides. Ctrl-drag takes paint off' },
   { mode: 'box', label: 'Box', title: `Drag a box on the screen. ${BOX_NOTE}. Shift-drag does the same while the brush is chosen` }
 ]
 

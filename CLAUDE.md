@@ -440,9 +440,13 @@ While iterating run the focused test; run all four suites before a commit.
     of a region still counts. Asked for alone (`region`), its rim is its own.
   - The Region tool (`tools/regionTool.ts`) takes the scan only where it is
     what is drawn at the pixel under the pointer: not behind a part in front
-    of it, not in the half a section took away. (The brush is a ball round
-    that point: its rim can reach scan a part hides, and its tooltip says
-    so.) When none is chosen the brush is a thirtieth of the scan, 25 mm at
+    of it, not in the half a section took away. The brush is a ball round
+    that point. A stamp takes nothing a part hides: with a part in front of
+    any of its rim each triangle is asked about, 400 a stamp at most, and
+    the rest are left (`tools/stamp.ts` `stampTriangles`; the rim is the
+    stamp's middle and eight points round it on the screen, and a triangle
+    is asked about at its middle, one pick of the parts each). When none is
+    chosen the brush is a thirtieth of the scan, 25 mm at
     most (`usualRadius`); a box takes what faces the eye unless "Through"
     is chosen, and does not look at what hides what. It works while the build
     is stale. A painting is discarded by "Clear" alone, and `Z` brings that
