@@ -28,6 +28,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
   const layouts = useStore((s) => s.scene?.layouts ?? NONE)
   const layout = useStore((s) => s.layout)
   const ortho = useStore((s) => s.ortho)
+  const locked = useStore((s) => s.lockedView)
   const [moreOpen, setMoreOpen] = useState(false)
   const more = useRef<HTMLDivElement>(null)
 
@@ -65,6 +66,8 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
     viewport.fit()
   }
 
+  const lockedMore = MORE_VIEWS.find((v) => v.view === locked)
+
   return (
     <div className="viewbar" role="toolbar" aria-label="View">
       {layouts.length > 1 && (
@@ -82,7 +85,17 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
 
       <div className="viewbar-group" role="group" aria-label="Standard views">
         {MAIN_VIEWS.map((v) => (
-          <button key={v.view} type="button" className="bar-button" title={`${v.label} view (${v.key})`} onClick={() => viewport.setView(v.view, true)}>
+          <button
+            key={v.view}
+            type="button"
+            className="bar-button"
+            data-view={v.view}
+            data-locked={v.view === locked ? '' : undefined}
+            aria-current={v.view === locked ? 'true' : undefined}
+            title={v.view === locked ? `${v.label} view (${v.key}). ${LOCKED}` : `${v.label} view (${v.key})`}
+            onClick={() => viewport.setView(v.view, true)}
+          >
+            {v.view === locked && <LockIcon />}
             {v.label}
           </button>
         ))}
@@ -90,13 +103,14 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
           <button
             type="button"
             className="bar-button bar-icon"
-            aria-label="More views"
-            title="More views"
+            data-locked={lockedMore ? '' : undefined}
+            aria-label={lockedMore ? `More views: locked on ${lockedMore.label.toLowerCase()}` : 'More views'}
+            title={lockedMore ? `${lockedMore.label} view. ${LOCKED}` : 'More views'}
             aria-haspopup="menu"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen((open) => !open)}
           >
-            <ChevronIcon />
+            {lockedMore ? <LockIcon /> : <ChevronIcon />}
           </button>
           {moreOpen && (
             <div className="menu" role="menu">
@@ -106,12 +120,16 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
                   type="button"
                   role="menuitem"
                   className="menu-item"
+                  data-view={v.view}
+                  data-locked={v.view === locked ? '' : undefined}
+                  aria-current={v.view === locked ? 'true' : undefined}
                   onClick={() => {
                     viewport.setView(v.view, true)
                     setMoreOpen(false)
                   }}
                 >
                   {v.label}
+                  {v.view === locked && <LockIcon />}
                 </button>
               ))}
             </div>
@@ -134,6 +152,19 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
         Fit
       </button>
     </div>
+  )
+}
+
+/** What the lock on a view's button means, for its tooltip. */
+const LOCKED = 'Locked: Draw makes a flat profile on this plane, in mm. Turning the view unlocks it.'
+
+/** A small padlock: the view is square to a principal plane, and stays so until it is turned. */
+function LockIcon() {
+  return (
+    <svg className="view-lock" viewBox="0 0 10 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.75 5.25V3.75a2.25 2.25 0 0 1 4.5 0v1.5" />
+      <rect x="1.25" y="5.25" width="7.5" height="5.5" rx="1.25" fill="currentColor" stroke="none" />
+    </svg>
   )
 }
 

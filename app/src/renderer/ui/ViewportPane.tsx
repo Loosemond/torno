@@ -5,6 +5,7 @@ import { describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
 import { setTool, toolStore, type ToolName } from '../state/tools'
 import { arrowTool } from '../tools/arrowTool'
+import { drawTool } from '../tools/drawTool'
 import { commitMark } from '../tools/pickMarks'
 import { pinTool } from '../tools/pinTool'
 import { selectTool } from '../tools/selectTool'
@@ -101,7 +102,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // The one pointer subscription: every event goes to the tool in use, and to
   // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
-  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool() }
+  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool() }
   let tool = tools[toolStore.getState().tool]
   const putDown = () => {
     tool?.cancel(context())
@@ -156,6 +157,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   viewport.onCameraSettled((camera) => {
     if (camera.ortho !== store.getState().ortho) actions.setOrtho(camera.ortho)
+    actions.setLockedView(viewport.lockedView())
     report()
   })
 

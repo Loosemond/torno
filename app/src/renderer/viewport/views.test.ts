@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ViewName } from '../../shared/view'
-import { fitCamera, gridStep, scaleBarLength, viewDirection, visibleHeight } from './views'
+import { fitCamera, gridStep, lockedViewOf, scaleBarLength, viewDirection, visibleHeight } from './views'
 
 const NAMES: ViewName[] = ['iso', 'front', 'back', 'left', 'right', 'top', 'bottom']
 const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -91,6 +91,45 @@ describe('fitCamera', () => {
     const cam = fitCamera({ min: [5, 5, 5], max: [5, 5, 5] }, dir, up, 1, 35, true)
     expect(cam.position.every(Number.isFinite)).toBe(true)
     expect(visibleHeight(cam)).toBeGreaterThan(0)
+  })
+})
+
+describe('lockedViewOf', () => {
+  const box = { min: [-20, -15, -2.5], max: [20, 15, 22.5] }
+  const named = (name: ViewName, ortho = true) => {
+    const { dir, up } = viewDirection(name)
+    return fitCamera(box, dir, up, 4 / 3, 35, ortho)
+  }
+
+  it('is each of the six orthographic standard views, and never iso', () => {
+    for (const name of ['front', 'back', 'left', 'right', 'top', 'bottom'] as const) expect(lockedViewOf(named(name))).toBe(name)
+    expect(lockedViewOf(named('iso'))).toBeNull()
+  })
+
+  it('is none in perspective', () => {
+    expect(lockedViewOf(named('front', false))).toBeNull()
+  })
+
+  it('stays through panning and zooming', () => {
+    const front = named('front')
+    const moved = { ...front, position: [front.position[0] + 37, front.position[1], front.position[2] - 12] as [number, number, number], target: [front.target[0] + 37, front.target[1], front.target[2] - 12] as [number, number, number], zoom: front.zoom * 6 }
+    expect(lockedViewOf(moved)).toBe('front')
+  })
+
+  it('is lost by the least turn: a pixel of orbiting, or a turn about the way it looks', () => {
+    const front = named('front')
+    const reach = Math.abs(front.position[1] - front.target[1])
+    // Half a degree round the target, about what one pixel of dragging turns.
+    const turned = { ...front, position: [front.target[0] + reach * Math.sin(0.0087), front.target[1] - reach * Math.cos(0.0087), front.position[2]] as [number, number, number] }
+    expect(lockedViewOf(turned)).toBeNull()
+    // From above with +X up on screen: the top view, but not the way up it is drawn.
+    expect(lockedViewOf({ ...named('top'), up: [1, 0, 0] })).toBeNull()
+  })
+
+  it('takes the hair the viewport leans a camera that looks straight down', () => {
+    const top = named('top')
+    const reach = top.position[2] - top.target[2]
+    expect(lockedViewOf({ ...top, position: [top.position[0], top.position[1] - reach * 1e-5, top.position[2]], up: [0, 1, 1e-5] })).toBe('top')
   })
 })
 

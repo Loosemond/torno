@@ -4,6 +4,7 @@ import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
+import type { ViewName } from '../../shared/view'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
 
@@ -58,6 +59,12 @@ export interface TornoState {
   /** By selected ref, where it was clicked: a note left on the selection is anchored there. */
   picked: Record<string, PickedAt>
   ortho: boolean
+  /**
+   * The standard view the camera is locked on (orthographic, and not turned
+   * since it went there), as of the last time the camera came to rest; null
+   * for none. A stroke drawn on a locked view is a profile on that plane.
+   */
+  lockedView: ViewName | null
   /** Counts changes of layout and layers made by hand: what the scene file is saved for. */
   edits: number
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
@@ -76,6 +83,7 @@ export const store = createStore<TornoState>(() => ({
   ...NO_OBJECT,
   markFocus: 0,
   ortho: false,
+  lockedView: null,
   edits: 0,
   sessions: {}
 }))
@@ -222,6 +230,10 @@ export const actions = {
 
   setOrtho(ortho: boolean): void {
     store.setState({ ortho })
+  },
+
+  setLockedView(lockedView: ViewName | null): void {
+    if (lockedView !== store.getState().lockedView) store.setState({ lockedView })
   },
 
   /** A session was started in an object, replacing the one it had. */

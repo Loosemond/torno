@@ -9,11 +9,18 @@ import { placeBeside } from './notePlacement'
 /** What the note may not cover: the tools at the left edge, the view bar at the top, and a margin elsewhere. */
 const KEEP_CLEAR = { left: 60, top: 54, right: 12, bottom: 12 }
 
-/** What a mark is on, in a few words of the monospace face: its ref and the kernel's line, or an arrow's length. */
+/** What a mark is on, in a few words of the monospace face: its ref and the kernel's line, an arrow's length, or the plane and the size of a profile. */
 function subject(mark: Mark): { ref: string; detail: string } {
   if (mark.kind === 'arrow') {
     const length = Math.hypot(mark.to[0] - mark.from.point[0], mark.to[1] - mark.from.point[1], mark.to[2] - mark.from.point[2])
     return { ref: `${length.toFixed(1)} mm`, detail: mark.from.ref ? `from ${mark.from.ref}` : '' }
+  }
+  if (mark.kind === 'stroke' && mark.space === 'plane' && mark.plane) {
+    // A profile: the plane it is on, and how large it is there.
+    const us = (mark.points2d ?? []).map((p) => p[0])
+    const vs = (mark.points2d ?? []).map((p) => p[1])
+    const size = us.length > 0 ? `${(Math.max(...us) - Math.min(...us)).toFixed(1)} × ${(Math.max(...vs) - Math.min(...vs)).toFixed(1)} mm` : ''
+    return { ref: mark.plane.label, detail: [size, mark.anchor.ref ? `from ${mark.anchor.ref}` : ''].filter(Boolean).join(', ') }
   }
   const anchor = mark.anchor
   return { ref: anchor?.ref ?? anchor?.part ?? '', detail: anchor?.descriptor ?? '' }

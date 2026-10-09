@@ -32,6 +32,29 @@ export function viewDirection(v: ViewName): { dir: Vec3; up: Vec3 } {
   return { dir: [...dir], up: [...up] }
 }
 
+/** A camera this near a standard view, in degrees, is on it: less than one pixel of orbiting. */
+const LOCK_WITHIN_DEG = 0.05
+const LOCKABLE: ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom']
+
+/**
+ * The standard view a camera is locked on: it is orthographic and looks
+ * exactly as `front`, `back`, `left`, `right`, `top` or `bottom` does, the
+ * same way up. Null for any other camera: one in perspective, one that was
+ * turned. Where it looks from and how far it is zoomed do not matter, so
+ * panning and zooming keep the lock. A drawing made on a locked view lies on
+ * a principal plane, in millimetres.
+ */
+export function lockedViewOf(camera: Camera): ViewName | null {
+  if (!camera.ortho) return null
+  const looks = [camera.target[0] - camera.position[0], camera.target[1] - camera.position[1], camera.target[2] - camera.position[2]]
+  const reach = Math.hypot(looks[0], looks[1], looks[2])
+  const tall = Math.hypot(camera.up[0], camera.up[1], camera.up[2])
+  if (!(reach > 0) || !(tall > 0)) return null
+  const near = Math.cos(radians(LOCK_WITHIN_DEG))
+  const cosine = (a: number[], length: number, b: Vec3): number => (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / length
+  return LOCKABLE.find((name) => cosine(looks, reach, VIEWS[name].dir) >= near && cosine(camera.up, tall, VIEWS[name].up) >= near) ?? null
+}
+
 /**
  * The height, in mm, that a camera shows at its target. An orthographic camera
  * shows what a perspective one at the same place would show at the target,

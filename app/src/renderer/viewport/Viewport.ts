@@ -11,7 +11,7 @@ import { PERSPECTIVE_NOTE, chipSize, drawLabels, drawOverlay, overlayUnit, type 
 import { colorFor, colorsByName, edgeTint, mix } from './palette'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickParts, pointerRay } from './picking'
-import { DEFAULT_FOV, fitCamera, gridStep, viewDirection, visibleHeight } from './views'
+import { DEFAULT_FOV, fitCamera, gridStep, lockedViewOf, viewDirection, visibleHeight } from './views'
 
 export interface LayerState {
   visible?: boolean
@@ -138,8 +138,9 @@ export class Viewport {
   /** Over the canvas, for the labels of the marks: drawn anew with every frame, never through React. */
   private readonly labelCanvas: HTMLCanvasElement | null
   private pointerListener: ((e: ViewportPointer) => void) | null = null
-  /** Whether the camera is the pointer's to move, as last asked, and whether a button is down on the canvas. */
+  /** Whether the camera is the pointer's to move, as last asked; whether the wheel zooms while it is not; and whether a button is down on the canvas. */
   private navigation = true
+  private wheelZooms = false
   private held = false
   /** The left button's press, until it is released: where and when. */
   private press: { x: number; y: number; at: number } | null = null
@@ -186,6 +187,7 @@ export class Viewport {
     this.controls.addEventListener('change', this.onCameraChange)
 
     for (const type of POINTER_EVENTS) canvas.addEventListener(type, this.onPointerEvent)
+    canvas.addEventListener('wheel', this.onWheel, { passive: false })
 
     // Without preventDefault the browser never restores a lost context.
     canvas.addEventListener('webglcontextlost', this.onContextLost)
@@ -302,7 +304,7 @@ export class Viewport {
 
   /**
    * What the pointer is making, drawn until it is a mark: a pin where it was
-   * clicked, an arrow being dragged. Null for nothing. It goes straight to the
+   * clicked, an arrow being dragged, a stroke being drawn. Null for nothing. It goes straight to the
    * scene: nothing of a drag passes through React or the marks.
    */
   setDraft(draft: Draft | null): void {
@@ -376,6 +378,21 @@ export class Viewport {
     this.applyCamera(fitCamera(this.visibleBox(), dir, c.up, this.aspect, this.fov, c.ortho))
   }
 
+  /**
+   * The standard view the camera is locked on: orthographic, exactly one of
+   * front, back, left, right, top and bottom, and not turned since. Panning
+   * and zooming keep the lock; orbiting and perspective lose it. Null otherwise.
+   */
+  lockedView(): ViewName | null {
+    return lockedViewOf(this.getCamera())
+  }
+
+  /** The box around the parts shown (failing that, around the layout), in the object frame. */
+  bounds(): { min: Vec3; max: Vec3 } {
+    const { min, max } = this.visibleBox()
+    return { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] }
+  }
+
   getCamera(): Camera {
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion)
     return {
@@ -439,10 +456,12 @@ export class Viewport {
    * Whether dragging turns, pans and zooms the camera. A tool that drags
    * switches it off meanwhile. Switched back on while a button is still held,
    * it stays off until the button is let go: the rest of a drag that a tool
-   * gave up does not turn the camera.
+   * gave up does not turn the camera. With `wheel`, switching it off leaves
+   * the wheel zooming: a long stroke is drawn across more than one zoom.
    */
-  setNavigation(enabled: boolean): void {
+  setNavigation(enabled: boolean, opts: { wheel?: boolean } = {}): void {
     this.navigation = enabled
+    this.wheelZooms = !enabled && opts.wheel === true
     if (!enabled || !this.held) this.controls.enabled = enabled
   }
 
@@ -603,6 +622,7 @@ export class Viewport {
     this.drawnListeners.clear()
     this.pointerListener = null
     for (const type of POINTER_EVENTS) this.canvas.removeEventListener(type, this.onPointerEvent)
+    this.canvas.removeEventListener('wheel', this.onWheel)
     this.scheme?.removeEventListener('change', this.onSchemeChange)
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored)
@@ -698,6 +718,34 @@ export class Viewport {
     cb({ type: kind, ...event })
     const still = press && e.button === 0 && Math.hypot(e.clientX - press.x, e.clientY - press.y) <= CLICK_PX && e.timeStamp - press.at <= CLICK_MS
     if (kind === 'up' && still) cb({ type: 'click', ...event })
+  }
+
+  /**
+   * The wheel while a tool has the pointer and asked to keep it zooming: the
+   * orbit is switched off then, and takes no wheel in the middle of a drag in
+   * any case. Zooms as the orbit does, by the same step; an orthographic
+   * camera keeps what is under the pointer where it is, a perspective one
+   * comes nearer its target. The camera is not turned.
+   */
+  private readonly onWheel = (e: WheelEvent): void => {
+    if (this.navigation || !this.wheelZooms || e.deltaY === 0) return
+    e.preventDefault()
+    const by = 0.95 ** (Math.abs(e.deltaY) * 0.01 * (e.deltaMode === 1 ? 16 : 1)) // lines to pixels, as the orbit takes them
+    const closer = e.deltaY < 0 ? 1 / by : by
+    const c = this.getCamera()
+    const at = this.canvasPoint(e.clientX, e.clientY)
+    this.move = null
+    if (!c.ortho || !at) {
+      const position = c.position.map((p, i) => c.target[i] + (p - c.target[i]) / closer) as Vec3
+      return this.applyCamera({ ...c, position })
+    }
+    this.syncMatrices()
+    const { origin, direction } = pointerRay(this.camera, at.ndc)
+    // The pointer's place on the plane through the target that faces the camera.
+    const off = origin.map((o, i) => o - c.target[i])
+    const depth = off[0] * direction[0] + off[1] * direction[1] + off[2] * direction[2]
+    const shift = off.map((o, i) => (o - direction[i] * depth) * (1 - 1 / closer))
+    this.applyCamera({ ...c, zoom: c.zoom * closer, position: c.position.map((p, i) => p + shift[i]) as Vec3, target: c.target.map((t, i) => t + shift[i]) as Vec3 })
   }
 
   private applyLook(entry: Entry): void {

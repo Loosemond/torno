@@ -8,7 +8,7 @@ export const TOOLS: { name: ToolName; label: string; key: string; ready: boolean
   { name: 'select', label: 'Select', key: 'V', ready: true },
   { name: 'pin', label: 'Pin', key: 'P', ready: true },
   { name: 'arrow', label: 'Arrow', key: 'A', ready: true },
-  { name: 'draw', label: 'Draw', key: 'D', ready: false },
+  { name: 'draw', label: 'Draw', key: 'D', ready: true },
   { name: 'shape', label: 'Shape', key: 'S', ready: false }
 ]
 

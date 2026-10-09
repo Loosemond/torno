@@ -30,7 +30,7 @@ function fake(over: Partial<ToolContext> = {}) {
   const navigation: boolean[] = []
   const said: string[] = []
   const ctx: ToolContext = {
-    viewport: { setHover: () => {}, setNavigation: (on) => void navigation.push(on), setDraft: (d) => void drafts.push(d) },
+    viewport: { setHover: () => {}, setNavigation: (on) => void navigation.push(on), setDraft: (d) => void drafts.push(d), lockedView: () => null, pick: () => null, bounds: () => ({ min: [-20, -15, -2.5], max: [20, 15, 22.5] }) },
     readout: { show: (_at, ref, detail) => void said.push(`${ref} | ${detail ?? ''}`), describe: () => {}, say: (_at, message) => void said.push(message), hide: () => {} },
     objectId: 'bracket',
     layout: 'assembly',

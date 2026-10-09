@@ -986,6 +986,33 @@ button {
   color: var(--accent);
 }
 
+/* The view the camera is locked on: square to a principal plane, so what is
+   drawn there is a profile in millimetres. A small padlock before its name. */
+.bar-button[data-locked] {
+  color: var(--accent);
+}
+
+.bar-button[data-locked]:not(.bar-icon) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.view-lock,
+.bar-icon .view-lock {
+  flex: none;
+  width: 9px;
+  height: 11px;
+}
+
+.menu-item[data-locked] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--accent);
+}
+
 .bar-icon {
   display: grid;
   place-items: center;

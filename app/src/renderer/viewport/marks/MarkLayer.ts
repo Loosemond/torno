@@ -5,10 +5,11 @@ import { build, dispose, markPoints, rescale, setActive, type MarkColours } from
 
 /**
  * A mark as it is while the pointer is still making it: a pin where it was
- * clicked, an arrow being dragged. Drawn like the person's marks, fainter, and
- * with no number: it is not a mark until main has kept it.
+ * clicked, an arrow being dragged, a stroke being drawn (its points in the
+ * object frame, wherever it is drawn). Drawn like the person's marks, fainter,
+ * and with no number: it is not a mark until main has kept it.
  */
-export type Draft = { kind: 'pin'; point: Vec3; normal: Vec3 | null } | { kind: 'arrow'; from: Vec3; to: Vec3 }
+export type Draft = { kind: 'pin'; point: Vec3; normal: Vec3 | null } | { kind: 'arrow'; from: Vec3; to: Vec3 } | { kind: 'stroke'; points: Vec3[] }
 
 /** How much of a mark's colour a draft has. */
 const DRAFT_OPACITY = 0.7
@@ -183,9 +184,14 @@ function drawnAsOf(mark: Mark): string {
 /** A draft in the form the drawing code takes: the person's mark, as far as it is drawn. */
 function asMark(draft: Draft): Mark {
   const base = { id: 'draft', author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: '', revision: 0, camera: NO_CAMERA, createdAt: '' } as const
-  return draft.kind === 'pin'
-    ? { ...base, kind: 'pin', anchor: { point: draft.point, ...(draft.normal ? { normal: draft.normal } : {}) } }
-    : { ...base, kind: 'arrow', from: { point: draft.from }, to: draft.to }
+  switch (draft.kind) {
+    case 'pin':
+      return { ...base, kind: 'pin', anchor: { point: draft.point, ...(draft.normal ? { normal: draft.normal } : {}) } }
+    case 'arrow':
+      return { ...base, kind: 'arrow', from: { point: draft.from }, to: draft.to }
+    case 'stroke':
+      return { ...base, kind: 'stroke', space: 'surface', anchor: { point: draft.points[0] ?? [0, 0, 0] }, points: draft.points }
+  }
 }
 
 const NO_CAMERA = { position: [0, 0, 1], target: [0, 0, 0], up: [0, 1, 0], ortho: true, fov: 35, zoom: 1 } satisfies Mark['camera']
