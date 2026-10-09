@@ -63,6 +63,18 @@ export function kernelCommand(opts: { workspaceRoot: string; hasProject: boolean
   return ['uv', ...run, 'python', '-m', 'torno_kernel']
 }
 
+/**
+ * The command that runs the kernel package's import process for a workspace:
+ * the kernel's own, with the `scans` extra. Only this process asks for the
+ * extra (trimesh, pillow): no kernel start depends on it.
+ */
+export function scanCommand(opts: { workspaceRoot: string; hasProject: boolean; kernelDir: string }, args: string[]): string[] {
+  const run = opts.hasProject
+    ? ['run', '--no-sync', '--project', opts.workspaceRoot, '--with-editable', `${opts.kernelDir}[scans]`]
+    : ['run', '--project', opts.kernelDir, '--extra', 'scans']
+  return ['uv', ...run, 'python', '-m', 'torno_kernel.scans', ...args]
+}
+
 type Pending =
   | { type: 'build'; resolve: (r: BuildResult) => void; onStarted?: () => void }
   | { type: 'query'; resolve: (result: unknown) => void; reject: (e: KernelError) => void }

@@ -2,6 +2,7 @@ import type { BuildState } from './build'
 import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark, Replacement } from './marks'
 import type { Scene } from './scene'
+import type { NewAlignment, ScanInfo, ScanUnit, ScanUp } from './scans'
 import type { SceneFile } from './scenefile'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
@@ -50,6 +51,26 @@ export interface TornoBridge {
     /** What `onProblem` last said of an object, for a window that was not listening then; null when nothing, or once dismissed. */
     problem(objectId: string): Promise<string | null>
     dismissProblem(objectId: string): Promise<void>
+  }
+  /** The scans of an object, kept by main in <object>/.torno/scans.json and .torno/scans/. Calls reject with a plain message. */
+  scans: {
+    list(objectId: string): Promise<ScanInfo[]>
+    /** The file dialog; under test, what `__tornoMain.pickFile` holds. Null when nothing was chosen. */
+    pick(): Promise<string | null>
+    /** Where a file dropped on the window is on the disk (`webUtils.getPathForFile`); '' for one that is nowhere. */
+    pathOf(file: File): string
+    /** Has the file read by the import process, which takes seconds: `onProgress` says where it stands. The file itself is never changed. */
+    import(objectId: string, path: string): Promise<ScanInfo>
+    /** The scan as if its source had been read with this unit and up axis. Its alignments are dropped when either changes. */
+    convert(objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }): Promise<ScanInfo>
+    rename(objectId: string, id: string, name: string): Promise<ScanInfo>
+    remove(objectId: string, id: string): Promise<void>
+    /** Where the scan is in a layout of the last build, or null for nowhere: main adds how that build's parts are spread, and when. */
+    align(objectId: string, id: string, layout: string, alignment: NewAlignment | null): Promise<ScanInfo>
+    /** The scan's `mesh.bin`, for `parseScanMesh`. */
+    mesh(objectId: string, id: string): Promise<ArrayBuffer>
+    onChanged(cb: (m: { objectId: string; scans: ScanInfo[] }) => void): () => void
+    onProgress(cb: (m: { objectId: string; name: string; stage: string | null }) => void): () => void
   }
   geometry: {
     describe(objectId: string, layout: string, ref: string): Promise<Described>   // rejects with a plain message

@@ -99,7 +99,7 @@ test('the renderer is isolated and the bridge is exposed', async () => {
   expect(probe).toEqual({
     hasRequire: 'undefined',
     hasProcess: 'undefined',
-    groups: ['geometry', 'marks', 'object', 'session', 'view', 'workspace']
+    groups: ['geometry', 'marks', 'object', 'scans', 'session', 'view', 'workspace']
   })
 })
 

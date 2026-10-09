@@ -5,6 +5,7 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
 import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark, Replacement } from '../shared/marks'
+import { type NewAlignment, type ScanUnit, type ScanUp, SCAN_FORMATS } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { ViewState } from '../shared/view'
@@ -17,6 +18,7 @@ import { type Retrying, asPlaced, asReplaced, checkMarks, followMarks, retrying 
 import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
+import { type ScanStore, frameOf } from './scans/store'
 import { loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
@@ -27,12 +29,13 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:stop,
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
-//           marks:dismissProblem, geometry:describe
+//           marks:dismissProblem, geometry:describe,
+//           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
-//           marks:changed, marks:problem
+//           marks:changed, marks:problem, scans:changed, scans:progress
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the newest scan that has ended
@@ -53,6 +56,9 @@ let sessions: Sessions | null = null
 
 /** The marks of the objects of the open workspace, once `registerIpc` has been given them. */
 let marks: MarkStore | null = null
+
+/** The scans of the objects of the open workspace, once `registerIpc` has been given them. */
+let scans: ScanStore | null = null
 
 /** By object: how many checks of its marks against a build were started, and how many have ended. */
 const checks = new Map<string, { started: number; finished: number }>()
@@ -153,6 +159,8 @@ export async function closeWorkspace(): Promise<void> {
   checks.clear()
   // The next workspace may have an object of the same name, or this folder may change while it is closed.
   marks?.forget()
+  // And its scans: an import that is still running is stopped by whoever runs it, who is told next.
+  scans?.forget()
   onWorkspaceClosed?.()
   // Not waited for: an agent that ignores the hangup is killed two seconds later.
   void sessions?.stopAll()
@@ -163,6 +171,11 @@ export async function closeWorkspace(): Promise<void> {
 function requireWorkspace(): OpenWorkspace {
   if (!current) throw new Error('no workspace is open')
   return current
+}
+
+/** The open workspace as of the last scan of it, or null when none is open. */
+export function openWorkspaceInfo(): WorkspaceInfo | null {
+  return current?.info ?? null
 }
 
 /** An object of the open workspace as of the last scan. The renderer and the agent name objects, never folders. */
@@ -214,7 +227,8 @@ export function queryObject<T = unknown>(id: string, name: string, args: object)
  * `marks` backs the marks of the objects; without it there are none.
  * `onBuild` is told where the build of an object stands, each time that changes.
  * `pickFolder` answers "Open folder" in place of the dialog, which tests must
- * never open.
+ * never open; `pickFile` answers "Import scan" likewise.
+ * `scans` backs the scans of the objects; without it there are none.
  */
 export function registerIpc(
   opts: {
@@ -226,6 +240,9 @@ export function registerIpc(
     onWorkspaceClosed?: () => void
     /** Stands in for the folder dialog: the folder to open, or null for none. */
     pickFolder?: () => Promise<string | null>
+    scans?: ScanStore
+    /** Stands in for the file dialog: the file to import, or null for none. */
+    pickFile?: () => Promise<string | null>
   } = {}
 ): void {
   sessions = opts.sessions ?? null
@@ -374,6 +391,37 @@ export function registerIpc(
   })
   ipcMain.handle('marks:problem', (_event, objectId: string) => requireMarks().problem(String(objectId)))
   ipcMain.handle('marks:dismissProblem', (_event, objectId: string) => requireMarks().dismissProblem(String(objectId)))
+
+  scans = opts.scans ?? null
+  scans?.on('changed', (m) => broadcast('scans:changed', m))
+  scans?.on('progress', (m) => broadcast('scans:progress', m))
+  const requireScans = (): ScanStore => {
+    if (!scans) throw new Error('scans are not available')
+    return scans
+  }
+
+  // As for the marks: the renderer names the object, and the store finds its folder.
+  ipcMain.handle('scans:list', (_event, objectId: string) => requireScans().list(String(objectId)))
+  ipcMain.handle('scans:pick', async (event): Promise<string | null> => {
+    if (opts.pickFile) return opts.pickFile()
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = { title: 'Import scan', properties: ['openFile'], filters: [{ name: 'Scans', extensions: SCAN_FORMATS.map((format) => format.slice(1)) }] }
+    const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
+    return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
+  })
+  ipcMain.handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
+  ipcMain.handle('scans:convert', (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) => requireScans().convert(String(objectId), String(id), as))
+  ipcMain.handle('scans:rename', (_event, objectId: string, id: string, name: string) => requireScans().rename(String(objectId), String(id), name))
+  ipcMain.handle('scans:remove', (_event, objectId: string, id: string) => requireScans().remove(String(objectId), String(id)))
+  // What only main says of an alignment is said here: how the parts of that layout are spread on the last build, and when.
+  ipcMain.handle('scans:align', (_event, objectId: string, id: string, layout: string, alignment: NewAlignment | null) => {
+    if (alignment === null || alignment === undefined) return requireScans().align(String(objectId), String(id), layout, null)
+    const frame = frameOf(lastScene(String(objectId))?.scene, layout)
+    if (!frame) throw new Error(`no build of this object has a layout named ${String(layout)}: there is nothing to align the scan to`)
+    return requireScans().align(String(objectId), String(id), layout, { ...Object(alignment), frame, at: new Date().toISOString() })
+  })
+  // A copy with a buffer of its own, as the blob of a scene is sent.
+  ipcMain.handle('scans:mesh', async (_event, objectId: string, id: string) => toArrayBuffer(await requireScans().mesh(String(objectId), String(id))))
 
   // What the kernel says of a part, a face or an edge of an object's last good build. `Builds.query`
   // has the object built again when the kernel no longer holds it.

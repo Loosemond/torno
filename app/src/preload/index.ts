@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { TornoBridge } from '../shared/bridge'
 
 // Channel names are those listed in src/main/ipc.ts.
@@ -57,6 +57,19 @@ const bridge: TornoBridge = {
     onProblem: (cb) => subscribe('marks:problem', cb),
     problem: (objectId) => invokePlain('marks:problem', objectId),
     dismissProblem: (objectId) => invokePlain('marks:dismissProblem', objectId)
+  },
+  scans: {
+    list: (objectId) => invokePlain('scans:list', objectId),
+    pick: () => invokePlain('scans:pick'),
+    pathOf: (file) => webUtils.getPathForFile(file),
+    import: (objectId, path) => invokePlain('scans:import', objectId, path),
+    convert: (objectId, id, as) => invokePlain('scans:convert', objectId, id, as),
+    rename: (objectId, id, name) => invokePlain('scans:rename', objectId, id, name),
+    remove: (objectId, id) => invokePlain('scans:remove', objectId, id),
+    align: (objectId, id, layout, alignment) => invokePlain('scans:align', objectId, id, layout, alignment),
+    mesh: (objectId, id) => invokePlain('scans:mesh', objectId, id),
+    onChanged: (cb) => subscribe('scans:changed', cb),
+    onProgress: (cb) => subscribe('scans:progress', cb)
   },
   geometry: {
     describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref)

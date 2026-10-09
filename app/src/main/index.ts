@@ -6,16 +6,20 @@ import { writeFileAtomic } from './atomic'
 import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
-import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, placedMark, queryObject, registerIpc } from './ipc'
+import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, placedMark, queryObject, registerIpc } from './ipc'
+import { cannotStart, scanCommand } from './kernel/client'
 import { latestView, requestHighlight, requestLook, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
 import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
+import { kernelDir } from './paths'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { SYSTEM_PROMPT } from './prompt'
 import { quitGate } from './quit'
+import { type Importer, processImporter } from './scans/importer'
+import { ScanStore } from './scans/store'
 import { sceneFilesSettled } from './scenefile'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
@@ -133,6 +137,30 @@ let sessions: Sessions | null = null
 /** The marks of the objects of the open workspace, whose folders are those of the last scan. */
 const marks = new MarkStore({ dirOf: (id) => findObject(id)?.dir })
 
+/** What runs the import process in the open workspace, once a scan was imported there: one at a time, and stopped when it is left. */
+let importer: { root: string; run: Importer } | null = null
+
+/**
+ * The scans of the objects of the open workspace. A file is read by a process
+ * of its own, in the workspace's environment as the kernel is: where no
+ * kernel can be started (`cannotStart`), none is, and the import says why.
+ */
+const scans = new ScanStore({
+  dirOf: (id) => findObject(id)?.dir,
+  importer: () => {
+    const ws = openWorkspaceInfo()
+    if (!ws) return 'no workspace is open'
+    const reason = cannotStart({ workspaceRoot: ws.root, hasProject: ws.hasProject })
+    if (reason !== null) return reason
+    const root = ws.root
+    // Whether it has a project is asked as each process is started: a pyproject.toml may appear while the workspace is open.
+    const command = (args: string[]): string[] => scanCommand({ workspaceRoot: root, hasProject: openWorkspaceInfo()?.hasProject ?? ws.hasProject, kernelDir: kernelDir() }, args)
+    if (importer?.root !== root) importer = { root, run: processImporter(command, root) }
+    return importer.run
+  }
+})
+scans.on('problem', ({ objectId, message }) => console.error(`${objectId}: ${message}`))
+
 /** The window, which is what the agent's tools ask for pictures and ask to show things. */
 function theWindow(): Promise<BrowserWindow> {
   const win = BrowserWindow.getAllWindows()[0]
@@ -190,9 +218,11 @@ marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
  * shown; `picks` counts how often it was asked. `marks` is the store, through
  * which a test leaves the marks an agent would: the window can only make the
  * person's. `marksChecks` says whether the marks of an object have been
- * checked against its build since something was done to them.
+ * checked against its build since something was done to them. `scans` is the
+ * store of the scans; `pickFile` is what "Import scan" is answered with, and
+ * `filePicks` counts how often it was asked.
  */
-const testHooks = { requestLook, latestView, marks, marksChecks, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0 }
+const testHooks = { requestLook, latestView, marks, marksChecks, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0 }
 
 /** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
 let requested: string | null = null
@@ -244,12 +274,25 @@ void app.whenReady().then(async () => {
     marks,
     onBuild: (state) => stateFiles.changed(state.objectId),
     // What was waiting to be written was of objects of the workspace that is left.
-    onWorkspaceClosed: () => stateFiles.forget(),
+    onWorkspaceClosed: () => {
+      stateFiles.forget()
+      // An import still running there is ended: its scan is not kept, and its id not given again.
+      importer?.run.stop()
+      importer = null
+    },
     // A folder dialog is a window on the person's desktop: under test there is none.
     pickFolder: isTest
       ? async () => {
           testHooks.picks += 1
           return testHooks.pickFolder
+        }
+      : undefined,
+    scans,
+    // Nor a file dialog.
+    pickFile: isTest
+      ? async () => {
+          testHooks.filePicks += 1
+          return testHooks.pickFile
         }
       : undefined
   })
@@ -273,10 +316,10 @@ void app.whenReady().then(async () => {
 // ignores the hangup is killed two seconds later. With none left, the second
 // quit goes through.
 //
-// The first quit also waits for what is still being written of the marks and
-// of the scene files: the note being typed and the layers just changed are
-// handed over by the window as it closes, just before this, and are not on
-// the disk yet. Both together are given `WRITES_WAIT_MS`, once (`quitGate`):
+// The first quit also waits for what is still being written of the marks, of
+// the scans and of the scene files: the note being typed and the layers just
+// changed are handed over by the window as it closes, just before this, and
+// are not on the disk yet. All together are given `WRITES_WAIT_MS`, once (`quitGate`):
 // the quit that follows is not held for them again, so a write that never
 // ends cannot keep the app open.
 const WRITES_WAIT_MS = 2000
@@ -285,7 +328,7 @@ const writesBeforeQuit = quitGate(WRITES_WAIT_MS)
 app.on('will-quit', (event) => {
   void closeWorkspace()
   const waits: Promise<unknown>[] = []
-  const written = writesBeforeQuit([marks.settled(), sceneFilesSettled()])
+  const written = writesBeforeQuit([marks.settled(), scans.settled(), sceneFilesSettled()])
   if (written) waits.push(written)
   if (sessions && sessions.size > 0) waits.push(sessions.stopAll())
   if (waits.length === 0) return
