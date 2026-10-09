@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { Quat, Vec3 } from '../../shared/marks'
 import type { AlignStep, Scan, ScanAlignment, ScanImport, ScanPair, ScanSource, ScanTransform, ScansFile } from '../../shared/scans'
 import { writeFileAtomic } from '../atomic'
+import { MESH, MESH_NAME, SCAN_ID, nextFolderId } from './meshfiles'
 
 const FOLDER = '.torno'
 const NAME = 'scans.json'
@@ -11,6 +12,12 @@ const NAME = 'scans.json'
 export const MAX_SCAN_NAME = 80
 /** The most pairs an alignment keeps. */
 export const MAX_PAIRS = 64
+/** The most steps an alignment says it was made by: the last ones. */
+export const MAX_STEPS = 8
+/** The longest name of a part an alignment keeps: a longer one names no part. */
+const MAX_PART_NAME = 200
+/** How far from the origin an alignment may put a scan, in mm: the kernel refuses coordinates beyond. */
+const MAX_COORDINATE = 1e9
 /** The least and the most an alignment may scale a scan by. */
 const SCALE = { min: 1e-6, max: 1e6 }
 
@@ -25,6 +32,9 @@ const SCALE = { min: 1e-6, max: 1e6 }
  * `scans.json.dropped-<time>`, and the others kept. Either way the file is
  * rewritten at once and `problem` says what happened. The meshes under
  * `.torno/scans/` are left as they are.
+ *
+ * Whatever the file says, or no file, `next` is past every scan folder
+ * there is under `.torno/scans/`: an id that has a folder was given out.
  */
 export async function loadScansFile(dir: string, now: () => Date = () => new Date()): Promise<{ file: ScansFile; problem?: string }> {
   const path = join(dir, FOLDER, NAME)
@@ -32,9 +42,11 @@ export async function loadScansFile(dir: string, now: () => Date = () => new Dat
   try {
     text = await readFile(path, 'utf8')
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { file: { next: 1, scans: [] } }
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { file: { next: await nextFolderId(dir), scans: [] } }
     throw e
   }
+  const folders = await nextFolderId(dir)
+  const past = (file: ScansFile): ScansFile => ({ ...file, next: Math.max(file.next, folders) })
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
@@ -42,22 +54,23 @@ export async function loadScansFile(dir: string, now: () => Date = () => new Dat
     // not JSON
   }
   const read = readScansFile(parsed)
-  if (read && read.dropped === 0) return { file: read.file }
+  if (read && read.dropped === 0) return { file: past(read.file) }
 
   const stamp = now().toISOString().replace(/[:.]/g, '-')
   if (!read) {
     const aside = `${NAME}.corrupt-${stamp}`
     // Copied, not moved: were the write below to fail, the next read must find the bad file again, and its ids with it.
     await copyFile(path, join(dir, FOLDER, aside))
-    const file: ScansFile = { next: salvagedNext(text, parsed), scans: [] }
+    const file = past({ next: salvagedNext(text, parsed), scans: [] })
     await writeFileAtomic(path, textOf(file))
-    return { file, problem: `The scans file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started.` }
+    return { file, problem: `The scans file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started. The meshes of its scans are still in ${FOLDER}/scans/.` }
   }
   const aside = `${NAME}.dropped-${stamp}`
   await copyFile(path, join(dir, FOLDER, aside))
-  await writeFileAtomic(path, textOf(read.file))
+  const file = past(read.file)
+  await writeFileAtomic(path, textOf(file))
   const what = read.dropped === 1 ? '1 scan in the scans file of this object was' : `${read.dropped} scans in the scans file of this object were`
-  return { file: read.file, problem: `${what} not one this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}.` }
+  return { file, problem: `${what} not one this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}, and the meshes are still in ${FOLDER}/scans/.` }
 }
 
 /** Writes `<dir>/.torno/scans.json`, creating the folder. Readers see the old file or the new one, never half of one. */
@@ -104,8 +117,7 @@ function idNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value < Number.MAX_SAFE_INTEGER ? value : undefined
 }
 
-/** What names a scan: `S1`. Its folder under `.torno/scans/` has this name, so nothing else is ever taken for one. */
-export const SCAN_ID = /^S[1-9]\d{0,14}$/
+export { SCAN_ID }
 
 /**
  * A scan with only the fields a scan has, or null when the value is not one:
@@ -133,7 +145,7 @@ export function scanName(name: string): string {
 }
 
 function sourceOf(value: unknown): ScanSource | null {
-  if (!isRecord(value) || typeof value.path !== 'string' || value.path === '' || !isCount(value.bytes) || !isNumber(value.mtimeMs) || typeof value.sha256 !== 'string') return null
+  if (!isRecord(value) || typeof value.path !== 'string' || value.path === '' || !isCount(value.bytes) || !isNumber(value.mtimeMs) || typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256)) return null
   return { path: value.path, bytes: value.bytes, mtimeMs: value.mtimeMs, sha256: value.sha256 }
 }
 
@@ -153,8 +165,12 @@ function importOf(value: unknown): ScanImport | null {
     !oneOf(value.colours, ['texture', 'vertex', 'none'] as const) ||
     !min ||
     !max ||
+    min.some((low, axis) => low > max[axis]) ||
     !isNumber(value.area) ||
-    typeof value.at !== 'string'
+    value.area < 0 ||
+    typeof value.at !== 'string' ||
+    // A record that names a file torno would not have written is of no mesh torno knows.
+    (value.mesh !== undefined && (typeof value.mesh !== 'string' || !MESH_NAME.test(value.mesh)))
   ) {
     return null
   }
@@ -169,23 +185,26 @@ function importOf(value: unknown): ScanImport | null {
     bbox: { min, max },
     area: value.area,
     ...(reduced ? { reduced } : {}),
-    at: value.at
+    at: value.at,
+    ...(typeof value.mesh === 'string' && value.mesh !== MESH ? { mesh: value.mesh } : {})
   }
 }
 
 /**
  * An alignment with only what an alignment has, or null when the value is
  * not one: no transform of finite numbers, a scale that is none, no step
- * this version knows. Its rotation is kept as a unit quaternion (one that is
- * all zeros turns nothing). Pairs that are not two points are left out, and
- * no more than `MAX_PAIRS` kept.
+ * this version knows, a place further off than the kernel reckons with. Its
+ * rotation is kept as a unit quaternion (one that is all zeros turns
+ * nothing). Pairs that are not two points are left out, and no more than
+ * `MAX_PAIRS` kept; of its steps the last `MAX_STEPS`; a part whose name is
+ * longer than a name is not named.
  */
 export function sanitiseAlignment(value: unknown): ScanAlignment | null {
   if (!isRecord(value) || typeof value.at !== 'string' || !isRecord(value.frame)) return null
   const transform = transformOf(value.transform)
   const steps = Array.isArray(value.steps) ? value.steps.filter((step): step is AlignStep => oneOf(step, ['floor', 'pairs', 'nudge', 'typed'] as const)) : []
   if (!transform || steps.length === 0) return null
-  const alignment: ScanAlignment = { transform, steps, frame: {}, at: value.at }
+  const alignment: ScanAlignment = { transform, steps: steps.slice(-MAX_STEPS), frame: {}, at: value.at }
   if (Array.isArray(value.pairs)) {
     const pairs: ScanPair[] = []
     for (const raw of value.pairs) {
@@ -193,18 +212,18 @@ export function sanitiseAlignment(value: unknown): ScanAlignment | null {
       const scan = isRecord(raw) ? tuple<Vec3>(raw.scan, 3) : null
       const model = isRecord(raw) ? tuple<Vec3>(raw.model, 3) : null
       if (!isRecord(raw) || !scan || !model) continue
-      pairs.push({ scan, model, ...(typeof raw.part === 'string' ? { part: raw.part } : {}), residual: isNumber(raw.residual) && raw.residual >= 0 ? raw.residual : 0 })
+      pairs.push({ scan, model, ...(isPartName(raw.part) ? { part: raw.part } : {}), residual: isNumber(raw.residual) && raw.residual >= 0 ? raw.residual : 0 })
     }
     alignment.pairs = pairs
   }
   if (isNumber(value.rms) && value.rms >= 0) alignment.rms = value.rms
   if (value.scaled === true) alignment.scaled = true
   const floor = isRecord(value.floor) ? tuple<Vec3>(value.floor.point, 3) : null
-  if (isRecord(value.floor) && floor) alignment.floor = { ...(typeof value.floor.part === 'string' ? { part: value.floor.part } : {}), point: floor }
+  if (isRecord(value.floor) && floor) alignment.floor = { ...(isPartName(value.floor.part) ? { part: value.floor.part } : {}), point: floor }
   const frame: Array<[string, Vec3]> = []
   for (const [part, raw] of Object.entries(value.frame)) {
     const arranged = tuple<Vec3>(raw, 3)
-    if (arranged) frame.push([part, arranged])
+    if (arranged && isPartName(part)) frame.push([part, arranged])
   }
   alignment.frame = Object.fromEntries(frame)
   return alignment
@@ -214,7 +233,7 @@ function transformOf(value: unknown): ScanTransform | null {
   if (!isRecord(value)) return null
   const t = tuple<Vec3>(value.t, 3)
   const q = tuple<Quat>(value.q, 4)
-  if (!t || !q || !isNumber(value.s) || value.s < SCALE.min || value.s > SCALE.max) return null
+  if (!t || !q || !isNumber(value.s) || value.s < SCALE.min || value.s > SCALE.max || t.some((c) => Math.abs(c) > MAX_COORDINATE)) return null
   const length = Math.hypot(...q)
   // A quaternion of zeros, or of nothing that counts, turns nothing.
   const unit = Number.isFinite(length) && length > 1e-12 ? (q.map((c) => c / length) as Quat) : ([0, 0, 0, 1] as Quat)
@@ -228,6 +247,10 @@ function tuple<T extends number[]>(value: unknown, length: T['length']): T | nul
 
 function oneOf<const T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {
   return typeof value === 'string' && allowed.includes(value)
+}
+
+function isPartName(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_PART_NAME
 }
 
 function isNumber(value: unknown): value is number {

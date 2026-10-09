@@ -62,11 +62,19 @@ export function ScansPanel() {
           Import scan…
         </button>
       </div>
-      {/* What main found wrong with the scans file of this object, once main tells it. */}
+      {/* What main found wrong with the scans file of this object. */}
       {problem !== null && (
         <p className="scans-line selectable" role="status" data-part="problem">
           {problem}{' '}
-          <button type="button" className="link-button" onClick={() => actions.dismissScansProblem()}>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              actions.dismissScansProblem()
+              // Main answers the same to every window that asks, until it is told that it was read.
+              void window.torno.scans.dismissProblem(objectId).catch(() => {})
+            }}
+          >
             Dismiss
           </button>
         </p>

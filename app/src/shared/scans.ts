@@ -48,6 +48,8 @@ export interface ScanImport {
   area: number // mm²
   reduced?: { from: number; cell: number }
   at: string
+  /** The file of its mesh in the scan's folder, when that is not `mesh.bin`: a conversion writes another, and this is what says it was made. Main's alone. */
+  mesh?: string
 }
 /** A scan as `scans.json` keeps it. */
 export interface Scan {
@@ -65,6 +67,13 @@ export interface ScanInfo extends Scan {
   meshState: 'ok' | 'missing'
   checks: Record<string, AlignmentCheck> // by layout; absent for one not checked in this run
 }
+
+/**
+ * What came of importing a scan again from its source, into the id it has. `sourceChanged`: the file is not the one
+ * that was read before (another hash). `meshChanged`: the mesh has other vertex or triangle counts. With either, what
+ * was checked of its alignments is forgotten: they are to be looked at again.
+ */
+export interface Reimported { scan: ScanInfo; sourceChanged: boolean; meshChanged: boolean }
 
 /** How a scan is looked at: view state, kept in scene.json by scan id. */
 export interface ScanView { visible?: boolean; opacity?: number; colour?: 'own' | 'plain' }

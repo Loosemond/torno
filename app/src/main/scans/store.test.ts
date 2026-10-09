@@ -1,11 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { ScanAlignment, ScanInfo } from '../../shared/scans'
+import type { Scan, ScanAlignment, ScanInfo } from '../../shared/scans'
 import { box, meshBin, stl } from '../../test/scanFixtures'
 import type { ImportReply, Importer } from './importer'
 import type { Scene } from '../../shared/scene'
+import { sanitiseAlignment, sanitiseScan } from './file'
 import { ScanStore, frameOf } from './store'
 
 let root: string
@@ -54,7 +55,7 @@ describe('ScanStore', () => {
     expect(scan).toMatchObject({ id: 'S1', name: 'Box.STL', source: { path: source, bytes: 684, sha256: 'ab'.repeat(32) }, imported: { unit: 'mm', triangles: 12 }, alignments: {}, sourceState: 'present', meshState: 'ok' })
     expect(ran[0].args[1]).toBe(join(dir, '.torno', 'scans', 'S1', 'mesh.bin'))
     expect(file()).toMatchObject({ next: 2, scans: [{ id: 'S1' }] })
-    expect(readFileSync(join(dir, '.torno', 'scans', '.gitignore'), 'utf8')).toBe('mesh.bin\n')
+    expect(readFileSync(join(dir, '.torno', 'scans', '.gitignore'), 'utf8')).toBe('mesh*.bin\n')
     expect(readFileSync(source).equals(before)).toBe(true)
     expect(readdirSync(join(root, 'downloads'))).toEqual(['Box.STL'])
     // Nothing of the object's folder but .torno was written.
@@ -120,7 +121,7 @@ describe('ScanStore', () => {
     expect(Object.keys((await scans.align('bracket', 'S1', 'print', null)).alignments)).toEqual(['assembly'])
     const converted = await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
     expect(converted).toMatchObject({ imported: { unit: 'cm', assumed: { unit: false, up: false }, colours: 'none', bbox: { max: [200, 150, 25] } }, alignments: {} })
-    expect(ran.at(-1)).toEqual({ what: 'convert', args: [join(dir, '.torno', 'scans', 'S1', 'mesh.bin'), { unit: 'mm', up: 'z' }, { unit: 'cm', up: 'z' }] })
+    expect(ran.at(-1)).toEqual({ what: 'convert', args: [join(dir, '.torno', 'scans', 'S1', 'mesh.1.bin'), { unit: 'mm', up: 'z' }, { unit: 'cm', up: 'z' }] })
   })
 
   it('tells each change once it is written, and the stages of an import', async () => {
@@ -252,13 +253,18 @@ describe('ScanStore', () => {
     expect(alignment).not.toHaveProperty('extra')
   })
 
-  it('says where the files of a scan are, and of nothing that is no scan or no mark', () => {
-    const paths = store().paths('bracket', 'S2')!
-    expect(paths.mesh).toBe(join(dir, '.torno', 'scans', 'S2', 'mesh.bin'))
-    expect(paths.mask('M7')).toBe(join(dir, '.torno', 'scans', 'S2', 'M7.mask'))
+  it('says where the files of a scan it has read are, and of nothing that is no scan or no mark', async () => {
+    const scans = store()
+    // Not before the scans were read: which file is a scan's mesh is in its record.
+    expect(scans.paths('bracket', 'S1')).toBeUndefined()
+    await scans.import('bracket', source)
+    const paths = scans.paths('bracket', 'S1')!
+    expect(paths.mesh).toBe(join(dir, '.torno', 'scans', 'S1', 'mesh.bin'))
+    expect(paths.mask('M7')).toBe(join(dir, '.torno', 'scans', 'S1', 'M7.mask'))
     expect(() => paths.mask('../M7')).toThrow('is no mark')
-    expect(store().paths('bracket', '../S2')).toBeUndefined()
-    expect(store().paths('nothing', 'S2')).toBeUndefined()
+    expect(scans.paths('bracket', 'S2')).toBeUndefined()
+    expect(scans.paths('bracket', '../S1')).toBeUndefined()
+    expect(scans.paths('nothing', 'S1')).toBeUndefined()
   })
 
   it('leaves out of a file the scans that are none, and gives none of their ids again', async () => {
@@ -273,6 +279,337 @@ describe('ScanStore', () => {
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('scans.json.dropped-')
     expect(file().next).toBe(6)
+  })
+})
+
+// What the review of this store found (task-2-review.md), each as the scenario it was shown by.
+describe('ScanStore, after its review', () => {
+  const scansDir = (): string => join(dir, '.torno', 'scans')
+  const jsonPath = (): string => join(dir, '.torno', 'scans.json')
+  /** An importer whose runs wait to be let go: `release()` lets the one waiting go on. */
+  function held(what: 'import' | 'convert'): { importer: Importer; begun: Promise<void>; release(): void } {
+    let release!: () => void
+    let begin!: () => void
+    const begun = new Promise<void>((resolve) => (begin = resolve))
+    const wait = (): Promise<void> =>
+      new Promise<void>((resolve) => {
+        release = resolve
+        begin()
+      })
+    const slow: Importer = {
+      ...importer,
+      async import(from, out, opts, onStage) {
+        if (what === 'import') await wait()
+        return importer.import(from, out, opts, onStage)
+      },
+      async convert(mesh, from, to) {
+        if (what === 'convert') await wait()
+        return importer.convert(mesh, from, to)
+      }
+    }
+    return { importer: slow, begun, release: () => release() }
+  }
+
+  // I1
+  it('gives no id again when the scans file is lost while a scan folder is there', async () => {
+    await store().import('bracket', source)
+    writeFileSync(join(scansDir(), 'S1', 'M7.mask'), 'a region')
+    const mesh = readFileSync(join(scansDir(), 'S1', 'mesh.bin'))
+    rmSync(jsonPath())
+    // Nothing is written for a file that is not there.
+    expect(await store().list('bracket')).toEqual([])
+    expect(existsSync(jsonPath())).toBe(false)
+    fails = 'Box.STL could not be read'
+    await expect(store().import('bracket', source)).rejects.toThrow('could not be read')
+    fails = null
+    expect((await store().import('bracket', source)).id).toBe('S3')
+    // What was there is as it was: the folder of an id is never another scan's.
+    expect(readdirSync(join(scansDir(), 'S1')).sort()).toEqual(['M7.mask', 'mesh.bin'])
+    expect(readFileSync(join(scansDir(), 'S1', 'mesh.bin')).equals(mesh)).toBe(true)
+  })
+
+  it('gives no id again after an empty scans file, nor one a folder has that the file knows nothing of', async () => {
+    await store().import('bracket', source)
+    writeFileSync(jsonPath(), '')
+    expect((await store().import('bracket', source)).id).toBe('S2')
+    // A file from before S7 was imported: checked out again, with its mesh still on the disk.
+    mkdirSync(join(scansDir(), 'S7'))
+    writeFileSync(join(scansDir(), 'S7', 'mesh.bin'), 'kept')
+    expect((await store().import('bracket', source)).id).toBe('S8')
+    expect(readFileSync(join(scansDir(), 'S7', 'mesh.bin'), 'utf8')).toBe('kept')
+  })
+
+  // I2
+  it('converts a copy of the mesh, and names it in the record before the old one goes', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const seen: string[][] = []
+    scans.on('changed', () => seen.push(readdirSync(join(scansDir(), 'S1')).sort()))
+    const converted = await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
+    expect(converted.imported.mesh).toBe('mesh.1.bin')
+    expect(converted.meshState).toBe('ok')
+    expect(file().scans[0].imported).toMatchObject({ unit: 'cm', mesh: 'mesh.1.bin' })
+    expect(seen).toEqual([['mesh.1.bin']])
+    expect(scans.paths('bracket', 'S1')!.mesh).toBe(join(scansDir(), 'S1', 'mesh.1.bin'))
+    expect((await scans.mesh('bracket', 'S1')).byteLength).toBe(64 + 96 + 144)
+    expect((await scans.convert('bracket', 'S1', { unit: 'm', up: 'z' })).imported.mesh).toBe('mesh.2.bin')
+    expect(readdirSync(join(scansDir(), 'S1'))).toEqual(['mesh.2.bin'])
+  })
+
+  it('leaves the mesh and its record as they were when a conversion fails, however far it got', async () => {
+    const scans = store({
+      ...importer,
+      async convert(mesh) {
+        // As a process killed after it wrote: the file it was given is of the new unit, and its temp file is left.
+        writeFileSync(mesh, 'of the new unit')
+        writeFileSync(`${mesh}.4242.tmp`, 'half')
+        throw new Error('the import was stopped: the workspace was closed')
+      }
+    })
+    await scans.import('bracket', source)
+    const before = { record: file(), mesh: readFileSync(join(scansDir(), 'S1', 'mesh.bin')) }
+    await expect(scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })).rejects.toThrow('was stopped')
+    expect(file()).toEqual(before.record)
+    expect(readdirSync(join(scansDir(), 'S1'))).toEqual(['mesh.bin'])
+    expect(readFileSync(join(scansDir(), 'S1', 'mesh.bin')).equals(before.mesh)).toBe(true)
+  })
+
+  it('clears away, when the scans are first read, the meshes no record names', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
+    // torno was killed in a conversion: before the record named the new mesh, and after, before the old one went.
+    for (const name of ['mesh.bin', 'mesh.2.bin', 'mesh.2.bin.4242.tmp', 'importing', 'notes.txt']) writeFileSync(join(scansDir(), 'S1', name), 'left over')
+    expect((await store().list('bracket'))[0].meshState).toBe('ok')
+    expect(readdirSync(join(scansDir(), 'S1')).sort()).toEqual(['mesh.1.bin', 'notes.txt'])
+  })
+
+  // I3
+  it('starts no import once its workspace was left, even in the moment before the process', async () => {
+    let scans!: ScanStore
+    // Left just after the importer was asked for: nothing of the import runs yet, so nothing is there to stop.
+    scans = new ScanStore({ dirOf: () => dir, importer: () => (setImmediate(() => scans.forget()), slowToStart) })
+    const slowToStart: Importer = importer
+    // The folder is made on the disk before the process is started: the workspace is left meanwhile.
+    await expect(scans.import('bracket', source)).rejects.toThrow('the workspace was closed')
+    expect(ran).toEqual([])
+    expect(existsSync(join(scansDir(), 'S1'))).toBe(false)
+  })
+
+  // I4
+  it('keeps what was wrong with a scans file until it is dismissed, and says where the meshes are', async () => {
+    await store().import('bracket', source)
+    writeFileSync(jsonPath(), '{"next": 2, "scans": [{"id": "S1", ')
+    const scans = store()
+    const told: string[] = []
+    scans.on('problem', (m) => told.push(m.message))
+    expect(await scans.list('bracket')).toEqual([])
+    expect(told).toHaveLength(1)
+    expect(await scans.problem('bracket')).toBe(told[0])
+    expect(told[0]).toContain('scans.json.corrupt-')
+    expect(told[0]).toContain('still in .torno/scans/')
+    // The meshes are what is left to recover from: none is cleared away.
+    expect(readdirSync(join(scansDir(), 'S1'))).toEqual(['mesh.bin'])
+    scans.forget()
+    expect(await scans.problem('bracket')).toBe(told[0])
+    await scans.dismissProblem('bracket')
+    expect(await scans.problem('bracket')).toBeNull()
+    expect(told).toHaveLength(1)
+  })
+
+  // I5
+  it('answers for the scans of an object while one of them waits to be converted', async () => {
+    const slow = held('convert')
+    const scans = store(slow.importer)
+    await scans.import('bracket', source)
+    const converting = scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
+    await slow.begun
+    expect((await scans.list('bracket')).map((s) => s.imported.unit)).toEqual(['mm'])
+    expect((await scans.mesh('bracket', 'S1')).byteLength).toBe(64 + 96 + 144)
+    expect((await scans.rename('bracket', 'S1', 'engine bay')).name).toBe('engine bay')
+    await expect(scans.convert('bracket', 'S1', { unit: 'm', up: 'z' })).rejects.toThrow('S1 is being converted or imported again already')
+    expect(scans.settled()).not.toBeNull()
+    slow.release()
+    // What was done to it meanwhile is kept.
+    expect(await converting).toMatchObject({ name: 'engine bay', imported: { unit: 'cm', mesh: 'mesh.1.bin' } })
+  })
+
+  it('keeps nothing of a conversion whose scan was removed meanwhile', async () => {
+    const slow = held('convert')
+    const scans = store(slow.importer)
+    await scans.import('bracket', source)
+    const converting = scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
+    await slow.begun
+    await scans.remove('bracket', 'S1')
+    slow.release()
+    await expect(converting).rejects.toThrow('S1 was removed while it was being converted')
+    expect(existsSync(join(scansDir(), 'S1'))).toBe(false)
+    expect(file()).toEqual({ next: 2, scans: [] })
+  })
+
+  // M2
+  it('clears away the folder of an id that was given and has no scan, but never one that holds a region', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    fails = 'no'
+    await expect(scans.import('bracket', source)).rejects.toThrow('no')
+    await expect(scans.import('bracket', source)).rejects.toThrow('no')
+    fails = null
+    // As after torno was killed in two imports: S2 with a whole mesh, S3 with a region someone kept there.
+    for (const id of ['S2', 'S3']) {
+      mkdirSync(join(scansDir(), id))
+      for (const name of ['importing', 'mesh.bin', 'mesh.bin.4242.tmp']) writeFileSync(join(scansDir(), id, name), 'left over')
+    }
+    writeFileSync(join(scansDir(), 'S3', 'M4.mask'), 'a region')
+    // And a folder with no sign of an import: what is left of a scan whose record was lost.
+    mkdirSync(join(scansDir(), 'S7'))
+    writeFileSync(join(scansDir(), 'S7', 'mesh.bin'), 'a mesh')
+    await store().list('bracket')
+    expect(readdirSync(scansDir()).sort()).toEqual(['.gitignore', 'S1', 'S3', 'S7'])
+    expect(readdirSync(join(scansDir(), 'S3')).sort()).toEqual(['M4.mask', 'importing', 'mesh.bin'])
+    expect(readdirSync(join(scansDir(), 'S7'))).toEqual(['mesh.bin'])
+  })
+
+  it('leaves the folder of an import that is under way when the scans are read again', async () => {
+    const slow = held('import')
+    const scans = store(slow.importer)
+    const importing = scans.import('bracket', source)
+    await slow.begun
+    writeFileSync(join(scansDir(), 'S1', 'mesh.bin.4242.tmp'), 'being written')
+    scans.forget()
+    await scans.list('bracket')
+    expect(readdirSync(join(scansDir(), 'S1')).sort()).toEqual(['importing', 'mesh.bin.4242.tmp'])
+    slow.release()
+    await importing.catch(() => {})
+  })
+
+  // M5
+  it('records the source as it was before it was read: one rewritten meanwhile has changed', async () => {
+    const scans = store({
+      ...importer,
+      async import(from, out, opts, onStage) {
+        utimesSync(from, new Date('2027-01-01'), new Date('2027-01-01'))
+        return importer.import(from, out, opts, onStage)
+      }
+    })
+    expect((await scans.import('bracket', source)).sourceState).toBe('changed')
+  })
+
+  // M9
+  it('refuses a file of its own folder that is reached by another name', async () => {
+    await store().import('bracket', source)
+    const link = join(root, 'downloads', 'link.stl')
+    symlinkSync(join(scansDir(), 'S1', 'mesh.bin'), link)
+    await expect(store().import('bracket', link)).rejects.toThrow("link.stl is in this object's .torno folder")
+  })
+
+  it('rejects, and does not throw, for an object the workspace has not', async () => {
+    const scans = store()
+    for (const ask of [() => scans.list('nothing'), () => scans.rename('nothing', 'S1', 'x'), () => scans.remove('nothing', 'S1'), () => scans.convert('nothing', 'S1', { unit: 'm', up: 'z' }), () => scans.align('nothing', 'S1', 'print', null), () => scans.checked('nothing', 'S1', 'print', null), () => scans.mesh('nothing', 'S1'), () => scans.problem('nothing')]) {
+      let asked!: Promise<unknown>
+      expect(() => (asked = ask())).not.toThrow()
+      await expect(asked).rejects.toThrow('no object named nothing in the open workspace')
+    }
+  })
+
+  // The addendum: a scan is imported again into its own id.
+  it('reads a scan again from its source into the same id, as on a clone that has no mesh', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.rename('bracket', 'S1', 'engine bay')
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
+    await scans.checked('bracket', 'S1', 'assembly', { revision: 3, of: 4, off: 0, worst: 0.1, moved: [] })
+    rmSync(join(scansDir(), 'S1'), { recursive: true })
+    expect((await scans.list('bracket'))[0].meshState).toBe('missing')
+    const told: string[] = []
+    scans.on('progress', (m) => told.push(`${m.name}: ${m.stage}`))
+    const again = await scans.reimport('bracket', 'S1')
+    expect(again).toMatchObject({ sourceChanged: false, meshChanged: false, scan: { id: 'S1', name: 'engine bay', meshState: 'ok', sourceState: 'present', imported: { mesh: 'mesh.1.bin', unit: 'mm', assumed: { unit: true, up: true } } } })
+    expect(Object.keys(again.scan.alignments)).toEqual(['assembly'])
+    expect(Object.keys(again.scan.checks)).toEqual(['assembly'])
+    // In the unit and with the axis it has: where it was aligned still holds.
+    expect(ran.at(-1)).toEqual({ what: 'import', args: [source, join(scansDir(), 'S1', 'mesh.1.bin'), { unit: 'mm', up: 'z' }] })
+    expect(told).toEqual(['Box.STL: reading', 'Box.STL: null'])
+    expect(file()).toMatchObject({ next: 2, scans: [{ id: 'S1', imported: { mesh: 'mesh.1.bin' } }] })
+    expect(readdirSync(join(scansDir(), 'S1'))).toEqual(['mesh.1.bin'])
+    expect((await scans.mesh('bracket', 'S1')).byteLength).toBe(64 + 96 + 144)
+  })
+
+  it('says when the source is another file than the one that was read, and has its alignments looked at again', async () => {
+    const other: Importer = { ...importer, import: async (from, out, opts, onStage) => ({ ...(await importer.import(from, out, opts, onStage)), triangles: 14, source: { bytes: 684, sha256: 'cd'.repeat(32) } }) }
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })
+    await scans.align('bracket', 'S1', 'assembly', ALIGNED)
+    await scans.checked('bracket', 'S1', 'assembly', { revision: 3, of: 4, off: 0, worst: 0.1, moved: [] })
+    scans.forget()
+    const later = store(other)
+    await later.list('bracket')
+    await later.checked('bracket', 'S1', 'assembly', { revision: 3, of: 4, off: 0, worst: 0.1, moved: [] })
+    const again = await later.reimport('bracket', 'S1')
+    expect(again).toMatchObject({ sourceChanged: true, meshChanged: true, scan: { id: 'S1', source: { sha256: 'cd'.repeat(32) }, imported: { unit: 'cm', triangles: 14, mesh: 'mesh.2.bin', assumed: { unit: false, up: false } }, checks: {} } })
+    expect(Object.keys(again.scan.alignments)).toEqual(['assembly'])
+    expect(ran.at(-1)!.args[2]).toEqual({ unit: 'cm', up: 'z' })
+    expect(readdirSync(join(scansDir(), 'S1'))).toEqual(['mesh.2.bin'])
+  })
+
+  it('imports nothing again without the source, and leaves the scan as it was when the import fails', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const before = { record: file(), mesh: readFileSync(join(scansDir(), 'S1', 'mesh.bin')) }
+    fails = 'Box.STL could not be read: bad header'
+    await expect(scans.reimport('bracket', 'S1')).rejects.toThrow('Box.STL could not be read: bad header')
+    fails = null
+    expect(file()).toEqual(before.record)
+    expect(readdirSync(join(scansDir(), 'S1'))).toEqual(['mesh.bin'])
+    expect(readFileSync(join(scansDir(), 'S1', 'mesh.bin')).equals(before.mesh)).toBe(true)
+    await expect(scans.reimport('bracket', 'S9')).rejects.toThrow('no scan S9; scans: S1')
+    rmSync(source)
+    const runs = ran.length
+    await expect(scans.reimport('bracket', 'S1')).rejects.toThrow(`S1 cannot be imported again: its source ${source} is missing`)
+    expect(ran).toHaveLength(runs)
+  })
+
+  // M10
+  it('has a change on the disk before it tells it', async () => {
+    const scans = store()
+    const onDisk: string[] = []
+    scans.on('changed', (m) => onDisk.push(`${m.scans.map((s) => s.name).join()} / ${file().scans.map((s) => s.name).join()}`))
+    await scans.import('bracket', source)
+    await scans.rename('bracket', 'S1', 'engine bay')
+    await scans.remove('bracket', 'S1')
+    expect(onDisk).toEqual(['Box.STL / Box.STL', 'engine bay / engine bay', ' / '])
+  })
+})
+
+// M6
+describe('what a scans file keeps', () => {
+  const scan = (): Scan => ({
+    id: 'S1',
+    name: 'Box.STL',
+    source: { path: '/dl/Box.STL', bytes: 684, mtimeMs: 1, sha256: 'ab'.repeat(32) },
+    imported: { unit: 'mm', up: 'z', assumed: { unit: true, up: true }, vertices: 8, triangles: 12, colours: 'none', bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, area: 3100, at: '2026-10-10T09:00:00.000Z' },
+    alignments: {}
+  })
+
+  it('is a scan whose numbers can be what they say, in a file named as torno names a mesh', () => {
+    expect(sanitiseScan(scan())).toEqual(scan())
+    expect(sanitiseScan({ ...scan(), source: { ...scan().source, sha256: 'not a hash' } })).toBeNull()
+    expect(sanitiseScan({ ...scan(), imported: { ...scan().imported, area: -1 } })).toBeNull()
+    expect(sanitiseScan({ ...scan(), imported: { ...scan().imported, bbox: { min: [0, 0, 1], max: [1, 1, 0] } } })).toBeNull()
+    expect(sanitiseScan({ ...scan(), imported: { ...scan().imported, mesh: 'mesh.3.bin' } })?.imported.mesh).toBe('mesh.3.bin')
+    expect(sanitiseScan({ ...scan(), imported: { ...scan().imported, mesh: 'mesh.bin' } })?.imported).not.toHaveProperty('mesh')
+    expect(sanitiseScan({ ...scan(), imported: { ...scan().imported, mesh: '../S2/mesh.bin' } })).toBeNull()
+  })
+
+  it('is an alignment no longer, no further and no wordier than one can be', () => {
+    const steps = Array.from({ length: 20 }, (_, n) => (n < 19 ? 'nudge' : 'typed'))
+    const long = 'p'.repeat(500)
+    const kept = sanitiseAlignment({ ...ALIGNED, steps, pairs: [{ scan: [0, 0, 0], model: [1, 1, 1], part: long, residual: 0 }], floor: { part: long, point: [0, 0, 0] } })!
+    expect(kept.steps).toEqual([...Array.from({ length: 7 }, () => 'nudge'), 'typed'])
+    expect(kept.pairs![0]).not.toHaveProperty('part')
+    expect(kept.floor).toEqual({ point: [0, 0, 0] })
+    expect(sanitiseAlignment({ ...ALIGNED, transform: { ...ALIGNED.transform, t: [0, 2e9, 0] } })).toBeNull()
   })
 })
 

@@ -202,7 +202,7 @@ export class ScanLayer {
  */
 export function meshOf(info: ScanInfo): string {
   const { at, unit, up, vertices, triangles } = info.imported
-  return [at, unit, up, vertices, triangles, (info.imported as { mesh?: unknown }).mesh ?? ''].join('|')
+  return [at, unit, up, vertices, triangles, info.imported.mesh ?? ''].join('|')
 }
 
 /** Any CSS colour as #RRGGBB. */

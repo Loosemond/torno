@@ -101,7 +101,12 @@ test('opacity and the eye are kept in scene.json as the person set them, and are
   await row('S1').getByRole('button', { name: 'Show S1' }).click()
   await expect.poll(async () => (await scans())[0].visible).toBe(false)
   expect((await picture({ view: 'iso', size: 256 })).caption).not.toContain('scans')
-  await expect.poll(() => JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scene.json'), 'utf8')).scans).toEqual({ S1: { visible: false, opacity: 0.6 } })
+  // The file is written half a second after the last change: until then there may be none.
+  const saved = (): unknown => {
+    const path = join(root, 'bracket', '.torno', 'scene.json')
+    return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')).scans : undefined
+  }
+  await expect.poll(saved).toEqual({ S1: { visible: false, opacity: 0.6 } })
   await app.close()
   app = await launch({ TORNO_WORKSPACE: root })
   page = await app.firstWindow()

@@ -152,7 +152,10 @@ test('what cannot be done is refused in plain words', async () => {
   mkdirSync(join(downloads, 'more'))
   const cloud = join(downloads, 'more', 'cloud.ply')
   writeFileSync(cloud, 'ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nend_header\n0 0 0\n1 0 0\n0 1 0\n')
-  expect(await rejection('unreadable', cloud)).toContain('cloud.ply')
+  const unreadable = await rejection('unreadable', cloud)
+  expect(unreadable).toContain('cloud.ply')
+  // In the process's own words: it ran, and answered.
+  expect(unreadable).not.toMatch(/could not be started|without an answer/)
   // Its id is not given again, and nothing of it is left.
   expect(scansOnDisk()).toMatchObject({ next: 3, scans: [{ id: 'S1' }] })
   expect(readdirSync(scansFolder()).sort()).toEqual(['.gitignore', 'S1'])
@@ -176,7 +179,39 @@ test('an alignment is kept with how the layout was spread, and dropped when the 
   const converted: ScanInfo = await page.evaluate(() => window.torno.scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' }))
   expect(converted).toMatchObject({ imported: { unit: 'cm', up: 'z', assumed: { unit: false, up: false }, triangles: 12, bbox: { min: [-200, -150, -25], max: [200, 150, 25] } }, alignments: {} })
   expect(scansOnDisk().scans[0].alignments).toEqual({})
-  expect(readdirSync(join(scansFolder(), 'S1'))).toEqual(['mesh.bin'])
+  // The mesh that was converted is another file, which the record names; the one it was made from is gone.
+  expect(converted.imported.mesh).toBe('mesh.1.bin')
+  expect(readdirSync(join(scansFolder(), 'S1'))).toEqual(['mesh.1.bin'])
+  const bytes = await page.evaluate(async () => (await window.torno.scans.mesh('bracket', 'S1')).byteLength)
+  expect(bytes).toBe(64 + 8 * 12 + 12 * 12)
+  expect(readFileSync(join(scansFolder(), '.gitignore'), 'utf8')).toBe('mesh*.bin\n')
+})
+
+test('a scan whose mesh is not there is read again from its source, into the same scan', async () => {
+  test.setTimeout(120_000)
+  // As in a clone: the record is committed, the mesh is not.
+  rmSync(join(scansFolder(), 'S1'), { recursive: true })
+  expect((await page.evaluate(() => window.torno.scans.list('bracket')))[0].meshState).toBe('missing')
+  const again = await page.evaluate(() => window.torno.scans.reimport('bracket', 'S1'))
+  expect(again).toMatchObject({ sourceChanged: false, meshChanged: false, scan: { id: 'S1', meshState: 'ok', imported: { unit: 'cm', mesh: 'mesh.2.bin', bbox: { max: [200, 150, 25] } } } })
+  expect(readdirSync(join(scansFolder(), 'S1'))).toEqual(['mesh.2.bin'])
+  expect(scansOnDisk()).toMatchObject({ next: 3, scans: [{ id: 'S1' }] })
+})
+
+test('a scans file that cannot be read is said to the window, until it is dismissed there', async () => {
+  // In an object that is not open yet: its scans are first read when it is.
+  mkdirSync(join(root, 'hollow', '.torno'), { recursive: true })
+  writeFileSync(join(root, 'hollow', '.torno', 'scans.json'), '{"next": 4, "scans": [')
+  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  const problem = page.locator('[data-part="problem"]')
+  await expect(problem).toContainText('The scans file of this object could not be read')
+  await expect(problem).toContainText('still in .torno/scans/')
+  expect(await page.evaluate(() => window.torno.scans.problem('hollow'))).toContain('scans.json.corrupt-')
+  await problem.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(problem).toHaveCount(0)
+  expect(await page.evaluate(() => window.torno.scans.problem('hollow'))).toBeNull()
+  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await expect.poll(async () => (await state()).objectId).toBe('bracket')
 })
 
 test('a scan that is removed leaves its source, and its number is not given again', async () => {

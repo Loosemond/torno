@@ -63,13 +63,17 @@ const bridge: TornoBridge = {
     pick: () => invokePlain('scans:pick'),
     pathOf: (file) => webUtils.getPathForFile(file),
     import: (objectId, path) => invokePlain('scans:import', objectId, path),
+    reimport: (objectId, id) => invokePlain('scans:reimport', objectId, id),
     convert: (objectId, id, as) => invokePlain('scans:convert', objectId, id, as),
     rename: (objectId, id, name) => invokePlain('scans:rename', objectId, id, name),
     remove: (objectId, id) => invokePlain('scans:remove', objectId, id),
     align: (objectId, id, layout, alignment) => invokePlain('scans:align', objectId, id, layout, alignment),
     mesh: (objectId, id) => invokePlain('scans:mesh', objectId, id),
     onChanged: (cb) => subscribe('scans:changed', cb),
-    onProgress: (cb) => subscribe('scans:progress', cb)
+    onProgress: (cb) => subscribe('scans:progress', cb),
+    onProblem: (cb) => subscribe('scans:problem', cb),
+    problem: (objectId) => invokePlain('scans:problem', objectId),
+    dismissProblem: (objectId) => invokePlain('scans:dismissProblem', objectId)
   },
   geometry: {
     describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref)

@@ -85,6 +85,9 @@ async function openObject(id: string): Promise<void> {
       (scans) => actions.setScans({ objectId: id, scans }),
       () => {} // an object with no folder yet has no scans
     )
+    // As for the marks: what main found wrong with the scans file is told once, and this window may not have been listening.
+    const scansProblem = await window.torno.scans.problem(id).catch(() => null)
+    if (scansProblem !== null) actions.setScansProblem({ objectId: id, message: scansProblem })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     actions.applyBuild({ objectId: id, status: 'failed', revision: 0, stale: false, error: { kind: 'open', message } })
@@ -106,6 +109,7 @@ function useMain(): void {
     const offMarksProblem = window.torno.marks.onProblem(actions.setMarksProblem)
     const offScans = window.torno.scans.onChanged(actions.setScans)
     const offImporting = window.torno.scans.onProgress(actions.setImporting)
+    const offScansProblem = window.torno.scans.onProblem(actions.setScansProblem)
     // Whatever the window shows, even nothing: a picture asked for is answered, or said at once to be none.
     const offLook = connectLook()
 
@@ -141,6 +145,7 @@ function useMain(): void {
       offMarksProblem()
       offScans()
       offImporting()
+      offScansProblem()
       offLook()
       offStore()
       window.removeEventListener('pagehide', flush)

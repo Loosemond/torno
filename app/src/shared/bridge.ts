@@ -2,7 +2,7 @@ import type { BuildState } from './build'
 import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark, Replacement } from './marks'
 import type { Scene } from './scene'
-import type { NewAlignment, ScanInfo, ScanUnit, ScanUp } from './scans'
+import type { NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } from './scans'
 import type { SceneFile } from './scenefile'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
@@ -61,6 +61,8 @@ export interface TornoBridge {
     pathOf(file: File): string
     /** Has the file read by the import process, which takes seconds: `onProgress` says where it stands. The file itself is never changed. */
     import(objectId: string, path: string): Promise<ScanInfo>
+    /** Reads the scan's source again into the same scan: its id, its name and its alignments stay. Rejects when the source is missing. Told by `onProgress` as an import is. */
+    reimport(objectId: string, id: string): Promise<Reimported>
     /** The scan as if its source had been read with this unit and up axis. Its alignments are dropped when either changes. */
     convert(objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }): Promise<ScanInfo>
     rename(objectId: string, id: string, name: string): Promise<ScanInfo>
@@ -71,6 +73,11 @@ export interface TornoBridge {
     mesh(objectId: string, id: string): Promise<ArrayBuffer>
     onChanged(cb: (m: { objectId: string; scans: ScanInfo[] }) => void): () => void
     onProgress(cb: (m: { objectId: string; name: string; stage: string | null }) => void): () => void
+    /** Something about an object's scans file the person should know, said once: a file that could not be read was set aside. */
+    onProblem(cb: (m: { objectId: string; message: string }) => void): () => void
+    /** What `onProblem` last said of an object, for a window that was not listening then; null when nothing, or once dismissed. */
+    problem(objectId: string): Promise<string | null>
+    dismissProblem(objectId: string): Promise<void>
   }
   geometry: {
     describe(objectId: string, layout: string, ref: string): Promise<Described>   // rejects with a plain message

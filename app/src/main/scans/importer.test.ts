@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { scanCommand } from '../kernel/client'
-import { processImporter, replyOf } from './importer'
+import { commandIn, processImporter, replyOf } from './importer'
 
 describe('the import process', () => {
   it('is the kernel package with its scans extra, in the environment of the workspace and never synced', () => {
@@ -75,5 +75,48 @@ describe('the import process', () => {
 
   it('says that the command could not be run at all', async () => {
     await expect(processImporter(() => ['torno-no-such-command'], process.cwd()).import('/a.stl', '/out.bin', {})).rejects.toThrow('the import could not be started: could not run torno-no-such-command')
+  })
+
+  // What the review found (task-2-review.md).
+
+  // I3
+  it('runs nothing more once it was stopped: whoever stopped it has left', async () => {
+    const started: string[] = []
+    const one = processImporter((args) => (started.push(args[0]), ['node', '-e', "console.log(JSON.stringify({ ok: true, unit: 'mm' }))"]), process.cwd())
+    await one.import('/a.stl', '/out.bin', {})
+    one.stop()
+    await expect(one.import('/a.stl', '/out.bin', {})).rejects.toThrow('the workspace was closed')
+    await expect(one.convert('/m.bin', { unit: 'mm', up: 'z' }, { unit: 'm', up: 'z' })).rejects.toThrow('the workspace was closed')
+    expect(started).toEqual(['import'])
+  })
+
+  // M1
+  it('asks whether the workspace may run a process as each one is started', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'torno-importer-'))
+    try {
+      let hasProject = false
+      const command = commandIn(dir, () => hasProject, '/torno/kernel')
+      expect(command(['import', '/a.stl'])).toEqual(scanCommand({ workspaceRoot: dir, hasProject: false, kernelDir: '/torno/kernel' }, ['import', '/a.stl']))
+      // A pyproject.toml appeared while an import waited: with no .venv, uv would make one.
+      hasProject = true
+      expect(() => command(['import', '/a.stl'])).toThrow('no .venv')
+      await expect(processImporter(command, dir).import('/a.stl', '/out.bin', {})).rejects.toThrow('no .venv')
+      mkdirSync(join(dir, '.venv'))
+      expect(command(['import', '/a.stl'])).toEqual(scanCommand({ workspaceRoot: dir, hasProject: true, kernelDir: '/torno/kernel' }, ['import', '/a.stl']))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  // M3
+  it('reads its answer after any amount of other output', async () => {
+    const script = "const line = 'x'.repeat(1023) + '\\n'; for (let n = 0; n < 300; n++) { process.stdout.write(line); process.stderr.write(line) } process.stderr.write('y'.repeat(300000)); console.log(JSON.stringify({ ok: true, unit: 'mm', triangles: 12 }))"
+    expect(await processImporter(() => ['node', '-e', script], process.cwd()).import('/a.stl', '/out.bin', {})).toMatchObject({ unit: 'mm', triangles: 12 })
+  })
+
+  // M4
+  it('says which signal ended a process that gave no answer', async () => {
+    expect(() => replyOf('', null, '', 'SIGKILL')).toThrow('the import process ended without an answer: it was ended by SIGKILL')
+    await expect(processImporter(() => ['node', '-e', "process.kill(process.pid, 'SIGKILL')"], process.cwd()).import('/a.stl', '/out.bin', {})).rejects.toThrow('it was ended by SIGKILL')
   })
 })

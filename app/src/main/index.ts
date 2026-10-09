@@ -7,7 +7,7 @@ import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
 import { buildState, closeWorkspace, findObject, lastScene, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, placedMark, queryObject, registerIpc } from './ipc'
-import { cannotStart, scanCommand } from './kernel/client'
+import { cannotStart } from './kernel/client'
 import { latestView, requestHighlight, requestLook, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
@@ -18,7 +18,7 @@ import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { SYSTEM_PROMPT } from './prompt'
 import { quitGate } from './quit'
-import { type Importer, processImporter } from './scans/importer'
+import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
 import { sceneFilesSettled } from './scenefile'
 import { claudeAdapter } from './sessions/claude'
@@ -153,13 +153,16 @@ const scans = new ScanStore({
     const reason = cannotStart({ workspaceRoot: ws.root, hasProject: ws.hasProject })
     if (reason !== null) return reason
     const root = ws.root
-    // Whether it has a project is asked as each process is started: a pyproject.toml may appear while the workspace is open.
-    const command = (args: string[]): string[] => scanCommand({ workspaceRoot: root, hasProject: openWorkspaceInfo()?.hasProject ?? ws.hasProject, kernelDir: kernelDir() }, args)
-    if (importer?.root !== root) importer = { root, run: processImporter(command, root) }
+    // Whether it has a project, and so whether a process may run there, is asked again as each is started (`commandIn`):
+    // a pyproject.toml may appear while an import waits. Of this workspace only: once it is left, its importer is stopped for good.
+    const hasProject = (): boolean => {
+      const now = openWorkspaceInfo()
+      return now?.root === root ? now.hasProject : ws.hasProject
+    }
+    if (importer?.root !== root) importer = { root, run: processImporter(commandIn(root, hasProject, kernelDir()), root) }
     return importer.run
   }
 })
-scans.on('problem', ({ objectId, message }) => console.error(`${objectId}: ${message}`))
 
 /** The window, which is what the agent's tools ask for pictures and ask to show things. */
 function theWindow(): Promise<BrowserWindow> {
@@ -276,7 +279,7 @@ void app.whenReady().then(async () => {
     // What was waiting to be written was of objects of the workspace that is left.
     onWorkspaceClosed: () => {
       stateFiles.forget()
-      // An import still running there is ended: its scan is not kept, and its id not given again.
+      // An import still running there is ended, and its importer with it: its scan is not kept, and its id not given again.
       importer?.run.stop()
       importer = null
     },

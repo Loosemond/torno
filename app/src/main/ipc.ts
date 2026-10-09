@@ -30,12 +30,13 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           session:current, session:start, session:stop,
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe,
-//           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh
+//           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
+//           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
-//           marks:changed, marks:problem, scans:changed, scans:progress
+//           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the newest scan that has ended
@@ -395,6 +396,7 @@ export function registerIpc(
   scans = opts.scans ?? null
   scans?.on('changed', (m) => broadcast('scans:changed', m))
   scans?.on('progress', (m) => broadcast('scans:progress', m))
+  scans?.on('problem', (m) => broadcast('scans:problem', m))
   const requireScans = (): ScanStore => {
     if (!scans) throw new Error('scans are not available')
     return scans
@@ -410,9 +412,12 @@ export function registerIpc(
     return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
   })
   ipcMain.handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
+  ipcMain.handle('scans:reimport', (_event, objectId: string, id: string) => requireScans().reimport(String(objectId), String(id)))
   ipcMain.handle('scans:convert', (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) => requireScans().convert(String(objectId), String(id), as))
   ipcMain.handle('scans:rename', (_event, objectId: string, id: string, name: string) => requireScans().rename(String(objectId), String(id), name))
   ipcMain.handle('scans:remove', (_event, objectId: string, id: string) => requireScans().remove(String(objectId), String(id)))
+  ipcMain.handle('scans:problem', (_event, objectId: string) => requireScans().problem(String(objectId)))
+  ipcMain.handle('scans:dismissProblem', (_event, objectId: string) => requireScans().dismissProblem(String(objectId)))
   // What only main says of an alignment is said here: how the parts of that layout are spread on the last build, and when.
   ipcMain.handle('scans:align', (_event, objectId: string, id: string, layout: string, alignment: NewAlignment | null) => {
     if (alignment === null || alignment === undefined) return requireScans().align(String(objectId), String(id), layout, null)
