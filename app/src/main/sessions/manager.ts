@@ -343,7 +343,7 @@ export function killGroup(pid: number, kill: (target: number, signal: string) =>
 }
 
 /** torno's own switches (src/main/index.ts, e2e/): they mean nothing to the agent, or mislead what it starts. */
-const OWN_VARIABLES = new Set(['TORNO_TEST', 'TORNO_AGENT_CMD', 'TORNO_CONFIG', 'TORNO_WORKSPACE', 'TORNO_DEBUG', 'TORNO_SHOTS', 'TORNO_BUILD_TIMEOUT'])
+const OWN_VARIABLES = new Set(['TORNO_TEST', 'TORNO_AGENT_CMD', 'TORNO_CONFIG', 'TORNO_WORKSPACE', 'TORNO_DEBUG', 'TORNO_SHOTS', 'TORNO_BUILD_TIMEOUT', 'TORNO_KEEP_BUILDS'])
 
 /**
  * What a Claude Code session exports to the processes it starts. Only these:

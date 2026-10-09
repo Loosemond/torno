@@ -1399,6 +1399,8 @@ def memory(routed, monkeypatch, available, rss):
     """
     from torno_kernel import supervisor
 
+    # The suite keeps builds whatever memory there is (conftest): these tests are of the policy itself.
+    monkeypatch.delenv("TORNO_KEEP_BUILDS", raising=False)
     sup = routed.supervisor
     alive = lambda: [w.pid for w in sup._live.values()]  # noqa: E731
     monkeypatch.setattr(supervisor, "_available", lambda: available(alive()))
@@ -1450,6 +1452,23 @@ def test_a_build_with_memory_short_lets_the_folders_own_build_go_and_says_so(rou
     routed.request(id="after", op="query", dir="/object", name="describe", args={})
     sup._step()
     assert routed.sent() == [] and [id for id, _ in building.queries] == ["after"]
+
+
+def test_no_build_is_let_go_for_memory_when_torno_keep_builds_is_set(routed, monkeypatch):
+    # The switch of the test suites: a machine short of memory must not change what they see. Never set in use.
+    sup = routed.supervisor
+    live, _ = routed.worker("/object")
+    other, _ = routed.worker("/other")
+    sup._live["/other"] = other
+    sup._live["/object"] = live
+    forked = memory(routed, monkeypatch, lambda pids: 1 * GIB, {live.pid: 11 * GIB, other.pid: 11 * GIB})
+    monkeypatch.setenv("TORNO_KEEP_BUILDS", "1")
+    routed.request(id="build", op="build", dir="/object", model="m.py")
+    sup._step()
+    [(building, _)] = forked
+    assert routed.sent() == [{"id": "build", "event": "build.started", "pid": building.pid, "retired": []}]
+    assert not gone(live.pid) and not gone(other.pid)
+    assert list(sup._live) == ["/other", "/object"] and sup._let_go == set()
 
 
 def test_a_build_with_memory_short_lets_other_folders_go_first_the_least_recently_used_first(routed, monkeypatch):

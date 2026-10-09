@@ -440,6 +440,8 @@ describe('a session', () => {
       TORNO_DEBUG: '1',
       TORNO_SHOTS: '/x',
       TORNO_BUILD_TIMEOUT: '900',
+      // The suites' own switch for the kernel: an agent's kernel, were it to start one, lets builds go as ever.
+      TORNO_KEEP_BUILDS: '1',
       // What a Claude Code session exports to what it starts.
       CLAUDECODE: '1',
       CLAUDE_CODE_CHILD_SESSION: '1',

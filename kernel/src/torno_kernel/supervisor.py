@@ -339,7 +339,13 @@ class Supervisor:
         shares nothing with the one before it. The other folders' workers go
         first, the least recently used first, then the folder's own. Nothing
         goes when memory cannot be read. Files of /proc are read, no more.
+
+        Nor does anything go with ``TORNO_KEEP_BUILDS=1`` in the environment:
+        the switch of torno's own test suites, whose builds must not depend on
+        how much memory the machine has free. Nothing sets it in use.
         """
+        if os.environ.get("TORNO_KEEP_BUILDS") == "1":
+            return []
         available = _available()
         own = self._live.get(dir)
         held = _rss(own.pid) if own else 0

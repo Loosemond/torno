@@ -1,6 +1,11 @@
+import os
 from pathlib import Path
 
 import pytest
+
+# No test's kernel lets a build go for want of memory, however little the machine has free: what a test sees
+# must not depend on it. The tests of that policy take the variable away (`memory` in test_supervisor.py).
+os.environ.setdefault("TORNO_KEEP_BUILDS", "1")
 
 
 @pytest.fixture
