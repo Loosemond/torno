@@ -19,6 +19,13 @@
   --warn: #B7791F;
   --fail: #CF3F2C;
 
+  /* The three axes, on the gizmo and beside the numbers it changes: the usual
+     red, green and blue, toned to sit with the part palette and kept clear of
+     the two mark colours. */
+  --axis-x: #9A3350;
+  --axis-y: #4C7F2C;
+  --axis-z: #2E5FA9;
+
   /* Part palette, assigned in order */
   --part-1: #7B93B4;
   --part-2: #C28B6C;
@@ -90,6 +97,9 @@
     --ok: #5CC492;
     --warn: #E0A94A;
     --fail: #F0705E;
+    --axis-x: #E886B0;
+    --axis-y: #9CC56C;
+    --axis-z: #82A6EA;
     --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
 
     --ansi-black: #15171A;

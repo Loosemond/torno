@@ -104,6 +104,11 @@ button {
   touch-action: none;
 }
 
+/* On a handle of a shape's gizmo, whichever tool is in hand. */
+.viewport-canvas canvas[data-gizmo-axis] {
+  cursor: grab !important;
+}
+
 /* The numbers of the marks, drawn over the 3D view; the pointer goes through to it. */
 .viewport-canvas .mark-labels {
   pointer-events: none;
@@ -847,6 +852,153 @@ button {
   background: var(--panel);
 }
 
+/* ---- A shape's numbers: its row, opened out while it is the active mark ---- */
+
+.mark-row[data-expanded] {
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: auto;
+  padding-top: 4px;
+}
+
+/* What can be done with the mark stays on its first line. */
+.mark-row[data-expanded] .mark-actions {
+  bottom: auto;
+  height: 30px;
+}
+
+.shape-fields {
+  flex: none;
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 0 12px;
+  font-size: var(--text-small);
+}
+
+/* A row of choices of which one holds: what the shape is for, what a drag does. */
+.segmented {
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+}
+
+.segmented button {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 21px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.segmented button:hover {
+  color: var(--ink);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.segmented kbd {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.shape-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.shape-group legend {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 3px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.shape-group legend .num {
+  font-size: 11px;
+}
+
+/* One number: the sign of what it is (an axis, a diameter) and the number itself, set to the right like a column of figures. */
+.shape-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: var(--divider);
+  border-radius: 4px;
+  background: var(--panel);
+  cursor: text;
+}
+
+.shape-field:focus-within {
+  border-color: var(--accent);
+}
+
+.shape-sign {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* The same three colours as the handles of the gizmo: this number is that arrow. */
+.shape-field[data-axis='x'] .shape-sign {
+  color: var(--axis-x);
+}
+
+.shape-field[data-axis='y'] .shape-sign {
+  color: var(--axis-y);
+}
+
+.shape-field[data-axis='z'] .shape-sign {
+  color: var(--axis-z);
+}
+
+.shape-field input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  height: 100%;
+  padding: 0 0 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-small);
+  text-align: right;
+}
+
+.shape-field input:focus-visible {
+  outline: none;
+}
+
+.shape-drag {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
 .marks-problem {
   margin: 0;
   padding: 0 var(--space-4) var(--space-2);
@@ -1084,6 +1236,34 @@ button {
   border-radius: 7px;
   background: transparent;
   color: var(--ink);
+}
+
+/* The Shape tool and, beside it while it is open, the choice of which shape it places. */
+.tool-with-choice {
+  position: relative;
+  display: grid;
+}
+
+.tool-choice {
+  position: absolute;
+  top: -4px;
+  left: calc(100% + 10px);
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.tool-choice .tool-button svg {
+  transform: none;
+}
+
+.tool-choice .tool-button[aria-checked='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
 }
 
 .tool-button svg {

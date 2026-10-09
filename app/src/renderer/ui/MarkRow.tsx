@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Mark, MarkKind, MarkPatch } from '../../shared/marks'
 import { actions } from '../state/store'
 import { labelText } from '../viewport/marks/labels'
-import { ICONS } from './ToolPalette'
+import { ShapeFields } from './ShapeFields'
+import { ICONS, SHAPE_ICONS } from './ToolPalette'
 
 /** The longest note a mark keeps (main cuts there); the field stops at it, so nothing is cut unseen. */
 export const MAX_NOTE = 2000
@@ -20,8 +21,10 @@ export const ANCHOR_BADGE = { drifted: 'moved: check it', orphaned: 'its part is
 /**
  * One mark in the panel: its number, what kind it is, its note (click to
  * write it), whether the last build moved the surface it is on or dropped its
- * part, whether the agent has been sent it, and what can be done with it.
- * `change` and `remove` are the panel's, which says so when main refuses.
+ * part, whether the agent has been sent it, and what can be done with it. A
+ * shape that is the active mark opens out below into its numbers
+ * (`ShapeFields`). `change` and `remove` are the panel's, which says so when
+ * main refuses.
  */
 export function MarkRow({
   mark,
@@ -34,7 +37,8 @@ export function MarkRow({
   active: boolean
   /** The mark is of a layout that is not the one shown. */
   elsewhere: boolean
-  change: (patch: MarkPatch) => void
+  /** Resolves when main has made the change; rejects when it refuses. */
+  change: (patch: MarkPatch) => Promise<unknown>
   remove: () => void
 }) {
   // The note as it is being written; null while it is only shown.
@@ -50,9 +54,11 @@ export function MarkRow({
 
   const save = () => {
     if (draft === null) return
-    if (draft !== mark.note) change({ note: draft })
+    if (draft !== mark.note) void change({ note: draft }).catch(() => {})
     setDraft(null)
   }
+  // A shape is edited where it can be seen: in its own layout, while it is the one being worked on.
+  const fields = mark.kind === 'shape' && active && !resolved && !elsewhere
 
   const what = [KIND_NAME[mark.kind], mark.kind === 'shape' ? `${mark.shape}, ${mark.intent}` : '', elsewhere ? `in layout ${mark.layout}` : ''].filter(Boolean).join(' · ')
 
@@ -64,6 +70,7 @@ export function MarkRow({
       data-status={mark.status}
       data-active={active ? '' : undefined}
       data-elsewhere={elsewhere ? '' : undefined}
+      data-expanded={fields ? '' : undefined}
       aria-current={active ? 'true' : undefined}
       onClick={() => actions.focusMark(mark.id)}
     >
@@ -71,7 +78,7 @@ export function MarkRow({
         {label}
       </span>
       <span className="mark-kind" title={what} aria-label={what} role="img">
-        {KIND_ICON[mark.kind]}
+        {mark.kind === 'shape' ? SHAPE_ICONS[mark.shape] : KIND_ICON[mark.kind]}
       </span>
       {draft === null ? (
         <button
@@ -125,11 +132,11 @@ export function MarkRow({
           <FocusIcon />
         </button>
         {resolved ? (
-          <button type="button" className="icon-button" aria-label={`Reopen ${mark.id}`} title="Reopen as a draft" onClick={() => change({ status: 'draft' })}>
+          <button type="button" className="icon-button" aria-label={`Reopen ${mark.id}`} title="Reopen as a draft" onClick={() => void change({ status: 'draft' }).catch(() => {})}>
             <ReopenIcon />
           </button>
         ) : (
-          <button type="button" className="icon-button" aria-label={`Resolve ${mark.id}`} title="Resolve" onClick={() => change({ status: 'resolved' })}>
+          <button type="button" className="icon-button" aria-label={`Resolve ${mark.id}`} title="Resolve" onClick={() => void change({ status: 'resolved' }).catch(() => {})}>
             <CheckIcon />
           </button>
         )}
@@ -137,6 +144,7 @@ export function MarkRow({
           <BinIcon />
         </button>
       </span>
+      {fields && <ShapeFields mark={mark} change={change} />}
     </li>
   )
 }

@@ -10,6 +10,7 @@ import { drawTool } from '../tools/drawTool'
 import { commitMark } from '../tools/pickMarks'
 import { pinTool } from '../tools/pinTool'
 import { selectTool } from '../tools/selectTool'
+import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
 import { Readout } from '../viewport/highlight'
 import { Viewport } from '../viewport/Viewport'
@@ -104,7 +105,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // The one pointer subscription: every event goes to the tool in use, and to
   // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
-  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool() }
+  const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool() }
   let tool = tools[toolStore.getState().tool]
   const putDown = () => {
     tool?.cancel(context())
@@ -136,6 +137,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   viewport.setMarks(store.getState().marks)
   viewport.setActiveMark(store.getState().activeMark)
+  // The gizmo on the active mark while it is a shape, and the keys that say what it does.
+  const offShape = connectShapeEdit(viewport)
 
   const offStore = store.subscribe((s, prev) => {
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
@@ -201,6 +204,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offTool()
     offScene()
     offStore()
+    offShape()
     offLook()
     offAgent()
     delete window.__tornoTest

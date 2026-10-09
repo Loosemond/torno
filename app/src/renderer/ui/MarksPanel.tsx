@@ -39,7 +39,11 @@ export function MarksPanel() {
       mark={mark}
       active={mark.id === active}
       elsewhere={mark.layout !== layout}
-      change={(patch: MarkPatch) => done(window.torno.marks.update(objectId, mark.id, patch))}
+      change={(patch: MarkPatch) => {
+        const call = window.torno.marks.update(objectId, mark.id, patch)
+        done(call)
+        return call
+      }}
       remove={() => done(window.torno.marks.remove(objectId, mark.id))}
     />
   )

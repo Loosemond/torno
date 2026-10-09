@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Mark, Vec3 } from '../../../shared/marks'
+import type { Mark, ShapeMark, Vec3 } from '../../../shared/marks'
 import { mmPerPx, place, project, type Placed, type Size } from './labels'
 import { build, dispose, markPoints, rescale, setActive, type MarkColours } from './markObjects'
 
@@ -88,17 +88,33 @@ export class MarkLayer {
         continue
       }
       if (entry) this.drop(entry)
-      entry = { mark, drawnAs, object: build(mark, this.colours, 1) }
-      entry.object.visible = mark.layout === this.layout
-      setActive(entry.object, mark.id === this.active)
-      this.entries.set(mark.id, entry)
-      this.group.add(entry.object)
+      this.draw(mark, drawnAs)
     }
     for (const [id, entry] of this.entries) {
       if (seen.has(id)) continue
       this.drop(entry)
       this.entries.delete(id)
     }
+  }
+
+  /**
+   * A shape as a drag of the gizmo has it for now: drawn so, and taken for the
+   * mark (its label follows) until `setMarks` says what main made of it.
+   */
+  preview(id: string, shape: Pick<ShapeMark, 'position' | 'rotation' | 'size'>): void {
+    const entry = this.entries.get(id)
+    if (entry?.mark.kind !== 'shape') return
+    this.drop(entry)
+    const mark: ShapeMark = { ...entry.mark, ...shape }
+    this.draw(mark, drawnAsOf(mark))
+  }
+
+  private draw(mark: Mark, drawnAs: string): void {
+    const entry = { mark, drawnAs, object: build(mark, this.colours, 1) }
+    entry.object.visible = mark.layout === this.layout
+    setActive(entry.object, mark.id === this.active)
+    this.entries.set(mark.id, entry)
+    this.group.add(entry.object)
   }
 
   /** Shows the marks of one layout and no others; null for none. */
