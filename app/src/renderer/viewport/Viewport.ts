@@ -212,7 +212,7 @@ export class Viewport {
       aspect: () => this.aspect,
       parts: () => this.entries.values(),
       currentView: () => this.getCamera(),
-      namedView: (name, parts, aspect) => this.namedCamera(name, boxOf(parts) ?? EMPTY_BOX, aspect, true),
+      namedView: (name, parts, aspect, also) => this.namedCamera(name, withBox(boxOf(parts), also ?? null) ?? EMPTY_BOX, aspect, true),
       cameraFor: (view, aspect, extent) => this.pictureCamera(view, aspect, extent),
       hiddenParts: (layout, drawn) => this.hiddenParts(layout, drawn),
       hideGizmo: () => this.gizmo.hide(),
@@ -514,6 +514,21 @@ export class Viewport {
     const dir = c.target.map((t, i) => t - c.position[i])
     this.move.drop()
     this.applyCamera(fitCamera(this.visibleBox(), dir, c.up, this.aspect, this.fov, c.ortho))
+  }
+
+  /**
+   * Frames a scan with the visible parts, without turning the camera: "Frame" on a scan's row. The views and
+   * `fit` frame the parts, which lie somewhere inside a scan of their surroundings; this is how the scan is
+   * found. False when the scan is not drawn (its mesh has not come, or it is switched off).
+   */
+  frameScan(id: string): boolean {
+    const box = this.scans.state().find((scan) => scan.id === id)?.visible ? this.scans.boxIn([id], this.layout) : null
+    if (!box) return false
+    const c = this.getCamera()
+    const dir = c.target.map((t, i) => t - c.position[i])
+    this.move.drop()
+    this.applyCamera(fitCamera(withBox(this.visibleBox(), box)!, dir, c.up, this.aspect, this.fov, c.ortho))
+    return true
   }
 
   /**
@@ -1069,6 +1084,13 @@ function setProjection(camera: AnyCamera, target: THREE.Vector3, fovDeg: number,
 }
 
 /** The box around some parts, in the object frame, or null for none. */
+/** A box round a box and one of three.js's, either of which may be none. */
+function withBox(box: { min: number[]; max: number[] } | null, also: THREE.Box3 | null): { min: number[]; max: number[] } | null {
+  if (!also) return box
+  if (!box) return { min: also.min.toArray(), max: also.max.toArray() }
+  return { min: box.min.map((c, i) => Math.min(c, also.min.getComponent(i))), max: box.max.map((c, i) => Math.max(c, also.max.getComponent(i))) }
+}
+
 function boxOf(parts: Part[]): { min: number[]; max: number[] } | null {
   if (parts.length === 0) return null
   const min = [Infinity, Infinity, Infinity]

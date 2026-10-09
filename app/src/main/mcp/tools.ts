@@ -173,7 +173,10 @@ const lookInput = {
     .describe("Which scans are drawn: true or absent, those on the user's screen; false, none; or their numbers, [\"S1\"]."),
   scanColour: loose(z.looseObject({ part: z.string(), scan: z.string().optional(), range: z.number().optional() }))
     .optional()
-    .describe('{"part": "tub"}, with scan and range when needed: colours one scan by its distance to a part, from 0 to range mm (default 20), with scan points inside the part marked: a picture for the eye, made from the meshes on screen; the numbers are scan_deviation\'s. The caption gives the colours.')
+    .describe('{"part": "tub"}, with scan and range when needed: colours one scan by its distance to a part, from 0 to range mm (default 20), shaded, seen through beyond the range so that the part stays in sight, with scan points inside the part marked and drawn over it: a picture for the eye, made from the meshes on screen; the numbers are scan_deviation\'s. The caption gives the colours.'),
+  frame: loose(z.enum(['parts', 'all']))
+    .optional()
+    .describe('What a named view (iso, top, …) is fitted to: parts (the default), the parts drawn; all, the scans drawn with them. A scan is the surroundings and the parts lie somewhere inside it: the caption says when a scan drawn reaches beyond the picture.')
 }
 
 export type PlaneArg = SectionPlane | AxisPlane
@@ -187,6 +190,7 @@ export interface LookArgs {
   section?: 'current' | PlaneArg | null
   scans?: boolean | string[]
   scanColour?: { part: string; scan?: string; range?: number }
+  frame?: 'parts' | 'all'
 }
 
 type Vec3 = [number, number, number]
@@ -607,6 +611,10 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
     if ('content' in colouring) return colouring
     request.scanColour = colouring
   }
+  if (args.frame !== undefined) {
+    if (args.frame !== 'parts' && args.frame !== 'all') return failure('frame is "parts" (the default: a named view is fitted to the parts drawn) or "all" (to the scans drawn with them)')
+    request.frame = args.frame
+  }
 
   let picture: LookResult
   try {
@@ -628,9 +636,30 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   return {
     content: [
       { type: 'image', data: Buffer.from(picture.png).toString('base64'), mimeType: 'image/png' },
-      { type: 'text', text: `${picture.caption}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
+      { type: 'text', text: `${picture.caption}${spreadBesideScans(scene, picture)}${await undrawnScans(deps, objectId, args.scans === false ? [] : Array.isArray(args.scans) ? args.scans : undefined)}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
     ]
   }
+}
+
+/**
+ * Said once after the caption of a picture, or of what the window shows, that draws a scan in a layout whose
+ * parts torno spread for display: the scan stands where the model's frame has it, and the parts torno moved do
+ * not. The picture shows a lid inside a wing, and whoever reads it must know that is torno's doing. '' otherwise.
+ */
+export function spreadBesideScans(scene: Scene, shown: { layout?: string; scans?: string[] }): string {
+  if (!shown.layout || !shown.scans?.length) return ''
+  const parts = scene.parts.filter((part) => part.layout === shown.layout)
+  const moved = parts.filter((part) => part.arranged?.some((c) => Math.abs(c) > 1e-6)).map((part) => part.name)
+  if (moved.length === 0) return ''
+  const still = parts.filter((part) => !moved.includes(part.name)).map((part) => part.name)
+  return `\nThe parts of layout ${shown.layout} were spread for display: ${moved.join(', ')} ${moved.length === 1 ? 'is' : 'are'} not where ${shown.scans.join(', ')} ${shown.scans.length === 1 ? 'has' : 'have'} ${moved.length === 1 ? 'it' : 'them'}${still.length > 0 ? ` (${still.join(', ')} ${still.length === 1 ? 'is' : 'are'} where the model places ${still.length === 1 ? 'it' : 'them'})` : ''}.`
+}
+
+/** Said of the scans that are not in a picture because their mesh is gone from the disk: of those asked for, or of all when none was named. '' when the scans cannot be read, or none is so. */
+async function undrawnScans(deps: ToolDeps, objectId: string, asked: string[] | undefined): Promise<string> {
+  const scans = await deps.scans(objectId).catch(() => [] as ScanInfo[])
+  const gone = scans.filter((scan) => scan.meshState !== 'ok' && (asked === undefined || asked.includes(scan.id))).map((scan) => scan.id)
+  return gone.length === 0 ? '' : `\n${gone.join(', ')} ${gone.length === 1 ? 'is' : 'are'} not drawn: ${gone.length === 1 ? 'its mesh is' : 'their meshes are'} gone from the disk (the user imports ${gone.length === 1 ? 'it' : 'them'} again from the Scans panel).`
 }
 
 /** What to say after the revision of a picture whose parts are not the latest build's. '' when they are. */
@@ -820,7 +849,7 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
     return failure(messageOf(e))
   }
   if (shown.objectId !== objectId) return failure(`${notOpen(obj, shown.objectId)}. Ask the user to open it.`)
-  return { content: [{ type: 'text', text: `${shown.caption}\nrevision r${shown.revision}${staleNote(deps, objectId, shown)}\nThe user's viewport now shows this.` }] }
+  return { content: [{ type: 'text', text: `${shown.caption}${spreadBesideScans(scene, shown)}${await undrawnScans(deps, objectId, args.scans)}\nrevision r${shown.revision}${staleNote(deps, objectId, shown)}\nThe user's viewport now shows this.` }] }
 }
 
 export function clampSize(size: number | undefined): number {

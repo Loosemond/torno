@@ -10,6 +10,7 @@ import { useTool } from '../state/tools'
 import { anglesWith, clearAlignment, declineRough, keepAlignment, readAs, undoAlignment } from '../tools/alignTool'
 import { eulerOf, quatOf } from '../tools/shapeTool'
 import { Confirm } from './Confirm'
+import { capital, numbered } from './numbered'
 
 const MODES: { mode: AlignMode; label: string; title: string }[] = [
   { mode: 'floor', label: 'Floor', title: 'Lay a flat patch of the scan on the ground, or on a face of the model' },
@@ -18,19 +19,6 @@ const MODES: { mode: AlignMode; label: string; title: string }[] = [
 ]
 const AXES = ['x', 'y', 'z'] as const
 const STEP_WORD = { floor: 'floor', pairs: 'pairs', nudge: 'nudge', typed: 'typed values' } as const
-
-/** A sentence with every number of it in the monospace face. */
-function numbered(text: string): ReactNode[] {
-  return text.split(/(-?\d[\d.,]*\d|-?\d)/).map((piece, n) =>
-    n % 2 === 1 ? (
-      <span key={n} className="num">
-        {piece}
-      </span>
-    ) : (
-      piece
-    )
-  )
-}
 
 const coords = (p: Vec3): string => `(${p.map(number).join(', ')})`
 /** What was typed as a number; NaN for what is none. */
@@ -197,7 +185,6 @@ export function AlignBar() {
   )
 }
 
-const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
 /**
  * The question before a doubtful fit is kept, in the bar. A dialog: the button that keeps nothing has the focus
@@ -321,7 +308,7 @@ function FloorBody({ state }: { state: AlignState }) {
       </div>
       {floor && (
         <p className="alignbar-fit" data-warn={warning ? '' : undefined}>
-          plane rms <span className="num">{fitNumber(floor.plane.rms)}</span> mm over <span className="num">{floor.plane.used}</span> triangles
+          Plane rms <span className="num">{fitNumber(floor.plane.rms)}</span> mm over <span className="num">{floor.plane.used}</span> triangles
           {share !== null && floor.of !== 3 && (
             <>
               {' '}
@@ -360,7 +347,7 @@ function PairsBody({ state, scan, fit, need }: { state: AlignState; scan: ScanIn
       )}
       {fit && need === null && (
         <p className="alignbar-fit" data-warn={weak ? '' : undefined}>
-          rms <span className="num">{fitNumber(fit.rms)}</span> mm · worst <span className="num">{fitNumber(fit.residuals[worst])}</span> mm (pair <span className="num">{worstPair + 1}</span>)
+          RMS <span className="num">{fitNumber(fit.rms)}</span> mm · worst <span className="num">{fitNumber(fit.residuals[worst])}</span> mm (pair <span className="num">{worstPair + 1}</span>)
           {weak && <span data-part="warning"> · these points are nearly in a line: how the scan is turned about it is poorly fixed</span>}
         </p>
       )}

@@ -32,6 +32,8 @@ export function linearOf(c: number): number {
 }
 
 const stored = (rgb: Rgb): Rgb => rgb.map((c) => Math.round(linearOf(c) * 65535)) as Rgb
+/** A colour as `deviationColours` writes it for a vertex: by it a vertex beyond the range, or inside the part, is known again. */
+export const storedColour = stored
 
 /**
  * Colours for every vertex of a scan by its distance to a part's mesh, where the two are drawn (each by its

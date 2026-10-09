@@ -1,10 +1,11 @@
 import * as THREE from 'three'
 import { type MeshBVH, acceleratedRaycast } from 'three-mesh-bvh'
 import type { Vec3 } from '../../shared/marks'
+import { apply as applyTransform } from '../../shared/align'
 import { IDENTITY, MIN_SCAN_OPACITY, alignmentOf, standingOf, type ScanInfo, type ScanTransform, type ScanView } from '../../shared/scans'
 import { STALE_FADE, mix } from './palette'
 import { buildScanBvh } from './scanBvh'
-import { SCAN_OFFSET_FACTOR, buildScan, disposeScan, fadeOwn, placeScan, type BuiltScan } from './scanMesh'
+import { SCAN_OFFSET_FACTOR, buildScan, depthOnly, disposeScan, dropBorrowed, fadeOwn, placeScan, type BuiltScan } from './scanMesh'
 import { ScanTints } from './scanTints'
 
 export interface ScanLayerState {
@@ -47,6 +48,10 @@ export function rayOf(ray: { origin: Vec3; direction: Vec3 }): THREE.Ray {
 
 /** How many times the size of the parts the camera reaches for a scan. */
 export const SCAN_REACH = 200
+/** How solid a scan coloured by its distance to a part is drawn where it is beyond the range: the part behind it stays in sight. */
+export const FAR_OPACITY = 0.35
+/** The scan points inside a part are drawn after everything else, over it. */
+const INSIDE_LAST = 3
 
 /**
  * A sphere the camera's near and far are set by, grown to hold the scans
@@ -92,6 +97,8 @@ interface Entry {
   tree: { tree: MeshBVH; how: 'worker' | 'main' } | null
   /** Says to whoever makes that tree that the mesh was let go of. */
   stop?: AbortController
+  /** What lays its depth down first while it is drawn seen through (`depthOnly`). */
+  depth?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
 }
 
 /** A coordinate as it is told: to the millionth of a micrometre, and never -0. */
@@ -123,7 +130,7 @@ export class ScanLayer {
   private readonly previews = new Map<string, ScanTransform>()
   private accent = '#1D46B8'
   /** The scan a picture draws in colours of its own, if one is: a mesh over the scan's own positions and triangles, in the scan's group. */
-  private coloured: { scan: string; mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; own: THREE.Mesh } | null = null
+  private coloured: { scan: string; meshes: Array<THREE.Mesh<THREE.BufferGeometry, THREE.Material>>; own: THREE.Mesh; depth: boolean } | null = null
   /** The patch of a scan that is tinted, if one is: a mesh over the scan's own positions, in the scan's group. */
   private tint: { scan: string; mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; index: Uint32Array } | null = null
 
@@ -359,22 +366,26 @@ export class ScanLayer {
 
   /**
    * Draws a scan in the colours given, r g b for each vertex in linear light (0 to 65535), until it is called with
-   * null: for one picture. They are drawn as they are, solid and unlit, by a mesh and a material of their own over
-   * the scan's own positions and triangles: neither the scan's own colours nor the shader they are drawn through
-   * (`BuiltScan.own`) are touched. Null puts the scan back as it was. Throws for a scan that is not there, whose
-   * mesh has not come, or for colours that are not one a vertex.
+   * null: for one picture. By meshes and materials of their own over the scan's own positions and triangles:
+   * neither the scan's own colours nor the shader they are drawn through (`BuiltScan.own`) are touched.
+   *
+   * The colours are lit, flat shaded as the plain scan is: without that a scan is one even field and nothing
+   * of its shape is read. So a pixel is the colour of its vertices only about: darker where the surface turns
+   * from the light. With `of`, what the colours stand for: a vertex in `of.far` (beyond the range) is drawn
+   * seen through (`FAR_OPACITY`), nearest layer only, so that the part it is measured to stays in sight behind
+   * it; the triangles with a vertex in `of.inside` (inside the part, where the part's own surface hides them)
+   * are drawn once more over everything. Null puts the scan back as it was. Throws for a scan that is not
+   * there, whose mesh has not come, or for colours that are not one a vertex.
    */
-  colourFor(id: string, colours: Uint16Array | null): void {
+  colourFor(id: string, colours: Uint16Array | null, of?: { far: readonly number[]; inside: readonly number[] | null }): void {
     if (this.coloured) {
-      const { mesh, own } = this.coloured
-      mesh.removeFromParent()
-      // Its positions and its triangles are the scan's own, and stay: only what was made here is freed.
-      mesh.geometry.deleteAttribute('position')
-      mesh.geometry.setIndex(null)
-      mesh.geometry.dispose()
-      mesh.material.dispose()
+      const { meshes, own } = this.coloured
+      // Their positions and their triangles are the scan's own, and stay: only what was made here is freed.
+      for (const mesh of meshes) dropBorrowed(mesh)
       own.visible = true
       this.coloured = null
+      const was = this.entries.find((e) => e.built?.mesh === own)
+      if (was) this.apply(was)
     }
     if (colours === null) return
     const entry = this.entries.find((e) => e.info.id === id)
@@ -382,17 +393,50 @@ export class ScanLayer {
     const built = entry.built
     if (!built) throw new Error(`${id}'s mesh has not come to the window yet: look again in a moment`)
     if (colours.length !== built.vertices * 3) throw new Error(`${id} has ${built.vertices} vertices, and ${colours.length / 3} colours were given`)
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', built.mesh.geometry.getAttribute('position'))
-    geometry.setIndex(built.mesh.geometry.index)
-    geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3, true))
-    geometry.boundingBox = built.mesh.geometry.boundingBox
-    geometry.boundingSphere = built.mesh.geometry.boundingSphere
-    const material = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: SCAN_OFFSET_FACTOR, polygonOffsetUnits: 2, clippingPlanes: this.planes })
-    const mesh = new THREE.Mesh(geometry, material)
+    const is = (v: number, colour: readonly number[]): boolean => colours[3 * v] === colour[0] && colours[3 * v + 1] === colour[1] && colours[3 * v + 2] === colour[2]
+    // r g b and how solid, a vertex.
+    const rgba = new Uint16Array(built.vertices * 4)
+    const thin = Math.round(FAR_OPACITY * 65535)
+    let seenThrough = false
+    for (let v = 0; v < built.vertices; v++) {
+      rgba.set(colours.subarray(3 * v, 3 * v + 3), 4 * v)
+      const far = of !== undefined && is(v, of.far)
+      rgba[4 * v + 3] = far ? thin : 65535
+      seenThrough ||= far
+    }
+    const own = built.mesh.geometry
+    const borrowed = (index: THREE.BufferAttribute | null): THREE.BufferGeometry => {
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', own.getAttribute('position'))
+      geometry.setIndex(index)
+      geometry.setAttribute('color', new THREE.BufferAttribute(rgba, 4, true))
+      geometry.boundingBox = own.boundingBox
+      geometry.boundingSphere = own.boundingSphere
+      return geometry
+    }
+    const surface = { vertexColors: true, toneMapped: false, side: THREE.DoubleSide, clippingPlanes: this.planes } as const
+    const material = new THREE.MeshStandardMaterial({ ...surface, flatShading: true, roughness: 0.9, metalness: 0, transparent: seenThrough, depthWrite: !seenThrough, polygonOffset: true, polygonOffsetFactor: SCAN_OFFSET_FACTOR, polygonOffsetUnits: 2 })
+    const mesh = new THREE.Mesh(borrowed(own.index), material)
+    mesh.name = 'scan-coloured'
+    const meshes: Array<THREE.Mesh<THREE.BufferGeometry, THREE.Material>> = [mesh]
+    if (seenThrough) meshes.push(depthOnly(own, this.planes))
+    // What is inside the part is behind the part's own surface: drawn once more, over it, or it would never be seen.
+    const index = own.index!.array
+    const inside: number[] = []
+    if (of?.inside) for (let t = 0; t < index.length; t += 3) if (is(index[t], of.inside) || is(index[t + 1], of.inside) || is(index[t + 2], of.inside)) inside.push(index[t], index[t + 1], index[t + 2])
+    if (inside.length > 0) {
+      const over = new THREE.Mesh(borrowed(new THREE.BufferAttribute(Uint32Array.from(inside), 1)), new THREE.MeshBasicMaterial({ ...surface, depthTest: false, depthWrite: false, transparent: true }))
+      over.name = 'scan-inside'
+      over.renderOrder = INSIDE_LAST
+      over.frustumCulled = false
+      meshes.push(over)
+    }
+    for (const each of meshes) each.raycast = () => {}
     built.mesh.visible = false
-    built.group.add(mesh)
-    this.coloured = { scan: id, mesh, own: built.mesh }
+    built.group.add(...meshes)
+    this.coloured = { scan: id, meshes, own: built.mesh, depth: seenThrough }
+    // The scan's own depth pass, if it is drawn thin on screen, is not this picture's.
+    this.apply(entry)
   }
 
   /** How a scan is looked at; what is left out keeps its value. */
@@ -418,7 +462,7 @@ export class ScanLayer {
   setClipping(planes: THREE.Plane[] | null): void {
     this.planes = planes
     if (this.tint) this.tint.mesh.material.clippingPlanes = planes
-    if (this.coloured) this.coloured.mesh.material.clippingPlanes = planes
+    for (const mesh of this.coloured?.meshes ?? []) mesh.material.clippingPlanes = planes
     this.tints.setClipping(planes)
     for (const entry of this.entries) this.apply(entry)
   }
@@ -472,6 +516,23 @@ export class ScanLayer {
     return all.isEmpty() ? null : all
   }
 
+  /**
+   * A box round where some scans stand in a layout (by the alignment main has for it, or as imported), in the
+   * object frame: those of `ids` whose mesh has come; null when none has. For what is fitted to them before
+   * they are drawn there (a picture of another layout).
+   */
+  boxIn(ids: readonly string[], layout: string): THREE.Box3 | null {
+    const all = new THREE.Box3()
+    const corner = new THREE.Vector3()
+    for (const { info, built } of this.entries) {
+      const box = built?.mesh.geometry.boundingBox
+      if (!box || !ids.includes(info.id)) continue
+      const transform = alignmentOf(info, layout)?.transform ?? IDENTITY
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) all.expandByPoint(corner.fromArray(applyTransform(transform, [x, y, z])))
+    }
+    return all.isEmpty() ? null : all
+  }
+
   state(): ScanLayerState[] {
     return this.entries.map((entry) => {
       const { info, built } = entry
@@ -502,6 +563,8 @@ export class ScanLayer {
     entry.stop?.abort()
     entry.stop = undefined
     if (entry.built) {
+      if (entry.depth) dropBorrowed(entry.depth)
+      entry.depth = undefined
       if (this.tint?.scan === entry.info.id) this.untint()
       if (this.coloured?.scan === entry.info.id) this.colourFor(entry.info.id, null)
       entry.built.mesh.geometry.boundsTree = undefined
@@ -559,6 +622,17 @@ export class ScanLayer {
       each.depthWrite = !transparent
       each.clippingPlanes = this.planes
     }
+    // Seen through, its depth is laid down first (`depthOnly`): only its nearest layer is blended. Not while a
+    // picture draws it in colours of its own, which bring their own.
+    const depthFirst = transparent && this.coloured?.own !== built.mesh
+    if (depthFirst && !entry.depth) {
+      entry.depth = depthOnly(built.mesh.geometry, this.planes)
+      built.group.add(entry.depth)
+    } else if (!depthFirst && entry.depth) {
+      dropBorrowed(entry.depth)
+      entry.depth = undefined
+    }
+    if (entry.depth) entry.depth.material.clippingPlanes = this.planes
     built.group.visible = this.pictured ? this.pictured.ids.has(info.id) : view?.visible !== false
   }
 }

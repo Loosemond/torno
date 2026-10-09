@@ -110,7 +110,7 @@ test('three pairs and a fourth bring a displaced scan onto the model, and say ho
       await bar().getByRole('textbox', { name: `Model z of pair ${n + 1}` }).press('Enter')
     }
   }
-  await expect(bar()).toContainText(/rms 0(\.\d+)? mm/)
+  await expect(bar()).toContainText(/RMS 0(\.\d+)? mm/)
   // Nothing is kept until it is applied; the scan is already drawn where the fit puts it.
   expect(await alignment('assembly')).toBeUndefined()
   await bar().getByRole('button', { name: 'Apply' }).click()
@@ -166,7 +166,7 @@ test('a tilted floor is laid flat on the ground, and says that is all it is', as
   await page.keyboard.press('l')
   await bar().getByRole('button', { name: 'Floor' }).click()
   await clickScan([0.5, 0.5, 60.05])
-  await expect(bar()).toContainText(/plane rms 0(\.\d+)? mm over \d+ triangles/)
+  await expect(bar()).toContainText(/Plane rms 0(\.\d+)? mm over \d+ triangles/)
   await bar().getByRole('button', { name: 'Apply' }).click()
   // A floor alone is kept as what it is, with no question (fix round 1, R-basis): it is said to be floor only wherever the scan is reported.
   await expect.poll(async () => (await alignment('assembly'))?.steps).toEqual(['floor'])
@@ -265,7 +265,7 @@ test('a fit that says the unit is wrong offers the change in one click, keeps no
   await bar().getByRole('button', { name: 'Read it as mm' }).click()
   await question.getByRole('button', { name: 'Change' }).click()
   await expect.poll(async () => (await state()).scans[0].imported.unit).toBe('mm')
-  await expect(bar()).toContainText(/rms 0(\.\d+)? mm/)
+  await expect(bar()).toContainText(/RMS 0(\.\d+)? mm/)
   await expect(bar().locator('[data-part="size"]')).toHaveCount(0)
   await bar().getByRole('button', { name: 'Apply' }).click()
   await expect(row('S1').locator('.chip[data-state="aligned"]')).toHaveText('aligned')
@@ -293,11 +293,11 @@ test('a fit that says the unit is wrong offers the change in one click, keeps no
 
 test('Escape steps back one pick, and only then puts the tool down; two pairs are kept only as a rough alignment, on a yes', async () => {
   await bar().getByRole('button', { name: 'Pairs' }).click()
-  await expect(bar().locator('.alignbar-next')).toHaveText('Click a point on the scan')
+  await expect(bar().locator('.alignbar-next')).toHaveText('Pair 1: click its point on the scan')
   // Where the scan is drawn now: on the base.
   await clickScan(where(ON_TOP[0]))
   await expect(bar().locator('.align-pair')).toHaveCount(1)
-  await expect(bar().locator('.alignbar-next')).toHaveText('Now the same point on the model, or type it')
+  await expect(bar().locator('.alignbar-next')).toHaveText('Pair 1: click the same point on the model, or type it')
   await page.keyboard.press('Escape')
   await expect(bar().locator('.align-pair')).toHaveCount(0)
   await expect(bar()).toBeVisible()
@@ -310,7 +310,7 @@ test('Escape steps back one pick, and only then puts the tool down; two pairs ar
     else await bar().locator('.alignbar-next').click()
     await expect(bar().locator('.align-pair').nth(n).locator('.align-pair-part')).toHaveText('→ typed')
   }
-  await expect(bar().locator('.alignbar-next')).toHaveText('Click another point on the scan: 2 of 3 pairs')
+  await expect(bar().locator('.alignbar-next')).toHaveText('Pair 3: click its point on the scan (2 of 3 pairs)')
   await expect(bar().getByRole('button', { name: 'Apply' })).toBeDisabled()
   const before = await alignment('assembly')
   await bar().getByRole('button', { name: 'Keep it rough…' }).click()
@@ -396,7 +396,7 @@ test('a floor is laid on a face of the model at the point that was clicked, eith
   await bar().getByRole('button', { name: 'Floor' }).click()
   // The sheet lies under the parts by now: a click takes the scan whatever is in front of it.
   await clickScan([0.5, 0.5, 60.05])
-  await expect(bar()).toContainText(/plane rms 0(\.\d+)? mm over \d+ triangles/)
+  await expect(bar()).toContainText(/Plane rms 0(\.\d+)? mm over \d+ triangles/)
   await bar().getByRole('button', { name: 'On a face' }).click()
   await expect(bar().locator('.alignbar-next')).toHaveText('Click a flat face of the model to lay the floor on')
   await clickModel(top)

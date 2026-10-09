@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync, renameSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -99,6 +99,33 @@ describe('ScanStore', () => {
     const [scan] = await scans.list('bracket')
     expect(scan).toMatchObject({ sourceState: 'missing', meshState: 'ok' })
     expect((await scans.mesh('bracket', 'S1')).byteLength).toBe(64 + 96 + 144)
+  })
+
+  // Final fix wave (F1): the window learns that a file went, or came back, when main does; it is told nothing it knows.
+  it('tells the scans anew when a listing or a read of a mesh finds a source or a mesh gone, or back, and not otherwise', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    const told: Array<[string, string]> = []
+    scans.on('changed', (m) => told.push([m.scans[0].sourceState, m.scans[0].meshState]))
+    await scans.list('bracket')
+    expect(told).toEqual([])
+    renameSync(source, `${source}.away`)
+    await scans.list('bracket')
+    await scans.list('bracket')
+    expect(told).toEqual([['missing', 'ok']])
+    const mesh = join(dir, '.torno', 'scans', 'S1', 'mesh.bin')
+    const bytes = readFileSync(mesh)
+    rmSync(mesh)
+    // The window asks for the mesh before anything lists the scans: the row is told then.
+    await expect(scans.mesh('bracket', 'S1')).rejects.toThrow("S1's mesh is gone")
+    expect(told).toEqual([['missing', 'ok'], ['missing', 'missing']])
+    await expect(scans.mesh('bracket', 'S1')).rejects.toThrow()
+    expect(told).toHaveLength(2)
+    writeFileSync(mesh, bytes)
+    renameSync(`${source}.away`, source)
+    await scans.list('bracket')
+    expect(told.at(-1)).toEqual(['present', 'ok'])
+    expect(told).toHaveLength(3)
   })
 
   it('says when the source has changed since', async () => {

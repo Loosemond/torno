@@ -161,7 +161,7 @@ describe('show', () => {
     expect(s.layout).toBe('print')
     expect(s.layers).toEqual({ base: { visible: false } })
     expect(views).toEqual(['top'])
-    expect(replies).toEqual([{ id: 9, result: { caption: 'view top · layout print · parts post · perspective', objectId: 'bracket', revision: 3, stale: false } }])
+    expect(replies).toEqual([{ id: 9, result: { caption: 'view top · layout print · parts post · perspective', objectId: 'bracket', revision: 3, stale: false, layout: 'print', scans: [] } }])
   })
 
   it('is not an edit of the person\'s: the scene file goes on saying what they had chosen', () => {
@@ -177,7 +177,7 @@ describe('show', () => {
   it('cuts the parts by the plane asked for, says so, and leaves the scene file as the person had it', () => {
     show({ section: { origin: [0, 0, 12.5], normal: [0, 0, 3] } })
     expect(store.getState().section).toEqual({ origin: [0, 0, 12.5], normal: [0, 0, 1] })
-    expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · cut at z = 12.5, +Z side removed · perspective', objectId: 'bracket', revision: 3, stale: false } }])
+    expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · cut at z = 12.5, +Z side removed · perspective', objectId: 'bracket', revision: 3, stale: false, layout: 'assembly', scans: [] } }])
     expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
     // Null takes it away again; a show that says nothing of it leaves it.
     show({ layout: 'print' })
@@ -197,7 +197,7 @@ describe('show', () => {
       show({ scans: ['S1'], scanOpacity: 0.4 })
       expect(store.getState().scanViews).toEqual({ S1: { visible: true, opacity: 0.4 }, S2: { opacity: 0.8, visible: false } })
       // Task 5's fix round 1: the caption says what the alignment rests on, that this build's check has not come, and what no build can say of it.
-      expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · scans S1 at 40 % (by hand; it was not checked against r3; tied to no point of the model: not checked against builds) · perspective', objectId: 'bracket', revision: 3, stale: false } }])
+      expect(replies).toEqual([{ id: 9, result: { caption: 'view current · layout assembly · parts base, post · scans S1 at 40 % (by hand; it was not checked against r3; tied to no point of the model: not checked against builds) · perspective', objectId: 'bracket', revision: 3, stale: false, layout: 'assembly', scans: ['S1'] } }])
       expect(store.getState().edits).toBe(edits)
       expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, scans: { S2: { opacity: 0.8 } } })
     })

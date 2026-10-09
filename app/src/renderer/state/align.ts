@@ -17,6 +17,8 @@ export interface AlignState {
   scan: string | null
   mode: AlignMode
   pairs: PairDraft[]
+  /** Which end of a new pair is asked for first: the scan's, unless the person chose the model's (Tab). */
+  first: 'scan' | 'model'
   /** The person chose to keep the size the pairs fit to ("Keep this scale"). */
   scale: boolean
   floor: FloorDraft | null
@@ -49,7 +51,7 @@ export interface AlignState {
 
 const NOTHING_IN_HAND = { pairs: [], floor: null, onto: null, choosingFace: false, flip: false, points: [], asking: null, unitAsked: null, sending: null, refused: null } satisfies Partial<AlignState>
 
-export const alignStore: StoreApi<AlignState> = createStore<AlignState>(() => ({ scan: null, mode: 'pairs', scale: false, height: 0, pivot: null, handle: 'translate', again: 0, notice: null, ...NOTHING_IN_HAND }))
+export const alignStore: StoreApi<AlignState> = createStore<AlignState>(() => ({ scan: null, mode: 'pairs', first: 'scan', scale: false, height: 0, pivot: null, handle: 'translate', again: 0, notice: null, ...NOTHING_IN_HAND }))
 
 export function useAlign<T>(pick: (s: AlignState) => T): T {
   return useZustand(alignStore, pick)
@@ -105,10 +107,19 @@ export function withTypedEnd(pairs: PairDraft[], at: number, point: Vec3): PairD
   return pairs.map((pair, i) => (i === at ? { ...(pair.scan ? { scan: pair.scan } : {}), model: point } : pair))
 }
 
-/** Which end the next click is expected to give: the model's while a pair has only its scan end, the scan's otherwise. */
-export function expects(pairs: PairDraft[]): 'scan' | 'model' {
-  const open = pairs.find((pair) => pair.scan === undefined || pair.model === undefined)
-  return open && open.scan !== undefined ? 'model' : 'scan'
+/** The first pair that still lacks an end, by its place among the pairs; -1 when every pair is whole. */
+export function openPair(pairs: PairDraft[]): number {
+  return pairs.findIndex((pair) => pair.scan === undefined || pair.model === undefined)
+}
+
+/**
+ * Which end the next click gives, and the only one it can give: the end the open pair lacks; with no pair
+ * open, the end a new pair is asked for first (`first`: the scan's unless the person chose otherwise). A click
+ * on the other thing is not taken, so the ends of two pairs are never joined.
+ */
+export function expects(pairs: PairDraft[], first: 'scan' | 'model' = 'scan'): 'scan' | 'model' {
+  const open = pairs[openPair(pairs)]
+  return open ? (open.scan === undefined ? 'scan' : 'model') : first
 }
 
 type Whole = Required<Pick<PairDraft, 'scan' | 'model'>> & Pick<PairDraft, 'part'>
@@ -155,6 +166,17 @@ export function floorAlignment(current: ScanAlignment | null, floor: FloorDraft,
   const point: Vec3 = onto ? onto.origin : [0, 0, height]
   const move = toFloor({ origin: floor.plane.origin, normal: seen }, seen, { origin: point, normal: flip ? negated(towards) : towards })
   return { ...carried(current), transform: compose(move, current?.transform ?? IDENTITY), steps: stepped(current, 'floor'), rms: floor.plane.rms, floor: { ...(onto?.part === undefined ? {} : { part: onto.part }), point } }
+}
+
+/**
+ * A scan put, in one layout, where its alignment in another has it: a start, to be looked at and moved by hand.
+ * Two layouts need not share a frame (an assembly and a print bed are two places), so nothing of the other
+ * alignment's fit, pairs or floor comes with it: it is by hand, tied to no point of the model, and says so
+ * wherever the scan is reported. Its size is the other's.
+ */
+export function startedFrom(other: Pick<ScanAlignment, 'transform' | 'scaled'>): { alignment: NewAlignment; scaled: boolean } {
+  const scaled = other.scaled === true || Math.abs(other.transform.s - 1) > 1e-9
+  return { alignment: { transform: { t: [...other.transform.t], q: [...other.transform.q], s: other.transform.s }, steps: ['typed'], ...(scaled ? { scaled: true } : {}) }, scaled }
 }
 
 /** The scan put somewhere by hand or by typed values: `transform` is where it then stands. Its pairs are kept, and say how far off they now are. */
@@ -258,10 +280,13 @@ export function nextLine(state: AlignState, scan: ScanInfo | null, scans: number
     if (!state.floor) return state.points.length > 0 ? `Shift-click ${3 - state.points.length} more on the floor` : 'Click the floor of the scan'
     return 'Apply lays this patch down. A click elsewhere takes another patch'
   }
+  // Always which end of which pair: a pair that waits for an end says so, whichever end it is.
   const whole = wholeOf(state.pairs).length
-  if (expects(state.pairs) === 'model') return 'Now the same point on the model, or type it'
-  if (state.pairs.length >= MAX_PAIRS) return `${MAX_PAIRS} pairs is the most an alignment keeps: apply, or remove one`
-  if (whole === 0) return 'Click a point on the scan'
-  if (proposed(state, current)?.few) return whole < 3 ? `Click another point on the scan: ${whole} of 3 pairs` : 'Click a point on the scan that is well off the line of the others'
-  return 'Apply, or click another point on the scan to tighten the fit'
+  const open = openPair(state.pairs)
+  if (open < 0 && state.pairs.length >= MAX_PAIRS) return `${MAX_PAIRS} pairs is the most an alignment keeps: apply, or remove one`
+  const end = expects(state.pairs, state.first)
+  const asks = `Pair ${(open < 0 ? state.pairs.length : open) + 1}: click ${open < 0 ? 'its' : 'the same'} point on the ${end}${end === 'model' ? ', or type it' : ''}`
+  if (open >= 0 || whole === 0) return asks
+  if (proposed(state, current)?.few) return whole < 3 ? `${asks} (${whole} of 3 pairs)` : `${asks}, well off the line of the others`
+  return `Apply, or tighten the fit. ${asks}`
 }

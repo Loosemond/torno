@@ -4,7 +4,7 @@ import type { ScanInfo } from '../../shared/scans'
 import { MeshBVH } from 'three-mesh-bvh'
 import { box, grid, meshBin } from '../../test/scanFixtures'
 import { SCAN_OFFSET_FACTOR } from './scanMesh'
-import { SCAN_BEHIND_MM, ScanLayer, drawnBehind, reaching, type TreeBuilder } from './scans'
+import { FAR_OPACITY, SCAN_BEHIND_MM, ScanLayer, drawnBehind, reaching, type TreeBuilder } from './scans'
 
 const scan = (id: string, more: Partial<ScanInfo> = {}): ScanInfo =>
   ({ id, name: `${id}.stl`, source: { path: `/d/${id}.stl`, bytes: 1, mtimeMs: 1, sha256: '' }, imported: { unit: 'mm', up: 'z', assumed: { unit: true, up: true }, vertices: 8, triangles: 12, colours: 'none', bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, area: 3100, at: '' }, alignments: {}, sourceState: 'present', meshState: 'ok', checks: {}, ...more }) as ScanInfo
@@ -57,20 +57,40 @@ describe('ScanLayer', () => {
     const group = layer.group.children[0]
     const own = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.Material>
     const was = { material: own.material, colour: own.geometry.getAttribute('color'), position: own.geometry.getAttribute('position'), index: own.geometry.index }
+    // Final fix wave (F4): shaded, seen through beyond the range, and what is inside the part drawn over it.
     const colours = new Uint16Array(24).fill(65535)
-    layer.colourFor('S1', colours)
-    expect(group.children).toHaveLength(2)
-    const coloured = group.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+    const far = [1000, 2000, 3000]
+    const inside = [7, 8, 9]
+    colours.set(far, 0) // vertex 0 is beyond the range
+    colours.set(inside, 3 * 5) // vertex 5 is inside the part
+    // On screen it is thin, and has its depth laid down first (F7).
+    expect(group.children.map((child) => child.name)).toEqual(['', 'scan-depth'])
+    expect(group.children[1]).toMatchObject({ renderOrder: -1 })
+    expect((group.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material).toMatchObject({ colorWrite: false, depthWrite: true, transparent: true, clippingPlanes: plane })
+    layer.colourFor('S1', colours, { far, inside })
+    expect(group.children.map((child) => child.name)).toEqual(['', 'scan-coloured', 'scan-depth', 'scan-inside'])
+    const coloured = group.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>
     expect(own.visible).toBe(false)
     expect(coloured.geometry.getAttribute('position')).toBe(was.position)
     expect(coloured.geometry.index).toBe(was.index)
-    expect(coloured.geometry.getAttribute('color').array).toBe(colours)
-    // Drawn as the colours are, whatever the scan's own look: unlit, solid, untouched by tone or by the scan's shader, and cut as the scan is.
-    expect(coloured.material).toMatchObject({ vertexColors: true, transparent: false, opacity: 1, toneMapped: false, side: THREE.DoubleSide, clippingPlanes: plane })
-    expect(coloured.material.onBeforeCompile).toBe(new THREE.MeshBasicMaterial().onBeforeCompile)
-    expect(coloured.material).not.toBe(was.material)
+    // Lit, as the plain scan is: its shape reads. Whatever the scan's own look, untouched by tone or by the scan's shader, and cut as the scan is.
+    expect(coloured.material).toBeInstanceOf(THREE.MeshStandardMaterial)
+    expect(coloured.material).toMatchObject({ vertexColors: true, flatShading: true, transparent: true, depthWrite: false, opacity: 1, toneMapped: false, side: THREE.DoubleSide, clippingPlanes: plane })
+    expect(coloured.material.onBeforeCompile).toBe(new THREE.MeshStandardMaterial().onBeforeCompile)
+    // Each vertex its colour and how solid: the one beyond the range is seen through.
+    const rgba = coloured.geometry.getAttribute('color')
+    expect(rgba.itemSize).toBe(4)
+    expect([...rgba.array.slice(0, 8)]).toEqual([1000, 2000, 3000, Math.round(FAR_OPACITY * 65535), 65535, 65535, 65535, 65535])
+    // Only the triangles that have the vertex inside the part are drawn over everything.
+    const over = group.children[3] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+    expect(over.material).toMatchObject({ depthTest: false, vertexColors: true, clippingPlanes: plane })
+    const drawn = [...over.geometry.index!.array]
+    expect(drawn.length).toBeGreaterThan(0)
+    expect(drawn.length).toBeLessThan(was.index!.count)
+    for (let t = 0; t < drawn.length; t += 3) expect(drawn.slice(t, t + 3)).toContain(5)
+    expect(over.renderOrder).toBeGreaterThan(1)
     layer.colourFor('S1', null)
-    expect(group.children).toEqual([own])
+    expect(group.children.map((child) => child.name)).toEqual(['', 'scan-depth'])
     expect(own.visible).toBe(true)
     expect(own.material).toBe(was.material)
     // The scan's own geometry is whole: what the picture borrowed was not freed with what it made.
@@ -78,6 +98,14 @@ describe('ScanLayer', () => {
     expect(own.geometry.getAttribute('position')).toBe(was.position)
     expect(own.geometry.index).toBe(was.index)
     expect(coloured.geometry.getAttribute('position')).toBeUndefined()
+    // With nothing beyond the range and nothing inside it is solid, and one mesh.
+    layer.setView('S1', { opacity: 1 })
+    expect(group.children).toEqual([own])
+    layer.colourFor('S1', new Uint16Array(24).fill(65535), { far, inside })
+    expect(group.children.map((child) => child.name)).toEqual(['', 'scan-coloured'])
+    expect((group.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>).material).toMatchObject({ transparent: false, depthWrite: true })
+    layer.colourFor('S1', null)
+    expect(group.children).toEqual([own])
     expect(() => layer.colourFor('S2', colours)).toThrow("S2's mesh has not come to the window yet: look again in a moment")
     expect(() => layer.colourFor('S9', colours)).toThrow('no scan S9; scans: S1, S2')
     expect(() => layer.colourFor('S1', new Uint16Array(3))).toThrow('S1 has 8 vertices, and 1 colours were given')

@@ -1,3 +1,4 @@
+import { numbered } from './numbered'
 import { count as counted, number } from '../../shared/format'
 import { alignmentOf } from '../../shared/scans'
 import { useAgentHighlight } from '../state/agent'
@@ -75,7 +76,7 @@ export function RegionBar() {
         </button>
       </div>
       <p className="regionbar-next" role="status">
-        {nextLine(state, scans.length)}
+        {numbered(nextLine(state, scans.length))}
       </p>
       <div className="regionbar-row" data-part="foot">
         <span className="regionbar-count" data-empty={painted ? undefined : ''} title={painted ? `On ${scan}. The area is of the scan's mesh: approximate` : undefined}>
@@ -98,7 +99,7 @@ export function RegionBar() {
       </div>
       {refused && (
         <p className="regionbar-note selectable" role="alert" data-part="refused">
-          {refused}
+          {numbered(refused)}
         </p>
       )}
     </div>

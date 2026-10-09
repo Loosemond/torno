@@ -56,7 +56,7 @@ export function dismissHighlight(): void {
  * it is not what the scene file keeps. The answer says what is shown then, as
  * the caption of a picture would.
  */
-export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointerBusy'>, req: ShowRequest): ShowResult {
+export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointerBusy'> & Partial<Pick<Viewport, 'scanState'>>, req: ShowRequest): ShowResult {
   const s = openObject(req.objectId)
   // The view is the person's while they are doing something in it: it is not pulled from under a stroke or a drag.
   if (viewport.pointerBusy()) throw new Error('the user is in the middle of a stroke or drag; try again')
@@ -97,14 +97,18 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // Where the camera is going, not where it is on the way: a named view keeps the projection there is.
   const ortho = typeof req.view === 'object' ? req.view.ortho : viewport.getCamera().ortho
   // The scans left on, as a picture's caption says them: from what main keeps of each, in the layout now shown.
+  // Those the window draws: one whose mesh has not come to it is not on the screen, and is not said to be.
+  const loaded = viewport.scanState?.()
   const shown = after.scans
-    .filter((scan) => scan.meshState === 'ok' && after.scanViews[scan.id]?.visible !== false)
+    .filter((scan) => scan.meshState === 'ok' && after.scanViews[scan.id]?.visible !== false && loaded?.find((one) => one.id === scan.id)?.loaded !== false)
     .map((scan) => ({ id: scan.id, opacity: after.scanViews[scan.id]?.opacity ?? 1, ...standingOf(scan, layout, after.scene ? after.revision : 0) }))
   return {
     caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,
     revision: after.revision,
-    stale: after.build?.stale ?? false
+    stale: after.build?.stale ?? false,
+    layout,
+    scans: shown.map((scan) => scan.id)
   }
 }
 

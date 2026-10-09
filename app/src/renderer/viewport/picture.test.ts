@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
-import { asPictured, colouringNote, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState } from './picture'
+import { asPictured, colouringNote, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState, beyondNote, reachesBeyond } from './picture'
 
 describe('the size of a picture', () => {
   it('is 1280 on its long edge when none is asked for, or what is asked for is no number', () => {
@@ -63,8 +63,28 @@ describe('the scans a picture has, in its caption', () => {
 describe('a scan coloured by its distance to a part, in the caption', () => {
   const colours = { near: '#8A4594', far: '#D3D8DF', inside: '#22252A' }
   it('says which scan, to which part, over what range, and the very colours it is drawn in', () => {
-    expect(colouringNote({ scan: 'S1', part: 'tub', range: 20 }, colours, true)).toBe(" · scan S1 coloured at the scan's points by distance to tub: 0 to 20 mm, inside the part marked (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A)")
-    expect(colouringNote({ scan: 'S1', part: 'tub', range: 2.5 }, colours, false)).toBe(" · scan S1 coloured at the scan's points by distance to tub: 0 to 2.5 mm (0 mm #8A4594, 2.5 mm and beyond #D3D8DF; tub is no solid, so nothing is marked as inside it)")
+    expect(colouringNote({ scan: 'S1', part: 'tub', range: 20 }, colours, true)).toBe(" · scan S1 coloured by the distance of its points to tub: 0 to 20 mm, inside the part marked and drawn over it (0 mm #8A4594, 20 mm and beyond #D3D8DF, inside the part #22252A; the colours are of the scan's points, shaded, and approximate; beyond 20 mm the scan is seen through)")
+    expect(colouringNote({ scan: 'S1', part: 'tub', range: 2.5 }, colours, false)).toBe(" · scan S1 coloured by the distance of its points to tub: 0 to 2.5 mm (0 mm #8A4594, 2.5 mm and beyond #D3D8DF; the colours are of the scan's points, shaded, and approximate; beyond 2.5 mm the scan is seen through; tub is no solid, so nothing is marked as inside it)")
+  })
+})
+
+// Final fix wave (F6): a scan is the surroundings, and a view fitted to the parts shows a corner of it.
+describe('a scan that reaches beyond the picture', () => {
+  it('is one with a corner past an edge of what the camera draws', () => {
+    const camera = new THREE.OrthographicCamera(-50, 50, 40, -40, 1, 1000)
+    camera.position.set(0, 0, 200)
+    camera.lookAt(0, 0, 0)
+    camera.updateProjectionMatrix()
+    const box = (half: number): THREE.Box3 => new THREE.Box3(new THREE.Vector3(-half, -half, -10), new THREE.Vector3(half, half, 10))
+    expect(reachesBeyond(camera, box(30))).toBe(false)
+    expect(reachesBeyond(camera, box(45))).toBe(true)
+    expect(reachesBeyond(camera, box(1200))).toBe(true)
+  })
+
+  it('is said in the caption, with what takes it in when the view was fitted to the parts', () => {
+    expect(beyondNote([], true)).toBe('')
+    expect(beyondNote(['S1'], true)).toBe(' · S1 reaches beyond the picture, which is fitted to the parts: frame "all" takes the scans in')
+    expect(beyondNote(['S1', 'S2'], false)).toBe(' · S1, S2 reach beyond the picture')
   })
 })
 
@@ -111,6 +131,7 @@ function viewport(far: THREE.Box3 | null = null): { host: PictureHost; log: stri
       },
       shown: () => [],
       box: () => far,
+      boxIn: () => null,
       built: () => null,
       colourFor: (id, colours) => void log.push(colours ? `colour ${id} by ${colours.length / 3} colours` : 'colours off')
     },
@@ -210,12 +231,12 @@ describe('what the scene is while a picture of it is drawn', () => {
 
   it('colours a scan for the picture once it stands and is cut as the picture has it, and takes the colours off again, also when they cannot be worked out', () => {
     const { host, log, parts } = viewport()
-    const state: PictureState = { layout: 'print', shown: [parts[2]], withMarks: false, scans: ['S1'], section: null, notDrawn: new Set(), width: 64, height: 48, colour: { scan: 'S1', colours: () => new Uint16Array(24) } }
+    const state: PictureState = { layout: 'print', shown: [parts[2]], withMarks: false, scans: ['S1'], section: null, notDrawn: new Set(), width: 64, height: 48, colour: { scan: 'S1', colours: () => new Uint16Array(24), of: { far: [1, 1, 1], inside: null } } }
     asPictured(host, state, () => log.push('draw'))
     expect(log.slice(log.indexOf('scans S1 as in print'), log.indexOf('draw') + 1)).toEqual(['scans S1 as in print', 'cut by nothing across print, plane not drawn', 'colour S1 by 8 colours', 'ground print', 'active null', 'marks null but on none', 'draft off', 'draw'])
     expect(log.slice(log.indexOf('target null'), log.indexOf('target null') + 3)).toEqual(['target null', 'colours off', 'scans as on screen'])
     const failing = viewport()
-    const refused = { ...state, shown: [failing.parts[2]], colour: { scan: 'S1', colours: () => { throw new Error('too many points') } } }
+    const refused = { ...state, shown: [failing.parts[2]], colour: { scan: 'S1', of: { far: [1, 1, 1], inside: null }, colours: () => { throw new Error('too many points') } } }
     expect(() => asPictured(failing.host, refused, () => failing.log.push('draw'))).toThrow('too many points')
     expect(failing.log).not.toContain('draw')
     expect(failing.log).toContain('colours off')

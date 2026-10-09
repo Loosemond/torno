@@ -65,6 +65,37 @@ export function buildScan(id: string, blob: ArrayBuffer): BuiltScan {
   return { id, group, mesh, own, plain, vertices: parsed.vertices.length / 3, triangles: parsed.triangles.length / 3 }
 }
 
+/**
+ * What a scan that is seen through is drawn into the depth buffer with, before its colour: nothing but depth.
+ * A scan folds over itself (a bumper in front of a wing in front of a floor); blended layer over layer in the
+ * order its triangles happen to come, that is a patchwork. With its depth laid down first, only its nearest
+ * layer is blended over what is behind it. It is drawn after the parts (it is in the list of what is seen
+ * through, and first in it), so that the parts behind the scan are what shows through.
+ */
+export const DEPTH_FIRST = -1
+export function depthOnly(geometry: THREE.BufferGeometry, planes: THREE.Plane[] | null): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
+  const shared = new THREE.BufferGeometry()
+  shared.setAttribute('position', geometry.getAttribute('position'))
+  shared.setIndex(geometry.index)
+  shared.boundingBox = geometry.boundingBox
+  shared.boundingSphere = geometry.boundingSphere
+  const mesh = new THREE.Mesh(shared, new THREE.MeshBasicMaterial({ ...SURFACE, colorWrite: false, transparent: true, depthWrite: true, clippingPlanes: planes }))
+  mesh.name = 'scan-depth'
+  mesh.renderOrder = DEPTH_FIRST
+  // Seen through, never pointed at: the scan's own mesh is.
+  mesh.raycast = () => {}
+  return mesh
+}
+
+/** Lets go of a mesh made by `depthOnly`, or of any that borrows a scan's positions and triangles: those are the scan's, and stay. */
+export function dropBorrowed(mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>): void {
+  mesh.removeFromParent()
+  mesh.geometry.deleteAttribute('position')
+  mesh.geometry.setIndex(null)
+  mesh.geometry.dispose()
+  mesh.material.dispose()
+}
+
 /** Stands a scan where its transform says: p' = s · R(q) · p + t. */
 export function placeScan(built: BuiltScan, transform: ScanTransform): void {
   built.group.position.fromArray(transform.t)

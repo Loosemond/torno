@@ -72,6 +72,8 @@ export interface TornoState {
   noting: string | null
   /** Counts the times the camera was asked to go to the active mark's view. */
   markFocus: number
+  /** The scan to bring into view with the parts, and a count of the times that was asked: "Frame" on its row. Null until it is. */
+  scanFramed: { id: string; n: number } | null
   /**
    * What the person has picked: refs in the layout shown (`lid/F12`, `lid/E3`),
    * in the order picked. They name geometry of the revision on screen, so the
@@ -119,6 +121,7 @@ export const store = createStore<TornoState>(() => ({
   versions: {},
   ...NO_OBJECT,
   markFocus: 0,
+  scanFramed: null,
   ortho: false,
   lockedView: null,
   edits: 0,
@@ -315,6 +318,11 @@ export const actions = {
     if (m.objectId !== s.objectId) return
     if (m.stage !== null) store.setState({ importing: { name: m.name, stage: m.stage } })
     else if (s.importing?.name === m.name) store.setState({ importing: null })
+  },
+
+  /** Brings a scan into view with the parts, without turning the camera: "Frame" on its row. */
+  frameScan(id: string): void {
+    store.setState({ scanFramed: { id, n: (store.getState().scanFramed?.n ?? 0) + 1 } })
   },
 
   /** Why what was asked of the scans came to nothing, for the panel to say; null puts it away. */

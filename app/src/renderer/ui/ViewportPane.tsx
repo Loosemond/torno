@@ -1,3 +1,4 @@
+import { MeshAsks } from './scanMeshes'
 import { useEffect, useRef, useState } from 'react'
 import { apply } from '../../shared/align'
 import type { Vec3 } from '../../shared/marks'
@@ -67,7 +68,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       }
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, ...(req.scanColour ? { scanColour: req.scanColour } : {}) }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}) }
   })
   return { ...picture, ...drawn! }
 }
@@ -122,7 +123,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // The scans of the open object: which there are comes through the store, their meshes straight from main to the
   // viewport, each asked for once by its scan's id. Main alone knows where a mesh is kept.
-  const asked = new Set<string>()
+  const asks = new MeshAsks()
   const applyScans = (s: TornoState) => {
     viewport.setScans(s.scans, s.scene ? s.revision : 0)
     // Every scan, each time: the viewport remembers how one is looked at by id, and ids repeat between objects.
@@ -134,10 +135,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (!objectId) return
     for (const id of viewport.wantingScans()) {
       const scan = s.scans.find((one) => one.id === id)
-      // By what its record says of the mesh: converted or written anew, it is another, and is asked for again.
-      const key = scan && `${id} ${meshOf(scan)}`
-      if (!scan || !key || asked.has(key)) continue
-      asked.add(key)
+      // By what its record says of the mesh (`MeshAsks`): asked for once, and again when it is another or is back.
+      if (!scan || !asks.due(scan)) continue
       const current = (): boolean => {
         const now = store.getState()
         const still = now.objectId === objectId ? now.scans.find((one) => one.id === id) : undefined
@@ -151,8 +150,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
           report()
         })
         .catch((e: unknown) => {
-          // Asked again the next time main tells of the scans, not at once: a mesh that is really gone would be asked for without end.
-          asked.delete(key)
+          // Asked again once main has told of the scans anew, not at every change of the view: a mesh that is really gone would be asked for without end.
+          asks.fail(scan)
           // The mesh is gone, or is not one: the panel says so, in main's words, and the scan is not drawn.
           if (current()) actions.setScansRefused(e instanceof Error ? e.message : String(e))
         })
@@ -251,7 +250,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.selection !== prev.selection && s.objectId === prev.objectId && s.scene === prev.scene && s.layout === prev.layout) reportSelection(s)
     if (s.marks !== prev.marks || shown(s) !== shown(prev)) viewport.setMarks(s.marks, shown(s))
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
-    if (s.objectId !== prev.objectId) asked.clear()
+    if (s.objectId !== prev.objectId) asks.clear()
+    else if (s.scans !== prev.scans) asks.told()
     // With the build on show: whether an alignment was checked against it is said with every picture.
     if (s.scans !== prev.scans || s.scanViews !== prev.scanViews || shown(s) !== shown(prev)) {
       applyScans(s)
@@ -271,6 +271,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.layout !== prev.layout || s.layers !== prev.layers || s.section !== prev.section) report()
     // After the layout: a mark of another layout is gone to once that layout is shown.
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
+    if (s.scanFramed !== prev.scanFramed && s.scanFramed) viewport.frameScan(s.scanFramed.id)
   })
 
   // After the store's own subscription above: by then the viewport has the scans as they now are.

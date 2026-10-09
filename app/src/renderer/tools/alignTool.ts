@@ -30,8 +30,6 @@ export function movedPart(part: string): string {
 /** The patch a click takes for the floor reaches this share of the scan's diagonal round it; `[` and `]` change it by a quarter. */
 const PATCH_OF_DIAGONAL = 0.03
 const PATCH_STEP = 0.25
-/** A scan and a part this near one another along the ray lie in one surface: which is clicked is then what is asked for next. */
-const SAME_SURFACE_MM = 0.5
 
 /** The scan in hand, its alignment in the layout shown, and what an alignment made now is of. Null with no object, or no scan to work on. */
 export function inHand(): { scan: ScanInfo; current: ScanAlignment | null; objectId: string; layout: string; revision: number } | null {
@@ -149,12 +147,10 @@ function standing(state: AlignState, current: ScanAlignment | null): { drawn: Sc
   return { drawn: previewOf(state, current) ?? kept, kept }
 }
 
-/** Which of the two things under the pointer a click takes: the nearer, or, where they lie in one surface, the one that is asked for next. */
-function underPointer(scan: ScanHit | null, part: Hit | null, asked: 'scan' | 'model'): 'scan' | 'model' | null {
-  if (!scan || !part) return scan ? 'scan' : part ? 'model' : null
-  if (Math.abs(scan.distance - part.distance) <= SAME_SURFACE_MM) return asked
-  return scan.distance < part.distance ? 'scan' : 'model'
-}
+/** Said at the pointer over a part while a pair is asked for its scan end, and of a click there: it is kept as no end. */
+export const WANTS_SCAN = 'That is the model: click the scan, or press Tab to give the model end first'
+/** And over the scan, away from every part, while a pair is asked for its model end. */
+export const WANTS_MODEL = 'That is the scan: click the same point on the model, or type it'
 
 /**
  * The Align tool: stands a scan where the model is, in the layout shown. It works on one scan (`scanInHand`),
@@ -163,7 +159,8 @@ function underPointer(scan: ScanHit | null, part: Hit | null, asked: 'scan' | 'm
  * - By the floor: the pointer tints the patch of the scan a click would take; a click fits a plane to it, and
  *   three clicks with Shift lay the plane through those three points. With a face waited for, a click on a
  *   flat face of a part chooses what the floor is laid on.
- * - By pairs: a click on the scan is a point of the scan, a click on a part where that point belongs.
+ * - By pairs: each pair is asked for one end, then the other (`expects`): a click gives the end that is asked
+ *   for and no other. Tab switches which end a new pair is asked for first.
  * - By hand: the gizmo is on the scan (`connectAlign`), and a click on the scan moves the handles there.
  *
  * Nothing is kept by a click: what is in hand is a draft, drawn as a preview, until "Apply" in the bar.
@@ -244,15 +241,21 @@ export function alignTool(): Tool {
     const click = e.type === 'click'
     // A click asks for the part whatever is in front: the scan may lie on it by now. A move takes what the viewport already found.
     const part = click ? ctx.viewport.pick(e.client[0], e.client[1], { partsOnly: true }) : e.hit
-    const which = underPointer(on, part, expects(state.pairs))
+    // The end that is asked for is the only one a click gives, whatever is nearer: with the part sitting in the
+    // scan, a click meant for the one lands on the other all the time, and would join the ends of two pairs.
+    const asked = expects(state.pairs, state.first)
+    const which = asked === 'scan' ? (on ? 'scan' : null) : part ? 'model' : null
+    const other = which === null && (asked === 'scan' ? part : on) ? (asked === 'scan' ? WANTS_SCAN : WANTS_MODEL) : null
     if (!click) {
       ctx.viewport.setHover(which === 'model' ? part : null)
       if (which === 'model' && part) ctx.readout.show(e.client, part.ref, ctx.descriptor(part.ref))
       else if (which === 'scan') ctx.readout.say(e.client, `${scan.id}: a point of the scan`)
+      else if (other) ctx.readout.say(e.client, other)
       else ctx.readout.hide()
       return
     }
-    if (which !== 'scan' && which !== 'model') return
+    if (other) return ctx.readout.say(e.client, other)
+    if (which === null) return
     if (which === 'model' && part && ctx.moved?.(part.part)) return ctx.readout.say(e.client, movedPart(part.part))
     const pairs = which === 'scan' && on ? withScanEnd(state.pairs, on.local) : part ? withModelEnd(state.pairs, part.point, part.part) : state.pairs
     // No room for one pair more: said, not dropped in silence.
@@ -288,6 +291,12 @@ export function alignTool(): Tool {
     onKey(e: KeyboardEvent, ctx: ToolContext) {
       const state = alignStore.getState()
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
+      // Which end of a new pair is given first: the model's, for whoever would rather click it before the scan.
+      if (key === 'Tab' && state.mode === 'pairs') {
+        if (!state.asking && !state.sending) alignStore.setState({ first: state.first === 'scan' ? 'model' : 'scan' })
+        quiet(ctx)
+        return true
+      }
       if (key === 'Escape' || (key === 'Backspace' && state.mode === 'pairs' && !state.asking)) {
         const step = key === 'Backspace' ? (state.pairs.length > 0 ? { pairs: withoutLastEnd(state.pairs) } : null) : stepBack(state)
         if (!step) return key === 'Backspace'

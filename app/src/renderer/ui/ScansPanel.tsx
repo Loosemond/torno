@@ -1,29 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, importText, standingOf } from '../../shared/scans'
-import { setAlignScan } from '../state/align'
+import { setAlignScan, startedFrom } from '../state/align'
 import { actions, store, useStore } from '../state/store'
 import { setTool } from '../state/tools'
 import { Confirm } from './Confirm'
 import { EyeIcon } from './Layers'
+import { capital, numbered } from './numbered'
 import { importScan, reimportScan } from './scanDrop'
 
 /** What the import process says it is doing, in the panel's words; a stage with no entry is said as it is. */
 const STAGE: Record<string, string> = { hashing: 'checking the file' }
 const UNITS = Object.keys(UNIT_MM) as ScanUnit[]
 const UNIT_WORD: Record<ScanUnit, string> = { mm: 'millimetres', cm: 'centimetres', m: 'metres', in: 'inches' }
-
-/** A sentence with every number of it in the monospace face. */
-function numbered(text: string): ReactNode[] {
-  return text.split(/(\d[\d.,]*\d|\d)/).map((piece, n) =>
-    n % 2 === 1 ? (
-      <span key={n} className="num">
-        {piece}
-      </span>
-    ) : (
-      piece
-    )
-  )
-}
 
 /** Has main told why something asked of the scans came to nothing, while their object is still the open one. */
 function asked(objectId: string, call: Promise<unknown>): Promise<void> {
@@ -68,7 +56,7 @@ export function ScansPanel() {
       {/* What main found wrong with the scans file of this object. */}
       {problem !== null && (
         <p className="scans-line selectable" role="status" data-part="problem">
-          {problem}{' '}
+          {numbered(problem)}{' '}
           <button
             type="button"
             className="link-button"
@@ -90,7 +78,7 @@ export function ScansPanel() {
       )}
       {refused !== null && (
         <p className="scans-line selectable" role="alert" data-part="refused">
-          {refused}{' '}
+          {numbered(refused)}{' '}
           <button type="button" className="link-button" onClick={() => actions.setScansRefused(null)}>
             Dismiss
           </button>
@@ -121,6 +109,8 @@ function stateOf(scan: ScanInfo, layout: string, revision: number): { state: str
   const none = { basis: null, said: null, rough: null, note: null, confirm: false }
   if (scan.meshState === 'missing') return { state: 'mesh-missing', text: 'mesh missing', ...none }
   if (!standing.aligned) return { state: 'unaligned', text: 'not aligned here', ...none }
+  // Nothing is built in this run yet: no check has been made, and none can be until something is.
+  if (revision === 0) return { state: 'unchecked', text: 'not checked yet', basis, said: null, rough, note, confirm: false }
   // A check that is on its way, or will be tried again: nothing to look at. One that failed says why; it is tried again every 30 s.
   if (standing.waiting) return { state: 'unchecked', text: 'not checked yet', basis, said: standing.failed ? `${standing.stale}. It is tried again every 30 s` : null, rough, note, confirm: false }
   // One notion of "may no longer hold", with its reasons: what the last build's check found, a source that changed.
@@ -165,6 +155,9 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
   const meshGone = scan.meshState === 'missing'
   const source = scan.sourceState === 'missing' ? 'source missing' : scan.sourceState === 'changed' ? 'source changed' : null
   const layouts = Object.keys(scan.alignments)
+  // A layout of the build on show in which it is aligned, when it is not in the one shown.
+  const built = useStore((s) => s.scene?.layouts ?? NO_LAYOUTS)
+  const elsewhere = layouts.find((one) => one !== layout && built.includes(one))
   const changed = unit !== scan.imported.unit || up !== scan.imported.up
   const fields = `scan-fields-${id}`
 
@@ -227,6 +220,9 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           </span>
         )}
         <span className="spacer" />
+        <button type="button" className="link-button" aria-label={`Frame ${id}`} title="Brings this scan into view with the parts, without turning the view. The views and Fit frame the parts" disabled={meshGone || !visible} onClick={() => actions.frameScan(id)}>
+          Frame
+        </button>
         <button
           type="button"
           className="link-button"
@@ -251,7 +247,7 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
       {/* Why the state above needs a look, in words: the one sentence it is there for. */}
       {state.said && (
         <p className="scan-said" data-state={state.state}>
-          {numbered(state.said)}
+          {numbered(capital(state.said))}
           {state.confirm && (
             <>
               {' '}
@@ -260,6 +256,25 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
               </button>
             </>
           )}
+        </p>
+      )}
+      {/* Aligned in another layout and not in this one: where it stands there is offered as a start, by hand, never as a fit of this layout. */}
+      {state.state === 'unaligned' && elsewhere && revision > 0 && !meshGone && (
+        <p className="scan-said" data-part="start">
+          Aligned in <span className="num">{elsewhere}</span>.{' '}
+          <button
+            type="button"
+            className="link-button"
+            aria-label={`Use the alignment of ${id} in ${elsewhere} here`}
+            title={`Puts the scan here where it stands in ${elsewhere}, as a start: kept as placed by hand, checked against nothing. The two layouts need not place the parts alike: look, and move it with Align`}
+            onClick={() => {
+              const { alignment, scaled } = startedFrom(scan.alignments[elsewhere])
+              void asked(objectId, window.torno.scans.align(objectId, id, layout, alignment, { revision, ...(scaled ? { scaled: true } : {}) }))
+            }}
+          >
+            Use this alignment in <span className="num">{layout}</span>
+          </button>{' '}
+          as a start, by hand
         </p>
       )}
       {/* A doubtful fit is said whatever else is: it does not wait for the check to come, or for the doubt to go. */}
@@ -355,7 +370,7 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
   )
 }
 
-const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
+const NO_LAYOUTS: string[] = []
 
 /** Layout names as a sentence has them, each in the monospace face: `print and assembly`. */
 function numberedList(names: string[]): ReactNode[] {

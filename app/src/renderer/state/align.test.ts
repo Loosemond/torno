@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { apply, reckoned, rotate } from '../../shared/align'
 import type { Vec3 } from '../../shared/marks'
 import { type ScanAlignment, type ScanInfo, MAX_PAIRS } from '../../shared/scans'
-import { type AlignState, type FloorDraft, type PairDraft, alignStore, asKept, expects, fitOf, floorAlignment, floorWarning, movedAlignment, nextLine, pairsAlignment, previewOf, proposed, scanInHand, sizeNote, stepBack, withModelEnd, withScanEnd, withTypedEnd } from './align'
+import { type AlignState, type FloorDraft, type PairDraft, alignStore, asKept, expects, fitOf, floorAlignment, floorWarning, movedAlignment, nextLine, pairsAlignment, previewOf, proposed, scanInHand, sizeNote, startedFrom, stepBack, withModelEnd, withScanEnd, withTypedEnd } from './align'
 
 describe('the pairs in hand', () => {
   it('take their ends in either order, each to the first pair that lacks one', () => {
@@ -67,13 +67,29 @@ describe('what is in hand, and what it would make', () => {
   const scan = { id: 'S1' } as ScanInfo
   const three: PairDraft[] = [[0, 0, 0], [10, 0, 0], [0, 10, 0]].map((p) => ({ scan: p as Vec3, model: [p[0] + 5, p[1], p[2] + 1] as Vec3 }))
 
+  // Final fix wave (I8): an alignment of another layout is a start, never a fit of this one.
+  it('starts a scan in a layout from where its alignment in another has it, as placed by hand: no pairs, no floor, no fit come with it', () => {
+    const other = { transform: { t: [1, 2, 3], q: [0, 0, 0, 1], s: 1 }, steps: ['floor', 'pairs'], pairs: [{ scan: [0, 0, 0], model: [1, 2, 3], part: 'tub', residual: 0.1 }], rms: 0.1, fitRms: 0.1, floor: { part: 'tub', point: [0, 0, 0] }, frame: { tub: [0, 0, 0] }, at: 't' } as unknown as ScanAlignment
+    const { alignment, scaled } = startedFrom(other)
+    expect(alignment).toEqual({ transform: { t: [1, 2, 3], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'] })
+    expect(scaled).toBe(false)
+    expect(alignment.transform).not.toBe(other.transform)
+    // A size the other alignment gave the scan is kept, and said.
+    expect(startedFrom({ ...other, transform: { ...other.transform, s: 0.001 }, scaled: true })).toMatchObject({ alignment: { scaled: true, steps: ['typed'] }, scaled: true })
+  })
+
   it('says in one line what to click next', () => {
     expect(nextLine(state({}), null, 0, null)).toBe('Import a scan first')
     expect(nextLine(state({}), null, 2, null)).toBe('Choose the scan to align')
-    expect(nextLine(state({ mode: 'pairs' }), scan, 1, null)).toBe('Click a point on the scan')
-    expect(nextLine(state({ mode: 'pairs', pairs: [{ scan: [0, 0, 0] }] }), scan, 1, null)).toBe('Now the same point on the model, or type it')
-    expect(nextLine(state({ mode: 'pairs', pairs: three.slice(0, 2) }), scan, 1, null)).toBe('Click another point on the scan: 2 of 3 pairs')
-    expect(nextLine(state({ mode: 'pairs', pairs: three }), scan, 1, null)).toBe('Apply, or click another point on the scan to tighten the fit')
+    expect(nextLine(state({ mode: 'pairs' }), scan, 1, null)).toBe('Pair 1: click its point on the scan')
+    expect(nextLine(state({ mode: 'pairs', pairs: [{ scan: [0, 0, 0] }] }), scan, 1, null)).toBe('Pair 1: click the same point on the model, or type it')
+    expect(nextLine(state({ mode: 'pairs', pairs: three.slice(0, 2) }), scan, 1, null)).toBe('Pair 3: click its point on the scan (2 of 3 pairs)')
+    expect(nextLine(state({ mode: 'pairs', pairs: three }), scan, 1, null)).toBe('Apply, or tighten the fit. Pair 4: click its point on the scan')
+    // Final fix wave (I10): the line always says which end of which pair it asks for.
+    expect(nextLine(state({ mode: 'pairs', pairs: [...three.slice(0, 2), { model: [1, 2, 3] }] }), scan, 1, null)).toBe('Pair 3: click the same point on the scan')
+    expect(nextLine(state({ mode: 'pairs', first: 'model' }), scan, 1, null)).toBe('Pair 1: click its point on the model, or type it')
+    expect(nextLine(state({ mode: 'pairs', first: 'model', pairs: [{ model: [1, 2, 3] }] }), scan, 1, null)).toBe('Pair 1: click the same point on the scan')
+    expect(nextLine(state({ mode: 'pairs', first: 'model', pairs: [{ scan: [1, 2, 3] }] }), scan, 1, null)).toBe('Pair 1: click the same point on the model, or type it')
     expect(nextLine(state({ mode: 'floor' }), scan, 1, null)).toBe('Click the floor of the scan')
     expect(nextLine(state({ mode: 'floor', points: [[0, 0, 0]] }), scan, 1, null)).toBe('Shift-click 2 more on the floor')
     expect(nextLine(state({ mode: 'floor', choosingFace: true }), scan, 1, null)).toBe('Click a flat face of the model to lay the floor on')
@@ -84,6 +100,11 @@ describe('what is in hand, and what it would make', () => {
     expect(expects([{ scan: [0, 0, 0] }])).toBe('model')
     expect(expects(three)).toBe('scan')
     expect(expects([{ model: [0, 0, 0] }])).toBe('scan')
+    // With no pair open, the end that is asked first: the scan's unless the person chose the model's.
+    expect(expects([], 'model')).toBe('model')
+    expect(expects(three, 'model')).toBe('model')
+    expect(expects([{ model: [0, 0, 0] }], 'model')).toBe('scan')
+    expect(expects([{ scan: [0, 0, 0] }], 'model')).toBe('model')
   })
 
   it('steps back one pick at a time, and has nothing left to step back from in the end', () => {
@@ -189,7 +210,7 @@ describe('what the bar says, further', () => {
   it('says that a build put down what was in hand, until something is picked again', () => {
     const told = state({ mode: 'pairs', notice: 'The build changed: pick the pairs again' })
     expect(nextLine(told, scan, 1, null)).toBe('The build changed: pick the pairs again')
-    expect(nextLine({ ...told, pairs: [{ scan: [0, 0, 0] }] }, scan, 1, null)).toBe('Now the same point on the model, or type it')
+    expect(nextLine({ ...told, pairs: [{ scan: [0, 0, 0] }] }, scan, 1, null)).toBe('Pair 1: click the same point on the model, or type it')
   })
 
   it('takes no more pairs than an alignment keeps, and says so', () => {

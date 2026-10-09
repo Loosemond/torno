@@ -1171,6 +1171,30 @@ describe('scans in scene, look and show', () => {
     expect(TOOLS.marks.description).toContain('a region is a part of a scan the user painted')
   })
 
+  // Final fix wave (F6, F8, F15).
+  it('look takes what a named view is fitted to, and says after the caption that spread parts are not where a scan drawn has them, and which scans have no mesh to draw', async () => {
+    const deps = scanned()
+    await lookTool(deps, 'bracket', { view: 'iso', frame: 'all' })
+    await lookTool(deps, 'bracket', { view: 'iso' })
+    expect(deps.looks.map((l) => l.req.frame)).toEqual(['all', undefined])
+    expect(await said(lookTool(deps, 'bracket', { frame: 'everything' as never }))).toBe('frame is "parts" (the default: a named view is fitted to the parts drawn) or "all" (to the scans drawn with them)')
+    expect(TOOLS.look.inputSchema.frame.description).toContain('the caption says when a scan drawn reaches beyond the picture')
+    // A print layout torno spread, with a scan in the picture.
+    const spread: Scene = { ...SCENE, parts: [...SCENE.parts.slice(0, 2), part('print', 'base', [-20, -15, -2.5], [20, 15, 2.5]), part('print', 'post', [56, -10, 0], [64, 10, 8], { arranged: [60, 0, 0] }), part('print', 'cap', [80, -10, 0], [90, 10, 8], { arranged: [85, 0, 0] })] }
+    const drew = (layout: string, scans: string[]) => scanned({ scene: () => ({ revision: 3, scene: spread }), look: async () => ({ ...PICTURE, layout, scans }), show: async (objectId) => ({ caption: 'view iso · layout print', objectId, revision: 3, stale: false, layout, scans }) })
+    const note = '\nThe parts of layout print were spread for display: post, cap are not where S2 has them (base is where the model places it).\n'
+    expect(textOf(await lookTool(drew('print', ['S2']), 'bracket', { layout: 'print' }))).toContain(`${PICTURE.caption}${note}revision r3`)
+    expect(textOf(await showTool(drew('print', ['S2']), 'bracket', { layout: 'print' }))).toContain(`view iso · layout print${note}revision r3`)
+    // Said only where it is so: no scan drawn, or a layout that was not spread.
+    expect(textOf(await lookTool(drew('print', []), 'bracket', { layout: 'print' }))).not.toContain('spread for display')
+    expect(textOf(await lookTool(drew('assembly', ['S1']), 'bracket', {}))).not.toContain('spread for display')
+    // A scan whose mesh is gone is in no picture, and that is said.
+    const gone = scanned({ scans: async () => [{ ...SCANS[0], meshState: 'missing' }, SCANS[1]] })
+    expect(textOf(await lookTool(gone, 'bracket', {}))).toContain(`${PICTURE.caption}\nS1 is not drawn: its mesh is gone from the disk (the user imports it again from the Scans panel).\nrevision r3`)
+    expect(textOf(await lookTool(gone, 'bracket', { scans: false }))).not.toContain('not drawn')
+    expect(textOf(await lookTool(gone, 'bracket', { scans: ['S2'] }))).not.toContain('not drawn')
+  })
+
   it('scene names the scans, each with whether it is aligned in the layout it answers for, and where to ask how', () => {
     const scene = JSON.parse(textOf(sceneTool(scanned(), 'bracket', [], SCANS)))
     expect(scene.scans).toEqual([{ id: 'S1', name: 'S1.glb', triangles: 722, aligned: true }, { id: 'S2', name: 'S2.glb', triangles: 722, aligned: false }])

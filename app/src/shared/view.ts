@@ -37,6 +37,8 @@ export interface LookRequest {
   scans?: 'current' | false | string[]
   /** One scan coloured by its distance to a part of the layout, for this picture only. */
   scanColour?: ScanColouring
+  /** What a named view is fitted to: the parts drawn (and when absent), or everything drawn, the scans with them. */
+  frame?: 'parts' | 'all'
 }
 /**
  * Colours one scan by its distance to a part of the layout, for a picture: from `--deviation-near` at 0 to
@@ -45,7 +47,7 @@ export interface LookRequest {
  */
 export interface ScanColouring { scan: string; part: string; range: number }
 /** A picture, and what the window drew to make it: the object it had open, that object's revision, and whether its parts were stale. */
-export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean }
+export interface LookResult { png: Uint8Array; width: number; height: number; caption: string; objectId: string; revision: number; stale: boolean; /** The layout drawn, and the scans drawn in it, by id. */ layout?: string; scans?: string[] }
 /** What the agent asks the window to show: an object, and of it a view, a layout, some parts (by name). */
 export interface ShowRequest {
   objectId: string
@@ -59,7 +61,7 @@ export interface ShowRequest {
   scanOpacity?: number
 }
 /** What the window did for a `ShowRequest`: what it now shows, as the caption of a picture would say it, and of which object and build. */
-export interface ShowResult { caption: string; objectId: string; revision: number; stale: boolean }
+export interface ShowResult { caption: string; objectId: string; revision: number; stale: boolean; /** The layout now shown, and the scans drawn in it, by id. */ layout?: string; scans?: string[] }
 /** What the agent asks the window to point out to the person: refs of the layout shown, tinted in the agent's colour, with a note. */
 export interface HighlightRequest { objectId: string; layout: string; refs: string[]; note?: string }
 /** What the window pointed out, and of which object and build. */

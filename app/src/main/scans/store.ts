@@ -52,6 +52,8 @@ export class ScanStore {
   private checks = new Map<string, Map<string, Record<string, AlignmentCheck>>>()
   /** By object folder, then scan, then layout: why the last check of that alignment could say nothing, and of which build. Of this run. */
   private failures = new Map<string, Map<string, Record<string, { revision: number; reason: string }>>>()
+  /** By folder: what was found of each scan's source and mesh when the scans were last told (`looked`). */
+  private found = new Map<string, string>()
   /** The imports and the conversions under way. */
   private runs = new Set<Promise<unknown>>()
   /** By object folder: the ids whose folder an import or a conversion under way is writing in. Kept across `forget`: the process is not ended by it. */
@@ -78,6 +80,7 @@ export class ScanStore {
     this.files.clear()
     this.checks.clear()
     this.failures.clear()
+    this.found.clear()
   }
 
   /**
@@ -95,7 +98,18 @@ export class ScanStore {
   }
 
   list(objectId: string): Promise<ScanInfo[]> {
-    return this.of(objectId, (place) => this.turn(place, (file, dir) => this.told(dir, file)))
+    return this.of(objectId, (place) => this.turn(place, (file, dir) => this.looked(place, dir, file)))
+  }
+
+  /**
+   * The scans as they are found on the disk now. When a source or a mesh is not as whoever listens was last
+   * told (one went missing, or is back), they are told: a row must not say "aligned" of a scan the tools refuse.
+   */
+  private async looked(place: Place, dir: string, file: ScansFile): Promise<ScanInfo[]> {
+    const was = this.found.get(dir)
+    const scans = await this.told(dir, file)
+    if (was !== undefined && was !== this.found.get(dir) && place.epoch === this.epoch) this.emit('changed', { objectId: place.objectId, scans })
+    return scans
   }
 
   /**
@@ -573,6 +587,8 @@ export class ScanStore {
         } catch (e) {
           const code = (e as NodeJS.ErrnoException).code
           if (code !== 'ENOENT' && code !== 'EISDIR' && code !== 'ENOTDIR') throw e
+          // Whoever listens learns it now, not at the next listing.
+          await this.looked(place, dir, file).catch(() => {})
           throw new Error(await this.meshGone(scan, path))
         }
       })
@@ -698,8 +714,11 @@ export class ScanStore {
     return { ...structuredClone(scan), sourceState, meshState: mesh ? 'ok' : 'missing', checks: structuredClone(this.checks.get(dir)?.get(scan.id) ?? {}), ...(failed && Object.keys(failed).length > 0 ? { unchecked: structuredClone(failed) } : {}) }
   }
 
-  private told(dir: string, file: ScansFile): Promise<ScanInfo[]> {
-    return Promise.all(file.scans.map((scan) => this.infoOf(dir, scan)))
+  private async told(dir: string, file: ScansFile): Promise<ScanInfo[]> {
+    const scans = await Promise.all(file.scans.map((scan) => this.infoOf(dir, scan)))
+    // What was found of each scan's files, as of this telling (`looked`).
+    this.found.set(dir, scans.map((scan) => `${scan.id} ${scan.sourceState} ${scan.meshState}`).join('|'))
+    return scans
   }
 
   private progress({ objectId, epoch }: Place, name: string, stage: string | null): void {

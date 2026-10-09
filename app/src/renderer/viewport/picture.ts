@@ -6,7 +6,7 @@ import { MARK_LAYERS, type Highlights } from './highlight'
 import type { MarkLayer } from './marks/MarkLayer'
 import { PERSPECTIVE_NOTE, chipSize, drawDeviationLegend, drawLabels, drawOverlay, overlayFonts, overlayUnit, type LabelStyle } from './overlay'
 import type { BuiltPart } from './partMesh'
-import { deviationColours, type Rgb } from './scanDeviation'
+import { deviationColours, storedColour, type Rgb } from './scanDeviation'
 import { reaching, type ScanLayer, type ShownScan } from './scans'
 import { describeSection } from './section'
 import { visibleHeight } from './views'
@@ -25,6 +25,8 @@ export interface ImageRequest {
   scans?: 'current' | false | string[]
   /** One scan drawn in colours that say how far it is from a part of the layout, for this picture. It is drawn whether or not it is among `scans`. */
   scanColour?: ScanColouring
+  /** What a named view is fitted to: the parts drawn (and when left out), or the scans drawn with them. */
+  frame?: 'parts' | 'all'
 }
 
 export interface Picture {
@@ -32,6 +34,9 @@ export interface Picture {
   width: number
   height: number
   caption: string
+  /** The layout drawn, and the scans drawn in it, by id. */
+  layout: string
+  scans: string[]
 }
 
 /** Long edge of a picture for the agent, in pixels. */
@@ -55,7 +60,7 @@ export interface PictureHost {
   readonly scene: THREE.Scene
   readonly marks: Pick<MarkLayer, 'activeId' | 'setActive' | 'show' | 'showDraft' | 'extend' | 'update' | 'labels'>
   readonly highlights: Pick<Highlights, 'setVisible'>
-  readonly scans: Pick<ScanLayer, 'showOnly' | 'shown' | 'box' | 'built' | 'colourFor'>
+  readonly scans: Pick<ScanLayer, 'showOnly' | 'shown' | 'box' | 'boxIn' | 'built' | 'colourFor'>
   /** The viewport has been disposed of. */
   closed(): boolean
   /** The layouts of the scene on show, and the one on screen. */
@@ -67,8 +72,8 @@ export interface PictureHost {
   parts(): Iterable<PicturePart>
   /** The camera as the person has it. */
   currentView(): Camera
-  /** A standard view, orthographic, fitted to some parts (to a stand-in box for none). */
-  namedView(name: ViewName, parts: Part[], aspect: number): Camera
+  /** A standard view, orthographic, fitted to some parts (to a stand-in box for none), and to `also` with them when that is given. */
+  namedView(name: ViewName, parts: Part[], aspect: number, also?: THREE.Box3 | null): Camera
   /** A camera of its own for a picture, with its frustum around `extent` and the key light aimed along it. */
   cameraFor(view: Camera, aspect: number, extent: THREE.Sphere): THREE.Camera
   /** The names of the parts of a layout that are not among those drawn. */
@@ -114,7 +119,7 @@ export interface PictureState {
   width: number
   height: number
   /** A scan drawn in colours of the picture's own, worked out once the scan stands where the picture's layout puts it. */
-  colour?: { scan: string; colours(): Uint16Array }
+  colour?: { scan: string; colours(): Uint16Array; of: { far: readonly number[]; inside: readonly number[] | null } }
 }
 
 /**
@@ -146,7 +151,7 @@ export function asPictured<T>(host: PictureHost, state: PictureState, draw: (ext
     scansBack = host.scans.showOnly(state.scans, state.layout, state.withMarks)
     host.cutBy(state.section, state.layout, false)
     // Once the scan stands and is cut as the picture has it: its colours are of where it stands.
-    if (state.colour) host.scans.colourFor(state.colour.scan, state.colour.colours())
+    if (state.colour) host.scans.colourFor(state.colour.scan, state.colour.colours(), state.colour.of)
     let extent = otherLayout ? host.layGround(state.layout) : host.groundExtent()
     // A scan may stand far from the parts: the camera reaches what is drawn of it.
     const around = host.scans.box()
@@ -201,6 +206,27 @@ export function scansNote(drawn: ReadonlyArray<Pick<ShownScan, 'id' | 'opacity' 
   return ` · scans ${said.join(', ')}`
 }
 
+/** Whether some of a box is outside what a camera draws: a corner of it is past an edge of the picture. */
+export function reachesBeyond(camera: THREE.Camera, box: THREE.Box3): boolean {
+  camera.updateMatrixWorld()
+  const corner = new THREE.Vector3()
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) {
+        corner.set(x, y, z).project(camera)
+        if (!(Math.abs(corner.x) <= 1 + 1e-6 && Math.abs(corner.y) <= 1 + 1e-6) || corner.z > 1) return true
+      }
+    }
+  }
+  return false
+}
+
+/** What a caption says of the scans drawn that reach beyond the picture, and, of a named view fitted to the parts, what takes them in. '' for none. */
+export function beyondNote(ids: readonly string[], fitted: boolean): string {
+  if (ids.length === 0) return ''
+  return ` · ${ids.join(', ')} ${ids.length === 1 ? 'reaches' : 'reach'} beyond the picture${fitted ? ', which is fitted to the parts: frame "all" takes the scans in' : ''}`
+}
+
 /** The colours a scan is drawn in by its distance to a part, as the stylesheet says them: `--deviation-near`, `--deviation-far`, `--deviation-inside`. */
 export interface DeviationColours { near: string; far: string; inside: string }
 /** Those of the light theme (styles/tokens.css), for where there is no stylesheet to read. */
@@ -217,13 +243,16 @@ const rgbOf = (hex: string): Rgb => [1, 3, 5].map((at) => parseInt(hex.slice(at,
 
 /**
  * What a picture's caption says of the scan it drew by distance: which, to which part, over what range, and the
- * very colours: whoever reads the picture reads distances off them. They are exact at the scan's own points:
- * between them the picture blends, so a pixel may be on neither the ramp nor the swatch. Of a part that is no solid nothing is inside.
+ * very colours: whoever reads the picture reads distances off them, about. The colours are of the scan's own
+ * points and are shaded like the rest of it, so a pixel is darker than its swatch where the surface turns from
+ * the light, and between two points it is a blend. Beyond the range the scan is drawn seen through, so that the
+ * part stays in sight; what is inside the part is drawn over it. Of a part that is no solid nothing is inside.
  */
 export function colouringNote(colouring: ScanColouring, colours: DeviationColours, solid: boolean): string {
   const range = number(colouring.range)
   const key = `0 mm ${colours.near}, ${range} mm and beyond ${colours.far}`
-  return ` · scan ${colouring.scan} coloured at the scan's points by distance to ${colouring.part}: 0 to ${range} mm${solid ? `, inside the part marked (${key}, inside the part ${colours.inside})` : ` (${key}; ${colouring.part} is no solid, so nothing is marked as inside it)`}`
+  const how = `the colours are of the scan's points, shaded, and approximate; beyond ${range} mm the scan is seen through`
+  return ` · scan ${colouring.scan} coloured by the distance of its points to ${colouring.part}: 0 to ${range} mm${solid ? `, inside the part marked and drawn over it (${key}, inside the part ${colours.inside}; ${how})` : ` (${key}; ${how}; ${colouring.part} is no solid, so nothing is marked as inside it)`}`
 }
 
 /**
@@ -256,13 +285,22 @@ export class PictureMaker {
     const wanted = new Set(req.visibleKeys)
     const shown = [...host.parts()].filter((p) => p.part.layout === req.layout && wanted.has(p.part.key))
 
+    // Those switched on on screen, unless the picture names its own or wants none.
+    const chosen = req.scans === false ? null : Array.isArray(req.scans) ? req.scans : host.scans.shown().filter((scan) => scan.visible).map((scan) => scan.id)
+    // A scan coloured by its distance to a part is drawn, whatever else is: it is what the picture was asked for.
+    const colouring = req.scanColour
+    const scans = colouring ? [...new Set([...(chosen ?? []), colouring.scan])] : chosen
+    // Where the scans drawn stand in the picture's layout: what a view is fitted to when it is asked to take them in, and what is said to reach beyond the picture.
+    const scanBoxes = (scans ?? []).map((id) => ({ id, box: host.scans.boxIn([id], req.layout) })).filter((one): one is { id: string; box: THREE.Box3 } => one.box !== null)
+    const everything = req.frame === 'all' && scanBoxes.length > 0 ? scanBoxes.reduce((all, one) => all.union(one.box), new THREE.Box3()) : null
+
     let view: Camera
     let viewName: string
     if (req.view === 'current') {
       view = host.currentView()
       viewName = 'current'
     } else if (typeof req.view === 'string') {
-      view = host.namedView(req.view, shown.map((p) => p.part), aspect)
+      view = host.namedView(req.view, shown.map((p) => p.part), aspect, everything)
       viewName = req.view
     } else {
       view = req.view
@@ -270,11 +308,6 @@ export class PictureMaker {
     }
 
     const withMarks = req.marks !== false
-    // Those switched on on screen, unless the picture names its own or wants none.
-    const chosen = req.scans === false ? null : Array.isArray(req.scans) ? req.scans : host.scans.shown().filter((scan) => scan.visible).map((scan) => scan.id)
-    // A scan coloured by its distance to a part is drawn, whatever else is: it is what the picture was asked for.
-    const colouring = req.scanColour
-    const scans = colouring ? [...new Set([...(chosen ?? []), colouring.scan])] : chosen
     const tokens = deviationTokens()
     let colour: PictureState['colour']
     let solid = false
@@ -286,6 +319,7 @@ export class PictureMaker {
       const { scan, range } = colouring
       colour = {
         scan,
+        of: { far: storedColour(rgbOf(tokens.far)), inside: solid ? storedColour(rgbOf(tokens.inside)) : null },
         colours: () => {
           const built = host.scans.built(scan)
           if (!built) throw new Error(`${scan}'s mesh has not come to the window yet: look again in a moment`)
@@ -346,8 +380,10 @@ export class PictureMaker {
     const names = shown.map((p) => p.part.name).join(', ') || 'none'
     const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
     const cutNote = section ? ` · ${describeSection(section)}` : ''
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote} · ${projection} · ${width}×${height}`
-    return { png, width, height, caption }
+    // A scan is the surroundings: a view fitted to the parts shows a corner of it. That is said, with what takes all of it in.
+    const beyond = scanBoxes.filter((one) => drawn.some((scan) => scan.id === one.id) && reachesBeyond(camera, one.box)).map((one) => one.id)
+    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${beyondNote(beyond, typeof req.view === 'string' && req.view !== 'current' && req.frame !== 'all')}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote} · ${projection} · ${width}×${height}`
+    return { png, width, height, caption, layout: req.layout, scans: drawn.map((scan) => scan.id) }
   }
 
   dispose(): void {

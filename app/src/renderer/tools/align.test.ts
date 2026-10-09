@@ -10,7 +10,7 @@ import { toolStore } from '../state/tools'
 import type { Hit } from '../viewport/picking'
 import type { ScanHit } from '../viewport/scans'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { CHOOSE_SCAN, FLAT_FACE, NO_SCAN, alignTool, anglesWith, connectAlign, keepAlignment, movedPart, readAs, undoAlignment } from './alignTool'
+import { CHOOSE_SCAN, FLAT_FACE, NO_SCAN, WANTS_MODEL, WANTS_SCAN, alignTool, anglesWith, connectAlign, keepAlignment, movedPart, readAs, undoAlignment } from './alignTool'
 import { quatOf } from './shapeTool'
 import type { ToolContext } from './Tool'
 
@@ -125,28 +125,60 @@ describe('the align tool, by pairs', () => {
     expect(alignStore.getState().pairs).toHaveLength(1)
   })
 
-  it('with both under the pointer takes the nearer; and where they lie in one surface, the end that is asked for next', () => {
+  // Final fix wave (I10, F2): a click is taken only for the end that is asked for, so pairs cannot go out of step.
+  it('takes a click for the end that is asked for, whatever is nearer under the pointer', () => {
     const tool = alignTool()
     const { ctx } = fake()
-    // The scan well in front of the part: the scan, though no end of it was asked for more than the model's.
-    tool.onPointer(pointer('click', { scan: onScan([1, 2, 3], 80), part: onPart([10, 0, 2.5], 97.5) }), ctx)
+    // The part in front of the scan, and a scan end asked for: the scan behind it is what is taken.
+    tool.onPointer(pointer('click', { scan: onScan([1, 2, 3], 99), part: onPart([10, 0, 2.5], 90) }), ctx)
     expect(alignStore.getState().pairs).toEqual([{ scan: [1, 2, 3] }])
-    // In one surface (the scan lies on the model): the model end, which is what is asked for now.
-    tool.onPointer(pointer('click', { scan: onScan([7, 8, 9], 97.4), part: onPart([10, 0, 2.5], 97.5) }), ctx)
+    // The scan in front of the part, and the model end asked for: the part.
+    tool.onPointer(pointer('click', { scan: onScan([7, 8, 9], 80), part: onPart([10, 0, 2.5], 97.5) }), ctx)
     expect(alignStore.getState().pairs).toEqual([{ scan: [1, 2, 3], model: [10, 0, 2.5], part: 'base' }])
-    // And at the same place again: a scan end, which is what is asked for then.
-    tool.onPointer(pointer('click', { scan: onScan([7, 8, 9], 97.4), part: onPart([10, 0, 2.5], 97.5) }), ctx)
-    expect(alignStore.getState().pairs[1]).toEqual({ scan: [7, 8, 9] })
-    // The part in front of the scan: the part.
-    tool.onPointer(pointer('click', { scan: onScan([7, 8, 9], 99), part: onPart([20, 0, 2.5], 90) }), ctx)
-    expect(alignStore.getState().pairs[1]).toEqual({ scan: [7, 8, 9], model: [20, 0, 2.5], part: 'base' })
+  })
+
+  it('keeps no model end from a click that lands on a part while the scan end is asked for, and says what to do', () => {
+    const tool = alignTool()
+    const { ctx, said } = fake()
+    alignStore.setState({ pairs: [{ scan: [0, 0, 0], model: [5, 0, 1] }] })
+    tool.onPointer(pointer('click', { part: onPart([10, 0, 2.5]) }), ctx)
+    expect(alignStore.getState().pairs).toEqual([{ scan: [0, 0, 0], model: [5, 0, 1] }])
+    expect(said.at(-1)).toBe('That is the model: click the scan, or press Tab to give the model end first')
+    expect(said.at(-1)).toBe(WANTS_SCAN)
+    // The same is said before the click, where the pointer is.
+    tool.onPointer(pointer('move', { part: onPart([10, 0, 2.5]) }), ctx)
+    expect(said.at(-1)).toBe(WANTS_SCAN)
+    // And the other way: a pair with its scan end takes no second scan end.
+    tool.onPointer(pointer('click', { scan: onScan([1, 2, 3]) }), ctx)
+    tool.onPointer(pointer('click', { scan: onScan([4, 5, 6]) }), ctx)
+    expect(alignStore.getState().pairs[1]).toEqual({ scan: [1, 2, 3] })
+    expect(alignStore.getState().pairs).toHaveLength(2)
+    expect(said.at(-1)).toBe(WANTS_MODEL)
+    expect(WANTS_MODEL).toBe('That is the scan: click the same point on the model, or type it')
+  })
+
+  it('Tab switches which end a pair is asked for first: the model end can be given before the scan end', () => {
+    const tool = alignTool()
+    const { ctx } = fake()
+    expect(tool.onKey!(key('Tab'), ctx)).toBe(true)
+    expect(alignStore.getState().first).toBe('model')
+    tool.onPointer(pointer('click', { scan: onScan([7, 8, 9], 80), part: onPart([10, 0, 2.5], 97.5) }), ctx)
+    expect(alignStore.getState().pairs).toEqual([{ model: [10, 0, 2.5], part: 'base' }])
+    // The pair that is open is finished first, whichever end is asked first.
+    expect(tool.onKey!(key('Tab'), ctx)).toBe(true)
+    tool.onPointer(pointer('click', { scan: onScan([7, 8, 9], 80), part: onPart([20, 0, 2.5], 97.5) }), ctx)
+    expect(alignStore.getState().pairs).toEqual([{ model: [10, 0, 2.5], part: 'base', scan: [7, 8, 9] }])
+    // Not in the other ways of aligning: the key is not the tool's there.
+    alignStore.setState({ mode: 'floor' })
+    expect(tool.onKey!(key('Tab'), ctx)).toBe(false)
   })
 
   it('refuses a model end on a part torno moved for display, and says why', () => {
     const tool = alignTool()
     const { ctx, said } = fake()
+    tool.onPointer(pointer('click', { scan: onScan([1, 2, 3]) }), ctx)
     tool.onPointer(pointer('click', { part: onPart([60, 0, 2], 97.5, 'lid') }), ctx)
-    expect(alignStore.getState().pairs).toEqual([])
+    expect(alignStore.getState().pairs).toEqual([{ scan: [1, 2, 3] }])
     expect(said.at(-1)).toBe('torno moved lid for display here: align to a part it did not move, or in a layout that places the parts as assembled')
     expect(movedPart('lid')).toBe(said.at(-1))
   })
@@ -158,8 +190,8 @@ describe('the align tool, by pairs', () => {
     tool.onPointer(pointer('move', { part: onPart([10, 0, 2.5]) }), ctx)
     tool.onPointer(pointer('move', { scan: onScan([1, 2, 3]) }), ctx)
     expect(alignStore.getState()).toBe(before)
-    expect(hovered).toEqual(['base/F5', null])
-    expect(said).toEqual(['base/F5 | ', 'S1: a point of the scan'])
+    expect(hovered).toEqual([null, null])
+    expect(said).toEqual([WANTS_SCAN, 'S1: a point of the scan'])
     // While the camera is turned nothing is said.
     tool.onPointer(pointer('move', { scan: onScan([1, 2, 3]) }, { buttons: 1 }), ctx)
     expect(said).toHaveLength(2)
