@@ -1083,28 +1083,43 @@ window on it.
   object is shown and whenever the list is opened (`installedAgents`); one that is not is listed disabled.
   `TORNO_AGENT_CMD` is run in place of whichever is chosen, with that agent's arguments.
 - `session.json` holds the conversation to resume and the `agent` it is of (a file without the key is Claude
-  Code's), and under `kept` the last conversation of each other agent. A conversation is resumed only by its own
-  agent. `Sessions.start` is a promise (the choice is read from the disk); a second start for an object while
+  Code's), and under `kept` the last conversation of each other agent (`sessions/resume.ts`, written through
+  `writeFileAtomic`, one change at a time). A conversation is resumed only by its own agent. `Sessions.start` is a promise (the choice is read from the disk); a second start for an object while
   the first is under way is answered with the first, and `stopAll` waits for one that is.
-- An agent without hooks:
+- An agent without hooks (`sessions/delivery.ts`):
   - Its status is `starting`, then `idle` from its first output until `exited`; what is shown and told of it is
     `running` (`shared/agents.ts` `sessionSaid`), never idle, working or waiting. Whatever asks before ending a
     session takes it for one that may be working (`busyWith`). `/hooks/<session>/…` answers 404 for it.
-  - Its conversation is put on file by the first Enter written to its terminal.
+  - Its conversation is put on file by the first Enter written to its terminal (`hasEnter`: not a line break
+    inside a paste, not Esc Enter). `told` in `session.json` says a line of torno's was sent in it: a resumed
+    conversation without it has seen no mark (`fresh`).
+  - Its instructions never say that anything arrives with a prompt (`systemPrompt(toolName, false)`).
   - Nothing goes with its prompts. "Send marks" (`Sessions.sendMarks`; offered only while there are drafts or
     dimensions it was given that the build does not meet, `toSend`) writes what a hook would have carried to
     `<object>/.torno/prompt.md` (`sessions/sendMarks.ts` `promptFile`) and pastes one line that names the file
     at its cursor (`sendLine`), not sent. While that line waits, the file is written again whenever the marks or
     the build change (`Sessions.changed`), and a second "Send marks" pastes nothing more.
-  - **When its marks are sent.** Only by the Enter that sends that line: `followTyped` reads everything written
-    to the terminal after the paste. Text typed or pasted beside the line, Esc Enter (a new line) and the
-    terminal's own answers and reports leave it waiting; a carriage return then delivers the marks the file
-    tells of (`onDelivered`, as a hook's answer does). Any other key or sequence (backspace, `^U`, `^C`, Esc, a
-    tab, an arrow, one torno does not know) means the line may no longer be what was put there: nothing is
-    delivered, the marks stay drafts, and the pane says so and offers the button again. A session that ends
-    first delivers nothing. What is known is that the line left; whether the agent read the file is not, and the
-    pane says that too (`toldLine`).
+  - **When its marks are sent.** By an Enter written to its terminal, and only if all of this holds between
+    the paste and that Enter: the agent's own output, escape sequences taken out, held the line's beginning
+    (`lineShown`: the CLI showed it at a prompt, which a question that is up in its place does not); and
+    nothing was typed or pasted after it (`followTyped`: a printable character, a bracketed paste whole or cut
+    short, Esc Enter, a key that deletes, clears, completes or recalls, or a sequence torno does not know, all
+    drop the line at once). What leaves it waiting: the terminal's own answers, focus in and out, reports of
+    the pointer, and Left, Right, Home and End. Dropped, nothing is delivered, the marks stay drafts, the file
+    is made to say there is nothing new, and the pane says which it was (`toldLine`: "Something was typed after
+    the line" / "The line was not at the prompt when Enter was pressed") and offers the button again. A session
+    that ends first delivers nothing. The pane's word for success is "Enter was pressed with the line at the
+    prompt": never that the agent has the marks.
+  - `prompt.md` says only that there is nothing new (`nothingNew`) when such a session starts, when its line is
+    dropped and when it ends: what it told of before is never read as news.
   - No draft is consumed by anything but a `UserPromptSubmit` hook or that Enter.
+- What torno writes for an agent it writes into folders of its own: `<object>/.torno` and `.torno/agent` are
+  checked with `lstat` before an adapter's files are written, and a link or a file under either name refuses
+  the start with the path (`ownFolder` in `manager.ts`). Copilot CLI is not started in an object whose path has
+  a comma (its list of folders for instructions is separated by commas): the start is refused, naming the path.
+- `.torno/.gitignore` (`ensureIgnored`) has `prompt.md` and `agent/` from the first hookless start: they are
+  written anew at every start or send. `agent.json` is not ignored: the choice is the object's and travels with
+  it, as `scene.json` does. `session.json` is as it was before this (not ignored by torno).
 
 ## Never run a real agent CLI from tests
 

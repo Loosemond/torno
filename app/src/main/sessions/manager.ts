@@ -1,16 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { lstat, mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import * as pty from 'node-pty'
-import type { AgentId, SendState, SessionStatus } from '../../shared/bridge'
+import type { AgentId, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { writeFileAtomic } from '../atomic'
+import { ensureIgnored } from '../ignored'
 import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import type { AgentAdapter } from './adapter'
 import { findCommand } from './choice'
-import { type Told, Delivery } from './delivery'
-import { SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
+import { type Told, blankPrompt, Delivery, untold } from './delivery'
+import { PROMPT_FILE } from './sendMarks'
+import { conversationTold, SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
 
 const FOLDER = '.torno'
@@ -66,7 +69,7 @@ interface Events {
   data: { sessionId: string; data: string }
   status: { sessionId: string; objectId: string; status: SessionStatus }
   /** What became of the line "Send marks" put at the cursor of an agent without hooks, and how many marks its file tells of. */
-  send: { sessionId: string; objectId: string; state: SendState; marks: number }
+  send: { sessionId: string; objectId: string; state: SendState; marks: number; why?: SendDropped }
 }
 
 /**
@@ -123,7 +126,7 @@ export class Sessions {
       onDelivered: deps.onDelivered,
       live: (s) => this.sessions.get(s.id) === s && !s.killTimer,
       insert: (s, text) => this.insert(s.id, text),
-      said: (s, state, marks) => this.emit('send', { sessionId: s.id, objectId: s.object.id, state, marks })
+      said: (s, state, marks, why) => this.emit('send', { sessionId: s.id, objectId: s.object.id, state, marks, ...(why ? { why } : {}) })
     })
   }
 
@@ -173,8 +176,22 @@ export class Sessions {
     const env: Record<string, string> = { ...person, ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id }
     // node-pty reports a command that does not exist only as a process that exits at once.
     if (!findCommand(launch.command, env.PATH)) throw new Error(`cannot start the agent: '${launch.command}' was not found on PATH`)
-    // What the agent is pointed at is whole before it starts. Nothing is made for an adapter that has no file.
-    for (const [name, text] of Object.entries(launch.files ?? {})) await writeFileAtomic(join(agentDir, basename(name)), text)
+    // What the agent is pointed at is whole before it starts, in a folder that is torno's own and inside the
+    // object: a link there (a workspace from elsewhere) would have torno write, and the agent read, wherever it
+    // leads. Nothing is made for an adapter that has no file.
+    const files = Object.entries(launch.files ?? {})
+    if (files.length > 0) {
+      await ownFolder(join(obj.dir, FOLDER))
+      await ownFolder(agentDir)
+      for (const [name, text] of files) await writeFileAtomic(join(agentDir, basename(name)), text)
+    }
+    if (!adapter.hooks) {
+      // What changes with every send, and what is written anew at every start, is not for git. The choice of
+      // agent (`agent.json`) is the object's and travels with it, as `scene.json` does.
+      await ensureIgnored(obj.dir, [PROMPT_FILE, ...(files.length > 0 ? [`${AGENT_FOLDER}/`] : [])])
+      // Whatever the file told an earlier session of is not news to this one.
+      await blankPrompt(obj.dir)
+    }
 
     const cols = size(opts.cols, 80)
     const rows = size(opts.rows, 24)
@@ -191,25 +208,25 @@ export class Sessions {
       pty: child,
       exited: new Promise<void>((resolve) => (ended = resolve)),
       adapter,
-      pending: null,
-      fresh: stored === null,
-      onFile: stored !== null,
-      telling: Promise.resolve()
+      // A conversation that is resumed has seen the marks only if a line of torno's was sent in it.
+      ...untold(stored === null || !conversationTold(obj.dir, adapter.id, stored), stored !== null)
     }
     this.sessions.set(id, session)
     this.emit('status', { sessionId: id, objectId: obj.id, status: 'starting' })
 
     child.onData((data) => {
       this.emit('data', { sessionId: id, data })
+      if (!adapter.hooks) this.delivery.output(session, data)
       this.advance(session, 'output')
     })
     child.onExit(() => {
       clearTimeout(session.killTimer)
       this.sessions.delete(id)
-      // A line that was never sent went with it: the marks it would have told of are drafts still.
-      session.pending = null
       this.advance(session, 'exit')
-      ended()
+      // A line that was never sent went with it: the marks it would have told of are drafts still, and the
+      // file is made to say so before the session counts as gone.
+      if (adapter.hooks) ended()
+      else void this.delivery.ended(session).then(ended)
     })
     return started(session)
   }
@@ -372,11 +389,8 @@ export class Sessions {
     // session by now, whose conversation is the one to resume.
     if (!session.killTimer && CONVERSATION_EVENTS.has(event) && typeof conversation === 'string' && UUID.test(conversation)) {
       session.conversationId = conversation
-      try {
-        storeConversation(session.object.dir, session.adapter.id, conversation)
-      } catch (e) {
-        console.error(`cannot write ${join(session.object.dir, FOLDER, SESSION_FILE)}: ${(e as Error).message}`)
-      }
+      // On file before the hook is answered: whoever sees the answer can resume.
+      await storeConversation(session.object.dir, session.adapter.id, conversation).catch((e) => console.error(`cannot write ${join(session.object.dir, FOLDER, SESSION_FILE)}: ${(e as Error).message}`))
     }
 
     // A SessionEnd is not the end of the session: on /clear the agent carries on
@@ -412,6 +426,20 @@ export class Sessions {
 
 function started(s: Session): Started {
   return { sessionId: s.id, cols: s.cols, rows: s.rows, status: s.status, agent: s.adapter.id, hooks: s.adapter.hooks }
+}
+
+/**
+ * Makes a folder torno writes an agent's instructions into, or rejects when what is there under its name is
+ * not a folder of its own: a link, which would lead the writing out of the object, or a file.
+ */
+async function ownFolder(path: string): Promise<void> {
+  const what = await lstat(path).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return null
+    throw e
+  })
+  if (what === null) return void (await mkdir(path))
+  if (what.isSymbolicLink()) throw new Error(`cannot start the agent: ${path} is a link, not a folder of torno's own inside the object. Remove the link and start again.`)
+  if (!what.isDirectory()) throw new Error(`cannot start the agent: ${path} is not a folder. Remove it and start again.`)
 }
 
 function size(value: unknown, fallback: number): number {

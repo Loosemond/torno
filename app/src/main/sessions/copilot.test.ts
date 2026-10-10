@@ -47,6 +47,22 @@ describe('copilotAdapter', () => {
     expect(launch.env).toEqual({ COPILOT_CUSTOM_INSTRUCTIONS_DIRS: '/home/me/rules,/home/me/more,/ws/hollow/.torno/agent' })
   })
 
+  it('refuses a folder whose path has a comma, which the list of folders for instructions would split', () => {
+    const comma = { ...ctx, cwd: '/home/me/parts, v2/lid', agentDir: '/home/me/parts, v2/lid/.torno/agent' }
+    expect(() => copilotAdapter().launch(comma)).toThrow("Copilot CLI cannot be given torno's instructions in a folder whose path has a comma: /home/me/parts, v2/lid/.torno/agent")
+  })
+
+  it('never tells an agent without hooks that anything arrives with its prompts', () => {
+    const told = copilotAdapter().launch(ctx).files!['AGENTS.md']
+    expect(told).not.toMatch(/arrive with the prompt|with every prompt|with each prompt/)
+    expect(told).toContain('New marks are in .torno/prompt.md when the user sends a line that begins with "torno:", a line each;')
+    expect(told).toContain('are listed under "Dimensions (measured on rN):" in .torno/prompt.md whenever it is written, until they pass')
+    // Claude Code is told as before.
+    expect(SYSTEM_PROMPT).toContain('New marks arrive with the prompt, a line each;')
+    expect(SYSTEM_PROMPT).toContain('with every prompt until they pass')
+    expect(systemPrompt((tool) => `mcp__torno__${tool}`, true)).toBe(SYSTEM_PROMPT)
+  })
+
   it('says of itself what the window needs to know', () => {
     const all = adapters()
     expect(Object.keys(all)).toEqual(['claude', 'copilot'])

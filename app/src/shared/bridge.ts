@@ -142,7 +142,7 @@ export interface TornoBridge {
     /** For an agent without hooks: writes `.torno/prompt.md` and pastes one line at its cursor, not sent. Answers with the marks the file tells of for the first time. */
     sendMarks(sessionId: string): Promise<{ marks: string[]; line: string }>
     /** What became of that line, and how many marks its file tells of: they are sent only by `sent`. */
-    onSend(cb: (m: { sessionId: string; state: SendState; marks: number }) => void): () => void
+    onSend(cb: (m: { sessionId: string; state: SendState; marks: number; why?: SendDropped }) => void): () => void
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
     stop(sessionId: string): Promise<void>
@@ -156,8 +156,11 @@ export type AgentId = 'claude' | 'copilot'
 
 /**
  * What became of the line "Send marks" put at the cursor of an agent without hooks: `waiting` there for the
- * person's Enter; `sent` by it; `dropped` when something was typed first that may have changed or cleared it.
+ * person's Enter; `sent` by it, when the agent had shown the line and nothing was typed after it; `dropped`
+ * otherwise, and then the marks it told of are drafts still.
  */
 export type SendState = 'waiting' | 'sent' | 'dropped'
+/** Why a line was dropped: something was typed or pasted after it, or the agent had not shown it when Enter was pressed. */
+export type SendDropped = 'typed' | 'absent'
 
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_input' | 'exited'

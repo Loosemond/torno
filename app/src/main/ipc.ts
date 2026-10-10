@@ -400,7 +400,7 @@ export function registerIpc(
   sessions?.on('data', (m) => broadcast('session:data', m))
   sessions?.on('status', (m) => broadcast('session:status', m))
   sessions?.on('status', () => cardsChanged())
-  sessions?.on('send', (m) => broadcast('session:send', { sessionId: m.sessionId, state: m.state, marks: m.marks }))
+  sessions?.on('send', (m) => broadcast('session:send', { sessionId: m.sessionId, state: m.state, marks: m.marks, ...(m.why ? { why: m.why } : {}) }))
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')
     return sessions

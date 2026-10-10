@@ -26,6 +26,9 @@ export function copilotAdapter(agentCmd?: string): AgentAdapter {
     hooks: false,
     toolName,
     launch(ctx) {
+      // The variable is a list separated by commas: a path with one would be two folders, neither of them
+      // there, and the agent would run knowing nothing of torno. Nothing is started.
+      if (ctx.agentDir.includes(',')) throw new Error(`Copilot CLI cannot be given torno's instructions in a folder whose path has a comma: ${ctx.agentDir}`)
       const mcp = { mcpServers: { torno: { type: 'http', url: ctx.mcpUrl, tools: ['*'] } } }
       return {
         command,
@@ -33,7 +36,7 @@ export function copilotAdapter(agentCmd?: string): AgentAdapter {
         args: [...before, '--session-id', ctx.conversationId, '--additional-mcp-config', JSON.stringify(mcp), '--allow-tool=torno', '--no-auto-update'],
         // Beside the folders the person names there themselves, not in their place: the list is separated by commas.
         env: { [INSTRUCTIONS_DIRS]: [ctx.env?.[INSTRUCTIONS_DIRS], ctx.agentDir].filter(Boolean).join(',') },
-        files: { 'AGENTS.md': `${systemPrompt(toolName)}\n\n${NO_HOOKS_PROMPT}` }
+        files: { 'AGENTS.md': `${systemPrompt(toolName, false)}\n\n${NO_HOOKS_PROMPT}` }
       }
     }
   }

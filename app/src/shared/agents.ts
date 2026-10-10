@@ -1,4 +1,4 @@
-import type { AgentId, SendState, SessionStatus } from './bridge'
+import type { AgentId, SendDropped, SendState, SessionStatus } from './bridge'
 import { unmetDimensions } from './dimension'
 import type { Mark } from './marks'
 
@@ -47,12 +47,13 @@ export function sendLabel(has: { drafts: number; unmet: number }): { text: strin
 
 /**
  * The line under the header of an agent without hooks: what to do, or what
- * became of the line torno put at its cursor. Only what torno knows: that the
- * line was sent is seen, that the agent read the file it names is not.
+ * became of the line torno put at its cursor. Only what torno knows: that
+ * Enter was pressed with the line at the prompt, never that the agent has
+ * what the file tells.
  */
-export function toldLine(state: SendState | undefined, drafts: number): string {
-  if (state === 'waiting') return 'A line is at the cursor: press Enter there to send it. Marks stay drafts until you do.'
-  if (state === 'dropped') return 'The line may have been changed before Enter, so the marks are still drafts: use "Send marks" again.'
-  if (state === 'sent' && drafts === 0) return 'The line went with your Enter. Whether the agent read the file, torno cannot see.'
+export function toldLine(send: { state: SendState; why?: SendDropped } | undefined, drafts: number): string {
+  if (send?.state === 'waiting') return 'A line is at the cursor: press Enter to send it as it is. Marks stay drafts until you do.'
+  if (send?.state === 'dropped') return `${send.why === 'absent' ? 'The line was not at the prompt when Enter was pressed' : 'Something was typed after the line'}, so the marks are still drafts: use "Send marks" again.`
+  if (send?.state === 'sent' && drafts === 0) return 'Enter was pressed with the line at the prompt. Whether the agent read the file, torno cannot see.'
   return 'This agent is not told with each prompt: use "Send marks".'
 }

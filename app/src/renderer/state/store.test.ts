@@ -572,12 +572,14 @@ describe('the running session of the open object', () => {
     actions.applySessionStatus({ sessionId: 'c', status: 'idle' })
     expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', agent: 'copilot', hooks: false })
     actions.applySend({ sessionId: 'c', state: 'waiting' })
-    expect(store.getState().sessions.bracket.send).toBe('waiting')
+    expect(store.getState().sessions.bracket.send).toEqual({ state: 'waiting' })
     // Of a session that is no longer its object's, nothing is followed.
     actions.applySend({ sessionId: 'gone', state: 'sent' })
-    expect(store.getState().sessions.bracket.send).toBe('waiting')
+    expect(store.getState().sessions.bracket.send).toEqual({ state: 'waiting' })
+    actions.applySend({ sessionId: 'c', state: 'dropped', why: 'absent' })
+    expect(store.getState().sessions.bracket.send).toEqual({ state: 'dropped', why: 'absent' })
     actions.applySend({ sessionId: 'c', state: 'sent' })
-    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', agent: 'copilot', hooks: false, send: 'sent' })
+    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', agent: 'copilot', hooks: false, send: { state: 'sent' } })
   })
 })
 

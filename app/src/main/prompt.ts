@@ -49,9 +49,28 @@ const TEXT = [
 
 const CLAUDE_TOOL = /mcp__torno__([a-z_]+)/g
 
-/** The system prompt, with torno's tools named as an agent's client names them. */
-export function systemPrompt(toolName: (tool: string) => string): string {
-  return TEXT.replace(CLAUDE_TOOL, (_all, tool: string) => toolName(tool))
+/**
+ * What the text says of things that arrive with a prompt, and what is said in its place to an agent that posts
+ * no hooks, to which nothing arrives: it reads them in `.torno/prompt.md`.
+ */
+const WITHOUT_HOOKS: ReadonlyArray<[string, string]> = [
+  ['New marks arrive with the prompt, a line each;', 'New marks are in .torno/prompt.md when the user sends a line that begins with "torno:", a line each;'],
+  ['are listed under "Dimensions (measured on rN):" with every prompt until they pass', 'are listed under "Dimensions (measured on rN):" in .torno/prompt.md whenever it is written, until they pass']
+]
+
+/**
+ * The system prompt, with torno's tools named as an agent's client names them. For an agent that posts no
+ * hooks (`hooks` false) it never says that anything goes with a prompt.
+ */
+export function systemPrompt(toolName: (tool: string) => string, hooks = true): string {
+  let text = TEXT
+  if (!hooks) {
+    for (const [said, instead] of WITHOUT_HOOKS) {
+      if (!text.includes(said)) throw new Error(`the system prompt no longer says: ${said}`)
+      text = text.replace(said, instead)
+    }
+  }
+  return text.replace(CLAUDE_TOOL, (_all, tool: string) => toolName(tool))
 }
 
 /** Appended to Claude Code's system prompt in every session torno starts. */

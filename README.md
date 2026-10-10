@@ -764,7 +764,7 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 | `.torno/session.json` | the id of the conversation to resume and the agent it is of (`agent`); under `kept`, the last conversation of each other agent |
 | `.torno/agent.json` | the agent the object's sessions run: `{ "agent": "copilot" }`. Without it, Claude Code |
 | `.torno/agent/` | what torno tells an agent that takes no system prompt on its command line: for Copilot CLI, `AGENTS.md`, named to it by `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
-| `.torno/prompt.md` | what "Send marks" last wrote for an agent that posts no hooks: the build status, what is on screen and the new marks, under the time it was written |
+| `.torno/prompt.md` | what "Send marks" last wrote for an agent that posts no hooks: the build status, what is on screen and the new marks, under the time it was written. One line saying there is nothing new when such a session starts or ends, and when the line that named the file was not sent as it was put there. Ignored for git, with `.torno/agent/`, through `.torno/.gitignore`; `agent.json` is not, so the choice travels with the object |
 | `.torno/views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20. The folder ignores itself for git (`.gitignore`, written once): a picture of a scan may show the real world |
 | `.torno/state.md` | the build, the parts, the scans and the open marks as text, for an agent without torno's tools. Its first line says when it was written: nothing keeps it current once torno has quit |
 
@@ -816,6 +816,14 @@ No test runs a real agent CLI. These are checked by hand, with the real one:
 - Copilot CLI: press "Send marks" with a draft, then Enter: does it read .torno/prompt.md and name the mark?
 - Copilot CLI: end the session and resume it: does --session-id <the same id> continue the conversation?
 - Claude Code: one prompt after this milestone, to see that the marks still arrive with it (the arguments did not change; the manager did).
-- Copilot CLI: after "Send marks", click into the terminal and press Enter: does the mark turn sent? (torno takes the line for changed on any key it cannot follow; if Copilot's terminal modes make the focus or Enter arrive in a form torno does not know, the pane says the line may have been changed and the mark stays a draft.)
 - Copilot CLI: does a tool of torno's run without a permission prompt (--allow-tool=torno), and what does Copilot call the tool to its model? (The instructions say "the torno tool scene".)
-- Copilot CLI in an object whose folder has a comma in its path: COPILOT_CUSTOM_INSTRUCTIONS_DIRS is a comma-separated list, so its instructions may not be found there.
+- Copilot CLI, first start in a folder it has not seen: press "Send marks" while its trust question is up, then Enter. The mark must stay a draft, and the pane must say the line was not at the prompt.
+- Copilot CLI: "Send marks", then paste two lines and do not press Enter. The mark must stay a draft.
+- Copilot CLI: "Send marks", type ` see @` and press Enter on the menu. The mark must stay a draft ("Something was typed after the line").
+- Copilot CLI: does it show a pasted line at its prompt as text (torno looks for "torno:" in what it writes after the paste), does it turn on bracketed paste and focus reports, and does its Enter arrive as a carriage return? If not, every "Send marks" ends with the marks still drafts and the pane saying why, and the rule has to learn Copilot's form.
+- Copilot CLI: after a session, `git status` in the object: is anything of Copilot's outside `.torno/`?
+- Copilot CLI: `/clear`, end the session, "Resume": which conversation comes back? (torno cannot see a new conversation started inside Copilot: `session.json` keeps the id torno gave, so "Resume" resumes that one.)
+- Copilot CLI: Shift+Enter (torno writes Esc Enter): a new line, or a send? (torno takes it for a change of the line either way.)
+- Either agent, torno started from a desktop launcher: an agent whose command is only on the PATH of a login shell (nvm, a global npm folder) is listed as not installed and cannot be started; start torno from a terminal, or put the command on the launcher's PATH.
+
+Known without running anything: Copilot CLI is not started in an object whose path has a comma, because the list of folders it reads instructions from is separated by commas; the session pane says so and names the path.

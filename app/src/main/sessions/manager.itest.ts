@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -80,8 +80,8 @@ async function started(agent: AgentId, opts: { context?: { text: string; sentMar
   others.push(made)
   let all = ''
   made.on('data', (m) => (all += m.data))
-  const sent: Array<{ state: string; marks: number }> = []
-  made.on('send', (m) => sent.push({ state: m.state, marks: m.marks }))
+  const sent: Array<{ state: string; marks: number; why?: string }> = []
+  made.on('send', (m) => sent.push({ state: m.state, marks: m.marks, ...(m.why ? { why: m.why } : {}) }))
   folders += 1
   const obj = object(`${agent}-${folders}`)
   const { sessionId } = await made.start(obj, {})
@@ -548,6 +548,7 @@ describe('an agent without hooks', () => {
     typed('env\r')
     expect(await output.until('env:')).toContain('COPILOT_CUSTOM_INSTRUCTIONS_DIRS')
     // It sent a line: its conversation can be resumed, by Copilot and by no other.
+    await expect.poll(() => existsSync(join(obj.dir, '.torno', 'session.json'))).toBe(true)
     expect(JSON.parse(readFileSync(join(obj.dir, '.torno', 'session.json'), 'utf8'))).toMatchObject({ agent: 'copilot', conversationId: argv[1] })
     expect(sessions.resumable(obj, 'copilot')).toBe(true)
     expect(sessions.resumable(obj, 'claude')).toBe(false)
@@ -564,15 +565,21 @@ describe('an agent without hooks', () => {
     expect(sent).toEqual({ marks: ['M4'], line: 'torno: 1 new mark (M4) and the build status are in .torno/prompt.md. Read it first.' })
     expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M4 pin on lid/F2')
     // Pasted, not sent: the terminal echoes what was pasted, but the stand-in has been given no line (it answers each with `> `), and the mark is still a draft.
+    await output.until('torno: 1 new mark')
     await new Promise((r) => setTimeout(r, 200))
     expect(output.all()).not.toContain('> ')
     expect(delivered).toEqual([])
     expect(states).toEqual([{ state: 'waiting', marks: 1 }])
+    // The click into the terminal and what the terminal answers the agent are not the person's keys.
+    typed('\x1b[I')
+    typed('\x1b[12;40R')
     typed('\r')
     // The line it was given, between the marks of a paste.
     expect(await output.until('> ')).toMatch(/> .*torno: 1 new mark \(M4\)/)
     expect(delivered).toEqual([['M4']])
     expect(states.at(-1)).toEqual({ state: 'sent', marks: 1 })
+    // The file is the agent's to read now: it is as it was sent.
+    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M4 pin on lid/F2')
     // Nothing is pending now: another Enter delivers nothing more.
     typed('\r')
     await new Promise((r) => setTimeout(r, 100))
@@ -582,39 +589,87 @@ describe('an agent without hooks', () => {
 
   it('leaves marks drafts when the session ends before the line is sent, and refuses for an agent that has hooks', async () => {
     const delivered: string[][] = []
-    const { sessions, sessionId } = await started('copilot', { context: { text: 'Build ok.', sentMarkIds: ['M1'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
+    const { sessions, obj, sessionId } = await started('copilot', { context: { text: 'Build ok.\nM1 pin', sentMarkIds: ['M1'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
     await sessions.sendMarks(sessionId)
+    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M1 pin')
     await sessions.stop(sessionId)
     expect(delivered).toEqual([])
+    // What the file told of went nowhere: a later session's agent must not read it as news.
+    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toMatch(/^Nothing new from torno as of [^\n]*\n$/)
     await expect(sessions.sendMarks(sessionId)).rejects.toThrow('This session has ended')
     const claude = await started('claude')
     await expect(claude.sessions.sendMarks(claude.sessionId)).rejects.toThrow('This agent is told with every prompt')
-    // Nor is a folder made for an agent that is given no file.
-    expect(existsSync(join(claude.obj.dir, '.torno', 'agent'))).toBe(false)
+    // Nor is a folder or a file made for an agent that is given none.
+    expect(existsSync(join(claude.obj.dir, '.torno'))).toBe(false)
   })
 
-  it('leaves marks drafts when the line may have been changed before Enter, and puts it there again when asked again', async () => {
+  it('leaves marks drafts when something was typed after the line, says why, and puts the line there again when asked again', async () => {
     const delivered: string[][] = []
-    const { sessions, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
+    const { sessions, obj, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.\nM2 pin', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
     await output.until('READY')
+    const file = () => readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')
+    // It was started with nothing to read there.
+    expect(file()).toMatch(/^Nothing new from torno/)
     await sessions.sendMarks(sessionId)
-    // What the person types behind it and what the terminal answers the agent leave it there.
-    typed(' and thicken it')
-    typed('\x1b[I')
+    await output.until('torno: 1 new mark')
+    // Moving along the line changes nothing.
+    typed('\x1b[D')
+    typed('\x1b[H')
     expect(states.map((s) => s.state)).toEqual(['waiting'])
-    // Backspace: what Enter then sends is no longer known to name the file.
-    typed('\x7f')
-    expect(states.map((s) => s.state)).toEqual(['waiting', 'dropped'])
+    // A letter: what Enter then does is not known to be sending the line (an answer to a question, a menu).
+    typed('y')
+    expect(states).toEqual([{ state: 'waiting', marks: 1 }, { state: 'dropped', marks: 1, why: 'typed' }])
+    // The file no longer says what was not sent.
+    await expect.poll(file).toMatch(/^Nothing new from torno/)
     typed('\r')
     await output.until('> ')
     expect(delivered).toEqual([])
     // Asked again, the line is put in again, and its Enter delivers.
     await sessions.sendMarks(sessionId)
+    expect(file()).toContain('M2 pin')
+    await expect.poll(() => (output.all().match(/\[200~torno: 1 new mark \(M2\)/g) ?? []).length).toBeGreaterThanOrEqual(3)
     typed('\r')
     await expect.poll(() => (output.all().match(/> /g) ?? []).length).toBe(2)
-    expect(output.all().match(/\[200~torno: 1 new mark \(M2\)/g)!.length).toBeGreaterThanOrEqual(2)
     expect(delivered).toEqual([['M2']])
     expect(states.map((s) => s.state)).toEqual(['waiting', 'dropped', 'waiting', 'sent'])
+  })
+
+  it('leaves marks drafts when the person pastes lines after it: a line break in a paste is not an Enter', async () => {
+    const delivered: string[][] = []
+    const { sessions, obj, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
+    await output.until('READY')
+    await sessions.sendMarks(sessionId)
+    await output.until('torno: 1 new mark')
+    // As xterm.js writes two pasted lines while the agent has bracketed paste on.
+    typed('\x1b[200~Traceback (most recent call last):\r  File "lid.py", line 3\x1b[201~')
+    expect(delivered).toEqual([])
+    expect(states.at(-1)).toEqual({ state: 'dropped', marks: 1, why: 'typed' })
+    // Nor did the person send anything: there is no conversation to resume.
+    await new Promise((r) => setTimeout(r, 100))
+    expect(existsSync(join(obj.dir, '.torno', 'session.json'))).toBe(false)
+    expect(sessions.resumable(obj, 'copilot')).toBe(false)
+  })
+
+  it('leaves marks drafts when Enter is pressed while the agent has a question up in place of its prompt, and says so', async () => {
+    const delivered: string[][] = []
+    const { sessions, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
+    await output.until('READY')
+    // "Do you trust the files in this folder?": what is typed is not shown at a prompt.
+    typed('dialog\r')
+    await output.until('dialog: up')
+    await sessions.sendMarks(sessionId)
+    await new Promise((r) => setTimeout(r, 200))
+    expect(output.all()).not.toContain('torno: 1 new mark')
+    typed('\r')
+    await output.until('dialog: answered')
+    expect(delivered).toEqual([])
+    expect(states).toEqual([{ state: 'waiting', marks: 1 }, { state: 'dropped', marks: 1, why: 'absent' }])
+    // At the prompt again, it goes.
+    await sessions.sendMarks(sessionId)
+    await output.until('torno: 1 new mark')
+    typed('\r')
+    await output.until('> ')
+    expect(delivered).toEqual([['M2']])
   })
 
   it('pastes one line however often it is asked while that line waits, and keeps the file it names as things are', async () => {
@@ -623,6 +678,7 @@ describe('an agent without hooks', () => {
     const { sessions, obj, output, typed, sessionId } = await started('copilot', { context, onDelivered: (_id, marks) => void delivered.push(marks) })
     await output.until('READY')
     await sessions.sendMarks(sessionId)
+    await output.until('torno: 1 new mark')
     const file = () => readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')
     // The person made another mark and pressed the button again: the same line, another file.
     context.text = 'Build ok.\nM2 pin\nM3 arrow'
@@ -646,23 +702,64 @@ describe('an agent without hooks', () => {
     expect(file()).toContain('M4 pick')
   })
 
-  it('tells a conversation that has seen nothing so, until a line of torno\'s has been sent in it', async () => {
+  it('tells a conversation that has seen nothing so, until a line of torno\'s has been sent in it, also when it is resumed', async () => {
     const asked: boolean[] = []
     const made = await started('copilot')
     // Its own manager, to hear what the context is asked with.
     const sessions = new Sessions({ http, adapterFor: () => adapters(`node ${FAKE}`).copilot, contextFor: (_id, opts) => (asked.push(opts.fresh), { text: opts.toolName('marks'), sentMarkIds: [] }), systemPromptFor: () => '', mcpUrlFor: (id) => http.url(`/mcp/${id}`) })
     others.push(sessions)
-    const { sessionId } = await sessions.start(made.obj, {})
+    let shown = ''
+    sessions.on('data', (m) => (shown += m.data))
+    const file = () => JSON.parse(readFileSync(join(made.obj.dir, '.torno', 'session.json'), 'utf8'))
+    const first = await sessions.start(made.obj, {})
+    // A line of the person's own: there is a conversation, and torno has told it nothing.
+    sessions.write(first.sessionId, 'hello\r')
+    await expect.poll(() => shown).toContain('> hello')
+    await expect.poll(() => existsSync(join(made.obj.dir, '.torno', 'session.json'))).toBe(true)
+    expect(file().told).toBeUndefined()
+    await sessions.stop(first.sessionId)
+    shown = ''
+    const { sessionId } = await sessions.start(made.obj, { resume: true })
     await sessions.sendMarks(sessionId)
     expect(readFileSync(join(made.obj.dir, '.torno', 'prompt.md'), 'utf8')).toMatch(/^Written \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC by torno, for the prompt that follows it\.\n\nthe torno tool marks\n$/)
+    await expect.poll(() => shown).toContain('torno: the build status')
     sessions.write(sessionId, '\r')
     await sessions.sendMarks(sessionId)
     expect(asked).toEqual([true, false])
+    await expect.poll(() => file().told).toBe(true)
     // Resumed, it has seen what it was told before.
     await sessions.stop(sessionId)
     const again = await sessions.start(made.obj, { resume: true })
     await sessions.sendMarks(again.sessionId)
     expect(asked).toEqual([true, false, false])
+  })
+
+  it('writes its instructions only into a folder of torno\'s own, has git pass over what changes with every send, and starts nothing otherwise', async () => {
+    const { sessions, obj, sessionId } = await started('copilot')
+    // What is of this machine or changes with every send is not for git; the choice of agent and the conversation are not among it.
+    expect(readFileSync(join(obj.dir, '.torno', '.gitignore'), 'utf8').split('\n').filter(Boolean)).toEqual(['prompt.md', 'agent/'])
+    await sessions.stop(sessionId)
+
+    // A workspace from elsewhere, whose folder for the agent leads out of it.
+    const outside = mkdtempSync(join(root, 'outside-'))
+    rmSync(join(obj.dir, '.torno', 'agent'), { recursive: true })
+    symlinkSync(outside, join(obj.dir, '.torno', 'agent'))
+    await expect(sessions.start(obj, {})).rejects.toThrow(`cannot start the agent: ${join(obj.dir, '.torno', 'agent')} is a link, not a folder`)
+    expect(readdirSync(outside)).toEqual([])
+    expect(sessions.current(obj.id)).toBeNull()
+    expect(sessions.size).toBe(0)
+
+    // And one whose .torno itself does.
+    const linked = object('linked')
+    symlinkSync(outside, join(linked.dir, '.torno'))
+    await expect(sessions.start(linked, {})).rejects.toThrow(`cannot start the agent: ${join(linked.dir, '.torno')} is a link, not a folder`)
+    expect(readdirSync(outside)).toEqual([])
+
+    // A comma in the path would split the list of folders the agent reads its instructions from.
+    const comma = object('parts, v2')
+    await expect(sessions.start(comma, {})).rejects.toThrow(`Copilot CLI cannot be given torno's instructions in a folder whose path has a comma: ${join(comma.dir, '.torno', 'agent')}`)
+    expect(readdirSync(comma.dir)).toEqual([])
+    expect(sessions.size).toBe(0)
   })
 
   it('has no hook endpoint: whatever posts there is not it', async () => {
@@ -694,7 +791,7 @@ describe('an agent without hooks', () => {
     expect(copilots).not.toBe(claudes)
     sessions.write(second.sessionId, 'hello\r')
     await expect.poll(() => said(second.sessionId)).toContain('> hello')
-    expect(sessionFile('both')).toMatchObject({ agent: 'copilot', conversationId: copilots, kept: { claude: { conversationId: claudes } } })
+    await expect.poll(() => sessionFile('both')).toMatchObject({ agent: 'copilot', conversationId: copilots, kept: { claude: { conversationId: claudes } } })
     expect([sessions.resumable(obj, 'copilot'), sessions.resumable(obj, 'claude')]).toEqual([true, true])
     await sessions.stop(second.sessionId)
 

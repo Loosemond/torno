@@ -15,8 +15,16 @@ export function promptFile(context: string, at: Date): string {
   return `Written ${at.toISOString().slice(0, 19).replace('T', ' ')} UTC by torno, for the prompt that follows it.\n\n${context}\n`
 }
 
+/** What the file is made to hold once its prompt has gone or will not come: one line, so that nothing old is read as new. */
+export function nothingNew(at: Date): string {
+  return `Nothing new from torno as of ${at.toISOString().slice(0, 19).replace('T', ' ')} UTC: no line of its is waiting to be sent. The build and the open marks are in .torno/state.md.\n`
+}
+
 const ESC = '\x1b'
-const PASTE_MARKS = new Set(['200', '201'])
+/** How every line torno puts at an agent's cursor begins: what is looked for in what the agent shows. */
+const MARKER = 'torno:'
+const PASTE_START = `${ESC}[200~`
+const PASTE_END = `${ESC}[201~`
 
 /** Where a sequence that began at `from` is ended by BEL or by ESC \; -1 when it is not. */
 function endOfString(data: string, from: number): number {
@@ -31,8 +39,9 @@ function endOfString(data: string, from: number): number {
  * Whether a CSI sequence is one that leaves the agent's input as it was: an
  * answer of the terminal's own to something the agent asked (where the cursor
  * is, what it is, a mode, its size, its keyboard), the focus coming or going,
- * a report of the pointer, or the two ends of a paste. Every key that moves
- * the cursor or changes the line is some other.
+ * a report of the pointer, or a key that moves along the line and changes
+ * nothing (Left, Right, Home, End, with or without a modifier). Up and Down
+ * recall another prompt, and every other key changes the line.
  */
 function leavesTheLine(params: string, intermediates: string, final: string): boolean {
   if (intermediates === '$') return final === 'y'
@@ -41,6 +50,13 @@ function leavesTheLine(params: string, intermediates: string, final: string): bo
     case 'I':
     case 'O':
       return params === ''
+    case 'C':
+    case 'D':
+    case 'H':
+    case 'F':
+      return params === '' || /^1;\d+$/.test(params)
+    case '~':
+      return ['1', '4', '7', '8'].includes(params)
     case 'R':
       return /^\d+;\d+$/.test(params)
     case 'n':
@@ -53,8 +69,6 @@ function leavesTheLine(params: string, intermediates: string, final: string): bo
     case 'M':
     case 'm':
       return params.startsWith('<')
-    case '~':
-      return PASTE_MARKS.has(params)
     default:
       return false
   }
@@ -63,33 +77,34 @@ function leavesTheLine(params: string, intermediates: string, final: string): bo
 /**
  * What became of a line torno put at an agent's cursor, read from one piece
  * of what was written to its terminal afterwards:
- *   - `sent`: an Enter came, and nothing before it that torno cannot follow;
- *   - `kept`: text was typed or pasted beside it, a line was broken in the
- *     prompt (Esc Enter, as Shift+Enter writes it), or the terminal answered
- *     the agent: the line is still there, as far as torno can tell;
- *   - `lost`: anything else. A key that deletes, clears, completes, recalls
- *     another prompt or moves the cursor, or a sequence torno does not know:
- *     the line may no longer be what was put there, and what an Enter then
- *     sends is not known to name the file.
+ *   - `sent`: an Enter came, and before it nothing but what leaves the line;
+ *   - `kept`: nothing that touches the line. The terminal answered the agent,
+ *     the focus came or went, the pointer was reported, or the cursor was
+ *     moved along the line (Left, Right, Home, End);
+ *   - `lost`: anything else. Text that was typed (an answer to a question the
+ *     CLI has up, a word that opens a menu, words added to the line), a paste
+ *     (whose line breaks are carriage returns and send nothing), Esc Enter (a
+ *     new line), a key that deletes, clears, completes or recalls another
+ *     prompt, or a sequence torno does not know: what an Enter then does is
+ *     not known to be sending that line.
  * The terminal's own answers are told from keys by their form alone.
  */
 export function followTyped(data: string): 'kept' | 'sent' | 'lost' {
   let i = 0
   while (i < data.length) {
-    const code = data.charCodeAt(i)
     if (data[i] === '\r') return 'sent'
-    if (data[i] !== ESC) {
-      // A control character is a key of its own: backspace, ^U, ^C, a tab that completes.
-      if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return 'lost'
-      i += 1
-      continue
-    }
+    // Typed, or a control character, which is a key of its own: backspace, ^U, ^C, a tab that completes.
+    if (data[i] !== ESC) return 'lost'
     const next = data[i + 1]
-    if (next === '\r') i += 2
-    else if (next === ']' || next === 'P') {
+    if (next === ']' || next === 'P') {
       const end = endOfString(data, i + 2)
       if (end < 0) return 'lost'
       i = end
+    } else if (next === 'O' && 'CDHF'.includes(data[i + 2] ?? ' ')) i += 3
+    else if (next === '[' && data[i + 2] === 'M') {
+      // The pointer, as a terminal without the SGR form reports it: three bytes follow.
+      if (i + 6 > data.length) return 'lost'
+      i += 6
     } else if (next === '[') {
       const csi = /^([0-9:;<=>?]*)([ -/]*)([@-~])/.exec(data.slice(i + 2))
       if (!csi || !leavesTheLine(csi[1], csi[2], csi[3])) return 'lost'
@@ -99,7 +114,38 @@ export function followTyped(data: string): 'kept' | 'sent' | 'lost' {
   return 'kept'
 }
 
-/** Whether a piece of what was written to a terminal holds an Enter: a carriage return that Esc does not turn into a new line. */
+/**
+ * Whether a piece of what was written to a terminal holds an Enter: a
+ * carriage return that is not a line break inside a paste (also one that
+ * does not end in the piece), and that Esc does not turn into a new line.
+ */
 export function hasEnter(data: string): boolean {
-  return /(^|[^\x1b])\r/.test(data)
+  let outside = ''
+  let from = 0
+  for (;;) {
+    const start = data.indexOf(PASTE_START, from)
+    if (start < 0) {
+      outside += data.slice(from)
+      break
+    }
+    outside += data.slice(from, start)
+    const end = data.indexOf(PASTE_END, start)
+    if (end < 0) break
+    from = end + PASTE_END.length
+  }
+  return /(^|[^\x1b])\r/.test(outside)
+}
+
+/**
+ * Whether what an agent wrote to its terminal shows the line torno put at
+ * its cursor: its beginning, once colours, moves and titles are taken out.
+ * A prompt shows what is pasted into it; a question that is up in its place
+ * (whether the folder is trusted, a permission) does not.
+ */
+export function lineShown(output: string): boolean {
+  const plain = output
+    .replace(/\x1b[\]P][\s\S]*?(\x07|\x1b\\|$)/g, '')
+    .replace(/\x1b\[[0-9:;<=>?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+  return plain.includes(MARKER)
 }

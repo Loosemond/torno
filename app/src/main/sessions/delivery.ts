@@ -1,11 +1,22 @@
 import { join } from 'node:path'
-import type { AgentId, SendState } from '../../shared/bridge'
+import type { AgentId, SendDropped, SendState } from '../../shared/bridge'
 import { writeFileAtomic } from '../atomic'
 import type { PromptContext } from '../context'
 import { SESSION_FILE, storeConversation } from './resume'
-import { followTyped, hasEnter, PROMPT_FILE, promptFile, sendLine } from './sendMarks'
+import { followTyped, hasEnter, lineShown, nothingNew, PROMPT_FILE, promptFile, sendLine } from './sendMarks'
 
 const FOLDER = '.torno'
+/** The most that is kept of what an agent wrote since a line was put at its cursor, to look for that line in. */
+const SHOWN_LIMIT = 16 * 1024
+
+/**
+ * Makes `<object>/.torno/prompt.md` say that there is nothing new: when a session of an agent without hooks
+ * starts or ends, and when a line that named the file will not be sent as it was. Whatever the file told of
+ * before went to no one, and an agent told to read it must not take it for what the person has just made.
+ */
+export function blankPrompt(dir: string): Promise<void> {
+  return writeFileAtomic(join(dir, FOLDER, PROMPT_FILE), nothingNew(new Date()))
+}
 
 /** What is kept of a session of an agent without hooks, about what it has been told. */
 export interface Told {
@@ -20,6 +31,15 @@ export interface Told {
   onFile: boolean
   /** The last writing of `.torno/prompt.md` for this session: one at a time, in the order asked. */
   telling: Promise<unknown>
+  /** What the agent has written to its terminal since the line was put at its cursor, until the line was seen in it. */
+  shown: string
+  /** The agent showed the line: it was pasted into a prompt, not into a question that was up in its place. */
+  echoed: boolean
+}
+
+/** A session that has been told nothing yet. `fresh`: its conversation has seen no line of torno's. */
+export function untold(fresh: boolean, onFile: boolean): Told {
+  return { pending: null, fresh, onFile, telling: Promise.resolve(), shown: '', echoed: false }
 }
 
 /** A session, as much of it as telling its agent needs. */
@@ -44,8 +64,8 @@ export class Delivery<S extends ToldSession = ToldSession> {
       live(s: S): boolean
       /** Put text at its cursor as a paste, not sent. */
       insert(s: S, text: string): void
-      /** What became of the line, and how many marks its file tells of. */
-      said(s: S, state: SendState, marks: number): void
+      /** What became of the line, how many marks its file tells of, and why it was dropped when it was. */
+      said(s: S, state: SendState, marks: number, why?: SendDropped): void
     }
   ) {}
 
@@ -53,29 +73,54 @@ export class Delivery<S extends ToldSession = ToldSession> {
    * What was written to the terminal of an agent without hooks is all torno
    * knows of what it was asked. An Enter says the person sent something: the
    * conversation is one to resume. And of a line torno put at its cursor it
-   * says what became of it: sent by an Enter while it was still as put there,
-   * and then the marks its file tells of are delivered; or possibly changed
-   * first, and then they are not.
+   * says what became of it (`followTyped`). The marks its file tells of are
+   * delivered by an Enter only when all of this holds since the paste: the
+   * agent showed the line (`output`: it was at a prompt), and nothing was
+   * typed or pasted after it. Otherwise the line is dropped: nothing is
+   * delivered, the file says there is nothing new, and why is said.
    */
   typed(s: S, data: string): void {
     if (!s.onFile && hasEnter(data)) {
       s.onFile = true
-      try {
-        storeConversation(s.object.dir, s.adapter.id, s.conversationId)
-      } catch (e) {
-        console.error(`cannot write ${join(s.object.dir, FOLDER, SESSION_FILE)}: ${(e as Error).message}`)
-      }
+      this.onFile(s, false)
     }
     if (s.pending === null) return
     const became = followTyped(data)
     if (became === 'kept') return
     const marks = s.pending
     s.pending = null
-    if (became === 'sent') {
+    if (became === 'sent' && s.echoed) {
       s.fresh = false
+      // From now on this conversation knows the marks it was told of, also when it is resumed.
+      this.onFile(s, true)
       if (marks.length > 0) this.host.onDelivered?.(s.object.id, marks)
+      return this.host.said(s, 'sent', marks.length)
     }
-    this.host.said(s, became === 'sent' ? 'sent' : 'dropped', marks.length)
+    // Whatever the file told of is not on its way: an agent that reads it now must not take it for news.
+    s.telling = s.telling.catch(() => {}).then(() => blankPrompt(s.object.dir)).catch((e) => console.error(`cannot write ${join(s.object.dir, FOLDER, PROMPT_FILE)}: ${e instanceof Error ? e.message : String(e)}`))
+    this.host.said(s, 'dropped', marks.length, became === 'sent' ? 'absent' : 'typed')
+  }
+
+  /** What the agent wrote to its terminal: while a line waits at its cursor, where that line is looked for. */
+  output(s: S, data: string): void {
+    if (s.pending === null || s.echoed) return
+    s.shown = (s.shown + data).slice(-SHOWN_LIMIT)
+    if (lineShown(s.shown)) {
+      s.echoed = true
+      s.shown = ''
+    }
+  }
+
+  /** The session has gone. A line that was never sent went with it: the marks are drafts still, and the file says nothing of them. */
+  ended(s: S): Promise<void> {
+    s.pending = null
+    const blanked = s.telling.catch(() => {}).then(() => blankPrompt(s.object.dir)).catch((e) => console.error(`cannot write ${join(s.object.dir, FOLDER, PROMPT_FILE)}: ${e instanceof Error ? e.message : String(e)}`))
+    s.telling = blanked
+    return blanked
+  }
+
+  private onFile(s: S, told: boolean): void {
+    storeConversation(s.object.dir, s.adapter.id, s.conversationId, { told }).catch((e) => console.error(`cannot write ${join(s.object.dir, FOLDER, SESSION_FILE)}: ${(e as Error).message}`))
   }
 
   /**
@@ -118,8 +163,14 @@ export class Delivery<S extends ToldSession = ToldSession> {
         }
         if (!asked && s.pending === null) return null
         const line = sendLine(sentMarkIds)
-        // The line that is there names the file, whatever it holds by now.
-        if (s.pending === null) this.host.insert(s, line)
+        // The line that is there names the file, whatever it holds by now. A new one is looked for in what the agent writes from here on.
+        if (s.pending === null) {
+          s.shown = ''
+          s.echoed = false
+          // Waiting before it is put in: what the agent shows of it is then of a line that waits.
+          s.pending = sentMarkIds
+          this.host.insert(s, line)
+        }
         s.pending = sentMarkIds
         this.host.said(s, 'waiting', sentMarkIds.length)
         return { marks: sentMarkIds, line }

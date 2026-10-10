@@ -47,10 +47,12 @@ describe('what "Send marks" has to send', () => {
 
   it('says in a line what torno knows of the line it put at the cursor, and no more', () => {
     expect(toldLine(undefined, 1)).toBe('This agent is not told with each prompt: use "Send marks".')
-    expect(toldLine('waiting', 1)).toBe('A line is at the cursor: press Enter there to send it. Marks stay drafts until you do.')
-    expect(toldLine('dropped', 1)).toBe('The line may have been changed before Enter, so the marks are still drafts: use "Send marks" again.')
-    expect(toldLine('sent', 0)).toBe('The line went with your Enter. Whether the agent read the file, torno cannot see.')
+    expect(toldLine({ state: 'waiting' }, 1)).toBe('A line is at the cursor: press Enter to send it as it is. Marks stay drafts until you do.')
+    expect(toldLine({ state: 'dropped', why: 'typed' }, 1)).toBe('Something was typed after the line, so the marks are still drafts: use "Send marks" again.')
+    expect(toldLine({ state: 'dropped', why: 'absent' }, 1)).toBe('The line was not at the prompt when Enter was pressed, so the marks are still drafts: use "Send marks" again.')
+    // That Enter was pressed is known; that the agent has the marks is not, and is not said.
+    expect(toldLine({ state: 'sent' }, 0)).toBe('Enter was pressed with the line at the prompt. Whether the agent read the file, torno cannot see.')
     // With drafts made since, what to do comes first again.
-    expect(toldLine('sent', 2)).toBe('This agent is not told with each prompt: use "Send marks".')
+    expect(toldLine({ state: 'sent' }, 2)).toBe('This agent is not told with each prompt: use "Send marks".')
   })
 })

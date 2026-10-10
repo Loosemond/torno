@@ -11,6 +11,9 @@
 //   - on the line `file <path>`, prints `file: ` and the first 200 characters
 //     of that file on one line, or `file: none`;
 //   - on the line `args`, prints its READY line again;
+//   - on the line `dialog`, shows nothing of what is typed until the next line,
+//     as a CLI does while a question of its own is up in place of its prompt,
+//     and answers that line with `dialog: answered` and nothing else;
 //   - on the line `palette`, prints the sixteen ANSI colours;
 //   - on the line `child`, starts a process of its own that ignores SIGHUP, as
 //     a tool the agent runs might, and prints `child: <pid>`;
@@ -60,14 +63,24 @@ function fileStart(path) {
 console.log(`READY ${JSON.stringify(argv)}`)
 
 const lines = createInterface({ input: process.stdin })
+let asking = false
 lines.on('line', (line) => {
+  if (asking) {
+    asking = false
+    process.stdin.setRawMode?.(false)
+    return console.log('dialog: answered')
+  }
   console.log(`> ${line.replaceAll('\x1b', '\\e')}`)
   const [word, event, sessionId] = line.trim().split(/\s+/)
   if (word === 'hook') void hook(event ?? 'UserPromptSubmit', sessionId ?? conversation).catch((e) => console.log(`hook failed: ${e.message}`))
   else if (word === 'size') console.log(`size: ${process.stdout.columns}x${process.stdout.rows}`)
   else if (word === 'env') console.log(`env: ${JSON.stringify(Object.keys(process.env).filter((name) => /^(HOME$|PATH$|TORNO|CLAUDE|ANTHROPIC|COPILOT)/.test(name)).sort())}`)
   else if (word === 'file') console.log(`file: ${fileStart(line.trim().slice('file'.length).trim())}`)
-  else if (word === 'args') console.log(`READY ${JSON.stringify(argv)}`)
+  else if (word === 'dialog') {
+    asking = true
+    process.stdin.setRawMode?.(true)
+    console.log('dialog: up')
+  } else if (word === 'args') console.log(`READY ${JSON.stringify(argv)}`)
   else if (word === 'palette') palette()
   else if (word === 'child') {
     const child = spawn(process.execPath, ['-e', "process.on('SIGHUP', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' })

@@ -507,9 +507,13 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         </div>
       )}
       {choice.note && objectId && (
-        <p className="session-told" role="note">
-          {choice.note}
-        </p>
+        <div className="session-told">
+          <p role="note">{choice.note}</p>
+          {/* Claude Code is already what the list shows: choosing it there changes nothing, so it is chosen here. */}
+          <button type="button" className="button session-send" disabled={starting || choosing !== null} onClick={() => choose('claude')}>
+            Use {AGENT_LABEL.claude}
+          </button>
+        </div>
       )}
 
       <div className="session-body">
