@@ -2,7 +2,7 @@ import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { AgentId, SendState, SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
-import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, explodeShown, isExploded, sameExplode } from '../../shared/explode'
+import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, explodeShown, isExploded, neverBoth, sameExplode } from '../../shared/explode'
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanView } from '../../shared/scans'
@@ -268,7 +268,8 @@ export const actions = {
     const section = plane && snappedSection(plane)
     if (samePlane(section, s.section) && !s.shownByAgent?.section) return
     const { section: _theirsAgain, ...rest } = s.shownByAgent ?? { visible: {} }
-    const cut = section && s.layout ? apartByHand(s.explode, s.shownByAgent ? rest : null, s.layout, { amount: 0 }) : { explode: s.explode, shownByAgent: s.shownByAgent && rest }
+    // Never both (`neverBoth`): under a section the parts are together.
+    const cut = section && s.layout ? apartByHand(s.explode, s.shownByAgent ? rest : null, s.layout, { amount: neverBoth({ ...(s.explode[s.layout] ?? NO_EXPLODE), amount: 1 }, section, 'section').explode!.amount }) : { explode: s.explode, shownByAgent: s.shownByAgent && rest }
     store.setState({ section, explode: cut.explode, edits: s.edits + 1, shownByAgent: cut.shownByAgent && (nothingShown(cut.shownByAgent) ? null : cut.shownByAgent) })
   },
 
@@ -287,7 +288,8 @@ export const actions = {
     if (!layout) return null
     const had = s.explode[layout] ?? NO_EXPLODE
     const next = explodeOf({ ...had, ...change }) ?? had
-    if (s.section !== null && change.amount !== undefined && next.amount > 0) return SECTION_FIRST
+    // Never both (`neverBoth`): here the section is theirs to take away first.
+    if (change.amount !== undefined && neverBoth(next, s.section, 'explode').section !== s.section) return SECTION_FIRST
     const agents = s.shownByAgent?.explode
     if (sameExplode(next, had) && !(agents && layout in agents)) return null
     let { explode, shownByAgent } = apartByHand(s.explode, s.shownByAgent, layout, change)

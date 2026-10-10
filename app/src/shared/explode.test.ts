@@ -111,3 +111,38 @@ describe('what is drawn apart: one rule, for the screen, a picture, the file and
     expect(nothingApartText('shared centre', 'assembly')).toBe('nothing is drawn apart from the centre in layout assembly: its parts share a centre; give an axis, {"amount": 0.5, "axis": "z"}')
   })
 })
+
+describe('neverBoth', () => {
+  const apart = { amount: 0.4, scale: 2, axis: 'z' as const }
+  const plane = { origin: [0, 0, 1], normal: [0, 0, 1] }
+  it('puts the parts together when a section is set, and keeps how they would go apart', async () => {
+    const { neverBoth } = await import('./explode')
+    expect(neverBoth(apart, plane, 'section')).toEqual({ explode: { amount: 0, scale: 2, axis: 'z' }, section: plane })
+  })
+  it('takes the section away when the parts are drawn apart', async () => {
+    const { neverBoth } = await import('./explode')
+    expect(neverBoth(apart, plane, 'explode')).toEqual({ explode: apart, section: null })
+  })
+  it('leaves alone what is not both', async () => {
+    const { neverBoth } = await import('./explode')
+    expect(neverBoth(apart, null, 'section')).toEqual({ explode: apart, section: null })
+    expect(neverBoth({ ...apart, amount: 0 }, plane, 'explode')).toEqual({ explode: { ...apart, amount: 0 }, section: plane })
+    expect(neverBoth(undefined, plane, 'section')).toEqual({ explode: null, section: plane })
+  })
+})
+
+describe('explodeOffsets of parts named like what every object has', () => {
+  it('moves each, and answers for no name it was not given', async () => {
+    const { explodeOffsets } = await import('./explode')
+    const box = (z: number) => ({ min: [0, 0, z] as [number, number, number], max: [10, 10, z + 2] as [number, number, number] })
+    const offsets = explodeOffsets([{ name: '__proto__', bbox: box(0) }, { name: 'constructor', bbox: box(10) }, { name: 'toString', bbox: box(20) }], { amount: 1, scale: 1, axis: 'z' })
+    expect(Object.keys(offsets).sort()).toEqual(['__proto__', 'constructor', 'toString'])
+    expect(offsets.constructor).toEqual([0, 0, 0])
+    expect(offsets['__proto__'][2]).toBeLessThan(0)
+    expect(offsets.hasOwnProperty).toBeUndefined()
+    expect(offsets.valueOf).toBeUndefined()
+    // Nor when nothing is apart: there is then no part it answers for, whatever the part is called.
+    expect(explodeOffsets([{ name: 'constructor', bbox: box(0) }, { name: 'lid', bbox: box(10) }], null).constructor).toBeUndefined()
+    expect(explodeOffsets([{ name: 'constructor', bbox: box(0) }, { name: 'toString', bbox: box(0) }], { amount: 1, scale: 1, axis: 'centre' }).toString).toBeUndefined()
+  })
+})

@@ -34,6 +34,20 @@ it('writes the one file it was told to, and makes no folder and no other file fo
   await writeExport(join(out, 'a.html'), '<!doctype html>two')
   expect(readFileSync(join(out, 'a.html'), 'utf8')).toBe('<!doctype html>two')
   expect(readdirSync(out)).toEqual(['a.html'])
+  // A write that cannot be finished leaves the file that was there, whole, and nothing beside it.
+  mkdirSync(join(out, 'taken.html'))
+  writeFileSync(join(out, 'taken.html', 'inside'), 'kept')
+  await expect(writeExport(join(out, 'taken.html'), 'x')).rejects.toThrow()
+  expect(readdirSync(out).sort()).toEqual(['a.html', 'taken.html'])
+  expect(readFileSync(join(out, 'taken.html', 'inside'), 'utf8')).toBe('kept')
+  rmSync(join(out, 'taken.html'), { recursive: true })
+  // The file beside it that the page is written into first is torno's own to make: one that is there already is not written over, and the export that was there is not touched.
+  const beside = `${join(out, 'a.html')}.${process.pid}.tmp`
+  writeFileSync(beside, 'someone else')
+  await expect(writeExport(join(out, 'a.html'), '<!doctype html>three')).rejects.toThrow('EEXIST')
+  expect(readFileSync(join(out, 'a.html'), 'utf8')).toBe('<!doctype html>two')
+  expect(readFileSync(beside, 'utf8')).toBe('someone else')
+  rmSync(beside)
   await expect(writeExport(join(out, 'not', 'there', 'a.html'), 'x')).rejects.toThrow('ENOENT')
   expect(existsSync(join(out, 'not'))).toBe(false)
   await expect(writeExport('a.html', 'x')).rejects.toThrow('no whole path')

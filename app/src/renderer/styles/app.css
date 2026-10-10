@@ -3710,18 +3710,58 @@ button {
 
 /* ---- Export: what goes into the file, asked over the view or over the page of objects ---- */
 
+/* In the status line it is the one thing to press among read-outs: it has a button's frame. */
 .status-export {
+  height: 20px;
   padding: 0 var(--space-2);
-  border: 0;
+  border: var(--divider);
   border-radius: var(--radius-control);
-  background: none;
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
 }
 
 .status-export:hover {
-  background: var(--accent-wash);
+  border-color: var(--accent);
   color: var(--accent);
+}
+
+/* A card and, over its corner, the way to export that one object: shown when the card is pointed at or has the focus. */
+.card-cell {
+  display: grid;
+  min-width: 0;
+}
+
+.card-cell > * {
+  grid-area: 1 / 1;
+}
+
+.card-export {
+  z-index: 1;
+  align-self: start;
+  justify-self: end;
+  height: 24px;
+  margin: var(--space-2);
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  font-size: var(--text-small);
+  opacity: 0;
+}
+
+.card-cell:hover .card-export,
+.card-cell:focus-within .card-export {
+  opacity: 1;
+}
+
+.card-export:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.export-what[data-tone='warn'] {
+  color: var(--warn);
 }
 
 .show-export {
@@ -3731,13 +3771,13 @@ button {
 }
 
 .export-layer {
+  /* Over the whole window, so that nothing behind takes a click while it is up; the sheet stands over the view. */
   position: absolute;
-  inset: 0 var(--dock-space) var(--status-h) var(--left-w);
-  z-index: 6;
+  inset: 0;
+  z-index: 30;
   display: grid;
   place-items: start center;
-  padding: var(--space-3) var(--space-4) var(--space-4);
-  pointer-events: none;
+  padding: var(--space-3) calc(var(--dock-space) + var(--space-4)) calc(var(--status-h) + var(--space-4)) calc(var(--left-w) + var(--space-4));
 }
 
 .export-sheet {
@@ -3749,7 +3789,6 @@ button {
   border-radius: var(--radius-palette);
   background: var(--panel);
   box-shadow: var(--palette-shadow);
-  pointer-events: auto;
 }
 
 .export-sheet:focus {

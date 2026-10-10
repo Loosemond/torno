@@ -5,7 +5,7 @@ import { aimKeyLight, makeLights } from '../../renderer/viewport/lights'
 import type { Theme } from '../../renderer/viewport/theme'
 import { DEFAULT_FOV, fitCamera, viewDirection } from '../../renderer/viewport/views'
 import { keepsNothing } from '../../shared/cut'
-import type { ExportMark, ExportPart, ExportScan, MeshArrays } from '../../shared/exportdata'
+import { type ExportMark, type ExportPart, type ExportScan, type MeshArrays, own } from '../../shared/exportdata'
 import { CREASE_ANGLE } from '../../shared/faceted'
 import type { Vec3 } from '../../shared/marks'
 import { edgeTint, mix } from '../../shared/palette'
@@ -174,7 +174,7 @@ export class Model {
     this.drawnScans = []
     const colour = new Color()
     for (const { scan, arrays } of scans) {
-      const placed = scan.placed[layout]
+      const placed = own(scan.placed, layout)
       if (!placed) continue
       const geometry = new BufferGeometry()
       geometry.setAttribute('position', new BufferAttribute(arrays.positions, 3))

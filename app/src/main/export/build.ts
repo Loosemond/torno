@@ -1,17 +1,19 @@
-import { deflateSync } from 'node:zlib'
+import { promisify } from 'node:util'
+import { deflate } from 'node:zlib'
 import { dimensionText, expectedText, notMeasuredText, shownDimension, unitOf } from '../../shared/dimension'
 import { type ExplodeState, explodeOf } from '../../shared/explode'
-import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type ExportPlan, type ExportRequest, type ExportScan, type PackedMesh, megabytes, packMesh, packScan } from '../../shared/exportdata'
+import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type ExportPlan, type ExportRequest, type ExportScan, type PackedMesh, megabytes, own, packMesh, packScan, record } from '../../shared/exportdata'
 import { isFaceted } from '../../shared/faceted'
 import { count, number } from '../../shared/format'
 import { type Mark, type Vec3, isUnchecked, markAnchors, markEndParts, strokePoints } from '../../shared/marks'
 import { colorFor, colorsByName } from '../../shared/palette'
+import { meshIdentity } from '../../shared/regions'
 import { type ScanInfo, alignmentOf, parseScanMesh } from '../../shared/scans'
-import { type Scene, bufView } from '../../shared/scene'
+import { type Part, type Scene, bufView } from '../../shared/scene'
 import type { SceneFile } from '../../shared/scenefile'
 import { thumbnailLayout } from '../../shared/thumbnail'
 import type { ObjectInfo } from '../../shared/workspace'
-import { clusterScan } from './decimate'
+import { clusterScanInTurns } from './decimate'
 import { type PageAssets, exportHtml } from './html'
 
 export type { ExportPlan, ExportRequest }
@@ -19,7 +21,17 @@ export type { ExportPlan, ExportRequest }
 // An export, made in main from what it already holds: the last good build of this run of each object (nothing
 // is built for an export), its scene file as the window last gave it, its marks and its scans. What goes into
 // the file is what the request names and nothing else: no path of this machine, no folder, no source of a scan,
-// nothing a model printed, no session. A scan goes only when ticked, reduced; a mark only when marks are ticked.
+// nothing a model printed, no session. A scan goes only when ticked, reduced; a mark only when marks are ticked;
+// a part that is switched off and a mark that is resolved only when those are ticked.
+//
+// Main has other work while a file is made: the deflating is zlib's, on its own threads, and a scan is reduced
+// in turns of the event loop (`clusterScanInTurns`). Nothing here holds main for more than a moment.
+//
+// Whatever is keyed by the name of a part or a layout is a `Map` or a record without a prototype (`record`), and
+// what was read from a file is asked only for keys of its own (`own`): a part may be called `constructor`.
+
+/** zlib's deflate at its best, off the main thread. */
+const squeeze = (bytes: Uint8Array): Promise<Buffer> => promisify(deflate)(bytes, { level: 9 })
 
 export interface ExportDeps {
   object(objectId: string): ObjectInfo | undefined
@@ -30,6 +42,8 @@ export interface ExportDeps {
   scans(objectId: string): Promise<ScanInfo[]>
   scanMesh(objectId: string, id: string): Promise<Buffer>
   now(): Date
+  /** Whether the object's newest build failed: what would be exported is then its last good one. */
+  failing?(objectId: string): boolean
   /** For tests: other limits than `EXPORT_BUDGET` and `EXPORT_MOST`. */
   budget?: number
   most?: number
@@ -49,12 +63,12 @@ export const NOTHING_CHOSEN = 'Choose an object to export'
 /** The meshes packed of a build, by the blob they were read from: a plan and the save that follows pack once. */
 const packed = new WeakMap<Buffer, Map<string, PackedMesh>>()
 
-function packedMeshes(scene: Scene, blob: Buffer): Record<string, PackedMesh> {
+async function packedMeshes(parts: readonly Part[], blob: Buffer): Promise<Record<string, PackedMesh>> {
   let known = packed.get(blob)
   if (!known) packed.set(blob, (known = new Map()))
   let bytes: ArrayBuffer | null = null
-  const meshes: Record<string, PackedMesh> = {}
-  for (const part of scene.parts) {
+  const meshes = record<PackedMesh>()
+  for (const part of parts) {
     if (meshes[part.hash]) continue
     let mesh = known.get(part.hash)
     if (!mesh) {
@@ -64,12 +78,41 @@ function packedMeshes(scene: Scene, blob: Buffer): Record<string, PackedMesh> {
       // A solid made of a mesh has every triangle's outline for edges: none is kept, and the page draws its creases.
       const creased = isFaceted(bufView(bytes, m.trianglesPerFace, Uint32Array))
       const { header, bytes: raw } = packMesh({ positions: bufView(bytes, m.vertices, Float32Array), normals: bufView(bytes, m.normals, Float32Array), triangles: bufView(bytes, m.triangles, Uint32Array), edges: creased ? new Float32Array(0) : bufView(bytes, m.edges, Float32Array) })
-      mesh = { ...header, data: deflateSync(raw, { level: 9 }).toString('base64') }
+      mesh = { ...header, data: (await squeeze(raw)).toString('base64') }
       known.set(part.hash, mesh)
     }
     meshes[part.hash] = mesh
   }
   return meshes
+}
+
+/** A scan as it goes into a file, less where it stands: reduced, packed and deflated. */
+type ReducedScan = Omit<ExportScan, 'id' | 'name' | 'placed'>
+
+/** The scans reduced for the export sheet that is up, by folder, scan, mesh (`meshIdentity`) and size: each tick of the sheet, and the save, find them made. */
+const reduced = new Map<string, Promise<ReducedScan>>()
+
+/** The sheet was put away, or the workspace left: what was reduced for it is let go. */
+export function forgetExportScans(): void {
+  reduced.clear()
+}
+
+function reducedScan(deps: ExportDeps, obj: ObjectInfo, scan: ScanInfo, most: number): Promise<ReducedScan> {
+  const key = [obj.dir, scan.id, meshIdentity(scan), most].join('\n')
+  let made = reduced.get(key)
+  if (!made) {
+    made = (async () => {
+      const blob = await deps.scanMesh(obj.id, scan.id)
+      const mesh = parseScanMesh(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength) as ArrayBuffer)
+      const cut = await clusterScanInTurns({ positions: mesh.vertices, colours: mesh.colours, triangles: mesh.triangles }, most)
+      const { header, bytes } = packScan(cut)
+      return { reducedFrom: mesh.triangles.length / 3, ...header, data: (await squeeze(bytes)).toString('base64') }
+    })()
+    reduced.set(key, made)
+    // One that could not be made is asked for again next time.
+    made.catch(() => reduced.get(key) === made && reduced.delete(key))
+  }
+  return made
 }
 
 const HEX = /^#[0-9a-f]{6}$/i
@@ -126,10 +169,28 @@ function exportMark(mark: Exclude<Mark, { kind: 'region' }>, revision: number, b
 
 const exportable = (mark: Mark): mark is Exclude<Mark, { kind: 'region' }> => mark.kind !== 'region' && mark.anchorState !== 'orphaned'
 
+/** The names of the parts that are switched off in torno, as the scene file has them. */
+function switchedOff(scene: Scene, file: SceneFile): Set<string> {
+  return new Set(scene.parts.map((part) => part.name).filter((name) => own(file.layers, name)?.visible === false))
+}
+
+/**
+ * The marks of an object that go into a file of this request, were marks ticked: not a region, not one whose
+ * part is gone, not a resolved one unless those are ticked, and not one that is only on parts left out of the
+ * file (it would be on nothing there).
+ */
+function marksGoing(marks: readonly Mark[], req: ExportRequest, left: ReadonlySet<string>): Array<Exclude<Mark, { kind: 'region' }>> {
+  return marks.filter(exportable).filter((mark) => {
+    if (mark.status === 'resolved' && req.resolved !== true) return false
+    const on = markAnchors(mark).map((anchor) => anchor.part).filter((part): part is string => part !== undefined)
+    return on.length === 0 || on.some((part) => !left.has(part))
+  })
+}
+
 /** The scans of an object that can go into a file: those with a mesh, aligned in a layout the build has. */
 function placedScans(scans: readonly ScanInfo[], layouts: readonly string[]): Array<{ scan: ScanInfo; placed: ExportScan['placed'] }> {
   return scans.flatMap((scan) => {
-    const placed: ExportScan['placed'] = {}
+    const placed: ExportScan['placed'] = record()
     for (const layout of layouts) {
       const alignment = alignmentOf(scan, layout)
       if (alignment) placed[layout] = { t: alignment.transform.t, q: alignment.transform.q, s: alignment.transform.s }
@@ -149,8 +210,12 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
   const { scene, revision } = last
   const file = await deps.sceneFile(id)
   const palette = colorsByName(scene.parts.map((part) => part.name))
-  const parts: ExportPart[] = scene.parts.map((part) => {
-    const layer = file.layers?.[part.name]
+  // Switched off in torno, a part stays here unless the person ticked those too.
+  const left = req.hidden === true ? new Set<string>() : switchedOff(scene, file)
+  const going = scene.parts.filter((part) => !left.has(part.name))
+  const meshes = await packedMeshes(going, last.blob)
+  const parts: ExportPart[] = going.map((part) => {
+    const layer = own(file.layers, part.name)
     const opacity = typeof layer?.opacity === 'number' && Number.isFinite(layer.opacity) ? Math.min(Math.max(layer.opacity, 0), 1) : 1
     return {
       name: part.name,
@@ -161,14 +226,13 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
       opacity,
       visible: layer?.visible !== false,
       faces: part.faceCount,
-      mesh: part.hash
+      mesh: part.hash,
+      ...(meshes[part.hash].segments === 0 && part.edgeCount > 0 && meshes[part.hash].triangles > 0 ? { creased: true as const } : {})
     }
   })
-  const meshes = packedMeshes(scene, last.blob)
-  for (const part of scene.parts) if (meshes[part.hash].segments === 0 && part.edgeCount > 0 && meshes[part.hash].triangles > 0) parts.find((p) => p.mesh === part.hash && p.name === part.name && p.layout === part.layout)!.creased = true
-  const explode: Record<string, ExplodeState> = {}
+  const explode = record<ExplodeState>()
   for (const layout of scene.layouts) {
-    const kept = explodeOf(file.explode?.[layout])
+    const kept = explodeOf(own(file.explode, layout))
     if (kept) explode[layout] = kept
   }
   const object: ExportObject = {
@@ -184,9 +248,12 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
     views: (file.views ?? []).filter((view) => !view.proposed).map(({ note: _note, ...view }) => view)
   }
   if (req.marks) {
-    const boxes: Record<string, Record<string, { min: Vec3; max: Vec3 }>> = {}
-    for (const part of scene.parts) (boxes[part.layout] ??= {})[part.name] = part.bbox
-    const marks = (await deps.marks(id)).filter(exportable).map((mark) => exportMark(mark, revision, boxes[mark.layout] ?? {}))
+    const boxes = new Map<string, Record<string, { min: Vec3; max: Vec3 }>>()
+    for (const part of going) {
+      if (!boxes.has(part.layout)) boxes.set(part.layout, record())
+      boxes.get(part.layout)![part.name] = part.bbox
+    }
+    const marks = marksGoing(await deps.marks(id), req, left).map((mark) => exportMark(mark, revision, boxes.get(mark.layout) ?? record()))
     if (marks.length > 0) object.marks = marks
   }
   const asked = req.scans.filter((key) => key.startsWith(`${id}/`)).map((key) => key.slice(id.length + 1))
@@ -203,12 +270,8 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
       }
       const most = levels[`${id}/${scanId}`]
       if (most === null) continue
-      const blob = await deps.scanMesh(id, scanId)
-      const mesh = parseScanMesh(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength) as ArrayBuffer)
-      const cut = clusterScan({ positions: mesh.vertices, colours: mesh.colours, triangles: mesh.triangles }, most ?? SCAN_TRIANGLES[0])
-      const { header, bytes } = packScan(cut)
       // Its id and its name, never where it came from.
-      scans.push({ id: found.scan.id, name: found.scan.name, reducedFrom: mesh.triangles.length / 3, ...header, data: deflateSync(bytes, { level: 9 }).toString('base64'), placed: found.placed })
+      scans.push({ id: found.scan.id, name: found.scan.name, ...(await reducedScan(deps, obj, found.scan, most ?? SCAN_TRIANGLES[0])), placed: found.placed })
     }
     if (scans.length > 0) object.scans = scans
   }
@@ -240,11 +303,12 @@ interface Produced { html: string; bytes: number; dropped: string[]; over: boole
 async function produce(deps: ExportDeps, req: ExportRequest, assets: PageAssets): Promise<Produced> {
   const budget = deps.budget ?? EXPORT_BUDGET
   const most = deps.most ?? EXPORT_MOST
-  const levels: ScanLevels = {}
-  const cut: string[] = []
+  const levels: ScanLevels = record()
+  // By scan, the last that was done to it: one cut twice is said once, as it is in the file.
+  const cut = new Map<string, string>()
   for (;;) {
     const data = await assemble(deps, req, levels)
-    data.dropped.push(...cut)
+    data.dropped.push(...cut.values())
     const html = exportHtml(data, assets)
     const bytes = Buffer.byteLength(html)
     // Over the budget: the largest scan goes to the next size down, then out. Parts are never reduced.
@@ -256,7 +320,7 @@ async function produce(deps: ExportDeps, req: ExportRequest, assets: PageAssets)
     }
     const next = SCAN_TRIANGLES.find((level) => level < largest.scan.triangles && level < (levels[largest.key] ?? SCAN_TRIANGLES[0])) ?? null
     levels[largest.key] = next
-    cut.push(next === null ? `${largest.scan.id} of ${largest.of} left out` : `${largest.scan.id} of ${largest.of} reduced to ${count(next)} triangles`)
+    cut.set(largest.key, next === null ? `${largest.scan.id} of ${largest.of} left out` : `${largest.scan.id} of ${largest.of} reduced to at most ${count(next)} triangles`)
   }
 }
 
@@ -284,18 +348,25 @@ export async function exportPlan(deps: ExportDeps, req: ExportRequest, assets: P
     }
     const { scene, revision } = last
     const [file, marks, scans] = await Promise.all([deps.sceneFile(id), deps.marks(id).catch(() => []), deps.scans(id).catch(() => [])])
-    const sent = marks.filter(exportable)
-    const shapes = new Map(scene.parts.map((part) => [part.hash, part.triangleCount]))
+    const off = switchedOff(scene, file)
+    const left = req.hidden === true ? new Set<string>() : off
+    const sent = marksGoing(marks, req, left)
+    const shapes = new Map(scene.parts.filter((part) => !left.has(part.name)).map((part) => [part.hash, part.triangleCount]))
     objects.push({
       id,
       exportable: true,
       revision,
+      ...(deps.failing?.(id) ? { failed: true as const } : {}),
       triangles: [...shapes.values()].reduce((sum, n) => sum + n, 0),
       layouts: [...scene.layouts],
-      parts: new Set(scene.parts.map((part) => part.name)).size,
+      parts: new Set(scene.parts.map((part) => part.name).filter((name) => !left.has(name))).size,
+      off: off.size,
       views: (file.views ?? []).filter((view) => !view.proposed).map((view) => view.name),
       marks: sent.filter((mark) => mark.kind !== 'dimension').length,
       dimensions: sent.filter((mark) => mark.kind === 'dimension').length,
+      drafts: sent.filter((mark) => mark.status === 'draft').length,
+      // Of every mark that could go, ticked or not: the sheet offers them.
+      resolved: marksGoing(marks, { ...req, resolved: true }, left).filter((mark) => mark.status === 'resolved').length,
       scans: placedScans(scans, scene.layouts).map(({ scan }) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles }))
     })
   }

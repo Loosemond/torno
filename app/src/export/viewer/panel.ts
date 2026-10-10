@@ -1,5 +1,5 @@
 import { type ExplodeState, NO_EXPLODE } from '../../shared/explode'
-import type { ExportData, ExportMark, ExportObject, ExportPart } from '../../shared/exportdata'
+import { type ExportData, type ExportMark, type ExportObject, type ExportPart, own } from '../../shared/exportdata'
 import { number } from '../../shared/format'
 import type { SectionPlane, ViewName } from '../../shared/view'
 
@@ -18,6 +18,8 @@ export interface PageState {
   /** The cut as the controls made it: along an axis, at a fraction of the layout's box. Null for none, and for a plane a saved view brought that is along no axis. */
   cut: { axis: Axis; t: number; flip: boolean } | null
   marks: boolean
+  /** The labels of resolved marks are drawn too. */
+  resolved: boolean
   scans: Record<string, { visible: boolean; opacity: number }>
   /** The saved view that was last applied and not changed since. */
   view: string | null
@@ -34,7 +36,6 @@ export interface PanelHost {
   parts(): ExportPart[]
   /** Why nothing can be drawn apart in the layout on show, or null. */
   nothingApart(): string | null
-  theme(): 'light' | 'dark'
   ortho(): boolean
   rows(): MarkRow[]
   /** While an object's parts are being unpacked. */
@@ -47,11 +48,11 @@ export interface PanelHost {
   flip(): void
   applyView(name: string): boolean
   setMarks(on: boolean): void
+  setResolved(on: boolean): void
   setScan(id: string, view: { visible?: boolean; opacity?: number }): void
   standard(view: ViewName): void
   fit(): void
   setOrtho(ortho: boolean): void
-  setTheme(theme: 'light' | 'dark'): void
   lookAt(mark: ExportMark): void
 }
 
@@ -111,12 +112,14 @@ export function createPanel(root: HTMLElement, host: PanelHost): Panel {
     const id = `s${++counter}`
     return el('section', { class: 'block', 'aria-labelledby': id }, el('h2', { id }, title), ...children)
   }
-  const range = (label: string, key: string, value: () => number, set: (value: number) => void, enabled: () => boolean = () => true): HTMLInputElement => {
+  const range = (label: string, key: string, value: () => number, set: (value: number) => void, enabled: () => boolean = () => true, said: (value: number) => string = (v) => `${Math.round(v * 100)} %`): HTMLInputElement => {
     const input = el('input', { type: 'range', min: '0', max: '100', step: '1', 'aria-label': label, 'data-k': key })
     input.addEventListener('input', () => set(Number(input.value) / 100))
     syncs.push(() => {
       const now = String(Math.round(value() * 100))
       if (input.value !== now) input.value = now
+      // Read out as what it is, not as a bare number.
+      input.setAttribute('aria-valuetext', said(value()))
       input.disabled = !enabled()
     })
     return input
@@ -185,12 +188,12 @@ export function createPanel(root: HTMLElement, host: PanelHost): Panel {
     const axes = el('div', { class: 'row', role: 'group', 'aria-label': 'Section' })
     axes.append(toggle('Off', 'cut:off', () => state().section === null, () => host.setSection(null)))
     for (const axis of AXES) axes.append(toggle(axis.toUpperCase(), `cut:${axis}`, () => state().cut?.axis === axis, () => host.setSection(axis, state().cut?.t ?? 0.5), { title: `Cut across ${axis}` }))
-    const slider = range('Where the section cuts', 'cut', () => state().cut?.t ?? 0.5, (t) => host.setSection(state().cut?.axis ?? 'z', t), () => state().cut !== null)
+    const slider = range('Where the section cuts', 'cut', () => state().cut?.t ?? 0.5, (t) => host.setSection(state().cut?.axis ?? 'z', t), () => state().cut !== null, (t) => `${Math.round(t * 100)} % of the way along ${state().cut?.axis ?? 'z'}`)
     const flip = press('Flip', 'flip', () => host.flip())
     const why = el('p', { class: 'hint' })
     syncs.push(() => {
       flip.disabled = state().section === null
-      why.textContent = state().section === null ? '' : state().cut === null ? 'Cut as the saved view has it. Cut open for display only.' : 'Cut open for display only: the inside is drawn in a darker tone.'
+      why.textContent = state().section === null ? '' : `${state().cut === null ? 'Cut as the saved view has it. ' : ''}Cut open for display only. Solid parts are drawn open, their inside in a darker tone: this page draws no cut faces.`
       why.hidden = why.textContent === ''
     })
     return section('Section', axes, el('div', { class: 'slider' }, slider, flip), why)
@@ -235,7 +238,11 @@ export function createPanel(root: HTMLElement, host: PanelHost): Panel {
       if (mark.kind === 'dimension') {
         const line = el('span', { class: 'mark-value' }, num(mark.text ?? '—'))
         if (mark.verdict) line.append(' ', el('span', { class: 'verdict', 'data-verdict': mark.verdict }, mark.verdict === 'pass' ? '✓ passes' : '✗ fails'))
-        if (mark.expected) line.append(' ', el('span', { class: 'muted' }, 'should be ', num(mark.expected)))
+        if (mark.expected) {
+          const expected = num(mark.expected)
+          expected.classList.add('whole')
+          line.append(' ', el('span', { class: 'muted' }, 'should be ', expected))
+        }
         body.append(line)
         if (mark.how) body.append(el('span', { class: 'muted' }, mark.how))
       }
@@ -264,8 +271,16 @@ export function createPanel(root: HTMLElement, host: PanelHost): Panel {
       here.hidden = rows.length > 0
     })
     const date = dateOf(host.data.exportedAt)
+    // Resolved marks are in the list; their labels are drawn only when asked.
+    const settled = object.marks.some((mark) => mark.status === 'resolved')
+    const more = el('input', { type: 'checkbox', 'data-k': 'resolved' })
+    more.addEventListener('change', () => host.setResolved(more.checked))
+    syncs.push(() => {
+      more.checked = host.state().resolved
+      more.disabled = !host.state().marks
+    })
     const honest = el('p', { class: 'hint' }, 'A value is as torno measured it on the exact geometry of ', num(`r${object.revision}`), ...(date ? [', exported ', num(date)] : []), '. This page measures nothing.')
-    return section('Marks', el('label', { class: 'check' }, box, 'Show marks and dimensions'), list, here, ...(object.marks.some((mark) => mark.kind === 'dimension') ? [honest] : []))
+    return section('Marks', el('label', { class: 'check' }, box, 'Show marks and dimensions'), ...(settled ? [el('label', { class: 'check' }, more, 'Label the resolved ones too')] : []), list, here, ...(object.marks.some((mark) => mark.kind === 'dimension') ? [honest] : []))
   }
 
   function scans(): HTMLElement | null {
@@ -273,7 +288,7 @@ export function createPanel(root: HTMLElement, host: PanelHost): Panel {
     if (!object.scans || object.scans.length === 0) return null
     const list = el('ul', { class: 'scans' })
     for (const scan of object.scans) {
-      const here = (): boolean => scan.placed[host.state().layout] !== undefined
+      const here = (): boolean => own(scan.placed, host.state().layout) !== undefined
       const view = (): { visible: boolean; opacity: number } => host.state().scans[scan.id] ?? { visible: true, opacity: 1 }
       const box = el('input', { type: 'checkbox', 'data-k': `scan:${scan.id}` })
       box.addEventListener('change', () => host.setScan(scan.id, { visible: box.checked }))
@@ -290,18 +305,12 @@ export function createPanel(root: HTMLElement, host: PanelHost): Panel {
     return section('Scans', list, el('p', { class: 'hint' }, 'A scan here is a reduced copy, and nothing of it is exact.'))
   }
 
-  function theme(): HTMLElement {
-    const row = el('div', { class: 'row', role: 'group', 'aria-label': 'Theme' })
-    row.append(toggle('Light', 'theme:light', () => host.theme() === 'light', () => host.setTheme('light')), toggle('Dark', 'theme:dark', () => host.theme() === 'dark', () => host.setTheme('dark')))
-    return section('Theme', row)
-  }
-
   const panel: Panel = {
     rebuild() {
       const active = document.activeElement instanceof HTMLElement && root.contains(document.activeElement) ? document.activeElement.dataset.k : undefined
       syncs = []
       counter = 0
-      const blocks = [head(), layouts(), parts(), explode(), cut(), views(), marks(), scans(), theme()].filter((block): block is HTMLElement => block !== null)
+      const blocks = [head(), layouts(), parts(), explode(), cut(), views(), marks(), scans()].filter((block): block is HTMLElement => block !== null)
       root.replaceChildren(...blocks)
       panel.sync()
       if (active !== undefined) [...root.querySelectorAll<HTMLElement>('[data-k]')].find((one) => one.dataset.k === active)?.focus()

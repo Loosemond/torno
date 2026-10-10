@@ -3,7 +3,17 @@ import { type ExportPlan, type ExportRequest, SCAN_WARNING, megabytes } from '..
 import { count } from '../../shared/format'
 import { actions, sceneFileOf, store, useStore } from '../state/store'
 
-const plural = (n: number, one: string, many = `${one}s`): string => `${count(n)} ${n === 1 ? one : many}`
+/** `2 parts`, the number in the face of numbers. */
+function Count({ n, one, many = `${one}s` }: { n: number; one: string; many?: string }) {
+  return (
+    <>
+      <span className="num">{count(n)}</span> {n === 1 ? one : many}
+    </>
+  )
+}
+
+/** What can take the focus in the sheet, in order. */
+const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), [tabindex="0"]'
 
 /**
  * What goes into an export, said before anything is written: the objects, whether their marks and notes go with
@@ -21,6 +31,8 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   const names = useStore((s) => s.workspace?.objects ?? NONE)
   const [objects, setObjects] = useState<string[] | null>(of === 'all' ? null : of)
   const [marks, setMarks] = useState(false)
+  const [hidden, setHidden] = useState(false)
+  const [resolved, setResolved] = useState(false)
   const [scans, setScans] = useState<string[]>([])
   const [plan, setPlan] = useState<ExportPlan | null>(null)
   const [busy, setBusy] = useState<'planning' | 'saving' | null>('planning')
@@ -40,7 +52,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   useEffect(() => {
     const mine = ++asked.current
     setBusy((was) => (was === 'saving' ? was : 'planning'))
-    window.torno.export.plan({ objects: objects ?? [], marks, scans }).then(
+    window.torno.export.plan({ objects: objects ?? [], marks, scans, hidden, resolved }).then(
       (found) => {
         if (mine !== asked.current) return
         if (objects === null) return setObjects(found.objects.filter((object) => object.exportable).map((object) => object.id))
@@ -53,7 +65,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
         setBusy((was) => (was === 'saving' ? was : null))
       }
     )
-  }, [objects, marks, scans])
+  }, [objects, marks, scans, hidden, resolved])
 
   // The keys are the sheet's while it is up, and the focus comes back to where it was when it goes.
   useEffect(() => {
@@ -65,6 +77,8 @@ function Sheet({ of }: { of: string[] | 'all' }) {
     }
     window.addEventListener('keydown', onKey)
     return () => {
+      // What main kept ready for this sheet (scans reduced) is let go.
+      window.torno.export.done()
       window.removeEventListener('keydown', onKey)
       const now = document.activeElement
       if (before instanceof HTMLElement && before.isConnected && (now === null || now === document.body || !now.isConnected)) before.focus()
@@ -72,7 +86,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   }, [])
 
   const ticked = objects ?? []
-  const request = (): ExportRequest => ({ objects: ticked, marks, scans: scans.filter((key) => ticked.some((id) => key.startsWith(`${id}/`))) })
+  const request = (): ExportRequest => ({ objects: ticked, marks, scans: scans.filter((key) => ticked.some((id) => key.startsWith(`${id}/`))), hidden, resolved })
   const tick = (list: string[], key: string, on: boolean): string[] => (on ? [...new Set([...list, key])] : list.filter((one) => one !== key))
   const changed = (): void => setSaid(null)
 
@@ -94,23 +108,38 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   const can = (plan?.objects ?? []).filter((object) => object.exportable)
   const cannot = (plan?.objects ?? []).filter((object) => !object.exportable)
   const chosen = can.filter((object) => ticked.includes(object.id))
-  const notes = chosen.reduce((sum, object) => sum + (object.marks ?? 0), 0)
-  const dimensions = chosen.reduce((sum, object) => sum + (object.dimensions ?? 0), 0)
+  const sum = (of: (object: ExportPlan['objects'][number]) => number | undefined): number => chosen.reduce((total, object) => total + (of(object) ?? 0), 0)
+  const notes = sum((object) => object.marks)
+  const dimensions = sum((object) => object.dimensions)
+  const drafts = sum((object) => object.drafts)
+  const settled = sum((object) => object.resolved)
+  const off = sum((object) => object.off)
   const withScans = chosen.filter((object) => object.scans.length > 0)
   const nameOf = (id: string): string => names.find((object) => object.id === id)?.name ?? id
 
   return (
+    // Over the whole window while it is up: nothing behind it takes a click or the focus until it is answered.
     <div className="export-layer">
       <section
         ref={sheet}
         className="export-sheet"
         role="dialog"
+        aria-modal="true"
         aria-label="Export"
         tabIndex={-1}
         onKeyDown={(e) => {
           // No tool of the view under it is handed a key: what is exported is what was on screen when the sheet came up.
           e.stopPropagation()
           if (e.key === 'Escape' && busy !== 'saving') actions.exportSheet(null)
+          if (e.key !== 'Tab') return
+          // Tab goes round within the sheet.
+          const stops = [...sheet.current!.querySelectorAll<HTMLElement>(FOCUSABLE)]
+          if (stops.length === 0) return e.preventDefault()
+          const at = stops.indexOf(document.activeElement as HTMLElement)
+          if (e.shiftKey ? at <= 0 : at === stops.length - 1) {
+            e.preventDefault()
+            stops[e.shiftKey ? stops.length - 1 : 0].focus()
+          }
         }}
       >
         <header className="export-head">
@@ -140,10 +169,26 @@ function Sheet({ of }: { of: string[] | 'all' }) {
                   />
                   <span className="export-name">{nameOf(object.id)}</span>
                   <span className="export-what">
-                    <span className="num">r{object.revision}</span> · {plural(object.parts ?? 0, 'part')}
-                    {(object.layouts?.length ?? 0) > 1 && <> · {object.layouts!.join(', ')}</>}
-                    {(object.views?.length ?? 0) > 0 && <> · {plural(object.views!.length, 'saved view')}</>} · <span className="num">{count(object.triangles ?? 0)}</span> triangles
+                    <span className="num">r{object.revision}</span> · <Count n={object.parts ?? 0} one="part" />
+                    {(object.layouts?.length ?? 0) > 1 && (
+                      <>
+                        {' '}
+                        in <Count n={object.layouts!.length} one="layout" /> ({object.layouts!.join(', ')})
+                      </>
+                    )}
+                    {(object.views?.length ?? 0) > 0 && (
+                      <>
+                        {' '}
+                        · <Count n={object.views!.length} one="saved view" />
+                      </>
+                    )}{' '}
+                    · <Count n={object.triangles ?? 0} one="triangle" />
                   </span>
+                  {object.failed && (
+                    <span className="export-what" data-tone="warn">
+                      The model has failed since: this is its last good build
+                    </span>
+                  )}
                 </label>
               </li>
             ))}
@@ -155,6 +200,27 @@ function Sheet({ of }: { of: string[] | 'all' }) {
               {why}: {cannot.filter((object) => object.why === why).map((object) => nameOf(object.id)).join(', ')}
             </p>
           ))}
+
+          {off > 0 && (
+            <>
+              <h3 className="section-title">Parts</h3>
+              <label className="export-row">
+                <input
+                  type="checkbox"
+                  checked={hidden}
+                  disabled={busy === 'saving'}
+                  onChange={(e) => {
+                    changed()
+                    setHidden(e.target.checked)
+                  }}
+                />
+                <span className="export-name">Include parts that are switched off</span>
+                <span className="export-what">
+                  <Count n={off} one="part is" many="parts are" /> switched off here: {hidden ? 'in the file, switched off, for whoever opens it to switch on' : 'left out of the file, with the marks on ' + (off === 1 ? 'it' : 'them')}
+                </span>
+              </label>
+            </>
+          )}
 
           <h3 className="section-title">Marks</h3>
           <label className="export-row">
@@ -173,11 +239,34 @@ function Sheet({ of }: { of: string[] | 'all' }) {
                 'None on what is ticked'
               ) : (
                 <>
-                  {plural(notes, 'mark')} and {plural(dimensions, 'dimension')}, with every note as it is written and each dimension as it was measured on the build exported
+                  <Count n={notes} one="mark" /> and <Count n={dimensions} one="dimension" />
+                  {drafts > 0 && (
+                    <>
+                      , <Count n={drafts} one="of them a draft" many="of them drafts" /> the agent has not been sent
+                    </>
+                  )}
+                  : every note as it is written, each dimension as it was measured on the build exported
                 </>
               )}
             </span>
           </label>
+          {settled > 0 && (
+            <label className="export-row">
+              <input
+                type="checkbox"
+                checked={resolved}
+                disabled={!marks || busy === 'saving'}
+                onChange={(e) => {
+                  changed()
+                  setResolved(e.target.checked)
+                }}
+              />
+              <span className="export-name">Include resolved marks</span>
+              <span className="export-what">
+                <Count n={settled} one="resolved mark" />, with {settled === 1 ? 'its note' : 'their notes'}: {resolved && marks ? 'in the file' : 'left out'}
+              </span>
+            </label>
+          )}
 
           {withScans.length > 0 && (
             <>

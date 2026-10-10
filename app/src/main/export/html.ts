@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -12,28 +13,40 @@ export interface PageAssets { viewer: string; css: string; fonts: Array<{ family
 
 const escapeText = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/** Nothing from anywhere: scripts and styles only as they are written in the file, pictures and fonts only from the file itself. No `unsafe-eval`. */
-export const POLICY = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:"
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('base64')
+
+/**
+ * The page's policy, for the one script and the one style it has, as they stand in the file: nothing from
+ * anywhere, no script and no style but those two (by their hashes: not another inline script, not a handler in
+ * an attribute, no `eval`), fonts only from the file itself, no `<base>` and no form that goes anywhere. The
+ * data is in a script element of a type that is not run, which no policy has a say on.
+ */
+export function policyOf(script: string, style: string): string {
+  return `default-src 'none'; script-src 'sha256-${sha256(script)}'; style-src 'sha256-${sha256(style)}'; font-src data:; base-uri 'none'; form-action 'none'`
+}
+
+/** As the HTML parser hands a script's or a style's text on: every line ends in a line feed. A hash is of that. */
+const lines = (text: string): string => text.replace(/\r\n?/g, '\n')
 
 export function exportHtml(data: ExportData, assets: PageAssets): string {
-  const fonts = assets.fonts.map((font) => `@font-face{font-family:'${font.family}';font-weight:${font.weight};font-style:normal;src:url(data:font/woff2;base64,${Buffer.from(font.woff2).toString('base64')}) format('woff2')}`).join('\n')
+  const fonts = assets.fonts.map((font) => `@font-face{font-family:'${font.family}';font-weight:${font.weight};font-style:normal;font-display:swap;src:url(data:font/woff2;base64,${Buffer.from(font.woff2).toString('base64')}) format('woff2')}`).join('\n')
   // In a script element only `</script` and `<!--` matter: every `<` of the data is written as an escape JSON
   // takes. The two line ends JSON allows bare and older script parsers do not are escaped with it.
   const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
   // In the viewer they can only be in strings and regular expressions (the build refuses a bundle that has one
   // at all, `scripts/build-viewer.mjs`): there `\/` and `\x21` are the same characters, in every mode of either.
-  const viewer = assets.viewer
+  const viewer = lines(assets.viewer)
     .replace(/<\/script/gi, '<\\/script')
     .replace(/<!--/g, '<\\x21--')
     .replace(/<(script)/gi, (_all, word: string) => `<\\x${word.charCodeAt(0).toString(16)}${word.slice(1)}`)
-  const style = `${fonts}\n${assets.css}`.replace(/<\/style/gi, '<\\/style').replace(/<(\/?)script/gi, '<\\$1script').replace(/<!--/g, '<\\!--')
+  const style = lines(`${fonts}\n${assets.css}`).replace(/<\/style/gi, '<\\/style').replace(/<(\/?)script/gi, '<\\$1script').replace(/<!--/g, '<\\!--')
   return [
     '<!doctype html>',
     '<html lang="en">',
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<meta http-equiv="Content-Security-Policy" content="${POLICY}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${policyOf(viewer, style)}">`,
     '<meta name="color-scheme" content="light dark">',
     '<meta name="generator" content="torno">',
     `<title>${escapeText(data.title)}</title>`,

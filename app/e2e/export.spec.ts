@@ -46,11 +46,14 @@ function workspace(name: string): string {
   writeFileSync(
     join(made, 'hollow', '.torno', 'marks.json'),
     JSON.stringify({
-      next: 3,
+      next: 5,
       marks: [
         { ...base, id: 'M1', kind: 'pin', note: HOSTILE, anchor: { point: [0, 0, 40], normal: [0, 0, 1], part: 'lid' } },
         // Across the tub, between its two outer walls: 40 mm.
-        { ...base, id: 'M2', kind: 'dimension', note: 'outer width', measure: 'distance', a: { point: [-20, 0, 10], normal: [-1, 0, 0], part: 'tub' }, b: { point: [20, 0, 10], normal: [1, 0, 0], part: 'tub' }, expected: 40 }
+        { ...base, id: 'M2', kind: 'dimension', note: 'outer width', measure: 'distance', a: { point: [-20, 0, 10], normal: [-1, 0, 0], part: 'tub' }, b: { point: [20, 0, 10], normal: [1, 0, 0], part: 'tub' }, expected: 40 },
+        // One that is settled, and one the agent was never sent.
+        { ...base, id: 'M3', kind: 'pin', status: 'resolved', resolvedBy: 'user', note: 'settled long ago', anchor: { point: [20, 0, 20], normal: [1, 0, 0], part: 'tub' } },
+        { ...base, id: 'M4', kind: 'pin', status: 'draft', note: 'not sent yet', anchor: { point: [0, -20, 20], normal: [0, -1, 0], part: 'tub' } }
       ]
     })
   )
@@ -75,9 +78,9 @@ test.afterAll(async () => {
 })
 
 const state = (p: Page = page): Promise<TornoState> => p.evaluate(() => window.__tornoTest!.state())
-type MainHooks = { pickSave: string | null; savePicks: number; saveOffered: string | null }
+type MainHooks = { pickSave: string | null; savePicks: number; saveOffered: string | null; replace: boolean; replaceAsked: number }
 const setSave = (path: string | null, a: ElectronApplication = app): Promise<void> => a.evaluate((_e, to) => void ((globalThis as unknown as { __tornoMain: MainHooks }).__tornoMain.pickSave = to), path)
-const hooks = (a: ElectronApplication = app): Promise<MainHooks> => a.evaluate(() => ({ ...(globalThis as unknown as { __tornoMain: MainHooks }).__tornoMain }) as MainHooks).then(({ pickSave, savePicks, saveOffered }) => ({ pickSave, savePicks, saveOffered }))
+const hooks = (a: ElectronApplication = app): Promise<MainHooks> => a.evaluate(() => ({ ...(globalThis as unknown as { __tornoMain: MainHooks }).__tornoMain }) as MainHooks).then(({ pickSave, savePicks, saveOffered, replace, replaceAsked }) => ({ pickSave, savePicks, saveOffered, replace, replaceAsked }))
 const sheet = (p: Page = page) => p.getByRole('dialog', { name: 'Export' })
 
 async function open(id: string, p: Page = page): Promise<void> {
@@ -140,11 +143,20 @@ test('an object is exported to the path that was chosen, and the file opens by i
   await expect(sheet()).toContainText('about')
   // What would go is said before anything is written: the object, its one view (the proposal is not the person's), and its marks, which are not ticked.
   await expect(sheet()).toContainText('r1 · 2 parts · 1 saved view')
-  await expect(sheet()).toContainText('1 mark and 1 dimension')
+  // Its marks, with how many are drafts; the resolved one is named apart, and cannot be ticked without the marks.
+  await expect(sheet()).toContainText('2 marks and 1 dimension, 1 of them a draft the agent has not been sent')
+  await expect(sheet()).toContainText('1 resolved mark, with its note: left out')
+  await expect(sheet().getByRole('checkbox', { name: /Include resolved marks/ })).toBeDisabled()
+  // The sheet is the one thing to answer while it is up: Tab stays in it.
+  await expect(sheet()).toHaveAttribute('aria-modal', 'true')
+  for (let n = 0; n < 12; n++) {
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => document.activeElement?.closest('[role="dialog"]')?.getAttribute('aria-label') ?? null)).toBe('Export')
+  }
   await expect(sheet().getByRole('checkbox', { name: /^hollow/ })).toBeChecked()
   await expect(sheet().getByRole('checkbox', { name: /Include marks and their notes/ })).not.toBeChecked()
   // An object with no build of this run cannot be ticked: it is named, with what would make it exportable.
-  await expect(sheet().getByRole('checkbox')).toHaveCount(2)
+  await expect(sheet().getByRole('checkbox')).toHaveCount(3)
   await expect(sheet().locator('.export-cannot')).toContainText(/^Open it first: torno exports the last build of this run: bracket, .*plain/)
   expect((await hooks()).savePicks).toBe(0)
   await sheet().getByRole('button', { name: 'Export', exact: true }).click()
@@ -159,7 +171,9 @@ test('an object is exported to the path that was chosen, and the file opens by i
   expect(html.length).toBeLessThan(2_000_000)
   expectNothingOfHere(html)
   // Neither a note (marks were not ticked) nor the view the agent proposed and nobody kept.
-  for (const kept of ['lid sits proud', 'outer width', 'Agent idea', 'why the agent proposed it', '__pwned']) expect(html).not.toContain(kept)
+  for (const kept of ['lid sits proud', 'outer width', 'settled long ago', 'not sent yet', 'Agent idea', 'why the agent proposed it', '__pwned']) expect(html).not.toContain(kept)
+  // Its policy names its one script and its one style by their hashes: nothing else can run in it.
+  expect(html).toMatch(/<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-[A-Za-z0-9+\/]{43}='; style-src 'sha256-[A-Za-z0-9+\/]{43}='; font-src data:; base-uri 'none'; form-action 'none'">/)
 
   const file = await openExport(out)
   try {
@@ -205,10 +219,24 @@ test('an object is exported to the path that was chosen, and the file opens by i
     expect(turned.target).toEqual([0, 0, 19])
     expect(turned.position[0]).not.toBeCloseTo(120, 1)
     expect(Math.hypot(turned.position[0], turned.position[1], turned.position[2] - 19)).toBeCloseTo(Math.hypot(120, 90, 41), 3)
-    // The dark theme, by hand.
-    await file.ask('window.__tornoExport.setTheme("dark")')
-    expect((await file.pageState()).theme).toBe('dark')
-    expect(await file.ask<number[]>('window.__tornoExport.ground()')).not.toEqual(ground)
+    // The theme is the system's until one is chosen by hand in the footer, and the system's again when asked.
+    expect(await file.pageState()).toMatchObject({ themeChoice: 'system' })
+    expect(await file.ask<string[]>('[...document.querySelectorAll("#foot .themes button")].map((b) => b.textContent + ":" + b.getAttribute("aria-pressed"))')).toEqual(['System:true', 'Light:false', 'Dark:false'])
+    await file.ask('document.querySelector("#foot .themes button[data-theme=dark]").click()')
+    expect(await file.pageState()).toMatchObject({ theme: 'dark', themeChoice: 'dark' })
+    const night = await file.ask<number[]>('window.__tornoExport.ground()')
+    await file.ask('window.__tornoExport.setTheme("light")')
+    expect(await file.pageState()).toMatchObject({ theme: 'light', themeChoice: 'light' })
+    expect(await file.ask<number[]>('window.__tornoExport.ground()')).not.toEqual(night)
+    await file.ask('window.__tornoExport.setTheme("system")')
+    expect(await file.pageState()).toMatchObject({ themeChoice: 'system' })
+    expect(await file.ask<string | null>('document.documentElement.getAttribute("data-theme")')).toBeNull()
+    // A slider is read out as what it is.
+    expect(await file.ask<string>('document.querySelector("[data-k=explode]").getAttribute("aria-valuetext")')).toBe('50 %')
+    // An inline handler, were one ever written into the page, would not run: the policy names the one script by its hash.
+    expect(await file.ask<unknown>('(() => { const b = document.createElement("button"); b.setAttribute("onclick", "window.__handled = 1"); document.body.append(b); b.click(); b.remove(); return window.__handled })()')).toBeUndefined()
+    const added = await file.ask<unknown>('new Promise((done) => { const s = document.createElement("script"); s.textContent = "window.__added = 1"; document.body.append(s); setTimeout(() => done(window.__added), 50) })')
+    expect(added).toBeUndefined()
     // Every control is a native one the keyboard reaches, and each has a name.
     expect(await file.ask<number>('[...document.querySelectorAll("#panel button, #panel input")].filter((c) => c.tabIndex < 0 || !(c.textContent || c.getAttribute("aria-label") || c.closest("label")?.textContent)).length')).toBe(0)
     expect(await file.ask<number>('document.getElementById("view").tabIndex')).toBe(0)
@@ -243,7 +271,10 @@ test('marks are in the file only when ticked, as torno measured them, and a note
   const file = await openExport(`${out}.html`)
   try {
     await file.ready()
-    expect(await file.pageState()).toMatchObject({ marks: true, labels: ['M1', 'M2'] })
+    // The draft goes with the marks; the resolved one was not ticked, and is nowhere in the file.
+    expect(await file.pageState()).toMatchObject({ marks: true, labels: ['M1', 'M2', 'M4'] })
+    expect(html).toContain('not sent yet')
+    expect(html).not.toContain('settled long ago')
     // The note is there to read, and is nothing but text.
     expect(await file.ask<string>('document.querySelector(".mark .note").textContent')).toBe(HOSTILE)
     expect(await file.ask<number>('document.querySelectorAll("#panel img, #overlay img, script").length')).toBe(2)
@@ -257,7 +288,11 @@ test('marks are in the file only when ticked, as torno measured them, and a note
     expect(await file.ask<string>('document.querySelector(".chip[data-mark=M2]").textContent')).toBe('M240 mm✓')
     // Drawn apart, a mark goes with its part; with its part switched off it is not drawn.
     await file.ask('window.__tornoExport.setPart("lid", false)')
-    expect((await file.pageState()).labels).toEqual(['M2'])
+    expect((await file.pageState()).labels).toEqual(['M2', 'M4'])
+    // A dimension's line has an end at each of its points, and its label does not lie on another.
+    expect(await file.ask<number>('document.querySelectorAll("#overlay .dot").length')).toBe(3)
+    const boxes = await file.ask<Array<{ x: number; y: number; w: number; h: number }>>('[...document.querySelectorAll("#overlay .chip:not([hidden])")].map((c) => { const r = c.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height } })')
+    for (const a of boxes) for (const b of boxes) if (a !== b) expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h).toBe(false)
     await file.ask('window.__tornoExport.setMarks(false)')
     expect((await file.pageState()).labels).toEqual([])
     expect(await file.requests()).toEqual([])
@@ -270,6 +305,18 @@ test('a cancelled dialog writes nothing, and a folder that is not there is said,
   await setSave(null)
   await sheet().getByRole('button', { name: 'Export', exact: true }).click()
   await expect(sheet().getByText('Nothing was saved')).toBeVisible()
+  // A name without its ending that would land on a file the dialog never asked about: torno asks, and a no keeps the file.
+  const was = readFileSync(join(outDir, 'hollow.html'), 'utf8')
+  await setSave(join(outDir, 'hollow'))
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(sheet().getByText('Nothing was saved')).toBeVisible()
+  expect((await hooks()).replaceAsked).toBe(1)
+  expect(readFileSync(join(outDir, 'hollow.html'), 'utf8')).toBe(was)
+  await app.evaluate(() => void ((globalThis as unknown as { __tornoMain: { replace: boolean } }).__tornoMain.replace = true))
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(page.getByText(`Saved to ${join(outDir, 'hollow.html')}`)).toBeVisible()
+  expect((await hooks()).replaceAsked).toBe(2)
+  expect(readFileSync(join(outDir, 'hollow.html'), 'utf8')).not.toBe(was)
   await setSave(join(outDir, 'not', 'there', 'x.html'))
   await sheet().getByRole('button', { name: 'Export', exact: true }).click()
   await expect(sheet()).toContainText('ENOENT')
@@ -291,7 +338,7 @@ test('several objects go into one file from the page of objects, each unpacked w
   // Every object with a build of this run is ticked; the others say what would make them exportable.
   await expect(sheet().getByRole('checkbox', { name: /^bracket/ })).toBeChecked()
   await expect(sheet().getByRole('checkbox', { name: /^hollow/ })).toBeChecked()
-  await expect(sheet().getByRole('checkbox')).toHaveCount(3)
+  await expect(sheet().getByRole('checkbox')).toHaveCount(4)
   await expect(sheet().locator('.export-cannot')).toContainText('plain')
   await expect(sheet().locator('.export-cannot')).not.toContainText('hollow')
   await expect(sheet()).toContainText('about')
@@ -357,7 +404,7 @@ test('a scan is in the file only when ticked, without where it came from, and th
   const html = readFileSync(out, 'utf8')
   expect(dataOf(html).objects[0].scans).toMatchObject([{ id: 'S1', name: 'garage-scan.stl', triangles: 12, reducedFrom: 12, colours: false, placed: { assembly: { t: [0, 0, 0], s: 1 } } }])
   expectNothingOfHere(html)
-  for (const kept of ['sha256', 'mtimeMs', '"source"']) expect(html).not.toContain(kept)
+  for (const kept of ['sha256', 'mtimeMs', '"source"']) expect(JSON.stringify(dataOf(html))).not.toContain(kept)
 
   const file = await openExport(out)
   try {
@@ -378,10 +425,114 @@ test('a scan is in the file only when ticked, without where it came from, and th
   await page.keyboard.press('Escape')
 })
 
+test('a part switched off and a mark that is resolved stay here unless they are ticked', async () => {
+  // The lid is switched off in torno.
+  await page.locator('[data-region="left"]').getByRole('button', { name: 'Show lid' }).click()
+  await page.getByRole('button', { name: 'Export…' }).click()
+  await expect(sheet()).toContainText('r1 · 1 part ·')
+  await expect(sheet()).toContainText('1 part is switched off here: left out of the file, with the marks on it')
+  const size = (): Promise<string> => sheet().locator('.export-size').innerText()
+  const bare = await size()
+  const out = join(outDir, 'tub-only.html')
+  await setSave(out)
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(page.getByText(`Saved to ${out}`)).toBeVisible()
+  const only = dataOf(readFileSync(out, 'utf8')).objects[0]
+  expect(only.parts.map((p) => p.name)).toEqual(['tub'])
+  expect(Object.keys(only.meshes)).toHaveLength(1)
+  // Ticked, it goes, switched off; and the resolved mark with the marks. What the sheet says follows each tick.
+  await sheet().getByRole('checkbox', { name: /Include parts that are switched off/ }).check()
+  await expect(sheet()).toContainText('r1 · 2 parts ·')
+  await expect(sheet()).toContainText('in the file, switched off, for whoever opens it to switch on')
+  await sheet().getByRole('checkbox', { name: /Include marks and their notes/ }).check()
+  await sheet().getByRole('checkbox', { name: /Include resolved marks/ }).check()
+  await expect(sheet()).toContainText('3 marks and 1 dimension')
+  await expect(sheet()).toContainText('1 resolved mark, with its note: in the file')
+  await expect.poll(size).not.toBe(bare)
+  const all = join(outDir, 'all.html')
+  await setSave(all)
+  await expect(sheet().getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(page.getByText(`Saved to ${all}`)).toBeVisible()
+  const whole = dataOf(readFileSync(all, 'utf8')).objects[0]
+  expect(whole.parts.map((p) => [p.name, p.visible])).toEqual([['tub', true], ['lid', false]])
+  expect(whole.marks!.map((m) => [m.id, m.status])).toEqual([['M1', 'sent'], ['M2', 'sent'], ['M3', 'resolved'], ['M4', 'draft']])
+
+  const file = await openExport(all)
+  try {
+    await file.ready()
+    expect((await file.pageState()).parts).toMatchObject([{ name: 'tub', visible: true }, { name: 'lid', visible: false }])
+    // The resolved mark is in the list, said to be resolved; on the part it is labelled only when asked.
+    expect(await file.pageState()).toMatchObject({ labels: ['M2', 'M4'], resolved: false })
+    expect(await file.ask<string>('[...document.querySelectorAll(".mark")].find((m) => m.textContent.startsWith("M3")).textContent')).toContain('resolved')
+    await file.ask('window.__tornoExport.setPart("lid", true); document.querySelector("[data-k=resolved]").click()')
+    expect(await file.pageState()).toMatchObject({ labels: ['M1', 'M2', 'M3', 'M4'], resolved: true })
+    expect(await file.requests()).toEqual([])
+  } finally {
+    await file.close()
+  }
+  await page.keyboard.press('Escape')
+  await page.locator('[data-region="left"]').getByRole('button', { name: 'Show lid' }).click()
+})
+
+test('parts named like what every object has are parts like any other, and a file that cannot be unpacked says so', async () => {
+  const html = readFileSync(join(outDir, 'all.html'), 'utf8')
+  const data = dataOf(html)
+  // As a model might name them: the data is the file's own, and the page must not trip on it.
+  const renamed = JSON.stringify(data).replace(/</g, '\\u003c').replaceAll('"tub"', '"constructor"').replaceAll('"lid"', '"__proto__"').replaceAll('"assembly"', '"toString"')
+  const withData = (json: string): string => html.replace(/(<script type="application\/json" id="torno-data">)(.*?)(<\/script>)/s, (_all, open: string, _was: string, close: string) => `${open}${json}${close}`)
+  const odd = join(outDir, 'odd-names.html')
+  writeFileSync(odd, withData(renamed))
+  const file = await openExport(odd)
+  try {
+    await file.ready()
+    expect(await file.pageState()).toMatchObject({ layout: 'toString', parts: [{ name: 'constructor', visible: true, offset: [0, 0, 0] }, { name: '__proto__', visible: false, offset: [0, 0, 0] }] })
+    const ground = await file.ask<number[]>('window.__tornoExport.ground()')
+    expect((await file.ask<number[]>('window.__tornoExport.pixel(0.4, 0.5)')).slice(0, 3)).not.toEqual(ground)
+    await file.ask('window.__tornoExport.setPart("__proto__", true); window.__tornoExport.setExplode(1, "z")')
+    const apart = await file.pageState()
+    expect(apart.parts.find((p) => p.name === '__proto__')!.offset[2]).toBeGreaterThan(1)
+    expect(apart.parts.find((p) => p.name === 'constructor')!.offset[2]).toBeLessThan(-1)
+    expect(apart.labels).toEqual(['M1', 'M2', 'M4'])
+    expect(await file.ask<string>('document.getElementById("said").textContent')).toBe('Parts drawn apart for display')
+    expect(await file.ask<string[]>('[...document.querySelectorAll(".parts .name")].map((n) => n.textContent)')).toEqual(['constructor', '__proto__'])
+  } finally {
+    await file.close()
+  }
+  // A mesh that is not what its header says: the page says what is wrong, and does not go on saying it is unpacking.
+  const broken = join(outDir, 'broken.html')
+  const [hash] = Object.keys(data.objects[0].meshes)
+  data.objects[0].meshes[hash].vertices += 1
+  writeFileSync(broken, withData(JSON.stringify(data).replace(/</g, '\\u003c')))
+  const bad = await openExport(broken)
+  try {
+    await expect.poll(() => bad.ask<string>('document.getElementById("said")?.textContent ?? ""')).toMatch(/^The parts of hollow could not be shown: \d+ bytes were expected, \d+ came$/)
+    expect(await bad.ask<boolean>('document.getElementById("said").hidden')).toBe(false)
+  } finally {
+    await bad.close()
+  }
+})
+
+test('one object is exported from its card on the page of objects', async () => {
+  await page.getByRole('button', { name: 'All objects' }).click()
+  await expect.poll(async () => (await state()).page).toBe('objects')
+  // Only an object with a build of this run has the action; it is there for the keyboard as for the pointer.
+  await expect(page.getByRole('button', { name: 'Export plain to one HTML file' })).toHaveCount(0)
+  await page.locator('.card[data-object="hollow"]').hover()
+  await page.getByRole('button', { name: 'Export hollow to one HTML file' }).click()
+  await expect(sheet().getByRole('checkbox', { name: /^hollow/ })).toBeChecked()
+  await expect(sheet().getByRole('checkbox', { name: /^bracket/ })).not.toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(sheet()).toHaveCount(0)
+  expect((await state()).page).toBe('objects')
+})
+
 test('a browser that gives the page no WebGL is told so in words, and nothing breaks', async () => {
   const file = await openExport(join(outDir, 'hollow.html'), app, [900, 700], false)
   try {
     await expect.poll(() => file.ask<string | null>('document.querySelector(".message")?.textContent ?? null')).toMatch(/^This browser cannot draw the parts here: it gives the page no WebGL 2\./)
+    // The message alone: no empty column of controls beside it.
+    expect(await file.ask<string[]>('["panel", "view", "overlay"].map((id) => getComputedStyle(document.getElementById(id)).display)')).toEqual(['none', 'none', 'none'])
     expect(await file.ask<string>('typeof window.__tornoExport')).toBe('undefined')
     expect(await file.requests()).toEqual([])
   } finally {

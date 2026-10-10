@@ -42,3 +42,35 @@ it('has a viewer that sets text and never markup, and evaluates nothing', () => 
     expect([file, source.match(/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|DOMParser|createContextualFragment|srcdoc|fetch\(|XMLHttpRequest|WebSocket|importScripts|localStorage|sessionStorage|cookie/g)]).toEqual([file, null])
   }
 })
+
+/** What a source file imports, as written. */
+const imports = (path: string): string[] => [...readFileSync(path, 'utf8').matchAll(/^(?:import|export)\b[^'"]*?\bfrom\s+['"]([^'"]+)['"]/gm), ...readFileSync(path, 'utf8').matchAll(/^import\s+['"]([^'"]+)['"]/gm)].map((m) => m[1])
+
+it('builds its viewer from three.js, the shared rules and four modules of the viewport, and from nothing else of the app', () => {
+  const viewport = ['lights', 'ground', 'views', 'theme']
+  const allowed = (from: string): boolean => from === 'three' || from === 'three/addons/controls/OrbitControls.js' || /^\.\.\/\.\.\/shared\/[a-z]+$/.test(from) || viewport.some((name) => from === `../../renderer/viewport/${name}`) || /^\.\/(main|model|overlay|panel)$/.test(from)
+  for (const file of ['main.ts', 'model.ts', 'overlay.ts', 'panel.ts']) {
+    const found = imports(resolve(__dirname, 'viewer', file))
+    expect(found.length).toBeGreaterThan(0)
+    expect([file, found.filter((from) => !allowed(from))]).toEqual([file, []])
+  }
+  // Those four in turn: three.js, the shared rules and one another. Not the part's mesh with its picking tree, not React, not the store.
+  for (const name of viewport) {
+    const found = imports(resolve(__dirname, '../renderer/viewport', `${name}.ts`))
+    expect([name, found.filter((from) => from !== 'three' && !/^\.\.\/\.\.\/shared\/[a-z]+$/.test(from) && !viewport.some((other) => from === `./${other}`))]).toEqual([name, []])
+  }
+  // And the shared rules the page takes are plain: they import only one another.
+  const shared = new Set<string>()
+  const follow = (path: string): void => {
+    for (const from of imports(path)) {
+      const next = from.startsWith('.') ? resolve(path, '..', `${from}.ts`) : null
+      expect([path, from, next !== null && /\/src\/(shared|renderer\/viewport|export\/viewer)\//.test(next)]).toEqual([path, from, from.startsWith('.')])
+      if (next && !shared.has(next)) {
+        shared.add(next)
+        follow(next)
+      }
+    }
+  }
+  follow(resolve(__dirname, 'viewer/main.ts'))
+  expect([...shared].filter((path) => /partMesh|three-mesh-bvh|store|\.tsx$/.test(path))).toEqual([])
+})

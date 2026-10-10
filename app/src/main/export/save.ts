@@ -1,10 +1,11 @@
-import { mkdir, open } from 'node:fs/promises'
+import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { ensureIgnored } from '../ignored'
 
 // Where an export goes. The person chooses the file in a save dialog, which opens in `<object>/.torno/exports/`;
 // that folder is torno's to make. The file itself is the one thing torno ever writes outside `.torno/`: to the
-// path the dialog answered with, that path only, once. No folder is made for it and no other file beside it.
+// path the dialog answered with, once, through a file beside it that is gone when the write ends. No folder is
+// made for it.
 
 export const EXPORTS = 'exports'
 
@@ -27,16 +28,25 @@ export function htmlPath(path: string): string {
 }
 
 /**
- * Writes the page to the path the person chose: that one file, on the disk before this resolves, with no
- * temporary file beside it and no folder made for it (a folder that is not there is an error, said in the sheet).
+ * Writes the page to the path the person chose, whole or not at all: into a file beside it that torno makes
+ * (`<path>.<pid>.tmp`, never one that is there already), on the disk before it takes the chosen name. A write
+ * that fails leaves whatever had that name as it was, and removes what it made. No folder is made for it: one
+ * that is not there is an error, said in the sheet.
  */
 export async function writeExport(path: string, html: string): Promise<void> {
   if (!isAbsolute(path)) throw new Error(`${path} is no whole path: nothing was written`)
-  const file = await open(path, 'w')
+  const beside = `${path}.${process.pid}.tmp`
+  const file = await open(beside, 'wx')
   try {
-    await file.writeFile(html)
-    await file.sync()
-  } finally {
-    await file.close()
+    try {
+      await file.writeFile(html)
+      await file.sync()
+    } finally {
+      await file.close()
+    }
+    await rename(beside, path)
+  } catch (e) {
+    await rm(beside, { force: true }).catch(() => {})
+    throw e
   }
 }

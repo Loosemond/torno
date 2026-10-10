@@ -123,6 +123,8 @@ export interface TornoBridge {
     plan(req: ExportRequest): Promise<ExportPlan>
     /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
     save(req: ExportRequest): Promise<{ path: string; bytes: number; dropped: string[] } | null>
+    /** The export sheet was put away: what main kept ready for it (scans reduced) is let go. */
+    done(): void
   }
   session: {
     /**

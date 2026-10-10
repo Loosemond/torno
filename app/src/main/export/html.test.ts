@@ -1,7 +1,8 @@
 import { deflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { type ExportData, type ExportObject, packMesh } from '../../shared/exportdata'
-import { POLICY, type PageAssets, exportHtml } from './html'
+import { createHash } from 'node:crypto'
+import { type PageAssets, exportHtml, policyOf } from './html'
 
 const ASSETS: PageAssets = { viewer: 'window.__ran = "</script><b>"', css: 'body{margin:0}', fonts: [{ family: 'IBM Plex Sans', weight: 400, woff2: new Uint8Array([1, 2, 3]) }] }
 
@@ -29,20 +30,27 @@ describe('exportHtml', () => {
   it('is one file that fetches nothing and closes no script early', () => {
     const html = exportHtml(data({ title: 'a </script> <b>title</b>' }), ASSETS)
     expect(html.startsWith('<!doctype html>')).toBe(true)
-    expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:">`)
+    // Its policy names the one script and the one style by their hashes, and nothing else may run or be asked for.
+    const script = /<script>(.*?)<\/script>/s.exec(html)![1]
+    const style = /<style>(.*?)<\/style>/s.exec(html)![1]
+    const sha = (text: string): string => createHash('sha256').update(text, 'utf8').digest('base64')
+    expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${sha(script)}'; style-src 'sha256-${sha(style)}'; font-src data:; base-uri 'none'; form-action 'none'">`)
+    expect(html).not.toContain('\r')
     // Two scripts and no more: the data and the viewer.
     expect(html.match(/<script/g)).toHaveLength(2)
     expect(html.match(/<\/script>/g)).toHaveLength(2)
     expect(html).not.toMatch(/\b(?:src|href)\s*=/)
     expect(html).not.toMatch(/https?:\/\//)
     expect(html).toContain('<title>a &lt;/script&gt; &lt;b&gt;title&lt;/b&gt;</title>')
-    expect(html).toContain("url(data:font/woff2;base64,AQID) format('woff2')")
+    expect(html).toContain("font-display:swap;src:url(data:font/woff2;base64,AQID) format('woff2')")
     expect(JSON.parse(jsonOf(html)).title).toBe('a </script> <b>title</b>')
   })
 
   it('allows the page no eval, no worker, no frame, no connection and no form', () => {
-    expect(POLICY).not.toMatch(/unsafe-eval|connect-src|frame-src|worker-src|form-action|\*|https?:/)
-    expect(POLICY.startsWith("default-src 'none'")).toBe(true)
+    const policy = policyOf('a', 'b')
+    expect(policy).not.toMatch(/unsafe-inline|unsafe-eval|unsafe-hashes|connect-src|frame-src|worker-src|img-src|\*|https?:|blob:/)
+    expect(policy.startsWith("default-src 'none'")).toBe(true)
+    expect(policy).toContain("base-uri 'none'; form-action 'none'")
   })
 
   it('keeps names and notes that would break out of the data where they are: text', () => {

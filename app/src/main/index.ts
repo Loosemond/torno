@@ -261,11 +261,11 @@ scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
  * store of the scans; `pickFile` is what "Import scan" is answered with, and
  * `filePicks` counts how often it was asked; `pickSave` is what the save dialog of
  * an export is answered with (the path to write, or null), `savePicks` counts
- * how often it was asked and `saveOffered` is the path it would have opened on. `letGo` has an object's status
+ * how often it was asked and `saveOffered` is the path it would have opened on; `replace` answers the question asked before an export replaces a file the dialog did not ask about, and `replaceAsked` counts it. `letGo` has an object's status
  * say that the kernel let its build go, which no test's kernel does. `opened`
  * are the objects opened in this run: those that are watched and built.
  */
-const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null }
+const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0 }
 
 /** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
 let requested: string | null = null
@@ -354,6 +354,13 @@ void app.whenReady().then(async () => {
           testHooks.savePicks += 1
           testHooks.saveOffered = defaultPath
           return testHooks.pickSave
+        }
+      : undefined,
+    // Nor a question in a box.
+    confirmReplace: isTest
+      ? async () => {
+          testHooks.replaceAsked += 1
+          return testHooks.replace
         }
       : undefined
   })

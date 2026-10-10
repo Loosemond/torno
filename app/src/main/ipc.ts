@@ -14,7 +14,7 @@ import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
-import { type ExportDeps, exportFile, exportPlan } from './export/build'
+import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
 import { loadAssets } from './export/html'
 import { defaultExportPath, htmlPath, prepareExports, writeExport } from './export/save'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
@@ -47,7 +47,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
 //           show:cards, show:thumbnail, export:plan, export:save
-//   from the renderer: show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
+//   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
@@ -294,6 +294,7 @@ export async function closeWorkspace(): Promise<void> {
   current = null
   forgetViews()
   forgetSceneFiles()
+  forgetExportScans()
   // A check of its marks that failed is not tried again: its timers would outlive it.
   ws.reanchor?.cancel()
   ws.alignChecks?.cancel()
@@ -391,6 +392,8 @@ export function registerIpc(
     pickFile?: () => Promise<string | null>
     /** Stands in for the save dialog of an export: given the path it would open on, the path to write, or null for none. */
     pickSave?: (defaultPath: string) => Promise<string | null>
+    /** Stands in for the question asked before an export replaces a file the save dialog did not ask about: yes or no. */
+    confirmReplace?: (path: string) => Promise<boolean>
   } = {}
 ): void {
   sessions = opts.sessions ?? null
@@ -705,14 +708,15 @@ export function registerIpc(
       marks: (id) => (marks ? marks.list(id) : Promise.resolve([])),
       scans: (id) => (scans ? scans.list(id) : Promise.resolve([])),
       scanMesh: (id, scanId) => requireScans().mesh(id, scanId),
-      now: () => new Date()
+      now: () => new Date(),
+      failing: (id) => ws.builds.state(id)?.status === 'failed'
     }
   }
-  /** A request out of whatever the window sent: names of objects, a yes or no, keys of scans, and nothing else. */
+  /** A request out of whatever the window sent: names of objects, four times yes or no, keys of scans, and nothing else. */
   const exportAsked = (given: unknown): ExportRequest => {
-    const said = Object(given) as { objects?: unknown; marks?: unknown; scans?: unknown }
+    const said = Object(given) as { objects?: unknown; marks?: unknown; scans?: unknown; hidden?: unknown; resolved?: unknown }
     const names = (list: unknown): string[] => (Array.isArray(list) ? [...new Set(list.filter((one): one is string => typeof one === 'string' && one !== ''))].slice(0, 1000) : [])
-    return { objects: names(said.objects), marks: said.marks === true, scans: names(said.scans) }
+    return { objects: names(said.objects), marks: said.marks === true, scans: names(said.scans), hidden: said.hidden === true, resolved: said.resolved === true }
   }
   const plainly = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
@@ -747,12 +751,24 @@ export function registerIpc(
       }
       if (picked === null) return null
       const path = htmlPath(picked)
-      // The dialog asked about the name it was given: a file of the name torno made of it was never asked about.
-      if (path !== picked && existsSync(path)) throw new Error(`${path} is there already: choose it by its whole name to replace it`)
+      // The dialog asked about the name it was given: a file of the name torno made of it was never asked about, so it is now.
+      if (path !== picked && existsSync(path)) {
+        let replace: boolean
+        if (opts.confirmReplace) replace = await opts.confirmReplace(path)
+        else {
+          const win = BrowserWindow.fromWebContents(event.sender)
+          const options: Electron.MessageBoxOptions = { type: 'question', message: `Replace ${basename(path)}?`, detail: `${path} is there already. The export was named without .html, so this is the file it would replace.`, buttons: ['Cancel', 'Replace'], defaultId: 0, cancelId: 0, noLink: true }
+          replace = (await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))).response === 1
+        }
+        if (!replace) return null
+      }
       await writeExport(path, made.html)
       return { path, bytes: made.bytes, dropped: made.dropped }
     })
   )
+
+  // The sheet was put away: what was reduced for it is let go.
+  ipcMain.on('export:done', () => forgetExportScans())
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

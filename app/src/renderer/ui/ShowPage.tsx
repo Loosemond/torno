@@ -249,7 +249,10 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
   const chips = cardChips(card)
   // The status wins over the picture: one of a build that is no longer what the model makes is dimmed.
   const failed = card.opened && card.build?.status === 'failed'
+  // Its last build of this run can go into a file by itself: nothing is built for that.
+  const exportable = card.opened && card.build !== undefined && card.build.revision > 0
   return (
+    <div className="card-cell">
     <button type="button" className="card" data-object={card.id} aria-current={open ? 'true' : undefined} data-problem={card.problem !== undefined ? '' : undefined} onClick={() => onOpen(card.id)}>
       <Picture card={pictured} of={card.thumb?.at} dimmed={failed} onMissing={setMissing} />
       <span className="card-body">
@@ -285,6 +288,12 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
         )}
       </span>
     </button>
+    {exportable && (
+      <button type="button" className="card-export" aria-label={`Export ${card.name} to one HTML file`} title={`Export ${card.name} to one HTML file`} onClick={() => actions.exportSheet([card.id])}>
+        Export
+      </button>
+    )}
+    </div>
   )
 }
 

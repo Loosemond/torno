@@ -7,8 +7,8 @@ import { build } from 'vite'
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const out = resolve(app, 'out/viewer')
-/** The most the bundle may weigh: three.js tree-shaken, the controls and the viewer are about 0.6 MB. */
-const MOST = 900_000
+/** The most the bundle may weigh: three.js tree-shaken, the controls and the viewer are about 585 kB. What the app has and the page must not (the picking tree, React, xterm) would not fit under it. */
+const MOST = 650_000
 
 await build({
   root: app,
@@ -42,6 +42,8 @@ if (/\beval\s*\(|\bnew Function\s*\(/.test(code)) refuse('the bundle evaluates t
 for (const text of ['</script', '<!--', '<script']) if (code.toLowerCase().includes(text)) refuse(`the bundle holds the text ${text}, which cannot stand in an inline script`)
 // The viewer writes what the workspace named as text only.
 for (const text of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write']) if (code.includes(text)) refuse(`the bundle holds ${text}: the viewer sets text, never markup`)
+// Nothing of the app but its plain rules: not the tree that picking uses, not its UI, nothing of Electron.
+for (const text of ['MeshBVH', 'react', 'ipcRenderer']) if (code.includes(text)) refuse(`the bundle holds ${text}: the viewer imports something of the app that does not belong in a page`)
 const { size } = statSync(file)
 if (size > MOST) refuse(`the bundle is ${size} bytes, more than ${MOST}`)
 console.log(`out/viewer/viewer.js  ${(size / 1000).toFixed(1)} kB`)

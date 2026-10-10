@@ -1,6 +1,6 @@
 import { themeOf } from '../../renderer/viewport/theme'
-import { type ExplodeState, NO_EXPLODE, explodeOf, explodeOffsets, explodeShown, nothingApart } from '../../shared/explode'
-import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type MeshArrays, unpackMesh, unpackScan } from '../../shared/exportdata'
+import { type ExplodeState, NO_EXPLODE, explodeOf, explodeOffsets, explodeShown, neverBoth, nothingApart } from '../../shared/explode'
+import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type MeshArrays, record, unpackMesh, unpackScan } from '../../shared/exportdata'
 import type { Vec3 } from '../../shared/marks'
 import { type Camera, type SectionPlane, type ViewName, axisForm, planeOf } from '../../shared/view'
 import { Model, type ScanArraysOf } from './model'
@@ -23,9 +23,12 @@ export interface TornoExport {
     explode: ExplodeState
     section: SectionPlane | null
     marks: boolean
+    resolved: boolean
     /** The marks whose labels are drawn. */
     labels: string[]
+    /** As it is drawn, and what was chosen: the system's, or one by hand. */
     theme: 'light' | 'dark'
+    themeChoice: Theme
     views: string[]
     view: string | null
     scans: Array<{ id: string; visible: boolean; opacity: number }>
@@ -40,12 +43,16 @@ export interface TornoExport {
   setSection(axis: Axis | null, t?: number): void
   applyView(name: string): boolean
   setMarks(on: boolean): void
-  setTheme(theme: 'light' | 'dark'): void
+  setResolved(on: boolean): void
+  setTheme(theme: Theme): void
   /** The colour of the parts and scans drawn at a point of the canvas, in fractions of it: [r, g, b, a], on a frame drawn for the asking, without the grid and the marks. */
   pixel(fx: number, fy: number): [number, number, number, number]
   /** The colour of the ground. */
   ground(): [number, number, number]
 }
+
+/** The page in the system's theme, or in one chosen by hand. */
+export type Theme = 'system' | 'light' | 'dark'
 
 declare global {
   interface Window { __tornoExport?: TornoExport }
@@ -66,7 +73,9 @@ async function inflate(base64: string): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer())
 }
 
+/** In place of the page: it cannot be drawn, and says why. Nothing else is shown, no empty column of controls. */
 function say(root: HTMLElement, text: string): void {
+  root.dataset.bare = ''
   const message = document.createElement('p')
   message.className = 'message'
   message.setAttribute('role', 'alert')
@@ -106,16 +115,17 @@ function start(): void {
     let state = states.get(one.id)
     if (!state) {
       const layout = one.layouts.includes(one.layout) ? one.layout : (one.layouts[0] ?? '')
-      const visible: Record<string, boolean> = {}
+      // By the names of parts, layouts and scans, which are anyone's to choose: records with no key but those.
+      const visible = record<boolean>()
       for (const part of one.parts) visible[part.name] = part.visible
-      const explode: Record<string, ExplodeState> = {}
+      const explode = record<ExplodeState>()
       for (const [name, kept] of Object.entries(one.explode ?? {})) {
         const sane = explodeOf(kept)
         if (sane) explode[name] = sane
       }
-      const scans: PageState['scans'] = {}
+      const scans: PageState['scans'] = record()
       for (const scan of one.scans ?? []) scans[scan.id] = { visible: true, opacity: 1 }
-      state = { layout, visible, explode, section: null, cut: null, marks: (one.marks ?? []).length > 0, scans, view: null }
+      state = { layout, visible, explode, section: null, cut: null, marks: (one.marks ?? []).length > 0, resolved: false, scans, view: null }
       states.set(one.id, state)
     }
     return state
@@ -162,7 +172,8 @@ function start(): void {
     const st = state()
     if (meshes) {
       model.apply({ visible: st.visible, offsets: offsets(), section: st.section, scans: st.scans })
-      const drawn = st.marks ? rows().filter((row) => row.drawn) : []
+      // A resolved mark is in the list; on the part it is drawn only when asked.
+      const drawn = st.marks ? rows().filter((row) => row.drawn && (st.resolved || row.mark.status !== 'resolved')) : []
       labels = drawn.map((row) => row.mark.id)
       model.setMarks(drawn)
       overlay.set(drawn.map((row): Label => ({ mark: row.mark, by: row.by, dimmed: model.cutAway(row.mark.at) })))
@@ -218,10 +229,18 @@ function start(): void {
       footer()
       showLayout(view)
     } catch (e) {
+      // Said first, and for good: whatever else fails after this, the page does not go on saying it is unpacking.
       busy = false
       loaded.delete(one.id)
-      refresh()
-      said.textContent = `The parts of ${one.name} could not be unpacked: ${e instanceof Error ? e.message : String(e)}`
+      const why = `The parts of ${one.name} could not be shown: ${e instanceof Error ? e.message : String(e)}`
+      said.textContent = why
+      said.hidden = false
+      try {
+        panel.sync()
+      } catch {
+        // The controls stay as they were.
+      }
+      said.textContent = why
       said.hidden = false
     }
   }
@@ -245,7 +264,6 @@ function start(): void {
       const why = nothingApart(state().explode[state().layout] ?? NO_EXPLODE, parts())
       return why === 'one part' ? 'One part: there is nothing to draw apart.' : why === 'shared centre' && (state().explode[state().layout]?.axis ?? 'centre') === 'centre' ? 'These parts share a centre: choose an axis.' : null
     },
-    theme: () => (document.documentElement.dataset.theme === 'dark' || document.documentElement.dataset.theme === 'light' ? document.documentElement.dataset.theme : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
     ortho: () => model.getCamera().ortho,
     rows: () => (state().marks ? rows() : []),
     busy: () => busy,
@@ -273,8 +291,8 @@ function start(): void {
       const had = st.explode[st.layout] ?? NO_EXPLODE
       const next = explodeOf({ ...had, amount, ...(axis ? { axis } : {}) }) ?? had
       st.explode[st.layout] = next
-      // Never both: drawing the parts apart puts the section to rest.
-      if (next.amount > 0) {
+      // Never both (`neverBoth`, the app's rule): drawing the parts apart puts the section to rest.
+      if (neverBoth(next, st.section, 'explode').section === null) {
         st.section = null
         st.cut = null
       }
@@ -292,9 +310,9 @@ function start(): void {
         const towards = seen.position['xyz'.indexOf(axis)] - seen.target['xyz'.indexOf(axis)]
         st.cut = { axis, t: Math.min(Math.max(t, 0), 1), flip: st.cut?.axis === axis ? st.cut.flip : towards < 0 }
         st.section = planeAt(axis, st.cut.t, st.cut.flip)
-        // Never both: a section puts the parts together.
-        const had = st.explode[st.layout]
-        if (had && had.amount > 0) st.explode[st.layout] = { ...had, amount: 0 }
+        // Never both (`neverBoth`, the app's rule): a section puts the parts together.
+        const rested = neverBoth(st.explode[st.layout], st.section, 'section').explode
+        if (rested) st.explode[st.layout] = rested
       }
       changed()
       refresh()
@@ -344,6 +362,10 @@ function start(): void {
       state().marks = on
       refresh()
     },
+    setResolved(on) {
+      state().resolved = on
+      refresh()
+    },
     setScan(id, view) {
       const had = state().scans[id]
       if (!had) return
@@ -361,11 +383,6 @@ function start(): void {
       model.setOrtho(ortho)
       panel.sync()
     },
-    setTheme(theme) {
-      document.documentElement.dataset.theme = theme
-      model.setTheme(themeOf())
-      refresh()
-    },
     lookAt(mark: ExportMark) {
       const row = rows().find((one) => one.mark.id === mark.id)
       model.lookAt(row ? [mark.at[0] + row.by[0], mark.at[1] + row.by[1], mark.at[2] + row.by[2]] : mark.at)
@@ -373,6 +390,33 @@ function start(): void {
   }
   panelRoot.setAttribute('aria-label', 'Controls')
   const panel = createPanel(panelRoot, host)
+
+  // The theme: the system's until one is chosen by hand, and back to the system's when asked.
+  const themeChoice = (): Theme => (document.documentElement.dataset.theme === 'dark' || document.documentElement.dataset.theme === 'light' ? document.documentElement.dataset.theme : 'system')
+  const themeDrawn = (): 'light' | 'dark' => {
+    const choice = themeChoice()
+    return choice === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : choice
+  }
+  const themes = document.createElement('span')
+  themes.className = 'themes'
+  themes.setAttribute('role', 'group')
+  themes.setAttribute('aria-label', 'Theme')
+  const themeButtons = (['system', 'light', 'dark'] as const).map((theme) => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = theme === 'system' ? 'System' : theme === 'light' ? 'Light' : 'Dark'
+    button.dataset.theme = theme
+    button.addEventListener('click', () => setTheme(theme))
+    themes.append(button)
+    return { theme, button }
+  })
+  function setTheme(theme: Theme): void {
+    if (theme === 'system') delete document.documentElement.dataset.theme
+    else document.documentElement.dataset.theme = theme
+    for (const one of themeButtons) one.button.setAttribute('aria-pressed', String(one.theme === theme))
+    model.setTheme(themeOf())
+    refresh()
+  }
 
   // The footer: what this file is, and in a line that opens, what it is not.
   const foot = document.createElement('footer')
@@ -407,7 +451,11 @@ function start(): void {
       ...(object.scans?.length ? [line('A scan is a reduced copy of the one in torno, and nothing of it is exact.')] : []),
       ...(data.dropped ?? []).map((sentence) => line(`To keep the file small: ${sentence}.`))
     )
-    foot.replaceChildren(made, about)
+    // The line and the theme beside it; what the file is opens above them.
+    const bottom = document.createElement('div')
+    bottom.className = 'footline'
+    bottom.append(made, themes)
+    foot.replaceChildren(bottom, about)
   }
 
   // The drawer of a narrow screen: the panel comes up from the bottom when asked.
@@ -423,7 +471,8 @@ function start(): void {
     drawer.setAttribute('aria-expanded', String(open))
     model.resize()
   })
-  root.append(drawer)
+  // Before the controls it brings up, as it is drawn: the keyboard reaches it first.
+  root.insertBefore(drawer, panelRoot)
 
   canvas.tabIndex = 0
   canvas.setAttribute('role', 'application')
@@ -448,6 +497,7 @@ function start(): void {
     refresh()
   })
   model.resize()
+  for (const one of themeButtons) one.button.setAttribute('aria-pressed', String(one.theme === themeChoice()))
 
   void show(object, 'iso').then(() => {
     window.__tornoExport = {
@@ -461,8 +511,10 @@ function start(): void {
           explode: st.explode[st.layout] ?? NO_EXPLODE,
           section: st.section,
           marks: st.marks,
+          resolved: st.resolved,
           labels,
-          theme: host.theme(),
+          theme: themeDrawn(),
+          themeChoice: themeChoice(),
           views: object.views.map((view) => view.name),
           view: st.view,
           scans: (object.scans ?? []).map((scan) => ({ id: scan.id, ...(st.scans[scan.id] ?? { visible: true, opacity: 1 }) })),
@@ -480,7 +532,8 @@ function start(): void {
       setSection: host.setSection,
       applyView: host.applyView,
       setMarks: host.setMarks,
-      setTheme: host.setTheme,
+      setResolved: host.setResolved,
+      setTheme,
       pixel: (fx, fy) => model.pixel(fx, fy),
       ground: () => model.ground()
     }

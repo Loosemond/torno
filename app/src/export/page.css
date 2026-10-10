@@ -100,7 +100,9 @@ button, input { font: inherit; color: inherit; }
 
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
-.name { overflow-wrap: anywhere; }
+/* A name or a note is anyone's to write: it is read in its own direction, and turns nothing around it. */
+.name { overflow-wrap: anywhere; unicode-bidi: isolate; }
+.whole { white-space: nowrap; }
 
 :focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
@@ -172,6 +174,18 @@ noscript { grid-area: 1 / 1 / 2 / -1; place-self: center; }
   color: var(--muted);
   font-size: var(--text-small);
 }
+.footline { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
+.themes { display: inline-flex; gap: 2px; }
+.themes button {
+  padding: 0 var(--space-1);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.themes button:hover { color: var(--ink); }
+.themes button[aria-pressed="true"] { border-color: var(--hairline); background: var(--panel); color: var(--ink); }
 #foot summary { width: fit-content; cursor: pointer; border-radius: 3px; }
 #foot summary:hover { color: var(--ink); }
 #foot details[open] {
@@ -265,27 +279,27 @@ input[type="checkbox"] { flex: none; width: 14px; height: 14px; margin: 0; accen
 .mark:hover { background: var(--accent-wash); }
 .mark-body { display: flex; flex-direction: column; min-width: 0; }
 .mark-body .muted { font-size: var(--text-small); }
-.note { overflow-wrap: anywhere; white-space: pre-wrap; }
+.note { overflow-wrap: anywhere; white-space: pre-wrap; unicode-bidi: isolate; }
 
 /* The two colours of marks, and nothing else in them: the person's, and the agent's. */
 .mark-id[data-author="user"], .chip[data-author="user"] .chip-id { color: var(--user-mark); }
 .mark-id[data-author="agent"], .chip[data-author="agent"] .chip-id { color: var(--agent-mark); }
 .chip[data-author="user"] { border-color: var(--user-mark); }
 .chip[data-author="agent"] { border-color: var(--agent-mark); }
-.chip[data-author="user"]::before { background: var(--user-mark); }
-.chip[data-author="agent"]::before { background: var(--agent-mark); }
+.dot[data-author="user"] { background: var(--user-mark); }
+.dot[data-author="agent"] { background: var(--agent-mark); }
 
 .verdict[data-verdict="pass"] { color: var(--ok); }
 .verdict[data-verdict="fail"] { color: var(--fail); }
 
-/* A mark's label: it hangs a little up and to the right of its point, which has a dot. */
+/* A mark's label: the viewer hangs it a little up and to the right of its point, or under a label it would cover.
+   Its point has a dot; a dimension has one at each end of its line. */
 .chip {
   position: absolute;
   left: 0;
   top: 0;
   display: flex;
   gap: 6px;
-  margin: -27px 0 0 7px;
   padding: 0 6px;
   border: 1px solid;
   border-radius: var(--radius-control);
@@ -294,16 +308,20 @@ input[type="checkbox"] { flex: none; width: 14px; height: 14px; margin: 0; accen
   line-height: 18px;
   white-space: nowrap;
 }
-.chip::before {
-  content: '';
+.dot {
   position: absolute;
-  left: -11px;
-  top: 23px;
-  width: 6px;
-  height: 6px;
+  left: -3.5px;
+  top: -3.5px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--panel);
   border-radius: 50%;
 }
-.chip[data-dimmed] { opacity: 0.45; }
+.chip[data-dimmed], .dot[data-dimmed] { opacity: 0.45; }
+
+/* Nothing can be drawn: the message alone, with no empty column beside it. */
+#torno[data-bare] { grid-template-columns: minmax(0, 1fr); }
+#torno[data-bare] > :not(.message) { display: none; }
 
 #drawer { display: none; }
 

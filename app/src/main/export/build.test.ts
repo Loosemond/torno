@@ -2,10 +2,10 @@ import { inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { unpackMesh } from '../../shared/exportdata'
 import type { Mark } from '../../shared/marks'
-import type { ScanInfo } from '../../shared/scans'
+import { type ScanInfo, parseScanMesh } from '../../shared/scans'
 import type { Part, Scene } from '../../shared/scene'
 import { box, meshBin } from '../../test/scanFixtures'
-import { type ExportDeps, exportData, exportFile, exportPlan } from './build'
+import { type ExportDeps, exportData, exportFile, exportPlan, forgetExportScans } from './build'
 import type { PageAssets } from './html'
 
 const ASSETS: PageAssets = { viewer: 'window.__ran = true', css: 'body{margin:0}', fonts: [] }
@@ -105,7 +105,7 @@ function deps(over: Partial<ExportDeps> = {}): ExportDeps {
 
 describe('exportData', () => {
   it('holds each shape once, the views the person has, and nothing of this machine', async () => {
-    const data = await exportData(deps(), { objects: ['hollow'], marks: false, scans: [] })
+    const data = await exportData(deps(), { objects: ['hollow'], marks: false, scans: [], hidden: true })
     const [object] = data.objects
     expect(object).toMatchObject({ id: 'hollow', name: 'hollow', revision: 3, layouts: ['assembly', 'print'], layout: 'assembly' })
     expect(object.parts.map((p) => [p.layout, p.name, p.mesh])).toEqual([['assembly', 'tray', 'h-tray'], ['assembly', 'lid', 'h-lid'], ['print', 'tray', 'h-tray'], ['print', 'lid', 'h-lid']])
@@ -136,7 +136,7 @@ describe('exportData', () => {
   })
 
   it('holds marks and scans only when asked, a scan reduced and without its source', async () => {
-    const data = await exportData(deps(), { objects: ['hollow'], marks: true, scans: ['hollow/S1'] })
+    const data = await exportData(deps(), { objects: ['hollow'], marks: true, scans: ['hollow/S1'], hidden: true })
     const [object] = data.objects
     // Not the region (it is of a scan, and may name what the scan shows), not the mark whose part is gone.
     expect(object.marks!.map((m) => [m.id, m.kind, m.part, m.text])).toEqual([['M1', 'pin', 'lid', undefined], ['M2', 'dimension', 'tray', '6 mm']])
@@ -151,14 +151,14 @@ describe('exportData', () => {
 
   it('gives a dimension no value and no verdict that is not of the build exported', async () => {
     const stale = MARKS.map((m) => (m.id === 'M2' ? { ...m, measuredRevision: 2 } : m)) as Mark[]
-    const [object] = (await exportData(deps({ marks: async () => stale }), { objects: ['hollow'], marks: true, scans: [] })).objects
+    const [object] = (await exportData(deps({ marks: async () => stale }), { objects: ['hollow'], marks: true, scans: [], hidden: true })).objects
     const m2 = object.marks!.find((m) => m.id === 'M2')!
     expect(m2.text).toBe('—')
     expect(m2.verdict).toBeUndefined()
     expect(m2.says).toBe('not measured on r3')
     // One whose ends the build moved says so; one nothing checked on this build says that.
     const moved = MARKS.map((m) => (m.id === 'M1' ? { ...m, anchorState: 'drifted' as const } : m.id === 'M2' ? { ...m, checkedRevision: 2 } : m)) as Mark[]
-    const [again] = (await exportData(deps({ marks: async () => moved }), { objects: ['hollow'], marks: true, scans: [] })).objects
+    const [again] = (await exportData(deps({ marks: async () => moved }), { objects: ['hollow'], marks: true, scans: [], hidden: true })).objects
     expect(again.marks!.find((m) => m.id === 'M1')).toMatchObject({ moved: true })
     expect(again.marks!.find((m) => m.id === 'M2')).toMatchObject({ unchecked: true })
   })
@@ -178,13 +178,14 @@ describe('exportFile and exportPlan', () => {
     await expect(exportFile(deps(), { objects: ['never-built'], marks: false, scans: [] }, ASSETS)).rejects.toThrow('Open it first: torno exports the last build of this run')
     // The scan weighs about 443 kB at 60,000 triangles, 173 kB at 30,000 and 99 kB at 15,000.
     const tight = await exportFile(deps({ budget: 150_000 }), { objects: ['hollow'], marks: false, scans: ['hollow/S1'] }, ASSETS)
-    expect(tight.dropped[0]).toBe('S1 of hollow reduced to 30,000 triangles')
-    expect(tight.dropped.at(-1)).toMatch(/^S1 of hollow (reduced to 15,000 triangles|left out)$/)
+    // Cut twice, it is said once, as it is in the file.
+    expect(tight.dropped).toEqual(['S1 of hollow reduced to at most 15,000 triangles'])
     expect(tight.bytes).toBe(Buffer.byteLength(tight.html))
     expect(tight.bytes).toBeLessThanOrEqual(150_000)
     expect(tight.over).toBe(false)
     // What was cut is said in the file too.
-    expect(tight.html).toContain('S1 of hollow reduced to 30,000 triangles')
+    expect(tight.html).toContain('S1 of hollow reduced to at most 15,000 triangles')
+    expect(tight.html).not.toContain('30,000')
     await expect(exportFile(deps({ most: 1000 }), { objects: ['hollow'], marks: false, scans: [] }, ASSETS)).rejects.toThrow('more than the')
     await expect(exportFile(deps(), { objects: [], marks: false, scans: [] }, ASSETS)).rejects.toThrow('Choose an object to export')
   })
@@ -198,7 +199,8 @@ describe('exportFile and exportPlan', () => {
   it('plans without refusing: what each object would give, what the file would weigh, and why one cannot be exported', async () => {
     const plan = await exportPlan(deps(), { objects: ['hollow'], marks: true, scans: [] }, ASSETS, ['hollow', 'never-built', 'nobody'])
     expect(plan.objects).toEqual([
-      { id: 'hollow', exportable: true, revision: 3, triangles: 24, layouts: ['assembly', 'print'], parts: 2, views: ['Hinge side'], marks: 1, dimensions: 1, scans: [{ id: 'S1', name: 'Car.glb', triangles: 100_000 }] },
+      // The lid is switched off: it is left out, and said. Triangles are of what goes.
+      { id: 'hollow', exportable: true, revision: 3, triangles: 12, layouts: ['assembly', 'print'], parts: 1, off: 1, views: ['Hinge side'], marks: 0, dimensions: 1, drafts: 0, resolved: 0, scans: [{ id: 'S1', name: 'Car.glb', triangles: 100_000 }] },
       { id: 'never-built', exportable: false, why: 'Open it first: torno exports the last build of this run', scans: [] },
       { id: 'nobody', exportable: false, why: 'There is no object of that name', scans: [] }
     ])
@@ -209,6 +211,111 @@ describe('exportFile and exportPlan', () => {
     expect(none).toMatchObject({ bytes: 0, budget: 12 * 1024 * 1024, refusal: 'Choose an object to export' })
     const most = await exportPlan(deps({ most: 1000 }), { objects: ['hollow'], marks: false, scans: [] }, ASSETS, ['hollow'])
     expect(most.refusal).toMatch(/^The export would be .* more than the .* torno writes in one file\. Export fewer objects\.$/)
+  })
+})
+
+describe('what the person switched off or settled stays here unless they say otherwise', () => {
+  it('leaves out a part that is switched off, its mesh and the marks on it, unless parts switched off are ticked', async () => {
+    const [object] = (await exportData(deps(), { objects: ['hollow'], marks: true, scans: [] })).objects
+    expect(object.parts.map((p) => [p.layout, p.name])).toEqual([['assembly', 'tray'], ['print', 'tray']])
+    expect(Object.keys(object.meshes)).toEqual(['h-tray'])
+    // M1 is on the lid: it has nothing to be on in the file.
+    expect(object.marks!.map((m) => m.id)).toEqual(['M2'])
+    const [all] = (await exportData(deps(), { objects: ['hollow'], marks: true, scans: [], hidden: true })).objects
+    expect(all.parts).toHaveLength(4)
+    expect(all.parts[1]).toMatchObject({ name: 'lid', visible: false })
+    expect(all.marks!.map((m) => m.id)).toEqual(['M1', 'M2'])
+  })
+
+  it('leaves out resolved marks unless they are ticked, takes drafts with the marks, and the plan counts each', async () => {
+    const more = [...MARKS, { ...MARKS[0], id: 'M5', status: 'resolved', note: 'done long ago', anchor: { point: [0, 0, 0], part: 'tray' } }, { ...MARKS[0], id: 'M6', status: 'draft', note: 'not sent yet', anchor: { point: [0, 0, 0], part: 'tray' } }, { ...MARKS[1], id: 'M7', status: 'resolved' }] as Mark[]
+    const made = deps({ marks: async () => more })
+    const [object] = (await exportData(made, { objects: ['hollow'], marks: true, scans: [], hidden: true })).objects
+    expect(object.marks!.map((m) => [m.id, m.status])).toEqual([['M1', 'sent'], ['M2', 'sent'], ['M6', 'draft']])
+    expect(JSON.stringify(object)).not.toContain('done long ago')
+    const [withResolved] = (await exportData(made, { objects: ['hollow'], marks: true, scans: [], hidden: true, resolved: true })).objects
+    expect(withResolved.marks!.map((m) => m.id)).toEqual(['M1', 'M2', 'M5', 'M6', 'M7'])
+    const plan = await exportPlan(made, { objects: ['hollow'], marks: true, scans: [], hidden: true }, ASSETS)
+    expect(plan.objects[0]).toMatchObject({ parts: 2, off: 1, triangles: 24, marks: 2, dimensions: 1, drafts: 1, resolved: 2 })
+    expect((await exportPlan(made, { objects: ['hollow'], marks: true, scans: [], hidden: true, resolved: true }, ASSETS)).objects[0]).toMatchObject({ marks: 3, dimensions: 2, drafts: 1, resolved: 2 })
+  })
+
+  it('says of an object whose model has failed since that the file is of its last good build', async () => {
+    const plan = await exportPlan(deps({ failing: () => true }), { objects: ['hollow'], marks: false, scans: [] }, ASSETS)
+    expect(plan.objects[0]).toMatchObject({ exportable: true, revision: 3, failed: true })
+    expect((await exportPlan(deps(), { objects: ['hollow'], marks: false, scans: [] }, ASSETS)).objects[0].failed).toBeUndefined()
+  })
+})
+
+describe('names that every object has a property of', () => {
+  it('are parts and layouts like any other, and leave nothing behind in main', async () => {
+    const { scene, blob } = built()
+    const names = ['constructor', 'toString', '__proto__', 'hasOwnProperty']
+    const odd: Scene = { ...scene, layouts: ['__proto__', 'constructor'], parts: names.flatMap((name, n) => ['__proto__', 'constructor'].map((layout) => ({ ...scene.parts[n % 2], key: `${layout}:${name}`, name, layout }))) }
+    const marks = names.map((part, n) => ({ ...MARKS[0], id: `M${n + 1}`, layout: n % 2 ? 'constructor' : '__proto__', anchor: { point: [0, 0, 0], part } })) as Mark[]
+    const layers = JSON.parse('{"__proto__": {"visible": false}, "toString": {"opacity": 0.5}}')
+    const made = deps({ last: () => ({ revision: 3, scene: odd, blob }), marks: async () => marks, sceneFile: async () => ({ layout: '__proto__', layers, explode: JSON.parse('{"__proto__": {"amount": 0.3, "scale": 1, "axis": "x"}}') }) })
+    const [object] = (await exportData(made, { objects: ['hollow'], marks: true, scans: [], hidden: true })).objects
+    expect(object.layouts).toEqual(['__proto__', 'constructor'])
+    expect(object.layout).toBe('__proto__')
+    expect(object.parts.map((p) => p.name)).toEqual(['constructor', 'constructor', 'toString', 'toString', '__proto__', '__proto__', 'hasOwnProperty', 'hasOwnProperty'])
+    for (const part of object.parts) expect(part.color).toMatch(/^#[0-9A-F]{6}$/)
+    expect(object.parts.find((p) => p.name === '__proto__')).toMatchObject({ visible: false })
+    expect(object.parts.find((p) => p.name === 'toString')).toMatchObject({ opacity: 0.5, visible: true })
+    expect(object.parts.find((p) => p.name === 'constructor')).toMatchObject({ opacity: 1, visible: true })
+    expect(object.marks!.map((m) => [m.id, m.part])).toEqual([['M1', 'constructor'], ['M2', 'toString'], ['M3', '__proto__'], ['M4', 'hasOwnProperty']])
+    expect(Object.keys(object.explode)).toEqual(['__proto__'])
+    // The data keeps them as keys of its own, through JSON and back.
+    expect(Object.keys(JSON.parse(JSON.stringify(object)).explode)).toEqual(['__proto__'])
+    // Nothing was hung on every object of the process.
+    expect(Object.keys(Object.prototype)).toEqual([])
+    expect(({} as Record<string, unknown>).tray).toBeUndefined()
+    const plan = await exportPlan(made, { objects: ['hollow'], marks: true, scans: [], hidden: true }, ASSETS)
+    expect(plan.objects[0]).toMatchObject({ parts: 4, off: 1, marks: 4 })
+  })
+})
+
+describe('making a file leaves main free', () => {
+  it('lets other work run while a large part is packed', async () => {
+    const last = freeform(387, 9000)                           // 299,538 triangles: 0.7 s of deflate
+    const made = deps({ last: () => ({ revision: 1, ...last }), sceneFile: async () => ({ layers: {} }), marks: async () => [], scans: async () => [] })
+    let turns = 0
+    const timer = setInterval(() => (turns += 1), 5)
+    await exportFile(made, { objects: ['hollow'], marks: false, scans: [] }, ASSETS)
+    clearInterval(timer)
+    // Blocked, the timer would not have run once.
+    expect(turns).toBeGreaterThan(5)
+  }, 30_000)
+
+  it('reads and reduces a scan once for every plan and save of the same mesh, until the sheet is put away', async () => {
+    forgetExportScans()
+    let reads = 0
+    const made = deps({ scanMesh: async () => (reads++, SCAN_MESH) })
+    const req = { objects: ['hollow'], marks: false, scans: ['hollow/S1'] }
+    const first = await exportPlan(made, req, ASSETS)
+    await exportPlan(made, { ...req, marks: true }, ASSETS)
+    const file = await exportFile(made, req, ASSETS)
+    expect(reads).toBe(1)
+    expect(file.bytes).toBe(first.bytes)
+    // Another mesh under the same number is another scan.
+    await exportPlan(deps({ scanMesh: async () => (reads++, SCAN_MESH), scans: async () => [{ ...SCAN, source: { ...SCAN.source, sha256: 'other' } }] }), req, ASSETS)
+    expect(reads).toBe(2)
+    forgetExportScans()
+    await exportPlan(made, req, ASSETS)
+    expect(reads).toBe(3)
+  })
+
+  it('reduces a scan in turns, and to the same as in one go', async () => {
+    const { clusterScan, clusterScanInTurns } = await import('./decimate')
+    const mesh = parseScanMesh(SCAN_MESH.buffer.slice(SCAN_MESH.byteOffset, SCAN_MESH.byteOffset + SCAN_MESH.byteLength) as ArrayBuffer)
+    const scan = { positions: mesh.vertices, colours: mesh.colours, triangles: mesh.triangles }
+    let turns = 0
+    const cut = await clusterScanInTurns(scan, 30_000, async () => void (turns += 1), 10_000)
+    expect(turns).toBeGreaterThan(5)
+    const whole = clusterScan(scan, 30_000)
+    expect(cut.triangles).toEqual(whole.triangles)
+    expect(cut.positions).toEqual(whole.positions)
+    expect(cut.colours).toEqual(whole.colours)
   })
 })
 

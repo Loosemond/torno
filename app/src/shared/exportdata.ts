@@ -236,6 +236,10 @@ export interface ExportRequest {
   marks: boolean
   /** `<objectId>/<scanId>` of each scan the person ticked. */
   scans: string[]
+  /** The parts that are switched off in torno go too (switched off in the page as well). Without it they are left out, with their meshes and the marks on them. */
+  hidden?: boolean
+  /** With the marks, those that are resolved go too. Without it they are left out. */
+  resolved?: boolean
   title?: string
 }
 
@@ -248,13 +252,18 @@ export interface ExportPlan {
     revision?: number
     triangles?: number
     layouts?: string[]
-    /** How many parts it has, by name. */
+    /** The model has failed since: the file would be of its last good build. */
+    failed?: true
+    /** How many parts would go, by name; and how many it has that are switched off in torno, which go only when asked (`hidden`). `triangles` is of those that go. */
     parts?: number
+    off?: number
     /** The saved views that would go: the person's, and those of the agent's they kept. */
     views?: string[]
-    /** The marks that would go if marks were ticked: those that are no dimension, and the dimensions. */
+    /** The marks that would go if marks were ticked, as the request stands: those that are no dimension, and the dimensions; how many of the two are drafts the agent was never sent; and how many resolved ones there are, which go only when asked (`resolved`). */
     marks?: number
     dimensions?: number
+    drafts?: number
+    resolved?: number
     /** The scans that can be ticked: those with a mesh, aligned in a layout of the build. */
     scans: Array<{ id: string; name: string; triangles: number }>
   }>
@@ -276,4 +285,14 @@ export function megabytes(bytes: number): string {
 }
 
 /** Said in the export sheet above the scans, whenever an object that is ticked has one. */
-export const SCAN_WARNING = 'A scan may show the real world: a room, a number plate. It is left out unless you tick it, and is then reduced to 60,000 triangles.'
+export const SCAN_WARNING = 'A scan may show the real world: a room, a number plate. It is left out unless you tick it, and is then reduced to at most 60,000 triangles.'
+
+/** Whether a record that was read from a file, or is keyed by a name someone chose, has `key` as its own: a part may be called `constructor`. */
+export function own<T>(record: Readonly<Record<string, T>> | null | undefined, key: string): T | undefined {
+  return record !== null && record !== undefined && Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
+}
+
+/** A record with no keys but those put into it: for whatever is keyed by the name of a part or a layout. */
+export function record<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>
+}

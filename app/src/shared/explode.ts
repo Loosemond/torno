@@ -65,7 +65,7 @@ export interface ExplodePart { name: string; bbox: { min: Vec3; max: Vec3 } }
  * layout's. Along an axis the parts are ranked by their centres on it and set `2R × amount × scale` apart.
  */
 export function explodeOffsets(parts: readonly ExplodePart[], explode: ExplodeState | null | undefined): Record<string, Vec3> {
-  if (!isExploded(explode) || parts.length < 2) return {}
+  if (!isExploded(explode) || parts.length < 2) return Object.create(null)
   const min: Vec3 = [Infinity, Infinity, Infinity]
   const max: Vec3 = [-Infinity, -Infinity, -Infinity]
   for (const { bbox } of parts) for (let i = 0; i < 3; i++) {
@@ -77,7 +77,8 @@ export function explodeOffsets(parts: readonly ExplodePart[], explode: ExplodeSt
   const reach = Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, 0.5)
   const by = explode.amount * explode.scale
   const centres = parts.map(({ bbox }) => bbox.min.map((lo, i) => (lo + bbox.max[i]) / 2))
-  const offsets: Record<string, Vec3> = {}
+  // By the names of parts, which are anyone's to choose: a record with no key but those.
+  const offsets: Record<string, Vec3> = Object.create(null)
   if (explode.axis === 'centre') {
     parts.forEach((part, n) => {
       const d = centres[n].map((c, i) => c - centre[i])
@@ -88,7 +89,7 @@ export function explodeOffsets(parts: readonly ExplodePart[], explode: ExplodeSt
       offsets[part.name] = [d[0] * k + 0, d[1] * k + 0, d[2] * k + 0]
     })
     // Every part at the centre: nothing is drawn apart, and nothing is said to be.
-    return Object.values(offsets).some((moved) => moved.some((c) => c !== 0)) ? offsets : {}
+    return Object.values(offsets).some((moved) => moved.some((c) => c !== 0)) ? offsets : Object.create(null)
   }
   const i = AXES.indexOf(explode.axis)
   // By where each centre is along the axis; the scene's order where two are level (the sort is stable).
@@ -134,4 +135,18 @@ export function nothingApartText(why: 'one part' | 'shared centre', layout: stri
 export function explodeShown(explode: ExplodeState | null | undefined, section: unknown, parts: readonly ExplodePart[]): ExplodeState | null {
   if (!isExploded(explode) || (section !== null && section !== undefined)) return null
   return nothingApart(explode, parts) === null ? explode : null
+}
+
+/**
+ * Never both: a section is not drawn exploded. What a change to one makes of the other, for whoever changes
+ * them by hand, in the window and in an exported page: setting a section puts the parts together (the amount
+ * goes to 0, how they would go apart is kept), and drawing the parts apart takes the section away. `changed`
+ * says which of the two was just set. (The window does not let the parts be drawn apart under a section at all:
+ * it asks this to know, and says `SECTION_FIRST`.)
+ */
+export function neverBoth<S>(explode: ExplodeState | null | undefined, section: S | null | undefined, changed: 'explode' | 'section'): { explode: ExplodeState | null; section: S | null } {
+  const apart = explode ?? null
+  const cut = section ?? null
+  if (cut === null || !isExploded(apart)) return { explode: apart, section: cut }
+  return changed === 'section' ? { explode: { ...apart, amount: 0 }, section: cut } : { explode: apart, section: null }
 }
