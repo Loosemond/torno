@@ -319,7 +319,8 @@ torno has quit.
 
 ### Tools
 
-Torno's MCP server (on `127.0.0.1`, a port of its own choosing) gives the
+Torno's MCP server (on `127.0.0.1`, a port of its own choosing, at an address
+with a secret of the run in it) gives the
 agent of an object these tools for that object. They answer from the last
 build that worked, say which revision that is, and say so when a newer build
 is running or has failed. A tool given a key it does not take is refused,
@@ -876,10 +877,16 @@ boxes. `describe` and `area` of the whole of such a part take a second or two
 on the first ask and are then kept until the next build. A question the kernel has not answered within
 30 s is an error that says so.
 
-**The agent's tools are open to this machine.** The MCP server listens on
-`127.0.0.1` alone and checks that a request comes from no web page (`Origin`,
-`Host`), but its address holds no secret: any program you run on this machine
-can call `show`, `add_mark`, `resolve_mark` and `save_view` of an open object.
+**The agent's tools are for whoever was given their address.** The MCP
+server and the address the agent's hooks post to listen on `127.0.0.1` alone,
+check that a request comes from no web page (`Origin`, `Host`), and have a
+secret in their address: 32 random bytes made anew each time torno starts,
+without which every request is answered 404. The secret is given to the agent
+in the arguments it is started with and nowhere else: torno does not log it
+and writes it to no file. That keeps out another user of this machine and any
+program that only finds the port. It does not keep out a program running as
+you that reads the command line of the agent's process: such a program can
+call `show`, `add_mark`, `resolve_mark` and `save_view` of an open object.
 
 **Parts that fit together.** `overlap`, `clearance` and a distance between two
 parts are of the parts where the layout has them, so fit can only be checked

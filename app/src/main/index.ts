@@ -417,7 +417,8 @@ void app.whenReady().then(async () => {
   })
   testHooks.mcpUrlFor = mcpUrlFor
   if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
-  if (isDebug) console.error(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`)
+  // With the run's secret taken out: an address that is logged is an address anyone who reads the log can call.
+  if (isDebug) console.error(http.redact(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`))
   // What a torno that crashed left in the temporary folder: only copies of the example its own marker names.
   if (exampleFrom !== null) void sweepExamples(tmpdir()).catch(() => {})
   const named = process.env.TORNO_WORKSPACE

@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
@@ -6,17 +7,34 @@ type Handler = (req: IncomingMessage, res: ServerResponse, rest: string[]) => vo
 /**
  * torno's one local HTTP server. What the agent's CLI talks to lives under a
  * prefix each: its hooks (/hooks), the MCP server (/mcp).
+ *
+ * Every address has a secret of this run after its prefix (`/mcp/<secret>/<object id>`,
+ * `/hooks/<secret>/<session id>/<event>`): 32 random bytes, made when the server starts and kept nowhere.
+ * Only who was given an address can ask: another process of this machine, which could find the port, gets 404.
+ * The secret is never logged (`redact`) and never written to a file: an agent has it in what it is started with.
  */
 export interface HttpRouter {
   port: number
-  /** The address of a path on this server, as the agent is given it. */
+  /** The address of a path on this server, as the agent is given it: with the run's secret after the prefix. */
   url(path: string): string
+  /** A text with the run's secret taken out, for whatever is logged or shown of an address or of an agent's arguments. */
+  redact(text: string): string
   /**
-   * Requests whose path is `prefix` or below go to `h`, with the path
-   * segments after the prefix, decoded, in `rest`.
+   * Requests whose path is `prefix`, then the secret, or below go to `h`, with the path
+   * segments after those, decoded, in `rest`.
    */
   route(prefix: string, h: Handler): void
   close(): Promise<void>
+}
+
+/** What stands for the secret in a text it was taken out of. */
+export const REDACTED = '<secret>'
+
+/** Whether a segment of a path is the secret, in a time that says nothing of how much of it was right: both are hashed, and the hashes compared whole. */
+function isSecret(given: string | undefined, secret: string): boolean {
+  if (given === undefined) return false
+  const hash = (text: string): Buffer => createHash('sha256').update(text).digest()
+  return timingSafeEqual(hash(given), hash(secret))
 }
 
 export function sendJson(res: ServerResponse, status: number, value: unknown): void {
@@ -69,11 +87,14 @@ function refuse(req: IncomingMessage, port: number): string | null {
  */
 export function startHttp(): Promise<HttpRouter> {
   const routes: { segments: string[]; handler: Handler }[] = []
+  // base64url: 43 characters, none of which a path escapes.
+  const secret = randomBytes(32).toString('base64url')
+  const redact = (text: string): string => text.split(secret).join(REDACTED)
 
   const server = createServer((req, res) => {
     const refusal = refuse(req, (server.address() as AddressInfo).port)
     if (refusal) {
-      console.error(`${req.method} ${req.url}: refused, ${refusal}`)
+      console.error(redact(`${req.method} ${req.url}: refused, ${refusal}`))
       // Unread, the body would hold the answer back.
       req.resume()
       return sendJson(res, 403, { error: refusal })
@@ -86,11 +107,15 @@ export function startHttp(): Promise<HttpRouter> {
       return sendJson(res, 400, { error: 'bad path' })
     }
     const found = routes.find((r) => r.segments.every((segment, i) => segments[i] === segment))
-    if (!found) return sendJson(res, 404, { error: 'not found' })
+    // Without the secret after the prefix there is nothing here, whatever the path: the answer of a path that is not routed.
+    if (!found || !isSecret(segments[found.segments.length], secret)) {
+      req.resume()
+      return sendJson(res, 404, { error: 'not found' })
+    }
     Promise.resolve()
-      .then(() => found.handler(req, res, segments.slice(found.segments.length)))
+      .then(() => found.handler(req, res, segments.slice(found.segments.length + 1)))
       .catch((e: unknown) => {
-        console.error(`${req.method} ${req.url}: ${e instanceof Error ? e.message : String(e)}`)
+        console.error(redact(`${req.method} ${req.url}: ${e instanceof Error ? e.message : String(e)}`))
         if (!res.headersSent) sendJson(res, 500, { error: 'internal error' })
         else res.end()
       })
@@ -103,7 +128,11 @@ export function startHttp(): Promise<HttpRouter> {
       const { port } = server.address() as AddressInfo
       resolve({
         port,
-        url: (path) => `http://127.0.0.1:${port}${path.startsWith('/') ? path : `/${path}`}`,
+        url: (path) => {
+          const [prefix, ...rest] = path.split('/').filter(Boolean)
+          return `http://127.0.0.1:${port}/${[prefix, secret, ...rest].join('/')}`
+        },
+        redact,
         route(prefix, handler) {
           routes.push({ segments: prefix.split('/').filter(Boolean), handler })
         },

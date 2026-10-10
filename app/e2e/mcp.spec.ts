@@ -237,6 +237,31 @@ test('the agent is told of torno in its system prompt, and of the build with eve
   for (const tool of ['marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark']) expect(prompt).toContain(`mcp__torno__${tool}`)
 })
 
+// Final review M15: the port can be found by any process of this machine; the secret in the address cannot.
+test('the address the agent is given has a secret of the run, which is in no file of the workspace; without it there is nothing', async () => {
+  const url = new URL(await mcpUrl('bracket'))
+  const [, mcp, secret, object] = url.pathname.split('/')
+  expect([mcp, object]).toEqual(['mcp', 'bracket'])
+  expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  // The stand-in was given it for its hooks too, and has just posted one with it.
+  const hook = new RegExp(`http://127\\.0\\.0\\.1:${url.port}/hooks/${secret}/[0-9a-f-]{36}/UserPromptSubmit`).exec(await said())?.[0]
+  expect(hook).toBeDefined()
+
+  // By now the workspace has every file a session and a build leave: the state file, the scene, the marks.
+  await expect.poll(() => existsSync(stateFile())).toBe(true)
+  const files = readdirSync(root, { withFileTypes: true, recursive: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name))
+  expect(files.length).toBeGreaterThan(10)
+  for (const file of files) expect([file, readFileSync(file).includes(secret)]).toEqual([file, false])
+
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+  const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }
+  for (const path of ['/mcp/bracket', `/mcp/${'A'.repeat(43)}/bracket`, `/hooks/${hook!.split('/').slice(-2).join('/')}`]) {
+    const reply = await fetch(`${url.origin}${path}`, { method: 'POST', headers, body })
+    expect([path, reply.status]).toEqual([path, 404])
+  }
+  expect((await fetch(url, { method: 'POST', headers, body })).status).toBe(200)
+})
+
 // ---- Marks and the window, from the agent's side ----
 
 const camera = (): Promise<Camera> => page.evaluate(() => window.__tornoTest!.camera())

@@ -421,6 +421,20 @@ describe('the MCP server', () => {
     expect(bad.status).toBe(400)
     const nowhere = await fetch(http.url('/mcp'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
     expect(nowhere.status).toBe(404)
+    expect(await nowhere.json()).toMatchObject({ jsonrpc: '2.0', error: { message: expect.stringContaining('ends in the id of an object') } })
+  })
+
+  // Final review M15: the tools are for whoever was given the address, with the secret of the run in it.
+  it('answers 404 to an address without the secret of the run, and no tool is called', async () => {
+    const init = { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }
+    const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }
+    const secret = new URL(http.url('/mcp/x')).pathname.split('/')[2]
+    for (const path of ['/mcp/bracket', `/mcp/${secret.split('').reverse().join('')}/bracket`, `/mcp/bracket/${secret}`]) {
+      const reply = await fetch(`http://127.0.0.1:${http.port}${path}`, { method: 'POST', headers, body: JSON.stringify(init) })
+      expect([path, reply.status, await reply.text()]).toEqual([path, 404, '{"error":"not found"}'])
+    }
+    const fine = await fetch(http.url('/mcp/bracket'), { method: 'POST', headers, body: JSON.stringify(init) })
+    expect(fine.status).toBe(200)
   })
 
   it('serves an object id the workspace does not have, whose tools say so', async () => {

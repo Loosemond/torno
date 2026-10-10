@@ -956,8 +956,55 @@ describe('the hook endpoint', () => {
   })
 
   it('listens on the loopback address only', () => {
-    expect(http.url('/a')).toBe(`http://127.0.0.1:${http.port}/a`)
+    expect(http.url('/a')).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${http.port}/a/[A-Za-z0-9_-]{43}$`))
     expect(http.port).toBeGreaterThan(0)
+  })
+
+  // Final review M15: another process of this machine can find the port, and not the secret of the run.
+  it('is nothing to whoever has not the secret of the run: 404, and the session is where it was', async () => {
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    const secret = new URL(http.url('/hooks/x')).pathname.split('/')[2]
+    for (const path of [`/hooks/${sessionId}/UserPromptSubmit`, `/hooks/${'A'.repeat(43)}/${sessionId}/UserPromptSubmit`, `/hooks/${sessionId}/${secret}/UserPromptSubmit`]) {
+      const reply = await fetch(`http://127.0.0.1:${http.port}${path}`, { method: 'POST', body: '{"prompt":"hello"}' })
+      expect([path, reply.status, await reply.json()]).toEqual([path, 404, { error: 'not found' }])
+    }
+    expect(statuses.get(sessionId)).toEqual(['starting', 'idle'])
+    expect((await fetch(http.url(`/hooks/${sessionId}/UserPromptSubmit`), { method: 'POST', body: '{"prompt":"hello"}' })).status).toBe(200)
+    expect(statuses.get(sessionId)?.at(-1)).toBe('working')
+  })
+
+  it('gives the secret to the agent in what it is started with, and to nothing else: no file of the object, no log', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const secret = new URL(http.url('/hooks/x')).pathname.split('/')[2]
+    const filesOf = (dir: string): string[] => readdirSync(dir, { withFileTypes: true, recursive: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name))
+    try {
+      for (const agent of ['claude', 'copilot'] as const) {
+        const made = new Sessions({ http, debug: true, adapterFor: () => adapters(`node ${FAKE}`)[agent], contextFor: () => ({ text: 'Build ok.', sentMarkIds: [] }), systemPromptFor: () => 'You are in torno.', mcpUrlFor: (id) => http.url(`/mcp/${id}`) })
+        others.push(made)
+        let all = ''
+        made.on('data', (m) => (all += m.data))
+        const obj = object(`secret-${agent}`)
+        const { sessionId } = await made.start(obj, {})
+        await expect.poll(() => all).toContain('READY')
+        // The agent has it: in the address of the MCP server, and in that of every hook it is given.
+        const args: string[] = JSON.parse(/READY (\[.*\])/s.exec(all.replace(/\r?\n/g, ''))![1])
+        const mcp = JSON.parse(args[args.indexOf(agent === 'claude' ? '--mcp-config' : '--additional-mcp-config') + 1]).mcpServers.torno.url
+        expect(mcp).toBe(`http://127.0.0.1:${http.port}/mcp/${secret}/${obj.id}`)
+        if (agent === 'claude') expect(JSON.parse(args[args.indexOf('--settings') + 1]).hooks.Stop[0].hooks[0].url).toBe(`http://127.0.0.1:${http.port}/hooks/${secret}/${sessionId}/Stop`)
+        if (agent === 'copilot') await made.sendMarks(sessionId)
+        // Nothing torno wrote in the object holds it: not the instructions, not what is pasted, not the conversation on file.
+        const files = filesOf(obj.dir)
+        if (agent === 'copilot') expect(files.map((file) => file.slice(obj.dir.length + 1)).sort()).toEqual(expect.arrayContaining(['.torno/agent/AGENTS.md', '.torno/prompt.md']))
+        for (const file of files) expect([file, readFileSync(file, 'utf8').includes(secret)]).toEqual([file, false])
+        // What is logged of the start names the arguments, with the secret taken out.
+        const lines = logged.mock.calls.map((call) => call.join(' '))
+        expect(lines.some((line) => line.includes(`session ${sessionId}`) && line.includes('/mcp/<secret>/'))).toBe(true)
+        for (const line of lines) expect(line).not.toContain(secret)
+      }
+    } finally {
+      logged.mockRestore()
+    }
   })
 })
 

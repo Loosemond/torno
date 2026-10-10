@@ -55,7 +55,15 @@ what was never seen on a visible screen is one section.
 - Kernel stdout carries protocol frames only. Model output goes to a captured buffer.
 - Units are millimetres, Z up. Coordinates crossing a process boundary are in the object frame unless named `local`.
 - Renderer: `contextIsolation: true`, `nodeIntegration: false`, `backgroundThrottling: false`. No per-frame state in React.
-- HTTP server binds `127.0.0.1` only, on an OS-assigned port.
+- HTTP server binds `127.0.0.1` only, on an OS-assigned port. Every address it hands to an agent has the run's
+  secret after the prefix (`/mcp/<secret>/<object id>`, `/hooks/<secret>/<session id>/<event>`: 32 random bytes
+  as base64url, made in `startHttp` and kept nowhere), compared in constant time; without it the answer is 404.
+  An address is made only by `HttpRouter.url`. The secret reaches an agent only in what it is started with
+  (argv, settings, env); it is never logged (`HttpRouter.redact` for whatever is logged of an address or of an
+  agent's arguments) and never written to `state.md`, `prompt.md`, `.torno/agent/` or any other file. Should a
+  file under `.torno/` ever have to hold an address for a running session, it is one git passes over
+  (`ensureIgnored`) and is written anew at each start. The test hook `__tornoMain.mcpUrlFor(id)` gives the
+  whole address, secret and all; the stand-in agent reads its hook addresses from its `--settings`.
 - Images for the agent: long edge at most 2000 px, default 1280.
 - Do not copy nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
 - UI text is sentence case. Every number and ref is set in the monospace face.

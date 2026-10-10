@@ -75,7 +75,7 @@ interface Events {
 /**
  * The agent sessions: each the real CLI in a PTY, in the folder of one object,
  * and at most one per object. The status of a session follows the hooks the
- * agent posts to `/hooks/<sessionId>/<event>` on the local HTTP server.
+ * agent posts to `/hooks/<secret>/<sessionId>/<event>` on the local HTTP server (`http.url`: the address has the run's secret).
  *
  * An agent that posts none (`AgentAdapter.hooks` false) is `idle` from its
  * first output until it leaves, which says only that it runs. Nothing goes
@@ -172,7 +172,8 @@ export class Sessions {
       systemPrompt: this.deps.systemPromptFor(adapter),
       env: person
     })
-    if (this.deps.debug) console.error(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`)
+    // The arguments hold the addresses the agent is given: the run's secret in them is not for a log.
+    if (this.deps.debug) console.error(http.redact(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`))
     const env: Record<string, string> = { ...person, ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id }
     // node-pty reports a command that does not exist only as a process that exits at once.
     if (!findCommand(launch.command, env.PATH)) throw new Error(`cannot start the agent: '${launch.command}' was not found on PATH`)
@@ -374,7 +375,7 @@ export class Sessions {
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })
   }
 
-  /** `POST /hooks/<sessionId>/<event>`, with the hook's JSON as the body. */
+  /** `POST /hooks/<secret>/<sessionId>/<event>`, with the hook's JSON as the body; `rest` is what comes after the secret. */
   private async hook(req: IncomingMessage, res: ServerResponse, rest: string[]): Promise<void> {
     const [sessionId, event] = rest
     const session = rest.length === 2 ? this.sessions.get(sessionId) : undefined

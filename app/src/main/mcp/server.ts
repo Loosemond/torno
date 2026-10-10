@@ -7,7 +7,8 @@ const BODY_LIMIT = 4 * 1024 * 1024
 const VERSION = '0.1.0'
 
 /**
- * Serves `POST /mcp/<objectId>`: the MCP server an agent working on that object
+ * Serves `POST /mcp/<secret>/<objectId>` (the router takes the run's secret off the path, and answers 404
+ * without it): the MCP server an agent working on that object
  * is given, as Streamable HTTP without sessions. Each request gets a server and
  * a transport of its own, closed when its response is, so nothing is kept
  * between requests and any number of agents can ask at once.
@@ -18,7 +19,7 @@ export function mountMcp(http: HttpRouter, deps: ToolDeps): void {
       res.writeHead(status, { 'content-type': 'application/json', ...headers })
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }))
     }
-    if (rest.length !== 1) return rpcError(404, 'Not found: the address is /mcp/<object id>')
+    if (rest.length !== 1) return rpcError(404, 'Not found: the address torno gave ends in the id of an object')
     // Without sessions there is no stream to open with GET and nothing to end with DELETE.
     if (req.method !== 'POST') return rpcError(405, 'Method not allowed: POST only', { allow: 'POST' })
 

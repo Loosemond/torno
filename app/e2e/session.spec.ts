@@ -96,7 +96,7 @@ test('a new session runs the agent in a terminal, and what is typed reaches it',
   // Started in the object's folder, with Claude Code's arguments.
   expect(agentsIn(join(root, 'bracket'))).toHaveLength(1)
   for (const flag of ['--session-id', '--mcp-config', '--allowedTools', '--settings']) expect(await text()).toContain(flag)
-  expect(await text()).toMatch(/http:\/\/127\.0\.0\.1:\d+\/mcp\/bracket/)
+  expect((await text()).replace(/\s+/g, '')).toMatch(/http:\/\/127\.0\.0\.1:\d+\/mcp\/[A-Za-z0-9_-]{43}\/bracket/)
 
   // The terminal has the focus from the start.
   await page.keyboard.type('hi')
@@ -195,13 +195,14 @@ test('each object has its own session, kept while another is shown', async () =>
   expect(await text()).toBe('')
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect.poll(text).toContain('READY')
-  expect(await text()).toContain('/mcp/plain')
+  // The address it was given ends in its object, after the secret of the run.
+  expect((await text()).replace(/\s+/g, '')).toMatch(/\/mcp\/[A-Za-z0-9_-]{43}\/plain(?![\w/-])/)
   expect(await text()).not.toContain('> hi')
 
   await openObject('bracket')
   await expect(sessionStatus()).toHaveText('Idle')
   expect(await text()).toContain('> hi')
-  expect(await text()).toContain('/mcp/bracket')
+  expect((await text()).replace(/\s+/g, '')).toMatch(/\/mcp\/[A-Za-z0-9_-]{43}\/bracket(?![\w/-])/)
   await typeLine('still here')
   await expect.poll(text).toContain('> still here')
   expect(agentsIn(join(root, 'bracket'))).toHaveLength(1)
