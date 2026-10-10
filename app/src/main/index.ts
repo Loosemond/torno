@@ -2,13 +2,14 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, nativeTheme } from 'electron'
 import type { Described } from '../shared/geometry'
+import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
 import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
 import { buildState, closeWorkspace, findObject, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart } from './kernel/client'
-import { latestView, requestHighlight, requestLook, requestSectionDrawing, requestShow } from './look'
+import { latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
 import { maskReadsOf, maskStampOf, meshesOf } from './marks/regions'
@@ -21,7 +22,7 @@ import { SYSTEM_PROMPT } from './prompt'
 import { quitGate } from './quit'
 import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
-import { sceneFilesSettled } from './scenefile'
+import { proposalAsked, sceneFileNow, sceneFilesSettled } from './scenefile'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
@@ -182,6 +183,12 @@ async function listedScans(objectId: string): ReturnType<ScanStore['list']> {
   return listed
 }
 
+/** The views saved of an object: of its scene file as main last read it or was given it by the window, which writes it. */
+function savedViews(objectId: string): Promise<SavedView[]> {
+  const obj = findObject(objectId)
+  return obj ? sceneFileNow(obj.dir).then((file) => file.views ?? []) : Promise.resolve([])
+}
+
 /** What the MCP tools and the text attached to a prompt are made from: the open workspace and the window. */
 const toolDeps: ToolDeps = {
   object: findObject,
@@ -223,11 +230,21 @@ const toolDeps: ToolDeps = {
   scansBusy: (objectId) => scans.working(objectId),
   sectionDrawing(req) {
     return theWindow().then((win) => requestSectionDrawing(win, req))
+  },
+  views: savedViews,
+  saveView(objectId, req) {
+    const obj = findObject(objectId)
+    if (!obj) return Promise.reject(new Error(`unknown object: ${objectId}`))
+    // Until the window has answered, the scene file it gives may say of this view that it is the agent's, and proposed.
+    const done = proposalAsked(obj.dir, req.name)
+    return theWindow()
+      .then((win) => requestSaveView(win, req))
+      .finally(done)
   }
 }
 
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
-const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId) })
+const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 // Where a region is told to be follows its scan's alignment.
 scans.on('changed', ({ objectId }) => stateFiles.changed(objectId))
@@ -300,6 +317,8 @@ void app.whenReady().then(async () => {
     sessions,
     marks,
     onBuild: (state) => stateFiles.changed(state.objectId),
+    // The saved views are named in the state file.
+    onSceneFile: (objectId) => stateFiles.changed(objectId),
     // What was waiting to be written was of objects of the workspace that is left.
     onWorkspaceClosed: () => {
       stateFiles.forget()

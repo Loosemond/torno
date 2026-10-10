@@ -4,6 +4,8 @@ import {
   type HighlightResult,
   type LookRequest,
   type LookResult,
+  type SaveViewRequest,
+  type SaveViewResult,
   type SectionDrawingRequest,
   type SectionDrawingResult,
   type SelectionReport,
@@ -18,8 +20,9 @@ import { MIN_SCAN_OPACITY } from '../shared/scans'
 
 // What the agent asks of the window is done by the renderer, which owns the
 // viewport: a picture of it (`view:look`), a change of what it shows
-// (`view:show`), something pointed out in it (`view:highlight`), and a 2D
-// drawing of outlines the kernel cut (`view:drawSection`). Main asks
+// (`view:show`), something pointed out in it (`view:highlight`), a 2D
+// drawing of outlines the kernel cut (`view:drawSection`), and a view of the
+// agent's kept among the saved ones (`view:saveView`). Main asks
 // over the channel and is answered over `<channel>Reply` (src/main/ipc.ts
 // passes each answer to `resolveRequest`).
 
@@ -91,6 +94,15 @@ export function requestHighlight(win: BrowserWindow, req: HighlightRequest, time
  */
 export function requestSectionDrawing(win: BrowserWindow, req: SectionDrawingRequest, timeoutMs = 10000): Promise<SectionDrawingResult> {
   return request(win, 'view:drawSection', req, timeoutMs)
+}
+
+/**
+ * Ask a window to keep a view the agent proposes among the saved views of the object it shows: the scene file is
+ * the window's to write. Rejects with the renderer's error text (the name is taken by a view of the person's, an
+ * unknown part or layout).
+ */
+export function requestSaveView(win: BrowserWindow, req: SaveViewRequest, timeoutMs = 10000): Promise<SaveViewResult> {
+  return request(win, 'view:saveView', req, timeoutMs)
 }
 
 /** The renderer's answer to request `id`. One that is late, repeated or malformed is dropped. */

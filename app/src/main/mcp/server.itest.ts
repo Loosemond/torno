@@ -3,7 +3,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Mark, NewMark } from '../../shared/marks'
 import type { Part } from '../../shared/scene'
-import type { LookRequest, ShowRequest, ViewState } from '../../shared/view'
+import type { LookRequest, SaveViewRequest, ShowRequest, ViewState } from '../../shared/view'
+import type { SavedView } from '../../shared/views'
 import { type HttpRouter, startHttp } from '../http'
 import { mountMcp } from './server'
 import type { ToolDeps } from './tools'
@@ -42,6 +43,9 @@ const KERNEL: Record<string, object> = {
 let http: HttpRouter
 let looks: Array<{ objectId: string; req: LookRequest }> = []
 let shows: ShowRequest[] = []
+let savedViews: SaveViewRequest[] = []
+/** A view the person saved of the object. */
+const SIDE: SavedView = { name: 'Hinge side', author: 'user', layout: 'main', camera: { position: [0, -80, 6], target: [0, 0, 6], up: [0, 0, 1], ortho: true, fov: 35, zoom: 2 }, hidden: [], at: '2026-10-09T21:14:03.000Z' }
 /** What the window last reported of the object, when a test has it report something. */
 let view: ViewState | undefined
 let release: (() => void) | null = null
@@ -78,7 +82,9 @@ const deps: ToolDeps = {
   scans: async () => [],
   scansBusy: () => [],
   scanPaths: () => undefined,
-  addDimension: async (_objectId, mark) => ({ mark: { ...mark, id: 'M3', status: 'sent', anchorState: 'ok', createdAt: PIN.createdAt } as Mark })
+  addDimension: async (_objectId, mark) => ({ mark: { ...mark, id: 'M3', status: 'sent', anchorState: 'ok', createdAt: PIN.createdAt } as Mark }),
+  views: async () => [SIDE],
+  saveView: async (objectId, req) => (savedViews.push(req), { objectId, revision: 2, replaced: false, view: { ...SIDE, name: req.name, author: 'agent', proposed: true } })
 }
 
 async function connect(objectId: string): Promise<Client> {
@@ -98,6 +104,7 @@ beforeAll(async () => {
 afterEach(async () => {
   looks = []
   shows = []
+  savedViews = []
   view = undefined
   added = []
   release = null
@@ -106,7 +113,7 @@ afterEach(async () => {
 
 afterAll(() => http.close())
 
-const ALL = ['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show']
+const ALL = ['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show']
 /** The least each tool can be called with. */
 const MINIMAL: Record<string, Record<string, unknown>> = {
   scene: {},
@@ -115,6 +122,7 @@ const MINIMAL: Record<string, Record<string, unknown>> = {
   describe: { ref: 'base' },
   highlight: { refs: ['base'] },
   show: { view: 'top' },
+  save_view: { name: 'Wall at the latch' },
   add_mark: { kind: 'pin', note: '', ref: 'base' },
   resolve_mark: { id: 'M1' },
   measure: { kind: 'distance', a: 'base/F5', b: 'base/F0' },
@@ -158,6 +166,9 @@ describe('the MCP server', () => {
       for (const [arg, schema] of Object.entries(of(name).inputSchema.properties ?? {})) expect((schema as { description?: string }).description, `${name}.${arg}`).toBeTruthy()
     }
     expect(Object.keys(of('show').inputSchema.properties ?? {}).sort()).toEqual(['explode', 'layout', 'parts', 'scanOpacity', 'scans', 'section', 'view'])
+    expect(Object.keys(of('save_view').inputSchema.properties ?? {}).sort()).toEqual(['explode', 'layout', 'name', 'note', 'parts', 'section', 'view'])
+    expect(of('save_view').inputSchema.required ?? []).toEqual([])
+    for (const [arg, schema] of Object.entries(of('save_view').inputSchema.properties ?? {})) expect((schema as { description?: string }).description, `save_view.${arg}`).toBeTruthy()
     // Explode is told as what it is, in both: for display only.
     for (const name of ['look', 'show']) expect((of(name).inputSchema.properties!.explode as { description: string }).description, name).toContain('For display only: positions, refs and measurements are always of the parts as assembled.')
     expect(Object.keys(of('section').inputSchema.properties ?? {}).sort()).toEqual(['deflection', 'layout', 'parts', 'plane', 'scan', 'size'])
@@ -194,6 +205,24 @@ describe('the MCP server', () => {
     expect((await client.callTool({ name: 'look', arguments: { explode: null } })).isError).toBeFalsy()
     expect((await client.callTool({ name: 'look', arguments: { explode: { amount: 1, axis: 'z', scale: 2 } } })).isError).toBeFalsy()
     expect(looks.slice(-2).map((look) => look.req.explode)).toEqual([null, { amount: 1, scale: 2, axis: 'z' }])
+    // The name of a saved view passes the schema as any text does, and is the tool's to find or to refuse.
+    expect((await client.callTool({ name: 'look', arguments: { view: 'hinge SIDE' } })).isError).toBeFalsy()
+    expect(looks.at(-1)!.req).toMatchObject({ view: SIDE.camera, viewName: 'Hinge side', layout: 'main', parts: ['base'], section: null, explode: null })
+    expect((await client.callTool({ name: 'show', arguments: { view: 'Hinge side' } })).isError).toBeFalsy()
+    expect(shows.at(-1)).toMatchObject({ view: SIDE.camera, viewName: 'Hinge side', layout: 'main', parts: ['base'] })
+    expect(await said('look', { view: 'hinge' })).toBe('no view "hinge": the saved views are "Hinge side"; or current, iso, front, back, left, right, top, bottom, or a camera')
+    expect(JSON.parse(((await client.callTool({ name: 'scene', arguments: {} })).content as Content)[0].text!).views).toEqual([{ name: 'Hinge side', by: 'user', layout: 'main' }])
+    // save_view: what is no name is said, whose a view is cannot be given, and a call that is one reaches the window.
+    expect(await said('save_view', {})).toBe('name is what the view is called, 1 to 40 characters: {"name": "Wall at the latch"}')
+    expect(await said('save_view', { name: 'Mine', author: 'user' })).toBe('save_view takes no "author". An unknown key is not ignored: nothing was done. It takes: name, note, view, layout, parts, section, explode.')
+    expect(await said('save_view', { name: 'Mine', kept: true })).toMatch(/^save_view takes no "kept"/)
+    expect(await said('save_view', { name: 'hinge side' })).toBe('the user has a view named "Hinge side": choose another name (their views: "Hinge side")')
+    expect(await said('save_view', { name: 'Both', section: { axis: 'z', at: 2 }, explode: 0.5 })).toMatch(/^a view holds a section or an explode, not both/)
+    expect(savedViews).toEqual([])
+    const kept = await client.callTool({ name: 'save_view', arguments: { name: 'Wall at the latch', view: 'front', section: { axis: 'z', at: 2 }, note: 'thin here' } })
+    expect(kept.isError).toBeFalsy()
+    expect((kept.content as Content)[0].text).toMatch(/^saved "Wall at the latch" as a view you propose: layout main, parts base, /)
+    expect(savedViews).toEqual([{ objectId: 'bracket', name: 'Wall at the latch', note: 'thin here', view: 'front', section: { origin: [0, 0, 2], normal: [0, 0, 1] } }])
     expect(await said('section', { plane: { axis: 'z', at: 2 }, scan: 1 })).toBe('scan is the number of a scan, as listed by scans: {"scan": "S1"}')
     // A well-formed call of an object with no scans is answered in words too.
     expect(await said('scan_clash', { part: 'base' })).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')

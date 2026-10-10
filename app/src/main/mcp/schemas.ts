@@ -48,10 +48,10 @@ export const CAMERA_KEYS = ['position', 'target', 'up', 'ortho', 'fov', 'zoom']
 
 const lookInput = {
   view: z
-    .union([z.enum(['current', ...VIEW_NAMES]), cameraInput])
+    .union([z.string(), cameraInput])
     .optional()
     .describe(
-      "'current' (the default) is the user's own camera. iso, front, back, left, right, top and bottom are orthographic views fitted to the parts. Or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up."
+      "'current' (the default) is the user's own camera. iso, front, back, left, right, top and bottom are orthographic views fitted to the parts. Or the name of a saved view, as scene lists them: the picture is then of that view whatever is on screen (its camera, layout, parts, section or explode, scans), and whatever you give beside it wins. Or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up."
     ),
   layout: z.string().optional().describe('The layout to draw, as listed by scene. Default: the one on screen.'),
   parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to draw. Default: the parts the user has switched on.'),
@@ -79,8 +79,12 @@ const lookInput = {
 
 export type PlaneArg = SectionPlane | AxisPlane
 
+/** A camera as the agent gives one. */
+export interface CameraArg { position: Vec3; target: Vec3; up?: Vec3; ortho?: boolean; fov?: number; zoom?: number }
+
 export interface LookArgs {
-  view?: 'current' | (typeof VIEW_NAMES)[number] | { position: Vec3; target: Vec3; up?: Vec3; ortho?: boolean; fov?: number; zoom?: number }
+  /** `current`, a standard view, the name of a saved view, or a camera. */
+  view?: string | CameraArg
   layout?: string
   parts?: string[]
   size?: number
@@ -121,9 +125,9 @@ const highlightInput = {
 
 const showInput = {
   view: z
-    .union([z.enum(VIEW_NAMES), cameraInput])
+    .union([z.string(), cameraInput])
     .optional()
-    .describe('iso, front, back, left, right, top or bottom, fitted to the parts shown; or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up. Default: the camera stays.'),
+    .describe('iso, front, back, left, right, top or bottom, fitted to the parts shown; or the name of a saved view, as scene lists them, which puts all of it on their screen for now (its camera, layout, parts, section or explode, scans; whatever you give beside it wins); or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up. Default: the camera stays.'),
   layout: z.string().optional().describe('The layout to switch to, as listed by scene. Default: the one on screen stays.'),
   parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to leave switched on; every other part of the layout is hidden. Default: no part is switched.'),
   section: planeInput
@@ -136,6 +140,27 @@ const showInput = {
     .nullable()
     .optional()
     .describe(`How far apart the parts are drawn on the user's screen, for now only: ${explodeHelp} null or 0 puts them together. Default: as they are. Not with a section: pass section null with it when their view is cut.`)
+}
+
+const saveViewInput = {
+  // Not required by the schema: left out, the tool says what a name is.
+  name: loose(z.string()).optional().describe('What the view is called, 1 to 40 characters, as the user will read it in their strip of views: "Wall at the latch". Not current, iso, front, back, left, right, top or bottom, and not the name of a view of the user\'s.'),
+  note: loose(z.string()).optional().describe('Why you propose it, in a line.'),
+  view: z.union([z.string(), cameraInput]).optional().describe('iso, front, back, left, right, top or bottom, fitted to the parts, or a camera as scene gives one. Default: the user\'s own camera.'),
+  layout: z.string().optional().describe('The layout the view is of. Default: the one on screen.'),
+  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts the view shows; every other part of the layout is hidden in it. Default: those on screen.'),
+  section: planeInput.nullable().optional().describe(`The cut the view has: ${planeHelp}; null for none. Default: the one on screen. Not with explode.`),
+  explode: explodeInput.nullable().optional().describe(`How far apart the view draws the parts: ${explodeHelp} Default: as on screen. Not with a section.`)
+}
+
+export interface SaveViewArgs {
+  name: string
+  note?: string
+  view?: (typeof VIEW_NAMES)[number] | CameraArg
+  layout?: string
+  parts?: string[]
+  section?: PlaneArg | null
+  explode?: ExplodeArg | null
 }
 
 export const SHAPES = ['box', 'cylinder', 'sphere', 'plane'] as const
@@ -246,7 +271,8 @@ export interface HighlightArgs {
   layout?: string
 }
 export interface ShowArgs {
-  view?: (typeof VIEW_NAMES)[number] | { position: Vec3; target: Vec3; up?: Vec3; ortho?: boolean; fov?: number; zoom?: number }
+  /** A standard view, the name of a saved view, or a camera. */
+  view?: string | CameraArg
   layout?: string
   parts?: string[]
   section?: PlaneArg | null
@@ -281,7 +307,7 @@ export interface ResolveMarkArgs {
 export const TOOLS = {
   scene: {
     description:
-      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
+      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), under views the views saved by name (whose each is, its layout, whether it holds a section or an explode, how many parts it hides), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
   },
   look: {
     description:
@@ -307,6 +333,11 @@ export const TOOLS = {
     description:
       "Returns a caption of what the user's viewport shows after it was changed to the view, layout, parts, section, explode or scans you gave. It moves the user's own camera, hides the parts and the scans you leave out and cuts their view or draws its parts apart, so use it only to show them something, and say that you did; to see for yourself, call look.",
     inputSchema: showInput
+  },
+  save_view: {
+    description:
+      'Returns the view you proposed, as kept in the user\'s strip of saved views marked "proposed" until they keep or discard it, and the revision it was saved on. Use it to leave the user a way back to something you showed them: the view of a problem, of a fit, of a change. It changes nothing on their screen; to show it now, call show with its name.',
+    inputSchema: saveViewInput
   },
   add_mark: {
     description:

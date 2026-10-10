@@ -71,7 +71,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       }
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}) }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}), ...(typeof req.viewName === 'string' ? { viewName: req.viewName } : {}) }
   })
   return { ...picture, ...drawn! }
 }
@@ -307,6 +307,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   viewport.onCameraSettled((camera) => {
     if (camera.ortho !== store.getState().ortho) actions.setOrtho(camera.ortho)
     actions.setLockedView(viewport.lockedView())
+    // The saved view that was on is no longer, once the camera rests somewhere else.
+    actions.cameraSettled(camera)
     report()
   })
 

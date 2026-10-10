@@ -4,15 +4,17 @@ import { letGoText } from '../../shared/build'
 import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, explodeText, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
-import { type Camera, type LookRequest, type LookResult, type SectionPlane, type ShowRequest, type ShowResult, axisForm } from '../../shared/view'
+import { type Camera, type LookRequest, type LookResult, type SaveViewRequest, type SaveViewResult, type SectionPlane, type ShowRequest, type ShowResult, type ViewName, axisForm, planeText } from '../../shared/view'
+import { type SavedView, MAX_PROPOSALS, VIEW_NOT_BOTH, findView, viewGone, viewNameRefusal, viewSummary } from '../../shared/views'
 import { alignmentSaid } from '../scans/said'
 import { unknownKeys } from './keys'
 import { NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanColourFor, scanIds } from './scanTools'
-import { type LookArgs, type ShowArgs, CAMERA_KEYS, FOV, explodeHelp } from './schemas'
+import { type CameraArg, type LookArgs, type SaveViewArgs, type ShowArgs, CAMERA_KEYS, FOV, VIEW_NAMES, explodeHelp } from './schemas'
 import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
 
 // The tools of the view: `scene`, which says what the object is and what the user sees of it, `look`, a picture
-// from the window, and `show`, which changes what the window shows for now.
+// from the window, `show`, which changes what the window shows for now, and `save_view`, which leaves the user a
+// view the agent proposes. `look` and `show` take the name of a saved view (`namedView`).
 
 /** Why a view given as a camera holds a key a camera does not take, or a lens or a zoom that is none; or null. */
 export const cameraKeys = (view: unknown): string | null => {
@@ -30,9 +32,11 @@ export const cameraKeys = (view: unknown): string | null => {
  * on the last build, so that the check after an edit says at once whether
  * the person's checks still hold. `scans` are the object's, when they could
  * be read: each is named, with whether it is aligned in the layout the answer
- * is for (the one on screen, else the first).
+ * is for (the one on screen, else the first). `views` are the views saved
+ * of the object, when its scene file could be read: each is listed with
+ * whose it is and what it holds.
  */
-export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[], scans?: readonly ScanInfo[]): ToolResult {
+export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[]): ToolResult {
   const found = built(deps, objectId)
   if ('content' in found) return found
   const { obj, build, scene, revision } = found
@@ -97,6 +101,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
     ...(scans && scans.length > 0 ? { scans: scans.map((scan) => scanStanding(scan, scanLayout, revision)) } : {}),
+    // The views saved by name: look and show take a name. One that is proposed is the agent's own, not yet kept by the user.
+    ...(views && views.length > 0 ? { views: views.map(viewSummary) } : {}),
     ...(notes.length > 0 ? { note: notes.join(' ') } : {})
   }
   return { content: [{ type: 'text', text: JSON.stringify(result) }] }
@@ -114,7 +120,7 @@ function sectionData(plane: SectionPlane): object {
   return { origin: plane.origin.map(round), normal: tidy(plane.normal), ...(along && along.sign > 0 ? { axis: along.axis, at: round(along.at) } : {}) }
 }
 
-export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs): Promise<ToolResult> {
+export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs): Promise<ToolResult> {
   const found = built(deps, objectId)
   if ('content' in found) return found
   const { obj, scene, revision } = found
@@ -123,11 +129,22 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   const elsewhere = (open: string | null) => failure(`${notOpen(obj, open)}. Ask the user to open it.`)
   if (deps.openObjectId() !== objectId) return elsewhere(deps.openObjectId())
 
+  // The name of a saved view: the picture is of that view, whatever is on screen, but for what is given beside it.
+  let args = given
+  let named: NamedView | undefined
+  if (isSavedName(given.view)) {
+    const view = await namedView(deps, objectId, scene, given.view, { layout: given.layout, others: `current, ${STANDARD_VIEWS}` })
+    if ('content' in view) return view
+    named = view
+    args = { ...given, ...besideView(view, given), ...(given.scans === undefined && view.scans ? { scans: view.scans } : {}) }
+  }
+
   const wrong = cameraKeys(args.view)
   if (wrong !== null) return failure(wrong)
   const view = cameraOf(args.view)
   if (view === null) return failure('position and target are the same')
   const request: LookRequest = { view, size: clampSize(args.size) }
+  if (named) request.viewName = named.view.name
   if (args.layout !== undefined) request.layout = args.layout
   if (args.parts !== undefined) request.parts = args.parts
   if (args.marks !== undefined) request.marks = args.marks
@@ -181,7 +198,7 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   return {
     content: [
       { type: 'image', data: Buffer.from(picture.png).toString('base64'), mimeType: 'image/png' },
-      { type: 'text', text: `${picture.caption}${spreadBesideScans(scene, picture)}${await undrawnScans(deps, objectId, args.scans === false ? [] : Array.isArray(args.scans) ? args.scans : undefined)}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
+      { type: 'text', text: `${picture.caption}${named ? passedOver(named, given) : ''}${spreadBesideScans(scene, picture)}${await undrawnScans(deps, objectId, args.scans === false ? [] : Array.isArray(args.scans) ? args.scans : undefined)}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
     ]
   }
 }
@@ -249,7 +266,8 @@ function drawsNothingApart(scene: Scene, layout: string | undefined, explode: Ex
 /** The camera to ask the window for, or null for one that looks nowhere: its position is its target. */
 export function cameraOf(view: LookArgs['view']): NonNullable<LookRequest['view']> | null {
   if (view === undefined) return 'current'
-  if (typeof view === 'string') return view
+  // The name of a saved view never comes this far: whoever takes one has made a camera of it (`namedView`).
+  if (typeof view === 'string') return view as 'current' | ViewName
   const along = view.position.map((p, i) => view.target[i] - p)
   if (along.every((d) => d === 0)) return null
   // Looking straight up or down, Z cannot be up: Y is.
@@ -258,15 +276,29 @@ export function cameraOf(view: LookArgs['view']): NonNullable<LookRequest['view'
   return made
 }
 
-export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs): Promise<ToolResult> {
+export async function showTool(deps: ToolDeps, objectId: string, given: ShowArgs): Promise<ToolResult> {
   const found = onScreen(deps, objectId)
   if ('content' in found) return found
   const { obj, scene } = found
-  if (args.view === undefined && args.layout === undefined && args.parts === undefined && args.section === undefined && args.scans === undefined && args.scanOpacity === undefined && args.explode === undefined) return failure('nothing to show: give a view, a layout, parts, a section, an explode or scans')
-  if (args.layout !== undefined && !scene.layouts.includes(args.layout)) return failure(`no layout '${args.layout}'; layouts: ${scene.layouts.join(', ')}`)
-  if (args.parts?.length === 0) return failure('parts is empty: name the parts to leave switched on')
+  if (given.view === undefined && given.layout === undefined && given.parts === undefined && given.section === undefined && given.scans === undefined && given.scanOpacity === undefined && given.explode === undefined) return failure('nothing to show: give a view, a layout, parts, a section, an explode or scans')
+  if (given.layout !== undefined && !scene.layouts.includes(given.layout)) return failure(`no layout '${given.layout}'; layouts: ${scene.layouts.join(', ')}`)
+  if (given.parts?.length === 0) return failure('parts is empty: name the parts to leave switched on')
+  if (given.view === 'current') return failure(`view "current" is the camera the user has, which stays unless you give another: ${STANDARD_VIEWS}, the name of a saved view, or a camera`)
+
+  // The name of a saved view: all of it is put on their screen, for now, but for what is given beside it.
+  let args = given
+  let named: NamedView | undefined
+  if (isSavedName(given.view)) {
+    const view = await namedView(deps, objectId, scene, given.view, { layout: given.layout, others: STANDARD_VIEWS })
+    if ('content' in view) return view
+    named = view
+    args = { ...given, ...besideView(view, given) }
+  }
 
   const request: ShowRequest = { objectId }
+  if (named) request.viewName = named.view.name
+  // How the view has each scan, unless the call says which scans it wants or how thin.
+  if (named?.scanViews && given.scans === undefined && given.scanOpacity === undefined) request.scanViews = named.scanViews
   if (args.view !== undefined) {
     const wrong = cameraKeys(args.view)
     if (wrong !== null) return failure(wrong)
@@ -306,7 +338,154 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
     return failure(messageOf(e))
   }
   if (shown.objectId !== objectId) return failure(`${notOpen(obj, shown.objectId)}. Ask the user to open it.`)
-  return { content: [{ type: 'text', text: `${shown.caption}${spreadBesideScans(scene, shown)}${await undrawnScans(deps, objectId, args.scans)}\nrevision r${shown.revision}${staleNote(deps, objectId, shown)}\nThe user's viewport now shows this.` }] }
+  return { content: [{ type: 'text', text: `${shown.caption}${named ? passedOver(named, given) : ''}${spreadBesideScans(scene, shown)}${await undrawnScans(deps, objectId, args.scans)}\nrevision r${shown.revision}${staleNote(deps, objectId, shown)}\nThe user's viewport now shows this.` }] }
+}
+
+const STANDARD_VIEWS = 'iso, front, back, left, right, top, bottom'
+
+/** Whether a view given as a text is the name of a saved view: any text that is neither `current` nor a standard view. */
+const isSavedName = (view: unknown): view is string => typeof view === 'string' && view !== 'current' && !(VIEW_NAMES as readonly string[]).includes(view)
+
+/** A saved view as a picture or the window is asked for it, and what of it was passed over, each as it is said. */
+interface NamedView {
+  view: SavedView
+  /** The layout it is drawn in: its own, or the one asked beside it. */
+  layout: string
+  /** The names of the parts it shows: every part of that layout the build has, but those it hides. */
+  parts: string[]
+  /** How far apart it draws them, or null: also when it holds an explode that would draw nothing apart now. */
+  explode: ExplodeState | null
+  /** The scans a picture of it draws, by id: those it switches on, and of those it says nothing of, those on screen. Absent when it says nothing of the scans, or they cannot be read. */
+  scans?: string[]
+  /** How it has each scan the object still has. */
+  scanViews?: NonNullable<SavedView['scans']>
+  /** What it names that is gone, or holds that cannot be drawn now, by what it is of. */
+  passed: { parts?: string; scans?: string; explode?: string }
+}
+
+/**
+ * What a saved view asks of a picture or of the window: its camera, layout, the parts it shows (every part of its
+ * layout the build has, but its hidden ones), its section or its explode, its scans. Or the error to answer with:
+ * no view of that name, listing the names there are, or a view of a layout the model no longer has. Parts and
+ * scans it names that are gone are passed over, and said (`passed`): a view is never applied in silence to
+ * something else than it was saved of. `asked.layout` is the layout asked for beside it, which wins over its own;
+ * `asked.others` what else a view may be given as, for the refusal.
+ */
+export async function namedView(deps: ToolDeps, objectId: string, scene: Scene, name: string, asked: { layout?: string; others?: string } = {}): Promise<NamedView | ToolResult> {
+  // A scene file that cannot be read has no views.
+  const views = await deps.views(objectId).catch(() => [] as SavedView[])
+  const view = findView(views, name)
+  const others = asked.others ?? `current, ${STANDARD_VIEWS}`
+  if (!view) return failure(views.length > 0 ? `no view "${name}": the saved views are ${views.map((one) => `"${one.name}"`).join(', ')}; or ${others}, or a camera` : `no view "${name}": there are no saved views; give ${others}, or a camera`)
+  const layout = asked.layout ?? view.layout
+  if (!scene.layouts.includes(layout)) return failure(asked.layout === undefined ? `the view "${view.name}" is of layout ${view.layout}, which the model no longer has (layouts: ${scene.layouts.join(', ')})` : `no layout '${layout}'; layouts: ${scene.layouts.join(', ')}`)
+  const inLayout = scene.parts.filter((part) => part.layout === layout)
+  const names = inLayout.map((part) => part.name)
+  // Not read: nothing is then asked of the scans, and nothing said of them.
+  const scans = view.scans ? await deps.scans(objectId).catch(() => undefined) : undefined
+  const gone = viewGone({ ...view, layout }, { layouts: scene.layouts, parts: names, ...(scans ? { scans: scans.map((scan) => scan.id) } : {}) })
+  const passed: NamedView['passed'] = {}
+  if (gone.parts.length > 0) passed.parts = `the part${gone.parts.length === 1 ? '' : 's'} ${gone.parts.join(', ')}, which layout ${layout} no longer has`
+  if (gone.scans.length > 0) passed.scans = `the scan${gone.scans.length === 1 ? '' : 's'} ${gone.scans.join(', ')}, which ${gone.scans.length === 1 ? 'is' : 'are'} gone`
+  // Saved apart, of parts that can no longer be drawn apart: drawn together, and said.
+  const nothing = view.explode ? nothingApart(view.explode, inLayout) : null
+  if (nothing !== null) passed.explode = `its explode, as layout ${layout} ${nothing === 'one part' ? 'has fewer than two parts now' : 'has parts that share a centre now'}`
+  const named: NamedView = { view, layout, parts: names.filter((part) => !view.hidden.includes(part)), explode: nothing === null ? (view.explode ?? null) : null, passed }
+  if (view.scans && scans) {
+    const onScreen = deps.view(objectId)?.scans
+    const has = view.scans
+    named.scans = scans.filter((scan) => (scan.id in has ? has[scan.id].visible !== false : onScreen?.find((one) => one.id === scan.id)?.visible !== false)).map((scan) => scan.id)
+    named.scanViews = Object.fromEntries(Object.entries(has).filter(([id]) => scans.some((scan) => scan.id === id)))
+  }
+  return named
+}
+
+/**
+ * What a call that names a saved view asks for, of what a view holds: the view's own, but what the call gives
+ * beside it. A view holds a section or an explode, never both, so one given beside it takes the place of the
+ * other: a cut given leaves the parts together, and parts asked apart are drawn whole.
+ */
+function besideView(named: NamedView, given: { layout?: string; parts?: string[]; section?: unknown; explode?: unknown }): { view: CameraArg; layout: string; parts: string[]; section?: never; explode?: never } {
+  const apart = explodeAsked(given.explode)
+  const cut = given.section !== undefined && given.section !== null
+  return {
+    view: named.view.camera,
+    layout: named.layout,
+    parts: given.parts ?? named.parts,
+    ...(given.section === undefined ? { section: isExploded(apart as ExplodeState | null | undefined) ? null : (named.view.section ?? null) } : {}),
+    ...(given.explode === undefined ? { explode: cut ? null : named.explode } : {})
+  } as { view: CameraArg; layout: string; parts: string[] }
+}
+
+/** Said after the caption of a picture, or of what the window shows, of a saved view: what the view names that was passed over, but what the call itself gave instead. '' for nothing. */
+function passedOver(named: NamedView, given: { parts?: unknown; scans?: unknown; scanOpacity?: unknown; explode?: unknown; section?: unknown }): string {
+  const said = [given.parts === undefined ? named.passed.parts : undefined, given.scans === undefined && given.scanOpacity === undefined ? named.passed.scans : undefined, given.explode === undefined && (given.section === undefined || given.section === null) ? named.passed.explode : undefined].filter((one) => one !== undefined)
+  return said.length === 0 ? '' : ` · passed over, of the view "${named.view.name}": ${said.join('; ')}`
+}
+
+const NO_VIEW_NAME = 'name is what the view is called, 1 to 40 characters: {"name": "Wall at the latch"}'
+
+/**
+ * Leaves the user a view the agent proposes: kept by the window among the saved views of the object it shows, as
+ * the agent's and proposed until the user keeps or discards it. Whose it is and that it is proposed are never an
+ * argument. Everything is checked here first, against the views main knows of and the last build; the window
+ * checks again, against what it has, and its refusal is the answer. Nothing on the user's screen changes.
+ */
+export async function saveViewTool(deps: ToolDeps, objectId: string, args: SaveViewArgs): Promise<ToolResult> {
+  const found = onScreen(deps, objectId)
+  if ('content' in found) return found
+  const { obj, scene } = found
+  if (typeof args.name !== 'string') return failure(NO_VIEW_NAME)
+  if (args.note !== undefined && typeof args.note !== 'string') return failure('note is why you propose the view, in a line: {"name": "Wall at the latch", "note": "the wall M7 is about"}')
+  const views = await deps.views(objectId).catch(() => [] as SavedView[])
+  const refused = viewNameRefusal(args.name, views, 'agent')
+  // A name the user has: theirs are named, so that the next one asked is free.
+  if (refused !== null) return failure(refused.startsWith('the user ') ? `${refused} (their views: ${views.filter((view) => !view.proposed).map((view) => `"${view.name}"`).join(', ')})` : refused)
+  if (args.layout !== undefined && !scene.layouts.includes(args.layout)) return failure(`no layout '${args.layout}'; layouts: ${scene.layouts.join(', ')}`)
+  const layout = args.layout ?? deps.view(objectId)?.layout
+  const inLayout = scene.parts.filter((part) => part.layout === layout)
+  if (layout !== undefined && scene.layouts.includes(layout)) {
+    const unknown = args.parts?.find((name) => !inLayout.some((part) => part.name === name))
+    if (unknown !== undefined) return failure(`unknown part '${unknown}'; parts in layout ${layout}: ${inLayout.map((part) => part.name).join(', ')}`)
+  }
+
+  const request: SaveViewRequest = { objectId, name: args.name.trim() }
+  if (args.note !== undefined) request.note = args.note
+  if (args.view !== undefined) {
+    if (typeof args.view === 'string' && !(VIEW_NAMES as readonly string[]).includes(args.view)) return failure("view is iso, front, back, left, right, top or bottom, or a camera as scene gives one; left out, it is the camera on the user's screen")
+    const wrong = cameraKeys(args.view)
+    if (wrong !== null) return failure(wrong)
+    const view = cameraOf(args.view)
+    if (view === null) return failure('position and target are the same')
+    request.view = view as ViewName | Camera
+  }
+  if (args.layout !== undefined) request.layout = args.layout
+  if (args.parts !== undefined) request.parts = args.parts
+  if (args.section === null) request.section = null
+  else if (args.section !== undefined) {
+    const plane = planeArg(args.section)
+    if ('content' in plane) return plane
+    request.section = plane
+  }
+  const explode = explodeAsked(args.explode)
+  if (typeof explode === 'string') return failure(explode)
+  if (explode !== undefined) request.explode = explode
+  if (isExploded(explode) && request.section) return failure(VIEW_NOT_BOTH)
+  const nothing = drawsNothingApart(scene, layout, explode)
+  if (nothing !== null) return failure(nothing)
+
+  let saved: SaveViewResult
+  try {
+    saved = await deps.saveView(objectId, request)
+  } catch (e) {
+    return failure(messageOf(e))
+  }
+  if (saved.objectId !== objectId) return failure(`${notOpen(obj, saved.objectId)}. Ask the user to open it.`)
+  const { view } = saved
+  const shown = scene.parts.filter((part) => part.layout === view.layout && !view.hidden.includes(part.name)).map((part) => part.name)
+  const holds = view.section ? `section ${planeText(view.section)}, ` : view.explode ? `${explodeText(view.explode)}, ` : ''
+  const dropped = saved.dropped === undefined ? '' : ` Your oldest proposal, "${saved.dropped}", was dropped to make room: an object holds ${MAX_PROPOSALS} proposals at most.`
+  return { content: [{ type: 'text', text: `saved "${view.name}" as a view you propose${saved.replaced ? ', in place of your earlier proposal of that name' : ''}: layout ${view.layout}, parts ${shown.join(', ') || 'none'}, ${holds}${view.camera.ortho ? 'orthographic' : 'perspective'}. The user sees it in their views, marked proposed, until they keep or discard it.${dropped}\nrevision r${saved.revision}` }] }
 }
 
 /** To 0.01 mm. */

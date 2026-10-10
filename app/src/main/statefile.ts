@@ -3,6 +3,7 @@ import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
 import { type ScanInfo, importText } from '../shared/scans'
 import type { Scene } from '../shared/scene'
+import { type SavedView, viewGone } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
 import { writeFileAtomic } from './atomic'
 import { describeMark, sizes } from './marks/describe'
@@ -19,10 +20,11 @@ export const STATE_DELAY_MS = 1000
  * with sizes, the scans with how each is aligned, and every mark that is not
  * resolved, a line each. It is what an agent without torno's tools can read to
  * know what one with them is told.
- * Nothing in it changes unless the build, the marks or the scans do: no times, no camera.
+ * Nothing in it changes unless the build, the marks, the scans or the saved views do: no times, no camera.
+ * The saved views are named in a line, each with what of it no longer fits the build.
  * The file itself begins with `writtenLine`, before this.
  */
-export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[]): string {
+export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[]): string {
   const lines = [
     `# ${obj.name}`,
     '',
@@ -44,6 +46,7 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
       lines.push(`- ${layout}: ${parts.map((p) => `${p.name} ${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
     }
   }
+  if (views && views.length > 0) lines.push('', `Saved views: ${views.map((view) => viewSaid(view, last?.scene)).join(', ')}.`)
   if (scans && scans.length > 0) {
     lines.push('', '## Scans', '', 'A scan is a mesh of the real surroundings: nothing from it is exact.', '')
     for (const scan of scans) lines.push(`- ${scanLine(scan, last)}`)
@@ -61,6 +64,16 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     }
   }
   return `${lines.join('\n')}\n`
+}
+
+/** A saved view as the file names it: its name, that the agent proposed it, and what of it the build no longer has. */
+function viewSaid(view: SavedView, scene: Scene | undefined): string {
+  const notes: string[] = []
+  if (view.proposed) notes.push('proposed by the agent')
+  const gone = scene && viewGone(view, { layouts: scene.layouts, parts: scene.parts.filter((part) => part.layout === view.layout).map((part) => part.name) })
+  if (gone?.layout) notes.push(`of layout ${view.layout}, which the model no longer has`)
+  else if (gone && gone.parts.length > 0) notes.push(`hides ${gone.parts.join(', ')}, which layout ${view.layout} no longer has`)
+  return `"${view.name}"${notes.length > 0 ? ` (${notes.join('; ')})` : ''}`
 }
 
 /**
@@ -113,6 +126,8 @@ export interface StateFileDeps {
   marks(objectId: string): Promise<Mark[]>
   /** The scans of an object: each is listed, and a region of one is told where the scan's alignment puts it. */
   scans?(objectId: string): Promise<ScanInfo[]>
+  /** The views saved of an object: each is named. */
+  views?(objectId: string): Promise<SavedView[]>
   delayMs?: number
   write?(path: string, text: string): Promise<void>
   log?(message: string): void
@@ -133,7 +148,7 @@ export class StateFiles {
 
   constructor(private deps: StateFileDeps) {}
 
-  /** The build, the marks or the scans of an object changed. */
+  /** The build, the marks, the scans or the saved views of an object changed. */
   changed(objectId: string): void {
     clearTimeout(this.timers.get(objectId))
     const timer = setTimeout(() => {
@@ -159,10 +174,12 @@ export class StateFiles {
     const marks = await this.deps.marks(objectId)
     // Scans that cannot be read are left out: the build and the marks are still told.
     const scans = await this.deps.scans?.(objectId).catch(() => undefined)
+    // Nor are views that cannot be read a reason to write nothing.
+    const views = await this.deps.views?.(objectId).catch(() => undefined)
     // As things are once the marks are read: a build may have ended meanwhile.
     const build = this.deps.build(objectId)
     if (!build || this.deps.object(objectId)?.dir !== obj.dir) return
-    const text = stateText(obj, build, this.deps.scene(objectId), marks, scans)
+    const text = stateText(obj, build, this.deps.scene(objectId), marks, scans, views)
     const path = join(obj.dir, FOLDER, NAME)
     if (this.written.get(path) === text) return
     await (this.deps.write ?? writeFileAtomic)(path, `${writtenLine(this.deps.now?.() ?? new Date())}\n\n${text}`)

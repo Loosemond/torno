@@ -46,7 +46,9 @@ const bridge: TornoBridge = {
     onHighlight: (cb) => subscribe('view:highlight', cb),
     highlightReply: (id, result) => ipcRenderer.send('view:highlightReply', id, result),
     onDrawSection: (cb) => subscribe('view:drawSection', cb),
-    drawSectionReply: (id, result) => ipcRenderer.send('view:drawSectionReply', id, result)
+    drawSectionReply: (id, result) => ipcRenderer.send('view:drawSectionReply', id, result),
+    onSaveView: (cb) => subscribe('view:saveView', cb),
+    saveViewReply: (id, result) => ipcRenderer.send('view:saveViewReply', id, result)
   },
   marks: {
     list: (objectId) => invokePlain('marks:list', objectId),

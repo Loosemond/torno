@@ -22,6 +22,8 @@ export const SYSTEM_PROMPT = [
   'mcp__torno__add_mark leaves a mark of your own, to show where you changed something or what a question is about.',
   'mcp__torno__show changes what the user sees (their camera, layout, visible parts and section): use it to show them something, and say that you did. To see for yourself, use look.',
   'look and show take explode (0 to 1) to draw the parts apart for display; a picture says when it is exploded, and no position, ref or number is ever of an exploded part.',
+  'scene lists the views saved by name: look {"view": "Hinge side"} draws one and show {"view": "Hinge side"} puts it on the user\'s screen.',
+  'mcp__torno__save_view {"name": "Wall at the latch", "view": "front", "parts": ["tray"]} proposes a view of your own for them to keep.',
   'Measure before you state a size, with these tools and no script.',
   'mcp__torno__measure {"kind": "distance", "a": "plate/F2", "b": "plate/F4"} is the distance between two refs (also angle; and of one: radius, diameter, bbox, area, volume, mass), and {"kind": "thickness", "a": {"ref": "plate/F2", "point": [10, 5, 6]}} the wall under a point of a face.',
   'mcp__torno__check {"kind": "clearance", "a": "lid", "b": "tub"} is the least distance between two parts (also overlap, and mesh of one part: whether it is closed).',

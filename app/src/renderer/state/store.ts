@@ -6,7 +6,9 @@ import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, explodeShown, 
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanView } from '../../shared/scans'
-import { sectionOf, snappedSection, type SectionPlane, type ViewName } from '../../shared/view'
+import { sectionOf, snappedSection, type Camera, type SectionPlane, type ViewName } from '../../shared/view'
+import { type SavedView, findView, proposalToDrop, viewNameRefusal } from '../../shared/views'
+import { sameCamera, viewOnScreen } from './savedViews'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
 
@@ -54,6 +56,16 @@ export interface TornoState {
    * is drawn apart. What is drawn of it is `explodeNow`: nothing while there is a section.
    */
   explode: Record<string, ExplodeState>
+  /**
+   * The views saved of the open object under a name, in the order they were saved: what the scene file keeps.
+   * One that is `proposed` is the agent's, until the person keeps or discards it.
+   */
+  views: SavedView[]
+  /**
+   * The name of the saved view that was last put on screen or saved from it, until the camera comes to rest
+   * somewhere else; null for none. The strip marks it while the screen still shows what it holds (`viewMatches`).
+   */
+  activeView: string | null
   /** The marks of the open object, as main last told them. */
   marks: Mark[]
   /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
@@ -124,8 +136,9 @@ const NOTHING_SELECTED: string[] = []
 const NOTHING_PICKED: Record<string, PickedAt> = {}
 const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
+const NO_VIEWS: SavedView[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -161,7 +174,7 @@ export const actions = {
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */
   openObject(objectId: string, file: SceneFile): void {
-    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), explode: file.explode ?? {}, scanViews: file.scans ?? {} })
+    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), explode: file.explode ?? {}, scanViews: file.scans ?? {}, views: file.views ?? NO_VIEWS })
   },
 
   applyBuild(build: BuildState): void {
@@ -334,6 +347,105 @@ export const actions = {
     if (Object.keys(apart).length > 0) theirs.explode = apart
     else delete theirs.explode
     store.setState({ ...next, layers, scanViews, explode: explodes, shownByAgent: nothingShown(theirs) ? null : theirs })
+  },
+
+  /**
+   * Keep the view on screen under a name, by hand, with the camera as it is: in place of the view of that name,
+   * whoever made it, or as one more. It is the person's from now. Nothing of how the object is looked at changes.
+   * Returns why not, as a sentence, or null.
+   */
+  saveView(name: string, camera: Camera): string | null {
+    const s = store.getState()
+    const refused = viewNameRefusal(name, s.views, 'user')
+    if (refused !== null) return refused
+    const view = viewOnScreen(s, name, camera, new Date().toISOString())
+    const there = findView(s.views, name)
+    store.setState({ views: there ? s.views.map((one) => (one === there ? view : one)) : [...s.views, view], activeView: view.name, edits: s.edits + 1 })
+    return null
+  },
+
+  /**
+   * Put a saved view on screen, as one edit of the person's own: its layout; every part of that layout switched
+   * on unless the view hides it (a name the build no longer has is passed over); its section, or none; its parts
+   * apart as it has them, or together; each scan the object still has as the view shows it, the others left.
+   * Whatever the agent's `show` had on screen is put away: what the view does not set is as the person had it.
+   * View state only: no geometry, no mark and no measurement changes, and no build is started. Returns the view,
+   * for whoever moves the camera to where it has it; or why not, as a sentence, and nothing is changed.
+   */
+  applyView(name: string): SavedView | string {
+    const s = store.getState()
+    const view = findView(s.views, name)
+    if (!view) return `There is no view named "${name}"`
+    if (!s.scene?.layouts.includes(view.layout)) return `Layout ${view.layout} is no longer in the model`
+    const theirs = sceneFileOf(s)
+    const layers = { ...theirs.layers }
+    for (const part of partsInLayout(s, view.layout)) {
+      const on = !view.hidden.includes(part.name)
+      if ((layers[part.name]?.visible !== false) !== on) layers[part.name] = { ...layers[part.name], visible: on }
+    }
+    // One or the other, as the view holds them: with none of its own the parts are together, along what and how far kept.
+    const explode = { ...theirs.explode }
+    if (view.explode) explode[view.layout] = view.explode
+    else if (explode[view.layout]) explode[view.layout] = { ...explode[view.layout], amount: 0 }
+    const scanViews = { ...theirs.scans }
+    for (const [id, shown] of Object.entries(view.scans ?? {})) {
+      if (s.scans.some((scan) => scan.id === id)) scanViews[id] = { ...scanViews[id], visible: shown.visible !== false, opacity: shown.opacity ?? 1 }
+    }
+    store.setState({ ...(view.layout !== s.layout ? layoutChange(s, view.layout) : {}), layers, section: view.section ?? null, explode, scanViews, shownByAgent: null, activeView: view.name, edits: s.edits + 1 })
+    return view
+  },
+
+  /** Give a view of the person's another name. Returns why not, as a sentence, or null. */
+  renameView(name: string, to: string): string | null {
+    const s = store.getState()
+    const view = findView(s.views, name)
+    if (!view) return `There is no view named "${name}"`
+    const refused = viewNameRefusal(to, s.views, 'user', view.name)
+    if (refused !== null) return refused
+    const renamed = to.trim()
+    if (renamed === view.name) return null
+    store.setState({ views: s.views.map((one) => (one === view ? { ...view, name: renamed } : one)), activeView: s.activeView === view.name ? renamed : s.activeView, edits: s.edits + 1 })
+    return null
+  },
+
+  /** Take a saved view away: one of the person's, or a proposal of the agent's they do not want. */
+  removeView(name: string): void {
+    const s = store.getState()
+    const view = findView(s.views, name)
+    if (view) store.setState({ views: s.views.filter((one) => one !== view), activeView: s.activeView === view.name ? null : s.activeView, edits: s.edits + 1 })
+  },
+
+  /** The agent's proposal becomes one of the views: `proposed` goes, and it is no longer the agent's to replace. */
+  keepView(name: string): void {
+    const s = store.getState()
+    const view = findView(s.views, name)
+    if (!view?.proposed) return
+    const { proposed: _kept, ...rest } = view
+    store.setState({ views: s.views.map((one) => (one === view ? rest : one)), edits: s.edits + 1 })
+  },
+
+  /**
+   * Keep a view the agent proposes: the agent's, and proposed, whatever it says of itself. It takes the place of
+   * the agent's own proposal of that name; with as many proposals waiting as there may be, the oldest of them
+   * goes (`proposalToDrop`). False when it cannot be kept (`viewNameRefusal`): the name is that of a view the
+   * person made or kept. Nothing on screen changes.
+   */
+  proposeView(view: SavedView): boolean {
+    const s = store.getState()
+    if (viewNameRefusal(view.name, s.views, 'agent') !== null) return false
+    const proposal: SavedView = { ...view, name: view.name.trim(), author: 'agent', proposed: true }
+    const there = findView(s.views, proposal.name)
+    const dropped = proposalToDrop(s.views, proposal.name)
+    const views = there ? s.views.map((one) => (one === there ? proposal : one)) : [...s.views.filter((one) => one.name !== dropped), proposal]
+    store.setState({ views, edits: s.edits + 1 })
+    return true
+  },
+
+  /** The camera came to rest: the view that was on is no longer, unless that is where it has the camera. */
+  cameraSettled(camera: Camera): void {
+    const s = store.getState()
+    const view = s.activeView === null ? undefined : findView(s.views, s.activeView)
+    if (s.activeView !== null && !(view && sameCamera(view.camera, camera))) store.setState({ activeView: null })
   },
 
   /** The marks of an object, as loaded or as changed. Those of an object that is not the open one are not kept. */
@@ -541,9 +653,9 @@ export function visibleKeys(s: TornoState, layout = s.layout): string[] {
 /**
  * What `<object>/.torno/scene.json` should hold for the open object: the
  * layout, the layers, the section, how the parts of each layout are drawn
- * apart and how each scan is looked at, as the person chose them. Where the
- * agent's `show` has something else on screen, it is the person's choice that
- * is kept.
+ * apart and how each scan is looked at, as the person chose them, and the
+ * views saved under a name. Where the agent's `show` has something else on
+ * screen, it is the person's choice that is kept.
  */
 export function sceneFileOf(s: TornoState): SceneFile {
   const layout = s.shownByAgent?.layout ?? s.layout
@@ -569,7 +681,7 @@ export function sceneFileOf(s: TornoState): SceneFile {
   if (section && layout && explode[layout]?.amount > 0) explode[layout] = { ...explode[layout], amount: 0 }
   // What says nothing but what is so anyway is left out.
   for (const [name, one] of Object.entries(explode)) if (sameExplode(one, NO_EXPLODE)) delete explode[name]
-  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(scans).length > 0 ? { scans } : {}), ...(Object.keys(explode).length > 0 ? { explode } : {}) }
+  return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(scans).length > 0 ? { scans } : {}), ...(Object.keys(explode).length > 0 ? { explode } : {}), ...(s.views.length > 0 ? { views: s.views } : {}) }
 }
 
 /**

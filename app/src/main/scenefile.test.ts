@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MIN_SCAN_OPACITY } from '../shared/scans'
-import { loadSceneFile, saveSceneFile, sceneFilesSettled, type SceneFile } from './scenefile'
+import type { SavedView } from '../shared/views'
+import { forgetSceneFiles, loadSceneFile, proposalAsked, saveSceneFile, sceneFileNow, sceneFilesSettled, type SceneFile } from './scenefile'
 
 let dir: string
 
@@ -13,7 +14,11 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+  forgetSceneFiles()
 })
+
+const CAMERA = { position: [120, -90, 60], target: [0, 0, 6], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 } as SavedView['camera']
+const view = (name: string, more: Partial<SavedView> = {}): SavedView => ({ name, author: 'user', layout: 'assembly', camera: CAMERA, hidden: [], at: '2026-10-09T21:14:03.000Z', ...more })
 
 describe('scene file', () => {
   it('round trips, creating .torno/ on demand', async () => {
@@ -108,5 +113,63 @@ describe('scene file', () => {
       writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ explode: not }))
       expect(await loadSceneFile(dir)).toEqual({ layers: {} })
     }
+  })
+
+  it('keeps the saved views that are views, and loses only the one that is broken', async () => {
+    const hinge = view('Hinge side', { hidden: ['lid'], explode: { amount: 0.4, scale: 1, axis: 'z' } })
+    await saveSceneFile(dir, { layers: {}, views: [hinge, { name: 'broken' }, view('hinge SIDE'), view('Cut', { section: { origin: [0, 0, 3], normal: [0, 0, 2] } })] } as unknown as SceneFile)
+    expect(JSON.parse(readFileSync(join(dir, '.torno', 'scene.json'), 'utf8')).views.map((v: SavedView) => v.name)).toEqual(['Hinge side', 'Cut'])
+    forgetSceneFiles()
+    const read = await loadSceneFile(dir)
+    expect(read.views).toEqual([hinge, view('Cut', { section: { origin: [0, 0, 3], normal: [0, 0, 1] } })])
+    // A file edited by hand, or by a merge: what is no list of views is none, and the rest of the file is read.
+    writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layout: 'print', views: { name: 'x' } }))
+    expect(await loadSceneFile(dir)).toEqual({ layout: 'print', layers: {} })
+    await saveSceneFile(dir, { layers: {}, views: [] })
+    expect(await loadSceneFile(dir)).toEqual({ layers: {} })
+  })
+
+  it('answers with the file as it was last read or given, at once, and reads the disk the first time', async () => {
+    mkdirSync(join(dir, '.torno'), { recursive: true })
+    writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layers: {}, views: [view('On disk')] }))
+    expect((await sceneFileNow(dir)).views?.map((v) => v.name)).toEqual(['On disk'])
+    // Given by the window: known before it is on the disk.
+    const save = saveSceneFile(dir, { layout: 'print', layers: {}, views: [view('On disk'), view('New')] })
+    expect((await sceneFileNow(dir)).views?.map((v) => v.name)).toEqual(['On disk', 'New'])
+    await save
+    // Changed behind torno's back: not seen until the file is read again, as it is when its object is opened.
+    writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layers: {} }))
+    expect((await sceneFileNow(dir)).views).toHaveLength(2)
+    expect((await loadSceneFile(dir)).views).toBeUndefined()
+    expect((await sceneFileNow(dir)).views).toBeUndefined()
+    // A folder with no file has no views; nothing is written for the asking.
+    const empty = mkdtempSync(join(tmpdir(), 'torno-scenefile-'))
+    expect(await sceneFileNow(empty)).toEqual({ layers: {} })
+    expect(readdirSync(empty)).toEqual([])
+    rmSync(empty, { recursive: true, force: true })
+  })
+
+  it('takes a view for the agent\'s, or for proposed, only when main asked for it or the file said so before', async () => {
+    await saveSceneFile(dir, { layers: {}, views: [view('Mine')] })
+    // The window says of its own accord that a view is the agent's proposal: it is the person's.
+    await saveSceneFile(dir, { layers: {}, views: [view('Mine'), view('Wall', { author: 'agent', proposed: true, note: 'thin' })] })
+    expect((await sceneFileNow(dir)).views).toEqual([view('Mine'), view('Wall', { note: 'thin' })])
+    // Main asked the window to keep the agent's "Latch": that one is the agent's, and proposed.
+    const done = proposalAsked(dir, ' latch ')
+    await saveSceneFile(dir, { layers: {}, views: [view('Mine'), view('Latch', { author: 'agent', proposed: true })] })
+    done()
+    expect((await sceneFileNow(dir)).views?.[1]).toEqual(view('Latch', { author: 'agent', proposed: true }))
+    // It stays so in the saves that follow, and under another name (the same view: saved at the same moment).
+    await saveSceneFile(dir, { layers: {}, views: [view('Mine'), view('Latch', { author: 'agent', proposed: true })] })
+    expect((await sceneFileNow(dir)).views?.[1].proposed).toBe(true)
+    // Kept by the person: the agent's still, proposed no more, and never proposed again on the window's word.
+    await saveSceneFile(dir, { layers: {}, views: [view('Mine'), view('The latch', { author: 'agent' })] })
+    expect((await sceneFileNow(dir)).views?.[1]).toEqual(view('The latch', { author: 'agent' }))
+    await saveSceneFile(dir, { layers: {}, views: [view('Mine'), view('The latch', { author: 'agent', proposed: true })] })
+    expect((await sceneFileNow(dir)).views?.[1]).toEqual(view('The latch', { author: 'agent' }))
+    // What the file on the disk says is what it says: read, it is taken as it is.
+    forgetSceneFiles()
+    writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layers: {}, views: [view('Read', { author: 'agent', proposed: true })] }))
+    expect((await loadSceneFile(dir)).views?.[0].proposed).toBe(true)
   })
 })

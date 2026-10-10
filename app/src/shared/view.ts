@@ -1,6 +1,7 @@
 import type { ExplodeState } from './explode'
 import { number } from './format'
 import type { Sectioned, SectionedPart } from './geometry'
+import type { SavedView } from './views'
 
 export type ViewName = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom'
 export interface Camera { position: [number, number, number]; target: [number, number, number]; up: [number, number, number]; ortho: boolean; fov: number; zoom: number }
@@ -44,6 +45,8 @@ export interface LookRequest {
   frame?: 'parts' | 'all'
   /** How far apart the parts are drawn: `'current'` (and when absent) as on screen, null together, or an explode of the picture's own. Never with a section. */
   explode?: ExplodeState | 'current' | null
+  /** The saved view the picture is of, by its name: for the caption only. What is drawn is what the rest of the request says. */
+  viewName?: string
 }
 /**
  * Colours one scan by its distance to a part of the layout, for a picture: from `--deviation-near` at 0 to
@@ -66,7 +69,18 @@ export interface ShowRequest {
   scanOpacity?: number
   /** How far apart the parts are drawn, for now; null puts them together; absent leaves it. Never with a section. */
   explode?: ExplodeState | null
+  /** By scan id, how each scan is shown, as a saved view has it: `visible` and `opacity`, each only where the view says. Not with `scans` or `scanOpacity`. */
+  scanViews?: Record<string, { visible?: boolean; opacity?: number }>
+  /** The saved view that is shown, by its name: for the caption only. */
+  viewName?: string
 }
+/**
+ * What the agent asks the window to keep as a view it proposes. Everything left out is as on screen. Whose the view
+ * is and that it is only proposed are not in a request: the window says so of every view it keeps for the agent.
+ */
+export interface SaveViewRequest { objectId: string; name: string; note?: string; view?: ViewName | Camera; layout?: string; parts?: string[]; section?: SectionPlane | null; explode?: ExplodeState | null }
+/** The view the window kept for the agent, of which object and build, whether it took the place of the agent's earlier proposal of that name, and the name of the proposal that was dropped to make room, if one was. */
+export interface SaveViewResult { objectId: string; revision: number; view: SavedView; replaced: boolean; dropped?: string }
 /** What the window did for a `ShowRequest`: what it now shows, as the caption of a picture would say it, and of which object and build. */
 export interface ShowResult { caption: string; objectId: string; revision: number; stale: boolean; /** The layout now shown, and the scans drawn in it, by id. */ layout?: string; scans?: string[]; /** Its parts are now drawn apart. */ exploded?: boolean }
 /** What the agent asks the window to point out to the person: refs of the layout shown, tinted in the agent's colour, with a note. */

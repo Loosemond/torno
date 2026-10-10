@@ -58,7 +58,17 @@ describe('the system prompt', () => {
   })
 
   it('says that explode is for display, right after what show is for', () => {
-    expect(SYSTEM_PROMPT).toContain('To see for yourself, use look. look and show take explode (0 to 1) to draw the parts apart for display; a picture says when it is exploded, and no position, ref or number is ever of an exploded part. Measure before you state a size')
+    expect(SYSTEM_PROMPT).toContain('To see for yourself, use look. look and show take explode (0 to 1) to draw the parts apart for display; a picture says when it is exploded, and no position, ref or number is ever of an exploded part.')
+  })
+
+  it('says that scene lists the saved views, that look and show take one by its name, and how to propose one, as JSON that parses', () => {
+    expect(SYSTEM_PROMPT).toContain('ever of an exploded part. scene lists the views saved by name: look {"view": "Hinge side"} draws one and show {"view": "Hinge side"} puts it on the user\'s screen. mcp__torno__save_view {"name": "Wall at the latch", "view": "front", "parts": ["tray"]} proposes a view of your own for them to keep. Measure before you state a size')
+    const calls = [...SYSTEM_PROMPT.matchAll(/(look|show|mcp__torno__save_view) (\{"(?:view|name)": [^}]*\})/g)].map((m) => [m[1], JSON.parse(m[2])])
+    expect(calls).toEqual([
+      ['look', { view: 'Hinge side' }],
+      ['show', { view: 'Hinge side' }],
+      ['mcp__torno__save_view', { name: 'Wall at the latch', view: 'front', parts: ['tray'] }]
+    ])
   })
 
   // Final fix wave (I8, T9, C1).

@@ -117,7 +117,9 @@ beforeAll(async () => {
     sectionDrawing: async () => Promise.reject(new Error('no window in this test')),
     scans: (objectId) => scans.list(objectId),
     scansBusy: (objectId) => scans.working(objectId),
-    scanPaths: (objectId, id) => scans.paths(objectId, id)
+    scanPaths: (objectId, id) => scans.paths(objectId, id),
+    views: async () => [],
+    saveView: async () => Promise.reject(new Error('no view was expected to be saved'))
   }
   http = await startHttp()
   mountMcp(http, deps)

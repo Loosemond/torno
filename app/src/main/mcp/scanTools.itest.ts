@@ -81,7 +81,9 @@ beforeAll(async () => {
     sectionDrawing: async () => Promise.reject(new Error('no window in this test')),
     scans: async () => scans,
     scansBusy: () => [],
-    scanPaths: (_objectId, id) => ({ mesh: join(dir, '.torno', 'scans', id, 'mesh.bin'), mask: (mark) => join(dir, '.torno', 'scans', id, `${mark}.mask`) })
+    scanPaths: (_objectId, id) => ({ mesh: join(dir, '.torno', 'scans', id, 'mesh.bin'), mask: (mark) => join(dir, '.torno', 'scans', id, `${mark}.mask`) }),
+    views: async () => [],
+    saveView: async () => Promise.reject(new Error('no view was expected to be saved'))
   }
   http = await startHttp()
   mountMcp(http, deps)

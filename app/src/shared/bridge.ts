@@ -4,7 +4,7 @@ import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
 import type { Scene } from './scene'
 import type { AlignMade, NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } from './scans'
 import type { SceneFile } from './scenefile'
-import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
+import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
 
 export interface TornoBridge {
@@ -35,6 +35,9 @@ export interface TornoBridge {
     /** The agent asked for what a plane cuts: main has the outlines from the kernel, and the window draws them. */
     onDrawSection(cb: (m: { id: number; request: SectionDrawingRequest }) => void): () => void
     drawSectionReply(id: number, result: SectionDrawingResult | { error: string }): void
+    /** The agent proposes a view: the window keeps it among the saved views of the object it shows, marked as proposed, and says what it kept. */
+    onSaveView(cb: (m: { id: number; request: SaveViewRequest }) => void): () => void
+    saveViewReply(id: number, result: SaveViewResult | { error: string }): void
   }
   /** The marks of an object, kept by main in <object>/.torno/marks.json. Calls reject with a plain message. */
   marks: {

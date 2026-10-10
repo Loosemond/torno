@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
-import { asPictured, colouringNote, explodedNote, pictureExplode, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState, beyondNote, reachesBeyond } from './picture'
+import { asPictured, colouringNote, explodedNote, pictureExplode, pictureSize, scansNote, type PictureHost, type PicturePart, type PictureState, beyondNote, reachesBeyond, viewSaid } from './picture'
 
 describe('the size of a picture', () => {
   it('is 1280 on its long edge when none is asked for, or what is asked for is no number', () => {
@@ -337,5 +337,16 @@ describe('a picture whose parts are drawn apart', () => {
     // Together anyway: nothing to say.
     expect(pictureExplode(undefined, on({ coloured: true }))).toEqual({ explode: null, said: '' })
     expect(pictureExplode(null, on({ current: Z, coloured: true }))).toEqual({ explode: null, said: '' })
+  })
+})
+
+describe('the view a caption names', () => {
+  it('is the saved view by its name in quotes, else the standard view, the user\'s own, or a camera given', () => {
+    const camera = { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 } as const
+    expect(viewSaid(camera as never, 'Hinge side')).toBe('"Hinge side"')
+    expect(viewSaid('top')).toBe('top')
+    expect(viewSaid('current')).toBe('current')
+    expect(viewSaid(undefined)).toBe('current')
+    expect(viewSaid(camera as never)).toBe('custom')
   })
 })

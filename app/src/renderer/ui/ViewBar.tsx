@@ -4,6 +4,7 @@ import { actions, store, useStore } from '../state/store'
 import type { Viewport } from '../viewport/Viewport'
 import { ExplodeBar, ExplodeToggle, toggleExplode } from './ExplodeControl'
 import { TYPING } from './typing'
+import { ViewsStrip } from './ViewsStrip'
 
 const MAIN_VIEWS: { view: ViewName; label: string; key: string }[] = [
   { view: 'iso', label: 'Iso', key: '1' },
@@ -22,7 +23,7 @@ function setOrtho(viewport: Viewport, ortho: boolean): void {
   actions.setOrtho(ortho)
 }
 
-/** The palette floating at the top of the viewport: layout, standard views, projection, fit, explode; and under it the explode bar, while it is on. */
+/** The palette floating at the top of the viewport: layout, standard views, projection, fit, explode; under it the explode bar, while it is on, and the strip of saved views. */
 export function ViewBar({ viewport }: { viewport: Viewport }) {
   const layouts = useStore((s) => s.scene?.layouts ?? NONE)
   const layout = useStore((s) => s.layout)
@@ -159,6 +160,8 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       </div>
       {/* Under the bar while the parts are apart or its button is pressed. */}
       <ExplodeBar viewport={viewport} />
+      {/* The views saved under a name, and the way to save one. */}
+      <ViewsStrip viewport={viewport} />
     </div>
   )
 }

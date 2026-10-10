@@ -9,6 +9,8 @@ import {
   type HighlightResult,
   type LookRequest,
   type LookResult,
+  type SaveViewRequest,
+  type SaveViewResult,
   type SectionDrawingRequest,
   type SectionDrawingResult,
   type SectionPlane,
@@ -17,6 +19,7 @@ import {
   type ViewState,
   planeOf
 } from '../../shared/view'
+import type { SavedView } from '../../shared/views'
 import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, markData } from '../marks/describe'
 import type { Unmeasured } from '../marks/measure'
@@ -26,8 +29,8 @@ import { onlyKeysWrong, unknownKeys } from './keys'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { type MeasureToolArgs, type SectionToolArgs, checkTool, measureTool, sectionTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
-import { type AddMarkArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
-import { lookTool, sceneTool, showTool } from './viewTools'
+import { type AddMarkArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
+import { lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -81,6 +84,10 @@ export interface ToolDeps {
   scansBusy(objectId: string): string[]
   /** A 2D drawing of what the kernel says a plane cuts, made by the window, whichever object it shows. Rejects with a text. */
   sectionDrawing(req: SectionDrawingRequest): Promise<SectionDrawingResult>
+  /** The views saved of an object, in the order they were saved: of its scene file as main last read it or was given it. Rejects when that cannot be read. */
+  views(objectId: string): Promise<SavedView[]>
+  /** Has the window keep a view the agent proposes, of the object it has open: it is the agent's, and proposed, whatever the request. Rejects with a text. */
+  saveView(objectId: string, req: SaveViewRequest): Promise<SaveViewResult>
 }
 
 type Block = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -117,12 +124,13 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
     const of = TOOLS[name]
     server.registerTool(name, { description: of.description, inputSchema: z.looseObject('inputSchema' in of ? of.inputSchema : {}) }, async (args: unknown) => refusedKeys(name, args) ?? run(args as A))
   }
-  tool('scene', async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined)))
+  tool('scene', async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined)))
   tool<LookArgs>('look', (args) => lookTool(deps, objectId, args))
   tool<MarksArgs>('marks', (args) => marksTool(deps, objectId, args))
   tool<DescribeArgs>('describe', (args) => describeTool(deps, objectId, args))
   tool<HighlightArgs>('highlight', (args) => highlightTool(deps, objectId, args))
   tool<ShowArgs>('show', (args) => showTool(deps, objectId, args))
+  tool<SaveViewArgs>('save_view', (args) => saveViewTool(deps, objectId, args))
   tool<AddMarkArgs>('add_mark', (args) => addMarkTool(deps, objectId, args))
   tool<ResolveMarkArgs>('resolve_mark', (args) => resolveMarkTool(deps, objectId, args))
   tool<MeasureToolArgs>('measure', (args) => measureTool(deps, objectId, args))

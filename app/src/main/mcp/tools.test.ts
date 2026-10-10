@@ -4,13 +4,14 @@ import type { Part, Scene } from '../../shared/scene'
 import type { ScanAlignment, ScanInfo } from '../../shared/scans'
 import type { Described } from '../../shared/geometry'
 import type { Anchor, Mark, MarkPatch, NewMark } from '../../shared/marks'
-import type { Camera, LookRequest, LookResult, ShowRequest, ViewState } from '../../shared/view'
+import type { Camera, LookRequest, LookResult, SaveViewRequest, ShowRequest, ViewState } from '../../shared/view'
+import type { SavedView } from '../../shared/views'
 import type { ObjectInfo } from '../../shared/workspace'
 import type { NearestAnchor } from '../marks/reanchor'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
-import { TOOLS } from './schemas'
+import { TOOLS, refusedKeys } from './schemas'
 import { describeTool, marksTool, type ToolDeps } from './tools'
-import { explodeAsked, lookTool, sceneTool, showTool } from './viewTools'
+import { explodeAsked, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 const STAND: ObjectInfo = { id: 'helmet-stand', name: 'helmet-stand', dir: '/ws/helmet-stand', model: 'stand.py' }
@@ -131,14 +132,23 @@ interface Fake extends ToolDeps {
   w: World
   looks: Array<{ objectId: string; req: LookRequest }>
   saved: Array<{ objectId: string; png: Uint8Array }>
+  /** What the window was asked to keep as a view of the agent's. */
+  savedViews: SaveViewRequest[]
 }
 
 function fake(over: Partial<ToolDeps> & { state?: BuildState | null; noScene?: boolean } = {}): Fake {
   const looks: Fake['looks'] = []
   const saved: Fake['saved'] = []
+  const savedViews: Fake['savedViews'] = []
   return {
     looks,
     saved,
+    savedViews,
+    views: async () => [],
+    saveView: async (objectId, req) => {
+      savedViews.push(req)
+      return { objectId, revision: 3, replaced: false, view: { name: req.name, author: 'agent', proposed: true, layout: req.layout ?? 'assembly', camera: { ...CAMERA, ortho: typeof req.view === 'string' }, hidden: req.parts ? ['base', 'post'].filter((name) => !req.parts!.includes(name)) : [], at: '', ...(req.note ? { note: req.note } : {}), ...(req.section ? { section: req.section } : {}), ...(req.explode ? { explode: req.explode } : {}) } }
+    },
     object: (id) => [BRACKET, STAND].find((o) => o.id === id),
     build: (id) => (id === 'bracket' ? (over.state === null ? undefined : (over.state ?? OK)) : undefined),
     scene: (id) => (id === 'bracket' && !over.noScene ? { revision: (over.state ?? OK).revision, scene: SCENE } : undefined),
@@ -172,7 +182,7 @@ const textOf = (result: { content: Array<{ type: string; text?: string }> }): st
 
 describe('the tool descriptions', () => {
   it('say in two or three sentences each what the tool returns and when to use it', () => {
-    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'scans', 'scan_clash', 'scan_deviation'])
+    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'show', 'save_view', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'scans', 'scan_clash', 'scan_deviation'])
     for (const tool of Object.values(TOOLS)) {
       expect(tool.description).toMatch(/^Returns /)
       const sentences = tool.description.match(/[.?!]"?(\s|$)/g)!.length
@@ -1374,5 +1384,133 @@ describe('explode', () => {
       expect(Object.keys(tool.inputSchema)).toContain('explode')
       expect(tool.inputSchema.explode.description).toContain('For display only: positions, refs and measurements are always of the parts as assembled.')
     }
+  })
+})
+
+describe('saved views', () => {
+  const HINGE = { name: 'Hinge side', author: 'user', layout: 'assembly', camera: CAMERA, hidden: ['post'], explode: { amount: 0.4, scale: 1, axis: 'z' }, at: '' } as SavedView
+  const CUT = { name: 'Wall', author: 'agent', proposed: true, note: 'thin', layout: 'print', camera: CAMERA, hidden: [], section: { origin: [0, 0, 3], normal: [0, 0, 1] }, at: '' } as SavedView
+  const withViews = (views: SavedView[], over: Parameters<typeof fake>[0] = {}): Fake => fake({ views: async () => views, ...over })
+  const scan = (id: string): ScanInfo => ({ id, name: id, meshState: 'ok', alignments: {}, imported: { triangles: 12 } }) as unknown as ScanInfo
+
+  it('draws and shows a saved view by its name, and lets what is given beside it win', async () => {
+    const d = withViews([HINGE])
+    const drawn = await lookTool(d, 'bracket', { view: 'hinge side' })
+    expect(drawn.isError).toBeUndefined()
+    // All of it is the view's: nothing is left to be as on screen.
+    expect(d.looks.at(-1)!.req).toEqual({ view: CAMERA, viewName: 'Hinge side', layout: 'assembly', parts: ['base'], section: null, explode: HINGE.explode, size: 1280 })
+    await lookTool(d, 'bracket', { view: 'Hinge side', parts: ['base', 'post'], explode: null })
+    expect(d.looks.at(-1)!.req).toMatchObject({ parts: ['base', 'post'], explode: null })
+    await showTool(d, 'bracket', { view: 'Hinge side' })
+    expect(d.w.shows.at(-1)).toEqual({ objectId: 'bracket', view: CAMERA, viewName: 'Hinge side', layout: 'assembly', parts: ['base'], section: null, explode: HINGE.explode })
+    // The standard views and the user's own camera are what they were.
+    await lookTool(d, 'bracket', { view: 'top' })
+    await lookTool(d, 'bracket', { view: 'current' })
+    expect(d.looks.slice(-2).map((look) => look.req)).toEqual([{ view: 'top', size: 1280, explode: 'current' }, { view: 'current', size: 1280, explode: 'current' }])
+  })
+
+  it('refuses a name that is no view with the names there are, and a view whose layout is gone', async () => {
+    const d = withViews([HINGE, CUT])
+    expect(textOf(await lookTool(d, 'bracket', { view: 'hinge' }))).toBe('no view "hinge": the saved views are "Hinge side", "Wall"; or current, iso, front, back, left, right, top, bottom, or a camera')
+    expect(textOf(await showTool(d, 'bracket', { view: 'hinge' }))).toBe('no view "hinge": the saved views are "Hinge side", "Wall"; or iso, front, back, left, right, top, bottom, or a camera')
+    expect(textOf(await lookTool(fake(), 'bracket', { view: 'hinge' }))).toBe('no view "hinge": there are no saved views; give current, iso, front, back, left, right, top, bottom, or a camera')
+    const gone = withViews([{ ...HINGE, layout: 'bed' }])
+    expect(textOf(await lookTool(gone, 'bracket', { view: 'Hinge side' }))).toBe('the view "Hinge side" is of layout bed, which the model no longer has (layouts: assembly, print)')
+    expect(textOf(await showTool(gone, 'bracket', { view: 'Hinge side' }))).toBe('the view "Hinge side" is of layout bed, which the model no longer has (layouts: assembly, print)')
+    // Asked in a layout the model has, it is drawn there.
+    expect((await lookTool(gone, 'bracket', { view: 'Hinge side', layout: 'print' })).isError).toBeUndefined()
+    expect(gone.looks.at(-1)!.req).toMatchObject({ layout: 'print', parts: ['base'] })
+    expect([d.looks, d.w.shows]).toEqual([[], []])
+    // A scene file that cannot be read has no views.
+    expect(textOf(await lookTool(fake({ views: () => Promise.reject(new Error('EACCES')) }), 'bracket', { view: 'hinge' }))).toContain('there are no saved views')
+  })
+
+  it('passes over what a view names that is gone, and says which', async () => {
+    const view = { ...HINGE, hidden: ['post', 'clip'], scans: { S1: { visible: true, opacity: 0.5 }, S2: { visible: false }, S9: { visible: true } } } as SavedView
+    const d = withViews([view], { scans: async () => [scan('S1'), scan('S2'), scan('S3')], view: () => ({ ...VIEW, scans: [{ id: 'S1', visible: false, opacity: 1, loaded: true }, { id: 'S2', visible: true, opacity: 1, loaded: true }, { id: 'S3', visible: true, opacity: 1, loaded: true }] }) })
+    const SAID = ' · passed over, of the view "Hinge side": the part clip, which layout assembly no longer has; the scan S9, which is gone'
+    const drawn = await lookTool(d, 'bracket', { view: 'Hinge side' })
+    // The scans the view switches on, and those it says nothing of as they are on screen.
+    expect(d.looks.at(-1)!.req).toMatchObject({ parts: ['base'], scans: ['S1', 'S3'] })
+    expect(textOf(drawn).split('\n')[0]).toBe(`${PICTURE.caption}${SAID}`)
+    const shown = await showTool(d, 'bracket', { view: 'Hinge side' })
+    expect(d.w.shows.at(-1)).toMatchObject({ parts: ['base'], scanViews: { S1: { visible: true, opacity: 0.5 }, S2: { visible: false } } })
+    expect(d.w.shows.at(-1)!.scans).toBeUndefined()
+    expect(textOf(shown).split('\n')[0]).toBe(`view top · layout assembly · parts base, post · orthographic${SAID}`)
+    // Scans named beside the view win, and nothing is then said of the view's.
+    await lookTool(d, 'bracket', { view: 'Hinge side', scans: false })
+    expect(d.looks.at(-1)!.req.scans).toBe(false)
+    // The layout has lost all but one part since: nothing can be drawn apart, which is said, not refused.
+    const scene: Scene = { ...SCENE, parts: SCENE.parts.filter((p) => p.name === 'base') }
+    const alone = withViews([{ ...HINGE, hidden: [] }], { scene: () => ({ revision: 3, scene }) })
+    expect(textOf(await lookTool(alone, 'bracket', { view: 'Hinge side' })).split('\n')[0]).toBe(`${PICTURE.caption} · passed over, of the view "Hinge side": its explode, as layout assembly has fewer than two parts now`)
+    expect(alone.looks.at(-1)!.req.explode).toBeNull()
+  })
+
+  it('holds a section or an explode: whichever is given beside a view takes the place of the other', async () => {
+    const d = withViews([HINGE, CUT])
+    await lookTool(d, 'bracket', { view: 'Hinge side', section: { axis: 'z', at: 3 } })
+    expect(d.looks.at(-1)!.req).toMatchObject({ section: { origin: [0, 0, 3], normal: [0, 0, 1] }, explode: null })
+    await lookTool(d, 'bracket', { view: 'Wall', explode: 0.5 })
+    expect(d.looks.at(-1)!.req).toMatchObject({ layout: 'print', section: null, explode: { amount: 0.5, scale: 1, axis: 'centre' } })
+    await showTool(d, 'bracket', { view: 'Wall', explode: 0.5 })
+    expect(d.w.shows.at(-1)).toMatchObject({ section: null, explode: { amount: 0.5, scale: 1, axis: 'centre' } })
+    // Together is no explode: the view's cut stays.
+    await lookTool(d, 'bracket', { view: 'Wall', explode: null })
+    expect(d.looks.at(-1)!.req).toMatchObject({ section: CUT.section, explode: null })
+    // Both given: refused, as without a view.
+    expect(textOf(await lookTool(d, 'bracket', { view: 'Wall', explode: 0.5, section: { axis: 'z', at: 3 } }))).toContain('a section is not drawn exploded')
+  })
+
+  it('lists the views in scene, each with whose it is and what it holds', () => {
+    const d = fake()
+    expect(JSON.parse(textOf(sceneTool(d, 'bracket', undefined, undefined, [HINGE, CUT]))).views).toEqual([
+      { name: 'Hinge side', by: 'user', layout: 'assembly', exploded: true, hidden: 1 },
+      { name: 'Wall', by: 'agent', proposed: true, layout: 'print', section: true, note: 'thin' }
+    ])
+    expect('views' in JSON.parse(textOf(sceneTool(d, 'bracket', undefined, undefined, [])))).toBe(false)
+    expect('views' in JSON.parse(textOf(sceneTool(d, 'bracket')))).toBe(false)
+  })
+
+  it('proposes a view only under a name that is free, and of what the model has', async () => {
+    const d = withViews([HINGE, { ...CUT, proposed: undefined } as SavedView])
+    const taken = await saveViewTool(d, 'bracket', { name: 'hinge side' })
+    expect(taken.isError).toBe(true)
+    expect(textOf(taken)).toBe('the user has a view named "Hinge side": choose another name (their views: "Hinge side", "Wall")')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'WALL' }))).toBe('the user kept the view "Wall": choose another name (their views: "Hinge side", "Wall")')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'top' }))).toBe('"top" is a standard view: choose another name')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 7 as never }))).toBe('name is what the view is called, 1 to 40 characters: {"name": "Wall at the latch"}')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'Both', section: { axis: 'z', at: 3 }, explode: 0.5 }))).toBe('a view holds a section or an explode, not both: a section is not drawn exploded. Leave out explode to keep the cut, or section to keep the parts apart')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'x', parts: ['nope'] }))).toBe("unknown part 'nope'; parts in layout assembly: base, post")
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'x', layout: 'bed' }))).toBe("no layout 'bed'; layouts: assembly, print")
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'x', section: { z: 3 } as never }))).toContain('that is not a plane')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'x', explode: 50 }))).toContain('explode is a number from 0 to 1')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'x', view: { position: [0, 0, 0], target: [0, 0, 0] } }))).toBe('position and target are the same')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'x', view: 'hinge side' as never }))).toBe('view is iso, front, back, left, right, top or bottom, or a camera as scene gives one; left out, it is the camera on the user\'s screen')
+    expect(d.savedViews).toHaveLength(0)
+
+    const kept = await saveViewTool(d, 'bracket', { name: ' Wall at the latch ', view: 'front', parts: ['base'], note: 'the 1.2 mm wall M7 is about' })
+    expect(d.savedViews[0]).toEqual({ objectId: 'bracket', name: 'Wall at the latch', view: 'front', parts: ['base'], note: 'the 1.2 mm wall M7 is about' })
+    expect(textOf(kept)).toBe('saved "Wall at the latch" as a view you propose: layout assembly, parts base, orthographic. The user sees it in their views, marked proposed, until they keep or discard it.\nrevision r3')
+    // A cut, or the parts apart, is said with it; and what it took the place of, and what it pushed out.
+    const cut = await saveViewTool(d, 'bracket', { name: 'Cut', section: { axis: 'z', at: 3 } })
+    expect(d.savedViews[1]).toEqual({ objectId: 'bracket', name: 'Cut', section: { origin: [0, 0, 3], normal: [0, 0, 1] } })
+    expect(textOf(cut)).toContain('layout assembly, parts base, post, section plane normal +Z at z = 3, perspective.')
+    const full = fake({ saveView: async (objectId, req) => ({ objectId, revision: 3, replaced: true, dropped: 'Oldest', view: { name: req.name, author: 'agent', proposed: true, layout: 'assembly', camera: CAMERA, hidden: [], explode: { amount: 0.5, scale: 1, axis: 'centre' }, at: '' } }) })
+    expect(textOf(await saveViewTool(full, 'bracket', { name: 'Apart', explode: 0.5 }))).toBe('saved "Apart" as a view you propose, in place of your earlier proposal of that name: layout assembly, parts base, post, exploded 50 % from the centre, perspective. The user sees it in their views, marked proposed, until they keep or discard it. Your oldest proposal, "Oldest", was dropped to make room: an object holds 12 proposals at most.\nrevision r3')
+    // The window may refuse what main let through: its words are the answer.
+    const refusing = fake({ saveView: () => Promise.reject(new Error('the user has a view named "X": choose another name')) })
+    expect(textOf(await saveViewTool(refusing, 'bracket', { name: 'X' }))).toBe('the user has a view named "X": choose another name')
+    // Not for an object the window does not show.
+    expect(textOf(await saveViewTool(fake({ openObjectId: () => 'helmet-stand' }), 'bracket', { name: 'X' }))).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')
+  })
+
+  it('refuses a key save_view does not take, and takes those it names', () => {
+    expect(textOf(refusedKeys('save_view', { name: 'a', camera: {} })!)).toContain('save_view takes no "camera"')
+    expect(textOf(refusedKeys('save_view', { name: 'a', author: 'user' })!)).toContain('save_view takes no "author"')
+    expect(textOf(refusedKeys('save_view', { name: 'a', proposed: false })!)).toContain('save_view takes no "proposed"')
+    expect(refusedKeys('save_view', { name: 'a', note: 'b', view: 'iso', layout: 'print', parts: [], section: null, explode: 0 })).toBeNull()
+    expect(TOOLS.look.inputSchema.view.description).toContain('the name of a saved view')
+    expect(TOOLS.show.inputSchema.view.description).toContain('the name of a saved view')
   })
 })

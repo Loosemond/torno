@@ -30,6 +30,14 @@ export interface ImageRequest {
   frame?: 'parts' | 'all'
   /** How far apart the parts are drawn: `'current'`, and when left out, as on screen when the layout is the one on screen (together otherwise); null together; or an explode of the picture's own. Never with a section. */
   explode?: ExplodeState | 'current' | null
+  /** The saved view the picture is of, by its name: what its caption calls the view. */
+  viewName?: string
+}
+
+/** The view as a caption names it: a saved view by its name in quotes, a standard view by its own, `current` for the camera on screen, `custom` for a camera given. */
+export function viewSaid(view: 'current' | ViewName | Camera | undefined, name?: string): string {
+  if (name !== undefined) return `"${name}"`
+  return view === undefined ? 'current' : typeof view === 'string' ? view : 'custom'
 }
 
 export interface Picture {
@@ -370,17 +378,10 @@ export class PictureMaker {
     const wanted = new Set(req.visibleKeys)
     const colouring = req.scanColour
     let view: Camera
-    let viewName: string
-    if (req.view === 'current') {
-      view = host.currentView()
-      viewName = 'current'
-    } else if (typeof req.view === 'string') {
-      view = host.namedView(req.view, shown.map((p) => p.part), aspect, everything)
-      viewName = req.view
-    } else {
-      view = req.view
-      viewName = 'custom'
-    }
+    if (req.view === 'current') view = host.currentView()
+    else if (typeof req.view === 'string') view = host.namedView(req.view, shown.map((p) => p.part), aspect, everything)
+    else view = req.view
+    const viewName = viewSaid(req.view, req.viewName)
 
     const withMarks = req.marks !== false
     const tokens = deviationTokens()

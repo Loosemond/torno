@@ -102,6 +102,8 @@ function fake(says: (name: string, args: never) => unknown = () => ({}), over: P
     scans: async () => [],
     scansBusy: () => [],
     scanPaths: (_objectId, id) => ({ mesh: `/ws/box/.torno/scans/${id}/mesh.bin`, mask: (mark) => `/ws/box/.torno/scans/${id}/${mark}.mask` }),
+    views: async () => [],
+    saveView: async () => Promise.reject(new Error('no view was expected to be saved')),
     ...over
   }
   return made

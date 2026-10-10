@@ -2922,3 +2922,221 @@ button {
 .row-note {
   color: var(--muted);
 }
+
+/* ---- Saved views: a strip of chips under the view bar. Quieter than a bar: the chips sit on the ground one by one ---- */
+
+.viewstrip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+/* A chip and what can be done with it, as one thing. */
+.view-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  border: var(--divider);
+  border-radius: 12px;
+  background: var(--panel);
+  pointer-events: auto;
+}
+
+.view-item:hover {
+  border-color: var(--muted);
+}
+
+/* The view that is on screen. */
+.view-item[data-active] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+/* The agent's, until it is kept: outlined, not filled in. No mark's colour: a view is not a mark. */
+.view-item[data-proposed] {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: var(--surface);
+}
+
+.view-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+
+.view-chip[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+/* Of a layout the model no longer has: it stays, and cannot be applied. */
+.view-chip[aria-disabled='true'] {
+  color: var(--muted);
+  cursor: default;
+}
+
+.view-chip[aria-disabled='true'] .view-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--hairline);
+}
+
+.view-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* What is said of a view beside its name: that it is proposed, that parts of it are gone. */
+.view-note {
+  flex: none;
+  color: var(--muted);
+}
+
+/* What can be done with a chip, inside it. */
+.view-act {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.view-act:hover,
+.view-act[aria-expanded='true'] {
+  color: var(--accent);
+}
+
+.view-item[data-proposed] .view-act {
+  color: var(--ink);
+}
+
+.view-item[data-proposed] .view-act:hover {
+  color: var(--accent);
+}
+
+/* The actions of a view of the person's: there for the pointer and the keyboard, out of the way otherwise. */
+.view-more {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  padding: 0;
+  margin-right: 1px;
+  opacity: 0.6;
+}
+
+.view-item:hover .view-more,
+.view-more:focus-visible,
+.view-more[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.view-more svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* "Save view": the same shape, with nothing kept in it yet. */
+.view-item-add {
+  border-style: dashed;
+  background: var(--surface);
+}
+
+.view-add {
+  padding: 0 10px;
+  color: var(--muted);
+}
+
+.view-item-add:hover .view-add,
+.view-add[aria-expanded='true'] {
+  color: var(--accent);
+}
+
+/* What opens under a chip: its actions, the question before it is deleted, the field for a name. */
+.view-popover {
+  top: calc(100% + 5px);
+  white-space: normal;
+}
+
+.view-item-add .view-popover {
+  left: auto;
+  right: 0;
+}
+
+.view-name-card {
+  width: 248px;
+  padding: 6px;
+  gap: 6px;
+}
+
+.view-name-row {
+  display: flex;
+  gap: 6px;
+}
+
+.view-name-field {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-size);
+}
+
+.view-name-field::placeholder {
+  color: var(--muted);
+}
+
+.view-name-field:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.view-name-field[aria-invalid='true'] {
+  border-color: var(--fail);
+}
+
+.view-refusal {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--fail);
+  line-height: 1.35;
+}
+
+.view-confirm {
+  width: max-content;
+  max-width: 260px;
+  padding: 8px;
+  gap: 8px;
+}
+
+.view-confirm p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.view-confirm-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.view-delete:hover {
+  border-color: var(--fail);
+  color: var(--fail);
+}

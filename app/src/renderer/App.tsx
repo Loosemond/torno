@@ -133,7 +133,9 @@ function useMain(): void {
         const file = sceneFileOf(s)
         unsaved = () => window.torno.object.saveSceneFile(id, file)
         clearTimeout(timer)
-        timer = setTimeout(flush, SAVE_DELAY_MS)
+        // A saved view that was kept, renamed or removed is given to main at once: the agent asks main for the views by name.
+        if (s.views !== prev.views) flush()
+        else timer = setTimeout(flush, SAVE_DELAY_MS)
       }
     })
     window.addEventListener('pagehide', flush)

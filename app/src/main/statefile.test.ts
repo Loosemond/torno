@@ -6,6 +6,7 @@ import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import type { Part, Scene } from '../shared/scene'
+import type { SavedView } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
 import { StateFiles, stateText, writtenLine } from './statefile'
 
@@ -45,6 +46,17 @@ afterEach(() => {
 })
 
 describe('stateText', () => {
+  it('names the saved views, and of each whether the agent proposed it or a part of it is gone', () => {
+    const view = (name: string, more: Partial<SavedView> = {}): SavedView => ({ name, author: 'user', layout: 'assembly', camera: CAMERA as SavedView['camera'], hidden: [], at: '', ...more })
+    const none = stateText(obj, OK, { revision: 3, scene: SCENE }, [])
+    expect(none).not.toContain('Saved views')
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [], undefined, [])).toBe(none)
+    const text = stateText(obj, OK, { revision: 3, scene: SCENE }, [], undefined, [view('Hinge side'), view('Wall at the latch', { author: 'agent', proposed: true }), view('Kept', { author: 'agent' }), view('Old', { layout: 'bed' }), view('Less', { hidden: ['post', 'clip'] })])
+    expect(text).toContain('- print: base 40 × 30 × 5 mm\n\nSaved views: "Hinge side", "Wall at the latch" (proposed by the agent), "Kept", "Old" (of layout bed, which the model no longer has), "Less" (hides clip, which layout assembly no longer has).\n\n## Marks')
+    // Before anything is built, nothing can be said to be gone.
+    expect(stateText(obj, OK, undefined, [], undefined, [view('Old', { layout: 'bed' })])).toContain('Saved views: "Old".')
+  })
+
   it('says how the build stands, what each layout holds and every mark that is not resolved', () => {
     const marks = [pin(1), pin(2, { status: 'resolved' }), pin(3, { author: 'agent', status: 'sent', layout: 'print' }), pin(4, { status: 'sent', anchorState: 'orphaned' })]
     expect(stateText(obj, OK, { revision: 3, scene: SCENE }, marks)).toBe(
@@ -208,6 +220,15 @@ describe('StateFiles', () => {
         return writeFileAtomic(file, text)
       }
     })
+  })
+
+  it('names the saved views it is given, and writes without them when they cannot be read', async () => {
+    const view = { name: 'Hinge side', author: 'user', layout: 'assembly', camera: CAMERA, hidden: [], at: '' } as unknown as SavedView
+    const withViews = (views: () => Promise<SavedView[]>) => new StateFiles({ object: () => obj, build: () => build, scene: () => ({ revision: 3, scene: SCENE }), marks: async () => marks, views })
+    await withViews(async () => [view]).write('bracket')
+    expect(readFileSync(path(), 'utf8')).toContain('Saved views: "Hinge side".')
+    await withViews(async () => Promise.reject(new Error('EACCES'))).write('bracket')
+    expect(readFileSync(path(), 'utf8')).not.toContain('Saved views')
   })
 
   it('lists the scans of the object, whether or not a region is among the marks, and writes without them when they cannot be read', async () => {

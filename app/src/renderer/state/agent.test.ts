@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Part, Scene } from '../../shared/scene'
-import type { Camera, HighlightRequest, LookRequest, LookResult, SectionDrawingRequest, ShowRequest } from '../../shared/view'
+import type { SceneFile } from '../../shared/scenefile'
+import type { Camera, HighlightRequest, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, ShowRequest } from '../../shared/view'
+import { MAX_PROPOSALS } from '../../shared/views'
 import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, setPictures } from './agent'
 import { actions, explodeNow, sceneFileOf, store } from './store'
 
@@ -12,6 +14,9 @@ let onShow: (m: { id: number; request: ShowRequest }) => void
 let onHighlight: (m: { id: number; request: HighlightRequest }) => void
 let onLook: (m: { id: number; request: LookRequest }) => void
 let onDrawSection: (m: { id: number; request: SectionDrawingRequest }) => void
+let onSaveView: (m: { id: number; request: SaveViewRequest }) => void
+/** The scene files the window gave main to save. */
+let savedFiles: Array<{ id: string; file: SceneFile }>
 let replies: Array<{ id: number; result: unknown }>
 let tinted: string[][]
 let views: unknown[]
@@ -26,6 +31,7 @@ let busy: boolean
 beforeEach(() => {
   vi.useFakeTimers()
   replies = []
+  savedFiles = []
   busy = false
   canvasEvents = {}
   tinted = []
@@ -33,7 +39,10 @@ beforeEach(() => {
   const off = vi.fn()
   vi.stubGlobal('window', {
     torno: {
+      object: { saveSceneFile: (id: string, file: SceneFile) => savedFiles.push({ id, file }) },
       view: {
+        onSaveView: (cb: typeof onSaveView) => ((onSaveView = cb), off),
+        saveViewReply: (id: number, result: unknown) => replies.push({ id, result }),
         onShow: (cb: typeof onShow) => ((onShow = cb), off),
         onHighlight: (cb: typeof onHighlight) => ((onHighlight = cb), off),
         onLook: (cb: typeof onLook) => ((onLook = cb), off),
@@ -358,6 +367,124 @@ describe('show', () => {
     expect(replies).toEqual([{ id: 9, result: { error } }])
     expect(store.getState()).toMatchObject({ layout: 'assembly', layers: {} })
     expect(views).toEqual([])
+  })
+})
+
+describe('a saved view, shown for the agent', () => {
+  const show = (request: Partial<ShowRequest>) => onShow({ id: 9, request: { objectId: 'bracket', ...request } })
+  const info = (id: string) => ({ id, name: `${id}.glb`, imported: { triangles: 12 }, sourceState: 'present', meshState: 'ok', alignments: {}, checks: {} }) as never
+
+  it('names the view in the caption, and shows each scan as the view has it, for now', () => {
+    actions.setScans({ objectId: 'bracket', scans: [info('S1'), info('S2'), info('S3')] })
+    actions.setScanView('S1', { visible: false, colour: 'plain' })
+    actions.setScanView('S3', { visible: false })
+    const theirs = sceneFileOf(store.getState())
+    show({ view: CAMERA, viewName: 'Hinge side', layout: 'print', parts: ['base'], section: null, explode: null, scanViews: { S1: { visible: true, opacity: 0.5 }, S2: { visible: false }, S9: { visible: true } } })
+    const s = store.getState()
+    // S1 and S2 as the view says; S3, of which it says nothing, as it was; S9, which is gone, is nothing.
+    expect(s.scanViews).toEqual({ S1: { visible: true, colour: 'plain', opacity: 0.5 }, S2: { visible: false, opacity: 1 }, S3: { visible: false } })
+    expect((replies[0].result as { caption: string }).caption).toMatch(/^view "Hinge side" · layout print · parts base · scans S1/)
+    expect(views).toEqual([CAMERA])
+    // For now: the file says what the person had.
+    expect(sceneFileOf(s)).toEqual(theirs)
+  })
+})
+
+describe('save_view', () => {
+  const save = (request: Partial<SaveViewRequest>) => onSaveView({ id: 11, request: { objectId: 'bracket', name: 'Wall at the latch', ...request } })
+  const kept = (): SaveViewResult => replies[0].result as SaveViewResult
+  const refusal = (): string => (replies[0].result as { error: string }).error
+
+  it('keeps what is on screen as a view of the agent\'s, proposed, saves the scene file at once, and changes nothing on screen', () => {
+    actions.setLayer('post', { visible: false })
+    actions.setSection({ origin: [0, 0, 3], normal: [0, 0, 1] })
+    const before = store.getState()
+    save({ note: ' the 1.2 mm wall\nM7 is about ' })
+    const { view } = kept()
+    expect(kept()).toMatchObject({ objectId: 'bracket', revision: 3, replaced: false })
+    expect(kept().dropped).toBeUndefined()
+    expect(view).toMatchObject({ name: 'Wall at the latch', author: 'agent', proposed: true, note: 'the 1.2 mm wall M7 is about', layout: 'assembly', camera: CAMERA, hidden: ['post'], section: { origin: [0, 0, 3], normal: [0, 0, 1] } })
+    expect(view.at).toMatch(/^\d{4}-\d\d-\d\dT/)
+    expect(store.getState().views).toEqual([view])
+    // On the disk as soon as main can write it: scene lists it at once.
+    expect(savedFiles).toEqual([{ id: 'bracket', file: sceneFileOf(store.getState()) }])
+    expect(savedFiles[0].file.views).toEqual([view])
+    const after = store.getState()
+    expect([after.layout, after.layers, after.section, after.explode, after.shownByAgent, after.activeView]).toEqual([before.layout, before.layers, before.section, before.explode, before.shownByAgent, null])
+    expect(views).toEqual([])
+  })
+
+  it('takes of the request what it gives: a layout, the parts shown, a standard view fitted to them, a cut or how far apart', () => {
+    save({ layout: 'print', parts: ['post'], view: 'front', explode: { amount: 0.5, scale: 1, axis: 'z' } })
+    const { view } = kept()
+    expect(view).toMatchObject({ layout: 'print', hidden: ['base'], explode: { amount: 0.5, scale: 1, axis: 'z' } })
+    expect(view.section).toBeUndefined()
+    // Front: looking along +Y, orthographic, aimed at the middle of the part it shows.
+    expect(view.camera.ortho).toBe(true)
+    expect(view.camera.up).toEqual([0, 0, 1])
+    expect(view.camera.target[0]).toBeCloseTo(0)
+    expect(view.camera.position[1]).toBeLessThan(view.camera.target[1])
+    expect(store.getState().layout).toBe('assembly')
+  })
+
+  it('holds a section or an explode: what the request gives takes the place of what is on screen, and both are refused', () => {
+    actions.setSection({ origin: [0, 0, 3], normal: [0, 0, 1] })
+    save({ explode: { amount: 0.5, scale: 1, axis: 'z' } })
+    expect(kept().view.section).toBeUndefined()
+    expect(kept().view.explode).toEqual({ amount: 0.5, scale: 1, axis: 'z' })
+    replies = []
+    actions.setSection(null)
+    actions.setExplode({ amount: 0.4 })
+    save({ name: 'Cut', section: { origin: [0, 0, 1], normal: [0, 0, 2] } })
+    expect(kept().view.section).toEqual({ origin: [0, 0, 1], normal: [0, 0, 1] })
+    expect(kept().view.explode).toBeUndefined()
+    replies = []
+    save({ name: 'Both', section: { origin: [0, 0, 1], normal: [0, 0, 1] }, explode: { amount: 0.5, scale: 1, axis: 'z' } })
+    expect(refusal()).toBe('a view holds a section or an explode, not both: a section is not drawn exploded. Leave out explode to keep the cut, or section to keep the parts apart')
+    replies = []
+    save({ name: 'Whole', section: null, explode: null })
+    expect([kept().view.section, kept().view.explode]).toEqual([undefined, undefined])
+  })
+
+  it('never takes the place of a view the person made or kept, and takes that of its own proposal', () => {
+    actions.saveView('Mine', CAMERA)
+    save({ name: 'mine' })
+    expect(refusal()).toBe('the user has a view named "Mine": choose another name')
+    replies = []
+    save({})
+    save({ parts: ['base'] })
+    expect((replies[1].result as SaveViewResult).replaced).toBe(true)
+    expect(store.getState().views.map((v) => [v.name, v.hidden])).toEqual([['Mine', []], ['Wall at the latch', ['post']]])
+    actions.keepView('Wall at the latch')
+    replies = []
+    save({})
+    expect(refusal()).toBe('the user kept the view "Wall at the latch": choose another name')
+    expect(savedFiles).toHaveLength(2)
+  })
+
+  it('says which proposal it dropped to keep one more than there may be', () => {
+    for (let n = 0; n < MAX_PROPOSALS; n++) {
+      vi.setSystemTime(new Date(Date.UTC(2026, 9, 9, 21, 0, n)))
+      save({ name: `p${n}` })
+    }
+    replies = []
+    save({ name: 'one more' })
+    expect(kept().dropped).toBe('p0')
+    expect(store.getState().views).toHaveLength(MAX_PROPOSALS)
+  })
+
+  it.each([
+    [{ objectId: 'other' }, 'other is not the object open in the torno window (open: bracket). Ask the user to open it.'],
+    [{ layout: 'bed' }, "no layout 'bed'; layouts: assembly, print"],
+    [{ parts: ['lid'] }, "unknown part 'lid'; parts in layout assembly: base, post"],
+    [{ name: 'top' }, '"top" is a standard view: choose another name'],
+    [{ section: { origin: [0, 0, 0], normal: [0, 0, 0] } as never }, 'section is not a plane: give origin and normal as three numbers each, the normal not all zeros'],
+    [{ parts: [], view: 'top' as const }, 'the view shows no part to fit top to: give a camera, or parts']
+  ])('keeps nothing for %o, and says why', (request, error) => {
+    save(request)
+    expect(replies).toEqual([{ id: 11, result: { error } }])
+    expect(store.getState().views).toEqual([])
+    expect(savedFiles).toEqual([])
   })
 })
 

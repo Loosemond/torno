@@ -22,7 +22,7 @@ import { kernelDir } from './paths'
 import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
-import { loadSceneFile, saveSceneFile } from './scenefile'
+import { forgetSceneFiles, loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { scanOrder, scanWorkspace } from './workspace'
@@ -36,8 +36,8 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds
 //   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
-//           view:drawSectionReply, session:write, session:resize, session:insert
-//   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection (sent by src/main/look.ts),
+//           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert
+//   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
 //           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem
 
@@ -94,6 +94,9 @@ export function recheckAlignments(objectId: string, listed: ScanInfo[]): void {
 
 /** Told where the build of an object stands, each time that changes, once `registerIpc` has been given it. */
 let onBuild: ((state: BuildState) => void) | null = null
+
+/** Told that the window gave the scene file of an object to save: its saved views may be others. */
+let onSceneFile: ((objectId: string) => void) | null = null
 
 /** Told that the workspace was left, with what was known of its objects. */
 let onWorkspaceClosed: (() => void) | null = null
@@ -220,6 +223,7 @@ export async function closeWorkspace(): Promise<void> {
   if (!ws) return
   current = null
   forgetViews()
+  forgetSceneFiles()
   // A check of its marks that failed is not tried again: its timers would outlive it.
   ws.reanchor?.cancel()
   ws.alignChecks?.cancel()
@@ -304,6 +308,8 @@ export function registerIpc(
     sessions?: Sessions
     marks?: MarkStore
     onBuild?: (state: BuildState) => void
+    /** The window gave the scene file of an object to save. */
+    onSceneFile?: (objectId: string) => void
     /** The open workspace was left: object ids mean nothing any more. */
     onWorkspaceClosed?: () => void
     /** Stands in for the folder dialog: the folder to open, or null for none. */
@@ -322,6 +328,7 @@ export function registerIpc(
   }
 
   onBuild = opts.onBuild ?? null
+  onSceneFile = opts.onSceneFile ?? null
   onWorkspaceClosed = opts.onWorkspaceClosed ?? null
   marks = opts.marks ?? null
   marks?.on('changed', (m) => broadcast('marks:changed', m))
@@ -397,6 +404,8 @@ export function registerIpc(
     const obj = findObject(id)
     if (!obj) return
     saveSceneFile(obj.dir, file).catch((e) => console.error(`cannot save the scene file of ${id}: ${e.message}`))
+    // Known to main from now (`sceneFileNow`), written or not: what is told of the saved views follows.
+    onSceneFile?.(id)
   })
 
   ipcMain.handle('session:current', (_event, objectId: string) => {
@@ -571,7 +580,7 @@ export function registerIpc(
   })
 
   // What the renderer says it did for a request of main's (src/main/look.ts), each on the channel of its kind.
-  for (const channel of ['view:lookReply', 'view:showReply', 'view:highlightReply', 'view:drawSectionReply']) {
+  for (const channel of ['view:lookReply', 'view:showReply', 'view:highlightReply', 'view:drawSectionReply', 'view:saveViewReply']) {
     ipcMain.on(channel, (_event, id: number, result: object | { error: string }) => resolveRequest(id, result))
   }
 }

@@ -3,6 +3,9 @@ import type { BuildState } from '../../shared/build'
 import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo } from '../../shared/scans'
+import type { Camera } from '../../shared/view'
+import { MAX_PROPOSALS } from '../../shared/views'
+import { viewMatches } from './savedViews'
 import { actions, explodeNow, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
 
 const BUF = { offset: 0, length: 0 }
@@ -928,5 +931,208 @@ describe('explode', () => {
     // They chose to draw apart a view that has no cut: that is theirs now, and the file holds one or the other.
     expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {}, explode: { assembly: { amount: 0.3, scale: 1, axis: 'centre' } } })
     expect(store.getState().shownByAgent).toBeNull()
+  })
+})
+
+describe('saved views', () => {
+  const open = (): void => void actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+  const CAMERA: Camera = { position: [120, -90, 60], target: [0, 0, 6], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
+  const CUT = { origin: [0, 0, 3] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }
+  const S1 = { id: 'S1', name: 'plate.stl' } as ScanInfo
+  const S2 = { id: 'S2', name: 'room.glb' } as ScanInfo
+  const names = (): string[] => store.getState().views.map((v) => v.name)
+
+  it('saves the view on screen, applies it again as the person\'s own, and passes over what is gone', () => {
+    open()
+    actions.setLayer('post', { visible: false })
+    actions.setExplode({ amount: 0.4, axis: 'z' })
+    const edits = store.getState().edits
+    expect(actions.saveView('Hinge side', CAMERA)).toBeNull()
+    expect(store.getState().edits).toBe(edits + 1)
+    expect(store.getState().views[0]).toMatchObject({ name: 'Hinge side', author: 'user', layout: 'assembly', camera: CAMERA, hidden: ['post'], explode: { amount: 0.4, scale: 1, axis: 'z' } })
+    expect(store.getState().views[0].section).toBeUndefined()
+    expect(sceneFileOf(store.getState()).views).toHaveLength(1)
+    actions.setLayer('post', { visible: true })
+    actions.setExplode({ amount: 0 })
+    actions.setLayout('print')
+    const applied = actions.applyView('hinge side')
+    expect(applied).toMatchObject({ name: 'Hinge side' })
+    const s = store.getState()
+    expect([s.layout, s.layers.post?.visible, explodeNow(s)?.amount]).toEqual(['assembly', false, 0.4])
+    // A view that hides a part the model no longer has, of a layout it still has, is applied without it.
+    store.setState({ views: [{ ...s.views[0], hidden: ['post', 'gone'] }] })
+    expect(typeof actions.applyView('Hinge side')).toBe('object')
+    expect(Object.keys(store.getState().layers)).toEqual(['post'])
+    // One of a layout that is gone is not.
+    store.setState({ views: [{ ...s.views[0], layout: 'bed' }] })
+    const before = store.getState()
+    expect(actions.applyView('Hinge side')).toBe('Layout bed is no longer in the model')
+    expect(actions.applyView('nothing')).toBe('There is no view named "nothing"')
+    expect(store.getState()).toBe(before)
+  })
+
+  it('keeps the agent\'s view as proposed until the person keeps it, and never over one of theirs', () => {
+    open()
+    actions.saveView('Mine', CAMERA)
+    const proposal = { ...store.getState().views[0], name: 'Wall', author: 'agent' as const, proposed: true as const }
+    expect(actions.proposeView(proposal)).toBe(true)
+    expect(actions.proposeView({ ...proposal, name: 'mine' })).toBe(false)
+    expect(store.getState().views.map((v) => [v.name, v.proposed])).toEqual([['Mine', undefined], ['Wall', true]])
+    actions.keepView('Wall')
+    expect(store.getState().views[1]).toMatchObject({ name: 'Wall', author: 'agent' })
+    expect(store.getState().views[1].proposed).toBeUndefined()
+    // Kept, it is no longer the agent's to replace.
+    expect(actions.proposeView(proposal)).toBe(false)
+    actions.removeView('Mine')
+    expect(names()).toEqual(['Wall'])
+  })
+
+  it('takes whose a proposal is from no one: what is proposed is the agent\'s and proposed, whatever it says', () => {
+    open()
+    actions.saveView('Mine', CAMERA)
+    const mine = store.getState().views[0]
+    expect(actions.proposeView({ ...mine, name: 'Sly', author: 'user' })).toBe(true)
+    expect(store.getState().views[1]).toMatchObject({ name: 'Sly', author: 'agent', proposed: true })
+    // The agent may replace its own proposal, where it stands in the strip.
+    actions.proposeView({ ...mine, name: 'Other', author: 'agent', proposed: true })
+    expect(actions.proposeView({ ...mine, name: 'SLY', author: 'agent', proposed: true, hidden: ['base'] })).toBe(true)
+    expect(store.getState().views.map((v) => [v.name, v.hidden])).toEqual([['Mine', []], ['SLY', ['base']], ['Other', []]])
+  })
+
+  it('holds twelve proposals at most: one more drops the oldest of them, and never a view of the person\'s', () => {
+    open()
+    actions.saveView('Mine', CAMERA)
+    const mine = store.getState().views[0]
+    for (let n = 0; n < MAX_PROPOSALS; n++) actions.proposeView({ ...mine, name: `p${n}`, at: `2026-10-09T21:00:${String(10 + n)}.000Z` })
+    expect(store.getState().views).toHaveLength(1 + MAX_PROPOSALS)
+    expect(actions.proposeView({ ...mine, name: 'one more', at: '2026-10-09T22:00:00.000Z' })).toBe(true)
+    expect(names()).toEqual(['Mine', ...Array.from({ length: MAX_PROPOSALS - 1 }, (_, n) => `p${n + 1}`), 'one more'])
+  })
+
+  it('saves over a view of that name where it stands, the person\'s own from then on, and says why a name will not do', () => {
+    open()
+    actions.saveView('A', CAMERA)
+    actions.proposeView({ ...store.getState().views[0], name: 'B' })
+    actions.saveView('C', CAMERA)
+    actions.setLayer('base', { visible: false })
+    expect(actions.saveView(' b ', { ...CAMERA, zoom: 2 })).toBeNull()
+    expect(store.getState().views.map((v) => [v.name, v.author, v.proposed, v.hidden, v.camera.zoom])).toEqual([['A', 'user', undefined, [], 1], ['b', 'user', undefined, ['base'], 2], ['C', 'user', undefined, [], 1]])
+    expect(actions.saveView('top', CAMERA)).toBe('"top" is a standard view: choose another name')
+    expect(actions.saveView('  ', CAMERA)).toBe('A view needs a name')
+    expect(names()).toEqual(['A', 'b', 'C'])
+  })
+
+  it('gives a view another name, but not that of another view', () => {
+    open()
+    actions.saveView('A', CAMERA)
+    actions.saveView('B', CAMERA)
+    expect(actions.renameView('A', 'b')).toBe('There is a view named "B" already')
+    expect(actions.renameView('A', 'front')).toBe('"front" is a standard view: choose another name')
+    expect(actions.renameView('a', ' Hinge side ')).toBeNull()
+    expect(actions.renameView('B', 'b')).toBeNull()
+    expect(names()).toEqual(['Hinge side', 'b'])
+    // The view that is on stays the one that is on, under its new name.
+    expect(store.getState().activeView).toBe('b')
+  })
+
+  it('saves a section when there is one, and never an explode with it', () => {
+    open()
+    actions.setExplode({ amount: 0.5 })
+    actions.setSection(CUT)
+    actions.saveView('Cut', CAMERA)
+    expect(store.getState().views[0]).toMatchObject({ section: CUT })
+    expect(store.getState().views[0].explode).toBeUndefined()
+    // Applied over parts drawn apart, it puts them together; the axis and the reach they had are kept.
+    actions.setSection(null)
+    actions.setExplode({ amount: 0.8, axis: 'x' })
+    actions.applyView('Cut')
+    expect(store.getState()).toMatchObject({ section: CUT, explode: { assembly: { amount: 0, scale: 1, axis: 'x' } } })
+    // And a view with neither takes the cut away.
+    actions.setSection(null)
+    actions.saveView('Whole', CAMERA)
+    actions.setSection(CUT)
+    actions.applyView('Whole')
+    expect(store.getState().section).toBeNull()
+  })
+
+  it('saves how every scan is shown, and applies it to the scans that are still there', () => {
+    open()
+    actions.setScans({ objectId: 'bracket', scans: [S1, S2] })
+    actions.setScanView('S2', { visible: false, opacity: 0.5 })
+    actions.saveView('Scans', CAMERA)
+    expect(store.getState().views[0].scans).toEqual({ S1: { visible: true }, S2: { visible: false, opacity: 0.5 } })
+    actions.setScanView('S1', { visible: false, opacity: 0.3, colour: 'plain' })
+    actions.setScanView('S2', { visible: true })
+    actions.setScans({ objectId: 'bracket', scans: [S1] })
+    actions.applyView('Scans')
+    // As the view has it, a colour of its own aside: that is no part of a view. Nothing is made up of the scan that is gone.
+    expect(store.getState().scanViews).toEqual({ S1: { visible: true, opacity: 1, colour: 'plain' } })
+  })
+
+  it('saves what is on screen where the agent shows something else, and applying a view makes the screen the person\'s own', () => {
+    open()
+    actions.setLayer('base', { color: '#112233' })
+    actions.showForAgent('print', { base: true, post: false }, CUT)
+    actions.saveView('As shown', CAMERA)
+    expect(store.getState().views[0]).toMatchObject({ layout: 'print', hidden: ['post'], section: CUT })
+    // Saving a view is no choice of how the object is looked at: the file still opens to what the person had.
+    expect(sceneFileOf(store.getState())).toMatchObject({ layout: 'assembly', layers: { base: { color: '#112233' } } })
+    expect(sceneFileOf(store.getState()).section).toBeUndefined()
+    expect(store.getState().shownByAgent).not.toBeNull()
+    // The agent hides a part and draws another layout apart; a view of the person's is applied.
+    actions.saveView('Mine', CAMERA)
+    actions.showForAgent('assembly', { base: false, post: true }, null, undefined, { amount: 1, scale: 2, axis: 'x' })
+    actions.applyView('As shown')
+    const s = store.getState()
+    expect(s.shownByAgent).toBeNull()
+    expect(s).toMatchObject({ layout: 'print', section: CUT, layers: { base: { color: '#112233' }, post: { visible: false } } })
+    expect(s.layers.base.visible).toBeUndefined()
+    // What the agent drew apart in the other layout was never theirs: it is not in the file.
+    expect(sceneFileOf(s).explode).toBeUndefined()
+  })
+
+  it('marks the view that is on until the screen is another, by hand or by the camera', () => {
+    open()
+    actions.saveView('A', CAMERA)
+    const on = (): boolean => {
+      const s = store.getState()
+      const view = s.views.find((v) => v.name === s.activeView)
+      return view !== undefined && viewMatches(s, view)
+    }
+    expect(on()).toBe(true)
+    actions.setLayer('post', { visible: false })
+    expect(on()).toBe(false)
+    actions.setLayer('post', { visible: true })
+    expect(on()).toBe(true)
+    actions.setExplode({ amount: 0.3 })
+    expect(on()).toBe(false)
+    actions.applyView('A')
+    expect(on()).toBe(true)
+    // The camera came to rest where the view has it, to within what a camera read back is good for: still on.
+    actions.cameraSettled({ ...CAMERA, position: [120.00001, -90, 60], up: [0, 1e-9, 1] })
+    expect(store.getState().activeView).toBe('A')
+    // A camera is given with any up that is not along its line of sight; the viewport reads back the one square to it.
+    actions.cameraSettled({ ...CAMERA, up: [-0.2857142857, 0.2142857143, 0.9340497736] })
+    expect(store.getState().activeView).toBe('A')
+    // Rolled about its line of sight, it is another view.
+    actions.cameraSettled({ ...CAMERA, up: [0.6, 0.8, 0] })
+    expect(store.getState().activeView).toBeNull()
+    actions.applyView('A')
+    actions.cameraSettled({ ...CAMERA, position: [100, -90, 60] })
+    expect(store.getState().activeView).toBeNull()
+    actions.applyView('A')
+    actions.removeView('a')
+    expect(store.getState()).toMatchObject({ activeView: null, views: [] })
+  })
+
+  it('are of their object: another object has its own, and a file\'s are read with it', () => {
+    open()
+    actions.saveView('A', CAMERA)
+    const kept = store.getState().views
+    actions.openObject('two', { layers: {} })
+    expect(store.getState()).toMatchObject({ views: [], activeView: null })
+    expect(sceneFileOf(store.getState()).views).toBeUndefined()
+    actions.openObject('bracket', { layers: {}, views: kept })
+    expect(names()).toEqual(['A'])
   })
 })

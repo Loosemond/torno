@@ -5,6 +5,8 @@ import {
   type HighlightResult,
   type LookRequest,
   type LookResult,
+  type SaveViewRequest,
+  type SaveViewResult,
   type SectionDrawingRequest,
   type SectionDrawingResult,
   type ShowRequest,
@@ -12,16 +14,20 @@ import {
   NOT_A_PLANE,
   sectionOf
 } from '../../shared/view'
-import { NOT_EXPLODED_AND_CUT, explodeOf, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
+import { NOT_EXPLODED_AND_CUT, explodeOf, explodeOffsets, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
+import { VIEW_NOT_BOTH, findView, proposalToDrop, savedViewOf, viewNameRefusal } from '../../shared/views'
+import { drawnBox } from '../viewport/explode'
+import { DEFAULT_FOV, fitCamera, viewDirection } from '../viewport/views'
 import { spanningMarks } from '../viewport/marks/apart'
 import { tenth } from '../../shared/format'
 import { type ScanView, MIN_SCAN_OPACITY, standingOf } from '../../shared/scans'
 import { colorFor, colorsByName } from '../viewport/palette'
-import { explodedNote, scansNote } from '../viewport/picture'
+import { explodedNote, scansNote, viewSaid } from '../viewport/picture'
 import { describeSection } from '../viewport/section'
 import { sectionPng } from '../viewport/sectionDrawing'
 import type { Viewport } from '../viewport/Viewport'
-import { actions, explodeNow, partsInLayout, store } from './store'
+import { hiddenIn, scansShown } from './savedViews'
+import { actions, explodeNow, partsInLayout, sceneFileOf, store } from './store'
 
 /** How long what the agent points at stays pointed at, unless the person clicks first. */
 export const HIGHLIGHT_FOR_MS = 60_000
@@ -86,6 +92,10 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
       scans[id] = { ...(req.scans ? { visible: on } : {}), ...(thin !== undefined && on ? { opacity: thin } : {}) }
     }
   }
+  // A saved view: each scan it names that the object still has, as the view has it; the others stay as they are.
+  for (const [id, has] of Object.entries(req.scanViews ?? {})) {
+    if (s.scans.some((scan) => scan.id === id)) scans = { ...scans, [id]: { ...scans?.[id], visible: has.visible !== false, opacity: has.opacity ?? 1 } }
+  }
 
   // Only an explode is taken of what was given; one of nothing is together.
   const asked = req.explode === undefined || req.explode === null ? req.explode : explodeOf(req.explode)
@@ -105,7 +115,8 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   const names = partsInLayout(after, layout)
     .filter((p) => after.layers[p.name]?.visible !== false)
     .map((p) => p.name)
-  const view = req.view === undefined ? 'current' : typeof req.view === 'string' ? req.view : 'custom'
+  // A saved view is said by its name, as the caption of a picture of it says it.
+  const view = viewSaid(req.view, req.viewName)
   // Where the camera is going, not where it is on the way: a named view keeps the projection there is.
   const ortho = typeof req.view === 'object' ? req.view.ortho : viewport.getCamera().ortho
   // The scans left on, as a picture's caption says them: from what main keeps of each, in the layout now shown.
@@ -127,6 +138,57 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   }
 }
 
+/**
+ * Keep a view the agent proposes among the saved views of the open object: the agent's, and proposed, until the
+ * person keeps or discards it. What the request leaves out is as on screen: the camera, the layout, the parts
+ * switched off, the section or else how the parts are drawn apart, how the scans are shown. A view holds a section
+ * or an explode: one the request gives takes the place of the other on screen, and both given are refused. A
+ * standard view is fitted to the parts the view shows, where it draws them, orthographic as a picture's is.
+ * Everything is checked before anything is kept, nothing on screen changes, and the scene file is given to main
+ * at once, so that what main tells of the views is true as soon as this is answered.
+ */
+export function proposeView(viewport: Pick<Viewport, 'getCamera' | 'canvas'>, req: SaveViewRequest): SaveViewResult {
+  const s = openObject(req.objectId)
+  const layout = req.layout ?? s.layout
+  if (!s.scene.layouts.includes(layout)) throw new Error(`no layout '${layout}'; layouts: ${s.scene.layouts.join(', ')}`)
+  const parts = partsInLayout(s, layout)
+  for (const name of req.parts ?? []) {
+    if (!parts.some((p) => p.name === name)) throw new Error(`unknown part '${name}'; parts in layout ${layout}: ${parts.map((p) => p.name).join(', ')}`)
+  }
+  const refused = viewNameRefusal(req.name, s.views, 'agent')
+  if (refused !== null) throw new Error(refused)
+
+  const cut = req.section === undefined || req.section === null ? req.section : sectionOf(req.section)
+  if (cut === null && req.section !== null) throw new Error(NOT_A_PLANE)
+  const asked = req.explode === undefined || req.explode === null ? req.explode : explodeOf(req.explode)
+  const apart = asked === undefined ? undefined : isExploded(asked) ? asked : null
+  if (apart && cut) throw new Error(VIEW_NOT_BOTH)
+  const nothing = apart ? nothingApart(apart, parts) : null
+  if (nothing !== null) throw new Error(nothingApartText(nothing, layout))
+  // One or the other: what is asked for wins over what is on screen.
+  const section = apart ? null : cut !== undefined ? cut : s.section
+  const explode = section ? null : apart !== undefined ? apart : explodeNow(s, layout)
+
+  const hidden = req.parts ? parts.filter((p) => !req.parts!.includes(p.name)).map((p) => p.name) : hiddenIn(s, layout)
+  let camera = typeof req.view === 'object' ? req.view : viewport.getCamera()
+  if (typeof req.view === 'string') {
+    const box = drawnBox(parts.filter((p) => !hidden.includes(p.name)), explodeOffsets(parts, explode))
+    if (!box) throw new Error(`the view shows no part to fit ${req.view} to: give a camera, or parts`)
+    const { dir, up } = viewDirection(req.view)
+    camera = fitCamera(box, dir, up, viewport.canvas.clientWidth / viewport.canvas.clientHeight || 4 / 3, DEFAULT_FOV, true)
+  }
+  const scans = scansShown(s)
+  // Through what reads a view from a file: the note on one line, every number within its range.
+  const view = savedViewOf({ name: req.name, author: 'agent', proposed: true, ...(req.note ? { note: req.note } : {}), layout, camera, hidden, ...(section ? { section } : explode ? { explode } : {}), ...(scans ? { scans } : {}), at: new Date().toISOString() })
+  if (!view) throw new Error('that is no view: its camera looks nowhere')
+  const replaced = findView(s.views, view.name) !== undefined
+  const dropped = proposalToDrop(s.views, view.name)
+  if (!actions.proposeView(view)) throw new Error(viewNameRefusal(view.name, store.getState().views, 'agent') ?? 'the view could not be kept')
+  const after = store.getState()
+  window.torno.object.saveSceneFile(req.objectId, sceneFileOf(after))
+  return { objectId: req.objectId, revision: s.revision, view: findView(after.views, view.name) ?? view, replaced, ...(dropped === null ? {} : { dropped }) }
+}
+
 /** The state of the window, when the object it shows is the one asked about and has been built. Throws otherwise. */
 function openObject(objectId: string) {
   const s = store.getState()
@@ -145,8 +207,8 @@ function missing(ref: string, parts: ReturnType<typeof partsInLayout>): string |
 }
 
 /**
- * Join the viewport to what the agent asks of the window: `show` and
- * `highlight`, each answered with what was done or why it was not. What is
+ * Join the viewport to what the agent asks of the window: `show`,
+ * `highlight` and `save_view`, each answered with what was done or why it was not. What is
  * highlighted stays until the person clicks anywhere in the viewport,
  * dismisses it, the object, the layout or the build changes, or a minute has
  * passed. Returns what undoes the joining.
@@ -200,6 +262,7 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
   }
   const offShow = window.torno.view.onShow(answered((req: ShowRequest) => show(viewport, req), window.torno.view.showReply))
   const offHighlight = window.torno.view.onHighlight(answered(highlight, window.torno.view.highlightReply))
+  const offSaveView = window.torno.view.onSaveView(answered((req: SaveViewRequest) => proposeView(viewport, req), window.torno.view.saveViewReply))
   // The refs name geometry of the object, the layout and the build they were pointed out in.
   const offStore = store.subscribe((s, prev) => {
     if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision) clear()
@@ -222,6 +285,7 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     dismiss = () => {}
     offShow()
     offHighlight()
+    offSaveView()
     offStore()
     viewport.canvas.removeEventListener('pointerdown', onDown)
     viewport.canvas.removeEventListener('pointerup', onUp)
