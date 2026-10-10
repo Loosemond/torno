@@ -18,6 +18,7 @@ from .queries import (
     area_of,
     as_point,
     box_of,
+    boxed_exactly_of,
     need_layout,
     need_solid,
     resolve,
@@ -430,9 +431,13 @@ def _rays(target: _Target, kept: dict[Any, Any]) -> Any:
 def _bbox(target: _Target, kept: dict[Any, Any] | None) -> dict[str, Any]:
     if target.kind == "point":
         raise QueryError("bad_request", f"bbox is measured of a part, a face or an edge; {target.what}")
-    # Of a whole part it is kept: a face or an edge is boxed in no time.
-    low, high = box_of(target.shape, target.key if target.kind == "part" else None, kept)
-    exact = _boxed_exactly(target)
+    # Of a whole part it is kept, and is the box the scene tells: a face or an edge is boxed in no time.
+    if target.kind == "part":
+        low, high = box_of(target.shape, target.key, kept)
+        exact = boxed_exactly_of(target.shape, target.key, kept)
+    else:
+        low, high = box_of(target.shape, None, kept)
+        exact = extent.boxed_exactly(target.shape)
     return {
         "min": list(low),
         "max": list(high),
@@ -444,26 +449,6 @@ def _bbox(target: _Target, kept: dict[Any, Any] | None) -> dict[str, Any]:
         "straight and circular edges",
         "exact": exact,
     }
-
-
-def _boxed_exactly(target: _Target) -> bool:
-    """Whether the box of the target is its own: OCC's is not, of a freeform face or edge."""
-    from build123d import Edge, Face
-
-    try:
-        if target.kind != "edge" and not all(
-            Face(face).geom_type.name.lower() in ("plane", "cylinder")
-            for face in topo.faces(target.shape)
-        ):
-            return False
-        # A flat face may end in a spline; a cylinder cut on the slant ends in an ellipse.
-        return all(
-            Edge(edge).geom_type.name.lower() in ("line", "circle")
-            for edge in topo.edges(target.shape)
-        )
-    except Exception:
-        # An edge with no curve to name the type of.
-        return False
 
 
 def _extent(kind: str, target: _Target, kept: dict[Any, Any] | None) -> dict[str, Any]:

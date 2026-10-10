@@ -1349,7 +1349,7 @@ def test_what_is_measured_of_a_whole_part_is_measured_once_for_all_its_queries(s
     from torno_kernel import extent
 
     counted = {"area": 0, "volume": 0, "box": 0}
-    area, volume, box = extent.area, extent.volume, queries._box
+    area, volume, box = extent.area, extent.volume, extent.box
 
     def counting(what, work):
         def count(*args):
@@ -1360,7 +1360,7 @@ def test_what_is_measured_of_a_whole_part_is_measured_once_for_all_its_queries(s
 
     monkeypatch.setattr(extent, "area", counting("area", area))
     monkeypatch.setattr(extent, "volume", counting("volume", volume))
-    monkeypatch.setattr(queries, "_box", counting("box", box))
+    monkeypatch.setattr(extent, "box", counting("box", box))
     kept: dict = {}
     asked = [
         ("describe", {"ref": PLATE}),
@@ -1376,6 +1376,7 @@ def test_what_is_measured_of_a_whole_part_is_measured_once_for_all_its_queries(s
     # They are one part's numbers, whichever query says them.
     described, bbox, volume, area, mass = first
     assert described["bbox"] == {"min": bbox["min"], "max": bbox["max"]}
+    assert described["bboxExact"] is bbox["exact"] is True
     assert (described["volume"], described["area"]) == (volume["value"], area["value"])
     assert mass["volume"] == volume["value"]
     # With nowhere to keep them, as before: each is worked out when asked.

@@ -510,6 +510,7 @@ def test_check_over_the_protocol_for_the_object_asked(fresh, ws):
         "volumeExact": True,
         "how": "of what the two share",
         "bbox": None,
+        "bboxExact": None,
     }
     mesh = check(plate, "mesh", a="plate")["result"]
     assert mesh == {"watertight": True, "openEdges": 0, "where": [], "triangles": mesh["triangles"]}

@@ -33,7 +33,7 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
     - ``overlap``: the ``volume`` the two parts share, mm³, whether it is
       exact (``volumeExact``: as of a part, only of planes and round faces;
       ``how`` says how far any other can be relied on) and its ``bbox``,
-      null when they share none. Both are solids: a shell or a face has no
+      with whether that is exact (``bboxExact``), both null when they share none. Both are solids: a shell or a face has no
       volume to share, and is refused.
     - ``clearance``: the least ``distance`` between the two, mm, and the
       ``points`` of each it is between. Parts that touch are 0 apart. Parts
@@ -82,7 +82,7 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
     if kind == "overlap":
         need_solid(first, a)
         need_solid(second, b)
-        return {key: shared()[key] for key in ("volume", "volumeExact", "how", "bbox")}
+        return {key: shared()[key] for key in ("volume", "volumeExact", "how", "bbox", "bboxExact")}
     not_solid = [name for name, shape in ((a, first), (b, second)) if not topo.solids(shape)]
     return _clearance(_topods(first), _topods(second), f"{a} and {b}", shared, not_solid)
 
@@ -96,9 +96,7 @@ def _topods(shape: Any) -> Any:
 
 def _shared(one: Any, other: Any, names: str) -> dict[str, Any]:
     """What two solids share: its ``volume``, its ``bbox`` and its centre, ``at``."""
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
-
-    nothing = {"volume": 0.0, "volumeExact": True, "how": _SHARED_HOW, "bbox": None, "at": None}
+    nothing = {"volume": 0.0, "volumeExact": True, "how": _SHARED_HOW, "bbox": None, "bboxExact": None, "at": None}
     if _boxes_apart(one, other):
         return nothing
     common = _common(one, other)
@@ -109,12 +107,12 @@ def _shared(one: Any, other: Any, names: str) -> dict[str, Any]:
     told = {"volume": volume.value, "volumeExact": volume.exact, "how": _SHARED_HOW + volume_doubt(volume)}
     if volume.value < _SHARED:
         return {**nothing, **told}
-    box = Bnd_Box()
-    # Of the geometry itself: not of a mesh, and not widened by the shape's tolerance.
-    BRepBndLib.AddOptimal_s(common.Shape(), box, False, False)
+    low, high = extent.box(common.Shape())
     return {
         **told,
-        "bbox": {"min": _xyz(box.CornerMin()), "max": _xyz(box.CornerMax())},
+        "bbox": {"min": low, "max": high},
+        # As a part's: its own only of planes and cylinders that end in lines and circles.
+        "bboxExact": extent.boxed_exactly(common.Shape()),
         "at": _xyz(centre),
     }
 

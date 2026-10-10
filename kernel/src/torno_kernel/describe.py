@@ -29,6 +29,7 @@ def descriptor(kind: str, facts: dict[str, Any]) -> str:
         bspline, ≈ 913.2 mm²
         circle, radius 4, 25.13 mm
         part, 40 × 30 × 5 mm, 6000 mm³, 6 faces
+        part, ≈ 130 × 208 × 120 mm, ≈ 84470 mm³, 92 faces
     """
     if kind == "face":
         # An area that is not exact is said as about that much.
@@ -86,9 +87,13 @@ def _part(facts: dict[str, Any]) -> str:
     low, high = facts["bbox"]["min"], facts["bbox"]["max"]
     size = " × ".join(number(b - a) for a, b in zip(low, high, strict=True))
     faces = facts["faceCount"]
-    # A volume that is not exact is said as about that much.
+    # A size and a volume that are not exact are said as about that much.
+    boxed = "≈ " if facts.get("bboxExact") is False else ""
     about = "≈ " if facts.get("volumeExact") is False else ""
-    return f"part, {size} mm, {about}{number(facts['volume'])} mm³, {faces} face{'' if faces == 1 else 's'}"
+    return (
+        f"part, {boxed}{size} mm, {about}{number(facts['volume'])} mm³, "
+        f"{faces} face{'' if faces == 1 else 's'}"
+    )
 
 
 def _axis_index(direction: Sequence[float]) -> int | None:

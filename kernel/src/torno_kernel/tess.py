@@ -12,6 +12,11 @@ ANGULAR_TOLERANCE = 0.2
 # The layout whose parts are spread out when they overlap (see arrange.spread).
 ARRANGED_LAYOUT = "print"
 
+# Seconds a build gives the box of one part. Past them the scene tells the
+# box of the part's mesh, as approximate, and the kernel's is worked out when
+# it is first asked for.
+BOX_SECONDS = 1.0
+
 # Scene mesh key → (ocp-tessellate key, little-endian dtype in the blob).
 _BUFFERS = {
     "vertices": ("vertices", "<f4"),
@@ -34,8 +39,9 @@ def build_scene(
     buffers point into, and the shapes by part key, in the object frame, for
     queries. Into ``kept``, when one is given, goes what was worked out of
     each part that a query would otherwise work out again (``queries.run``):
-    its ``volume`` (an ``extent.Volume``), whether it is ``valid`` and the
-    ``deflection`` it was drawn with, each under ``(what, key)``.
+    its ``volume`` (an ``extent.Volume``), its ``box`` and whether that is
+    its own (``boxed``), whether it is ``valid`` and the ``deflection`` it
+    was drawn with, each under ``(what, key)``.
 
     Parts of the print layout that overlap are first moved apart along X. The
     shape itself is moved, so the mesh, the bounding box and the shape kept for
@@ -56,15 +62,46 @@ def build_scene(
             shapes[key] = shape
             volume = extent.volume(shape, solids)
             part = _part(key, name, layout, shape, mesh, loc, cache_id, blob, volume)
+            # Whether its box is the kernel's, to keep for queries: not for the scene.
+            boxed = part.pop("boxed")
             if kept is not None:
                 kept["volume", key] = volume
                 kept["valid", key] = part["valid"]
                 kept["deflection", key] = drawn_at
+                if boxed:
+                    kept["box", key] = (part["bbox"]["min"], part["bbox"]["max"])
+                    kept["boxed", key] = part["bboxExact"]
             if name in moves:
                 part["arranged"] = moves[name]
             parts.append(part)
     scene = {"model": model, "layouts": list(layouts), "parts": parts}
     return scene, bytes(blob), shapes
+
+
+def part_box(
+    shape: Any, within: float | None = None, drawn: dict[str, list[float]] | None = None
+) -> tuple[list[float], list[float]]:
+    """The box of a part in the object frame, as the scene, ``describe`` and ``measure`` tell it.
+
+    The kernel's (``extent.box``). Of a part whose box is not exact
+    (``extent.boxed_exactly``) it is widened to hold the mesh the part is
+    drawn with, ``drawn`` when the caller has its box: every vertex of that
+    is a point of the part, and OCC's box has been short of one. ``within``
+    as ``extent.box`` takes it.
+    """
+    low, high = extent.box(shape, within)
+    if extent.boxed_exactly(shape):
+        return low, high
+    if drawn is None:
+        try:
+            drawn = _span(mesh_of(shape)[0])
+        except Exception:
+            # What cannot be meshed alone is drawn with nothing to hold.
+            return low, high
+    return (
+        [min(a, b) + 0.0 for a, b in zip(low, drawn["min"], strict=True)],
+        [max(a, b) + 0.0 for a, b in zip(high, drawn["max"], strict=True)],
+    )
 
 
 def mesh_of(shape: Any) -> tuple[np.ndarray, np.ndarray]:
@@ -171,12 +208,20 @@ def _part(
         for scene_key, (source, dtype) in _BUFFERS.items()
     }
     vertices = arrays["vertices"]
+    drawn = _bbox(vertices, t, q)
+    try:
+        low, high = part_box(shape, BOX_SECONDS, drawn)
+        box, boxed, exact = {"min": low, "max": high}, True, extent.boxed_exactly(shape)
+    except extent.TookTooLong:
+        box, boxed, exact = drawn, False, False
     return {
         "key": key,
         "name": name,
         "layout": layout,
         "loc": {"t": t, "q": q},
-        "bbox": _bbox(vertices, t, q),
+        "bbox": box,
+        "bboxExact": exact,
+        "boxed": boxed,
         # Above 0 of a solid: the window cuts a part with a volume as a closed one.
         "volume": volume.value,
         "volumeExact": volume.exact,
@@ -200,7 +245,10 @@ def _append(blob: bytearray, array: np.ndarray) -> dict[str, int]:
 
 def _bbox(vertices: np.ndarray, t: list[float], q: list[float]) -> dict[str, list[float]]:
     """Bounding box of part-local vertices after the pose, in the object frame."""
-    points = _posed(vertices.reshape(-1, 3), t, q)
+    return _span(_posed(vertices.reshape(-1, 3), t, q))
+
+
+def _span(points: np.ndarray) -> dict[str, list[float]]:
     return {"min": points.min(axis=0).tolist(), "max": points.max(axis=0).tolist()}
 
 

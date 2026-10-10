@@ -4,7 +4,7 @@ import math
 import re
 from typing import Any
 
-from . import extent, topo
+from . import extent, tess, topo
 from .describe import descriptor
 
 _SUBSHAPE = re.compile(r"^(?P<key>.+)/(?P<kind>[FE])(?P<index>\d+)$")
@@ -35,9 +35,9 @@ def run(
     is as long as its shapes are the ones asked about. ``nearest`` keeps a
     part's surface under its key; the others keep theirs under a pair
     ``(what, key)``. What is said of a whole part and is slow to work out of
-    a large one is among them: its ``volume`` (which the build has already
-    measured, ``tess.build_scene``), its ``area``, its ``box`` and whether it
-    is ``valid``.
+    a large one is among them: its ``volume`` and its ``box`` (which the build
+    has already measured, ``tess.build_scene``), whether that box is its own
+    (``boxed``), its ``area`` and whether it is ``valid``.
     """
     # These build on what is below, so they are imported once that is defined.
     from . import checks, measure, section
@@ -145,10 +145,19 @@ def area_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> extent.Area:
 def box_of(shape: Any, key: str | None, kept: dict[Any, Any] | None) -> tuple[list[float], list[float]]:
     """The least and the greatest corner of the axis-aligned box of a shape.
 
-    Of the part ``key`` it is worked out once for as long as ``kept`` is: it
-    takes seconds of a part of hundreds of round faces.
+    Of the part ``key`` it is the box the scene tells (``tess.part_box``),
+    worked out once for as long as ``kept`` is, and already by the build
+    unless that would have held it up. Of a face or an edge, with no key, it
+    is OCC's.
     """
-    return _held(kept, "box", key, lambda: _box(shape))
+    if key is None:
+        return extent.box(shape)
+    return _held(kept, "box", key, lambda: tess.part_box(shape))
+
+
+def boxed_exactly_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> bool:
+    """Whether the box of the part ``key`` is its own: looked into once for as long as ``kept`` is."""
+    return _held(kept, "boxed", key, lambda: extent.boxed_exactly(shape))
 
 
 def valid_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> bool:
@@ -163,17 +172,6 @@ def _held(kept: dict[Any, Any] | None, what: str, key: str | None, work: Any) ->
     if (what, key) not in kept:
         kept[what, key] = work()
     return kept[what, key]
-
-
-def _box(shape: Any) -> tuple[list[float], list[float]]:
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
-
-    box = Bnd_Box()
-    # Of the geometry itself: not of a mesh, and not widened by the shape's tolerance.
-    BRepBndLib.AddOptimal_s(getattr(shape, "wrapped", shape), box, False, False)
-    if box.IsVoid():
-        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
-    return _xyz_of(box.CornerMin()), _xyz_of(box.CornerMax())
 
 
 def as_point(value: Any) -> list[float] | None:
@@ -509,6 +507,7 @@ def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[st
         "kind": "part",
         "key": key,
         "bbox": {"min": list(low), "max": list(high)},
+        "bboxExact": boxed_exactly_of(shape, key, kept),
         "volume": volume.value,
         "volumeExact": volume.exact,
         "area": area.value,
@@ -573,11 +572,6 @@ def _describe_edge(ref: str, topods_edge: Any) -> dict[str, Any]:
         "center": center,
     }
     return {**facts, "descriptor": descriptor("edge", {**facts, "radius": radius})}
-
-
-def _xyz_of(point: Any) -> list[float]:
-    """A ``gp_Pnt`` as three numbers."""
-    return [float(point.X()) + 0.0, float(point.Y()) + 0.0, float(point.Z()) + 0.0]
 
 
 def _xyz(vector: Any) -> list[float]:

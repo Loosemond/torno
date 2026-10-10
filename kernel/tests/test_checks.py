@@ -14,7 +14,13 @@ from torno_kernel.tess import build_scene
 WS = Path(__file__).parent / "fixtures" / "ws"
 
 
-NOTHING_SHARED = {"volume": 0, "volumeExact": True, "how": "of what the two share", "bbox": None}
+NOTHING_SHARED = {
+    "volume": 0,
+    "volumeExact": True,
+    "how": "of what the two share",
+    "bbox": None,
+    "bboxExact": None,
+}
 
 
 def boxes(at) -> dict:
@@ -47,6 +53,7 @@ def test_overlap_is_the_volume_the_two_share_and_where():
         "volumeExact": True,
         "how": "of what the two share",
         "bbox": {"min": pytest.approx([0, 0, 0], abs=1e-9), "max": pytest.approx([10, 10, 5])},
+        "bboxExact": True,
     }
 
 
@@ -359,9 +366,6 @@ def test_the_volume_shared_with_a_freeform_solid_is_approximate_and_right_to_a_m
     assert shared["volumeExact"] is False
     assert re.fullmatch(r"of what the two share, approximate, good to about [56] significant digits", shared["how"])
     apart = {**shapes, "assembly:block": Pos(500, 0, 0) * Box(100, 100, 100)}
-    assert check(apart, "overlap", "prism", "block") == {
-        "volume": 0,
-        "volumeExact": True,
-        "how": "of what the two share",
-        "bbox": None,
-    }
+    assert check(apart, "overlap", "prism", "block") == NOTHING_SHARED
+    # Nor is the box of what they share, which ends in a spline.
+    assert shared["bboxExact"] is False

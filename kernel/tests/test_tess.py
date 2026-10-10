@@ -347,3 +347,108 @@ def test_a_solid_placed_in_two_layouts_is_integrated_once_and_a_build_spends_lit
 def test_the_scene_says_which_volumes_are_exact(bracket):
     scene, _, _ = bracket
     assert all(p["volumeExact"] is True for p in scene["parts"])
+
+
+# A part's box: the kernel's, the same wherever it is told, and exact only when it is
+
+
+def horn_and_ball():
+    from build123d import Circle, Ellipse, Pos, Rot, Sphere, loft
+
+    horn = loft([Circle(10).face(), Pos(0, 0, 15) * Ellipse(13.5, 5).face(), Pos(3, 0, 30) * Circle(4).face()])
+    return {"horn": Pos(5, 0, 0) * Rot(20, 30, 40) * horn, "ball": Pos(60, 0, 0) * Sphere(7)}
+
+
+def test_the_box_of_planes_and_cylinders_is_the_kernel_s_and_exact(bracket):
+    scene, _, _ = bracket
+    base, post = part(scene, "assembly:base"), part(scene, "print:post")
+    # Of the B-rep, not of a mesh kept in single precision: to the last digit.
+    assert (base["bbox"], base["bboxExact"]) == ({"min": [-20, -15, -2.5], "max": [20, 15, 2.5]}, True)
+    assert post["bboxExact"] is True
+    assert post["bbox"]["min"] == pytest.approx([56, -10, 0], abs=1e-9)
+    assert post["bbox"]["max"] == pytest.approx([64, 10, 8], abs=1e-9)
+
+
+@pytest.mark.parametrize("keeping", [True, False])
+def test_scene_describe_and_measure_tell_one_box_of_a_freeform_part_and_none_as_exact(keeping):
+    from torno_kernel import queries
+
+    kept: dict = {}
+    scene, _, shapes = build_scene({"assembly": horn_and_ball()}, "horn.py", kept)
+    for name in ("horn", "ball"):
+        key = f"assembly:{name}"
+        told = part(scene, key)
+        assert told["bboxExact"] is False
+        # As a worker answers, from what its build kept, and as a query with nothing kept.
+        held = kept if keeping else None
+        described = queries.run(shapes, "describe", {"ref": key}, held)
+        measured = queries.run(shapes, "measure", {"kind": "bbox", "a": {"ref": key}}, held)
+        assert described["bbox"] == told["bbox"] == {"min": measured["min"], "max": measured["max"]}
+        assert (described["bboxExact"], measured["exact"]) == (False, False)
+        assert described["descriptor"].startswith("part, ≈ ")
+    ball = part(scene, "assembly:ball")["bbox"]
+    assert ball["min"] == pytest.approx([53, -7, -7], abs=1e-3)
+    assert ball["max"] == pytest.approx([67, 7, 7], abs=1e-3)
+
+
+def test_a_box_the_kernel_has_short_of_a_freeform_part_holds_its_mesh_all_the_same(monkeypatch):
+    """OCC's optimal box was 0.56 mm short of a pad 130 mm wide: no point drawn is outside the box told."""
+    from build123d import Sphere
+
+    from torno_kernel import extent, queries
+
+    monkeypatch.setattr(extent, "box", lambda shape, within=None: ([-6.0, -6.5, -9.0], [6.0, 6.5, 6.0]))
+    kept: dict = {}
+    scene, blob, shapes = build_scene({"assembly": {"ball": Sphere(7)}}, "ball.py", kept)
+    told = part(scene, "assembly:ball")
+    vertices = read(blob, told["mesh"]["vertices"], "<f4").reshape(-1, 3)
+    # The lower Z of what OCC said is kept: it is no nearer than the mesh's.
+    assert told["bbox"]["min"] == pytest.approx([*vertices.min(axis=0)[:2], -9.0], abs=1e-6)
+    assert told["bbox"]["max"] == pytest.approx(vertices.max(axis=0), abs=1e-6)
+    assert queries.run(shapes, "describe", {"ref": "assembly:ball"}, kept)["bbox"] == told["bbox"]
+    assert queries.run(shapes, "describe", {"ref": "assembly:ball"}, None)["bbox"] == told["bbox"]
+
+
+def test_a_box_that_takes_too_long_is_left_to_the_first_query_and_the_scene_has_the_mesh_s(bracket, monkeypatch):
+    from torno_kernel import extent, queries, tess
+
+    ws = Path(__file__).parent / "fixtures" / "ws"
+    clock = [0.0]
+
+    def ticking() -> float:
+        # Each look at the clock is 0.3 s after the last: a face is boxed in as long.
+        clock[0] += 0.3
+        return clock[0]
+
+    monkeypatch.setattr(extent, "_clock", ticking)
+    kept: dict = {}
+    scene, blob, shapes = build_scene(load_scene(ws / "bracket", "bracket.py"), "bracket.py", kept)
+    base = part(scene, "assembly:base")
+    # Six faces: the fourth is past the second a part has. The mesh's box, said as approximate.
+    assert base["bboxExact"] is False
+    assert base["bbox"]["min"] == pytest.approx([-20, -15, -2.5], abs=1e-3)
+    assert ("box", "assembly:base") not in kept
+    assert tess.BOX_SECONDS == 1.0
+    # Asked, it is worked out however long it takes, and kept.
+    monkeypatch.setattr(extent, "_clock", lambda: 0.0)
+    described = queries.run(shapes, "describe", {"ref": "assembly:base"}, kept)
+    assert (described["bbox"], described["bboxExact"]) == ({"min": [-20, -15, -2.5], "max": [20, 15, 2.5]}, True)
+    assert kept["box", "assembly:base"] == ([-20, -15, -2.5], [20, 15, 2.5])
+
+
+def test_a_box_taken_face_by_face_is_the_one_occ_takes_of_the_whole(bracket):
+    from build123d import Box, Compound, Edge, Sphere, Vertex
+    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+
+    from torno_kernel import extent
+
+    _, _, shapes = bracket
+    loose = Compound([Box(10, 10, 10), Edge.make_line((0, 0, 0), (30, 40, 50)), Vertex(-9, -8, -7)])
+    for shape in (*shapes.values(), *horn_and_ball().values(), Sphere(7).faces()[0], loose):
+        whole = Bnd_Box()
+        BRepBndLib.AddOptimal_s(shape.wrapped, whole, False, False)
+        low, high = whole.CornerMin(), whole.CornerMax()
+        assert extent.box(shape) == (
+            [low.X() + 0.0, low.Y() + 0.0, low.Z() + 0.0],
+            [high.X() + 0.0, high.Y() + 0.0, high.Z() + 0.0],
+        )

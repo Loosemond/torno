@@ -1,4 +1,4 @@
-"""The area and the volume of a shape: the one place either is measured.
+"""The area, the volume and the box of a shape: the one place each is measured.
 
 Neither is taken from the quick forms OCC and build123d use by default, which
 integrate at a fixed order: exact of planes, cylinders and spheres, but out in
@@ -202,6 +202,57 @@ def _volume_digits(apart: float, claimed: float, value: float) -> int | None:
         return digits
     digits = min(digits, math.floor(-math.log10(claimed)))
     return digits if digits >= FEWEST_DIGITS else None
+
+
+class TookTooLong(Exception):
+    """A box was not worked out in the time it was given."""
+
+
+def box(shape: Any, within: float | None = None) -> tuple[list[float], list[float]]:
+    """The least and the greatest corner of the axis-aligned box of a shape, mm.
+
+    Of the geometry itself: not of a mesh, and not widened by the shape's
+    tolerance. It is OCC's optimal box, taken as OCC takes it, of each face,
+    then of each edge of no face and each vertex of no edge, so that it can
+    be given up between two of them: it takes seconds of a part of hundreds
+    of round faces. ``TookTooLong`` when ``within``, seconds, has passed.
+    Whether it is the shape's own box is another question (``boxed_exactly``).
+    """
+    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SHAPE, TopAbs_VERTEX
+    from OCP.TopExp import TopExp_Explorer
+
+    started = _clock()
+    whole = Bnd_Box()
+    for find, outside in ((TopAbs_FACE, TopAbs_SHAPE), (TopAbs_EDGE, TopAbs_FACE), (TopAbs_VERTEX, TopAbs_EDGE)):
+        explorer = TopExp_Explorer(_topods(shape), find, outside)
+        while explorer.More():
+            if within is not None and _clock() - started > within:
+                raise TookTooLong
+            BRepBndLib.AddOptimal_s(explorer.Current(), whole, False, False)
+            explorer.Next()
+    if whole.IsVoid():
+        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
+    low, high = whole.CornerMin(), whole.CornerMax()
+    # Adding 0.0 turns -0.0 into 0.0.
+    return [low.X() + 0.0, low.Y() + 0.0, low.Z() + 0.0], [high.X() + 0.0, high.Y() + 0.0, high.Z() + 0.0]
+
+
+def boxed_exactly(shape: Any) -> bool:
+    """Whether the box of a part, a face or an edge is its own: every face a plane or a
+    cylinder, every edge a line or a circle. OCC's is not, of a freeform face or edge:
+    it was 0.56 mm short of a lofted pad 130 mm wide."""
+    from ocp_tessellate.ocp_utils import BRepAdaptor_Curve, BRepAdaptor_Surface
+
+    wrapped = _topods(shape)
+    try:
+        if not all(_kind(BRepAdaptor_Surface(face)) in ("PLANE", "CYLINDER") for face in topo.faces(wrapped)):
+            return False
+        # A flat face may end in a spline; a cylinder cut on the slant ends in an ellipse.
+        return all(_kind(BRepAdaptor_Curve(edge)) in _STRAIGHT_OR_ROUND for edge in topo.edges(wrapped))
+    except Exception:
+        # An edge with no curve to name the type of.
+        return False
 
 
 def round_and_straight(shape: Any) -> bool:
