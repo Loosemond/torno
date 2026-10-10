@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { basename, join } from 'node:path'
 import * as pty from 'node-pty'
@@ -10,14 +9,13 @@ import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import type { AgentAdapter } from './adapter'
 import { findCommand } from './choice'
-import { followTyped, hasEnter, PROMPT_FILE, promptFile, sendLine } from './sendMarks'
+import { type Told, Delivery } from './delivery'
+import { SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
 
 const FOLDER = '.torno'
-const FILE = 'session.json'
 /** `<object>/.torno/agent`: where an adapter's own files are written, for its agent to be pointed at. */
 const AGENT_FOLDER = 'agent'
-const AGENT_IDS: readonly AgentId[] = ['claude', 'copilot']
 const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
 /** The hooks that say a conversation has a prompt in it: it exists for the agent, and can be resumed. */
@@ -26,9 +24,8 @@ const CONVERSATION_EVENTS = new Set(['UserPromptSubmit', 'Stop'])
 const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse'])
 /** C0 and C1 controls and DEL: among them ESC, the newlines and the one-byte CSI. */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-interface Session {
+interface Session extends Told {
   id: string
   object: ObjectInfo
   /** The agent's id of the conversation, as its last hook named it. */
@@ -42,17 +39,6 @@ interface Session {
   exited: Promise<void>
   killTimer?: NodeJS.Timeout
   adapter: AgentAdapter
-  /**
-   * Of an agent without hooks: the marks told of by the file its line at the
-   * cursor names, while that line is there and not sent; null when none is.
-   */
-  pending: string[] | null
-  /** Of an agent without hooks: its conversation has been told nothing by torno yet, so no mark is known there by its number. */
-  fresh: boolean
-  /** Of an agent without hooks: its conversation is on file, to be resumed. */
-  onFile: boolean
-  /** The last writing of `.torno/prompt.md` for this session: one at a time, in the order asked. */
-  telling: Promise<unknown>
 }
 
 export interface SessionInfo {
@@ -100,6 +86,8 @@ export class Sessions {
   private readonly sessions = new Map<string, Session>()
   /** By object: a session that is being started there. */
   private readonly starting = new Map<string, Promise<Started>>()
+  /** How an agent without hooks is told, and when what it was told counts as sent. */
+  private readonly delivery: Delivery<Session>
   private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [] }
 
   constructor(
@@ -130,6 +118,13 @@ export class Sessions {
     }
   ) {
     deps.http.route('/hooks', (req, res, rest) => this.hook(req, res, rest))
+    this.delivery = new Delivery<Session>({
+      contextFor: deps.contextFor,
+      onDelivered: deps.onDelivered,
+      live: (s) => this.sessions.get(s.id) === s && !s.killTimer,
+      insert: (s, text) => this.insert(s.id, text),
+      said: (s, state, marks) => this.emit('send', { sessionId: s.id, objectId: s.object.id, state, marks })
+    })
   }
 
   on<E extends keyof Events>(event: E, cb: (m: Events[E]) => void): void {
@@ -259,90 +254,24 @@ export class Sessions {
     const s = this.sessions.get(sessionId)
     if (!s) return
     s.pty.write(data)
-    if (!s.adapter.hooks && !s.killTimer) this.typed(s, data)
+    if (!s.adapter.hooks && !s.killTimer) this.delivery.typed(s, data)
   }
 
   /**
-   * What was written to the terminal of an agent without hooks is all torno
-   * knows of what it was asked. An Enter says the person sent something: the
-   * conversation is one to resume. And of a line torno put at its cursor it
-   * says what became of it: sent by an Enter while it was still as put there,
-   * and then the marks its file tells of are delivered; or possibly changed
-   * first, and then they are not.
-   */
-  private typed(s: Session, data: string): void {
-    if (!s.onFile && hasEnter(data)) {
-      s.onFile = true
-      try {
-        storeConversation(s.object.dir, s.adapter.id, s.conversationId)
-      } catch (e) {
-        console.error(`cannot write ${join(s.object.dir, FOLDER, FILE)}: ${(e as Error).message}`)
-      }
-    }
-    if (s.pending === null) return
-    const became = followTyped(data)
-    if (became === 'kept') return
-    const marks = s.pending
-    s.pending = null
-    if (became === 'sent') {
-      s.fresh = false
-      if (marks.length > 0) this.deps.onDelivered?.(s.object.id, marks)
-    }
-    this.emit('send', { sessionId: s.id, objectId: s.object.id, state: became === 'sent' ? 'sent' : 'dropped', marks: marks.length })
-  }
-
-  /**
-   * For an agent without hooks: writes what a hook would have carried with
-   * its next prompt to `<object>/.torno/prompt.md` and puts one line that
-   * names the file at its cursor, not sent. The marks the file tells of for
-   * the first time are answered, and are delivered (`onDelivered`) by the
-   * Enter that sends the line. While a line is already there, nothing more is
-   * put in: the file and the marks it stands for are replaced.
+   * For an agent without hooks: writes what a hook would have carried with its next prompt to
+   * `<object>/.torno/prompt.md` and puts one line that names the file at its cursor, not sent (`Delivery`).
    */
   sendMarks(sessionId: string): Promise<{ marks: string[]; line: string }> {
     const s = this.sessions.get(sessionId)
     if (!s || s.killTimer) return Promise.reject(new Error('This session has ended'))
     if (s.adapter.hooks) return Promise.reject(new Error('This agent is told with every prompt'))
-    return this.tell(s, true).then((told) => told!)
+    return this.delivery.send(s)
   }
 
-  /**
-   * What is told of an object changed: its marks, or its build. While a line
-   * waits at the cursor of its agent, the file that line names is written
-   * again, so that what an Enter then sends for is what is so.
-   */
+  /** What is told of an object changed: its marks, or its build. A file that a waiting line names follows it. */
   changed(objectId: string): void {
     const s = this.of(objectId)
-    if (s && s.pending !== null) this.tell(s, false).catch((e) => console.error(`cannot write ${join(s.object.dir, FOLDER, PROMPT_FILE)} again: ${e instanceof Error ? e.message : String(e)}`))
-  }
-
-  /** Write the file of a session and, when `asked`, put its line at the cursor. Null when there was nothing to do. */
-  private tell(s: Session, asked: boolean): Promise<{ marks: string[]; line: string } | null> {
-    const told = s.telling
-      .catch(() => {})
-      .then(async () => {
-        // Sent or lost while this waited its turn: the file is of a prompt that has gone.
-        if (!asked && s.pending === null) return null
-        const { text, sentMarkIds } = await this.deps.contextFor(s.object.id, { fresh: s.fresh, toolName: s.adapter.toolName })
-        if (!text) {
-          if (asked) throw new Error('Nothing to send: nothing has been built here yet')
-          return null
-        }
-        await writeFileAtomic(join(s.object.dir, FOLDER, PROMPT_FILE), promptFile(text, new Date()))
-        if (this.sessions.get(s.id) !== s || s.killTimer) {
-          if (asked) throw new Error('This session has ended')
-          return null
-        }
-        if (!asked && s.pending === null) return null
-        const line = sendLine(sentMarkIds)
-        // The line that is there names the file, whatever it holds by now.
-        if (s.pending === null) this.insert(s.id, line)
-        s.pending = sentMarkIds
-        this.emit('send', { sessionId: s.id, objectId: s.object.id, state: 'waiting', marks: sentMarkIds.length })
-        return { marks: sentMarkIds, line }
-      })
-    s.telling = told
-    return told
+    if (s) this.delivery.changed(s)
   }
 
   /**
@@ -446,7 +375,7 @@ export class Sessions {
       try {
         storeConversation(session.object.dir, session.adapter.id, conversation)
       } catch (e) {
-        console.error(`cannot write ${join(session.object.dir, FOLDER, FILE)}: ${(e as Error).message}`)
+        console.error(`cannot write ${join(session.object.dir, FOLDER, SESSION_FILE)}: ${(e as Error).message}`)
       }
     }
 
@@ -544,64 +473,4 @@ const PARENT_SESSION_VARIABLES = new Set([
 function agentEnv(env: Record<string, string | undefined>): Record<string, string> {
   const kept = (name: string): boolean => !OWN_VARIABLES.has(name) && !PARENT_SESSION_VARIABLES.has(name)
   return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined && kept(entry[0])))
-}
-
-interface Kept {
-  conversationId: string
-  updatedAt?: string
-}
-
-/** What `session.json` holds, read with nothing taken on trust: the last conversation and whose it is, and those kept of the other agents. */
-function readStored(dir: string): { last: (Kept & { agent: AgentId }) | null; kept: Partial<Record<AgentId, Kept>> } {
-  let file: Record<string, unknown>
-  try {
-    const read: unknown = JSON.parse(readFileSync(join(dir, FOLDER, FILE), 'utf8'))
-    if (typeof read !== 'object' || read === null) return { last: null, kept: {} }
-    file = read as Record<string, unknown>
-  } catch {
-    return { last: null, kept: {} }
-  }
-  const one = (value: unknown): Kept | null => {
-    const entry = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
-    if (typeof entry.conversationId !== 'string' || !UUID.test(entry.conversationId)) return null
-    return { conversationId: entry.conversationId, ...(typeof entry.updatedAt === 'string' ? { updatedAt: entry.updatedAt } : {}) }
-  }
-  // A file from before agents were chosen names none: it is Claude Code's. One that names an agent torno does not know is nobody's.
-  const agent = file.agent === undefined ? 'claude' : AGENT_IDS.find((id) => id === file.agent)
-  const top = one(file)
-  const others = (typeof file.kept === 'object' && file.kept !== null ? file.kept : {}) as Record<string, unknown>
-  const kept: Partial<Record<AgentId, Kept>> = {}
-  for (const id of AGENT_IDS) {
-    const entry = one(others[id])
-    if (entry && id !== agent) kept[id] = entry
-  }
-  return { last: top && agent ? { ...top, agent } : null, kept }
-}
-
-/**
- * `<object>/.torno/session.json` holds the conversation to resume, and the
- * agent it is of: `{ "conversationId", "agent", "updatedAt" }`, and under
- * `kept` the last conversation of each other agent that has had one here, so
- * that going to another agent and back loses neither. It is written when the
- * agent first names the conversation in the hook of a prompt (for an agent
- * without hooks: when the person first sends it a line), so one that was
- * opened and never used is not offered again. A conversation is only ever
- * resumed by the agent it is of.
- */
-function storedConversation(dir: string, agent: AgentId): string | null {
-  const { last, kept } = readStored(dir)
-  return (last?.agent === agent ? last.conversationId : kept[agent]?.conversationId) ?? null
-}
-
-function storeConversation(dir: string, agent: AgentId, conversationId: string): void {
-  const folder = join(dir, FOLDER)
-  const path = join(folder, FILE)
-  const { last, kept } = readStored(dir)
-  if (last && last.agent !== agent) kept[last.agent] = { conversationId: last.conversationId, ...(last.updatedAt ? { updatedAt: last.updatedAt } : {}) }
-  delete kept[agent]
-  mkdirSync(folder, { recursive: true })
-  const temp = `${path}.${process.pid}.tmp`
-  const file = { conversationId, agent, updatedAt: new Date().toISOString(), ...(Object.keys(kept).length > 0 ? { kept } : {}) }
-  writeFileSync(temp, `${JSON.stringify(file, null, 2)}\n`)
-  renameSync(temp, path)
 }
