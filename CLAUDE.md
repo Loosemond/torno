@@ -18,6 +18,11 @@ says what it does and how to run it; the design is
 - `scripts/torno`: the launcher. It rebuilds the app when a source (or
   `app/scripts`) is newer than `app/out/.built`, which it touches only after a
   build that succeeded, or when `out/viewer/viewer.js` is missing.
+  `--print-command` and `--print-desktop` print and start nothing;
+  `--install-desktop` and `--uninstall-desktop` write and remove one file,
+  `torno.desktop` under the person's data folder, the only thing the script
+  writes outside the repository; `TORNO_OZONE` (`wayland` or `x11`) is the one
+  way a platform is passed to Electron (`src/launcher.test.ts`).
 
 ## Tests
 
@@ -36,6 +41,12 @@ One file: `pnpm -C app exec vitest run src/main/context.test.ts`,
 `pnpm -C app exec playwright test e2e/loop.spec.ts` (after `pnpm build`).
 
 While iterating run the focused test; run all four suites before a commit.
+
+`app/src/readme.test.ts` holds `README.md` to the code: its table of keys is
+`cheatSheet()` (`TORNO_README=write pnpm -C app exec vitest run
+src/readme.test.ts` writes it anew after a key changes), the tools it names as
+`mcp__torno__<name>` are exactly `TOOLS`, its headings are in their order, and
+what was never seen on a visible screen is one section.
 
 ## Global Constraints
 
@@ -933,7 +944,12 @@ agent is never told to remove a view.
 - This costs time on freeform parts, at every build (each part's volume is in
   the scene) and in `describe`, `volume`, `mass` and `area` of a whole part:
   seconds on the first ask of a freeform part, then kept by the worker until
-  the next build. A query has 30 s.
+  the next build. A query has 30 s. Measured in the sweep of Milestone 5 on
+  the owner's `guitar-wall-stand` (three lofted parts of about 90 faces, two
+  layouts): the model runs in 10 s and the build takes 178 s, 164 s of them
+  in four calls of `BRepGProp.VolumePropertiesGK_s` (`extent.py`
+  `volume_and_centre`, asked by `tess.py` for the scene). Nothing says so in
+  the window; `describe` of a part then takes 1.6 s.
 - `measure`'s `moved`, on a thickness, is how far the given point was from
   the face it was laid on; it says nothing of the value's precision.
 - A `print` layout that was spread (`arrange.py`) has its parts where torno
@@ -1016,8 +1032,9 @@ agent is never told to remove a view.
   `show: false`, a session of its own that refuses and counts every request but the file itself.
 - "Export…" is a button in the status line for the open object, in the head of the page of objects for every
   object that can be exported, and on each card that has a build of this run, for that object. The sheet is
-  modal (`aria-modal`, Tab stays in it, nothing behind it takes a click). There is no agent tool for it and no
-  key yet.
+  modal (`aria-modal`, Tab stays in it, nothing behind it takes a click). `Ctrl+Shift+E` (the row `export` of
+  `shared/keys.ts`, heard everywhere, the terminal included) brings it up: for the open object, or from the page
+  of objects for any. There is no agent tool for it.
 
 ## Kernel invariants
 
@@ -1094,6 +1111,13 @@ window on it.
 - Pictures of the parts come only from `window.__tornoTest.look(request)`, the
   same code the `look` tool uses; it renders to a target and does not wait for
   a frame.
+- A CSS animation that never ends (the dot of a working session, of a running
+  build) grows the hidden window's memory by about 3 MB a second for as long
+  as it runs, and the window and the GPU process keep a core and a half busy:
+  146 MB to 2.5 GB in half an hour of the sweep. It stops when the animation
+  does. A long script has the stand-in say `hook Stop` after each `hook`, and
+  watches `ps`. Whether a visible window does the same is not known. A `look`
+  with an explode of its own takes a second there, against 50 ms without.
 - State is read through hooks, not pixels: `window.__tornoTest.state()` and
   `.camera()`, `.pickAt(fx, fy)` for what a point of the canvas is on and
   `.project(point)` for where a point of the object is drawn (both in fractions
