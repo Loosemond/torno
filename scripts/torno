@@ -5,6 +5,13 @@
 # builds the app if it has not been built since its sources changed, then starts
 # Electron on it. A folder given as the argument is opened as the workspace;
 # with none, torno opens the one it was last pointed at.
+#
+# TORNO_OZONE=wayland or x11 has Electron told which platform to draw on;
+# unset, Electron chooses. --print-command says what would be started and
+# starts nothing. --print-desktop prints a desktop entry for this script,
+# --install-desktop writes it, --uninstall-desktop removes it: that one file,
+# under the person's data folder, is all this script ever writes outside the
+# repository, and only when it is asked to by that option.
 set -eu
 
 # The repository is the parent of this file's folder, also when called through a symlink.
@@ -19,10 +26,105 @@ done
 root=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd -P)
 app=$root/app
 
+usage() {
+  echo "usage: torno [workspace]"
+  echo "       torno --print-command [workspace]"
+  echo "       torno --print-desktop | --install-desktop | --uninstall-desktop"
+  echo "  workspace            a folder of objects to open (default: the one opened last)"
+  echo "  --print-command      print the command that would be started, one argument a line, and start nothing"
+  echo "  --print-desktop      print the desktop entry for this script, and write nothing"
+  echo "  --install-desktop    write that entry to \${XDG_DATA_HOME:-~/.local/share}/applications/torno.desktop"
+  echo "  --uninstall-desktop  remove it"
+  echo "  TORNO_OZONE          wayland or x11: the platform Electron is told to draw on (default: Electron chooses)"
+}
+
+# The platform is passed on only when it is asked for by name. Read before anything is checked, installed,
+# built or written. Never headless: Electron crashes with it here. And none at all under TORNO_TEST=1.
+ozone=
+case ${TORNO_OZONE-} in
+  '') ;;
+  wayland | x11) [ "${TORNO_TEST-}" = 1 ] || ozone=--ozone-platform=$TORNO_OZONE ;;
+  *)
+    echo "torno: TORNO_OZONE must be wayland or x11 (headless is not supported: Electron crashes with it here)" >&2
+    exit 2
+    ;;
+esac
+
+# The desktop entry, from scripts/torno.desktop.in: @EXEC@ is this script and @ICON@ the icon beside it, both
+# by their whole paths, so nothing but the entry is installed. It names no platform: this script decides that
+# when it is started, from TORNO_OZONE.
+desktop_entry() {
+  case $root in
+    *"
+"*)
+      echo "torno: the repository's path holds a line break: a desktop entry cannot name it" >&2
+      return 2
+      ;;
+  esac
+  # Exec: the path in double quotes with the four characters the Desktop Entry Specification names escaped,
+  # then every backslash doubled as in any string of the file, and a per cent doubled, which is else a field code.
+  exec_path=$(printf '%s' "$root/scripts/torno" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g' -e 's/%/%%/g')
+  icon_path=$(printf '%s' "$root/scripts/torno.svg" | sed -e 's/\\/\\\\/g')
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      *@EXEC@*) printf '%s"%s"%s\n' "${line%%@EXEC@*}" "$exec_path" "${line#*@EXEC@}" ;;
+      *@ICON@*) printf '%s%s%s\n' "${line%%@ICON@*}" "$icon_path" "${line#*@ICON@}" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <"$root/scripts/torno.desktop.in"
+}
+
+print_only=
 case ${1-} in
   -h | --help)
-    echo "usage: torno [workspace]"
-    echo "  workspace  a folder of objects to open (default: the one opened last)"
+    usage
+    exit 0
+    ;;
+  --print-command)
+    print_only=1
+    shift
+    ;;
+  --print-desktop | --install-desktop | --uninstall-desktop)
+    if [ $# -gt 1 ]; then
+      echo "torno: $1 takes nothing after it" >&2
+      exit 2
+    fi
+    if [ "$1" = --print-desktop ]; then
+      desktop_entry
+      exit
+    fi
+    # Where the person's applications are listed. Never the system's, and never as root: this is one person's launcher.
+    if [ "$(id -u)" = 0 ]; then
+      echo "torno: $1 is for your own account, not as root" >&2
+      exit 2
+    fi
+    # A data folder that is not a whole path is no data folder (the specification says to pass over it).
+    case ${XDG_DATA_HOME-} in
+      /*) data=$XDG_DATA_HOME ;;
+      *) data= ;;
+    esac
+    if [ -n "$data" ]; then
+      :
+    elif [ -n "${HOME-}" ]; then
+      data=$HOME/.local/share
+    else
+      echo "torno: neither XDG_DATA_HOME nor HOME is set: there is nowhere to keep a desktop entry" >&2
+      exit 2
+    fi
+    entry=$data/applications/torno.desktop
+    if [ "$1" = --uninstall-desktop ]; then
+      rm -f -- "$entry"
+      echo "torno: removed $entry"
+      exit 0
+    fi
+    text=$(desktop_entry)
+    # Said before it is done: the one file, and what goes into it.
+    echo "torno: writing $entry"
+    printf '%s\n' "$text"
+    mkdir -p -- "$data/applications"
+    printf '%s\n' "$text" >"$entry"
+    echo "torno: wrote $entry"
+    echo "Run it again after moving the repository."
     exit 0
     ;;
 esac
@@ -37,6 +139,15 @@ if [ $# -eq 1 ]; then
   fi
   TORNO_WORKSPACE=$(CDPATH= cd -- "$1" && pwd -P)
   export TORNO_WORKSPACE
+fi
+
+# The command, made once: what --print-command prints is what is started. The workspace is not an argument of
+# it: it goes in the environment, as TORNO_WORKSPACE.
+set -- "$app/node_modules/.bin/electron" "$app"
+[ -z "$ozone" ] || set -- "$@" "$ozone"
+if [ -n "$print_only" ]; then
+  printf '%s\n' "$@"
+  exit 0
 fi
 
 for tool in node pnpm uv; do
@@ -66,4 +177,4 @@ if [ ! -f "$stamp" ] || [ ! -f "$app/out/main/index.js" ] || [ ! -f "$app/out/pr
   touch -t "$began" "$stamp"
 fi
 
-exec "$app/node_modules/.bin/electron" "$app"
+exec "$@"

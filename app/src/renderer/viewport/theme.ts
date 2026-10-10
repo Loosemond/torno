@@ -20,7 +20,7 @@ export interface Theme {
 }
 
 /** The light values of styles/tokens.css, used where no stylesheet is loaded. */
-export const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#6C7178', accent: '#1D46B8', agent: '#2B8A5C', user: '#CF3F2C', panel: '#FAF9F6', scan: '#B4AFA5', axisX: '#9A3350', axisY: '#4C7F2C', axisZ: '#2E5FA9' }
+export const LIGHT_THEME: Theme = { surface: '#F1EFEA', hairline: '#DAD6CE', ink: '#22252A', muted: '#686D74', accent: '#1D46B8', agent: '#288156', user: '#CF3F2C', panel: '#FAF9F6', scan: '#B4AFA5', axisX: '#9A3350', axisY: '#4C7F2C', axisZ: '#2E5FA9' }
 
 /** The theme as the stylesheet says it now; the light one where there is no stylesheet. */
 export function themeOf(): Theme {

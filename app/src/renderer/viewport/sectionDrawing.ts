@@ -19,7 +19,7 @@ const MONO = "'IBM Plex Mono', ui-monospace, monospace"
 const SANS = "'IBM Plex Sans', system-ui, sans-serif"
 
 /** --surface, --ink, --muted and --hairline of the light theme (styles/tokens.css). */
-export const SHEET = { paper: '#F1EFEA', ink: '#22252A', muted: '#6C7178', hairline: '#DAD6CE' }
+export const SHEET = { paper: '#F1EFEA', ink: '#22252A', muted: '#686D74', hairline: '#DAD6CE' }
 
 /** How a scan's line is dashed on the sheet, in nominal pixels: drawn, then left. */
 const SCAN_DASH = [4, 2]

@@ -65,10 +65,32 @@ scripts/torno               # open the workspace opened last
 pnpm start                  # the same as the line above, from the repository; it takes no folder
 ```
 
+```sh
+scripts/torno --print-command [folder]   # the command it would start, one argument a line; starts nothing
+scripts/torno --print-desktop            # the desktop entry for this copy of torno; writes nothing
+scripts/torno --install-desktop          # writes it: ~/.local/share/applications/torno.desktop, and nothing else
+scripts/torno --uninstall-desktop        # removes that file
+TORNO_OZONE=wayland scripts/torno        # or x11: the platform Electron is told to draw on
+```
+
 `scripts/torno` works from any directory, and through a symlink. It installs
 the dependencies if `node_modules` is missing, builds the app if it has not
 been built since the sources last changed, and starts it. A build that fails
 is tried again at the next start.
+
+Left alone, Electron chooses whether to draw on Wayland or X11. If the window
+does not come up, or comes up wrong, `TORNO_OZONE=wayland` or `TORNO_OZONE=x11`
+has the launcher pass `--ozone-platform` for it. Any other value is refused,
+`headless` among them: Electron crashes with it here.
+
+`--install-desktop` is the only thing in torno that writes outside the
+repository and the folders you open, and only when you run it: one file,
+`torno.desktop`, under `$XDG_DATA_HOME/applications` (`~/.local/share` when that
+is not set), after printing the path and the entry. It refuses to run as root.
+The entry starts this script by its whole path, with the folder a launcher hands
+it, and its icon is `scripts/torno.svg`, by its path too: run it again after
+moving the repository. It names no platform: a launcher that should use one
+needs `TORNO_OZONE` in the environment it starts programs with.
 
 Only one torno runs at a time. Starting it again brings the window that is
 already open to the front and says so on stderr; given a folder, that window
@@ -797,6 +819,7 @@ by the test code; none is in the repository. Those of the window are in
 | `TORNO_WORKSPACE=<path>` | the workspace to open at start, instead of the one remembered. `scripts/torno <path>` sets it. |
 | `TORNO_AGENT_CMD=<cmd>` | the command to run for a session in place of the command of whichever agent is chosen (`claude`, `copilot`), split on spaces and given that agent's arguments: `TORNO_AGENT_CMD="claude --model sonnet"` |
 | `TORNO_BUILD_TIMEOUT=<seconds>` | how long a build may run before it is stopped: 600 by default, a day at most. `TORNO_BUILD_TIMEOUT=1800` for a model that needs up to half an hour. |
+| `TORNO_OZONE=wayland` or `x11` | read by `scripts/torno` only: the platform Electron is told to draw on. Unset, Electron chooses. Never passed under `TORNO_TEST=1`. |
 | `TORNO_CONFIG=<path>` | the config file to use instead of `~/.config/torno/config.json` |
 | `TORNO_DEBUG=1` | print to stderr the workspace opened at start, the address of the MCP server, and the command line and hooks of every session |
 | `TORNO_TEST=1` | create the window hidden and never show it; expose the test hooks. For tests only. |
@@ -833,6 +856,10 @@ No test puts a window or a dialog on the desktop. These are checked by hand, on 
 
 - "Open folder" on the first screen and in the left column: the system's folder dialog opens, and the folder chosen is opened. (Tests answer in its place.)
 - `Ctrl+Shift+E` with the terminal in focus and a real agent CLI at its prompt: the export sheet comes up and nothing reaches the CLI (left to the terminal, the chord would be its Ctrl+E).
+- Which platform Electron chooses on this desktop when `TORNO_OZONE` is not set, and whether the window comes up; then `TORNO_OZONE=wayland` and `TORNO_OZONE=x11`, each once.
+- `scripts/torno --install-desktop`, then torno started from the launcher: the entry is listed with its icon, the window comes up, and its window is grouped under the entry (`StartupWMClass=torno`).
+- The desktop entry given a folder (dropped on it, or `gtk-launch torno ~/objects`): that folder is opened. Given two, the launcher refuses, as it does from a terminal.
+- Light and dark by the system's own setting, on a visible screen: the tests set the theme through Electron, and the pictures looked at were of a hidden window.
 - `?` on the keyboard in use: the sheet of keys comes up outside a field and the terminal, and from a field it is a question mark.
 
 Known without running anything: Copilot CLI is not started in an object whose path has a comma, because the list of folders it reads instructions from is separated by commas; the session pane says so and names the path.

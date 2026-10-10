@@ -9,15 +9,17 @@
   --surface: #F1EFEA;      /* viewport ground; main/index.ts paints the window with the same value */
   --panel: #FAF9F6;
   --ink: #22252A;
-  --muted: #6C7178;
+  --muted: #686D74;        /* 4.5:1 on the surface, as all text is (shared/contrast.test.ts) */
   --hairline: #DAD6CE;
   --accent: #1D46B8;       /* layout blue */
   --accent-wash: #E3E9F8;
   --user-mark: #CF3F2C;    /* red pencil: marks made by the person */
-  --agent-mark: #2B8A5C;   /* marks made by the agent */
-  --ok: #2B8A5C;
-  --warn: #B7791F;
-  --fail: #CF3F2C;
+  --agent-mark: #288156;   /* marks made by the agent */
+  /* Verdicts are read as text: a step darker than the two mark colours, which are drawn and not read, to reach
+     4.5:1 on both grounds. */
+  --ok: #267951;
+  --warn: #936119;
+  --fail: #C23B29;
   /* A scan drawn without colours of its own: a paper grey a step from the ground, in no hue of the part palette. */
   --scan-plain: #B4AFA5;
   /* A scan coloured by its distance to a part, in a picture for the agent: at the part, at the range and beyond, and
@@ -44,7 +46,9 @@
   --part-8: #7FA7A6;
 
   /* Terminal: the sixteen colours an agent's CLI may ask for by name, toned to
-     sit on --panel, and what the terminal draws of its own. */
+     sit on --panel, and what the terminal draws of its own. Each is text: 4.5:1
+     on the panel, the bright ones too (but the dark theme's black, which is the
+     ground's own). */
   --ansi-black: #22252A;
   --ansi-red: #B5382A;
   --ansi-green: #2A7D54;
@@ -52,14 +56,14 @@
   --ansi-blue: #1D46B8;
   --ansi-magenta: #8A4594;
   --ansi-cyan: #1C7480;
-  --ansi-white: #6C7178;
-  --ansi-bright-black: #858A91;
+  --ansi-white: #686D74;
+  --ansi-bright-black: #6D7279;
   --ansi-bright-red: #CF3F2C;
-  --ansi-bright-green: #2B8A5C;
-  --ansi-bright-yellow: #B7791F;
+  --ansi-bright-green: #288156;
+  --ansi-bright-yellow: #9C671A;
   --ansi-bright-blue: #3D63D1;
-  --ansi-bright-magenta: #A259AE;
-  --ansi-bright-cyan: #23909E;
+  --ansi-bright-magenta: #9F54AC;
+  --ansi-bright-cyan: #1E7D89;
   --ansi-bright-white: #4A4F56;
   --term-selection: #D5DEF5;
   --term-scroll: rgb(34 37 42 / 0.14);
@@ -121,7 +125,7 @@
     --ansi-magenta: #C792D4;
     --ansi-cyan: #62BFC9;
     --ansi-white: #C4C2BD;
-    --ansi-bright-black: #7C8189;
+    --ansi-bright-black: #888C94;
     --ansi-bright-red: #F58B7D;
     --ansi-bright-green: #7FD6AB;
     --ansi-bright-yellow: #EDC272;

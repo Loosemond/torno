@@ -15,17 +15,24 @@ export interface OverlayOptions {
   ink: string
   muted: string
   surface: string
+  /** The colours of the X, Y and Z axes: the stylesheet's `--axis-x`, `--axis-y`, `--axis-z`. The light theme's where none is given. */
+  axes?: readonly [string, string, string]
 }
 
 export const PERSPECTIVE_NOTE = 'perspective, no scale bar'
 
 const MONO = "'IBM Plex Mono', ui-monospace, monospace"
 const SANS = "'IBM Plex Sans', system-ui, sans-serif"
-const AXES: { letter: string; axis: Vec3; color: string }[] = [
-  { letter: 'X', axis: [1, 0, 0], color: '#D2452F' },
-  { letter: 'Y', axis: [0, 1, 0], color: '#2F9460' },
-  { letter: 'Z', axis: [0, 0, 1], color: '#2F5FD0' }
+const AXES: { letter: string; axis: Vec3 }[] = [
+  { letter: 'X', axis: [1, 0, 0] },
+  { letter: 'Y', axis: [0, 1, 0] },
+  { letter: 'Z', axis: [0, 0, 1] }
 ]
+/**
+ * The axes of the light theme (styles/tokens.css; contrast.test.ts holds them equal). They are the gizmo's:
+ * kept clear of the two mark colours, so that in a picture nothing but a mark is a mark's red or green.
+ */
+export const AXIS_COLOURS: readonly [string, string, string] = ['#9A3350', '#4C7F2C', '#2E5FA9']
 
 /**
  * How many pixels of a picture a nominal one is: sizes are in units of a
@@ -63,8 +70,9 @@ function drawTriad(ctx: Ctx, o: OverlayOptions, unit: number): void {
     o.right[2] * o.up[0] - o.right[0] * o.up[2],
     o.right[0] * o.up[1] - o.right[1] * o.up[0]
   ]
-  const arms = AXES.map((a) => ({
+  const arms = AXES.map((a, n) => ({
     ...a,
+    color: (o.axes ?? AXIS_COLOURS)[n],
     x: dot(a.axis, o.right),
     y: -dot(a.axis, o.up),
     depth: dot(a.axis, toViewer)

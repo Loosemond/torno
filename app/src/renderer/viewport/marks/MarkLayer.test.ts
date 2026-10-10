@@ -5,7 +5,7 @@ import { MarkLayer, markOffset } from './MarkLayer'
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
-const COLOURS = { user: '#cf3f2c', agent: '#2b8a5c', reference: '#6c7178' }
+const COLOURS = { user: '#cf3f2c', agent: '#288156', reference: '#686d74' }
 
 const onBase: PinMark = { ...BASE, id: 'M1', kind: 'pin', anchor: { point: [1, 2, 2.5], normal: [0, 0, 1], part: 'base', ref: 'base/F4' } }
 const onPost: PickMark = { ...BASE, id: 'M2', kind: 'pick', target: 'face', anchor: { point: [4, 0, 12], part: 'post', ref: 'post/F0' } }

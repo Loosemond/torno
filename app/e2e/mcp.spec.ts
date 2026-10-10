@@ -376,8 +376,8 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
   const row = page.locator('.mark-row[data-mark="M2"]')
   await expect(row).toHaveAttribute('data-author', 'agent')
   // --agent-mark, outlined: the user's own are filled with --user-mark.
-  await expect(row.locator('.mark-chip')).toHaveCSS('border-top-color', 'rgb(43, 138, 92)')
-  await expect(row.locator('.mark-chip')).toHaveCSS('color', 'rgb(43, 138, 92)')
+  await expect(row.locator('.mark-chip')).toHaveCSS('border-top-color', 'rgb(40, 129, 86)')
+  await expect(row.locator('.mark-chip')).toHaveCSS('color', 'rgb(40, 129, 86)')
   await expect(row.locator('.mark-chip')).toHaveAttribute('title', /The agent's mark/)
   // What the agent wrote is text, whatever it looks like.
   await expect(row.locator('.mark-note')).toHaveText('<i>this</i> face?')
@@ -431,7 +431,7 @@ test('highlight shows the user what the agent means, until they click', async ()
   })
   await expect(line).toBeVisible()
   await expect(line.locator('[data-ref]')).toHaveText([pin.anchor.ref!, 'post'])
-  await expect(line.locator('[data-ref]').first()).toHaveCSS('border-top-color', 'rgb(43, 138, 92)')
+  await expect(line.locator('[data-ref]').first()).toHaveCSS('border-top-color', 'rgb(40, 129, 86)')
   await expect(line.locator('.agent-note')).toHaveText('<b>this one?</b>')
   await expect(line.locator('.agent-note b')).toHaveCount(0)
 

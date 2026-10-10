@@ -9,7 +9,7 @@ import { ARC_PX, DIMENSION_BEHIND, LEADER_PX, TICK_PX, build, labelAnchor, markP
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
 // Measured on r1, the build the tests draw unless they say otherwise.
 const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, measuredRevision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
-const COLOURS = { user: '#cf3f2c', agent: '#2b8a5c', reference: '#6c7178' }
+const COLOURS = { user: '#cf3f2c', agent: '#288156', reference: '#686d74' }
 const SIZE = { width: 800, height: 600 }
 
 const TOP = { point: [5, 3, 3] as Vec3, normal: [0, 0, 1] as Vec3, part: 'plate', ref: 'plate/F5' }

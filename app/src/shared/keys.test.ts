@@ -134,7 +134,8 @@ it('is the only place a key is named: no handler compares a key with a name of i
 
 it('is where every key shown on a button or in a tooltip comes from', () => {
   // A key cap with its text written out, a shortcut given as text, or a key in brackets at the end of a title.
-  const written = [/<kbd[^>]*>\s*[^\s{<]/, /aria-keyshortcuts="/, /\((?:[A-Z?/]|Esc|Enter|Tab|Ctrl\+[^)]*|Shift\+[^)]*)\)/]
+  // Or a key named in a sentence: "E puts them together", "Press T".
+  const written = [/<kbd[^>]*>\s*[^\s{<]/, /aria-keyshortcuts="/, /\((?:[A-Z?/]|Esc|Enter|Tab|Ctrl\+[^)]*|Shift\+[^)]*)\)/, /['"`>][^'"`<\n]*\b[Pp]ress(?:ing)? (?:[A-Z]|Esc|Enter|Tab)\b/, /['"`>· ]\b[A-Z] (?:puts|shows|takes|opens|closes)\b/]
   const found: string[] = []
   for (const file of files.filter((f) => f.includes(`${join('src', 'renderer')}`))) {
     const text = readFileSync(file, 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '')

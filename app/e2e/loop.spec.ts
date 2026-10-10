@@ -300,7 +300,7 @@ test('a broken save fails the build and keeps the last good parts, dimmed; the e
 
   const failed = page.getByRole('button', { name: 'Build failed' })
   await expect(failed).toBeVisible()
-  expect(await failed.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(207, 63, 44)') // --fail
+  expect(await failed.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(194, 59, 41)') // --fail
   await expect(status(page).locator('[data-part="revision"]')).toHaveText('showing r2')
 
   await failed.click()

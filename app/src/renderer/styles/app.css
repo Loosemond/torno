@@ -4202,3 +4202,23 @@ button {
   color: var(--ink);
   font-weight: 500;
 }
+
+/* ---- Found by the pass over the themes (e2e/themes.spec.ts) ---- */
+
+/* What a mark's row says beside its note ("spans parts drawn apart") is cut to the row's width, and its
+   tooltip says it whole. It used to push the row wider than the column, which then scrolled sideways. */
+.mark-row .row-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The lists of the left column scrolled with the system's own bars, arrows and all: the loudest thing in the
+   column. Thin and in the hairline, as on the page of objects and in the sheets. */
+.left,
+.left * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
+}

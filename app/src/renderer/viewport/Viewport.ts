@@ -218,7 +218,7 @@ export class Viewport {
       explodeFor: (explode, layout) => this.explodeFor(explode, layout),
       tintPicks: (layout) => this.tintPicks(layout),
       showMarks: () => this.showMarks(),
-      colours: () => ({ ...this.labelStyle(), muted: this.theme.muted })
+      colours: () => ({ ...this.labelStyle(), muted: this.theme.muted, axes: [this.theme.axisX, this.theme.axisY, this.theme.axisZ] as const })
     })
 
     // Without preventDefault the browser never restores a lost context.

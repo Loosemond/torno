@@ -236,7 +236,8 @@ test('an angle between a flat face and the wall of a hole is refused by the kern
 })
 
 test('with an expected value the hole fails: the row says so, and the chip in the picture is ringed', async () => {
-  const before = await picture(page, 'before', true)
+  // Counted in the colour of a verdict that fails, which is not the colour of the person's marks: a ring is the only thing of it.
+  const before = await picture(page, 'before', true, '--fail')
   await row('M2', page).click()
   const fields = row('M2', page).locator('.dimension-fields')
   await expect(fields.locator('.dimension-value')).toHaveText('⌀ 8 mm')
@@ -252,7 +253,7 @@ test('with an expected value the hole fails: the row says so, and the chip in th
 
   // The picture: the same but for the chip of M2, whose value is now ringed.
   await atRest(page)
-  const after = await picture(page, 'after', true)
+  const after = await picture(page, 'after', true, '--fail')
   const changed = await differing(page, 'before', 'after')
   expect(changed).toBeGreaterThan(40)
   expect(changed).toBeLessThan(4000)

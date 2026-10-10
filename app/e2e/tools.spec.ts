@@ -167,7 +167,10 @@ function differingNear(a: LookRequest, b: LookRequest, point: Vec3, reach = 0.03
   )
 }
 
-/** How many pixels of a picture of the current view are one of the gizmo's three axis colours. */
+/**
+ * How many pixels of a picture of the current view are one of the gizmo's three axis colours. The triad in the
+ * picture's bottom left corner is drawn in the same three, and is left out: it is no gizmo.
+ */
 function gizmoPixels(p: Page = page): Promise<number> {
   return p.evaluate(async () => {
     const css = getComputedStyle(document.documentElement)
@@ -182,7 +185,12 @@ function gizmoPixels(p: Page = page): Promise<number> {
     ctx.drawImage(bitmap, 0, 0)
     const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
     let found = 0
-    for (let i = 0; i < data.length; i += 4) if (axes.some(([r, g, b]) => Math.abs(data[i] - r) + Math.abs(data[i + 1] - g) + Math.abs(data[i + 2] - b) <= 6)) found += 1
+    const corner = 150 * Math.max(Math.max(bitmap.width, bitmap.height) / 1280, 0.5)
+    for (let i = 0; i < data.length; i += 4) {
+      const [x, y] = [(i / 4) % bitmap.width, Math.floor(i / 4 / bitmap.width)]
+      if (x < corner && y > bitmap.height - corner) continue
+      if (axes.some(([r, g, b]) => Math.abs(data[i] - r) + Math.abs(data[i + 1] - g) + Math.abs(data[i + 2] - b) <= 6)) found += 1
+    }
     return found
   })
 }

@@ -530,6 +530,31 @@ agent is never told to remove a view.
   without a `pyproject.toml` that its models are built with torno's own
   build123d. torno runs no `uv` command there.
 
+## Light and dark
+
+- The tokens (`app/src/renderer/styles/tokens.css`) are held to their
+  contrasts by `shared/contrast.test.ts`, which reads the file: whatever is
+  read as text is 4.5:1 on the ground it stands on (`--ink` 7:1; `--muted`,
+  `--accent`, `--ok`, `--warn`, `--fail` on `--surface` and `--panel`; the
+  accent on its wash; the sixteen terminal colours on the panel, but the dark
+  theme's black); what is only drawn is 3:1 (the two mark colours on the
+  surface); a hairline is between 1.15 and 2. A token is changed there first.
+- In light a verdict (`--ok`, `--fail`) is a step darker than the mark colour
+  it is near (`--agent-mark`, `--user-mark`): a verdict is read, a mark is
+  drawn. The axes (`--axis-x`, `-y`, `-z`) are the gizmo's and the triad's of
+  a picture, and are neither mark colour.
+- The light values are written out where no stylesheet is read
+  (`viewport/theme.ts` `LIGHT_THEME`, `viewport/sectionDrawing.ts` `SHEET`,
+  `viewport/overlay.ts` `AXIS_COLOURS`, `SURFACE` in `src/main/index.ts`,
+  `src/export/page.css`): the same test, and `export/page.test.ts`, hold them
+  to the tokens.
+- `e2e/themes.spec.ts` starts torno once in each theme, holds the tokens the
+  window computes to the same ratios, and writes pictures of the parts and
+  one of the window to `app/e2e/.results/themes/`. With `TORNO_SHOTS=<dir>`
+  it also captures the window in every state worth looking at
+  (`<dir>/ui-<state>-<theme>.png`), one launch each. After a change of a token or of a rule that
+  colours something, look at them.
+
 ## The page of objects
 
 - `ui/ShowPage.tsx`, over the 3D view (`store.page`: `'object' | 'objects'`; the view stays mounted under it,
@@ -1057,6 +1082,12 @@ window on it.
 - Every Electron launch sets `TORNO_TEST=1`. Main then creates the window with
   `show: false` and never shows it, and exposes the test hooks.
 - Never pass `--ozone-platform=headless`: Electron segfaults with it here.
+  `scripts/torno` never passes a platform when `TORNO_TEST=1`, and refuses
+  `headless` whoever asks (`TORNO_OZONE` is `wayland` or `x11`, or unset).
+- No test and no check runs `scripts/torno --install-desktop` or
+  `--uninstall-desktop` with the person's own `HOME` or `XDG_DATA_HOME`:
+  `src/launcher.test.ts` gives the script a temporary one of each. The entry
+  is tested by `--print-desktop`, which writes nothing.
 - `page.screenshot()` never returns on a hidden window. Do not call it.
   `webContents.capturePage()` delivers one image per launch and hangs on the
   second call.

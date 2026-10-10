@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=torno
+GenericName=CAD workbench
+Comment=Make CAD parts with an AI coding agent
+Exec=@EXEC@ %F
+Icon=@ICON@
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;
+StartupWMClass=torno

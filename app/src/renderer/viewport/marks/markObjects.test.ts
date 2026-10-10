@@ -9,7 +9,7 @@ import { BEHIND, DOT_PX, LEADER_PX, build, dispose, markPoints, rescale, setActi
 
 const CAMERA = { position: [100, -100, 80] as Vec3, target: [0, 0, 10] as Vec3, up: [0, 0, 1] as Vec3, ortho: false, fov: 35, zoom: 1 }
 const BASE = { author: 'user', note: '', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: CAMERA, createdAt: '2026-10-09T10:00:00.000Z' } as const
-const COLOURS = { user: '#cf3f2c', agent: '#2b8a5c', reference: '#6c7178' }
+const COLOURS = { user: '#cf3f2c', agent: '#288156', reference: '#686d74' }
 
 const pin: PinMark = { ...BASE, id: 'M1', kind: 'pin', anchor: { point: [1, 2, 20], normal: [0, 0, 2], part: 'base', ref: 'base/F4' } }
 const pick: PickMark = { ...BASE, id: 'M2', kind: 'pick', target: 'face', anchor: { point: [5, 0, 2.5], part: 'base', ref: 'base/F5' } }

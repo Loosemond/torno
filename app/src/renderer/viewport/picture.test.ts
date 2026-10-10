@@ -172,7 +172,7 @@ function viewport(far: THREE.Box3 | null = null): { host: PictureHost; log: stri
       log.push(`apart ${explode ? explode.amount : 'not'} in ${layout}`)
       return () => log.push('apart as on screen')
     },
-    colours: () => ({ user: '#cf3f2c', agent: '#2b8a5c', paper: '#faf9f6', surface: '#f1efea', ink: '#22252a', muted: '#6c7178' })
+    colours: () => ({ user: '#cf3f2c', agent: '#288156', paper: '#faf9f6', surface: '#f1efea', ink: '#22252a', muted: '#686d74' })
   }
   return { host, log, parts, visible: () => parts.map((p) => p.built.group.visible), ground }
 }

@@ -106,7 +106,7 @@ export interface PictureHost {
   /** Shows the marks as the screen has them. */
   showMarks(): void
   /** The colours of the labels, and a quieter ink for notes. */
-  colours(): LabelStyle & { muted: string }
+  colours(): LabelStyle & { muted: string; axes?: readonly [string, string, string] }
   /** How the parts of the layout on screen are drawn apart, or null. */
   explode(): ExplodeState | null
   /** Draws that layout's parts apart so (together for null), at once; returns what puts the screen back. */
@@ -437,7 +437,8 @@ export class PictureMaker {
       mmPerPx: view.ortho ? visibleHeight(view) / height : null,
       ink: colours.ink,
       muted: colours.muted,
-      surface: colours.surface
+      surface: colours.surface,
+      ...(colours.axes ? { axes: colours.axes } : {})
     })
     if (colouring) drawDeviationLegend(ctx, { width, height, ink: colours.ink, surface: colours.surface }, { ...tokens, inside: solid ? tokens.inside : null, range: colouring.range, title: `${colouring.scan} to ${colouring.part}` })
     if (withMarks) {

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- torno is Portuguese for lathe: a turned profile on its centre line, in the accent of the app, on its paper grey. -->
+  <rect width="64" height="64" rx="14" fill="#F1EFEA"/>
+  <path d="M9 27H16V20H24Q29 29 34 23Q38 13 42 23L55 28V36L42 41Q38 51 34 41Q29 35 24 44H16V37H9Z" fill="#1D46B8" fill-opacity="0.14" stroke="#1D46B8" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M4 32H60" stroke="#1D46B8" stroke-width="1" stroke-dasharray="7 2 1.5 2" stroke-linecap="round"/>
+</svg>

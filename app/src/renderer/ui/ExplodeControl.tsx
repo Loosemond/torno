@@ -151,7 +151,7 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
   if (!visible) return null
   // One part has no direction to go in either; a section or a shared centre leaves how it would be drawn apart to choose.
   const nothing = why === ONE_PART
-  const line = said ?? why ?? `For display only${scans ? ': the scans stay where they are' : ''}${apart ? ' · E puts them together' : ''}`
+  const line = said ?? why ?? `For display only${scans ? ': the scans stay where they are' : ''}${apart ? ` · ${hint('explode')} puts them together` : ''}`
 
   return (
     <div id="explodebar" className="explodebar" role="group" aria-label="Explode" data-apart={apart ? '' : undefined}>
