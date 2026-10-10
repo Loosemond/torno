@@ -8,6 +8,7 @@ import { type LookRequest, type LookResult, type SectionPlane, type ViewState, M
 import { connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { actions, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
+import { connectThumbs } from '../state/thumbs'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { alignTool, connectAlign } from '../tools/alignTool'
 import { arrowTool } from '../tools/arrowTool'
@@ -167,9 +168,13 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   }
   applyScans(store.getState())
 
+  /** The build on show as it came, kept only under test: what `timeThumbnail` draws. */
+  let landed: { scene: Scene; blob: ArrayBuffer } | null = null
+  const underTest = new URLSearchParams(location.search).has('test')
   const offScene = window.torno.object.onScene((m) => {
     const first = store.getState().scene === null
     if (!actions.applyScene(m)) return
+    if (underTest) landed = { scene: m.scene, blob: m.blob }
     const s = store.getState()
     applyLayers(s)
     viewport.setScene(m.scene, m.blob)
@@ -314,11 +319,13 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // What the agent asks of the window besides pictures: to show something, and to point something out.
   const offAgent = connectAgent(viewport)
+  // The pictures on the cards of the page of objects: one of every build that lands, of whichever object.
+  const offThumbs = connectThumbs(viewport)
 
   // Main's requests for a picture are answered by the app (`connectLook`), with this viewport while it is there.
   setPictures((request) => look(viewport, request))
 
-  if (new URLSearchParams(location.search).has('test')) {
+  if (underTest) {
     const project = (point: Vec3, part?: string): [number, number] => {
       const box = canvasBox(viewport)
       const [x, y] = viewport.project(point, part)
@@ -381,6 +388,18 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
       },
       scans: () => viewport.scanState(),
+      timeThumbnail: async (count = 10) => {
+        if (!landed) throw new Error('no build yet')
+        let worst = 0
+        let bytes = 0
+        const started = performance.now()
+        for (let i = 0; i < count; i++) {
+          const before = performance.now()
+          bytes = (await viewport.thumbnail(landed.scene, landed.blob))?.png.length ?? 0
+          worst = Math.max(worst, performance.now() - before)
+        }
+        return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst, bytes }
+      },
       regions: () => viewport.regionState(),
       markScreen: (id) => {
         const box = canvasBox(viewport)
@@ -401,6 +420,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offRegion()
     setPictures(null)
     offAgent()
+    offThumbs()
     delete window.__tornoTest
   }
 }
@@ -452,6 +472,8 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
   const name = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const hasScene = useStore((s) => s.scene !== null)
   const build = useStore((s) => s.build)
+  // Under the page of objects the view stays as it is, and takes neither the pointer nor the keys.
+  const covered = useStore((s) => s.page === 'objects')
 
   useEffect(() => {
     // A canvas of its own for each viewport: a WebGL context is not handed on.
@@ -486,7 +508,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
   const hasDetails = Boolean(error?.traceback?.trim() || error?.output?.trim())
 
   return (
-    <div className="viewport-pane">
+    <div className="viewport-pane" inert={covered}>
       {/* Always laid out, so the camera is fitted to its real shape; what is said below covers it. */}
       <div className="viewport-canvas" ref={host} />
       {viewport && hasScene && (

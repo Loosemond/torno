@@ -1136,3 +1136,51 @@ describe('saved views', () => {
     expect(names()).toEqual(['A'])
   })
 })
+
+describe('the page of objects', () => {
+  const object = (id: string) => ({ id, name: id, dir: `/ws/${id}`, model: `${id}.py` })
+  const workspace = (...ids: string[]) => ({ root: '/ws', hasProject: true, objects: ids.map(object) })
+
+  it('is where a workspace of several objects starts, and of none; one object alone is shown itself', () => {
+    actions.setWorkspace(workspace('bracket', 'gear'))
+    expect(store.getState().page).toBe('objects')
+    actions.setWorkspace(workspace('bracket'))
+    expect(store.getState().page).toBe('object')
+    actions.setWorkspace(workspace())
+    expect(store.getState().page).toBe('objects')
+    actions.setWorkspace(null)
+    expect(store.getState().page).toBe('object')
+  })
+
+  it('is left for an object that is opened', () => {
+    actions.setWorkspace(workspace('bracket', 'gear'))
+    actions.openObject('gear', { layers: {} })
+    expect(store.getState()).toMatchObject({ page: 'object', objectId: 'gear' })
+  })
+
+  it('leaves the open object as it is: what is selected in it is there on the way back', () => {
+    actions.setWorkspace(workspace('bracket', 'gear'))
+    actions.openObject('bracket', { layers: {} })
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    actions.setSelection(['post/F1'])
+    const before = store.getState()
+    actions.showPage('objects')
+    expect(store.getState()).toMatchObject({ page: 'objects', objectId: 'bracket', selection: ['post/F1'], revision: 1 })
+    expect(store.getState().scene).toBe(before.scene)
+    expect(store.getState().edits).toBe(before.edits)
+    actions.showPage('object')
+    expect(store.getState()).toMatchObject({ page: 'object', objectId: 'bracket', selection: ['post/F1'] })
+  })
+
+  it('is not left for an object when none is open', () => {
+    actions.setWorkspace(workspace('bracket', 'gear'))
+    actions.showPage('object')
+    expect(store.getState().page).toBe('objects')
+  })
+
+  it('stays as it is when the list of objects is read again', () => {
+    actions.setWorkspace(workspace('bracket'))
+    actions.refreshWorkspace(workspace('bracket', 'gear'))
+    expect(store.getState().page).toBe('object')
+  })
+})

@@ -416,9 +416,7 @@ export class PictureMaker {
       const targets = this.targetsFor(width, height)
       host.renderer.setRenderTarget(targets.drawn)
       host.renderer.render(host.scene, camera)
-      this.encoder.render(host.renderer, targets.drawn.texture, targets.encoded)
-      const pixels = new Uint8ClampedArray(width * height * 4)
-      host.renderer.readRenderTargetPixels(targets.encoded, 0, 0, width, height, pixels)
+      const pixels = pixelsOf(host.renderer, this.encoder, targets.drawn, targets.encoded)
       // What was drawn of the scans: one whose mesh has not come is not in the picture, and is not said to be.
       // The scan drawn by its distance is drawn solid, in colours that are read: not as thin as it is on screen.
       return { camera, pixels, drawn: host.scans.shown(extent).filter((scan) => scan.visible).map((scan) => (scan.id === colouring?.scan ? { ...scan, opacity: 1 } : scan)) }
@@ -496,9 +494,9 @@ export class PictureMaker {
  * dark. This pass applies the sRGB curve (the renderer uses sRGB output and no
  * tone mapping) and flips the rows, since a read-back starts at the bottom row.
  */
-class Encoder {
+export class Encoder {
   private readonly material = new THREE.ShaderMaterial({
-    uniforms: { map: { value: null as THREE.Texture | null } },
+    uniforms: { map: { value: null as THREE.Texture | null }, clear: { value: 0 } },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       void main() {
@@ -507,9 +505,13 @@ class Encoder {
       }`,
     fragmentShader: /* glsl */ `
       uniform sampler2D map;
+      uniform float clear;
       varying vec2 vUv;
       void main() {
-        gl_FragColor = vec4(sRGBTransferOETF(texture2D(map, vUv)).rgb, 1.0);
+        vec4 drawn = texture2D(map, vUv);
+        // On a clear ground a pixel holds its colour times how much of it is covered: the colour itself is encoded, and the cover kept beside it.
+        vec3 colour = clear > 0.5 && drawn.a > 0.0 ? drawn.rgb / drawn.a : drawn.rgb;
+        gl_FragColor = vec4(sRGBTransferOETF(vec4(colour, 1.0)).rgb, clear > 0.5 ? drawn.a : 1.0);
       }`,
     depthTest: false,
     depthWrite: false
@@ -521,8 +523,9 @@ class Encoder {
     this.quad.frustumCulled = false
   }
 
-  /** Leaves `to` as the renderer's current target. */
-  render(renderer: THREE.WebGLRenderer, from: THREE.Texture, to: THREE.WebGLRenderTarget): void {
+  /** Leaves `to` as the renderer's current target. `alpha` keeps how much of each pixel was drawn on, for a picture on a clear ground; without it every pixel is opaque. */
+  render(renderer: THREE.WebGLRenderer, from: THREE.Texture, to: THREE.WebGLRenderTarget, alpha = false): void {
+    this.material.uniforms.clear.value = alpha ? 1 : 0
     this.material.uniforms.map.value = from
     renderer.setRenderTarget(to)
     renderer.render(this.quad, this.camera)
@@ -533,4 +536,27 @@ class Encoder {
     this.quad.geometry.dispose()
     this.material.dispose()
   }
+}
+
+/**
+ * A drawn target as the pixels of a picture, top row first: through the encoder (sRGB, rows the right way up)
+ * and read back. With `alpha`, each pixel keeps how much of it was drawn on, and its colour is not multiplied
+ * by that. Leaves `encoded` as the renderer's current target.
+ */
+export function pixelsOf(renderer: THREE.WebGLRenderer, encoder: Encoder, drawn: THREE.WebGLRenderTarget, encoded: THREE.WebGLRenderTarget, opts: { alpha?: boolean } = {}): Uint8ClampedArray<ArrayBuffer> {
+  encoder.render(renderer, drawn.texture, encoded, opts.alpha === true)
+  const pixels = new Uint8ClampedArray(encoded.width * encoded.height * 4)
+  renderer.readRenderTargetPixels(encoded, 0, 0, encoded.width, encoded.height, pixels)
+  return pixels
+}
+
+/** A drawn target as PNG bytes: `pixelsOf`, written by an OffscreenCanvas. `alpha` keeps the alpha the target has. */
+export async function pngOf(renderer: THREE.WebGLRenderer, encoder: Encoder, drawn: THREE.WebGLRenderTarget, encoded: THREE.WebGLRenderTarget, opts: { alpha?: boolean } = {}): Promise<Uint8Array> {
+  const pixels = pixelsOf(renderer, encoder, drawn, encoded, opts)
+  const picture = new OffscreenCanvas(encoded.width, encoded.height)
+  const ctx = picture.getContext('2d')
+  if (!ctx) throw new Error('Could not get a 2D canvas to compose the picture')
+  ctx.putImageData(new ImageData(pixels, encoded.width, encoded.height), 0, 0)
+  const blob = await picture.convertToBlob({ type: 'image/png' })
+  return new Uint8Array(await blob.arrayBuffer())
 }

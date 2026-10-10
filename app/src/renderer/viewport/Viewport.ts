@@ -16,9 +16,11 @@ import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
 import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from './palette'
+import { aimKeyLight, makeLights } from './lights'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder, pointerRay } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
+import { ThumbnailMaker, type ThumbnailView } from './thumbnail'
 import { PointerRouter, type ViewportPointer } from './pointer'
 import { ScanEdit } from './scanEdit'
 import { ScanLayer, rayOf, reaching, type ScanHit, type ScanLayerState } from './scans'
@@ -63,7 +65,8 @@ export class Viewport {
   private readonly orthographic = new THREE.OrthographicCamera()
   private camera: AnyCamera = this.perspective
   private readonly controls: OrbitControls
-  private readonly keyLight = new THREE.DirectionalLight(0xffffff, 2.1)
+  private readonly lights = makeLights()
+  private readonly keyLight = this.lights.key
   private readonly ground = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial())
 
   private readonly entries = new Map<string, Entry>()
@@ -118,6 +121,7 @@ export class Viewport {
   private readonly gizmo: ShapeGizmo
   private readonly pointer: PointerRouter
   private readonly pictures: PictureMaker
+  private thumbnails: ThumbnailMaker | null = null
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -131,10 +135,8 @@ export class Viewport {
     for (const camera of [this.perspective, this.orthographic]) camera.up.set(0, 0, 1)
     this.perspective.position.set(120, -120, 96)
 
-    // The sky is +Z. With the key light riding on the camera, no side goes black.
-    const sky = new THREE.HemisphereLight(0xffffff, 0xc8c4bc, 1.5)
-    sky.position.set(0, 0, 1)
-    this.scene.add(sky, this.keyLight, this.keyLight.target)
+    // The sky is +Z. With the key light riding on the camera, no side goes black (lights.ts).
+    this.scene.add(this.lights.sky, this.keyLight, this.keyLight.target)
 
     // Drawn first and kept out of the depth buffer, so parts resting on the
     // ground cover it without flicker.
@@ -804,6 +806,16 @@ export class Viewport {
     return this.pictures.render(request)
   }
 
+  /**
+   * A small picture of any scene, of the object on show or of another, drawn off screen with this viewport's
+   * renderer (`ThumbnailMaker.render`): nothing on screen changes for it. Null for a scene with nothing to draw.
+   */
+  thumbnail(scene: Scene, blob: ArrayBuffer, view?: ThumbnailView): ReturnType<ThumbnailMaker['render']> {
+    if (this.disposed || this.renderer.getContext().isContextLost()) return Promise.resolve(null)
+    this.thumbnails ??= new ThumbnailMaker(this.renderer)
+    return this.thumbnails.render(scene, blob, view)
+  }
+
   /** Matches the drawing buffer to the canvas's size on the page. Call when the canvas is resized. */
   resize(): void {
     const width = this.canvas.clientWidth
@@ -839,6 +851,7 @@ export class Viewport {
     this.ground.geometry.dispose()
     this.ground.material.dispose()
     this.pictures.dispose()
+    this.thumbnails?.dispose()
     this.renderer.dispose()
   }
 
@@ -1013,16 +1026,7 @@ export class Viewport {
   }
 
   private aimKeyLight(camera: THREE.Camera, target: THREE.Vector3): void {
-    camera.updateMatrixWorld()
-    const m = camera.matrixWorld.elements
-    // From behind the viewer, above and to the left.
-    this.keyLight.position.set(
-      target.x + m[8] + 0.55 * m[4] - 0.4 * m[0],
-      target.y + m[9] + 0.55 * m[5] - 0.4 * m[1],
-      target.z + m[10] + 0.55 * m[6] - 0.4 * m[2]
-    )
-    this.keyLight.target.position.copy(target)
-    this.keyLight.target.updateMatrixWorld()
+    aimKeyLight(this.keyLight, camera, target)
   }
 
   /** A camera of its own for a picture of a view, with its frustum around `extent`; the key light is aimed along it. */

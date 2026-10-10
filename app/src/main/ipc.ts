@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
@@ -8,6 +9,7 @@ import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks
 import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
+import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
@@ -25,6 +27,7 @@ import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
+import { THUMB_MAX_BYTES, THUMB_PNG, cardsOf, saveThumbnail, thumbnailRefusal } from './show/cards'
 import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
@@ -34,12 +37,13 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
-//           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds
-//   from the renderer: object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
+//           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
+//           show:cards, show:thumbnail
+//   from the renderer: show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, workspace:requested (sent by src/main/index.ts),
-//           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem
+//           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the newest scan that has ended
@@ -57,6 +61,9 @@ interface OpenWorkspace {
   builds: Builds
   opened: Set<string> // ids of the objects being watched and built
   shown: string | null // the object the window shows: the last one it opened
+  /** By object: when the build that is running, or was last run, was started (ms epoch), and which build its last good scene came of. */
+  started: Map<string, number>
+  builtFrom: Map<string, { revision: number; startedMs: number | undefined }>
 }
 
 let current: OpenWorkspace | null = null
@@ -107,6 +114,78 @@ function broadcast(channel: string, message: unknown): void {
   }
 }
 
+/** At most this often is the window told that the cards of the objects may say something else. */
+const CARDS_TOLD_EVERY_MS = 200
+let cardsTold: ReturnType<typeof setTimeout> | null = null
+
+/** Something a card of the page of objects says may have changed: the window is told, once for a burst of changes. */
+function cardsChanged(): void {
+  cardsTold ??= setTimeout(() => {
+    cardsTold = null
+    broadcast('show:changed', undefined)
+  }, CARDS_TOLD_EVERY_MS)
+}
+
+/** The objects opened in this run: those that are watched and built. For tests. */
+export function openedObjects(): string[] {
+  return [...(current?.opened ?? [])]
+}
+
+const mtimeOf = (path: string): Promise<number | null> => stat(path).then((s) => s.mtimeMs, () => null)
+
+/** The cards of the open workspace (`cardsOf`): read from what is known of the objects opened in this run and from the files of the others. */
+function cards(): Promise<ObjectCard[]> {
+  const ws = current
+  if (!ws) return Promise.resolve([])
+  return cardsOf({
+    objects: () => ws.info.objects,
+    opened: (id) => ws.opened.has(id),
+    build: (id) => ws.builds.state(id),
+    marks: (id) => (marks ? marks.list(id) : Promise.reject(new Error('marks are not available'))),
+    session: (id) => sessions?.current(id)?.status ?? null,
+    readFile: (path) => readFile(path, 'utf8'),
+    mtimeMs: mtimeOf
+  })
+}
+
+/** The picture an object has on file, when it is one a card may show (`thumbnailRefusal`); null otherwise. */
+async function thumbnailOnFile(objectId: string): Promise<ArrayBuffer | null> {
+  const obj = findObject(objectId)
+  if (!obj) return null
+  const path = join(obj.dir, '.torno', THUMB_PNG)
+  try {
+    // Not read at all when it is no picture of ours by its size: whatever lies there is not handed to the window.
+    if ((await stat(path)).size > THUMB_MAX_BYTES) return null
+    const png = await readFile(path)
+    return thumbnailRefusal(png) === null ? toArrayBuffer(png) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Keeps the picture the window drew of an object's build. Only of an object opened in this run of the open
+ * workspace, only of its last good build, and only bytes that are such a picture: anything else is dropped. What
+ * it is said to be of is main's to say: the model file, and when that was last saved as far as the build read it
+ * (a model saved again since the build started is newer than its picture).
+ */
+async function keepThumbnail(objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf): Promise<void> {
+  const ws = current
+  const obj = findObject(objectId)
+  if (!ws || !obj || obj.model === null || !ws.opened.has(objectId) || ws.builds.scene(objectId)?.revision !== revision) return
+  const said = Object(of) as Partial<ThumbnailOf>
+  if (thumbnailRefusal(png) !== null || typeof said.layout !== 'string' || said.layout === '' || said.layout.length > 100 || !Number.isSafeInteger(said.parts)) return
+  const built = ws.builtFrom.get(objectId)
+  const saved = await mtimeOf(join(obj.dir, obj.model))
+  const startedMs = built?.revision === revision ? built.startedMs : undefined
+  const modelMtimeMs = saved === null ? null : startedMs === undefined ? saved : Math.min(saved, startedMs)
+  // The workspace may have been left, or the object built again, while the file was looked at.
+  if (current !== ws || ws.builds.scene(objectId)?.revision !== revision) return
+  const hidden = typeof said.hidden === 'number' && Number.isSafeInteger(said.hidden) && said.hidden > 0 ? said.hidden : 0
+  await saveThumbnail(obj.dir, png, { layout: said.layout, parts: said.parts!, model: obj.model, modelMtimeMs, ...(said.cut === true ? { cut: true } : {}), ...(said.apart === true ? { apart: true } : {}), ...(hidden ? { hidden } : {}) }, new Date())
+  cardsChanged()
+}
+
 /** Open a workspace: scan it and start a kernel for it. Replaces the one open. */
 export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
   const info = await scanWorkspace(resolve(root))
@@ -130,14 +209,18 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
         })
       })
   })
-  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null }
+  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map() }
   builds.on('build', (state) => {
+    if (state.status === 'building' && state.startedAt !== undefined) ws.started.set(state.objectId, state.startedAt)
     broadcast('object:build', state)
     onBuild?.(state)
+    cardsChanged()
   })
-  builds.on('scene', ({ objectId, revision, scene, blob }) =>
+  builds.on('scene', ({ objectId, revision, scene, blob }) => {
+    // Which build this scene came of: the one started last. A picture of it is no newer than the model was then.
+    ws.builtFrom.set(objectId, { revision, startedMs: ws.started.get(objectId) })
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
-  )
+  })
   // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
   // marks are on: each mark is checked against it, and every dimension is then measured on it. One
   // check at a time per object; a build that succeeds during one is checked after it, and what was
@@ -215,7 +298,10 @@ export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
 async function rescan(ws: OpenWorkspace): Promise<void> {
   const newest = ws.scan()
   const scanned = await scanWorkspace(ws.info.root).catch(() => null)
-  if (scanned && current === ws && newest()) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
+  if (scanned && current === ws && newest()) {
+    ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
+    cardsChanged()
+  }
 }
 
 export async function closeWorkspace(): Promise<void> {
@@ -322,6 +408,7 @@ export function registerIpc(
   sessions = opts.sessions ?? null
   sessions?.on('data', (m) => broadcast('session:data', m))
   sessions?.on('status', (m) => broadcast('session:status', m))
+  sessions?.on('status', () => cardsChanged())
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')
     return sessions
@@ -333,6 +420,7 @@ export function registerIpc(
   marks = opts.marks ?? null
   marks?.on('changed', (m) => broadcast('marks:changed', m))
   marks?.on('problem', (m) => broadcast('marks:problem', m))
+  marks?.on('changed', () => cardsChanged())
   // A mark added, or reopened, has not been checked against the build there is: no build is on its way to do it.
   if (marks) followMarks(marks, (objectId, restore) => current?.reanchor?.(objectId, restore))
   const requireMarks = (): MarkStore => {
@@ -381,6 +469,7 @@ export function registerIpc(
     // The workspace may have been closed or replaced during the scan; its kernel is then gone.
     if (current !== ws) throw new Error(`the workspace ${ws.info.root} was closed`)
     if (newest()) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
+    cardsChanged()
     const obj = ws.info.objects.find((o) => o.id === id)
     if (!obj) throw new Error(`no object named ${id} in ${ws.info.root}`)
     const state = ws.builds.open(obj)
@@ -574,6 +663,14 @@ export function registerIpc(
     }
   })
 
+
+  // The page of objects. Asking for the cards, or for a picture on file, reads and does nothing else: no
+  // object is opened or built for it. The window hands over the pictures it drew of the builds it was sent.
+  ipcMain.handle('show:cards', () => cards())
+  ipcMain.handle('show:thumbnail', (_event, objectId: string) => thumbnailOnFile(String(objectId)))
+  ipcMain.on('show:saveThumbnail', (_event, objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf) => {
+    keepThumbnail(String(objectId), revision, png, of).catch((e) => console.error(`cannot keep the picture of ${String(objectId)}: ${e instanceof Error ? e.message : String(e)}`))
+  })
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

@@ -235,7 +235,7 @@ While iterating run the focused test; run all four suites before a commit.
   picked anew where `Viewport.pointerAt` says the pointer is), `L` align a
   scan (`G`, `R` there for its handles, `Tab` in Pairs for which end is asked first), `B` region of a scan (`[`, `]`, `E`,
   `Z` there); `G`, `R`, `T` for the gizmo of the active shape; `E` draws the parts apart or
-  together (explode, below: offered to the tool in hand first, so the Region tool's `E` stays its own). A slider is no field to type in
+  together (explode, below: offered to the tool in hand first, so the Region tool's `E` stays its own); `W` shows the page of objects (below). A slider is no field to type in
   (`ui/typing.ts`): the keys work with one in focus. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
@@ -464,6 +464,63 @@ order they were saved), 24 at most (`MAX_VIEWS`).
   "Discard": in no mark's colour, as a view is not a mark. The digits are
   not bound to the saved views: `1` to `4` are the standard views.
 - `state.md` names the views in a line, with what of each is gone.
+
+## The page of objects
+
+- `ui/ShowPage.tsx`, over the 3D view (`store.page`: `'object' | 'objects'`; the view stays mounted under it,
+  `inert` and not painted, and the open object keeps its selection, camera and note). A workspace of several
+  objects, or of none, starts on it; one object alone is shown itself. `W` outside a field or the first row of
+  the object list brings it up; a card, or Escape, leaves it. On the page the keys are the page's (one
+  capture-phase listener: no tool under it is handed a key, the terminal and other fields keep theirs): arrows
+  from card to card (`ui/cards.ts` `stepCard`), Enter opens, `/` or a letter filters by name, Escape empties
+  the filter and then goes back to the object that was open.
+- **A card is read, never made** (`shared/show.ts` `ObjectCard`, `src/main/show/cards.ts` `cardsOf`). Asking
+  for the cards builds nothing, starts no worker, opens no session and loads no scan: of an object opened in
+  this run it says what main knows (its build state, its marks from the store), of any other what the files
+  under its `.torno/` say. The marks of an object not opened are read with `peekMarks`, which only reads: no
+  file is set aside and nothing is written (the store would do both). `show:changed` tells the window, at most
+  once in 200 ms, that a card may say something else: a build state, the marks, a session's status, a picture
+  kept, the list of objects read again.
+- **No verdict of a build that is not of this run.** `dimensions` (failing, not measured, passing) is only of
+  an object opened here whose revision is above 0, counted as the status line counts (`unmetDimensions`,
+  `standingOf`). Otherwise it is null, and `lastRun` says how many open dimensions the object has and how many
+  failed when they were last measured: told as `1 dimension failed as of its last run`, in no colour of a
+  verdict, never as a pass.
+- **No build is ever started for a picture.** A thumbnail is made by the window when a build of an object
+  opened in this run lands (`state/thumbs.ts` `connectThumbs`, on `object.onScene`, which carries every such
+  build with its meshes whether or not the object is on show): one at a time, in an idle callback, the latest
+  build of each object only. An object not built in this run keeps the picture it has on file, or has none and
+  says `No picture yet`.
+- **What a thumbnail is** (`viewport/thumbnail.ts`: `thumbnailPlan`, pure, and `ThumbnailMaker`, a scene of its
+  own drawn into a target with the viewport's renderer, which is left as it was found): 480 × 360, the standard
+  iso view in perspective, brought near until the parts fill the picture; the object as it was last looked at,
+  as its `scene.json` has it (read through `object.loadSceneFile`): its layout when the build still has it
+  (else `thumbnailLayout`: `assembly`, or the first), the parts switched on in their colours, cut by the
+  section kept or drawn apart by the one rule `explodeShown`, never both. What would leave it empty is passed
+  over (every part off: all are drawn; a section that keeps nothing: none). Parts and edges only: no mark, no
+  scan (a scan may show the real world), no grid, no gizmo. The ground is clear (alpha 0) and the part palette
+  is the same in both themes, so one file serves both: the card's own surface shows round the parts. Parts are
+  built with `buildPart(part, blob, { tree: false })` and disposed of after the frame; the PNG is `pngOf`
+  (`viewport/picture.ts`) with the alpha kept.
+- **Main alone keeps it** (`ipc.ts` `keepThumbnail`, `cards.ts` `saveThumbnail`): `<object>/.torno/thumb.png`
+  and `thumb.json` (`at`, `layout`, `parts`, `model`, `modelMtimeMs`, and `cut`, `apart`, `hidden` when the
+  picture is cut, drawn apart or leaves parts out), each written atomically, with a `.torno/.gitignore` naming
+  the two written once and never again (the person may change it). Only for an object in `ws.opened` whose
+  last good revision is the one the window names, and only bytes `thumbnailRefusal` passes: a PNG of
+  480 × 360, at most `THUMB_MAX_BYTES` (512 KB). Anything else is dropped. `modelMtimeMs` is main's to say:
+  when the model file was last saved, and no later than when that build was started, so a model saved again
+  during the build is newer than its picture.
+- **A card says how far its picture can be trusted** (`ui/cards.ts`): when it was made; what it draws
+  otherwise than the object is (`cut by its section`, `parts drawn apart`, `1 part left out`); `The model has
+  changed since` when the model file is newer than `modelMtimeMs` or is another file (`thumbOf`: `behind`);
+  and when the last build failed the status says so in `--fail`, the picture is dimmed and is said to be `of
+  the last build that worked`. A picture is asked of main only once its card is in view or near it
+  (IntersectionObserver), and main hands over only a file that is such a picture.
+- With 40 objects, none opened: `show.cards()` takes 3 to 8 ms, and 6 pictures of 30 are asked for at first. A
+  thumbnail of a two-part fixture costs about 7 ms.
+- Tests: `__tornoMain.opened()` (the objects opened in this run: empty while only the page was looked at),
+  `window.__tornoTest.timeThumbnail(count)`. `TORNO_SHOTS=<dir>` has `e2e/show.spec.ts` write captures of the
+  page, one launch each.
 
 ## Scans
 

@@ -7,7 +7,7 @@ import { writeFileAtomic } from './atomic'
 import { devShortcut } from './devkeys'
 import { startHttp } from './http'
 import { contextFor } from './context'
-import { buildState, closeWorkspace, findObject, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
+import { buildState, closeWorkspace, findObject, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart } from './kernel/client'
 import { latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
@@ -260,9 +260,10 @@ scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
  * checked against its build since something was done to them. `scans` is the
  * store of the scans; `pickFile` is what "Import scan" is answered with, and
  * `filePicks` counts how often it was asked. `letGo` has an object's status
- * say that the kernel let its build go, which no test's kernel does.
+ * say that the kernel let its build go, which no test's kernel does. `opened`
+ * are the objects opened in this run: those that are watched and built.
  */
-const testHooks = { requestLook, latestView, marks, marksChecks, letGo: letGoForTest, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0 }
+const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0 }
 
 /** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
 let requested: string | null = null

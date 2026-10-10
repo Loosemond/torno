@@ -4,6 +4,7 @@ import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
 import type { Scene } from './scene'
 import type { AlignMade, NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } from './scans'
 import type { SceneFile } from './scenefile'
+import type { ObjectCard, ThumbnailOf } from './show'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { WorkspaceInfo } from './workspace'
 
@@ -104,6 +105,16 @@ export interface TornoBridge {
   }
   geometry: {
     describe(objectId: string, layout: string, ref: string): Promise<Described>   // rejects with a plain message
+  }
+  /** The page of objects: a card for each object of the workspace, read from what main knows and from what is on file. Asking builds nothing. */
+  show: {
+    cards(): Promise<ObjectCard[]>
+    /** The PNG on file, or null. */
+    thumbnail(objectId: string): Promise<ArrayBuffer | null>
+    /** A picture of the build `revision` of an object opened in this run. Dropped without a word when that is no longer its last build, or the bytes are no such picture. */
+    saveThumbnail(objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf): void
+    /** Something a card says may have changed. */
+    onChanged(cb: () => void): () => void
   }
   session: {
     /** What there is for an object: its running session, and whether an earlier conversation can be resumed. */

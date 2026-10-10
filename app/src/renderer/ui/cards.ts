@@ -1,0 +1,95 @@
+import type { ObjectCard } from '../../shared/show'
+
+// What a card of the page of objects says, in words, and how the arrow keys go from card to card. A card says
+// only what it can stand by: a build is said of this run alone, and what a dimension measured in a run before is
+// said as that, never as a verdict.
+
+export type Tone = 'fail' | 'warn' | 'ok'
+export interface Said { text: string; tone?: Tone }
+
+/** How the object's build stands: in this run, or that it was not opened in it; why it cannot be built in place of all of it. */
+export function buildLine(card: ObjectCard): Said {
+  if (card.problem !== undefined) return { text: card.problem }
+  const build = card.opened ? card.build : undefined
+  if (!build) return { text: 'Not opened in this run' }
+  if (build.status === 'building') return { text: 'Building…' }
+  if (build.status === 'failed') return { text: build.error ? `Failed: ${build.error}` : 'Failed', tone: 'fail' }
+  if (build.letGo === 'memory') return { text: 'Let go to make room: built again when opened' }
+  return { text: build.status === 'ok' ? `Built, r${build.revision}` : 'Not built yet' }
+}
+
+const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+
+/**
+ * When the picture on the card was made and what it draws otherwise than the object is, and whether the model
+ * has changed since (`behind`, said beside it in the colour of a warning). Null for a card with no picture.
+ */
+export function pictureLine(card: ObjectCard): { text: string; behind: boolean } | null {
+  const thumb = card.thumb
+  if (!thumb) return null
+  const made = new Date(thumb.at)
+  const said = [`Picture of ${Number.isNaN(made.getTime()) ? 'an unknown day' : DAY.format(made)}`]
+  if (thumb.cut) said.push('cut by its section')
+  if (thumb.apart) said.push('parts drawn apart')
+  if (thumb.hidden) said.push(`${thumb.hidden} ${thumb.hidden === 1 ? 'part' : 'parts'} left out`)
+  // The status says the build failed: the picture is not of that.
+  if (card.opened && card.build?.status === 'failed') said.push('of the last build that worked')
+  return { text: said.join(', '), behind: thumb.behind }
+}
+
+const many = (n: number, one: string, more = `${one}s`): string => `${n} ${n === 1 ? one : more}`
+
+/** The small things a card counts: the open marks, how the dimensions stand, where the session is. None for nothing. */
+export function cardChips(card: ObjectCard): Said[] {
+  const chips: Said[] = []
+  if (card.marks === null) chips.push({ text: 'Marks could not be read', tone: 'warn' })
+  else {
+    if (card.marks.open > 0) chips.push({ text: many(card.marks.open, 'open mark') })
+    if (card.marks.drafts > 0) chips.push({ text: `${card.marks.drafts} not sent yet` })
+  }
+  const dimensions = card.dimensions
+  if (dimensions) {
+    if (dimensions.failing > 0) chips.push({ text: `${dimensions.failing} ${dimensions.failing === 1 ? 'dimension fails' : 'dimensions fail'}`, tone: 'fail' })
+    if (dimensions.unmeasured > 0) chips.push({ text: `${dimensions.unmeasured} not measured` })
+    if (dimensions.passing > 0) chips.push({ text: `${dimensions.passing} pass`, tone: 'ok' })
+  } else if (card.lastRun) {
+    // Of no build of this run: no verdict, and no colour of one.
+    const { dimensions: open, failed } = card.lastRun
+    chips.push({ text: failed > 0 ? `${many(failed, 'dimension')} failed as of its last run` : `${many(open, 'dimension')}, not measured in this run` })
+  }
+  if (card.session === 'needs_input') chips.push({ text: 'Session needs you', tone: 'warn' })
+  else if (card.session && card.session !== 'exited') chips.push({ text: `Session ${card.session}` })
+  return chips
+}
+
+/** The cards whose name holds what was typed, whatever the case; all of them, as they are, for nothing typed. */
+export function matching(cards: ObjectCard[], typed: string): ObjectCard[] {
+  const wanted = typed.trim().toLowerCase()
+  return wanted === '' ? cards : cards.filter((card) => card.name.toLowerCase().includes(wanted))
+}
+
+/**
+ * Where an arrow key, Home or End takes the focus from the card at `at` (-1 for none) among `count` cards laid
+ * `columns` to a row: the index of a card, `'field'` for the field above the first row, null for a key that
+ * moves nothing.
+ */
+export function stepCard(key: string, at: number, count: number, columns: number): number | 'field' | null {
+  if (count === 0 || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(key)) return null
+  if (at < 0 || at >= count) return key === 'End' ? count - 1 : 0
+  const row = Math.max(columns, 1)
+  switch (key) {
+    case 'ArrowLeft':
+      return Math.max(at - 1, 0)
+    case 'ArrowRight':
+      return Math.min(at + 1, count - 1)
+    case 'ArrowUp':
+      return at - row < 0 ? 'field' : at - row
+    case 'ArrowDown':
+      // A shorter last row: its last card stands for the one that would be under this.
+      return at + row < count ? at + row : Math.floor(at / row) < Math.floor((count - 1) / row) ? count - 1 : at
+    case 'Home':
+      return 0
+    default:
+      return count - 1
+  }
+}

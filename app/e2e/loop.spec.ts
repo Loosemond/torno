@@ -424,9 +424,10 @@ test('an object whose build the kernel let go says so in the status line', async
 test('the workspace is written nowhere but under .torno/', async () => {
   const added = () => readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => !existsSync(join(fixtures, path)) || path.includes('__pycache__'))
   // Every object that was opened has its state file, built or not; it follows the last build by a second.
+  // One that built has the picture of its card, what that is of, and the word to git to pass over the two.
   await expect
     .poll(() => added().sort())
-    .toEqual(['bracket/.torno', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'noscene/.torno', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/state.md'])
+    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/state.md'])
 })
 
 test.describe('the workspace is remembered', () => {

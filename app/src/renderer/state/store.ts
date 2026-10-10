@@ -130,6 +130,11 @@ export interface TornoState {
   shownByAgent: { layout?: string; visible: Record<string, boolean | undefined>; section?: { theirs: SectionPlane | null }; scans?: Record<string, ScanView | undefined>; explode?: Record<string, { theirs: ExplodeState | null }> } | null
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
   sessions: Record<string, SessionView>
+  /**
+   * What the middle of the window shows: the open object, or the page of the workspace's objects over it. The
+   * open object stays as it is under the page: its selection, its camera, the note being written.
+   */
+  page: 'object' | 'objects'
 }
 
 const NOTHING_SELECTED: string[] = []
@@ -150,7 +155,8 @@ export const store = createStore<TornoState>(() => ({
   ortho: false,
   lockedView: null,
   edits: 0,
-  sessions: {}
+  sessions: {},
+  page: 'object'
 }))
 
 export function useStore<T>(selector: (s: TornoState) => T): T {
@@ -160,7 +166,15 @@ export function useStore<T>(selector: (s: TornoState) => T): T {
 export const actions = {
   /** A workspace was opened (or there is none): nothing of the old one stays. */
   setWorkspace(workspace: WorkspaceInfo | null): void {
-    store.setState({ workspace, workspaceKnown: true, versions: {}, ...NO_OBJECT, sessions: {} })
+    // Several objects are met on their page; one alone is the thing to open, and none has the page say what an object is.
+    store.setState({ workspace, workspaceKnown: true, versions: {}, ...NO_OBJECT, sessions: {}, page: workspace && workspace.objects.length !== 1 ? 'objects' : 'object' })
+  },
+
+  /** Show the page of objects, or go back from it to the object that is open: with none open there is nothing to go back to. */
+  showPage(page: 'object' | 'objects'): void {
+    const s = store.getState()
+    if (page === s.page || (page === 'object' && s.objectId === null) || (page === 'objects' && s.workspace === null)) return
+    store.setState({ page })
   },
 
   /** The object list was scanned again. */
@@ -174,7 +188,7 @@ export const actions = {
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */
   openObject(objectId: string, file: SceneFile): void {
-    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), explode: file.explode ?? {}, scanViews: file.scans ?? {}, views: file.views ?? NO_VIEWS })
+    store.setState({ ...NO_OBJECT, page: 'object', objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), explode: file.explode ?? {}, scanViews: file.scans ?? {}, views: file.views ?? NO_VIEWS })
   },
 
   applyBuild(build: BuildState): void {

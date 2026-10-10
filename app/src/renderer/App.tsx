@@ -9,6 +9,7 @@ import { MarksPanel } from './ui/MarksPanel'
 import { ObjectList } from './ui/ObjectList'
 import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
+import { ShowPage, usePageKey } from './ui/ShowPage'
 import { DatumMark, ViewportPane } from './ui/ViewportPane'
 
 const LEFT_WIDTH = 248
@@ -63,8 +64,8 @@ let opening = 0
 /** Show an object as its scene file left it, and have main watch and build it. */
 async function openObject(id: string): Promise<void> {
   const turn = ++opening
-  // The one already open stays as it is: its selection, its camera, the note being written.
-  if (store.getState().objectId === id) return
+  // The one already open stays as it is: its selection, its camera, the note being written. From the page of objects it is gone back to.
+  if (store.getState().objectId === id) return actions.showPage('object')
   const file = await window.torno.object.loadSceneFile(id).catch(() => ({ layers: {} }))
   if (turn !== opening) return // another object was chosen meanwhile
   actions.openObject(id, file)
@@ -158,7 +159,9 @@ function useMain(): void {
 
 export function App() {
   useMain()
+  usePageKey()
   const workspace = useStore((s) => s.workspace)
+  const page = useStore((s) => s.page)
   const workspaceKnown = useStore((s) => s.workspaceKnown)
   const [errorOpen, setErrorOpen] = useState(false)
   const shell = useRef<HTMLDivElement>(null)
@@ -235,6 +238,7 @@ export function App() {
     >
       <main className="viewport" data-region="viewport">
         <ViewportPane onShowError={() => setErrorOpen(true)} />
+        {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} />}
       </main>
 
       <aside className="left" data-region="left" aria-label="Objects, layers, scans and marks">

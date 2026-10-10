@@ -48,8 +48,9 @@ export function isFaceted(trianglesPerFace: ArrayLike<number>): boolean {
 /**
  * The three.js objects for one part. The geometry owns copies of its data, so
  * the blob can be released afterwards. Colours are left for the caller to set.
+ * With `tree: false` no bounds tree is made: such a part is never picked.
  */
-export function buildPart(part: Part, blob: ArrayBuffer): BuiltPart {
+export function buildPart(part: Part, blob: ArrayBuffer, opts: { tree?: boolean } = {}): BuiltPart {
   const m = part.mesh
 
   const surface = new THREE.BufferGeometry()
@@ -71,7 +72,8 @@ export function buildPart(part: Part, blob: ArrayBuffer): BuiltPart {
 
   // What a pointer's ray is tested against, built once for the part. Indirect:
   // the triangles stay in the kernel's order, which `faceStarts` counts in.
-  if (surface.index!.count > 0) surface.boundsTree = new MeshBVH(surface, { indirect: true })
+  // Without one (`tree: false`) the part is only drawn, never pointed at: a picture made off screen.
+  if (opts.tree !== false && surface.index!.count > 0) surface.boundsTree = new MeshBVH(surface, { indirect: true })
   mesh.raycast = acceleratedRaycast
 
   const perFace = bufView(blob, m.trianglesPerFace, Uint32Array)

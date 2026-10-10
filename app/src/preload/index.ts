@@ -86,6 +86,12 @@ const bridge: TornoBridge = {
   geometry: {
     describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref)
   },
+  show: {
+    cards: () => ipcRenderer.invoke('show:cards'),
+    thumbnail: (objectId) => ipcRenderer.invoke('show:thumbnail', objectId),
+    saveThumbnail: (objectId, revision, png, of) => ipcRenderer.send('show:saveThumbnail', objectId, revision, png, of),
+    onChanged: (cb) => subscribe<void>('show:changed', () => cb())
+  },
   session: {
     current: (objectId) => ipcRenderer.invoke('session:current', objectId),
     start: (objectId, opts) => ipcRenderer.invoke('session:start', objectId, opts),
