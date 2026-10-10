@@ -215,7 +215,7 @@ export function measureReading(measured: Measured, a: End, b?: End, ofScan?: str
     case 'area':
       return `area ${about}${number(value)} mm² ${how}${roughly}, ${ends}`
     case 'mass':
-      return `mass ${about}${number(value)} g, ${how}${roughly}, ${ends}${finite(measured.volume) ? ` (volume ${number(measured.volume)} mm³)` : ''}`
+      return `mass ${about}${number(value)} g, ${how}${roughly}, ${ends}${finite(measured.volume) ? ` (volume ${about}${number(measured.volume)} mm³)` : ''}`
     default:
       return null
   }
@@ -259,15 +259,19 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
 
 /** A check in a line. Null for a reply that is none. */
 export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, checked: object): string | null {
-  // Nothing the kernel says of a check is approximate today: were it to say so, the reading would.
+  // Exact unless the kernel says otherwise: a clearance by `exact`, what two parts share by `volumeExact` and `bboxExact`.
   const about = (checked as { exact?: unknown } | null)?.exact === false ? '≈ ' : ''
   const roughly = about ? ', approximate' : ''
   const pair = `between ${args.a} and ${args.b}`
   if (args.kind === 'overlap') {
     const { volume, bbox } = checked as Partial<CheckedOverlap>
+    const { volumeExact, bboxExact, how } = checked as { volumeExact?: unknown; bboxExact?: unknown; how?: unknown }
     if (!finite(volume)) return null
     if (!bbox || !isVec(bbox.min) || !isVec(bbox.max)) return `no overlap ${pair}`
-    return `overlap ${about}${number(volume)} mm³ ${pair}${roughly}, within ${vector(bbox.min)} to ${vector(bbox.max)}`
+    // The common volume of freeform parts is integrated: told with ≈ and how good the kernel says it is.
+    const rough = volumeExact === false
+    const good = rough ? ` (${typeof how === 'string' && how.includes('approximate') ? how.slice(how.indexOf('approximate')) : 'approximate'})` : ''
+    return `overlap ${rough ? '≈ ' : about}${number(volume)} mm³ ${pair}${good}${roughly}, within ${bboxExact === false ? '≈ ' : ''}${vector(bbox.min)} to ${vector(bbox.max)}`
   }
   if (args.kind === 'clearance') {
     const { distance, overlapping, how } = checked as Partial<CheckedClearance>

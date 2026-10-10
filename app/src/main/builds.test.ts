@@ -220,7 +220,7 @@ describe('Builds.query', () => {
       const error = (await builds.query('bracket', 'describe', {}).catch((e) => e)) as KernelError
       expect(error).toBeInstanceOf(KernelError)
       expect(error).toMatchObject({ kind: 'exception' })
-      expect(error.message).toBe('there is no build of bracket to answer from: the kernel let the last one go, and the model does not build now (no). It is built again when a source changes or Rebuild is pressed.')
+      expect(error.message).toBe('there is no build of bracket to answer from: the kernel let the last one go, and the model does not build now (no). It is built again when a source changes, or when the user presses Rebuild in the status line of torno (Ctrl+Shift+B).')
       expect(error).toBeInstanceOf(NotBuilding)
     }
     // Asked unasked (a check on a timer), it is the kernel's no_build still, and is known for what it is: the model does not build.

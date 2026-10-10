@@ -6,7 +6,7 @@ import type { ScanInfo } from '../../shared/scans'
 import type { Camera } from '../../shared/view'
 import { MAX_PROPOSALS, MAX_VIEWS, type SavedView } from '../../shared/views'
 import { stripChips, viewMatches } from './savedViews'
-import { actions, explodeNow, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
+import { actions, explodeNow, layerOf, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
 
 const BUF = { offset: 0, length: 0 }
 const MESH = { vertices: BUF, normals: BUF, triangles: BUF, edges: BUF, trianglesPerFace: BUF, segmentsPerEdge: BUF, faceTypes: BUF, edgeTypes: BUF }
@@ -243,6 +243,50 @@ describe('layouts and layers', () => {
       actions.showForAgent('print', {})
       expect(store.getState().selection).toEqual([])
     })
+  })
+})
+
+// Final review M11: a part may be called what every object has. The layers are kept by part name.
+describe('parts named constructor, __proto__ and toString', () => {
+  const NAMES = ['constructor', '__proto__', 'toString']
+  beforeEach(() => {
+    actions.openObject('odd', { layers: {} })
+    actions.applyScene({ objectId: 'odd', revision: 1, scene: scene({ assembly: NAMES }) })
+  })
+
+  it('are drawn until they are switched off, one by one, and the scene file keeps what was set of each and nothing else', () => {
+    const s = store.getState()
+    expect(visibleKeys(s)).toEqual(NAMES.map((name) => `assembly:${name}`))
+    // What the window asks of a layer before anything was set of it: nothing is there.
+    for (const name of NAMES) expect([name, Object.prototype.hasOwnProperty.call(s.layers, name), layerOf(s.layers, name)]).toEqual([name, false, undefined])
+    expect(sceneFileOf(s)).toEqual({ layout: 'assembly', layers: {} })
+    actions.setLayer('constructor', { visible: false })
+    actions.setLayer('__proto__', { opacity: 0.5 })
+    actions.setLayer('toString', { color: '#123456' })
+    const now = store.getState()
+    expect(visibleKeys(now)).toEqual(['assembly:__proto__', 'assembly:toString'])
+    expect(layerOf(now.layers, 'constructor')).toEqual({ visible: false })
+    expect(layerOf(now.layers, '__proto__')).toEqual({ opacity: 0.5 })
+    expect(layerOf(now.layers, 'toString')).toEqual({ color: '#123456' })
+    expect(Object.keys(sceneFileOf(now).layers).sort()).toEqual(['__proto__', 'constructor', 'toString'])
+    expect(JSON.parse(JSON.stringify(sceneFileOf(now))).layers.constructor).toEqual({ visible: false })
+    actions.setLayer('constructor', { visible: true })
+    expect(visibleKeys(store.getState())).toHaveLength(3)
+  })
+
+  it('are shown and hidden by the agent like any other, for now', () => {
+    actions.showForAgent('assembly', { constructor: false, toString: true })
+    expect(visibleKeys(store.getState())).toEqual(['assembly:__proto__', 'assembly:toString'])
+    expect(sceneFileOf(store.getState())).toEqual({ layout: 'assembly', layers: {} })
+    // By hand again: the person's own, and kept.
+    actions.setLayer('constructor', { visible: true })
+    expect(visibleKeys(store.getState())).toHaveLength(3)
+  })
+
+  it('come back from a scene file that names them', () => {
+    actions.openObject('odd', JSON.parse('{"layers": {"constructor": {"visible": false}, "__proto__": {"visible": false}}}'))
+    actions.applyScene({ objectId: 'odd', revision: 1, scene: scene({ assembly: NAMES }) })
+    expect(visibleKeys(store.getState())).toEqual(['assembly:toString'])
   })
 })
 

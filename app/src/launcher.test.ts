@@ -37,7 +37,7 @@ it('says the command it would start, with a platform only when one is asked for,
   // Never with the test switch, whatever is asked.
   expect(run(['--print-command'], { TORNO_OZONE: 'wayland', TORNO_TEST: '1' }).stdout).not.toContain('ozone')
   // With a folder it is the same command: the folder goes in the environment. One that is no folder is refused as at a start.
-  expect(run(['--print-command', plain.home]).stdout).toBe(plain.stdout)
+  expect(run(['--print-command', plain.home]).stdout.endsWith(plain.stdout)).toBe(true)
   const missing = run(['--print-command', join(plain.home, 'nowhere')])
   expect([missing.status, missing.stdout]).toEqual([2, ''])
   expect(missing.stderr).toContain('not a folder')
@@ -62,7 +62,7 @@ it('prints a desktop entry that starts this script with the folder it is given, 
   expect(printed.status).toBe(0)
   const lines = printed.stdout.trim().split('\n')
   expect(lines[0]).toBe('[Desktop Entry]')
-  expect(lines).toContain(`Exec="${script}" %F`)
+  expect(lines).toContain(`Exec="${script}" --from-desktop %F`)
   // Its icon is the repository's own file, by its whole path: nothing is copied anywhere for it.
   expect(lines).toContain(`Icon=${join(scripts, 'torno.svg')}`)
   expect(lines).toContain('Type=Application')
@@ -87,7 +87,7 @@ it('quotes a path the desktop entry could misread', () => {
   const exec = printed.stdout.split('\n').find((line) => line.startsWith('Exec='))!
   // Quoted, the four characters the specification names escaped, then every backslash doubled as in any string of the file; a per cent is two.
   const quoted = `${odd}/scripts/torno`.replace(/[\\"`$]/g, '\\$&').replace(/\\/g, '\\\\').replace(/%/g, '%%')
-  expect(exec).toBe(`Exec="${quoted}" %F`)
+  expect(exec).toBe(`Exec="${quoted}" --from-desktop %F`)
   expect(printed.stdout.split('\n')).toContain(`Icon=${`${odd}/scripts/torno.svg`.replace(/\\/g, '\\\\')}`)
 })
 
@@ -156,4 +156,76 @@ it('builds again when a script of the build or the viewer of exported pages is n
   for (const part of ['"$app/scripts"', '"$app/out/viewer/viewer.js"', '"$app/src"']) expect(text).toContain(part)
   // And what it starts is what it prints: the command is made once.
   expect(text.match(/node_modules\/\.bin\/electron/g)).toHaveLength(1)
+})
+
+// The polish review's minors M8 to M11, and the one identity.
+it('says how it is used whatever platform is asked for: the help is where the variable is explained', () => {
+  const help = run(['--help'], { TORNO_OZONE: 'headless' })
+  expect(help.status).toBe(0)
+  expect(help.stdout).toContain('TORNO_OZONE')
+  expect(help.stdout).toContain('usage: torno [workspace]')
+})
+
+it('prints the folder with the command it would start: all of what is started', () => {
+  const plain = run(['--print-command'])
+  const folder = run(['--print-command', plain.home])
+  expect(folder.status).toBe(0)
+  const lines = folder.stdout.trim().split('\n')
+  expect(lines[0]).toMatch(/^TORNO_WORKSPACE=.*torno-launcher-/)
+  expect(lines.slice(1).join('\n')).toBe(plain.stdout.trim())
+  // None was given: none is printed.
+  expect(plain.stdout).not.toContain('TORNO_WORKSPACE')
+})
+
+it('says so when it replaces an entry that is there', () => {
+  const first = run(['--install-desktop'])
+  expect(first.stdout).toContain('torno: writing ')
+  const again = spawnSync('sh', [script, '--install-desktop'], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: first.home, XDG_DATA_HOME: join(first.home, 'data') } })
+  expect(again.status).toBe(0)
+  expect(again.stdout).toContain(`torno: replacing ${join(first.home, 'data', 'applications', 'torno.desktop')}`)
+})
+
+it('shows what went wrong when it was started from the desktop entry, where nobody reads its errors: a notice, or a log under its own data', () => {
+  // The entry says where it was started from; a folder that is none is the failure at hand.
+  expect(run(['--print-desktop']).stdout).toMatch(/^Exec="[^"]*scripts\/torno" --from-desktop %F$/m)
+  const home = mkdtempSync(join(tmpdir(), 'torno-launcher-'))
+  made.push(home)
+  const bin = join(home, 'bin')
+  cpSync(scripts, join(home, 'scripts'), { recursive: true })
+  // A PATH with the tools of a shell and no notify-send: it is logged.
+  const env = { PATH: '/usr/bin:/bin', HOME: home, XDG_DATA_HOME: join(home, 'data'), XDG_STATE_HOME: join(home, 'state') }
+  const hasNotify = spawnSync('sh', ['-c', 'command -v notify-send'], { env }).status === 0
+  const failed = spawnSync('sh', [script, '--from-desktop', join(home, 'nowhere')], { encoding: 'utf8', env: { ...env, TORNO_NOTIFY: join(bin, 'none') } })
+  expect(failed.status).toBe(2)
+  expect(failed.stderr).toContain('not a folder')
+  const log = join(home, 'state', 'torno', 'launcher.log')
+  expect(readFileSync(log, 'utf8')).toMatch(/torno: not a folder: .*nowhere/)
+  // With a notifier it is shown, and nothing is logged for it.
+  rmSync(log)
+  const said = join(home, 'said.txt')
+  const notify = join(home, 'notify')
+  writeFileSync(notify, `#!/bin/sh\nprintf '%s\\n' "$@" > '${said}'\n`)
+  chmodSync(notify, 0o755)
+  spawnSync('sh', [script, '--from-desktop', join(home, 'nowhere')], { encoding: 'utf8', env: { ...env, TORNO_NOTIFY: notify } })
+  expect(readFileSync(said, 'utf8')).toContain('not a folder')
+  expect(existsSync(log)).toBe(false)
+  // Started from a terminal (no such flag), nothing is shown or logged anywhere: the error is on stderr, where it is read.
+  const plain = spawnSync('sh', [script, join(home, 'nowhere')], { encoding: 'utf8', env: { ...env, TORNO_NOTIFY: notify } })
+  expect(plain.status).toBe(2)
+  expect(existsSync(log)).toBe(false)
+  void hasNotify
+})
+
+it('has one identity: the mark in the window is the drawing of the icon', () => {
+  const icon = readFileSync(join(scripts, 'torno.svg'), 'utf8')
+  const profile = /<path d="(M9 27[^"]*)"/.exec(icon)![1]
+  const window = readFileSync(resolve(__dirname, 'renderer/ui/ViewportPane.tsx'), 'utf8')
+  expect(window).toContain(`d="${profile}"`)
+  // Its centre line holds at the size of a launcher: 2 wide, a plain dash.
+  expect(icon).toMatch(/<path d="M4 32H60"[^>]*stroke-width="2"[^>]*stroke-dasharray="6 4"/)
+  expect(readFileSync(join(scripts, 'torno.desktop.in'), 'utf8')).toContain('StartupWMClass=torno')
+  // And the window says whose it is, so that the desktop finds its entry and its icon.
+  const main = readFileSync(resolve(__dirname, 'main/index.ts'), 'utf8')
+  expect(main).toContain("app.setName('torno')")
+  expect(main).toContain("setDesktopName?.('torno.desktop')")
 })

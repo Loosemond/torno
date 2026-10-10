@@ -1,6 +1,7 @@
 import { themeOf } from '../../renderer/viewport/theme'
+import { towardsViewer } from '../../shared/cut'
 import { type ExplodeState, NO_EXPLODE, explodeOf, explodeOffsets, explodeShown, neverBoth, nothingApart } from '../../shared/explode'
-import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type MeshArrays, record, unpackMesh, unpackScan } from '../../shared/exportdata'
+import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type MeshArrays, apartParts, record, unpackMesh, unpackScan } from '../../shared/exportdata'
 import type { Vec3 } from '../../shared/marks'
 import { type Camera, type SectionPlane, type ViewName, axisForm, planeOf } from '../../shared/view'
 import { Model, type ScanArraysOf } from './model'
@@ -133,8 +134,10 @@ function start(): void {
   const state = (): PageState => stateOf(object)
   const parts = (): ExportPart[] => object.parts.filter((part) => part.layout === state().layout)
   /** The one rule for what is drawn apart, the app's own (`explodeShown`): never with a section, never of parts that would not move. */
-  const apart = (): ExplodeState | null => explodeShown(state().explode[state().layout], state().section, parts())
-  const offsets = (): Record<string, Vec3> => explodeOffsets(parts(), apart())
+  /** The parts the rule is asked of: those of the layout, and the boxes of those the file leaves out. As in the app, of every part, drawn or not. */
+  const ruled = () => apartParts(object, state().layout)
+  const apart = (): ExplodeState | null => explodeShown(state().explode[state().layout], state().section, ruled())
+  const offsets = (): Record<string, Vec3> => explodeOffsets(ruled(), apart())
   const boxOf = (): { min: Vec3; max: Vec3 } => {
     const min: Vec3 = [Infinity, Infinity, Infinity]
     const max: Vec3 = [-Infinity, -Infinity, -Infinity]
@@ -175,7 +178,6 @@ function start(): void {
       // A resolved mark is in the list; on the part it is drawn only when asked.
       const drawn = st.marks ? rows().filter((row) => row.drawn && (st.resolved || row.mark.status !== 'resolved')) : []
       labels = drawn.map((row) => row.mark.id)
-      model.setMarks(drawn)
       overlay.set(drawn.map((row): Label => ({ mark: row.mark, by: row.by, dimmed: model.cutAway(row.mark.at) })))
       // Where they were drawn last, until the frame that is on its way says better.
       overlay.place((point, by) => model.project(point, by))
@@ -261,7 +263,7 @@ function start(): void {
     state,
     parts,
     nothingApart: () => {
-      const why = nothingApart(state().explode[state().layout] ?? NO_EXPLODE, parts())
+      const why = nothingApart(state().explode[state().layout] ?? NO_EXPLODE, ruled())
       return why === 'one part' ? 'One part: there is nothing to draw apart.' : why === 'shared centre' && (state().explode[state().layout]?.axis ?? 'centre') === 'centre' ? 'These parts share a centre: choose an axis.' : null
     },
     ortho: () => model.getCamera().ortho,
@@ -306,9 +308,8 @@ function start(): void {
         st.cut = null
       } else {
         // A cut that is switched on opens towards whoever looks: the half taken away is the one on the camera's side.
-        const seen = model.getCamera()
-        const towards = seen.position['xyz'.indexOf(axis)] - seen.target['xyz'.indexOf(axis)]
-        st.cut = { axis, t: Math.min(Math.max(t, 0), 1), flip: st.cut?.axis === axis ? st.cut.flip : towards < 0 }
+        // The app's own rule (`towardsViewer`): a cut switched on in torno opens the same way.
+        st.cut = { axis, t: Math.min(Math.max(t, 0), 1), flip: st.cut?.axis === axis ? st.cut.flip : towardsViewer(model.getCamera(), axis) < 0 }
         st.section = planeAt(axis, st.cut.t, st.cut.flip)
         // Never both (`neverBoth`, the app's rule): a section puts the parts together.
         const rested = neverBoth(st.explode[st.layout], st.section, 'section').explode

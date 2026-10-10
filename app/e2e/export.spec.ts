@@ -273,6 +273,18 @@ test('marks are in the file only when ticked, as torno measured them, and a note
     await file.ready()
     // The draft goes with the marks; the resolved one was not ticked, and is nowhere in the file.
     expect(await file.pageState()).toMatchObject({ marks: true, labels: ['M1', 'M2', 'M4'] })
+    // Final fix wave: a mark's lines are drawn over the canvas, each over a casing in the panel's colour, 2 px wider, so that they read on any part.
+    const lines = await file.ask<Array<{ name: string; mark: string; width: string; stroke: string; points: number }>>(
+      `[...document.querySelectorAll('#overlay svg.mark-lines polyline')].map((line) => ({ name: line.getAttribute('class'), mark: line.dataset.mark, width: getComputedStyle(line).strokeWidth, stroke: getComputedStyle(line).stroke, points: (line.getAttribute('points') || '').trim().split(' ').filter(Boolean).length }))`
+    )
+    expect(lines.length).toBeGreaterThan(0)
+    expect(lines.length % 2).toBe(0)
+    for (let i = 0; i < lines.length; i += 2) {
+      expect([lines[i].name, lines[i + 1].name, lines[i].mark === lines[i + 1].mark]).toEqual(['mark-casing', 'mark-line', true])
+      expect(parseFloat(lines[i].width) - parseFloat(lines[i + 1].width)).toBe(2)
+      expect(lines[i].stroke).not.toBe(lines[i + 1].stroke)
+      expect(lines[i].points).toBeGreaterThanOrEqual(2)
+    }
     expect(html).toContain('not sent yet')
     expect(html).not.toContain('settled long ago')
     // The note is there to read, and is nothing but text.
@@ -431,8 +443,10 @@ test('a part switched off and a mark that is resolved stay here unless they are 
   await page.getByRole('button', { name: 'Export…' }).click()
   await expect(sheet()).toContainText('r1 · 1 part ·')
   await expect(sheet()).toContainText('1 part is switched off here: left out of the file, with the marks on it')
-  const size = (): Promise<string> => sheet().locator('.export-size').innerText()
+  // By its bytes: what is said of it is to a tenth of a megabyte, which a lid of twelve triangles does not move.
+  const size = (): Promise<string | null> => sheet().locator('.export-size').getAttribute('data-bytes')
   const bare = await size()
+  expect(Number(bare)).toBeGreaterThan(100_000)
   const out = join(outDir, 'tub-only.html')
   await setSave(out)
   await sheet().getByRole('button', { name: 'Export', exact: true }).click()
@@ -492,7 +506,8 @@ test('parts named like what every object has are parts like any other, and a fil
     await file.ask('window.__tornoExport.setPart("__proto__", true); window.__tornoExport.setExplode(1, "z")')
     const apart = await file.pageState()
     expect(apart.parts.find((p) => p.name === '__proto__')!.offset[2]).toBeGreaterThan(1)
-    expect(apart.parts.find((p) => p.name === 'constructor')!.offset[2]).toBeLessThan(-1)
+    // Along z upward from the lowest part, which stays where it is: nothing is drawn under the ground.
+    expect(apart.parts.find((p) => p.name === 'constructor')!.offset[2]).toBe(0)
     expect(apart.labels).toEqual(['M1', 'M2', 'M4'])
     expect(await file.ask<string>('document.getElementById("said").textContent')).toBe('Parts drawn apart for display')
     expect(await file.ask<string[]>('[...document.querySelectorAll(".parts .name")].map((n) => n.textContent)')).toEqual(['constructor', '__proto__'])

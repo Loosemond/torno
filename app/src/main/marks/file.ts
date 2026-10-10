@@ -4,9 +4,8 @@ import { verdictOf } from '../../shared/dimension'
 import type { Anchor, DimensionMark, Mark, MarksFile, Quat, RegionMark, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import { MAX_STROKE_POINTS, MIN_SHAPE_SIZE } from '../../shared/marks'
-import { writeFileAtomic } from '../atomic'
+import { FOLDER, ownTorno, writeOwn } from '../own'
 
-const FOLDER = '.torno'
 const NAME = 'marks.json'
 
 /** The longest note a mark keeps, in characters. */
@@ -44,24 +43,25 @@ export async function loadMarksFile(dir: string, now: () => Date = () => new Dat
   if (read && read.dropped === 0) return { file: read.file }
 
   const stamp = now().toISOString().replace(/[:.]/g, '-')
+  await ownTorno(dir)
   if (!read) {
     const aside = `${NAME}.corrupt-${stamp}`
     // Copied, not moved: were the write below to fail, the next read must find the bad file again, and its ids with it.
     await copyFile(path, join(dir, FOLDER, aside))
     const file: MarksFile = { next: salvagedNext(text, parsed), marks: [] }
-    await writeFileAtomic(path, textOf(file))
+    await writeOwn(dir, NAME, textOf(file))
     return { file, problem: `The marks file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started.` }
   }
   const aside = `${NAME}.dropped-${stamp}`
   await copyFile(path, join(dir, FOLDER, aside))
-  await writeFileAtomic(path, textOf(read.file))
+  await writeOwn(dir, NAME, textOf(read.file))
   const what = read.dropped === 1 ? '1 mark in the marks file of this object was' : `${read.dropped} marks in the marks file of this object were`
   return { file: read.file, problem: `${what} not of a kind this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}.` }
 }
 
 /** Writes `<dir>/.torno/marks.json`, creating the folder. Readers see the old file or the new one, never half of one. */
 export function saveMarksFile(dir: string, file: MarksFile): Promise<void> {
-  return writeFileAtomic(join(dir, FOLDER, NAME), textOf(sanitiseMarksFile(file) ?? { next: 1, marks: [] }))
+  return writeOwn(dir, NAME, textOf(sanitiseMarksFile(file) ?? { next: 1, marks: [] }))
 }
 
 function textOf(file: MarksFile): string {

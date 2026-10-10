@@ -2,10 +2,9 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 import type { AgentId } from '../../shared/bridge'
-import { writeFileAtomic } from '../atomic'
+import { FOLDER, writeOwn } from '../own'
 import type { AgentAdapter } from './adapter'
 
-const FOLDER = '.torno'
 const FILE = 'agent.json'
 const AGENTS: readonly AgentId[] = ['claude', 'copilot']
 /** The agent of an object that has chosen none, or whose choice cannot be read. */
@@ -51,7 +50,7 @@ export async function loadAgentChoice(dir: string): Promise<AgentId> {
 /** Keeps the choice, whole or not at all. Only main writes this file. */
 export async function saveAgentChoice(dir: string, agent: AgentId): Promise<void> {
   if (!isAgent(agent)) throw new Error(`no agent named ${String(agent)}`)
-  await writeFileAtomic(join(dir, FOLDER, FILE), `${JSON.stringify({ agent }, null, 2)}\n`)
+  await writeOwn(dir, FILE, `${JSON.stringify({ agent }, null, 2)}\n`)
 }
 
 /** The file a command names: itself when it is a path, else the first match on PATH. */

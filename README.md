@@ -51,11 +51,11 @@ pnpm install
 ```sh
 scripts/torno ~/objects     # open that folder as the workspace
 scripts/torno               # open the workspace opened last, or the first screen
-pnpm start                  # the same as the line above, from the repository; it takes no folder
+pnpm start [folder]         # the same, from the repository
 ```
 
 ```sh
-scripts/torno --print-command [folder]   # the command it would start, one argument a line; starts nothing
+scripts/torno --print-command [folder]   # the command it would start, one argument a line, the folder first as TORNO_WORKSPACE=…; starts nothing
 scripts/torno --print-desktop            # the desktop entry for this copy of torno; writes nothing
 scripts/torno --install-desktop          # writes it: ~/.local/share/applications/torno.desktop, and nothing else
 scripts/torno --uninstall-desktop        # removes that file
@@ -69,8 +69,15 @@ is tried again at the next start.
 
 With no folder to open, the first screen says what torno is and offers "Open
 folder", the folders opened lately, and "Open the example": four small objects
-of the repository's test workspace, copied to a temporary folder that is
-removed when torno ends.
+of the repository's test workspace, copied to a temporary folder. That copy is
+removed when torno quits, with whatever was made in it, and the window says so
+under the workspace's name for as long as it is open; one that a crash left is
+removed at the next start. A folder given to `scripts/torno` is added to the
+folders opened lately, as one opened from the window is.
+
+Once a folder is open, the folder button at the top left opens a menu with the
+same ways to another: the folders opened lately (one that is not found is
+struck and can be removed), "Open folder…" and "Open the example".
 
 Left alone, Electron chooses whether to draw on Wayland or X11. If the window
 does not come up, or comes up wrong, `TORNO_OZONE=wayland` or `TORNO_OZONE=x11`
@@ -82,7 +89,10 @@ under `$XDG_DATA_HOME/applications` (`~/.local/share` when that is not set),
 after printing the path and the entry. It refuses to run as root. The entry
 starts this script, and names its icon, by their whole paths: run it again
 after moving the repository. It names no platform: a launcher that should use
-one needs `TORNO_OZONE` in the environment it starts programs with.
+one needs `TORNO_OZONE` in the environment it starts programs with. Started
+from the entry (`--from-desktop`), what goes wrong is also shown as a desktop
+notice (`notify-send`), or, where there is none, written to
+`~/.local/state/torno/launcher.log`: nobody reads what a launcher prints.
 
 Only one torno runs at a time. Starting it again brings the window that is
 already open to the front and says so on stderr; given a folder, that window
@@ -127,13 +137,13 @@ that was not shown; step 7 with a stand-in for the agent.
    the part as the dimension `M2`. Click its row in the Marks list and type
    `2` under "Should be", then Enter: the row says `Passes`. Type `3`
    instead and it says `Fails: 1 under`, and the line at the bottom counts it
-   (`1 dimension fails`). Click beside the parts to give the keys back to the
-   view, and press `Esc` to put the tool down.
+   (`1 dimension fails`). Enter gave the keys back to the view: press `Esc` to
+   put the tool down.
 
-6. Press `X`. A bar appears under the view: click its `X` and a plane cuts
-   the parts in half, so that you see the post inside the tub. Drag the arrow
-   on the plane, or use the arrow keys, to move it. "Off" in the bar takes
-   the cut away, and `Esc` puts the tool down.
+6. Press `X`. A plane cuts the parts in half at once, open towards you, so
+   that you see the post inside the tub; a bar appears under the view. Drag
+   the arrow on the plane, or use the arrow keys, to move it. "Off" in the bar
+   takes the cut away, and `Esc` puts the tool down.
 
 7. In the pane on the right, press "New session". With Claude Code, type
    "what did I mark?" and press Enter: your two marks go with the prompt, as
@@ -197,9 +207,15 @@ traceback.
 **The window.** On the left, the layers (parts) of the open object each have a
 visibility switch. In the viewport, drag to orbit, drag with the right or
 middle button to pan, scroll to zoom; the bar at the top switches layout
-(`assembly`, `print`), view and projection. "Open folder" (top left) chooses
-another workspace; that ends the sessions of this one, so torno asks first if
-one of them is working or waiting for an answer.
+(`assembly`, `print`), view and projection. The folder button (top left)
+opens a menu of the folders opened lately, "Open folder…" and the example;
+opening another ends the sessions of this one, so torno asks first if one of
+them is working or waiting for an answer.
+
+"Rebuild", in the line at the bottom beside how the build stands, builds the
+open object again from its sources as they are (`Ctrl+Shift+B` from anywhere).
+It is always there, and is the thing to press when the last build failed for a
+reason outside the model, or was let go to make room.
 
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
 of it (`lid/E3`), with a line from the kernel on what that is, such as
@@ -311,7 +327,7 @@ naming the keys it takes.
 | Tool | What it gives |
 |---|---|
 | `mcp__torno__scene` | The build status and error, the layouts, every part with its size, bounding box, volume and whether it is visible, your camera, section and explode, the saved views, the scans, and how many dimensions pass, fail and are not measured. It notes when the parts of the print layout were spread along X. |
-| `mcp__torno__look` | A picture from the renderer you are looking at, with the marks drawn. With no arguments it is your view, cut by your section or drawn apart as you have it. It takes `view` (`iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, the name of a saved view, or a camera), `layout`, `parts`, `size` (long edge, 1280 by default, 2000 at most), `section` (`'current'`, `null`, or a plane), `explode` (0 to 1, or `{amount, axis, scale}`; `null` together), `scans`, `scanColour` and `frame`. The caption says what was drawn. Also saved under `.torno/views/`. |
+| `mcp__torno__look` | A picture from the renderer you are looking at, with the marks drawn. With no arguments it is your view, cut by your section or drawn apart as you have it. It takes `view` (`iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, the name of a saved view, or a camera), `layout`, `parts`, `size` (long edge, 1280 by default, 2000 at most), `marks` (false leaves them out), `section` (`'current'`, `null`, or a plane), `explode` (0 to 1, or `{amount, axis, scale}`; `null` together), `scans`, `scanColour` and `frame`. The caption says what was drawn. Also saved under `.torno/views/`. |
 | `mcp__torno__marks` | Your marks and the agent's as data, each with a line of text. |
 | `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`). |
 | `mcp__torno__highlight` | Tints faces or edges in your viewport with a note, to ask "this one?", until you click or a minute passes. |
@@ -463,13 +479,14 @@ What is exact, what is approximate and what is refused is under
 
 ## Section
 
-With `X` a bar appears at the bottom of the viewport: X, Y and Z put a plane
-across that axis through the middle of the parts, "From face" puts it on the
+`X` cuts at once when nothing is cut yet: a plane through the middle of the
+parts, across the axis you look most along, open towards you (the half taken
+away is the one on your side). A bar appears at the bottom of the viewport: X,
+Y and Z put the plane across that axis, again open towards you, "From face" puts it on the
 next flat face you click, the slider and the number beside it say how far
 along its normal the plane is from the middle of the parts, "Flip" takes away
 the other side and "Off" shows the parts whole again. What is on the side the
-plane's arrow points to is not drawn: when a cut shows you only the outside,
-"Flip" it or turn the view. Each solid part is closed where it is cut, in its
+plane's arrow points to is not drawn. Each solid part is closed where it is cut, in its
 own colour a step darker; a part that is not a closed solid (a scan, an open
 shell) is cut open. Drag the arrow on the plane to move it; a drag anywhere
 else turns the camera. The arrow keys move it by 1 mm, with Shift by 0.1 mm.
@@ -713,7 +730,7 @@ name without `.html` gets it.
 | Everywhere | `?` | This sheet of keys, outside a field and the terminal |
 | Everywhere | `` Ctrl+` `` | To the session, and from it back to the view |
 | Everywhere | `Ctrl+Shift+E` | Export to one HTML file: the open object, or from the page of objects any of them |
-| Everywhere | `F12` `Ctrl+Shift+I` | Developer tools |
+| Everywhere | `Ctrl+Shift+B` | Rebuild: build the open object again, as the button in the status line does |
 | Viewport | `V` | Select: click a face, an edge or a part |
 | Viewport | `P` | Pin: click a point and leave a note |
 | Viewport | `A` | Arrow: drag from a point |
@@ -727,7 +744,7 @@ name without `.html` gets it.
 | Viewport | `F` | Fit the parts in view |
 | Viewport | `O` | Perspective or orthographic |
 | Viewport | `E` | Draw the parts apart, or together again |
-| Viewport | `W` | All objects of the folder, on one page |
+| Viewport | `W` | All objects of the folder, on one page (there a letter filters them by name) |
 | Viewport | `Esc` | Step back: what is under way, then the tool in hand, then the selection |
 | With a tool in hand | `T` | Measure: the wall under the pointer |
 | With a tool in hand | `Left` `Right` `Up` `Down` | Section: move the plane by 1 mm |
@@ -759,6 +776,7 @@ name without `.html` gets it.
 | In a field, a menu or a sheet | `Home` `End` | Menu: the first or the last |
 | In a field, a menu or a sheet | `Esc` `Tab` | Menu: close it |
 | In a field, a menu or a sheet | `Esc` | Sheet or question: put it away |
+| For working on torno | `F12` `Ctrl+Shift+I` | Developer tools |
 <!-- keys: end -->
 
 A tool in hand is offered a key before the viewport is. `F12` and
@@ -767,7 +785,11 @@ repository.
 
 ## Files torno writes
 
-Inside a workspace torno writes only under `<object>/.torno/`:
+Inside a workspace torno writes only under `<object>/.torno/`, and only when
+that is a real folder inside the object: where a link or a file is in its
+place (a workspace copied from elsewhere may hold one) torno writes nothing
+there, and says so once in the Marks panel, until a real folder is put in its
+place.
 
 | File | What | In git |
 |---|---|---|
@@ -776,17 +798,22 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 | `scans.json` | the scans of the object: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
 | `agent.json` | the agent the object's sessions run; without it, Claude Code | travels |
-| `session.json` | the conversation to resume, and the agent it is of | not ignored by torno |
+| `session.json` | the conversation to resume, and the agent it is of | ignored |
 | `agent/` | what torno tells an agent that takes no system prompt on its command line (`AGENTS.md` for Copilot CLI) | ignored |
-| `prompt.md` | what "Send marks" last wrote for an agent without hooks, or one line saying there is nothing new | ignored |
-| `state.md` | the build, the parts, the views, the scans and the open marks as text | not ignored by torno |
+| `prompt.md` | what "Send marks" last wrote for an agent without hooks; one line saying there is nothing new when a session of such an agent starts or ends | ignored |
+| `state.md` | the build, the parts, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
 | `views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 | ignored (a picture of a scan may show the real world) |
 | `exports/` | where the save dialog of an export opens; empty unless you save there | ignored |
 
 "Ignored" is by `.torno/.gitignore` (or one inside the folder), which torno
-adds lines to and never rewrites. Add `.torno/` to the workspace's
-`.gitignore` if you want none of it in git.
+adds lines to and never rewrites; a line you negate there (`!state.md`) is
+yours, and is not added against. What travels with the object in git is what
+is the object's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
+What changes with every build, session or send, or is of this machine, is
+ignored: `state.md`, `session.json`, `prompt.md`, `agent/`, the thumbnail,
+`views/` and `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
+want none of it in git.
 
 Outside the workspace:
 
@@ -795,7 +822,10 @@ Outside the workspace:
 - The one file an export writes, at the path you choose.
 - `torno.desktop`, only by `scripts/torno --install-desktop`.
 - A copy of the example in the system's temporary folder, removed when torno
-  ends.
+  quits, or at the next start after a crash (only folders its own marker file
+  names).
+- `~/.local/state/torno/launcher.log`, only when torno was started from its
+  desktop entry, something went wrong and there was no `notify-send` to show it.
 
 The agent's CLI keeps its own records as it always does.
 
@@ -807,8 +837,12 @@ kernel on the model's own B-rep, never on the mesh on screen. A reply says
 and says `approximate`, and `how` says why.
 
 - Distances, angles, radii, diameters and thicknesses are exact.
-- A volume is integrated until it has converged to one part in 10⁹, and is
-  given as exact.
+- A volume is exact only of a part all of whose faces are planes, cylinders,
+  cones, spheres and tori. Of any other part (a loft, a spline, an offset) it
+  is integrated and never said to be exact: `≈`, `volumeExact: false` in
+  `scene` and `describe`, `exact: false` in `measure`, with `how` saying
+  `approximate, good to about N significant digits` (two to six). A mass
+  follows its volume, and so does what two parts share (`check overlap`).
 - An area is exact for planes, cylinders, cones, spheres and tori, and for a
   curve extruded straight. The area of any other face (a loft, a B-spline
   surface, an offset) is never said to be exact: `how` says `approximate, good
@@ -816,23 +850,29 @@ and says `approximate`, and `how` says why.
   0.14 %`.
 - A bounding box from `measure` is exact when all the faces of what is boxed
   are planes or cylinders and all its edges lines or circles; of anything
-  freeform it is approximate and says so. The sizes in `scene` and in
-  `describe` carry no such word: on a freeform part take them as good to about
-  a millimetre (on a part with a domed pad they were 0.6 mm apart), and ask
-  `measure` when it matters.
+  freeform it is approximate and says so. A part has one box, and `scene`,
+  `describe`, `state.md` and `measure bbox` tell the same numbers of it, with
+  `≈` (`sizeExact: false` in `scene`, `bboxExact: false` in `describe`) where
+  it is not exact. The sizes in `scene` are for orientation: `measure` is for
+  a number to rely on.
 - The areas of a section say for themselves (`areaExact`).
 - Nothing taken from a scan is exact.
 - The mesh drives only the estimate at the pointer while a measurement is
   pending (`≈`), which the kernel's value replaces.
 
-**What it costs.** Volumes and areas are integrated, and the volume of every
-part is worked out during each build. On prismatic parts that is nothing: the
-test models build in a tenth of a second. On freeform parts it can be most of
-the build: an object of three lofted parts of about 90 faces each, whose model
-runs in 10 s, took 178 s to build, 164 s of it for the volumes. `describe`,
-`area` and `mass` of such a part take a second or two on the first ask and are
-then kept until the next build. A question the kernel has not answered within
+**What it costs.** The volume and the box of every part are worked out during
+each build. On prismatic parts that is nothing: the test models build in a
+tenth of a second. On a freeform part it is about a second for the volume and
+up to a second for the box: an object of three lofted parts of about 90 faces
+each, whose model runs in 10 s, builds in 17 s, 5 s of it for volumes and
+boxes. `describe` and `area` of the whole of such a part take a second or two
+on the first ask and are then kept until the next build. A question the kernel has not answered within
 30 s is an error that says so.
+
+**The agent's tools are open to this machine.** The MCP server listens on
+`127.0.0.1` alone and checks that a request comes from no web page (`Origin`,
+`Host`), but its address holds no secret: any program you run on this machine
+can call `show`, `add_mark`, `resolve_mark` and `save_view` of an open object.
 
 **Parts that fit together.** `overlap`, `clearance` and a distance between two
 parts are of the parts where the layout has them, so fit can only be checked
@@ -870,8 +910,14 @@ build is not built again until a source changes.
   opens the error with the traceback. The agent is told the same with its next
   prompt, and its tools answer from the last build that worked, saying so.
   Save the model again once it is mended: every save is built.
-- **A build takes minutes.** See "What it costs" above; `TORNO_BUILD_TIMEOUT`
-  raises the limit of 600 s.
+- **A build takes minutes.** It is the model that takes them: see "What it
+  costs" above. `TORNO_BUILD_TIMEOUT` raises the limit of 600 s.
+- **The agent says to press Rebuild, or a build failed for no reason of the
+  model's** (the kernel stopped, a build was let go and the model has since
+  failed). "Rebuild" is in the line at the bottom, beside how the build
+  stands; `Ctrl+Shift+B` does the same from anywhere.
+- **Nothing is kept of an object: no mark, no view, no picture.** Its `.torno`
+  is a link or a file; the Marks panel says so. Put a real folder in its place.
 - **The agent is listed as `(not installed)`, or "New session" says its
   command was not found on PATH.** Torno looks for `claude` or `copilot` on
   the `PATH` it was started with. Started from a desktop launcher, that may
@@ -937,7 +983,9 @@ On the screen:
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **Light and dark by eye.** With the system set to dark, then light: text, marks and part edges are legible in both, and the terminal's colours too. The tests hold the contrasts by number and looked at pictures of a hidden window.
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
-- **The folder dialog.** "Open folder" on the first screen and at the top left: the system's folder dialog opens, and the folder chosen is opened.
+- **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
+- **Torno left on another workspace with a session working.** Start a session, give the agent something that takes minutes, switch to another Hyprland workspace for ten minutes and watch `ps -o rss -p <pid of the window>`: its memory does not grow. (In the hidden window it does not, since nothing animates without end any more; a visible window on another workspace is the case nobody has seen.)
+- **The window's class.** `hyprctl clients` shows class `torno` for the window, and a launcher started from the desktop entry shows torno's icon for it.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
 - **`Ctrl+Shift+E` from the terminal.** With a real agent at its prompt and the terminal in focus: the export sheet comes up and nothing reaches the CLI.

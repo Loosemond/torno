@@ -5,7 +5,7 @@ import { type ExplodeState, explodeOf } from '../../shared/explode'
 import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type ExportPlan, type ExportRequest, type ExportScan, type PackedMesh, megabytes, own, packMesh, packScan, record } from '../../shared/exportdata'
 import { isFaceted } from '../../shared/faceted'
 import { count, number } from '../../shared/format'
-import { type Mark, type Vec3, isUnchecked, markAnchors, markEndParts, strokePoints } from '../../shared/marks'
+import { type Mark, type Vec3, isUnchecked, markAnchors, markEndParts, shapeOutline, strokePoints } from '../../shared/marks'
 import { colorFor, colorsByName } from '../../shared/palette'
 import { meshIdentity } from '../../shared/regions'
 import { type ScanInfo, alignmentOf, parseScanMesh } from '../../shared/scans'
@@ -146,7 +146,8 @@ function exportMark(mark: Exclude<Mark, { kind: 'region' }>, revision: number, b
       return { ...said, at: points[0] ?? mark.anchor.point, ...(points.length > 1 ? { line: points } : {}) }
     }
     case 'shape':
-      return { ...said, at: mark.position, says: `${mark.intent} ${mark.shape}, ${mark.size.filter((s) => s > 0).map(number).join(' × ')} mm` }
+      // Its outline, as torno draws it: a shape is a thing in space, and a dot would say only where its middle is.
+      return { ...said, at: mark.position, outline: shapeOutline(mark), says: `${mark.intent} ${mark.shape}, ${mark.size.filter((s) => s > 0).map(number).join(' × ')} mm` }
     case 'dimension': {
       const shown = shownDimension(mark, revision)
       // Between the points its value was taken between; not when the build moved its ends: that line would not run from where they were put.
@@ -230,6 +231,13 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
       ...(meshes[part.hash].segments === 0 && part.edgeCount > 0 && meshes[part.hash].triangles > 0 ? { creased: true as const } : {})
     }
   })
+  // Of a part left out, its box alone: where the parts that go are drawn apart depends on it too.
+  const ghosts: NonNullable<ExportObject['ghosts']> = []
+  const before = record<number>()
+  for (const part of scene.parts) {
+    if (left.has(part.name)) ghosts.push({ layout: part.layout, before: before[part.layout] ?? 0, bbox: part.bbox })
+    else before[part.layout] = (before[part.layout] ?? 0) + 1
+  }
   const explode = record<ExplodeState>()
   for (const layout of scene.layouts) {
     const kept = explodeOf(own(file.explode, layout))
@@ -243,6 +251,7 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
     layout: file.layout !== undefined && scene.layouts.includes(file.layout) ? file.layout : (thumbnailLayout(scene.layouts) ?? ''),
     parts,
     meshes,
+    ...(ghosts.length > 0 ? { ghosts } : {}),
     explode,
     // The person's, and those of the agent's they kept: a proposal nobody kept is not theirs to send. Why the agent proposed one stays here.
     views: (file.views ?? []).filter((view) => !view.proposed).map(({ note: _note, ...view }) => view)

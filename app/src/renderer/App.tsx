@@ -1,7 +1,7 @@
 import { pressed, which } from '../shared/keys'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { busyWith } from '../shared/agents'
-import type { WorkspaceInfo } from '../shared/workspace'
+import { EXAMPLE_NOTE, type WorkspaceInfo } from '../shared/workspace'
 import { connectLook } from './state/agent'
 import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
@@ -12,6 +12,7 @@ import { ObjectList } from './ui/ObjectList'
 import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
 import { ExportSheet } from './ui/ExportSheet'
+import { FolderMenu } from './ui/FolderMenu'
 import { ShowPage, usePageKey } from './ui/ShowPage'
 import { ViewportPane } from './ui/ViewportPane'
 import { KeySheet, useKeysKey } from './ui/KeySheet'
@@ -47,12 +48,18 @@ async function pickWorkspace(): Promise<void> {
   if (info) showWorkspace(info) // null: the dialog was cancelled
 }
 
-/** Stands for the folder the person has yet to choose in the dialog. */
+/** Stand for the folder the person has yet to choose in the dialog, and for the copy of the example main makes. */
 const PICK = 'pick'
+const EXAMPLE = 'example'
 
 /** Leave the workspace for a folder, or for the one chosen in the dialog. */
 async function goTo(to: string): Promise<void> {
   if (to === PICK) return pickWorkspace()
+  if (to === EXAMPLE) {
+    const info = await window.torno.workspace.openExample().catch(() => null)
+    if (info) showWorkspace(info)
+    return
+  }
   if (store.getState().workspace?.root === to) return
   // A folder that cannot be opened leaves the workspace as it is; main has said why on stderr.
   const info = await window.torno.workspace.open(to).catch(() => null)
@@ -189,8 +196,25 @@ function useExportKey(): void {
   }, [])
 }
 
+/** The key that builds the open object again, as the button in the status line does: heard everywhere, like the export's. */
+function useRebuildKey(): void {
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (!pressed(e, 'rebuild')) return
+      e.preventDefault()
+      e.stopPropagation()
+      const { objectId, workspace } = store.getState()
+      if (e.repeat || !workspace || objectId === null) return
+      void window.torno.object.rebuild(objectId).catch(() => {})
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+}
+
 export function App() {
   useMain()
+  useRebuildKey()
   usePageKey()
   useKeysKey()
   useExportKey()
@@ -282,10 +306,15 @@ export function App() {
           <h1 className="workspace-name" title={workspace.root}>
             {basename(workspace.root)}
           </h1>
-          <button type="button" className="icon-button" aria-label="Open folder" title="Open folder" disabled={leaving !== null} onClick={() => leave(PICK)}>
-            <FolderIcon />
-          </button>
+          {/* The way to another folder: those opened lately, the dialog, the example. */}
+          <FolderMenu open={workspace.root} disabled={leaving !== null} onChoose={(choice) => leave(choice === 'pick' ? PICK : choice === 'example' ? EXAMPLE : choice.root)} />
         </header>
+        {/* For as long as the example is open: what is made here does not outlive torno, and it says so where the folder is named. */}
+        {workspace.example && (
+          <p className="workspace-example" role="note">
+            {EXAMPLE_NOTE}
+          </p>
+        )}
         {leaving !== null && (
           <Confirm
             label="End the sessions of this folder?"
@@ -301,8 +330,9 @@ export function App() {
           </Confirm>
         )}
         <ObjectList onOpen={(id) => void openObject(id)} />
-        <Layers />
-        <ScansPanel />
+        {/* While the page of objects is up, the layers and the scans act on a view that is not on screen: they give way. The marks stay: they say why a card has a failing chip. */}
+        {page !== 'objects' && <Layers />}
+        {page !== 'objects' && <ScansPanel />}
         <MarksPanel />
       </aside>
 
@@ -344,14 +374,6 @@ export function App() {
 
 function basename(path: string): string {
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
-}
-
-function FolderIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true">
-      <path d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h2.6l1.5 1.75h5.4c.83 0 1.5.67 1.5 1.5v5.75c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.5Z" />
-    </svg>
-  )
 }
 
 function DockIcon() {

@@ -62,6 +62,30 @@ describe('contextFor', () => {
     expect(textFor(deps({ build, scene: SCENE, view: { ...view, layout: 'gone' } }), 'bracket')).toBe('[torno] bracket · build ok · r3 (0.8 s) · layout assembly · parts: base, post.')
   })
 
+  it('says that the layout on screen is drawn apart or cut also while a build runs or has failed: what is seen is still drawn so', () => {
+    const view: ViewState = { objectId: 'bracket', layout: 'assembly', camera: CAMERA, visible: ['assembly:base', 'assembly:post'], explode: { amount: 0.4, scale: 1, axis: 'z' } }
+    const building: BuildState = { objectId: 'bracket', status: 'building', revision: 11, startedAt: 10_000, stale: true }
+    expect(textFor(deps({ build: building, scene: SCENE, view, now: 14_200 }), 'bracket')).toBe('[torno] bracket · building (4 s so far) · showing r11, exploded 40 % along z (display only).')
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 11, stale: true, error: { kind: 'exception', message: 'boom' } }
+    expect(textFor(deps({ build: failed, scene: SCENE, view }), 'bracket')).toBe('[torno] bracket · BUILD FAILED · showing r11 (stale), exploded 40 % along z (display only).\nboom')
+    // The person's own section, in all three: it is what they see, and what a look with no arguments draws.
+    const cut: ViewState = { objectId: 'bracket', layout: 'assembly', camera: CAMERA, visible: ['assembly:base', 'assembly:post'], section: { origin: [12, 0, 0], normal: [1, 0, 0] } }
+    const ok: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 0.8, stale: false }
+    expect(textFor(deps({ build: ok, scene: SCENE, view: cut }), 'bracket')).toBe('[torno] bracket · build ok · r3 (0.8 s) · layout assembly, cut by the plane normal +X at x = 12 (display only) · parts: base, post.')
+    expect(textFor(deps({ build: building, scene: SCENE, view: cut, now: 14_200 }), 'bracket')).toBe('[torno] bracket · building (4 s so far) · showing r11, cut by the plane normal +X at x = 12 (display only).')
+    expect(textFor(deps({ build: failed, scene: SCENE, view: cut }), 'bracket')).toBe('[torno] bracket · BUILD FAILED · showing r11 (stale), cut by the plane normal +X at x = 12 (display only).\nboom')
+    // Not of an object the window does not show, nor of a layout the build no longer has.
+    expect(textFor(deps({ build: building, scene: SCENE, view, now: 14_200, open: 'other' }), 'bracket')).toBe('[torno] bracket · not open in the torno window · building (4 s so far) · last built r11.')
+    expect(textFor(deps({ build: building, scene: SCENE, view: { ...view, layout: 'gone' }, now: 14_200 }), 'bracket')).toBe('[torno] bracket · building (4 s so far) · showing r11.')
+  })
+
+  it('says of a build too quick to time that it took under 0.1 s, never 0.0 s', () => {
+    const build: BuildState = { objectId: 'bracket', status: 'ok', revision: 1, seconds: 0.04, stale: false }
+    expect(textFor(deps({ build, scene: SCENE }), 'bracket')).toBe('[torno] bracket · build ok · r1 (under 0.1 s) · layout assembly · parts: base, post.')
+    expect(textFor(deps({ build: { ...build, seconds: 0.05 }, scene: SCENE }), 'bracket')).toBe('[torno] bracket · build ok · r1 (0.1 s) · layout assembly · parts: base, post.')
+    expect(textFor(deps({ build: { ...build, seconds: 0 }, scene: SCENE }), 'bracket')).toBe('[torno] bracket · build ok · r1 (under 0.1 s) · layout assembly · parts: base, post.')
+  })
+
   it('says how long a build has been running and what is on screen meanwhile', () => {
     const build: BuildState = { objectId: 'bracket', status: 'building', revision: 11, startedAt: 10_000, stale: true }
     expect(textFor(deps({ build, scene: SCENE, now: 14_200 }), 'bracket')).toBe('[torno] bracket · building (4 s so far) · showing r11.')

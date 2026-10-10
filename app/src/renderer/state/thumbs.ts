@@ -27,10 +27,10 @@ export interface ThumbDeps {
 const ofTheWindow = (): ThumbDeps => ({
   loadSceneFile: (objectId) => window.torno.object.loadSceneFile(objectId),
   save: (objectId, revision, png, of) => window.torno.show.saveThumbnail(objectId, revision, png, of),
-  idle: (run) => {
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(() => run(), { timeout: 2000 })
-    else setTimeout(run, 0)
-  },
+  // A turn of the event loop, and no more: the picture is small and drawn off screen. Waiting for the window
+  // to be idle (`requestIdleCallback`) is waiting for a frame, which a window nobody looks at is given late
+  // or not at all, and the picture of a build that is ready waited seconds for it.
+  idle: (run) => void setTimeout(run, 0),
   root: () => store.getState().workspace?.root
 })
 

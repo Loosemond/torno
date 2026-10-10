@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { EXAMPLE_OBJECTS, copyExample, exampleSource } from './example'
+import { EXAMPLE_MARKER, EXAMPLE_OBJECTS, copyExample, exampleSource, removeExample, sweepExamples } from './example'
 import { MAX_RECENT, configOf, listed, recentWith, recentWithout } from './recent'
 
 const made: string[] = []
@@ -68,10 +68,52 @@ it('offers the example only from the repository, and copies it without touching 
   const copy = await copyExample(ws, into)
   expect(copy.startsWith(join(into, 'torno-example-'))).toBe(true)
   // The objects that build and show something, their files beside them, and nothing torno or Python wrote there.
-  expect(readdirSync(copy).sort()).toEqual([...EXAMPLE_OBJECTS].sort())
+  expect(readdirSync(copy).sort()).toEqual([EXAMPLE_MARKER, ...EXAMPLE_OBJECTS].sort())
+  // Its marker says whose it is: the torno that made it.
+  expect(JSON.parse(readFileSync(join(copy, EXAMPLE_MARKER), 'utf8'))).toMatchObject({ torno: 'example', pid: process.pid })
   expect(readdirSync(join(copy, 'gauge')).sort()).toEqual(['gauge.py', 'variant.txt'])
   expect(readFileSync(join(copy, 'hollow', 'hollow.py'), 'utf8')).toBe('# hollow\n')
   expect(readdirSync(ws, { recursive: true }).sort()).toEqual(before)
   // Each asking is a copy of its own.
   expect(await copyExample(ws, into)).not.toBe(copy)
+})
+
+it('sweeps the copies a crash left: only folders its own marker names, of a torno that is gone, and never through a link', async () => {
+  const repo = temp()
+  const ws = join(repo, 'ws')
+  for (const name of EXAMPLE_OBJECTS) {
+    mkdirSync(join(ws, name), { recursive: true })
+    writeFileSync(join(ws, name, `${name}.py`), '')
+  }
+  const into = temp()
+  const mine = await copyExample(ws, into)
+  const left = await copyExample(ws, into)
+  // As a torno that crashed left it: its process is gone. (No process has this pid: it is above what the kernel gives.)
+  writeFileSync(join(left, EXAMPLE_MARKER), JSON.stringify({ torno: 'example', pid: 2 ** 22 + 1, at: '2026-10-09T10:00:00.000Z' }))
+  // A folder that only has the name; one whose marker is not torno's; a link of that name to a folder that is someone's.
+  const named = join(into, 'torno-example-notmine')
+  mkdirSync(join(named, 'work'), { recursive: true })
+  const other = join(into, 'torno-example-other')
+  mkdirSync(other)
+  writeFileSync(join(other, EXAMPLE_MARKER), '{"torno": "something else", "pid": 4194305}')
+  const theirs = temp()
+  writeFileSync(join(theirs, EXAMPLE_MARKER), JSON.stringify({ torno: 'example', pid: 2 ** 22 + 1 }))
+  writeFileSync(join(theirs, 'kept.txt'), 'kept')
+  symlinkSync(theirs, join(into, 'torno-example-link'))
+  expect(await sweepExamples(into)).toEqual([left])
+  expect(existsSync(left)).toBe(false)
+  // The one of a torno that still runs (this process) stays, and so does everything that is not a copy of torno's own.
+  expect(existsSync(mine)).toBe(true)
+  expect(existsSync(join(named, 'work'))).toBe(true)
+  expect(existsSync(other)).toBe(true)
+  expect(readFileSync(join(theirs, 'kept.txt'), 'utf8')).toBe('kept')
+  // At the end of a run its own copy goes: only a folder with the marker, never whatever a path names.
+  await removeExample(mine)
+  expect(existsSync(mine)).toBe(false)
+  await removeExample(named)
+  await removeExample(join(into, 'torno-example-link'))
+  expect(existsSync(join(named, 'work'))).toBe(true)
+  expect(readFileSync(join(theirs, 'kept.txt'), 'utf8')).toBe('kept')
+  // A temporary folder that is not there is nothing to sweep.
+  expect(await sweepExamples(join(into, 'nowhere'))).toEqual([])
 })

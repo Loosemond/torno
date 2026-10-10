@@ -1,6 +1,7 @@
-import { count as counted, number, scanNumber } from '../../shared/format'
+import { count as counted, number, numberWithin, scanNumber } from '../../shared/format'
 import { expectedText, lastValue, measuredValue, notMeasuredText, offBy, onBuild, standingOf, valueText } from '../../shared/dimension'
-import { type Anchor, type DimensionMark, type Mark, type RegionMark, type ShapeMark, type StrokeMark, isUnchecked } from '../../shared/marks'
+import { type Anchor, type DimensionMark, type Mark, type RegionMark, type ShapeMark, type StrokeMark, isUnchecked, markAnchors } from '../../shared/marks'
+import type { Scene } from '../../shared/scene'
 import { isFlat, regionInLayout } from '../../shared/regions'
 import { type ScanInfo, alignmentOf } from '../../shared/scans'
 import { alignmentSaid } from '../scans/said'
@@ -10,9 +11,33 @@ const ANCHOR_SUFFIX = { ok: '', drifted: ' [moved since it was placed: check it]
 
 export { number }
 
+/**
+ * How far across the thing is whose coordinates and sizes are being told, in millimetres: set while one mark is
+ * described (`describeMark`, which is given the scene), 0 otherwise. What is under a millionth of it is told as
+ * 0 (`numberWithin`). Describing is one synchronous run, so the one variable serves.
+ */
+let across = 0
+const told = (value: number): string => numberWithin(value, across)
+
+/** The diagonal of the box of the part a mark is on in its layout; of the whole layout for a mark on no part; 0 when nothing is known. */
+function extentOf(mark: Mark, scene: Scene | undefined): number {
+  if (!scene) return 0
+  const of = markAnchors(mark)[0]?.part
+  const parts = scene.parts.filter((part) => part.layout === mark.layout && (of === undefined || part.name === of))
+  let span = 0
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+  for (const { bbox } of parts) for (let i = 0; bbox && i < 3; i++) {
+    min[i] = Math.min(min[i], bbox.min[i])
+    max[i] = Math.max(max[i], bbox.max[i])
+  }
+  if (parts.length > 0) span = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2])
+  return Number.isFinite(span) ? span : 0
+}
+
 /** `(12, 40.5, 20)` */
 export function vector(v: readonly number[]): string {
-  return `(${v.map(number).join(', ')})`
+  return `(${v.map(told).join(', ')})`
 }
 
 /** A point or a size taken from a scan, to the tenth of a millimetre (`scanNumber`): `(12, 40.5, 20)`, `40 × 30.1 × 5`. */
@@ -21,7 +46,7 @@ const scanSizes = (v: readonly number[]): string => v.map(scanNumber).join(' × 
 
 /** `40 × 30 × 5` */
 export function sizes(v: readonly number[]): string {
-  return v.map(number).join(' × ')
+  return v.map(told).join(' × ')
 }
 
 /**
@@ -38,14 +63,19 @@ export function sizes(v: readonly number[]): string {
  * on show, or the one a tool was asked in) puts it (`region`): that takes the
  * `scans` of the object, and without them it has no place.
  */
-export function describeMark(mark: Mark, opts: { tag?: string; revision?: number; layout?: string; scans?: readonly ScanInfo[] } = {}): string {
+export function describeMark(mark: Mark, opts: { tag?: string; revision?: number; layout?: string; scans?: readonly ScanInfo[]; /** The last build's scene: with it, what is nothing within the part the mark is on is told as 0. */ scene?: Scene } = {}): string {
   const tags = [mark.author === 'agent' ? 'yours' : '', opts.tag ?? ''].filter(Boolean).join(', ')
   const note = mark.note.replace(/\s+/g, ' ').trim()
   const unchecked = isUnchecked(mark, opts.revision) ? ` [not checked against r${opts.revision}]` : ''
   // A dimension that lost its part says so in place of its value, not after its note.
   // So does a region that lost its scan: it is on no part.
   const suffix = mark.kind === 'region' ? regionDoubt(mark, opts) : mark.kind === 'dimension' && mark.anchorState === 'orphaned' ? '' : ANCHOR_SUFFIX[mark.anchorState]
-  return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark, opts)}${note ? `: "${note}"` : ''}${suffix}${unchecked}${asMeasured(mark, opts.revision)}`
+  across = extentOf(mark, opts.scene)
+  try {
+    return `${tags ? `(${tags}) ` : ''}${mark.id} ${what(mark, opts)}${note ? `: "${note}"` : ''}${suffix}${unchecked}${asMeasured(mark, opts.revision)}`
+  } finally {
+    across = 0
+  }
 }
 
 /**
@@ -145,8 +175,20 @@ function placeOf(mark: RegionMark, layout: string, scans: readonly ScanInfo[] | 
 
 /** A direction as it is told: the way round that has its largest share positive, since a side runs both ways. */
 function direction(axis: readonly number[]): string {
-  const most = axis.reduce((at, c, i) => (Math.abs(c) > Math.abs(axis[at]) ? i : at), 0)
-  return vector(axis.map((c) => (axis[most] < 0 ? -c : c) + 0))
+  return directionText(axis)
+}
+
+/**
+ * A direction in words, to two decimals, which is all a side of something painted on a scan is known to: a
+ * component that would be written 0.00 is what is left of nothing and is 0, the rest made a direction again
+ * (`(-0.003691, 0, 1)` is `(0, 0, 1)`); the way round that has its largest share positive. The data keeps it in full.
+ */
+export function directionText(axis: readonly number[]): string {
+  const kept = axis.map((c) => (Math.abs(c) < 0.005 ? 0 : c))
+  const length = Math.hypot(...kept)
+  const unit = length > 0 ? kept.map((c) => c / length) : [...axis]
+  const most = unit.reduce((at, c, i) => (Math.abs(c) > Math.abs(unit[at]) ? i : at), 0)
+  return `(${unit.map((c) => number(Math.round((unit[most] < 0 ? -c : c) * 100) / 100 + 0)).join(', ')})`
 }
 
 /** `≈ 200 × 10 × 2 mm, its long side along (0.71, 0.71, 0)`: the size a region has along its own axes, and which way its longest runs when one is. */

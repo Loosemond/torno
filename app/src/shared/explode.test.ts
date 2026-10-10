@@ -28,14 +28,42 @@ describe('explodeOffsets', () => {
   })
 
   it('sets parts apart along an axis in the order of their centres, also when their centres coincide on it', () => {
-    const z = explodeOffsets([tray, lid], { amount: 0.5, scale: 1, axis: 'z' })
-    expect(z.tray).toEqual([0, 0, expect.closeTo(-0.5 * R, 9)])
-    expect(z.lid).toEqual([0, 0, expect.closeTo(0.5 * R, 9)])
+    const y = explodeOffsets([{ ...tray, bbox: { min: [-20, -45, 0], max: [20, -15, 10] } }, lid], { amount: 0.5, scale: 1, axis: 'y' })
+    const Ry = Math.hypot(20, 30, 6)
+    expect(y.tray).toEqual([0, expect.closeTo(-0.5 * Ry, 9), 0])
+    expect(y.lid).toEqual([0, expect.closeTo(0.5 * Ry, 9), 0])
     // Along x both centres are at 0: the scene's order decides, and they still part.
     const x = explodeOffsets([tray, lid], { amount: 1, scale: 1, axis: 'x' })
     expect(x.tray[0]).toBeCloseTo(-R, 9)
     expect(x.lid[0]).toBeCloseTo(R, 9)
     expect(x.lid[2]).toBe(0)
+  })
+
+  it('sets parts apart along z upward from the lowest, which stays: nothing is drawn under the ground it stands on', () => {
+    const z = explodeOffsets([tray, lid], { amount: 0.5, scale: 1, axis: 'z' })
+    expect(z.tray).toEqual([0, 0, 0])
+    expect(z.lid).toEqual([0, 0, expect.closeTo(R, 9)])
+    const key = { name: 'key', bbox: { min: [-2, -2, 30] as [number, number, number], max: [2, 2, 34] as [number, number, number] } }
+    const three = explodeOffsets([key, lid, tray], { amount: 1, scale: 1, axis: 'z' })
+    const reach = Math.hypot(20, 15, 17)
+    expect([three.tray[2], three.lid[2], three.key[2]]).toEqual([0, expect.closeTo(2 * reach, 9), expect.closeTo(4 * reach, 9)])
+    for (const moved of Object.values(three)) expect(moved[2]).toBeGreaterThanOrEqual(0)
+  })
+
+  it('orders parts whose centres are level on the axis by the scene\'s order, whatever the last bit of a number says', () => {
+    // Two halves that meet on a plane: their centres along z differ by what modelling left, one way or the other.
+    const half = (name: string, z: number) => ({ name, bbox: { min: [-10, -10, z] as [number, number, number], max: [10, 10, z + 40] as [number, number, number] } })
+    const key = { name: 'key', bbox: { min: [-2, -2, 60] as [number, number, number], max: [2, 2, 64] as [number, number, number] } }
+    for (const noise of [0, 3e-7, -3e-7, 0.004, -0.004]) {
+      const z = explodeOffsets([half('right', 0), half('left', noise), key], { amount: 1, scale: 1, axis: 'z' })
+      expect([noise, z.right[2] < z.left[2], z.left[2] < z.key[2], z.right[2]]).toEqual([noise, true, true, 0])
+      const x = explodeOffsets([half('right', 0), half('left', noise), key], { amount: 1, scale: 1, axis: 'x' })
+      expect([noise, x.right[0] < x.left[0], x.left[0] < x.key[0]]).toEqual([noise, true, true])
+    }
+    // Further apart than a hundredth of a millimetre, the centres decide.
+    const apart = explodeOffsets([half('right', 0), half('left', -0.5), key], { amount: 1, scale: 1, axis: 'z' })
+    expect(apart.left[2]).toBe(0)
+    expect(apart.right[2]).toBeGreaterThan(0)
   })
 
   it('never answers with a number that is none', () => {
@@ -137,8 +165,11 @@ describe('explodeOffsets of parts named like what every object has', () => {
     const box = (z: number) => ({ min: [0, 0, z] as [number, number, number], max: [10, 10, z + 2] as [number, number, number] })
     const offsets = explodeOffsets([{ name: '__proto__', bbox: box(0) }, { name: 'constructor', bbox: box(10) }, { name: 'toString', bbox: box(20) }], { amount: 1, scale: 1, axis: 'z' })
     expect(Object.keys(offsets).sort()).toEqual(['__proto__', 'constructor', 'toString'])
-    expect(offsets.constructor).toEqual([0, 0, 0])
-    expect(offsets['__proto__'][2]).toBeLessThan(0)
+    // Along z upward from the lowest, which stays.
+    expect(offsets['__proto__']).toEqual([0, 0, 0])
+    const of = (name: string): number => (offsets as Record<string, [number, number, number]>)[name][2]
+    expect(of('constructor')).toBeGreaterThan(0)
+    expect(of('toString')).toBeGreaterThan(of('constructor'))
     expect(offsets.hasOwnProperty).toBeUndefined()
     expect(offsets.valueOf).toBeUndefined()
     // Nor when nothing is apart: there is then no part it answers for, whatever the part is called.

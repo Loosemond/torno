@@ -2,8 +2,9 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import { GIZMO_MODES, TOOLS } from '../renderer/state/tools'
+import { REBUILD_HOW, REBUILD_KEY } from './build'
 import { EXPLODED_TOOLS } from './explode'
-import { CONTEXTS, GIZMO_KEYS, KEYS, TOOL_KEYS, VIEW_KEYS, cheatSheet, hint, keyClashes, keyName, pressed, typed, which, type KeyRow } from './keys'
+import { CONTEXTS, GIZMO_KEYS, capsOf, KEYS, TOOL_KEYS, VIEW_KEYS, cheatSheet, hint, keyClashes, keyName, pressOf, pressed, typed, which, type KeyRow } from './keys'
 
 it('is where the tools, the views and the gizmo have their keys from', () => {
   expect(TOOLS.map((t) => [t.name, t.label, t.key])).toEqual(TOOL_KEYS.map((t) => [t.name, t.label, t.key]))
@@ -14,7 +15,7 @@ it('is where the tools, the views and the gizmo have their keys from', () => {
 
 it('lists every tool, every view key and the gizmo in the sheet, each key once where it is listened to', () => {
   const sheet = cheatSheet()
-  expect(sheet.map((g) => g.context)).toEqual(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'Session', 'In a field, a menu or a sheet'])
+  expect(sheet.map((g) => g.context)).toEqual(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
   expect(sheet.map((g) => g.context)).toEqual(CONTEXTS.map((c) => c.name))
   for (const group of sheet) expect([group.context, group.rows.length > 0, group.when.length > 0]).toEqual([group.context, true, true])
   const viewport = KEYS.filter((row) => row.scope === 'viewport').flatMap((row) => row.keys)
@@ -95,9 +96,9 @@ it('gives the key of a row for a tooltip', () => {
 
 it('has nothing heard while typing that typing or the terminal would take', () => {
   for (const key of ['V', '?', 'Esc', 'Enter', 'Shift+Enter', 'Left', 'Ctrl+C', 'Ctrl+R', 'Ctrl+E']) expect([key, typed(key)]).toEqual([key, true])
-  for (const key of ['Ctrl+Shift+E', 'Ctrl+`', 'F12', 'Ctrl+Shift+I']) expect([key, typed(key)]).toEqual([key, false])
+  for (const key of ['Ctrl+Shift+E', 'Ctrl+Shift+B', 'Ctrl+`', 'F12', 'Ctrl+Shift+I']) expect([key, typed(key)]).toEqual([key, false])
   const global = KEYS.filter((row) => row.scope === 'global')
-  expect(global.map((row) => row.id)).toEqual(['session.focus', 'export', 'devtools'])
+  expect(global.map((row) => row.id)).toEqual(['session.focus', 'export', 'rebuild', 'devtools'])
   for (const row of global) for (const key of row.keys) expect([key, typed(key)]).toEqual([key, false])
   // And nothing that is listened to only outside a field needs a chord to be told from typing.
   for (const row of KEYS.filter((r) => r.scope === 'viewport' || r.scope === 'window')) for (const key of row.keys) expect([key, typed(key)]).toEqual([key, true])
@@ -115,34 +116,121 @@ function sources(dir: string): string[] {
 const src = resolve(__dirname, '..')
 const files = [...sources(join(src, 'renderer')), ...sources(join(src, 'main')), ...sources(join(src, 'preload'))]
 
-it('is the only place a key is named: no handler compares a key with a name of its own', () => {
-  // A key of the keyboard as the DOM names it, or a key compared with any text at all.
-  const named = /['"`](?:Escape|Arrow(?:Left|Right|Up|Down)|Backquote|Backspace|Key[A-Z]|F\d{1,2})['"`]/
-  const compared = /(?:\.key|\bkey|keyName\([^)]*\))(?:\.to(?:Upper|Lower)Case\(\))?\s*[!=]==?\s*['"`]/
+/**
+ * The lines of a source that read a key of a key press themselves, or name a key of the keyboard. The scan is
+ * by source text. It forbids every read of `.key`, `.code`, `.keyCode` and `.which` (also as `['key']`, and
+ * taken apart as `{ key }` from an event) but on a receiver listed in `NOT_A_PRESS`, which are the things of
+ * torno that have a key of another kind (a part's, a light's, a row of the table's). What a handler knows of a
+ * press it hands whole to `pressed` or `which` of `shared/keys.ts`.
+ */
+const NOT_A_PRESS = ['part', 'p', 'lights', 'this', 't', 'm', 'v', 'span', 'previewed', 'one']
+function keyReads(text: string): string[] {
+  const named = /['"`](?:Escape|Arrow(?:Left|Right|Up|Down)|Backquote|Backspace|Space|Key[A-Z]|Digit\d|F\d{1,2})['"`]/
+  const read = /([A-Za-z_$][\w$]*|[\])])\s*\??\.\s*(key|code|keyCode|which|charCode)\b(?!\s*[:(])/g
+  const indexed = /\[\s*['"`](key|code|keyCode|which|charCode)['"`]\s*\]/
+  const apart = /\{[^{}]*\b(key|code|keyCode|which)\b[^{}]*\}\s*(?::\s*(?:globalThis\.)?(?:React\.)?Keyboard\w*|=\s*(?:e|ev|evt|event|press|input)\b)/
   const found: string[] = []
-  for (const file of files) {
-    readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
-      if (/^\s*(\/\/|\*|\/\*)/.test(line)) return
-      // In main a `key` is also a key of an object: there only the keys of the keyboard are looked for, and in the file that hears them.
-      const hears = !file.includes(`${join('src', 'main')}`) || file.endsWith('devkeys.ts')
-      if (named.test(line) || (hears && compared.test(line))) found.push(`${relative(src, file)}:${i + 1}: ${line.trim()}`)
-    })
+  text.split('\n').forEach((line, i) => {
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) return
+    let hit = named.test(line) || indexed.test(line) || apart.test(line)
+    for (const match of line.matchAll(read)) if (!NOT_A_PRESS.includes(match[1])) hit = true
+    if (hit) found.push(`${i + 1}: ${line.trim()}`)
+  })
+  return found
+}
+
+it('catches a key handled outside the table, however the handler spells it', () => {
+  // Each a way round the table (the eight of the polish review among them): each is one line, and each is found.
+  const bypasses = [
+    "if (e.key.toLowerCase() == 'y') accept()",
+    "switch (e.key) {",
+    "if (['j', 'k'].includes(e.key)) step()",
+    "if (e.code === 'Space') pan()",
+    'if (e.keyCode === 27) close()',
+    'if (/^[hn]$/.test(e.key)) go()',
+    'table[e.key]?.()',
+    "const { key } = event",
+    'function onKey({ key, ctrlKey }: KeyboardEvent): void {',
+    "if (event['key'] === wanted) run()",
+    'if (ev.which === 13) send()',
+    "case 'Enter':".replace('Enter', 'Escape'),
+    'handlers.get(press?.key)?.()',
+    'const k = (e as KeyboardEvent).key'
+  ]
+  for (const line of bypasses) expect([line, keyReads(line).length]).toEqual([line, 1])
+  expect(keyReads(bypasses.join('\n'))).toHaveLength(bypasses.length)
+  // What torno has that is called a key and is none of the keyboard's is left alone, and so is handing a press on whole.
+  for (const fine of ['const shown = view.visible.includes(part.key)', "if (pressed(e, 'fit')) fit()", 'const way = which(e, \'dock.resize\')', 'return { key: `${layout}:${name}`, name }', 'lights.key.intensity = 2', '// e.key is never read here', 'title={hint(t.key)}']) expect([fine, keyReads(fine)]).toEqual([fine, []])
+})
+
+it('is the only place a key is read or named: no handler in the window, the preload or main reads a key press itself', () => {
+  const found: string[] = []
+  // In main a `key` is also a key of an object and of a part: there the file that hears the keyboard is the one looked at.
+  for (const file of files.filter((f) => !f.includes(`${join('src', 'main')}`) || f.endsWith('devkeys.ts'))) {
+    for (const line of keyReads(readFileSync(file, 'utf8'))) found.push(`${relative(src, file)}:${line}`)
   }
   expect(found).toEqual([])
   expect(files.length).toBeGreaterThan(100)
 })
 
+/** The texts that show or name a key without taking it from the table: a key cap written out, a shortcut given as text, a chord or a key named in a sentence. */
+function keysWritten(text: string): string[] {
+  const written = [
+    /<kbd[^>]*>\s*[^\s{<]/,
+    /aria-keyshortcuts="/,
+    /\((?:[A-Z?/]|Esc|Enter|Tab|Ctrl\+[^)]*|Shift\+[^)]*)\)/,
+    /['"`>][^'"`<\n]*\b(?:[Pp]ress(?:ing)?|[Hh]it(?:ting)?) (?:[A-Z]|Esc|Enter|Tab|Ctrl|Shift|Alt)\b/,
+    /['"`>· ]\b[A-Z] (?:puts|shows|takes|opens|closes)\b/,
+    // A chord written out anywhere in a text: `Ctrl+K`, `Shift+Enter`.
+    /['"`>][^'"`<\n]*\b(?:Ctrl|Shift|Alt|Meta)\+(?:[A-Z`]|Shift|Alt|Enter|Tab|Esc)/
+  ]
+  const plain = text.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '')
+  return written.flatMap((pattern) => pattern.exec(plain)?.[0] ?? [])
+}
+
+it('catches a key written out in a text', () => {
+  for (const text of ["const HELP = 'Hit Q to quit, or press Ctrl+K'", "title=\"Fit (F)\"", '<kbd>F</kbd>', "say('Press T for the wall')", "const how = 'E puts them together'", "hint: 'Ctrl+Shift+B builds again'"]) expect([text, keysWritten(text).length > 0]).toEqual([text, true])
+  for (const fine of ['<kbd>{hint(\'fit\')}</kbd>', 'title={`Fit (${hint(\'fit\')})`}', "const text = 'The parts are drawn apart'"]) expect([fine, keysWritten(fine)]).toEqual([fine, []])
+})
+
 it('is where every key shown on a button or in a tooltip comes from', () => {
-  // A key cap with its text written out, a shortcut given as text, or a key in brackets at the end of a title.
-  // Or a key named in a sentence: "E puts them together", "Press T".
-  const written = [/<kbd[^>]*>\s*[^\s{<]/, /aria-keyshortcuts="/, /\((?:[A-Z?/]|Esc|Enter|Tab|Ctrl\+[^)]*|Shift\+[^)]*)\)/, /['"`>][^'"`<\n]*\b[Pp]ress(?:ing)? (?:[A-Z]|Esc|Enter|Tab)\b/, /['"`>· ]\b[A-Z] (?:puts|shows|takes|opens|closes)\b/]
   const found: string[] = []
   for (const file of files.filter((f) => f.includes(`${join('src', 'renderer')}`))) {
-    const text = readFileSync(file, 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '')
-    for (const pattern of written) {
-      const hit = pattern.exec(text)
-      if (hit) found.push(`${relative(src, file)}: ${hit[0]}`)
-    }
+    for (const hit of keysWritten(readFileSync(file, 'utf8'))) found.push(`${relative(src, file)}: ${hit}`)
   }
   expect(found).toEqual([])
+})
+
+it('has a key that builds the open object again, heard everywhere, and main names it as the table does', () => {
+  expect(hint('rebuild')).toBe(REBUILD_KEY)
+  expect(KEYS.find((row) => row.id === 'rebuild')).toMatchObject({ scope: 'global', context: 'Everywhere' })
+  expect(typed(REBUILD_KEY)).toBe(false)
+  expect(REBUILD_HOW).toBe('Press Rebuild in the status line of torno (Ctrl+Shift+B) to build again')
+  expect(readFileSync(resolve(__dirname, 'build.ts'), 'utf8')).not.toContain("from './keys'")
+})
+
+it('holds a key of the shape in hand against the viewport: the two are heard together, and which wins is not left to the order of listeners', () => {
+  // Measure's T and Align's G, R, T are tools' own, and a tool has the key first (the sheet says so): no clash.
+  expect(keyClashes()).toEqual([])
+  expect(keyClashes([...KEYS, extra(['G'], 'viewport')])).toEqual(['G (shape, viewport)'])
+  expect(CONTEXTS.find((c) => c.name === 'With a shape in hand')!.when).toBe('While a shape of yours is the active mark, after the tool in hand')
+})
+
+it('reads a key press of main as the table does, so that main never reads one itself', () => {
+  expect(pressOf({ key: 'I', control: true, shift: true, alt: false, meta: false })).toEqual({ key: 'I', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false })
+})
+
+it('writes the four arrows of a row as one cap, with Shift too', () => {
+  expect(capsOf(['Left', 'Right', 'Up', 'Down'])).toEqual(['Arrows'])
+  expect(capsOf(['Shift+Left', 'Shift+Right', 'Shift+Up', 'Shift+Down'])).toEqual(['Shift+Arrows'])
+  expect(capsOf(['Left', 'Right', 'Up', 'Down', 'Home', 'End'])).toEqual(['Arrows', 'Home', 'End'])
+  expect(capsOf(['Left', 'Right'])).toEqual(['Left', 'Right'])
+  expect(capsOf(['G', 'R', 'T'])).toEqual(['G', 'R', 'T'])
+})
+
+// The polish review's M13: what the Shift rule makes of two keys, said and held.
+it('takes Shift with a key for that key where Shift with it has no row: Shift+F5 reloads under the dev server, and Shift+Enter keeps nothing in a field', () => {
+  expect(pressed({ key: 'F5', shiftKey: true }, 'reload')).toBe(true)
+  expect(pressed({ key: 'Enter', shiftKey: true }, 'field.keep')).toBe(false)
+  expect(pressed({ key: 'Enter', shiftKey: true }, 'field.newline')).toBe(true)
 })

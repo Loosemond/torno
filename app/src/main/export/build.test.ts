@@ -1,6 +1,7 @@
 import { inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { unpackMesh } from '../../shared/exportdata'
+import { explodeOffsets, explodeShown } from '../../shared/explode'
+import { apartParts, unpackMesh } from '../../shared/exportdata'
 import type { Mark } from '../../shared/marks'
 import { type ScanInfo, parseScanMesh } from '../../shared/scans'
 import type { Part, Scene } from '../../shared/scene'
@@ -370,3 +371,96 @@ describe('a part of 2,635 faces and 20,000 triangles', () => {
   })
 })
 
+
+describe('an explode in a file that leaves parts out', () => {
+  /** The scene of `built()` with a third part in `assembly`, between the two in the scene's order when `between`. */
+  function three(): { scene: Scene; blob: Buffer } {
+    const last = built()
+    const [tray, lid, ...print] = last.scene.parts
+    const clip: Part = { ...lid, key: 'assembly:clip', name: 'clip', hash: 'h-lid', loc: { t: [60, 10, 3], q: [0, 0, 0, 1] }, bbox: { min: [55, 5, 2], max: [65, 15, 4] } }
+    return { scene: { ...last.scene, parts: [tray, clip, lid, ...print] }, blob: last.blob }
+  }
+  const off = (names: string[], explode: unknown) => async () => ({ layout: 'assembly', layers: Object.fromEntries(names.map((name) => [name, { visible: false }])), explode: { assembly: explode } })
+
+  for (const axis of ['centre', 'x', 'z'] as const) {
+    it(`moves the parts that go as torno moves them, ${axis === 'centre' ? 'from the centre' : `along ${axis}`}, and names no part left out`, async () => {
+      const last = three()
+      const explode = { amount: 0.5, scale: 1, axis }
+      const made = deps({ last: () => ({ revision: 3, ...last }), sceneFile: off(['clip'], explode) as ExportDeps['sceneFile'] })
+      const [object] = (await exportData(made, { objects: ['hollow'], marks: false, scans: [] })).objects
+      expect(object.parts.filter((part) => part.layout === 'assembly').map((part) => part.name)).toEqual(['tray', 'lid'])
+      expect(JSON.stringify(object)).not.toContain('clip')
+      const app = explodeOffsets(last.scene.parts.filter((part) => part.layout === 'assembly'), explode)
+      const page = explodeOffsets(apartParts(object, 'assembly'), explodeShown(object.explode.assembly, null, apartParts(object, 'assembly')))
+      expect(page.tray).toEqual(app.tray)
+      expect(page.lid).toEqual(app.lid)
+      expect(app.tray.some((c) => c !== 0) || app.lid.some((c) => c !== 0)).toBe(true)
+      // Without the part left out the parts would go otherwise: that is what the file must not draw.
+      expect(explodeOffsets(object.parts.filter((part) => part.layout === 'assembly'), explode).lid).not.toEqual(app.lid)
+    })
+  }
+
+  it('draws two parts apart when one of them is left out, as torno does', async () => {
+    const last = built()
+    const explode = { amount: 0.5, scale: 1, axis: 'centre' as const }
+    const made = deps({ sceneFile: off(['lid'], explode) as ExportDeps['sceneFile'] })
+    const [object] = (await exportData(made, { objects: ['hollow'], marks: false, scans: [] })).objects
+    expect(object.parts.filter((part) => part.layout === 'assembly').map((part) => part.name)).toEqual(['tray'])
+    const shown = explodeShown(object.explode.assembly, null, apartParts(object, 'assembly'))
+    expect(shown).toEqual(explode)
+    expect(explodeOffsets(apartParts(object, 'assembly'), shown).tray).toEqual(explodeOffsets(last.scene.parts.filter((part) => part.layout === 'assembly'), explode).tray)
+  })
+
+  it('carries no box when every part goes', async () => {
+    const [object] = (await exportData(deps(), { objects: ['hollow'], marks: false, scans: [], hidden: true })).objects
+    expect(object.ghosts).toBeUndefined()
+    expect(apartParts(object, 'assembly').map((part) => part.name)).toEqual(['tray', 'lid'])
+  })
+
+  it('gives a box left out a name no part has', () => {
+    const bbox = { min: [0, 0, 0] as [number, number, number], max: [1, 1, 1] as [number, number, number] }
+    const parts = apartParts({ parts: [{ name: '\u0000left out 0', layout: 'a', bbox }, { name: 'b', layout: 'a', bbox }], ghosts: [{ layout: 'a', before: 1, bbox }, { layout: 'other', before: 0, bbox }] }, 'a')
+    expect(parts).toHaveLength(3)
+    expect(new Set(parts.map((part) => part.name)).size).toBe(3)
+    expect(parts[1].name).not.toBe('b')
+  })
+})
+
+// The sweep's finding 13: a shape went into a page as a dot and a label. It is drawn as it is in torno: its outline.
+describe('a shape mark in a file', () => {
+  const shape = (over: object): Mark => ({ ...base, id: 'M9', kind: 'shape', note: 'a boss here', shape: 'box', intent: 'add', position: [10, 0, 5], rotation: [0, 0, 0, 1], size: [4, 6, 10], ...over }) as Mark
+  const outlineOf = async (mark: Mark) => (await exportData(deps({ marks: async () => [mark] }), { objects: ['hollow'], marks: true, scans: [], hidden: true })).objects[0].marks![0].outline!
+
+  it('carries the outline of a box: its twelve edges, where the shape is', async () => {
+    const outline = await outlineOf(shape({}))
+    const points = outline.flat()
+    // Two loops of five points (closed) and four uprights.
+    expect(outline.map((line) => line.length)).toEqual([5, 5, 2, 2, 2, 2])
+    for (const [i, lo, hi] of [[0, 8, 12], [1, -3, 3], [2, 0, 10]] as const) {
+      expect(Math.min(...points.map((p) => p[i]))).toBeCloseTo(lo, 9)
+      expect(Math.max(...points.map((p) => p[i]))).toBeCloseTo(hi, 9)
+    }
+  })
+
+  it('turns the outline with the shape, and gives a plane its rectangle, a cylinder its two circles and a sphere its three', async () => {
+    // A quarter turn about Z: what was 4 along x is along y.
+    const turned = (await outlineOf(shape({ rotation: [0, 0, Math.SQRT1_2, Math.SQRT1_2] }))).flat()
+    expect(Math.max(...turned.map((p) => p[0])) - Math.min(...turned.map((p) => p[0]))).toBeCloseTo(6, 9)
+    expect(Math.max(...turned.map((p) => p[1])) - Math.min(...turned.map((p) => p[1]))).toBeCloseTo(4, 9)
+    const plane = await outlineOf(shape({ shape: 'plane', size: [4, 6, 0] }))
+    expect(plane.map((line) => line.length)).toEqual([5])
+    expect(plane[0].every((p) => p[2] === 5)).toBe(true)
+    const cylinder = await outlineOf(shape({ shape: 'cylinder', size: [8, 8, 10] }))
+    expect(cylinder).toHaveLength(6)
+    for (const circle of cylinder.slice(0, 2)) for (const p of circle) expect(Math.hypot(p[0] - 10, p[1])).toBeCloseTo(4, 9)
+    expect(cylinder[0][0]).toEqual(cylinder[0].at(-1))
+    const sphere = await outlineOf(shape({ shape: 'sphere', size: [8, 8, 8] }))
+    expect(sphere).toHaveLength(3)
+    for (const circle of sphere) for (const p of circle) expect(Math.hypot(p[0] - 10, p[1], p[2] - 5)).toBeCloseTo(4, 9)
+  })
+
+  it('still says what it is in words', async () => {
+    const [mark] = (await exportData(deps({ marks: async () => [shape({})] }), { objects: ['hollow'], marks: true, scans: [], hidden: true })).objects[0].marks!
+    expect(mark).toMatchObject({ kind: 'shape', at: [10, 0, 5], says: 'add box, 4 × 6 × 10 mm' })
+  })
+})

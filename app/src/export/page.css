@@ -7,18 +7,19 @@
   --surface: #F1EFEA;
   --panel: #FAF9F6;
   --ink: #22252A;
-  --muted: #686D74;
+  --muted: #646970;
   --hairline: #DAD6CE;
+  --scroll-thumb: #84888E;
   --accent: #1D46B8;
   --accent-wash: #E3E9F8;
   --user-mark: #CF3F2C;
   --agent-mark: #288156;
-  --ok: #267951;
-  --warn: #936119;
-  --fail: #C23B29;
+  --ok: #1B5B3C;
+  --warn: #8C5C16;
+  --fail: #9B2B1D;
   --scan-plain: #B4AFA5;
   --axis-x: #9A3350;
-  --axis-y: #4C7F2C;
+  --axis-y: #457528;
   --axis-z: #2E5FA9;
   --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -43,15 +44,16 @@
     --ink: #E9E7E2;
     --muted: #9A9FA6;
     --hairline: #33373C;
+    --scroll-thumb: #72777E;
     --accent: #7C9BF7;
     --accent-wash: #252F4A;
     --user-mark: #F0705E;
     --agent-mark: #5CC492;
-    --ok: #5CC492;
-    --warn: #E0A94A;
-    --fail: #F0705E;
+    --ok: #A9E6C8;
+    --warn: #CBAA6A;
+    --fail: #F9B2A7;
     --scan-plain: #5A5E64;
-    --axis-x: #E886B0;
+    --axis-x: #D98AC8;
     --axis-y: #9CC56C;
     --axis-z: #82A6EA;
     --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
@@ -64,15 +66,16 @@
     --ink: #E9E7E2;
     --muted: #9A9FA6;
     --hairline: #33373C;
+    --scroll-thumb: #72777E;
     --accent: #7C9BF7;
     --accent-wash: #252F4A;
     --user-mark: #F0705E;
     --agent-mark: #5CC492;
-    --ok: #5CC492;
-    --warn: #E0A94A;
-    --fail: #F0705E;
+    --ok: #A9E6C8;
+    --warn: #CBAA6A;
+    --fail: #F9B2A7;
     --scan-plain: #5A5E64;
-    --axis-x: #E886B0;
+    --axis-x: #D98AC8;
     --axis-y: #9CC56C;
     --axis-z: #82A6EA;
     --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
@@ -207,7 +210,7 @@ noscript { grid-area: 1 / 1 / 2 / -1; place-self: center; }
   border-left: var(--divider);
   background: var(--panel);
   scrollbar-width: thin;
-  scrollbar-color: var(--hairline) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 .head { padding: var(--space-3) var(--space-4); }
@@ -317,7 +320,19 @@ input[type="checkbox"] { flex: none; width: 14px; height: 14px; margin: 0; accen
   border: 1px solid var(--panel);
   border-radius: 50%;
 }
-.chip[data-dimmed], .dot[data-dimmed] { opacity: 0.45; }
+/* A mark in the half cut away, or one that is resolved: quieter, and still read. No text is made faint. */
+.chip[data-dimmed] { border-style: dashed; }
+.chip[data-dimmed], .chip[data-dimmed] .chip-id { color: var(--muted); }
+.dot[data-dimmed] { opacity: 0.45; }
+
+/* A mark's lines, over the canvas: each over a casing in the panel's colour, 2 px wider, so that it reads on any part. */
+.mark-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.mark-lines polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.mark-casing { stroke: var(--panel); stroke-width: 3.5px; }
+.mark-line { stroke-width: 1.5px; }
+.mark-line[data-author="user"] { stroke: var(--user-mark); }
+.mark-line[data-author="agent"] { stroke: var(--agent-mark); }
+.mark-lines polyline[data-dimmed] { stroke-opacity: 0.45; }
 
 /* Nothing can be drawn: the message alone, with no empty column beside it. */
 #torno[data-bare] { grid-template-columns: minmax(0, 1fr); }

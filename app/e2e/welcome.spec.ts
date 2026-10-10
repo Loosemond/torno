@@ -53,9 +53,11 @@ test('the first run says what torno is, what an object is and what to do, and a 
     const first = await bare.firstWindow()
     expect(await bare.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(false)
     const says = first.locator('[data-region="viewport"]')
-    await expect(says).toContainText('torno is a workbench where an AI coding agent writes a build123d model in Python and you point at the result.')
+    await expect(says).toContainText('torno is a workbench for CAD parts: an AI coding agent writes each part as Python (build123d), and you point at the result.')
     await expect(says).toContainText('An object is a folder with one Python model in it, for example bracket/bracket.py, inside the folder that holds your objects.')
-    await expect(says).toContainText('Open that folder to begin.')
+    await expect(says).toContainText('Open the folder that holds them, or the example, to begin.')
+    // What opening the example means is said before it is opened, not only in a tooltip.
+    await expect(says).toContainText('The example opens as a temporary copy: it is removed when torno quits.')
     await expect(says.locator('.welcome-says p')).toHaveCount(3)
     await expect(says.locator('.num', { hasText: 'bracket/bracket.py' })).toHaveCount(1)
     // Run from the repository it has its example beside it; with no folder ever opened there is no list.
@@ -102,7 +104,7 @@ test('the folders opened lately are listed from torno\'s own file: one that is g
     const missing = list.locator('li[data-missing]')
     await expect(missing).toHaveCount(1)
     await expect(missing).toContainText('gone')
-    await expect(missing).toContainText('No longer there')
+    await expect(missing).toContainText('Not found')
     expect(await missing.locator('.recent-name').evaluate((el) => getComputedStyle(el).textDecorationLine)).toBe('line-through')
     await expect(missing.locator('.recent-row')).toBeDisabled()
     // The path is a path: in the monospace face.
@@ -161,7 +163,7 @@ test('? shows every key of the one table; what is typed searches it, and no tool
   await expect(sheet().locator('kbd', { hasText: /^P$/ })).toHaveCount(1)
   // Every row that is shown is there, under where it is listened to, its keys in the monospace face.
   await expect(sheet().locator('li')).toHaveCount(KEYS.filter((row) => !row.hidden).length)
-  await expect(sheet().locator('h3')).toHaveText(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'Session', 'In a field, a menu or a sheet'])
+  await expect(sheet().locator('h3')).toHaveText(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
   expect(await sheet().locator('kbd').first().evaluate((el) => getComputedStyle(el).fontFamily)).toContain('IBM Plex Mono')
   // The focus is in its field: a letter searches, and is no tool's key.
   await expect(sheet().getByRole('textbox', { name: 'Search the keys' })).toBeFocused()

@@ -1,4 +1,4 @@
-import { pressed } from '../shared/keys'
+import { pressOf, pressed } from '../shared/keys'
 
 /**
  * What a key does for someone working on torno itself, in place of the menu
@@ -13,7 +13,7 @@ export function devShortcut(
   allow: { reload: boolean }
 ): 'reload' | 'devtools' | null {
   if (input.type !== 'keyDown') return null
-  const press = { key: input.key, ctrlKey: input.control, shiftKey: input.shift, altKey: input.alt, metaKey: input.meta }
+  const press = pressOf(input)
   if (allow.reload && pressed(press, 'reload')) return 'reload'
   if (pressed(press, 'devtools')) return 'devtools'
   return null

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { actions, useStore } from '../state/store'
+import { actions, layerOf, useStore } from '../state/store'
 import { colorFor, colorsByName } from '../../shared/palette'
 
 /**
@@ -23,7 +23,7 @@ export function Layers() {
       <ul className="rows">
         {parts.map((part) => {
           const { name } = part
-          const layer = layers[name]
+          const layer = layerOf(layers, name)
           const visible = layer?.visible !== false
           const opacity = layer?.opacity ?? 1
           return (

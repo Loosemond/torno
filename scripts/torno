@@ -12,6 +12,10 @@
 # --install-desktop writes it, --uninstall-desktop removes it: that one file,
 # under the person's data folder, is all this script ever writes outside the
 # repository, and only when it is asked to by that option.
+#
+# --from-desktop is how the desktop entry starts it: nobody reads what a launcher prints, so what goes wrong is
+# then also shown as a notice (notify-send, where there is one) or, failing that, written to
+# ${XDG_STATE_HOME:-~/.local/state}/torno/launcher.log.
 set -eu
 
 # The repository is the parent of this file's folder, also when called through a symlink.
@@ -26,6 +30,28 @@ done
 root=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd -P)
 app=$root/app
 
+# Says what went wrong: on stderr, and for a start from the desktop entry also where it will be seen.
+from_desktop=
+complain() {
+  echo "torno: $1" >&2
+  [ -n "$from_desktop" ] || return 0
+  notifier=${TORNO_NOTIFY:-notify-send}
+  if command -v "$notifier" >/dev/null 2>&1 && "$notifier" torno "$1" 2>/dev/null; then
+    return 0
+  fi
+  case ${XDG_STATE_HOME-} in
+    /*) state=$XDG_STATE_HOME ;;
+    *) state=${HOME:+$HOME/.local/state} ;;
+  esac
+  [ -n "$state" ] || return 0
+  mkdir -p -- "$state/torno" 2>/dev/null || return 0
+  printf '%s torno: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >>"$state/torno/launcher.log" 2>/dev/null || true
+}
+if [ "${1-}" = --from-desktop ]; then
+  from_desktop=1
+  shift
+fi
+
 usage() {
   echo "usage: torno [workspace]"
   echo "       torno --print-command [workspace]"
@@ -35,8 +61,17 @@ usage() {
   echo "  --print-desktop      print the desktop entry for this script, and write nothing"
   echo "  --install-desktop    write that entry to \${XDG_DATA_HOME:-~/.local/share}/applications/torno.desktop"
   echo "  --uninstall-desktop  remove it"
+  echo "  --from-desktop       first, as the desktop entry gives it: errors are also shown as a notice, or logged"
   echo "  TORNO_OZONE          wayland or x11: the platform Electron is told to draw on (default: Electron chooses)"
 }
+
+# How it is used, whatever else is asked or set: the help is where TORNO_OZONE is explained.
+case ${1-} in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+esac
 
 # The platform is passed on only when it is asked for by name. Read before anything is checked, installed,
 # built or written. Never headless: Electron crashes with it here. And none at all under TORNO_TEST=1.
@@ -45,7 +80,7 @@ case ${TORNO_OZONE-} in
   '') ;;
   wayland | x11) [ "${TORNO_TEST-}" = 1 ] || ozone=--ozone-platform=$TORNO_OZONE ;;
   *)
-    echo "torno: TORNO_OZONE must be wayland or x11 (headless is not supported: Electron crashes with it here)" >&2
+    complain "TORNO_OZONE must be wayland or x11 (headless is not supported: Electron crashes with it here)"
     exit 2
     ;;
 esac
@@ -67,7 +102,7 @@ desktop_entry() {
   icon_path=$(printf '%s' "$root/scripts/torno.svg" | sed -e 's/\\/\\\\/g')
   while IFS= read -r line || [ -n "$line" ]; do
     case $line in
-      *@EXEC@*) printf '%s"%s"%s\n' "${line%%@EXEC@*}" "$exec_path" "${line#*@EXEC@}" ;;
+      *@EXEC@*) printf '%s"%s" --from-desktop%s\n' "${line%%@EXEC@*}" "$exec_path" "${line#*@EXEC@}" ;;
       *@ICON@*) printf '%s%s%s\n' "${line%%@ICON@*}" "$icon_path" "${line#*@ICON@}" ;;
       *) printf '%s\n' "$line" ;;
     esac
@@ -119,7 +154,11 @@ case ${1-} in
     fi
     text=$(desktop_entry)
     # Said before it is done: the one file, and what goes into it.
-    echo "torno: writing $entry"
+    if [ -e "$entry" ] || [ -L "$entry" ]; then
+      echo "torno: replacing $entry"
+    else
+      echo "torno: writing $entry"
+    fi
     printf '%s\n' "$text"
     mkdir -p -- "$data/applications"
     printf '%s\n' "$text" >"$entry"
@@ -129,12 +168,14 @@ case ${1-} in
     ;;
 esac
 if [ $# -gt 1 ]; then
-  echo "torno: expected at most one argument, a workspace folder" >&2
+  complain "expected at most one argument, a workspace folder"
   exit 2
 fi
+workspace_given=0
 if [ $# -eq 1 ]; then
+  workspace_given=1
   if [ ! -d "$1" ]; then
-    echo "torno: not a folder: $1" >&2
+    complain "not a folder: $1"
     exit 2
   fi
   TORNO_WORKSPACE=$(CDPATH= cd -- "$1" && pwd -P)
@@ -146,20 +187,25 @@ fi
 set -- "$app/node_modules/.bin/electron" "$app"
 [ -z "$ozone" ] || set -- "$@" "$ozone"
 if [ -n "$print_only" ]; then
+  # All of what is started: the folder goes in the environment, and is said first when there is one.
+  [ -z "${TORNO_WORKSPACE-}" ] || [ $workspace_given = 0 ] || printf 'TORNO_WORKSPACE=%s\n' "$TORNO_WORKSPACE"
   printf '%s\n' "$@"
   exit 0
 fi
 
 for tool in node pnpm uv; do
   if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "torno: '$tool' was not found on PATH (see README.md, Requirements)" >&2
+    complain "'$tool' was not found on PATH (see README.md, Requirements)"
     exit 1
   fi
 done
 
 if [ ! -d "$root/node_modules" ] || [ ! -d "$app/node_modules" ]; then
   echo "torno: installing dependencies" >&2
-  (cd "$root" && pnpm install) >&2
+  (cd "$root" && pnpm install) >&2 || {
+    complain "installing the dependencies failed: run scripts/torno in a terminal to see why"
+    exit 1
+  }
 fi
 
 # Built once, and again whenever a source, the build's own configuration or one
@@ -173,7 +219,10 @@ if [ ! -f "$stamp" ] || [ ! -f "$app/out/main/index.js" ] || [ ! -f "$app/out/pr
   echo "torno: building the app" >&2
   # The stamp carries the time the build began: a source saved while it ran is newer.
   began=$(date +%Y%m%d%H%M.%S)
-  (cd "$root" && pnpm build) >&2
+  (cd "$root" && pnpm build) >&2 || {
+    complain "building the app failed: run scripts/torno in a terminal to see why"
+    exit 1
+  }
   touch -t "$began" "$stamp"
 fi
 

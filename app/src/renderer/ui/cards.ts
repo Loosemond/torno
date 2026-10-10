@@ -1,4 +1,4 @@
-import { which } from '../../shared/keys'
+import { type KeyPress, which } from '../../shared/keys'
 import type { ObjectCard } from '../../shared/show'
 
 // What a card of the page of objects says, in words, and how the arrow keys go from card to card. A card says
@@ -86,9 +86,9 @@ export function matching(cards: ObjectCard[], typed: string): ObjectCard[] {
  * `columns` to a row: the index of a card, `'field'` for the field above the first row, null for a key that
  * moves nothing.
  */
-export function stepCard(key: string, at: number, count: number, columns: number): number | 'field' | null {
+export function stepCard(press: KeyPress, at: number, count: number, columns: number): number | 'field' | null {
   // Left, right, up, down, Home, End: the order of the table's row.
-  const move = which({ key }, 'page.move')
+  const move = which(press, 'page.move')
   if (count === 0 || move < 0) return null
   if (at < 0 || at >= count) return move === 5 ? count - 1 : 0
   const row = Math.max(columns, 1)

@@ -3,10 +3,9 @@ import { join } from 'node:path'
 import type { Quat, Vec3 } from '../../shared/marks'
 import { type AlignStep, type Scan, type ScanAlignment, type ScanImport, type ScanPair, type ScanSource, type ScanTransform, type ScansFile, MAX_PAIRS } from '../../shared/scans'
 import { canonical, reckoned } from '../../shared/align'
-import { writeFileAtomic } from '../atomic'
+import { FOLDER, ownTorno, writeOwn } from '../own'
 import { MESH, MESH_NAME, SCAN_ID, nextFolderId } from './meshfiles'
 
-const FOLDER = '.torno'
 const NAME = 'scans.json'
 
 /** The longest name a scan keeps, in characters. */
@@ -59,18 +58,19 @@ export async function loadScansFile(dir: string, now: () => Date = () => new Dat
   if (read && read.dropped === 0) return { file: past(read.file) }
 
   const stamp = now().toISOString().replace(/[:.]/g, '-')
+  await ownTorno(dir)
   if (!read) {
     const aside = `${NAME}.corrupt-${stamp}`
     // Copied, not moved: were the write below to fail, the next read must find the bad file again, and its ids with it.
     await copyFile(path, join(dir, FOLDER, aside))
     const file = past({ next: salvagedNext(text, parsed), scans: [] })
-    await writeFileAtomic(path, textOf(file))
+    await writeOwn(dir, NAME, textOf(file))
     return { file, problem: `The scans file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started. The meshes of its scans are still in ${FOLDER}/scans/.` }
   }
   const aside = `${NAME}.dropped-${stamp}`
   await copyFile(path, join(dir, FOLDER, aside))
   const file = past(read.file)
-  await writeFileAtomic(path, textOf(file))
+  await writeOwn(dir, NAME, textOf(file))
   const what = read.dropped === 1 ? '1 scan in the scans file of this object was' : `${read.dropped} scans in the scans file of this object were`
   return { file, problem: `${what} not one this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}, and the meshes are still in ${FOLDER}/scans/.` }
 }
@@ -84,7 +84,7 @@ function forgetRevision(alignment: ScanAlignment): void {
 
 /** Writes `<dir>/.torno/scans.json`, creating the folder. Readers see the old file or the new one, never half of one. */
 export function saveScansFile(dir: string, file: ScansFile): Promise<void> {
-  return writeFileAtomic(join(dir, FOLDER, NAME), textOf(readScansFile(file)?.file ?? { next: 1, scans: [] }))
+  return writeOwn(dir, NAME, textOf(readScansFile(file)?.file ?? { next: 1, scans: [] }))
 }
 
 function textOf(file: ScansFile): string {

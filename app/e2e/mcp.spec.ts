@@ -232,7 +232,7 @@ test('the agent is told of torno in its system prompt, and of the build with eve
   await page.keyboard.type('hook')
   await page.keyboard.press('Enter')
   await expect.poll(async () => (await terminal()).replace(/\s+/g, ' ')).toMatch(
-    /context: \[torno\] bracket · build ok · r1 \(\d+\.\d s\) · layout assembly · parts: base, post \(hidden: post\)\./
+    /context: \[torno\] bracket · build ok · r1 \((?:\d+\.\d|under 0\.1) s\) · layout assembly · parts: base, post \(hidden: post\)\./
   )
   for (const tool of ['marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark']) expect(prompt).toContain(`mcp__torno__${tool}`)
 })

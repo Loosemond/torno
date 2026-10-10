@@ -1,7 +1,8 @@
 import { pressed } from '../../shared/keys'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { NOT_MEASURABLE, type ShownDimension, defaultTolerance, exactText, isOffEdge, offBy, shownDimension, standingOf, unitOf } from '../../shared/dimension'
 import { namedPieces } from '../../shared/format'
+import { giveKeysBack } from './typing'
 import type { DimensionMark, MarkPatch } from '../../shared/marks'
 
 export { NOT_MEASURABLE }
@@ -141,8 +142,11 @@ export function VerdictIcon({ pass = false }: { pass?: boolean }) {
 function OptionalNumber({ name, sign, value, placeholder, least, commit }: { name: string; sign: string; value: number | undefined; placeholder: string; least?: number; commit: (value: number | null) => void }) {
   // What is being typed; null while the field only shows the number.
   const [draft, setDraft] = useState<string | null>(null)
+  /** Kept already: Enter keeps what was typed, and the focus that then leaves the field must not keep it again. */
+  const kept = useRef(false)
   const done = (): void => {
-    if (draft === null) return
+    if (draft === null || kept.current) return
+    kept.current = true
     setDraft(null)
     const text = draft.trim().replace(',', '.')
     if (text === '') {
@@ -167,14 +171,21 @@ function OptionalNumber({ name, sign, value, placeholder, least, commit }: { nam
         placeholder={placeholder}
         value={draft ?? (value === undefined ? '' : String(value))}
         onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          kept.current = false
+          setDraft(e.target.value)
+        }}
         onBlur={done}
         onKeyDown={(e) => {
           if (pressed(e, 'field.keep')) done()
-          else if (pressed(e, 'field.leave')) setDraft(null)
-          else return
+          else if (pressed(e, 'field.leave')) {
+            // Left as it was: the blur that follows keeps nothing of what was typed.
+            kept.current = true
+            setDraft(null)
+          } else return
           e.preventDefault()
           e.stopPropagation()
+          giveKeysBack(e.currentTarget)
         }}
       />
     </label>

@@ -300,8 +300,8 @@ button {
 }
 
 .session-status[data-status='working'] .status-dot {
+  /* Still: a dot that pulsed for ever kept the window drawing while nobody looked (final review I7). */
   background: var(--accent);
-  animation: working 0.9s ease-in-out infinite alternate;
 }
 
 .session-status[data-status='needs_input'] {
@@ -586,7 +586,7 @@ button {
   padding: var(--space-4);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--hairline) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 /* ---- Left column: objects, then the layers of the open one ---- */
@@ -598,13 +598,15 @@ button {
 }
 
 .objects {
-  flex: 0 1 auto;
-  max-height: 50%;
+  /* The list that gives way first: with a scan in, the layers and the marks need their rows. */
+  flex: 0 2 auto;
+  max-height: 38%;
   padding-bottom: var(--space-2);
 }
 
 .layers {
-  flex: 0 1 auto;
+  /* Never cut mid-row: an object has a handful of parts, and they are all shown. */
+  flex: 0 0 auto;
   max-height: 34%;
   border-top: var(--divider);
   padding: var(--space-1) 0 var(--space-2);
@@ -1132,10 +1134,14 @@ button {
   color: var(--warn);
 }
 
+/* Done with, of another layout or on a part that is switched off: its chip is an outline in its colour, with its
+   number in muted ink. Quieter than a chip that is filled, and still read (no text is made faint by opacity). */
 .mark-row[data-status='resolved'] .mark-chip,
 .mark-row[data-elsewhere] .mark-chip,
 .mark-row[data-hidden] .mark-chip {
-  opacity: 0.55;
+  border-width: 1px;
+  background: var(--panel);
+  color: var(--muted);
 }
 
 .mark-row[data-status='resolved'] .mark-note,
@@ -1146,7 +1152,14 @@ button {
 
 /* A mark the agent resolved, until the person has seen that: it stays among the open ones, as it was. */
 .mark-row[data-awaiting] .mark-chip {
-  opacity: 1;
+  border-width: 1.5px;
+  background: var(--user-mark);
+  color: var(--panel);
+}
+
+.mark-row[data-awaiting] .mark-chip[data-author='agent'] {
+  background: var(--panel);
+  color: var(--agent-mark);
 }
 
 .mark-row[data-awaiting] .mark-note {
@@ -1270,7 +1283,6 @@ button {
 
 .segmented kbd {
   font-size: 10px;
-  opacity: 0.7;
 }
 
 .shape-group {
@@ -1445,7 +1457,6 @@ button {
 
 .dimension-expect input::placeholder {
   color: var(--muted);
-  opacity: 0.75;
 }
 
 .dimension-verdict {
@@ -2291,19 +2302,17 @@ button {
 
 .status-build[data-status='building'] .status-dot {
   background: var(--accent);
-  animation: working 0.9s ease-in-out infinite alternate;
+  transition: opacity 0.4s ease-in-out;
 }
 
-@keyframes working {
-  to {
-    opacity: 0.25;
-  }
+/* It beats with the count of the build's seconds: the status line sets this once a second, and nothing animates on between. */
+.status-build[data-status='building'] .status-dot[data-beat='off'] {
+  opacity: 0.3;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .status-build[data-status='building'] .status-dot,
-  .session-status[data-status='working'] .status-dot {
-    animation: none;
+  .status-build[data-status='building'] .status-dot {
+    transition: none;
   }
 }
 
@@ -2664,7 +2673,6 @@ button {
 
 .align-pair-field::placeholder {
   color: var(--muted);
-  opacity: 0.7;
 }
 
 .align-pair-field:focus-visible {
@@ -2867,11 +2875,11 @@ button {
   color: var(--muted);
 }
 
-/* What Enter does: the one button of the bar that stands out, in ink, never in a mark's colour. */
+/* What Enter does: the one button of the bar that stands out, as every primary button does: the accent, never a mark's colour. */
 .regionbar-keep:not(:disabled) {
-  border: var(--divider);
-  border-color: var(--ink);
-  font-weight: 600;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--panel);
 }
 
 .regionbar-note {
@@ -3084,13 +3092,13 @@ button {
   width: 22px;
   padding: 0;
   margin-right: 1px;
-  opacity: 0.6;
+  color: var(--muted);
 }
 
 .view-item:hover .view-more,
 .view-more:focus-visible,
 .view-more[aria-expanded='true'] {
-  opacity: 1;
+  color: var(--ink);
 }
 
 .view-more svg {
@@ -3329,7 +3337,7 @@ button {
   background: var(--surface);
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: var(--hairline) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 .show-head {
@@ -3605,7 +3613,6 @@ button {
 
 .card-line[data-status='building'] .status-dot {
   background: var(--accent);
-  animation: working 0.9s ease-in-out infinite alternate;
 }
 
 .card [data-tone='fail'] {
@@ -3695,10 +3702,6 @@ button {
   .card {
     transition: none;
   }
-
-  .card-line[data-status='building'] .status-dot {
-    animation: none;
-  }
 }
 
 /* ---- Export: what goes into the file, asked over the view or over the page of objects ---- */
@@ -3714,9 +3717,32 @@ button {
   font: inherit;
 }
 
-.status-export:hover {
+.status-export:hover,
+.status-rebuild:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* The one way to build again by hand: small and always there, beside how the build stands. */
+.status-rebuild {
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+}
+
+/* The thing to press: the last build failed, or was let go. */
+.status-rebuild[data-primary] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+}
+
+.status-rebuild[data-primary]:hover {
+  color: var(--panel);
 }
 
 /* A card and, over its corner, the way to export that one object: shown when the card is pointed at or has the focus. */
@@ -3771,6 +3797,7 @@ button {
   display: grid;
   place-items: start center;
   padding: var(--space-3) calc(var(--dock-space) + var(--space-4)) calc(var(--status-h) + var(--space-4)) calc(var(--left-w) + var(--space-4));
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 
 .export-sheet {
@@ -3807,7 +3834,7 @@ button {
   padding: var(--space-2) var(--space-4) var(--space-3);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--hairline) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 .export-body .section-title {
@@ -3999,8 +4026,8 @@ button {
 }
 
 .recent-name {
-  flex: none;
-  max-width: 50%;
+  /* One width for all: the paths beside them begin on one edge. */
+  flex: 0 0 14ch;
   overflow: hidden;
   font-weight: 500;
   text-overflow: ellipsis;
@@ -4069,6 +4096,12 @@ button {
   display: grid;
   place-items: center;
   padding: var(--space-4);
+  /* A scrim: the sheet is over the window, not part of it. */
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.keys-sheet:focus {
+  outline: none;
 }
 
 .keys-sheet {
@@ -4139,7 +4172,7 @@ button {
   columns: 3 250px;
   column-gap: var(--space-4);
   scrollbar-width: thin;
-  scrollbar-color: var(--hairline) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 .keys-group {
@@ -4158,30 +4191,33 @@ button {
   font-size: var(--text-small);
 }
 
+/* Two columns a group: the caps, and what they do, which all begins on one edge. */
 .keys-group ul {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) 1fr;
+  align-items: baseline;
+  gap: 6px var(--space-2);
   margin: 0;
-  padding: 0;
+  padding: 3px 0;
   list-style: none;
 }
 
 .keys-group li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px var(--space-2);
-  padding: 3px 0;
-}
-
-.keys-group li > span:last-child {
-  flex: 1 1 14ch;
+  display: contents;
 }
 
 .keys-caps {
   display: flex;
-  /* Four arrows with Shift are wider than a column: they go on two lines, not into the next column. */
-  flex: 0 1 auto;
   flex-wrap: wrap;
   gap: 3px;
+}
+
+/* How many keys are shown: what is said aloud as the search is typed. */
+.keys-count {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
 }
 
 /* A key cap of the sheet: a size up from those in a line of text, and in the ink. */
@@ -4216,9 +4252,124 @@ button {
 }
 
 /* The lists of the left column scrolled with the system's own bars, arrows and all: the loudest thing in the
-   column. Thin and in the hairline, as on the page of objects and in the sheets. */
+   column. Thin, and in a grey that shows where the list is (3:1 on the panel), as on the page of objects and in the sheets. */
 .left,
 .left * {
   scrollbar-width: thin;
-  scrollbar-color: var(--hairline) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+/* ---- Final fix wave ---- */
+
+/* Why E drew nothing apart of one part, said beside the button for a moment: no bar is opened for it. */
+.explode-said {
+  padding: 0 var(--space-2);
+  color: var(--ink);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+/* What the next prompt carries, for an agent that is told with every prompt: one quiet line under the header. */
+.session-next {
+  flex: none;
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* Under the name of the workspace while it is the example: it does not outlive torno. */
+.workspace-example {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--warn);
+  font-size: var(--text-small);
+}
+
+/* The folder button and its menu: the folders opened lately, the dialog, the example. */
+.folder-menu-host {
+  position: relative;
+  flex: none;
+}
+
+.folder-menu {
+  z-index: 20;
+  left: auto;
+  right: 0;
+  width: 232px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.menu-title {
+  margin: 0;
+  padding: 4px 9px 2px;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.menu-rule {
+  width: 100%;
+  margin: 3px 0;
+  border: 0;
+  border-top: var(--divider);
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.folder-item {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 4px 9px;
+}
+
+.folder-item:disabled {
+  color: var(--ink);
+}
+
+.folder-name,
+.folder-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-path {
+  color: var(--muted);
+  font-size: 11px;
+  direction: rtl;
+  text-align: left;
+}
+
+.folder-row[data-missing] .folder-name {
+  text-decoration: line-through;
+}
+
+.folder-row[data-missing] .folder-item {
+  color: var(--muted);
+}
+
+.folder-said {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.folder-remove {
+  flex: none;
+  color: var(--accent);
+}
+
+/* Under the two ways in: what opening the example means. */
+.welcome-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
 }

@@ -63,7 +63,9 @@ export interface ExplodePart { name: string; bbox: { min: Vec3; max: Vec3 } }
  *
  * From the centre, a part goes along the line from the centre of the layout's box to the centre of its own, by
  * `(R + d) × amount × scale`: `R` half the diagonal of the layout's box, `d` how far the part's centre is from the
- * layout's. Along an axis the parts are ranked by their centres on it and set `2R × amount × scale` apart.
+ * layout's. Along an axis the parts are ranked by their centres on it (level ones, within `SHARED_CENTRE_MM`,
+ * in the scene's order) and set `2R × amount × scale` apart: to both sides of the middle along x and y, and
+ * along z upward from the lowest, which stays.
  */
 export function explodeOffsets(parts: readonly ExplodePart[], explode: ExplodeState | null | undefined): Record<string, Vec3> {
   if (!isExploded(explode) || parts.length < 2) return Object.create(null)
@@ -93,11 +95,21 @@ export function explodeOffsets(parts: readonly ExplodePart[], explode: ExplodeSt
     return Object.values(offsets).some((moved) => moved.some((c) => c !== 0)) ? offsets : Object.create(null)
   }
   const i = AXES.indexOf(explode.axis)
-  // By where each centre is along the axis; the scene's order where two are level (the sort is stable).
+  // By where each centre is along the axis. Centres within `SHARED_CENTRE_MM` of one another are level, and
+  // level parts go in the scene's order: what modelling leaves of a difference decides nothing.
   const order = parts.map((_, n) => n).sort((a, b) => centres[a][i] - centres[b][i])
+  for (let from = 0; from < order.length; ) {
+    let to = from + 1
+    while (to < order.length && centres[order[to]][i] - centres[order[to - 1]][i] <= SHARED_CENTRE_MM) to += 1
+    order.splice(from, to - from, ...order.slice(from, to).sort((a, b) => a - b))
+    from = to
+  }
+  // Along x and y to both sides of the middle. Along z upward from the lowest part, which stays where it is:
+  // nothing is drawn under the ground the layout stands on.
+  const first = explode.axis === 'z' ? 0 : (parts.length - 1) / 2
   order.forEach((n, rank) => {
     const moved: Vec3 = [0, 0, 0]
-    moved[i] = (rank - (parts.length - 1) / 2) * 2 * reach * by + 0
+    moved[i] = (rank - first) * 2 * reach * by + 0
     offsets[parts[n].name] = moved
   })
   return offsets

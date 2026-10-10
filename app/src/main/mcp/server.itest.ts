@@ -259,7 +259,9 @@ describe('the MCP server', () => {
     expect(JSON.parse(await text('marks', { status: 'draft' }))).toEqual({ revision: 2, marks: [{ ...PIN, line }] })
     expect(JSON.parse(await text('describe', { ref: 'base/F5' }))).toMatchObject({ layout: 'main', kind: 'face', ref: 'main:base/F5', descriptor: 'plane, normal +Z, z = 5, 1200 mm²' })
     expect(JSON.parse(await text('describe', { ref: 'M1' }))).toEqual({ revision: 2, mark: { ...PIN, line } })
-    expect(await text('highlight', { refs: ['base/F5', 'M1'], note: 'this one?' })).toBe('highlighted base/F5 in layout main for the user, with the note "this one?", until they click in the viewport or 60 s pass.')
+    expect(await text('highlight', { refs: ['base/F5'], note: 'this one?' })).toBe('highlighted base/F5 in layout main for the user, with the note "this one?", until they click in the viewport or 60 s pass.')
+    // Not through a mark the last build's check did not confirm (final review M9): what it is on is not known.
+    expect(await client.callTool({ name: 'highlight', arguments: { refs: ['M1'] } })).toMatchObject({ isError: true, content: [{ text: 'nothing was highlighted: M1 has not been checked against r2 yet, so what it is on is not known: give a ref, or ask again in a moment' }] })
     expect(await text('show', { view: 'top' })).toBe("view top · layout main\nrevision r2\nThe user's viewport now shows this.")
     expect(await text('add_mark', { kind: 'pin', note: 'this face?', ref: 'base/F5' })).toBe('placed in layout main: (yours) M2 pin on base/F5 (plane, normal +Z, z = 5, 1200 mm²) at (20, 15, 5): "this face?"\nrevision r2')
     expect(added).toMatchObject([{ kind: 'pin', author: 'agent', anchor: { ref: 'base/F5' } }])
@@ -296,6 +298,12 @@ describe('the MCP server', () => {
     expect(await said('section', {})).toBe(NO_PLANE)
     expect(await said('look', { section: { at: 3 } })).toBe(NO_PLANE)
     expect(await said('show', { section: 'z' })).toBe(NO_PLANE)
+    // A camera with no target, or with something that is no point: what a camera is, not "view: Invalid input".
+    const NO_CAMERA = 'view, as a camera, takes position and target as [x, y, z] in mm, as scene gives them: {"position": [120, -90, 60], "target": [0, 0, 6]}; or give a name: current, iso, front, back, left, right, top, bottom, or a saved view'
+    expect(await said('look', { view: { position: [100, 0, 0] } })).toBe(NO_CAMERA)
+    expect(await said('show', { view: { position: [100, 0, 0], target: 'origin' } })).toBe(NO_CAMERA)
+    expect(await said('save_view', { name: 'A', view: { target: [0, 0, 0] } })).toBe(NO_CAMERA)
+    expect(await said('look', { view: 12 })).toBe(NO_CAMERA)
     const noEnd = (name: string): string => `${name} names nothing: give a ref ("lid/F12"), the number of a mark ("M3"), {"point": [x, y, z]} in mm, or {"ref": "lid/F12", "point": [x, y, z]}`
     expect(await said('measure', { kind: 'radius' })).toBe(noEnd('a'))
     expect(await said('measure', { kind: 'radius', a: { face: 'base/F5' } })).toBe(noEnd('a'))

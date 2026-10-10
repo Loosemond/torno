@@ -1,21 +1,21 @@
 import { join } from 'node:path'
 import type { AgentId, SendDropped, SendState } from '../../shared/bridge'
-import { writeFileAtomic } from '../atomic'
+import { FOLDER, writeOwn } from '../own'
 import type { PromptContext } from '../context'
 import { SESSION_FILE, storeConversation } from './resume'
 import { followTyped, hasEnter, lineShown, nothingNew, PROMPT_FILE, promptFile, sendLine } from './sendMarks'
 
-const FOLDER = '.torno'
 /** The most that is kept of what an agent wrote since a line was put at its cursor, to look for that line in. */
 const SHOWN_LIMIT = 16 * 1024
 
 /**
  * Makes `<object>/.torno/prompt.md` say that there is nothing new: when a session of an agent without hooks
- * starts or ends, and when a line that named the file will not be sent as it was. Whatever the file told of
- * before went to no one, and an agent told to read it must not take it for what the person has just made.
+ * starts, and when it ends. Whatever the file told of before was for another session, and an agent told to
+ * read it must not take it for what the person has just made. Not when a line that named the file is dropped
+ * (something was typed after it): the person may still send that line by hand, and what the file holds is true.
  */
 export function blankPrompt(dir: string): Promise<void> {
-  return writeFileAtomic(join(dir, FOLDER, PROMPT_FILE), nothingNew(new Date()))
+  return writeOwn(dir, PROMPT_FILE, nothingNew(new Date()))
 }
 
 /** What is kept of a session of an agent without hooks, about what it has been told. */
@@ -35,11 +35,13 @@ export interface Told {
   shown: string
   /** The agent showed the line: it was pasted into a prompt, not into a question that was up in its place. */
   echoed: boolean
+  /** The line that was put at its cursor, to be looked for in what it shows. */
+  line: string
 }
 
 /** A session that has been told nothing yet. `fresh`: its conversation has seen no line of torno's. */
 export function untold(fresh: boolean, onFile: boolean): Told {
-  return { pending: null, fresh, onFile, telling: Promise.resolve(), shown: '', echoed: false }
+  return { pending: null, fresh, onFile, telling: Promise.resolve(), shown: '', echoed: false, line: '' }
 }
 
 /** A session, as much of it as telling its agent needs. */
@@ -77,7 +79,8 @@ export class Delivery<S extends ToldSession = ToldSession> {
    * delivered by an Enter only when all of this holds since the paste: the
    * agent showed the line (`output`: it was at a prompt), and nothing was
    * typed or pasted after it. Otherwise the line is dropped: nothing is
-   * delivered, the file says there is nothing new, and why is said.
+   * delivered, and why is said. The file stays as it was written: the line
+   * may still be sent with what was typed after it, and it names the file.
    */
   typed(s: S, data: string): void {
     if (!s.onFile && hasEnter(data)) {
@@ -96,16 +99,26 @@ export class Delivery<S extends ToldSession = ToldSession> {
       if (marks.length > 0) this.host.onDelivered?.(s.object.id, marks)
       return this.host.said(s, 'sent', marks.length)
     }
-    // Whatever the file told of is not on its way: an agent that reads it now must not take it for news.
-    s.telling = s.telling.catch(() => {}).then(() => blankPrompt(s.object.dir)).catch((e) => console.error(`cannot write ${join(s.object.dir, FOLDER, PROMPT_FILE)}: ${e instanceof Error ? e.message : String(e)}`))
     this.host.said(s, 'dropped', marks.length, became === 'sent' ? 'absent' : 'typed')
+  }
+
+  /**
+   * Something that is not a key of the person's and not torno's own line was put at the agent's cursor (the
+   * selection's "Insert", a paste from the app): what an Enter then sends is not the line as it was. As when
+   * something is typed after it, the line is dropped and the marks it told of stay drafts.
+   */
+  inserted(s: S): void {
+    if (s.pending === null) return
+    const marks = s.pending
+    s.pending = null
+    this.host.said(s, 'dropped', marks.length, 'typed')
   }
 
   /** What the agent wrote to its terminal: while a line waits at its cursor, where that line is looked for. */
   output(s: S, data: string): void {
     if (s.pending === null || s.echoed) return
     s.shown = (s.shown + data).slice(-SHOWN_LIMIT)
-    if (lineShown(s.shown)) {
+    if (lineShown(s.shown, s.line)) {
       s.echoed = true
       s.shown = ''
     }
@@ -156,7 +169,7 @@ export class Delivery<S extends ToldSession = ToldSession> {
           if (asked) throw new Error('Nothing to send: nothing has been built here yet')
           return null
         }
-        await writeFileAtomic(join(s.object.dir, FOLDER, PROMPT_FILE), promptFile(text, new Date()))
+        await writeOwn(s.object.dir, PROMPT_FILE, promptFile(text, new Date()))
         if (!this.host.live(s)) {
           if (asked) throw new Error('This session has ended')
           return null
@@ -169,6 +182,7 @@ export class Delivery<S extends ToldSession = ToldSession> {
           s.echoed = false
           // Waiting before it is put in: what the agent shows of it is then of a line that waits.
           s.pending = sentMarkIds
+          s.line = line
           this.host.insert(s, line)
         }
         s.pending = sentMarkIds

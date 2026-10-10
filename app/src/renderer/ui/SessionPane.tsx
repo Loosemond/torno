@@ -4,11 +4,12 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { type SessionSaid, AGENT_LABEL, busyWith, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
+import { type SessionSaid, AGENT_LABEL, busyWith, nextCarries, nextPromptLine, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
 import type { AgentId } from '../../shared/bridge'
 import { actions, store, useStore } from '../state/store'
 import { type AgentChoice, AgentPicker } from './AgentPicker'
 import { Confirm } from './Confirm'
+import { numbered } from './numbered'
 
 const FONT_SIZE = 13
 
@@ -62,6 +63,8 @@ function readTheme(): ITheme {
     cursor: token('--ink'),
     cursorAccent: token('--panel'),
     selectionBackground: token('--term-selection'),
+    // Whatever colour the agent's CLI gave it: selected, a text is read on the selection, in ink.
+    selectionForeground: token('--ink'),
     selectionInactiveBackground: token('--term-selection'),
     scrollbarSliderBackground: token('--term-scroll'),
     scrollbarSliderHoverBackground: token('--term-scroll-hover'),
@@ -420,6 +423,11 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const unsent = useMemo(() => toSend(marks, revision > 0 ? revision : undefined), [marks, revision])
   const send = sendLabel(unsent)
   const told = session && !ended && !session.hooks
+  // For an agent that is told with every prompt: what the next one carries, said in one quiet line. Of the
+  // session there is; with none, of the agent a new one would run.
+  const live = session !== undefined && !ended
+  const withHooks = live ? session.hooks : (agents.find((one) => one.id === choice.agent)?.hooks ?? false)
+  const next = useMemo(() => (objectId && withHooks ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, withHooks, marks, revision, live])
 
   /** Write the file and put the line that names it at the agent's cursor, where the person's Enter sends it. */
   async function sendMarks(): Promise<void> {
@@ -506,6 +514,11 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
             </button>
           )}
         </div>
+      )}
+      {next !== null && (
+        <p className="session-next" role="status">
+          {numbered(next)}
+        </p>
       )}
       {choice.note && objectId && (
         <div className="session-told">

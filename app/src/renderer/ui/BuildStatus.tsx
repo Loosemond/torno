@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { letGoText } from '../../shared/build'
+import { hint } from '../../shared/keys'
 import { unmetDimensions } from '../../shared/dimension'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
@@ -76,7 +77,8 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
         <>
           <span className="status-name">{name}</span>
           <span className="status-build" data-status={build.status}>
-            <span className="status-dot" aria-hidden="true" />
+            {/* While a build runs its dot beats with the count of its seconds: once a second, by this render, and by no animation that runs on. */}
+            <span className="status-dot" data-beat={building && elapsed % 2 === 1 ? 'off' : undefined} aria-hidden="true" />
             {build.status === 'building' && (
               <span>
                 Building <span className="num">{elapsed}</span> s
@@ -92,6 +94,16 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
             )}
             {build.status === 'idle' && <span>Not built yet</span>}
           </span>
+          {/* Always there: the one way to build again by hand. The thing to press when the last build failed or was let go. */}
+          <button
+            type="button"
+            className="status-rebuild"
+            data-primary={build.status === 'failed' || letGoText(build) ? '' : undefined}
+            title={`Build ${name} again from its sources as they are (${hint('rebuild')})`}
+            onClick={() => objectId !== null && void window.torno.object.rebuild(objectId).catch(() => {})}
+          >
+            Rebuild
+          </button>
           {letGoText(build) && <span className="status-letgo" data-part="let-go">{letGoText(build)}</span>}
           {build.revision > 0 && (
             <span data-part="revision">

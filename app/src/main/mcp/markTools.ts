@@ -198,7 +198,9 @@ export async function highlightTool(deps: ToolDeps, objectId: string, args: High
       // Its ref is where it was placed, which may name other geometry now: that is not pointed at as the mark.
       else if (mark.anchorState === 'drifted') wrong.push(`${ref} was placed on ${on}, which has moved since: the ref may name something else now`)
       else if (mark.anchorState === 'orphaned') wrong.push(`the part ${ref} was placed on is gone`)
-      if (!mark || mark.layout !== layout || !on || mark.anchorState !== 'ok') continue
+      // As `endsOf` rules for a measurement: a mark stands for what it is on only when the last build's check confirmed it.
+      else if (isUnchecked(mark, found.revision)) wrong.push(`${ref} has not been checked against r${found.revision} yet, so what it is on is not known: give a ref, or ask again in a moment`)
+      if (!mark || mark.layout !== layout || !on || mark.anchorState !== 'ok' || isUnchecked(mark, found.revision)) continue
       named = on
     }
     const checked = checkRef(found.scene, layout, named)

@@ -27,7 +27,7 @@ import { describeSection } from '../viewport/section'
 import { sectionPng } from '../viewport/sectionDrawing'
 import type { Viewport } from '../viewport/Viewport'
 import { hiddenIn, scansShown } from './savedViews'
-import { actions, explodeNow, partsInLayout, sceneFileOf, store } from './store'
+import { actions, layerOf, explodeNow, partsInLayout, sceneFileOf, store } from './store'
 
 /** How long what the agent points at stays pointed at, unless the person clicks first. */
 export const HIGHLIGHT_FOR_MS = 60_000
@@ -115,7 +115,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
 
   const after = store.getState()
   const names = partsInLayout(after, layout)
-    .filter((p) => after.layers[p.name]?.visible !== false)
+    .filter((p) => layerOf(after.layers, p.name)?.visible !== false)
     .map((p) => p.name)
   // A saved view is said by its name, as the caption of a picture of it says it.
   const view = viewSaid(req.view, req.viewName)
@@ -130,7 +130,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // Drawn apart now, by this or as they were: said as the caption of a picture says it, with what that means of the scans.
   const apart = explodeNow(after, layout)
   return {
-    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''}${explodedNote(apart, shown.length > 0, spanningMarks(after.marks, layout, partsInLayout(after, layout), apart, new Set(partsInLayout(after, layout).filter((p) => after.layers[p.name]?.visible === false).map((p) => p.name))))} · ${ortho ? 'orthographic' : 'perspective'}`,
+    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''}${explodedNote(apart, shown.length > 0, spanningMarks(after.marks, layout, partsInLayout(after, layout), apart, new Set(partsInLayout(after, layout).filter((p) => layerOf(after.layers, p.name)?.visible === false).map((p) => p.name))))} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,
     revision: after.revision,
     stale: after.build?.stale ?? false,
@@ -237,7 +237,7 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     const gone = req.refs.map((ref) => missing(ref, parts)).filter((m) => m !== null)
     if (gone.length > 0) throw new Error(`nothing was highlighted: the window shows r${s.revision}, which has ${gone.join(', ')}`)
     // A part that is switched off is not drawn, and nothing of it would be tinted.
-    const hidden = parts.filter((p) => s.layers[p.name]?.visible === false).map((p) => p.name)
+    const hidden = parts.filter((p) => layerOf(s.layers, p.name)?.visible === false).map((p) => p.name)
     const unseen = hidden.filter((name) => req.refs.some((ref) => ref === name || ref.startsWith(`${name}/`)))
     if (unseen.length > 0) {
       const on = parts.map((p) => p.name).filter((name) => !hidden.includes(name) || unseen.includes(name))
@@ -326,7 +326,7 @@ export async function sectionDrawing(req: SectionDrawingRequest): Promise<Sectio
   const s = store.getState()
   const open = s.objectId === req.objectId
   const byName = colorsByName(req.names)
-  const colourOf = (part: string): string => (open ? s.layers[part]?.color : undefined) ?? byName.get(part) ?? colorFor(part, -1)
+  const colourOf = (part: string): string => (open ? layerOf(s.layers, part)?.color : undefined) ?? byName.get(part) ?? colorFor(part, -1)
   const drawn = await sectionPng(req.section, req.spread ? `${req.layout} (parts spread for display)` : req.layout, colourOf, req.size, req.scan)
   if (!drawn) throw new Error('the plane cuts nothing')
   return { ...drawn, colours: open ? 'window' : 'palette' }

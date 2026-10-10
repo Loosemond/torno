@@ -8,7 +8,7 @@ import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import type { AlignPoint } from './alignPoints'
 import type { BrushRing } from './brushRing'
 import { CameraMove, standingAt } from './cameraMoves'
-import { PartsApart, asBuilt, drawnAt, drawnBox, reachingApart } from './explode'
+import { PartsApart, asBuilt, drawnAt, drawnBox, reachingApart, leavesView } from './explode'
 import { groundOf } from './ground'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
 import { mmPerPx } from './marks/labels'
@@ -452,6 +452,23 @@ export class Viewport {
     this.apart.set(to, this.partsOf(this.layout), animate && !still ? performance.now() : undefined)
     this.placeParts()
     this.invalidate()
+  }
+
+  /**
+   * Frames the parts again when one of them, drawn apart, would leave the view where it is going (`leavesView`);
+   * leaves the camera alone otherwise. Asked when the person draws the parts apart in one go (a key, a button):
+   * the camera is theirs, and is moved only so that no part goes out of sight. True when it was moved.
+   */
+  keepApartInView(): boolean {
+    if (!this.apart.any) return false
+    this.syncMatrices()
+    const seen = (point: Vec3): [number, number] => {
+      const v = new THREE.Vector3().fromArray(point).project(this.camera)
+      return [v.x, v.y]
+    }
+    if (!leavesView(this.shownParts(), this.apart.target(), seen)) return false
+    this.fit()
+    return true
   }
 
   /** Whether the parts are drawn apart, or are on their way there or back: what is on screen is then not where they are. */

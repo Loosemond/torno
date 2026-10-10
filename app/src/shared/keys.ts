@@ -8,7 +8,7 @@
  */
 
 /** Where the sheet lists a row. */
-export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'With a shape in hand' | 'Page of objects' | 'Session' | 'In a field, a menu or a sheet'
+export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'With a shape in hand' | 'Page of objects' | 'Session' | 'In a field, a menu or a sheet' | 'For working on torno'
 
 /**
  * Where a key is listened to. Two rows of one scope would answer the same press.
@@ -68,11 +68,19 @@ const ARROWS = ['Left', 'Right', 'Up', 'Down'] as const
 export const ARROWS_CAP = 'Arrows'
 const withShift = (keys: readonly string[]): string[] => keys.map((key) => `Shift+${key}`)
 
+/** The keys of a row as caps: the four arrows together are one cap (`Arrows`, `Shift+Arrows`), as a keyboard has them. */
+export function capsOf(keys: readonly string[]): string[] {
+  for (const [four, cap] of [[ARROWS as readonly string[], ARROWS_CAP], [withShift(ARROWS), `Shift+${ARROWS_CAP}`]] as const) {
+    if (four.every((key) => keys.includes(key))) return [cap, ...keys.filter((key) => !four.includes(key))]
+  }
+  return [...keys]
+}
+
 const ROWS = [
   row('keys', ['?'], 'This sheet of keys, outside a field and the terminal', 'Everywhere', 'window'),
   row('session.focus', ['Ctrl+`'], 'To the session, and from it back to the view', 'Everywhere', 'global'),
   row('export', ['Ctrl+Shift+E'], 'Export to one HTML file: the open object, or from the page of objects any of them', 'Everywhere', 'global'),
-  row('devtools', ['F12', 'Ctrl+Shift+I'], 'Developer tools', 'Everywhere', 'global'),
+  row('rebuild', ['Ctrl+Shift+B'], 'Rebuild: build the open object again, as the button in the status line does', 'Everywhere', 'global'),
   row('reload', ['F5', 'Ctrl+R'], 'Reload the window, under the dev server only', 'Everywhere', 'dev', true),
 
   ...TOOL_KEYS.map((t) => row(`tool.${t.name}`, [t.key], t.does, 'Viewport', 'viewport')),
@@ -80,7 +88,7 @@ const ROWS = [
   row('fit', ['F'], 'Fit the parts in view', 'Viewport', 'viewport'),
   row('ortho', ['O'], 'Perspective or orthographic', 'Viewport', 'viewport'),
   row('explode', ['E'], 'Draw the parts apart, or together again', 'Viewport', 'viewport'),
-  row('page', ['W'], 'All objects of the folder, on one page', 'Viewport', 'viewport'),
+  row('page', ['W'], 'All objects of the folder, on one page (there a letter filters them by name)', 'Viewport', 'viewport'),
   row('escape', ['Esc'], 'Step back: what is under way, then the tool in hand, then the selection', 'Viewport', 'viewport'),
 
   row('measure.wall', ['T'], 'Measure: the wall under the pointer', 'With a tool in hand', 'measure'),
@@ -119,7 +127,9 @@ const ROWS = [
   row('menu.ends', ['Home', 'End'], 'Menu: the first or the last', 'In a field, a menu or a sheet', 'menu'),
   row('menu.close', ['Esc', 'Tab'], 'Menu: close it', 'In a field, a menu or a sheet', 'menu'),
   row('sheet.close', ['Esc'], 'Sheet or question: put it away', 'In a field, a menu or a sheet', 'sheet'),
-  row('sheet.round', ['Tab'], 'Sheet: to its next control, and round', 'In a field, a menu or a sheet', 'sheet', true)
+  row('sheet.round', ['Tab'], 'Sheet: to its next control, and round', 'In a field, a menu or a sheet', 'sheet', true),
+
+  row('devtools', ['F12', 'Ctrl+Shift+I'], 'Developer tools', 'For working on torno', 'global')
 ] as const
 
 export type KeyId = (typeof ROWS)[number]['id']
@@ -133,10 +143,11 @@ export const CONTEXTS: ReadonlyArray<{ name: KeyContext; when: string }> = [
   { name: 'Everywhere', when: 'Also while typing and in the terminal, but for ?' },
   { name: 'Viewport', when: 'Outside a field and the terminal' },
   { name: 'With a tool in hand', when: 'The tool has the key before the viewport' },
-  { name: 'With a shape in hand', when: 'While a shape of yours is the active mark' },
+  { name: 'With a shape in hand', when: 'While a shape of yours is the active mark, after the tool in hand' },
   { name: 'Page of objects', when: 'While the cards are up' },
   { name: 'Session', when: 'With the terminal in focus' },
-  { name: 'In a field, a menu or a sheet', when: 'Where something is typed, chosen or asked' }
+  { name: 'In a field, a menu or a sheet', when: 'Where something is typed, chosen or asked' },
+  { name: 'For working on torno', when: 'Where torno runs from its repository' }
 ]
 
 /** The sheet of keys: every row that is shown, by where it is listened to. */
@@ -148,8 +159,15 @@ export function cheatSheet(): Array<{ context: KeyContext; when: string; rows: K
 const ALONE: readonly KeyScope[] = ['global', 'window']
 
 /**
- * The keys two rows would both answer to, as `F (viewport)`: two rows of one scope, or a key heard
- * everywhere that a row of another scope has too, as `? (window, page)`. Empty when the table is sound.
+ * Scopes that are listened to together with nothing in the table to say which hears a key first: a shape in
+ * hand and the viewport. (A tool in hand has a key before either, and the sheet says so.)
+ */
+const TOGETHER: ReadonlyArray<readonly [KeyScope, KeyScope]> = [['shape', 'viewport']]
+
+/**
+ * The keys two rows would both answer to, as `F (viewport)`: two rows of one scope, a key heard
+ * everywhere that a row of another scope has too, as `? (window, page)`, or a key of two scopes that are
+ * live together, as `G (shape, viewport)`. Empty when the table is sound.
  */
 export function keyClashes(rows: readonly KeyRow[] = KEYS): string[] {
   const seen = new Set<string>()
@@ -167,6 +185,9 @@ export function keyClashes(rows: readonly KeyRow[] = KEYS): string[] {
       for (const key of alone.keys) if (other.keys.includes(key) && !ALONE.includes(other.scope)) clashes.add(`${key} (${alone.scope}, ${other.scope})`)
     }
   }
+  for (const [first, second] of TOGETHER) {
+    for (const a of rows.filter((r) => r.scope === first)) for (const b of rows.filter((r) => r.scope === second)) for (const key of a.keys) if (b.keys.includes(key)) clashes.add(`${key} (${first}, ${second})`)
+  }
   return [...clashes]
 }
 
@@ -178,6 +199,11 @@ export interface KeyPress {
   shiftKey?: boolean
   altKey?: boolean
   metaKey?: boolean
+}
+
+/** A key press as main hears it (Electron's `before-input-event`), made to fit: main reads no key itself. */
+export function pressOf(input: { key: string; code?: string; control: boolean; shift: boolean; alt: boolean; meta: boolean }): KeyPress {
+  return { key: input.key, ...(input.code ? { code: input.code } : {}), ctrlKey: input.control, shiftKey: input.shift, altKey: input.alt, metaKey: input.meta }
 }
 
 const WORDS: Record<string, string> = { Escape: 'Esc', ArrowLeft: 'Left', ArrowRight: 'Right', ArrowUp: 'Up', ArrowDown: 'Down', ' ': 'Space' }

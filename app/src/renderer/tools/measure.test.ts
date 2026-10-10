@@ -5,7 +5,7 @@ import type { Camera } from '../../shared/view'
 import { setBetween, setRound, toolStore } from '../state/tools'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { REFUSAL_MS, SPREAD_LINE, measureTool } from './measureTool'
+import { REFUSAL_MS, SPREAD_LINE, measureTool, NOT_ROUND } from './measureTool'
 import { routePointer, type ToolContext } from './Tool'
 
 const CAMERA: Camera = { position: [0, -100, 0], target: [0, 0, 0], up: [0, 0, 1], ortho: true, fov: 35, zoom: 1 }
@@ -45,7 +45,7 @@ function fake(over: Partial<ToolContext> = {}) {
   }
   const ctx: ToolContext = {
     // What the viewport finds under a point as of now is what the last pointer event was on, unless a test says the view moved since (`under`).
-    viewport: { setHover: (hit) => void hovered.push(hit?.ref ?? null), setNavigation: () => {}, setDraft: (d) => void drafts.push(d), lockedView: () => null, pickScan: () => null, scanPatch: () => null, pick: () => world.under, pointerAt: () => world.at, bounds: () => ({ min: [-20, -15, -3], max: [20, 15, 3] }) },
+    viewport: { setHover: (hit) => void hovered.push(hit?.ref ?? null), setNavigation: () => {}, setDraft: (d) => void drafts.push(d), lockedView: () => null, pickScan: () => null, scanPatch: () => null, pick: (_x, _y, opts) => (opts?.edges === false ? (world.under?.kind === 'edge' ? world.beneath : world.under) : world.under), pointerAt: () => world.at, bounds: () => ({ min: [-20, -15, -3], max: [20, 15, 3] }) },
     readout: { show: (_at, ref, detail) => void said.push(`${ref} | ${detail ?? ''}`), describe: () => {}, say: (_at, message) => void said.push(message), hide: () => void said.push('(hidden)') },
     objectId: 'measures',
     layout: 'assembly',
@@ -67,7 +67,8 @@ function fake(over: Partial<ToolContext> = {}) {
 }
 
 /** What is under the pointer as the viewport knows it, and where the pointer is: kept as the events say. */
-const world: { under: Hit | null; at: [number, number] | null } = { under: null, at: null }
+/** `beneath`: the face under an edge that is under the pointer, which is what is found when the faces alone are asked for. */
+const world: { under: Hit | null; at: [number, number] | null; beneath: Hit | null } = { under: null, at: null, beneath: null }
 
 /** Lets the promises a tool left behind run out. */
 const settled = async (): Promise<void> => {
@@ -161,11 +162,14 @@ describe('the measure tool', () => {
 
   it('a double click on what has no radius is one click: the first end, still waiting for the second', async () => {
     const tool = measureTool()
-    const { ctx, committed } = fake()
+    const { ctx, committed, said } = fake()
     tool.onPointer(pointer('click', [50, 50], top()), ctx)
     tool.onPointer(pointer('click', [50, 50], top()), ctx)
     await settled()
     expect(committed).toEqual([])
+    // And why nothing was kept is said, where the pointer is: an ellipse, a flat face or a straight edge has no diameter.
+    expect(said.at(-1)).toBe(NOT_ROUND)
+    expect(NOT_ROUND).toBe('Not round: a double click measures a hole, a cylinder or a circle')
     tool.onPointer(pointer('click', [50, 120], bottom()), ctx)
     await settled()
     expect(committed).toMatchObject([{ measure: 'distance', a: { ref: 'plate/F5' }, b: { ref: 'plate/F0' } }])
@@ -194,8 +198,16 @@ describe('the measure tool', () => {
     expect(tool.onKey!({ key: 't', repeat: true } as KeyboardEvent, ctx)).toBe(true)
     await settled()
     expect(committed).toHaveLength(1)
-    // An edge has no wall under it, and neither has nothing.
+    // With the pointer on an edge it is the wall of the face under it: the faces alone are asked for, as a wall is of a face.
     tool.onPointer(pointer('move', [200, 50], rim()), ctx)
+    world.beneath = top([-6, 5, 3])
+    expect(tool.onKey!(key('T'), ctx)).toBe(true)
+    await settled()
+    expect(committed).toHaveLength(2)
+    expect(committed[1]).toMatchObject({ measure: 'thickness', a: { point: [-6, 5, 3], ref: 'plate/F5' } })
+    committed.pop()
+    // An edge with no face under it at that pixel (a silhouette) has no wall, and neither has nothing.
+    world.beneath = null
     expect(tool.onKey!(key('T'), ctx)).toBe(false)
     tool.onPointer(pointer('move', [400, 400], null), ctx)
     expect(tool.onKey!(key('T'), ctx)).toBe(false)

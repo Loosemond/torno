@@ -10,7 +10,7 @@ import type { SavedView } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
 import { StateFiles, stateText, writtenLine } from './statefile'
 
-const part = (layout: string, name: string, min: number[], max: number[]): Part => ({ key: `${layout}:${name}`, name, layout, bbox: { min, max } }) as Part
+const part = (layout: string, name: string, min: number[], max: number[]): Part => ({ key: `${layout}:${name}`, name, layout, bbox: { min, max }, bboxExact: true, volumeExact: true }) as Part
 const SCENE: Scene = {
   model: 'bracket.py',
   layouts: ['assembly', 'print'],
@@ -46,6 +46,16 @@ afterEach(() => {
 })
 
 describe('stateText', () => {
+  it('writes ≈ before the size of a part whose box the kernel does not say is exact', () => {
+    const loft = { ...part('assembly', 'stand', [-64.4355, 0, 0], [65, 207.96, 120]), bboxExact: false }
+    const old = { ...part('assembly', 'legacy', [0, 0, 0], [1, 2, 3]), bboxExact: undefined }
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, layouts: ['assembly'], parts: [SCENE.parts[0], loft, old as Part] } }, [])
+    expect(text).toContain('- assembly: base 40 × 30 × 5 mm, stand ≈ 129.4 × 208 × 120 mm, legacy ≈ 1 × 2 × 3 mm')
+    expect(text).toContain('A size with ≈ is approximate')
+    // Where every size is exact nothing is said of it.
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('≈')
+  })
+
   it('names the saved views, and of each whether the agent proposed it or a part of it is gone', () => {
     const view = (name: string, more: Partial<SavedView> = {}): SavedView => ({ name, author: 'user', layout: 'assembly', camera: CAMERA as SavedView['camera'], hidden: [], at: '', ...more })
     const none = stateText(obj, OK, { revision: 3, scene: SCENE }, [])

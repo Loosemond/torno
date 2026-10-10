@@ -14,6 +14,8 @@ export interface MarkColours {
   user: string
   agent: string
   reference: string
+  /** What is drawn under every line of a mark, 2 px wider: the panel's colour, against which a mark's colour reads on any part. None draws no casing. */
+  casing?: string
 }
 
 // Sizes on screen, in pixels: these hold whatever the zoom.
@@ -40,6 +42,10 @@ const ARC_STEPS = 24
 const SAME_MM = 1e-3
 /** How much wider the lines of the active mark are. */
 const ACTIVE_WIDTH = 1.5
+/** How much wider than its line a casing is, in pixels: one each side. */
+export const CASING_PX = 2
+/** A casing is drawn just before its line: its place in the order, off the line's. */
+const CASING_ORDER = -0.6
 
 const FILL_OPACITY = 0.25
 /** What is left of a mark where a part is in front of it. */
@@ -89,7 +95,7 @@ interface Sizing {
   /** Groups kept the same size on screen: scaled by the millimetres a pixel is at their place. */
   constant: Array<{ object: THREE.Object3D; at: THREE.Vector3 }>
   /** Line materials, with their width in pixels. */
-  lines: Array<{ material: LineMaterial; width: number }>
+  lines: Array<{ material: LineMaterial; width: number; /** Pixels added to it whatever the width: a casing's. */ extra?: number }>
   /** Ticks at the ends of a dimension line: each is turned square to the line (`along`) and to the way it is looked at. */
   ticks: Array<{ object: THREE.Object3D; along: THREE.Vector3 }>
   /** Dashed ones: dash and gap in pixels, measured where the mark is. */
@@ -110,7 +116,9 @@ class Parts {
    */
   constructor(
     readonly color: string,
-    private readonly behind = BEHIND
+    private readonly behind = BEHIND,
+    /** The colour of the casing under every line; none for no casing. */
+    private readonly casing?: string
   ) {}
 
   /**
@@ -119,7 +127,7 @@ class Parts {
    * pulled towards the viewer by the same hair, so what lies on a surface
    * counts as in front of it and every pixel is drawn by exactly one of them.
    */
-  private twin<M extends THREE.Material>(name: string, material: M, make: (material: M) => THREE.Object3D): THREE.Group {
+  private twin<M extends THREE.Material>(name: string, material: M, make: (material: M) => THREE.Object3D, shift = 0): THREE.Group {
     const group = new THREE.Group()
     group.name = name
     const behind = material.clone() as M
@@ -132,7 +140,7 @@ class Parts {
       m.polygonOffsetFactor = -2
       m.polygonOffsetUnits = -8
       const object = make(m)
-      object.renderOrder = order
+      object.renderOrder = order + shift
       object.raycast = () => {} // never picked
       group.add(object)
     }
@@ -159,12 +167,31 @@ class Parts {
     }
   }
 
+  /**
+   * The casing of a line: the same line in the casing's colour, `CASING_PX` wider, drawn just before it, in
+   * the line's own group, so that whatever places or turns the line takes its casing along. A mark's colour is
+   * held to the panel's (`shared/contrast.test.ts`), and on a part it is on its casing.
+   */
+  private cased(group: THREE.Group, width: number, make: (material: LineMaterial) => THREE.Object3D, dashed?: { dash: number; gap: number; at: THREE.Vector3 }): void {
+    if (!this.casing) return
+    const material = new LineMaterial({ color: this.casing, linewidth: width + CASING_PX, dashed: dashed !== undefined })
+    const under = this.twin('', material, make, CASING_ORDER)
+    for (const child of [...under.children]) {
+      child.userData.casing = true
+      const m = (child as Line2).material
+      this.sizing.lines.push({ material: m, width, extra: CASING_PX })
+      if (dashed) this.sizing.dashes.push({ material: m, ...dashed })
+      group.add(child)
+    }
+  }
+
   /** A line through points, of a width in pixels. */
   line(name: string, points: Vec3[], width: number): THREE.Group {
     const geometry = new LineGeometry().setPositions(points.flat())
     const { material, register } = this.lineMaterial(width)
     const group = this.twin(name, material, (m) => new Line2(geometry, m))
     register(group)
+    this.cased(group, width, (m) => new Line2(geometry, m))
     return group
   }
 
@@ -178,6 +205,16 @@ class Parts {
       return lines
     })
     register(group)
+    this.cased(
+      group,
+      width,
+      (m) => {
+        const lines = new LineSegments2(geometry, m)
+        if (dashed) lines.computeLineDistances()
+        return lines
+      },
+      dashed
+    )
     return group
   }
 
@@ -314,7 +351,7 @@ function angleArc(mark: DimensionMark, from: Vec3, to: Vec3): Extract<DimensionG
  */
 export function build(mark: Mark, colours: MarkColours, scale: number): THREE.Object3D {
   const reference = mark.kind === 'shape' && mark.intent === 'reference'
-  const parts = new Parts(reference ? colours.reference : colours[mark.author], mark.kind === 'dimension' ? DIMENSION_BEHIND : BEHIND)
+  const parts = new Parts(reference ? colours.reference : colours[mark.author], mark.kind === 'dimension' ? DIMENSION_BEHIND : BEHIND, colours.casing)
   const { root } = parts
   root.name = mark.id
   root.userData.sizing = parts.sizing
@@ -489,7 +526,7 @@ export function rescale(object: THREE.Object3D, mmPerPx: (at: THREE.Vector3) => 
   // Where the mark is drawn, which is off where it is while its part is drawn apart.
   for (const { object: tick, along } of sizing.ticks) tick.quaternion.setFromUnitVectors(X_AXIS, acrossLine(along, DRAWN_AT.copy(tick.position).add(object.position), camera))
   const wider = sizing.active ? ACTIVE_WIDTH : 1
-  for (const { material, width } of sizing.lines) material.linewidth = width * wider * unit
+  for (const { material, width, extra } of sizing.lines) material.linewidth = (width * wider + (extra ?? 0)) * unit
   for (const { material, dash, gap, at } of sizing.dashes) {
     // Line distances are in millimetres; the dashes are wanted in pixels.
     material.dashScale = 1 / (mmPerPx(at) * unit)

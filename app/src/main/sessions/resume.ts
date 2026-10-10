@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentId } from '../../shared/bridge'
-import { writeFileAtomic } from '../atomic'
+import { ensureIgnored } from '../ignored'
+import { FOLDER, writeOwn } from '../own'
 
-const FOLDER = '.torno'
 export const SESSION_FILE = 'session.json'
 const AGENT_IDS: readonly AgentId[] = ['claude', 'copilot']
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -87,7 +87,9 @@ export function storeConversation(dir: string, agent: AgentId, conversationId: s
       if (last && last.agent !== agent) kept[last.agent] = { conversationId: last.conversationId, ...(last.updatedAt ? { updatedAt: last.updatedAt } : {}), ...(last.told ? { told: true as const } : {}) }
       delete kept[agent]
       const file = { conversationId, agent, updatedAt: new Date().toISOString(), ...(told ? { told: true } : {}), ...(Object.keys(kept).length > 0 ? { kept } : {}) }
-      await writeFileAtomic(path, `${JSON.stringify(file, null, 2)}\n`)
+      await writeOwn(dir, SESSION_FILE, `${JSON.stringify(file, null, 2)}\n`)
+      // Which conversation was last is of this machine and changes with every session: not for git.
+      await ensureIgnored(dir, [SESSION_FILE])
     })
     .finally(() => {
       if (turns.get(path) === turn) turns.delete(path)

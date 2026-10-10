@@ -9,6 +9,8 @@ import { DESCRIBE_WITHIN_MS, REPEAT_MS, REPEAT_PX, anchorFromHit, dot, sub, with
 
 /** How long the kernel's reason for refusing a measurement stays at the pointer. */
 export const REFUSAL_MS = 4000
+/** Said at the pointer when a double click was on what has no radius: nothing is kept of it, and the first end waits for the second. */
+export const NOT_ROUND = 'Not round: a double click measures a hole, a cylinder or a circle'
 /**
  * Said at the pointer of a distance between two parts torno set apart for
  * display, in place of an estimate and in place of main's refusal, which is
@@ -166,7 +168,18 @@ export function measureTool(): Tool {
     if (repeat) {
       // The second half of a double click: the diameter of something round, and of anything else nothing more than the first click.
       void begun.round.then((round) => {
-        if (!round || first !== begun) return
+        if (first !== begun) return
+        if (!round) {
+          // Nothing is kept, and it says why: an ellipse, a flat face, a straight edge. The first end still waits.
+          release()
+          held = { until: performance.now() + REFUSAL_MS, client: e.client, within: 0 }
+          held.timer = setTimeout(() => {
+            held = null
+            ctx.readout.hide()
+          }, REFUSAL_MS)
+          ctx.readout.say(e.client, NOT_ROUND)
+          return
+        }
         first = null
         return commit(toolStore.getState().round, begun, null, e.client, ctx)
       })
@@ -235,7 +248,8 @@ export function measureTool(): Tool {
       // zooms without a move), and a tool just taken has been told of no move at all: the viewport knows where
       // the pointer is, and is asked what is under it.
       const at = ctx.viewport.pointerAt ? ctx.viewport.pointerAt() : (hover?.client ?? null)
-      const hit = at && ctx.viewport.pick(at[0], at[1])
+      // The faces alone are asked for: a wall is of a face, and a pointer within a few pixels of an edge is still over one.
+      const hit = at && ctx.viewport.pick(at[0], at[1], { edges: false })
       if (!at || !hit || hit.kind !== 'face') return false
       // A key held down repeats: one wall, one dimension.
       if (e.repeat) return true

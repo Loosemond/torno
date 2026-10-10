@@ -300,7 +300,7 @@ test('a broken save fails the build and keeps the last good parts, dimmed; the e
 
   const failed = page.getByRole('button', { name: 'Build failed' })
   await expect(failed).toBeVisible()
-  expect(await failed.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(194, 59, 41)') // --fail
+  expect(await failed.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(155, 43, 29)') // --fail
   await expect(status(page).locator('[data-part="revision"]')).toHaveText('showing r2')
 
   await failed.click()
@@ -394,7 +394,9 @@ test('an object with two candidate models says what was looked for, and nothing 
   expect(await mainLook({ view: 'iso' })).toEqual({ error: 'no build yet' })
   // Nothing was written into the object's folder but the state file, which says why there is no build.
   const kept = join(root, 'two', '.torno')
-  await expect.poll(() => (existsSync(kept) ? readdirSync(kept) : [])).toEqual(['state.md'])
+  // And the line that has git pass over it: it changes with every build.
+  await expect.poll(() => (existsSync(kept) ? readdirSync(kept).sort() : [])).toEqual(['.gitignore', 'state.md'])
+  expect(readFileSync(join(kept, '.gitignore'), 'utf8')).toBe('state.md\n')
   expect(readFileSync(join(kept, 'state.md'), 'utf8')).toMatch(/## Build\n\nBUILD FAILED\. Nothing has been built yet\.\n\n```\nmore than one model file in .*two: a\.py, b\.py/)
 
   // An object with a model but no scene: the kernel's reason, the same way.
@@ -427,7 +429,7 @@ test('the workspace is written nowhere but under .torno/', async () => {
   // One that built has the picture of its card, what that is of, and the word to git to pass over the two.
   await expect
     .poll(() => added().sort())
-    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/state.md'])
+    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/.gitignore', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/.gitignore', 'two/.torno/state.md'])
 })
 
 test.describe('the workspace is remembered', () => {

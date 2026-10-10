@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
 import { devShortcut } from './devkeys'
-import { copyExample, exampleSource } from './example'
+import { copyExample, exampleSource, removeExample, sweepExamples } from './example'
 import { type Config, configOf, listed, recentWith, recentWithout } from './recent'
 import { startHttp } from './http'
 import { contextFor } from './context'
@@ -19,6 +19,7 @@ import type { NearestAnchor } from './marks/reanchor'
 import { maskReadsOf, maskStampOf, meshesOf } from './marks/regions'
 import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
+import { onNotOwn } from './own'
 import { kernelDir } from './paths'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
@@ -40,6 +41,11 @@ import { StateFiles } from './statefile'
 //   TORNO_BUILD_TIMEOUT=<s> seconds a build may take before it is stopped (default 600; read in src/main/ipc.ts)
 //   TORNO_DEBUG=1           print the workspace opened at start, where the MCP server is, and the command
 //                           line and the hooks of every session
+// Whose window this is, said outright: the desktop finds torno's entry and icon by it (the Wayland app id, the
+// X11 class), whatever the package is called. `setDesktopName` is Linux's, and not there elsewhere.
+app.setName('torno')
+;(app as unknown as { setDesktopName?: (name: string) => void }).setDesktopName?.('torno.desktop')
+
 const isTest = process.env.TORNO_TEST === '1'
 const isDebug = process.env.TORNO_DEBUG === '1'
 
@@ -108,7 +114,8 @@ function rememberWorkspace(root: string): Promise<Config> {
 
 // The example of the first screen: where torno runs from its repository, a copy of some objects of the
 // repository's test workspace, made in a temporary folder when it is asked for, once in a run, and removed
-// when torno ends. It is not remembered: at the next start it would be gone.
+// when torno quits, once nothing is being written there any more (`will-quit`). One a crash left is swept at
+// the next start (`sweepExamples`). It is not remembered: at the next start it would be gone.
 const exampleFrom = exampleSource(app.getAppPath(), app.isPackaged)
 let exampleCopy: string | null = null
 async function exampleFolder(): Promise<string | null> {
@@ -171,6 +178,13 @@ let sessions: Sessions | null = null
 /** The marks of the objects of the open workspace, whose folders are those of the last scan. */
 // A region is held against the mesh its scan has whenever the marks are listed (`meshesOf`).
 const marks: MarkStore = new MarkStore({ dirOf: (id) => findObject(id)?.dir, meshes: (objectId) => meshesOf(scans)(objectId), maskReads: (objectId, scan, stem) => maskReadsOf(scans)(objectId, scan, stem), maskStamp: (objectId, scan, stem) => maskStampOf(scans)(objectId, scan, stem) })
+
+// A `.torno` that is a link or a file is written to by no one (`ownTorno`). The person is told once for each
+// object, where what is wrong with its marks is said: nothing of that object is kept until it is a real folder.
+onNotOwn((dir, message) => {
+  const obj = openWorkspaceInfo()?.objects.find((one) => one.dir === dir)
+  if (obj) void marks.report(obj.id, `${message} Nothing of this object is kept until then: no mark, no view, no picture.`).catch(() => {})
+})
 
 /** What runs the import process in the open workspace, once a scan was imported there: one at a time, and stopped when it is left. */
 let importer: { root: string; run: Importer } | null = null
@@ -402,13 +416,20 @@ void app.whenReady().then(async () => {
   testHooks.mcpUrlFor = mcpUrlFor
   if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
   if (isDebug) console.error(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`)
+  // What a torno that crashed left in the temporary folder: only copies of the example its own marker names.
+  if (exampleFrom !== null) void sweepExamples(tmpdir()).catch(() => {})
   const named = process.env.TORNO_WORKSPACE
   const root = named ?? (await rememberedWorkspace())
   if (root) {
     // Before the window exists, so the renderer's first question finds it open.
     const source = named ? 'TORNO_WORKSPACE' : configPath
     await openWorkspace(root)
-      .then((info) => isDebug && console.error(`[torno] workspace ${info.root}: ${info.objects.length} objects`))
+      .then((info) => {
+        if (isDebug) console.error(`[torno] workspace ${info.root}: ${info.objects.length} objects`)
+        // A folder torno was started with is one opened lately, as one chosen in the window is. What is opened
+        // at the next start stays the one chosen there. (Under test there is no config but one the test names.)
+        if (named) void changeConfig((config) => ({ ...config, recent: recentWith(config.recent, info.root) }))
+      })
       .catch((e) => console.error(`${source}: cannot open ${root}: ${e.message}`))
   }
   offerRequested(createWindow())
@@ -430,16 +451,21 @@ const writesBeforeQuit = quitGate(WRITES_WAIT_MS)
 
 app.on('will-quit', (event) => {
   void closeWorkspace()
-  // The copy of the example was torno's own, in the temporary folder: it goes with the run.
-  if (exampleCopy !== null) rmSync(exampleCopy, { recursive: true, force: true })
-  exampleCopy = null
   const waits: Promise<unknown>[] = []
   const written = writesBeforeQuit([marks.settled(), scans.settled(), sceneFilesSettled()])
   if (written) waits.push(written)
-  if (sessions && sessions.size > 0) waits.push(sessions.stopAll())
-  if (waits.length === 0) return
+  if (sessions?.busy) waits.push(sessions.stopAll())
+  // The copy of the example was torno's own, in the temporary folder: it goes with the run, last of all, once
+  // what was still being written into it is on the disk and its sessions have gone. Removed before, a late
+  // write would make its folders anew and leave them.
+  const copy = exampleCopy
+  if (waits.length === 0 && copy === null) return
+  exampleCopy = null
   event.preventDefault()
-  void Promise.allSettled(waits).finally(() => app.quit())
+  void Promise.allSettled(waits)
+    .then(() => (copy === null ? undefined : removeExample(copy)))
+    .catch(() => {})
+    .finally(() => app.quit())
 })
 
 // Closing the window ends the app on every platform: sessions do not outlive it.

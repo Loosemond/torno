@@ -207,11 +207,11 @@ test('something typed after the line leaves the marks drafts, says why, and the 
   await expect(told()).toContainText('A line is at the cursor')
   await page.keyboard.type('y')
   await expect(told().locator('p')).toHaveText('Something was typed after the line, so the marks are still drafts: use "Send marks" again.')
-  // The file no longer tells what was not sent.
-  await expect.poll(() => promptFile('gauge')).toMatch(/^Nothing new from torno/)
   await page.keyboard.press('Enter')
   await expect.poll(async () => ((await term()).match(/> /g) ?? []).length).toBe(1)
   expect(await statusOf(id)).toBe('draft')
+  // The line went all the same, with the letter after it, and it names the file: the file is as it was written (the sweep's finding 16).
+  expect(promptFile('gauge')).toContain('3 mm thicker')
   // Asked again, and sent as it was put there.
   await sendMarks()
   expect(promptFile('gauge')).toContain('3 mm thicker')
@@ -329,7 +329,9 @@ test('leaving the folder while an agent that does not say runs is asked about, a
   await app.evaluate((_electron, dir) => {
     ;(globalThis as unknown as { __tornoMain: { pickFolder: string | null } }).__tornoMain.pickFolder = dir
   }, other)
-  await left().getByRole('button', { name: 'Open folder' }).click()
+  // The folder button is a menu now: the dialog is one of its ways.
+  await left().getByRole('button', { name: 'Folders' }).click()
+  await left().getByRole('menuitem', { name: 'Open folder…' }).click()
   const ask = left().getByRole('alertdialog', { name: 'End the sessions of this folder?' })
   await expect(ask).toContainText('A session here may be in the middle of its work: its agent does not say. Opening another folder ends it.')
   await ask.getByRole('button', { name: 'Stay here' }).click()

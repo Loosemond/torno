@@ -325,7 +325,19 @@ test('a dimension between two parts drawn apart is drawn dashed between them, sa
   const id = /M\d+/.exec(across.text)![0]
   await expect.poll(async () => (await state()).marks.some((mark) => mark.id === id)).toBe(true)
   const value = ((await state()).marks.find((mark) => mark.id === id) as Extract<Mark, { kind: 'dimension' }>).value
-  const together = (await page.evaluate((mark) => window.__tornoTest!.markScreen(mark), id))!
+  // From the standard view, fitted: drawing the parts apart may frame them anew when one would leave the view, and the same view is gone back to below.
+  const iso = async (): Promise<{ x: number; y: number }> => {
+    await page.keyboard.press('1')
+    let last = { x: NaN, y: NaN }
+    await expect.poll(async () => {
+      const now = (await page.evaluate((mark) => window.__tornoTest!.markScreen(mark), id))!
+      const still = Math.hypot(now.x - last.x, now.y - last.y) < 1e-4
+      last = now
+      return still
+    }).toBe(true)
+    return last
+  }
+  const together = await iso()
   const row = page.locator(`.mark-row[data-mark="${id}"]`)
   await expect(row.locator('.row-note')).toHaveCount(0)
 
@@ -347,7 +359,7 @@ test('a dimension between two parts drawn apart is drawn dashed between them, sa
   await page.keyboard.press('e')
   await expect.poll(amount).toBe(0)
   await settled(false)
-  expect((await page.evaluate((mark) => window.__tornoTest!.markScreen(mark), id))!.y).toBeCloseTo(together.y, 1)
+  expect((await iso()).y).toBeCloseTo(together.y, 1)
   await expect(row.locator('.row-note')).toHaveCount(0)
 })
 

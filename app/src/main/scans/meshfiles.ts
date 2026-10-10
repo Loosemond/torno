@@ -3,6 +3,7 @@ import type { Dirent } from 'node:fs'
 import { mkdir, readdir, rm, writeFile, lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Scan } from '../../shared/scans'
+import { FOLDER } from '../own'
 
 /** What names a scan: `S1`. Its folder under `.torno/scans/` has this name, so nothing else is ever taken for one. */
 export const SCAN_ID = /^S[1-9]\d{0,14}$/
@@ -24,7 +25,7 @@ export const IMPORTING = 'importing'
 /** `<object>/.torno/scans/<id>/`: all that is ever written or deleted for a scan. The id is checked here, whoever gave it. */
 export function scanFolder(dir: string, id: string): string {
   if (!SCAN_ID.test(id)) throw new RangeError(`${id} is no scan id`)
-  return join(dir, '.torno', 'scans', id)
+  return join(dir, FOLDER, 'scans', id)
 }
 
 /** The file of a scan's mesh, in its folder. */
@@ -59,7 +60,7 @@ const entries = (folder: string): Promise<Dirent[]> => readdir(folder, { withFil
  */
 export async function nextFolderId(dir: string): Promise<number> {
   let next = 1
-  for (const name of await names(join(dir, '.torno', 'scans'))) if (SCAN_ID.test(name)) next = Math.max(next, Number(name.slice(1)) + 1)
+  for (const name of await names(join(dir, FOLDER, 'scans'))) if (SCAN_ID.test(name)) next = Math.max(next, Number(name.slice(1)) + 1)
   return next
 }
 
@@ -76,7 +77,7 @@ export async function ownFolders(dir: string, id?: string): Promise<void> {
 
 /** The first of torno's own folders of an object that is a link: `.torno`, `.torno/scans`, and a scan's folder when one is named. Null when none is. */
 export async function linkedFolder(dir: string, id?: string): Promise<string | null> {
-  const folders = [join(dir, '.torno'), join(dir, '.torno', 'scans'), ...(id === undefined ? [] : [scanFolder(dir, id)])]
+  const folders = [join(dir, FOLDER), join(dir, FOLDER, 'scans'), ...(id === undefined ? [] : [scanFolder(dir, id)])]
   for (const folder of folders) {
     const found = await lstat(folder).catch(() => null)
     if (found?.isSymbolicLink()) return folder
@@ -86,8 +87,8 @@ export async function linkedFolder(dir: string, id?: string): Promise<string | n
 
 export async function ignoreMeshes(dir: string): Promise<void> {
   await ownFolders(dir)
-  await mkdir(join(dir, '.torno', 'scans'), { recursive: true })
-  await writeFile(join(dir, '.torno', 'scans', '.gitignore'), 'mesh*.bin\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
+  await mkdir(join(dir, FOLDER, 'scans'), { recursive: true })
+  await writeFile(join(dir, FOLDER, 'scans', '.gitignore'), 'mesh*.bin\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
     if (e.code !== 'EEXIST') throw e
   })
 }
@@ -120,7 +121,7 @@ export async function sweep(dir: string, scans: readonly Scan[], busy: ReadonlyS
   const known = new Map(scans.map((scan) => [scan.id, meshName(scan)]))
   const remove = (path: string): Promise<void> => rm(path, { recursive: true, force: true }).catch(() => {})
   if ((await linkedFolder(dir)) !== null) return
-  for (const entry of await entries(join(dir, '.torno', 'scans'))) {
+  for (const entry of await entries(join(dir, FOLDER, 'scans'))) {
     const id = entry.name
     if (!entry.isDirectory() || !SCAN_ID.test(id) || busy.has(id)) continue
     const folder = scanFolder(dir, id)

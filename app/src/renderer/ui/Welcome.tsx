@@ -29,8 +29,12 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
       (has) => live && setExample(has),
       () => {}
     )
+    // A disk that was not mounted may be there now: the list is read again whenever the window is come back to.
+    const again = (): void => void window.torno.workspace.recent().then((list) => live && setRecent(list), () => {})
+    window.addEventListener('focus', again)
     return () => {
       live = false
+      window.removeEventListener('focus', again)
     }
   }, [])
 
@@ -52,11 +56,11 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
         <h1 className="wordmark">torno</h1>
       </header>
       <div className="welcome-says">
-        <p>torno is a workbench where an AI coding agent writes a build123d model in Python and you point at the result.</p>
+        <p>torno is a workbench for CAD parts: an AI coding agent writes each part as Python (build123d), and you point at the result.</p>
         <p>
           An object is a folder with one Python model in it, for example <span className="num">bracket/bracket.py</span>, inside the folder that holds your objects.
         </p>
-        <p>Open that folder to begin.</p>
+        <p>Open the folder that holds them, or the example, to begin.</p>
       </div>
       <div className="welcome-ways">
         <button type="button" className="button button-primary" disabled={busy} onClick={onPick}>
@@ -68,6 +72,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
           </button>
         )}
       </div>
+      {example && <p className="welcome-note">The example opens as a temporary copy: it is removed when torno quits.</p>}
       {problem !== null && (
         <p className="welcome-problem" role="alert">
           {problem}
@@ -79,7 +84,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
           <ul>
             {recent.map((folder) => (
               <li key={folder.root} data-missing={folder.missing ? '' : undefined}>
-                <button type="button" className="recent-row" disabled={busy || folder.missing} title={folder.missing ? `${folder.root} is no longer there` : folder.root} onClick={() => open(() => window.torno.workspace.open(folder.root), nameOf(folder.root))}>
+                <button type="button" className="recent-row" disabled={busy || folder.missing} title={folder.missing ? `${folder.root} was not found` : folder.root} onClick={() => open(() => window.torno.workspace.open(folder.root), nameOf(folder.root))}>
                   <span className="recent-name">{nameOf(folder.root)}</span>
                   <span className="recent-path num">
                     <bdi>{folder.root}</bdi>
@@ -87,7 +92,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
                 </button>
                 {folder.missing && (
                   <>
-                    <span className="recent-gone">No longer there</span>
+                    <span className="recent-gone">Not found</span>
                     <button type="button" className="button button-quiet" aria-label={`Remove ${nameOf(folder.root)} from the list`} onClick={() => void window.torno.workspace.forget(folder.root).then(setRecent, () => {})}>
                       Remove
                     </button>
@@ -99,7 +104,10 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
         </nav>
       )}
       <p className="welcome-foot">
-        torno writes only into a <span className="num">.torno</span> folder inside each object. Press <kbd>{hint('keys')}</kbd> at any time for the keys.
+        torno writes only into a <span className="num">.torno</span> folder inside each object.
+      </p>
+      <p className="welcome-foot">
+        Press <kbd>{hint('keys')}</kbd> at any time for the keys.
       </p>
     </div>
   )

@@ -1,3 +1,4 @@
+import { own } from '../../shared/exportdata'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { AgentId, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
@@ -247,11 +248,11 @@ export const actions = {
   setLayer(name: string, settings: LayerSettings): void {
     const s = store.getState()
     let shownByAgent = s.shownByAgent
-    if (shownByAgent && settings.visible !== undefined && name in shownByAgent.visible) {
+    if (shownByAgent && settings.visible !== undefined && Object.hasOwn(shownByAgent.visible, name)) {
       const { [name]: _theirsAgain, ...visible } = shownByAgent.visible
       shownByAgent = { ...shownByAgent, visible }
     }
-    store.setState({ layers: { ...s.layers, [name]: { ...s.layers[name], ...settings } }, edits: s.edits + 1, shownByAgent })
+    store.setState({ layers: { ...s.layers, [name]: { ...layerOf(s.layers, name), ...settings } }, edits: s.edits + 1, shownByAgent })
   },
 
   /**
@@ -325,11 +326,12 @@ export const actions = {
     }
     let layers = s.layers
     for (const [name, on] of Object.entries(visible)) {
-      const was = layers[name]?.visible
+      const was = layerOf(layers, name)?.visible
       if ((was !== false) === on) continue
-      if (!(name in theirs.visible)) theirs.visible[name] = was
-      else if ((theirs.visible[name] !== false) === on) delete theirs.visible[name]
-      layers = { ...layers, [name]: { ...layers[name], visible: on } }
+      // A key written in a literal is the object's own, whatever the name: a part may be called `__proto__`.
+      if (!Object.hasOwn(theirs.visible, name)) theirs.visible = { ...theirs.visible, [name]: was }
+      else if ((own(theirs.visible, name) !== false) === on) delete theirs.visible[name]
+      layers = { ...layers, [name]: { ...layerOf(layers, name), visible: on } }
     }
     if (section !== undefined && !samePlane(section, s.section)) {
       next.section = section
@@ -408,10 +410,10 @@ export const actions = {
     if (!view) return `There is no view named "${name}"`
     if (!s.scene?.layouts.includes(view.layout)) return `Layout ${view.layout} is no longer in the model`
     const theirs = sceneFileOf(s)
-    const layers = { ...theirs.layers }
+    let layers = { ...theirs.layers }
     for (const part of partsInLayout(s, view.layout)) {
       const on = !view.hidden.includes(part.name)
-      if ((layers[part.name]?.visible !== false) !== on) layers[part.name] = { ...layers[part.name], visible: on }
+      if ((layerOf(layers, part.name)?.visible !== false) !== on) layers = { ...layers, [part.name]: { ...layerOf(layers, part.name), visible: on } }
     }
     // One or the other, as the view holds them: with none of its own the parts are together, along what and how far kept.
     const explode = { ...theirs.explode }
@@ -695,10 +697,19 @@ export function explodeNow(s: Pick<TornoState, 'explode' | 'section' | 'layout' 
   return explodeShown(s.explode[layout], s.section, s.scene ? s.scene.parts.filter((p) => p.layout === layout) : [])
 }
 
+/**
+ * What was set of a part's layer, or undefined for nothing: asked by the part's name, which is anyone's to
+ * choose. A part called `constructor` has no settings until some are made, whatever every object has under
+ * that name (`own`).
+ */
+export function layerOf(layers: Readonly<Record<string, LayerSettings>>, name: string): LayerSettings | undefined {
+  return own(layers, name)
+}
+
 /** Keys of the parts of a layout that are switched on. */
 export function visibleKeys(s: TornoState, layout = s.layout): string[] {
   return partsInLayout(s, layout)
-    .filter((p) => s.layers[p.name]?.visible !== false)
+    .filter((p) => layerOf(s.layers, p.name)?.visible !== false)
     .map((p) => p.key)
 }
 
@@ -711,12 +722,16 @@ export function visibleKeys(s: TornoState, layout = s.layout): string[] {
  */
 export function sceneFileOf(s: TornoState): SceneFile {
   const layout = s.shownByAgent?.layout ?? s.layout
-  const layers = { ...s.layers }
+  // Keyed by the names of parts, which are anyone's to choose: each key is written as the object's own.
+  let layers = { ...s.layers }
   for (const [name, visible] of Object.entries(s.shownByAgent?.visible ?? {})) {
-    const { visible: _theAgents, ...rest } = layers[name] ?? {}
+    const { visible: _theAgents, ...rest } = layerOf(layers, name) ?? {}
     const theirs = visible === undefined ? rest : { ...rest, visible }
-    if (Object.keys(theirs).length > 0) layers[name] = theirs
-    else delete layers[name]
+    if (Object.keys(theirs).length > 0) layers = { ...layers, [name]: theirs }
+    else if (Object.hasOwn(layers, name)) {
+      const { [name]: _gone, ...others } = layers
+      layers = others
+    }
   }
   const section = s.shownByAgent?.section ? s.shownByAgent.section.theirs : s.section
   const scans = { ...s.scanViews }

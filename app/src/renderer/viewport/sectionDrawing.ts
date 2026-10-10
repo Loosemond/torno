@@ -1,3 +1,4 @@
+import { pictureCanvas, pngBytes } from './picture'
 import { number } from '../../shared/format'
 import type { Sectioned } from '../../shared/geometry'
 import { type ScanOutline, cutText, planeText } from '../../shared/view'
@@ -19,7 +20,7 @@ const MONO = "'IBM Plex Mono', ui-monospace, monospace"
 const SANS = "'IBM Plex Sans', system-ui, sans-serif"
 
 /** --surface, --ink, --muted and --hairline of the light theme (styles/tokens.css). */
-export const SHEET = { paper: '#F1EFEA', ink: '#22252A', muted: '#686D74', hairline: '#DAD6CE' }
+export const SHEET = { paper: '#F1EFEA', ink: '#22252A', muted: '#646970', hairline: '#DAD6CE' }
 
 /** How a scan's line is dashed on the sheet, in nominal pixels: drawn, then left. */
 const SCAN_DASH = [4, 2]
@@ -452,10 +453,9 @@ export async function sectionPng(
   if (!sheet) return null
   // A canvas does not wait for a web face: text drawn before it has come is in the fallback.
   await overlayFonts()
-  const canvas = new OffscreenCanvas(sheet.width, sheet.height)
+  const canvas = pictureCanvas(sheet.width, sheet.height)
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('could not get a 2D canvas to draw the section on')
   drawSection(ctx, sheet, section, colourOf, scan)
-  const blob = await canvas.convertToBlob({ type: 'image/png' })
-  return { png: new Uint8Array(await blob.arrayBuffer()), width: sheet.width, height: sheet.height, vDown: sheet.vDown }
+  return { png: pngBytes(canvas), width: sheet.width, height: sheet.height, vDown: sheet.vDown }
 }

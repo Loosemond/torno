@@ -9,17 +9,18 @@
   --surface: #F1EFEA;      /* viewport ground; main/index.ts paints the window with the same value */
   --panel: #FAF9F6;
   --ink: #22252A;
-  --muted: #686D74;        /* 4.5:1 on the surface, as all text is (shared/contrast.test.ts) */
+  --muted: #646970;        /* 4.5:1 on the surface, as all text is (shared/contrast.test.ts) */
   --hairline: #DAD6CE;
+  --scroll-thumb: #84888E;  /* where a list is scrolled to: 3:1 on the panel and the ground, quieter than muted text */
   --accent: #1D46B8;       /* layout blue */
   --accent-wash: #E3E9F8;
   --user-mark: #CF3F2C;    /* red pencil: marks made by the person */
   --agent-mark: #288156;   /* marks made by the agent */
-  /* Verdicts are read as text: a step darker than the two mark colours, which are drawn and not read, to reach
-     4.5:1 on both grounds. */
-  --ok: #267951;
-  --warn: #936119;
-  --fail: #C23B29;
+  /* Verdicts are read as text, and are no mark's colour to the eye: darker than the two mark colours by 1.5:1
+     at least (lighter, in the dark theme), 4.5:1 on both grounds and on the wash (shared/contrast.test.ts). */
+  --ok: #1B5B3C;
+  --warn: #8C5C16;
+  --fail: #9B2B1D;
   /* A scan drawn without colours of its own: a paper grey a step from the ground, in no hue of the part palette. */
   --scan-plain: #B4AFA5;
   /* A scan coloured by its distance to a part, in a picture for the agent: at the part, at the range and beyond, and
@@ -32,7 +33,7 @@
      red, green and blue, toned to sit with the part palette and kept clear of
      the two mark colours. */
   --axis-x: #9A3350;
-  --axis-y: #4C7F2C;
+  --axis-y: #457528;
   --axis-z: #2E5FA9;
 
   /* Part palette, assigned in order */
@@ -56,7 +57,7 @@
   --ansi-blue: #1D46B8;
   --ansi-magenta: #8A4594;
   --ansi-cyan: #1C7480;
-  --ansi-white: #686D74;
+  --ansi-white: #646970;
   --ansi-bright-black: #6D7279;
   --ansi-bright-red: #CF3F2C;
   --ansi-bright-green: #288156;
@@ -66,8 +67,8 @@
   --ansi-bright-cyan: #1E7D89;
   --ansi-bright-white: #4A4F56;
   --term-selection: #D5DEF5;
-  --term-scroll: rgb(34 37 42 / 0.14);
-  --term-scroll-hover: rgb(34 37 42 / 0.28);
+  --term-scroll: #84888E;         /* as --scroll-thumb */
+  --term-scroll-hover: #646970;
 
   /* Type */
   --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
@@ -101,18 +102,19 @@
     --ink: #E9E7E2;
     --muted: #9A9FA6;
     --hairline: #33373C;
+    --scroll-thumb: #72777E;
     --accent: #7C9BF7;
     --accent-wash: #252F4A;
     --user-mark: #F0705E;
     --agent-mark: #5CC492;
-    --ok: #5CC492;
-    --warn: #E0A94A;
-    --fail: #F0705E;
+    --ok: #A9E6C8;
+    --warn: #CBAA6A;
+    --fail: #F9B2A7;
     --scan-plain: #5A5E64;
     --deviation-near: #C58BD0;
     --deviation-far: #3A3F46;
     --deviation-inside: #E9E7E2;
-    --axis-x: #E886B0;
+    --axis-x: #D98AC8;
     --axis-y: #9CC56C;
     --axis-z: #82A6EA;
     --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
@@ -134,7 +136,7 @@
     --ansi-bright-cyan: #8AD5DD;
     --ansi-bright-white: #F4F2ED;
     --term-selection: #33405F;
-    --term-scroll: rgb(233 231 226 / 0.14);
-    --term-scroll-hover: rgb(233 231 226 / 0.28);
+    --term-scroll: #72777E;
+    --term-scroll-hover: #9A9FA6;
   }
 }

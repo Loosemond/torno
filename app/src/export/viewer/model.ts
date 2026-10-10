@@ -5,7 +5,7 @@ import { aimKeyLight, makeLights } from '../../renderer/viewport/lights'
 import type { Theme } from '../../renderer/viewport/theme'
 import { DEFAULT_FOV, fitCamera, viewDirection } from '../../renderer/viewport/views'
 import { keepsNothing } from '../../shared/cut'
-import { type ExportMark, type ExportPart, type ExportScan, type MeshArrays, own } from '../../shared/exportdata'
+import { type ExportPart, type ExportScan, type MeshArrays, own } from '../../shared/exportdata'
 import { CREASE_ANGLE } from '../../shared/faceted'
 import type { Vec3 } from '../../shared/marks'
 import { edgeTint, mix } from '../../shared/palette'
@@ -195,29 +195,6 @@ export class Model {
       this.scans.add(group)
       this.drawnScans.push({ scan, group, material })
     }
-  }
-
-  /** The lines of the marks on show: each moved with the part it is on. */
-  setMarks(marks: ReadonlyArray<{ mark: ExportMark; by: Vec3 }>): void {
-    this.marks.traverse((child) => {
-      if (!(child instanceof LineSegments)) return
-      child.geometry.dispose()
-      ;(child.material as LineBasicMaterial).dispose()
-    })
-    this.marks.clear()
-    for (const { mark, by } of marks) {
-      if (!mark.line || mark.line.length < 2) continue
-      const points: number[] = []
-      for (let i = 0; i + 1 < mark.line.length; i++) points.push(...mark.line[i], ...mark.line[i + 1])
-      const geometry = new BufferGeometry()
-      geometry.setAttribute('position', new BufferAttribute(new Float32Array(points), 3))
-      // Over the parts: a mark is read wherever it is.
-      const line = new LineSegments(geometry, new LineBasicMaterial({ color: mark.author === 'agent' ? this.theme.agent : this.theme.user, depthTest: false, transparent: true, opacity: mark.status === 'resolved' ? 0.4 : 1 }))
-      line.position.fromArray(by)
-      line.renderOrder = 10
-      this.marks.add(line)
-    }
-    this.request()
   }
 
   /** Which parts are drawn, how far from where they are, and cut by what. */

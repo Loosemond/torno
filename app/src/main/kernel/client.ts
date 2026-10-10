@@ -1,3 +1,4 @@
+import { REBUILD_HOW } from '../../shared/build'
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -222,7 +223,7 @@ class Kernel implements KernelClient {
       // It cannot be said whose reply this was, and its request would wait for
       // ever: whatever is pending is failed. The kernel itself carries on.
       this.keepStderr('kernel: a frame that is not JSON\n')
-      this.failPending('crash', 'the kernel sent a reply that could not be read; rebuild to carry on')
+      this.failPending('crash', `the kernel sent a reply that could not be read. ${REBUILD_HOW}`)
       return
     }
     if (header.event === 'ready') {
@@ -258,7 +259,7 @@ class Kernel implements KernelClient {
     if (this.proc !== proc) return
     this.proc = null
     if (this.disposed) return
-    this.failPending('crash', `the kernel exited${code === null ? '' : ` with status ${code}`}; rebuild to carry on`)
+    this.failPending('crash', `the kernel exited${code === null ? '' : ` with status ${code}`}. ${REBUILD_HOW}`)
     const now = Date.now()
     const again = this.lastExitAt !== null && now - this.lastExitAt < RESTART_WINDOW_MS
     this.lastExitAt = now

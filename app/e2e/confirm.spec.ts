@@ -149,7 +149,9 @@ test('opening another folder while a session is working is asked about first; "S
   await pick(other)
   const before = await picks()
 
-  await left().getByRole('button', { name: 'Open folder' }).click()
+  // The folder button is a menu now: the dialog is one of its ways.
+  await left().getByRole('button', { name: 'Folders' }).click()
+  await left().getByRole('menuitem', { name: 'Open folder…' }).click()
   const ask = left().getByRole('alertdialog', { name: 'End the sessions of this folder?' })
   await expect(ask).toBeVisible()
   await expect(ask).toContainText('A session here is in the middle of its work. Opening another folder ends it.')
@@ -165,7 +167,9 @@ test('opening another folder while a session is working is asked about first; "S
 })
 
 test('"Open another folder" goes on to the folder, and the sessions end', async () => {
-  await left().getByRole('button', { name: 'Open folder' }).click()
+  // The folder button is a menu now: the dialog is one of its ways.
+  await left().getByRole('button', { name: 'Folders' }).click()
+  await left().getByRole('menuitem', { name: 'Open folder…' }).click()
   await left().getByRole('alertdialog').getByRole('button', { name: 'Open another folder' }).click()
   await expect.poll(async () => (await state()).workspace?.root).toBe(other)
   await expect(left().getByRole('alertdialog')).toHaveCount(0)
@@ -178,7 +182,9 @@ test('with no session in the middle of anything, another folder is opened withou
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect(sessionStatus()).toHaveText('Idle')
   await pick(root)
-  await left().getByRole('button', { name: 'Open folder' }).click()
+  // The folder button is a menu now: the dialog is one of its ways.
+  await left().getByRole('button', { name: 'Folders' }).click()
+  await left().getByRole('menuitem', { name: 'Open folder…' }).click()
   await expect.poll(async () => (await state()).workspace?.root).toBe(root)
   await expect(left().getByRole('alertdialog')).toHaveCount(0)
 })

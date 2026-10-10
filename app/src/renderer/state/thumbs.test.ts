@@ -123,3 +123,12 @@ describe('connectThumbs', () => {
     expect(stopped.thumbs.waiting()).toBe(0)
   })
 })
+
+// Final review I7: a picture that is ready waited for the window to be idle, which is a wait for a frame; a
+// window nobody looks at is given none, and the wait was up to two seconds (1,001 ms measured on a large one).
+it('never waits on the window being idle to draw a picture that is ready', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { resolve } = await import('node:path')
+  const source = readFileSync(resolve(__dirname, 'thumbs.ts'), 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '')
+  expect(source).not.toMatch(/requestIdleCallback\s*\(|requestAnimationFrame\s*\(/)
+})

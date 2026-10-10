@@ -172,8 +172,9 @@ const keeping: KeepDeps = {
 }
 
 /** Open a workspace: scan it and start a kernel for it. Replaces the one open. */
-export async function openWorkspace(root: string): Promise<WorkspaceInfo> {
-  const info = await scanWorkspace(resolve(root))
+export async function openWorkspace(root: string, opts: { example?: boolean } = {}): Promise<WorkspaceInfo> {
+  // What it is (the example's copy) is said with it for as long as it is open, whatever is scanned anew.
+  const info: WorkspaceInfo = { ...(await scanWorkspace(resolve(root))), ...(opts.example ? { example: true as const } : {}) }
   // Until none is open: another call may have opened one while this one waited.
   while (current) await closeWorkspace()
 
@@ -284,7 +285,7 @@ async function rescan(ws: OpenWorkspace): Promise<void> {
   const newest = ws.scan()
   const scanned = await scanWorkspace(ws.info.root).catch(() => null)
   if (scanned && current === ws && newest()) {
-    ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
+    ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)), ...(ws.info.example ? { example: true as const } : {}) }
     cardsChanged()
   }
 }
@@ -459,7 +460,7 @@ export function registerIpc(
   ipcMain.handle('workspace:openExample', async () => {
     const folder = await opts.example?.()
     if (!folder) throw new Error('this torno has no example beside it')
-    return openWorkspace(folder)
+    return openWorkspace(folder, { example: true })
   })
 
   ipcMain.handle('workspace:versions', async () => {
@@ -477,7 +478,7 @@ export function registerIpc(
     const scanned = await scanWorkspace(ws.info.root)
     // The workspace may have been closed or replaced during the scan; its kernel is then gone.
     if (current !== ws) throw new Error(`the workspace ${ws.info.root} was closed`)
-    if (newest()) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)) }
+    if (newest()) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)), ...(ws.info.example ? { example: true as const } : {}) }
     cardsChanged()
     const obj = ws.info.objects.find((o) => o.id === id)
     if (!obj) throw new Error(`no object named ${id} in ${ws.info.root}`)

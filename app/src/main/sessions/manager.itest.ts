@@ -619,11 +619,12 @@ describe('an agent without hooks', () => {
     // A letter: what Enter then does is not known to be sending the line (an answer to a question, a menu).
     typed('y')
     expect(states).toEqual([{ state: 'waiting', marks: 1 }, { state: 'dropped', marks: 1, why: 'typed' }])
-    // The file no longer says what was not sent.
-    await expect.poll(file).toMatch(/^Nothing new from torno/)
     typed('\r')
     await output.until('> ')
     expect(delivered).toEqual([])
+    // The line went all the same, with what was typed after it, and it names the file: the file is as it was written, for the agent that reads it.
+    await new Promise((r) => setTimeout(r, 150))
+    expect(file()).toContain('M2 pin')
     // Asked again, the line is put in again, and its Enter delivers.
     await sessions.sendMarks(sessionId)
     expect(file()).toContain('M2 pin')
@@ -648,6 +649,27 @@ describe('an agent without hooks', () => {
     await new Promise((r) => setTimeout(r, 100))
     expect(existsSync(join(obj.dir, '.torno', 'session.json'))).toBe(false)
     expect(sessions.resumable(obj, 'copilot')).toBe(false)
+  })
+
+  it('leaves marks drafts when something of torno\'s own is put in after the line: "Insert" from the selection, a paste from the app', async () => {
+    const delivered: string[][] = []
+    const { sessions, obj, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.\nM2 pin', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
+    await output.until('READY')
+    await sessions.sendMarks(sessionId)
+    await output.until('torno: 1 new mark')
+    expect(states).toEqual([{ state: 'waiting', marks: 1 }])
+    // The refs of what is selected, pasted after torno's line: what an Enter then sends is not that line as it was.
+    sessions.insert(sessionId, 'lid/F3 (plane, normal +Z)')
+    expect(states).toEqual([{ state: 'waiting', marks: 1 }, { state: 'dropped', marks: 1, why: 'typed' }])
+    await output.until('lid/F3')
+    typed('\r')
+    await output.until('> ')
+    expect(delivered).toEqual([])
+    // What the line names is still what was written for it.
+    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M2 pin')
+    // An insert with no line waiting drops nothing, and one into an agent with hooks is only a paste.
+    sessions.insert(sessionId, 'again')
+    expect(states).toHaveLength(2)
   })
 
   it('leaves marks drafts when Enter is pressed while the agent has a question up in place of its prompt, and says so', async () => {
@@ -819,6 +841,37 @@ describe('an agent without hooks', () => {
     expect(sessions.current('twice')).toBeNull()
     expect(sessions.size).toBe(0)
     await late
+  })
+})
+
+describe('stopAll', () => {
+  it('ends the sessions there were and those that were starting, and none started while it waited', async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const made = new Sessions({
+      http,
+      adapterFor: async (obj) => {
+        if (obj.id === 'slow-start') await held
+        return adapters(`node ${FAKE}`).claude
+      },
+      contextFor: () => ({ text: '', sentMarkIds: [] }),
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => http.url(`/mcp/${id}`)
+    })
+    others.push(made)
+    const slow = made.start(object('slow-start'), {})
+    expect(made.busy).toBe(true)
+    expect(made.size).toBe(0)
+    const stopping = made.stopAll()
+    // Of the workspace opened meanwhile: not what was asked to end.
+    const next = await made.start(object('next-workspace'), {})
+    release()
+    await stopping
+    await slow
+    expect(made.current('slow-start')).toBeNull()
+    expect(made.current('next-workspace')).toMatchObject({ sessionId: next.sessionId })
+    await made.stopAll()
+    expect(made.busy).toBe(false)
   })
 })
 

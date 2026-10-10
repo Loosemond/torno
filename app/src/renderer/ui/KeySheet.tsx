@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import { cheatSheet, hint, pressed, type KeyRow } from '../../shared/keys'
+import { capsOf, cheatSheet, hint, pressed, type KeyRow } from '../../shared/keys'
 import { numbered } from './numbered'
 import { TYPING } from './typing'
 
@@ -51,7 +51,8 @@ export function KeySheet() {
 /**
  * Every key of the one table, by where it is listened to. What is typed searches it; Escape, `?` again or a
  * press beside it puts it away, and the focus goes back to where it was. A dialog: while it is up Tab stays
- * within it, and no tool behind it is handed a key.
+ * within it and a click inside keeps the focus in it (it can take the focus itself), so no tool behind it is
+ * handed a key; when the focus does leave it for something else in the window, it is put away.
  */
 function Sheet() {
   const [typed, setTyped] = useState('')
@@ -68,6 +69,7 @@ function Sheet() {
   }, [])
 
   const groups = matchingKeys(typed)
+  const count = groups.reduce((sum, group) => sum + group.rows.length, 0)
 
   return (
     <div
@@ -82,6 +84,13 @@ function Sheet() {
         role="dialog"
         aria-modal="true"
         aria-label="Keys"
+        tabIndex={-1}
+        onBlur={(e) => {
+          // The focus went to something outside it (a key heard everywhere took it to the session, a sheet came up): it gives way.
+          // Not when the window itself lost the focus: it is still what is up when the person comes back.
+          const to = e.relatedTarget
+          if (to instanceof Node ? !e.currentTarget.contains(to) : document.hasFocus() && document.activeElement !== null && !e.currentTarget.contains(document.activeElement)) showKeys(false)
+        }}
         onKeyDown={(e) => {
           // The sheet's own, all of them: Escape here puts no tool down and leaves no page.
           e.stopPropagation()
@@ -110,7 +119,12 @@ function Sheet() {
             </svg>
           </button>
         </header>
-        <div className="keys-body" aria-live="polite">
+        {/* What changes as the search is typed, said once: not fifty rows read out again at every letter. */}
+        <p className="keys-count" aria-live="polite">
+          <span className="num">{count}</span> {count === 1 ? 'key' : 'keys'}
+          {typed.trim() !== '' && ' found'}
+        </p>
+        <div className="keys-body">
           {groups.length === 0 && (
             <p className="keys-none">
               No key says <span className="keys-typed">{typed.trim()}</span>.
@@ -124,7 +138,7 @@ function Sheet() {
                 {group.rows.map((row) => (
                   <li key={row.id}>
                     <span className="keys-caps">
-                      {row.keys.map((key) => (
+                      {capsOf(row.keys).map((key) => (
                         <kbd key={key}>{key}</kbd>
                       ))}
                     </span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { followTyped, hasEnter, lineShown, nothingNew, promptFile, sendLine } from './sendMarks'
+import { followTyped, hasEnter, lineHead, lineShown, nothingNew, promptFile, sendLine } from './sendMarks'
 
 it('says in one line what the file holds, with no character that could send it', () => {
   expect(sendLine(['M4', 'M5'])).toBe('torno: 2 new marks (M4, M5) and the build status are in .torno/prompt.md. Read it first.')
@@ -84,16 +84,32 @@ describe('hasEnter: whether the person sent something', () => {
 })
 
 describe('lineShown: whether the agent showed the line that was put at its cursor', () => {
+  const LINE = sendLine(['M4'])
   it('finds it in what the terminal was sent, whatever colours and moves are around it', () => {
-    expect(lineShown('^[[200~torno: 1 new mark (M4) and the build status are in .torno/prompt.md. Read it first.^[[201~')).toBe(true)
-    expect(lineShown('\x1b[2K\x1b[1G\x1b[38;5;244m> \x1b[0mtor\x1b[1mno\x1b[0m: 1 new mark')).toBe(true)
-    expect(lineShown('\x1b]0;copilot\x07> torno: 1 new mark')).toBe(true)
+    expect(lineShown('^[[200~torno: 1 new mark (M4) and the build status are in .torno/prompt.md. Read it first.^[[201~', LINE)).toBe(true)
+    expect(lineShown('\x1b[2K\x1b[1G\x1b[38;5;244m> \x1b[0mtor\x1b[1mno\x1b[0m: 1 new mark (\x1b[1mM4\x1b[0m) and', LINE)).toBe(true)
+    expect(lineShown('\x1b]0;copilot\x07> torno: 1 new mark (M4', LINE)).toBe(true)
+    expect(lineShown('> torno: the build status and the open marks are in', sendLine([]))).toBe(true)
+    expect(lineShown('> torno: 12 new marks (M1, M2', sendLine(['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11', 'M12']))).toBe(true)
   })
 
   it('does not find it in a question that is up instead of the prompt, nor in a name that only resembles it', () => {
-    expect(lineShown('')).toBe(false)
-    expect(lineShown('Do you trust the files in this folder?\r\n> 1. Yes\r\n  2. No')).toBe(false)
-    expect(lineShown('\x1b]0;torno: a title\x07')).toBe(false)
-    expect(lineShown('/home/me/torno/plain')).toBe(false)
+    expect(lineShown('', LINE)).toBe(false)
+    expect(lineShown('Do you trust the files in this folder?\r\n> 1. Yes\r\n  2. No', LINE)).toBe(false)
+    expect(lineShown('\x1b]0;torno: a title\x07', LINE)).toBe(false)
+    expect(lineShown('/home/me/torno/plain', LINE)).toBe(false)
+  })
+
+  it('is not met by another line that says torno: what the CLI writes of its MCP server, or a line of other marks', () => {
+    expect(lineShown('MCP server torno: connected\r\nDo you trust the files in this folder?', LINE)).toBe(false)
+    expect(lineShown('\u25cf torno: 15 tools', LINE)).toBe(false)
+    expect(lineShown('> torno: 1 new mark (M5) and the build status', LINE)).toBe(false)
+    expect(lineShown('> torno: the build status and the open marks', LINE)).toBe(false)
+  })
+
+  it('names its head: the words up to the first mark, or its first words', () => {
+    expect(lineHead(LINE)).toBe('torno: 1 new mark (M4')
+    expect(lineHead(sendLine(['M1', 'M2']))).toBe('torno: 2 new marks (M1')
+    expect(lineHead(sendLine([]))).toBe('torno: the build status')
   })
 })

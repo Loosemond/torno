@@ -78,7 +78,7 @@ describe('kernel client', () => {
   it('fails the running build when the kernel sends a frame that cannot be read', async () => {
     const k = start()
     const result = await k.build('/ws/a', 'nan.py')
-    expect(result).toEqual({ ok: false, error: { kind: 'crash', message: 'the kernel sent a reply that could not be read; rebuild to carry on' } })
+    expect(result).toEqual({ ok: false, error: { kind: 'crash', message: 'the kernel sent a reply that could not be read. Press Rebuild in the status line of torno (Ctrl+Shift+B) to build again' } })
     expect(k.stderrTail()).toContain('kernel: a frame that is not JSON')
     // The kernel itself is still there.
     expect(await k.build('/ws/a', 'a.py')).toMatchObject({ ok: true })

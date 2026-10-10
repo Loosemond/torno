@@ -4,7 +4,7 @@ import { explodeText, isExploded } from '../shared/explode'
 import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
 import type { ScanInfo } from '../shared/scans'
 import type { Scene } from '../shared/scene'
-import { type ViewState, MAX_SELECTION_REPORTED } from '../shared/view'
+import { type ViewState, MAX_SELECTION_REPORTED, planeText } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import { describeMark } from './marks/describe'
 import { alignmentSaid, shownText } from './scans/said'
@@ -148,6 +148,8 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
    * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
    * Nothing at all when there is no room for the head and that count: the marks are still among the open ones.
    */
+  /** The last build's scene: what is nothing within a part is told as 0 (`describeMark`). */
+  const built = deps.scene(objectId)?.scene
   const list = (head: string, listed: readonly Mark[], tagOf: (mark: Mark) => string | undefined, more = moreMarks): Mark[] => {
     if (listed.length === 0) return []
     if (used + 1 + head.length + 1 + more(listed.length).length > CONTEXT_LIMIT) return []
@@ -163,7 +165,7 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
       // layout named is no place. One whose scan is gone is told nowhere.
       const told = named ?? (mark.kind === 'region' ? (deps.scene(objectId)?.scene.layouts[0] ?? mark.layout) : undefined)
       const where = mark.kind === 'region' ? (named || mark.anchorState === 'orphaned' ? '' : ` [in layout ${told}]`) : mark.layout === named ? '' : ` [in layout ${mark.layout}]`
-      const line = `${describeMark(mark, { revision, ...(opts.scans ? { scans: opts.scans } : {}), ...(told ? { layout: told } : {}), ...(tag ? { tag } : {}) })}${where}`
+      const line = `${describeMark(mark, { revision, ...(built ? { scene: built } : {}), ...(opts.scans ? { scans: opts.scans } : {}), ...(told ? { layout: told } : {}), ...(tag ? { tag } : {}) })}${where}`
       const after = listed.length - i - 1
       // Room is kept for the line that says how many are left out, should the next one not fit.
       if (used + 1 + line.length + (after > 0 ? 1 + more(after).length : 0) > CONTEXT_LIMIT) {
@@ -289,6 +291,24 @@ function layoutNamed(deps: ContextDeps, objectId: string): string | undefined {
   return scene.layouts.length === 1 ? scene.layouts[0] : undefined
 }
 
+/**
+ * How the layout on screen is drawn otherwise than built, for display: its parts apart, or cut by the person's
+ * section. Said with whatever is said to be showing, whether the build is good, running or failed, so that
+ * nothing seen of it is taken for where the parts are, or for all of them. '' when it is drawn as built, and
+ * of a layout the view is not of.
+ */
+function drawnHow(view: ViewState | undefined, layout: string | undefined): string {
+  if (!view || layout === undefined || view.layout !== layout) return ''
+  if (isExploded(view.explode)) return `, ${explodeText(view.explode)} (display only)`
+  return view.section ? `, cut by the ${planeText(view.section)} (display only)` : ''
+}
+
+/** How long a build took, as the first line says it: `(0.8 s)`; `(under 0.1 s)` for one too quick to time, never `(0.0 s)`. */
+function took(seconds: number | undefined): string {
+  if (seconds === undefined) return ''
+  return seconds < 0.05 ? ' (under 0.1 s)' : ` (${seconds.toFixed(1)} s)`
+}
+
 /** How the build stands and what is on screen, in at most `limit` characters. */
 function status(deps: ContextDeps, objectId: string, limit: number): string {
   const obj = deps.object(objectId)
@@ -299,16 +319,20 @@ function status(deps: ContextDeps, objectId: string, limit: number): string {
   const onScreen = open ? 'showing' : 'last built'
   const build = deps.build(objectId)
   if (!build || build.status === 'idle') return `${head} · not built yet.`
+  // What is on screen meanwhile is drawn as the person left it: apart, or cut.
+  const shownScene = deps.scene(objectId)?.scene
+  const seen = open ? deps.view(objectId) : undefined
+  const how = shownScene && seen && shownScene.layouts.includes(seen.layout) ? drawnHow(seen, seen.layout) : ''
 
   if (build.status === 'building') {
     const running =
       build.startedAt === undefined ? '' : ` (${Math.max(0, Math.floor(((deps.now?.() ?? Date.now()) - build.startedAt) / 1000))} s so far)`
-    const shown = build.revision > 0 ? `${onScreen} r${build.revision}` : 'nothing built yet'
+    const shown = build.revision > 0 ? `${onScreen} r${build.revision}${how}` : 'nothing built yet'
     return `${head} · building${running} · ${shown}.`
   }
 
   if (build.status === 'failed') {
-    const shown = build.revision > 0 ? `${onScreen} r${build.revision}${open ? ' (stale)' : ''}` : 'nothing built yet'
+    const shown = build.revision > 0 ? `${onScreen} r${build.revision}${open ? ' (stale)' : ''}${how}` : 'nothing built yet'
     const first = `${head} · BUILD FAILED · ${shown}.`
     const message = cutEnd(build.error?.message ?? 'no reason was given', MESSAGE_LIMIT)
     const traceback = lastLines(build.error?.traceback ?? '', TRACEBACK_LINES)
@@ -318,8 +342,7 @@ function status(deps: ContextDeps, objectId: string, limit: number): string {
     return `${first}\n${message}\n${cutStart(traceback, room)}`
   }
 
-  const duration = build.seconds === undefined ? '' : ` (${build.seconds.toFixed(1)} s)`
-  const start = `${head} · build ok · r${build.revision}${duration}`
+  const start = `${head} · build ok · r${build.revision}${took(build.seconds)}`
   const scene = deps.scene(objectId)?.scene
   if (!scene) return `${start}.`
   if (!open) {
@@ -331,8 +354,8 @@ function status(deps: ContextDeps, objectId: string, limit: number): string {
   const layout = layoutShown(view, scene)
   const parts = scene.parts.filter((p) => p.layout === layout)
   const hidden = view ? parts.filter((p) => !view.visible.includes(p.key)).map((p) => p.name) : []
-  // Drawn apart for display: said with the layout, so that nothing seen of it is taken for where the parts are.
-  const apart = view && view.layout === layout && isExploded(view.explode) ? `, ${explodeText(view.explode)} (display only)` : ''
+  // Drawn apart or cut for display: said with the layout, so that nothing seen of it is taken for where the parts are.
+  const apart = drawnHow(view, layout)
   const lead = `${start} · layout ${layout}${apart} · parts: `
   const names = parts.map((p) => p.name)
   const room = limit - lead.length - 1

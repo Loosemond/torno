@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Mark } from '../../shared/marks'
 import type { ScanAlignment, ScanInfo } from '../../shared/scans'
-import { describeMark, markData, number } from './describe'
+import type { Scene } from '../../shared/scene'
+import { describeMark, directionText, markData, number } from './describe'
 
 const BASE = {
   author: 'user',
@@ -327,7 +328,7 @@ describe('a region of a scan', () => {
 
   it('tells the size it has along its own axes and which way its long side runs, and the box of the layout as what it lies within (I4)', () => {
     // As it lies in the scan: along the diagonal.
-    expect(describeMark(STRIP, { scans: [scan('S1', { print: at([0, 0, 0]) })] })).toBe('M8 region on scan S1: 80 triangles, ≈ 2000 mm², centre ≈ (0, 0, 0), ≈ 200 × 10 × 2 mm, its long side along (0.7071, 0.7071, 0), within a box of ≈ 148.4 × 148.4 × 2 mm, flat about a plane with normal ≈ (0, 0, 1): "cable"')
+    expect(describeMark(STRIP, { scans: [scan('S1', { print: at([0, 0, 0]) })] })).toBe('M8 region on scan S1: 80 triangles, ≈ 2000 mm², centre ≈ (0, 0, 0), ≈ 200 × 10 × 2 mm, its long side along (0.71, 0.71, 0), within a box of ≈ 148.4 × 148.4 × 2 mm, flat about a plane with normal ≈ (0, 0, 1): "cable"')
     // Turned an eighth so that it lies along X: the same size, and now a box of that size.
     const eighth: [number, number, number, number] = [0, 0, Math.sin(-Math.PI / 8), Math.cos(-Math.PI / 8)]
     expect(describeMark(STRIP, { scans: [scan('S1', { print: at([0, 0, 0], eighth) })] })).toBe('M8 region on scan S1: 80 triangles, ≈ 2000 mm², centre ≈ (0, 0, 0), ≈ 200 × 10 × 2 mm, its long side along (1, 0, 0), within a box of ≈ 200 × 10 × 2 mm, flat about a plane with normal ≈ (0, 0, 1): "cable"')
@@ -378,5 +379,34 @@ describe('a region of a scan', () => {
     for (const key of ['triangles', 'area', 'centroid', 'bbox', 'size', 'local', 'mesh', 'mask']) expect(data).not.toHaveProperty(key)
     expect(data).toMatchObject({ id: 'M7', anchorState: 'orphaned', lost: 'the mesh of its scan is no longer the one it was painted on: the user paints it again' })
     expect(describeMark({ ...REGION, author: 'agent', status: 'resolved' }, { tag: 'changed' })).toMatch(/^\(yours, changed\) M7 region on scan S1 \(its scan could not be read just now/)
+  })
+})
+
+// The sweep's finding 5: what modelling leaves where it means nothing was told with four digits of itself.
+describe('numbers that are zero within the part', () => {
+  const part = { key: 'assembly:stand', name: 'stand', layout: 'assembly', bbox: { min: [-65, 0, -60], max: [65, 208, 60] } }
+  const scene = { model: 'm.py', layouts: ['assembly'], parts: [part], seconds: 0, output: '' } as unknown as Scene
+  const base = { author: 'user', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: { position: [1, 1, 1], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }, createdAt: 't' }
+
+  it('are told as 0: a coordinate or a size under a millionth of the extent of the part it is on', () => {
+    const pin = { ...base, id: 'M1', kind: 'pin', note: 'flat', anchor: { point: [-0.000004772, 0, 20], part: 'stand', ref: 'stand/F2' } } as unknown as Mark
+    expect(describeMark(pin, { scene })).toBe('M1 pin on stand/F2 at (0, 0, 20): "flat"')
+    const stroke = { ...base, id: 'M3', kind: 'stroke', note: '', space: 'surface', anchor: { point: [-30, 0, -50], part: 'stand', ref: 'stand/F2' }, points: [[-30, 0, -50], [30, 0, -49.999996662]] } as unknown as Mark
+    expect(describeMark(stroke, { scene })).toBe('M3 stroke on stand/F2 from (-30, 0, -50), 2 points, 60 × 0 × 0 mm')
+    // What is small and meant is told: a hundredth of a millimetre is far over a millionth of 270 mm.
+    expect(describeMark({ ...pin, anchor: { point: [0.012, 0, 20], part: 'stand', ref: 'stand/F2' } } as unknown as Mark, { scene })).toContain('at (0.012, 0, 20)')
+    // Without the scene nothing is known of the extent, and the number is told as it is, to four digits.
+    expect(describeMark(pin)).toContain('at (-0.000004772, 0, 20)')
+    // On a part of a few millimetres the same number is a real coordinate.
+    const small = { ...scene, parts: [{ ...part, bbox: { min: [0, 0, 0], max: [1, 1, 1] } }] } as unknown as Scene
+    expect(describeMark(pin, { scene: small })).toContain('at (-0.000004772, 0, 20)')
+  })
+
+  it('tells a direction to two decimals, without what is left in it of nothing', () => {
+    expect(directionText([-0.003691, 0, 0.9999932])).toBe('(0, 0, 1)')
+    expect(directionText([0.0004, 0.70710678, 0.70710678])).toBe('(0, 0.71, 0.71)')
+    expect(directionText([0.6, 0.8, 0])).toBe('(0.6, 0.8, 0)')
+    // The side it is told from stays the one of its largest component.
+    expect(directionText([0.0009, 0, -1])).toBe('(0, 0, 1)')
   })
 })

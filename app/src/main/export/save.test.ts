@@ -41,15 +41,27 @@ it('writes the one file it was told to, and makes no folder and no other file fo
   expect(readdirSync(out).sort()).toEqual(['a.html', 'taken.html'])
   expect(readFileSync(join(out, 'taken.html', 'inside'), 'utf8')).toBe('kept')
   rmSync(join(out, 'taken.html'), { recursive: true })
-  // The file beside it that the page is written into first is torno's own to make: one that is there already is not written over, and the export that was there is not touched.
+  // The file beside it that the page is written into first has a name of that write alone: what a crash of a torno with this pid left there is not in its way, and is not touched.
   const beside = `${join(out, 'a.html')}.${process.pid}.tmp`
-  writeFileSync(beside, 'someone else')
-  await expect(writeExport(join(out, 'a.html'), '<!doctype html>three')).rejects.toThrow('EEXIST')
-  expect(readFileSync(join(out, 'a.html'), 'utf8')).toBe('<!doctype html>two')
-  expect(readFileSync(beside, 'utf8')).toBe('someone else')
+  writeFileSync(beside, 'left by a crash')
+  await writeExport(join(out, 'a.html'), '<!doctype html>three')
+  expect(readFileSync(join(out, 'a.html'), 'utf8')).toBe('<!doctype html>three')
+  expect(readFileSync(beside, 'utf8')).toBe('left by a crash')
+  expect(readdirSync(out).sort()).toEqual(['a.html', `a.html.${process.pid}.tmp`])
   rmSync(beside)
   await expect(writeExport(join(out, 'not', 'there', 'a.html'), 'x')).rejects.toThrow('ENOENT')
   expect(existsSync(join(out, 'not'))).toBe(false)
   await expect(writeExport('a.html', 'x')).rejects.toThrow('no whole path')
   expect(existsSync('a.html')).toBe(false)
+})
+
+// Final review M16: the test above passed with the page written straight to the chosen path. This one does not.
+it('leaves the file that was there whole when the write fails midway, and nothing beside it', async () => {
+  const out = join(root, 'midway')
+  mkdirSync(out)
+  await writeExport(join(out, 'a.html'), '<!doctype html>kept')
+  // What cannot be written as a file's contents fails after the file to write into was opened.
+  await expect(writeExport(join(out, 'a.html'), 12 as unknown as string)).rejects.toThrow()
+  expect(readFileSync(join(out, 'a.html'), 'utf8')).toBe('<!doctype html>kept')
+  expect(readdirSync(out)).toEqual(['a.html'])
 })

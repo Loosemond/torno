@@ -8,7 +8,8 @@ import type { Scene } from '../../shared/scene'
 import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
 import { connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
-import { actions, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
+import { newCut } from '../../shared/cut'
+import { actions, layerOf, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
 import { connectThumbs } from '../state/thumbs'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { alignTool, connectAlign } from '../tools/alignTool'
@@ -94,7 +95,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const applyLayers = (s: TornoState) => {
     // Every part, each time: the viewport remembers settings by key, and keys repeat between objects.
     for (const part of s.scene?.parts ?? []) {
-      const layer = s.layers[part.name]
+      const layer = layerOf(s.layers, part.name)
       viewport.setLayer(part.key, { visible: layer?.visible !== false, color: layer?.color, opacity: layer?.opacity ?? 1 })
     }
   }
@@ -237,9 +238,16 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     viewport.showSectionHandle(tool?.id === 'section')
   }
   pickUp()
-  const offTool = toolStore.subscribe(() => {
+  const offTool = toolStore.subscribe((now, before) => {
     putDown()
     pickUp()
+    // The Section tool taken in hand with nothing cut yet cuts at once: across the axis the camera looks most
+    // along, through the middle of the parts, open towards whoever looks (`newCut`). Not while the parts are
+    // apart, where nothing is cut, nor with no parts to cut.
+    const s = store.getState()
+    if (now.tool === 'section' && before.tool !== 'section' && s.section === null && s.scene && explodeNow(s) === null && !viewport.exploded() && partsInLayout(s).length > 0) {
+      actions.setSection(newCut(viewport.sectionBox(), viewport.getCamera()))
+    }
   })
   viewport.onPointer((e) => {
     if (tool && store.getState().scene) routePointer(tool, e, context())
@@ -564,11 +572,11 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
 
 /** A scribed centre mark: where the part's origin will sit on the plate. */
 export function DatumMark() {
+  // The drawing of torno's icon (`scripts/torno.svg`, held equal by `launcher.test.ts`): a turned profile on its centre line.
   return (
-    <svg className="datum" viewBox="0 0 44 44" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true">
-      <circle cx="22" cy="22" r="9.5" />
-      <path d="M22 2.5v15M22 26.5v15M2.5 22h15M26.5 22h15" />
-      <circle cx="22" cy="22" r="1" fill="currentColor" stroke="none" />
+    <svg className="datum" viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 27H16V20H24Q29 29 34 23Q38 13 42 23L55 28V36L42 41Q38 51 34 41Q29 35 24 44H16V37H9Z" fill="currentColor" fillOpacity="0.14" strokeWidth="2.5" />
+      <path d="M4 32H60" strokeWidth="2" strokeDasharray="6 4" strokeLinecap="round" />
     </svg>
   )
 }

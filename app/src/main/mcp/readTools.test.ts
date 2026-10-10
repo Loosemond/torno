@@ -332,6 +332,28 @@ describe('check', () => {
     expect(deps.queries).toEqual([{ name: 'check', args: { kind: 'overlap', layout: 'assembly', a: 'lid', b: 'tub' } }])
     expect(data(result)).toEqual({ layout: 'assembly', revision: 4, kind: 'overlap', volume: 31.1234, bbox: { min: [0, 0, 36], max: [40, 40, 36.5] }, reading: 'overlap 31.12 mm³ between lid and tub, within (0, 0, 36) to (40, 40, 36.5)' })
     expect(data(await checkTool(fake(() => ({ volume: 0, bbox: null })), 'box', { kind: 'overlap', a: 'lid', b: 'tub' })).reading).toBe('no overlap between lid and tub')
+    // As the kernel answers now: what the two share is exact of analytic parts, and approximate of freeform ones, with how good it is.
+    const exact = { volume: 500, volumeExact: true, how: 'of what the two share', bbox: { min: [0, 0, 0], max: [10, 10, 5] }, bboxExact: true }
+    expect(data(await checkTool(fake(() => exact), 'box', { kind: 'overlap', a: 'lid', b: 'tub' })).reading).toBe('overlap 500 mm³ between lid and tub, within (0, 0, 0) to (10, 10, 5)')
+    const rough = { volume: 31.1234, volumeExact: false, how: 'of what the two share, approximate, good to about 4 significant digits', bbox: { min: [0, 0, 36], max: [40, 40, 36.5] }, bboxExact: false }
+    const said = data(await checkTool(fake(() => rough), 'box', { kind: 'overlap', a: 'lid', b: 'tub' }))
+    expect(said.reading).toBe('overlap ≈ 31.12 mm³ between lid and tub (approximate, good to about 4 significant digits), within ≈ (0, 0, 36) to (40, 40, 36.5)')
+    expect(said).toMatchObject({ volumeExact: false, bboxExact: false })
+    expect(data(await checkTool(fake(() => ({ volume: 0, volumeExact: true, how: 'of what the two share', bbox: null, bboxExact: null })), 'box', { kind: 'overlap', a: 'lid', b: 'tub' })).reading).toBe('no overlap between lid and tub')
+  })
+
+  it('reads a volume and a mass of a freeform part as approximate, with the digits the kernel says are good, whatever their number', async () => {
+    for (const digits of [2, 3, 6]) {
+      const how = `of the solid, approximate, good to about ${digits} significant digits`
+      const volume = data(await measureTool(fake(() => ({ kind: 'volume', value: 84473.485, unit: 'mm3', how, exact: false })), 'box', { kind: 'volume', a: 'lid' }))
+      expect(volume.reading).toMatch(/^volume ≈ 84470 mm³ of the solid, approximate, good to about \d significant digits, lid$/)
+      const mass = data(await measureTool(fake(() => ({ kind: 'mass', value: 104.747, unit: 'g', how: `PLA 1.24 g/cm³ (default); volume approximate, good to about ${digits} significant digits`, exact: false, density: 1.24, volume: 84473.485 })), 'box', { kind: 'mass', a: 'lid' }))
+      expect(mass.reading).toMatch(/^mass ≈ 104\.7 g, PLA 1\.24 g\/cm³ \(default\); volume approximate, good to about \d significant digits, lid \(volume ≈ 84470 mm³\)$/)
+    }
+    const doubt = data(await measureTool(fake(() => ({ kind: 'volume', value: 84473.485, unit: 'mm3', how: 'of the solid, approximate: in doubt by 0.2 %', exact: false })), 'box', { kind: 'volume', a: 'lid' }))
+    expect(doubt.reading).toBe('volume ≈ 84470 mm³ of the solid, approximate: in doubt by 0.2 %, lid')
+    // An exact one, of planes and round faces, reads as it did.
+    expect(data(await measureTool(fake(() => ({ kind: 'volume', value: 1836.0533, unit: 'mm3', how: 'of the solid', exact: true })), 'box', { kind: 'volume', a: 'lid' })).reading).toBe('volume 1836 mm³ of the solid, lid')
   })
 
   it('reads a clearance: apart, touching, overlapping, and of a part that is no solid', async () => {

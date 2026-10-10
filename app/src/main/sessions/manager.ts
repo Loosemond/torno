@@ -7,6 +7,7 @@ import type { AgentId, SendDropped, SendState, SessionStatus } from '../../share
 import type { ObjectInfo } from '../../shared/workspace'
 import { writeFileAtomic } from '../atomic'
 import { ensureIgnored } from '../ignored'
+import { FOLDER, ownTorno } from '../own'
 import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import type { AgentAdapter } from './adapter'
@@ -16,7 +17,6 @@ import { PROMPT_FILE } from './sendMarks'
 import { conversationTold, SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
 
-const FOLDER = '.torno'
 /** `<object>/.torno/agent`: where an adapter's own files are written, for its agent to be pointed at. */
 const AGENT_FOLDER = 'agent'
 const HOOK_BODY_LIMIT = 1024 * 1024
@@ -125,7 +125,7 @@ export class Sessions {
       contextFor: deps.contextFor,
       onDelivered: deps.onDelivered,
       live: (s) => this.sessions.get(s.id) === s && !s.killTimer,
-      insert: (s, text) => this.insert(s.id, text),
+      insert: (s, text) => this.paste(s, text),
       said: (s, state, marks, why) => this.emit('send', { sessionId: s.id, objectId: s.object.id, state, marks, ...(why ? { why } : {}) })
     })
   }
@@ -181,7 +181,10 @@ export class Sessions {
     // leads. Nothing is made for an adapter that has no file.
     const files = Object.entries(launch.files ?? {})
     if (files.length > 0) {
-      await ownFolder(join(obj.dir, FOLDER))
+      const own = await ownTorno(obj.dir).catch((e: Error) => {
+        throw new Error(`cannot start the agent: ${e.message}`)
+      })
+      await mkdir(own, { recursive: true })
       await ownFolder(agentDir)
       for (const [name, text] of files) await writeFileAtomic(join(agentDir, basename(name)), text)
     }
@@ -296,12 +299,21 @@ export class Sessions {
    * reads it, adds to it and presses Enter themselves. Control characters are
    * taken out first, so the text can neither end the paste nor send the prompt.
    * Nothing is written to a session that has ended or been hung up on.
+   *
+   * It is not the line of "Send marks": while that line waits at the cursor of
+   * an agent without hooks, what is put in after it drops it, as typing does.
    */
   insert(sessionId: string, text: string): void {
     const s = this.sessions.get(sessionId)
     if (!s || s.killTimer) return
+    if (this.paste(s, text) && !s.adapter.hooks) this.delivery.inserted(s)
+  }
+
+  /** The paste itself: whether anything was written. */
+  private paste(s: Session, text: string): boolean {
     const plain = text.replace(CONTROL_CHARACTERS, '')
     if (plain) s.pty.write(`\x1b[200~${plain}\x1b[201~`)
+    return plain !== ''
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
@@ -330,10 +342,19 @@ export class Sessions {
     return s.exited
   }
 
+  /** Whether any agent is there or on its way: one that has not gone yet, or one that is being started. */
+  get busy(): boolean {
+    return this.sessions.size > 0 || this.starting.size > 0
+  }
+
+  /**
+   * Ends the sessions there are now, and those that are being started now, once they are there. Not one that
+   * is started while this waits: that one is of whatever was opened meanwhile.
+   */
   async stopAll(): Promise<void> {
-    // One that is still starting is ended as well, once it is there.
-    await Promise.allSettled([...this.starting.values()])
-    await Promise.all([...this.sessions.keys()].map((id) => this.stop(id)))
+    const ids = [...this.sessions.keys()]
+    for (const begun of await Promise.allSettled([...this.starting.values()])) if (begun.status === 'fulfilled') ids.push(begun.value.sessionId)
+    await Promise.all(ids.map((id) => this.stop(id)))
   }
 
   /** The session of an object. One that has been hung up on is no longer it, though its process may linger. */

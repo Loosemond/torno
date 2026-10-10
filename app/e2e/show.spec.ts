@@ -84,7 +84,8 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   expect(meta('hollow')).toMatchObject({ layout: 'assembly', parts: 2, model: 'hollow.py' })
   expect(meta('hollow')).not.toHaveProperty('cut')
   // Git passes over the two: they change with every build.
-  expect(readFileSync(thumb('hollow', '.gitignore'), 'utf8')).toBe('thumb.png\nthumb.json\n')
+  // And the state file, which changes with every build and every mark.
+  await expect.poll(() => readFileSync(thumb('hollow', '.gitignore'), 'utf8').split('\n').filter(Boolean).sort()).toEqual(['state.md', 'thumb.json', 'thumb.png'])
   // Nothing of it outside .torno.
   expect(readdirSync(join(root, 'hollow')).sort()).toEqual(['.torno', 'hollow.py'])
   await page.getByRole('button', { name: 'All objects' }).click()
@@ -327,17 +328,15 @@ test('a build that fails wins over the picture, which stays and is dimmed', asyn
   await page.keyboard.press('Escape')
 })
 
-test('a slider of the left column keeps its arrows while the page is up, and Escape closes what is on top first', async () => {
+test('the left column keeps the objects and the marks while the page is up, and Escape closes what is on top first', async () => {
   // plain is open, and failed: the page comes up over it.
   await page.keyboard.press('w')
   expect((await state()).page).toBe('objects')
-  const slider = page.locator('[data-region="left"]').getByRole('slider', { name: 'Opacity of plate' })
-  await slider.focus()
-  await page.keyboard.press('ArrowLeft')
-  await expect(slider).toBeFocused()
-  await expect.poll(async () => (await state()).layers.plate?.opacity).toBe(0.95)
-  await page.keyboard.press('ArrowRight')
-  await expect.poll(async () => (await state()).layers.plate?.opacity).toBe(1)
+  // The layers and the scans act on a view that is not on screen while the page is up: they have given way
+  // (final fix wave), and with them the one slider the left column had there. The marks stay.
+  await expect(page.locator('[data-region="left"]').getByRole('slider')).toHaveCount(0)
+  await expect(page.locator('[data-region="left"]').getByRole('region', { name: 'Layers' })).toHaveCount(0)
+  await expect(page.locator('[data-region="left"]').getByRole('region', { name: 'Marks' })).toBeVisible()
   // The build's error, opened from the status line, is over the page: Escape closes it, and the page stays.
   await page.locator('.status-fail').click()
   const sheet = page.getByRole('dialog', { name: 'Build error' })
@@ -353,7 +352,9 @@ test('a slider of the left column keeps its arrows while the page is up, and Esc
   await page.keyboard.press('Enter')
   await expect(page.locator('[data-region="session"]').getByRole('status')).toHaveText('Working')
   expect((await state()).page).toBe('objects')
-  await page.locator('[data-region="left"]').getByRole('button', { name: 'Open folder' }).click()
+  // The folder button is a menu now: the dialog is one of its ways.
+  await page.locator('[data-region="left"]').getByRole('button', { name: 'Folders' }).click()
+  await page.locator('[data-region="left"]').getByRole('menuitem', { name: 'Open folder…' }).click()
   const ask = page.getByRole('alertdialog', { name: 'End the sessions of this folder?' })
   await expect(ask).toBeVisible()
   await page.keyboard.press('Escape')

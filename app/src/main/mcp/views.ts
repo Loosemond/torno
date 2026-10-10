@@ -1,5 +1,7 @@
 import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { ensureIgnored } from '../ignored'
+import { FOLDER, ownTorno } from '../own'
 
 const KEEP = 20
 const NUMBERED = /^(\d+)\.png$/
@@ -13,11 +15,13 @@ const saves = new Map<string, Promise<unknown>>()
  * The folder ignores itself for git (a `.gitignore` of `*`, written once and never again: the person may change it).
  */
 export function saveView(dir: string, png: Uint8Array): Promise<string> {
-  const folder = join(dir, '.torno', 'views')
+  const folder = join(dir, FOLDER, 'views')
   const save = (saves.get(folder) ?? Promise.resolve())
     .catch(() => {})
     .then(async () => {
+      await ownTorno(dir)
       await mkdir(folder, { recursive: true })
+      await ensureIgnored(dir, ['views/'])
       // A picture may show the real world (a scan of a car, with its number plate): none is committed with `.torno/` unless the person says so.
       await writeFile(join(folder, '.gitignore'), '*\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
         if (e.code !== 'EEXIST') throw e

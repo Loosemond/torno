@@ -316,3 +316,64 @@ describe('what a layout’s picks tint', () => {
     layer.dispose()
   })
 })
+
+// The polish review's I3 (ruled): a mark's lines are held to 3:1 against the ground and are drawn on the parts,
+// where they are between 1.0 and 2.1. Every line has a casing under it in the colour of the panel, 2 px wider.
+describe('the casing of a mark\'s lines', () => {
+  const CASED = { ...COLOURS, casing: '#faf9f6' }
+  const lines = (object: THREE.Object3D): Array<{ casing: boolean; material: LineMaterial; order: number; geometry: THREE.BufferGeometry; parent: THREE.Object3D }> => {
+    const found: ReturnType<typeof lines> = []
+    object.traverse((c) => {
+      const line = c as Line2
+      if (line.isLine2 || (line as unknown as { isLineSegments2?: boolean }).isLineSegments2) found.push({ casing: line.userData.casing === true, material: line.material, order: line.renderOrder, geometry: line.geometry, parent: line.parent! })
+    })
+    return found
+  }
+  const dimension = { ...BASE, id: 'M7', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 0] }, b: { point: [10, 0, 0] }, points: [[0, 0, 0], [10, 0, 0]], value: 10, measuredRevision: 1 } as unknown as Mark
+
+  it.each([['a pin\'s leader', pin], ['an arrow\'s shaft', arrow], ['a stroke', surfaceStroke], ['a shape\'s outline', shape()], ['a dashed outline', shape({ intent: 'keep-out' })], ['a dimension\'s lines', dimension]] as Array<[string, Mark]>)('is under %s: the same line in the panel\'s colour, 2 px wider, drawn before it', (_what, mark) => {
+    const object = build(mark, CASED, 1)
+    rescale(object, () => 0.5, 1)
+    const all = lines(object)
+    const own = all.filter((line) => !line.casing)
+    const casings = all.filter((line) => line.casing)
+    expect(own.length).toBeGreaterThan(0)
+    expect(casings).toHaveLength(own.length)
+    for (const line of own) {
+      // Its casing: of the same geometry, in the same group (so that whatever turns or places the line takes the casing along).
+      const under = casings.find((casing) => casing.geometry === line.geometry && casing.parent === line.parent && casing.material.depthFunc === line.material.depthFunc)!
+      expect(under).toBeDefined()
+      expect(`#${under.material.color.getHexString()}`).toBe('#faf9f6')
+      expect(`#${line.material.color.getHexString()}`).not.toBe('#faf9f6')
+      expect(under.material.linewidth).toBeCloseTo(line.material.linewidth + 2, 9)
+      expect(under.order).toBeLessThan(line.order)
+      expect(under.material.dashed).toBe(line.material.dashed)
+      // As faint behind a part as the line is there, and never written to the depth.
+      expect(under.material.opacity).toBeCloseTo(line.material.opacity, 9)
+      expect(under.material.depthWrite).toBe(false)
+    }
+    // In a large picture a mark keeps its share of it, casing and all.
+    rescale(object, () => 0.5, 2)
+    for (const line of lines(object).filter((one) => !one.casing)) {
+      const under = lines(object).find((casing) => casing.casing && casing.geometry === line.geometry && casing.material.depthFunc === line.material.depthFunc)!
+      expect(under.material.linewidth).toBeCloseTo(line.material.linewidth + 4, 9)
+    }
+    dispose(object)
+  })
+
+  it('is wider with the line of the mark that is worked on, and goes with it when the mark is drawn dimmed or dashed', () => {
+    const object = build(arrow, CASED, 1)
+    setActive(object, true)
+    rescale(object, () => 0.5, 1)
+    const [shaft] = lines(object).filter((line) => !line.casing)
+    const under = lines(object).find((line) => line.casing && line.material.depthFunc === shaft.material.depthFunc)!
+    expect(under.material.linewidth).toBeCloseTo(shaft.material.linewidth + 2, 9)
+    dispose(object)
+  })
+
+  it('is not drawn without a colour for it: a mark built with none is as it was', () => {
+    const object = build(arrow, COLOURS, 1)
+    expect(lines(object).filter((line) => line.casing)).toEqual([])
+    dispose(object)
+  })
+})

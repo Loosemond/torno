@@ -62,7 +62,8 @@ describe('cardsOf', () => {
 
   it('says a marks file could not be read, and carries a problem', async () => {
     const [, , c] = await cardsOf(deps())
-    expect(c).toMatchObject({ id: 'c', problem: 'no model file in /ws/c', marks: null, thumb: null })
+    // The folder by its name: where it is on this machine is for whoever asks (`problemAt`, a tooltip).
+    expect(c).toMatchObject({ id: 'c', problem: 'no model file in c', problemAt: 'no model file in /ws/c', marks: null, thumb: null })
     expect(c.lastRun).toBeUndefined()
   })
 

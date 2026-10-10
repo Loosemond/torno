@@ -47,8 +47,7 @@ export const cameraInput = z.looseObject({ position: vec3, target: vec3, up: vec
 export const CAMERA_KEYS = ['position', 'target', 'up', 'ortho', 'fov', 'zoom']
 
 const lookInput = {
-  view: z
-    .union([z.string(), cameraInput])
+  view: loose(z.union([z.string(), cameraInput]))
     .optional()
     .describe(
       "'current' (the default) is the user's own camera. iso, front, back, left, right, top and bottom are orthographic views fitted to the parts. Or the name of a saved view, as scene lists them: the picture is then of that view whatever is on screen (its camera, layout, parts, section or explode, scans), and whatever you give beside it wins. Or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up."
@@ -108,7 +107,7 @@ const marksInput = {
   status: z
     .enum(['draft', 'sent', 'resolved', 'open'])
     .optional()
-    .describe('Only the marks of that status: draft (not yet given to you with a prompt), sent, resolved, or open for all that are not resolved. Default: all.'),
+    .describe('Only the marks of that status: draft (not yet told to you), sent, resolved, or open for all that are not resolved. Default: all.'),
   layout: z.string().optional().describe(`${layoutText} A region of a scan is told where the scan stands in that layout; every other mark is in its own.`)
 }
 
@@ -124,8 +123,7 @@ const highlightInput = {
 }
 
 const showInput = {
-  view: z
-    .union([z.string(), cameraInput])
+  view: loose(z.union([z.string(), cameraInput]))
     .optional()
     .describe('iso, front, back, left, right, top or bottom, fitted to the parts shown; or the name of a saved view, as scene lists them, which puts all of it on their screen for now (its camera, layout, parts, section or explode, scans; whatever you give beside it wins); or a camera: {position, target, up?, ortho?, fov?, zoom?} in mm, Z up. Default: the camera stays.'),
   layout: z.string().optional().describe('The layout to switch to, as listed by scene. Default: the one on screen stays.'),
@@ -146,7 +144,7 @@ const saveViewInput = {
   // Not required by the schema: left out, the tool says what a name is.
   name: loose(z.string()).optional().describe('What the view is called, 1 to 40 characters, as the user will read it in their strip of views: "Wall at the latch". Not current, iso, front, back, left, right, top or bottom, and not the name of a view of the user\'s.'),
   note: loose(z.string()).optional().describe('Why you propose it, in a line.'),
-  view: z.union([z.string(), cameraInput]).optional().describe('iso, front, back, left, right, top or bottom, fitted to the parts, or a camera as scene gives one. Default: the user\'s own camera.'),
+  view: loose(z.union([z.string(), cameraInput])).optional().describe('iso, front, back, left, right, top or bottom, fitted to the parts, or a camera as scene gives one. Default: the user\'s own camera.'),
   layout: z.string().optional().describe('The layout the view is of. Default: the one on screen.'),
   parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts the view shows; every other part of the layout is hidden in it. Default: those on screen.'),
   section: planeInput.nullable().optional().describe(`The cut the view has: ${planeHelp}; null for none. Default: the one on screen. Not with explode.`),
@@ -213,7 +211,7 @@ const measureInput = {
 const sectionInput = {
   // Not required by the schema: left out, the tool says what a plane is.
   plane: z.union([z.literal('current'), planeInput]).optional().describe(`The plane to cut by: ${planeHelp}; or 'current' for the user's own section.`),
-  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to cut. Default: every part of the layout. With fewer parts each loop has more of the 4,000 points an answer holds.'),
+  parts: z.array(z.string()).max(MAX_PARTS).optional().describe('Names of the parts to cut. Default: every part of the layout. With fewer parts each loop has more of the 1,500 points an answer holds.'),
   layout: z.string().optional().describe('The layout to cut, as listed by scene. Default: the one on screen.'),
   size: z.number().optional().describe(`Long edge of the drawing in pixels, ${MIN_SIZE} to ${MAX_SIZE}. Default ${DEFAULT_SIZE}.`),
   deflection: z.unknown().optional().describe('How far the outlines may stray from the true ones, in mm, 0.005 to 0.05. Default 0.01.'),
@@ -307,7 +305,7 @@ export interface ResolveMarkArgs {
 export const TOOLS = {
   scene: {
     description:
-      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm, what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), under views the views saved by name (whose each is, its layout, whether it holds a section or an explode, how many parts it hides), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it). Call it after every edit of the model to check that the build passed, and whenever you need dimensions.'
+      'Returns JSON for the object this session works on: the build status, revision and error, its layouts, every part with size, bounding box, volume, face and edge counts in mm (sizeExact and volumeExact say whether the size and the volume are exact), what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), under views the views saved by name (whose each is, its layout, whether it holds a section or an explode, how many parts it hides), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it). Call it after every edit of the model to check that the build passed. Sizes and volumes here are for orientation (sizeExact and volumeExact say which are exact): call measure for a number to rely on.'
   },
   look: {
     description:
@@ -316,12 +314,12 @@ export const TOOLS = {
   },
   marks: {
     description:
-      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones come with the prompt as a line each, so call this for all of their data, or when a prompt says more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
+      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this object, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones are told to you as a line each (with a prompt, or in .torno/prompt.md), so call this for all of their data, or when you are told that more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
     description:
-      'Returns JSON with the exact geometry of a part, a face or an edge: its type, size, area or length, centre, normal or radius, a one-line descriptor, the revision of the build it was measured on, and a stale note when a newer build is running or failed; an area with areaExact false is approximate (≈ in the descriptor), as that of a freeform face always is. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it.',
+      'Returns JSON with the exact geometry of a part, a face or an edge: its type, size, area or length, centre, normal or radius, a one-line descriptor (of a part its box and volume, with bboxExact and volumeExact), the revision of the build it was measured on, and a stale note when a newer build is running or failed; an area with areaExact false is approximate (≈ in the descriptor), as that of a freeform face always is, and so are the box and the volume of a part where bboxExact or volumeExact is false. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it.',
     inputSchema: describeInput
   },
   highlight: {
@@ -341,7 +339,7 @@ export const TOOLS = {
   },
   add_mark: {
     description:
-      "Returns the number and a one-line description of a mark you placed on the object, which the user sees in the viewport and in their list of marks in your colour, and the revision of the build it was placed on. Use it to show where you made a change, or to point at the place a question is about; refs come from marks, scene and describe. A dimension is measured at once, in mm or degrees, and again on every build, and one you give an expected value becomes a pinned check the user sees: it is listed with every prompt while it fails.",
+      "Returns the number and a one-line description of a mark you placed on the object, which the user sees in the viewport and in their list of marks in your colour, and the revision of the build it was placed on. Use it to show where you made a change, or to point at the place a question is about; refs come from marks, scene and describe. A dimension is measured at once, in mm or degrees, and again on every build, and one you give an expected value becomes a pinned check the user sees: it is told to you again for as long as it fails (with a prompt, or in .torno/prompt.md).",
     inputSchema: addMarkInput
   },
   resolve_mark: {
@@ -351,7 +349,7 @@ export const TOOLS = {
   },
   measure: {
     description:
-      "Returns JSON with one measurement of the last build and a reading of it in a line: the distance or angle between two ends, the radius or diameter of a round face or edge, the thickness of a wall at a point of a face, or the bbox, volume, area or mass of a part, in mm, degrees, mm², mm³ and grams, with how it was taken (between planes, axis to axis, minimum). Values are exact, from the B-rep, unless the reply has exact false and the reading says approximate (≈): the area of a freeform face always is, and how then says about how many digits are good, or, with no digit count, by how much its integrals differ; and so is any distance to a point of a scan, which is a mesh of the real thing and only as good as its alignment. Measure before you state a size or a fit, instead of working it out from the model's code or writing a script.",
+      "Returns JSON with one measurement of the last build and a reading of it in a line: the distance or angle between two ends, the radius or diameter of a round face or edge, the thickness of a wall at a point of a face, or the bbox, volume, area or mass of a part, in mm, degrees, mm², mm³ and grams, with how it was taken (between planes, axis to axis, minimum). Values are exact, from the B-rep, unless the reply has exact false and the reading says approximate (≈): the area of a freeform face always is, and so are the volume and the mass of a part with one and the bbox of any part but one of planes and cylinders, and how then says about how many digits are good, or, with no digit count, by how much it is in doubt; and so is any distance to a point of a scan, which is a mesh of the real thing and only as good as its alignment. Measure before you state a size or a fit, instead of working it out from the model's code or writing a script.",
     inputSchema: measureInput
   },
   section: {
@@ -361,7 +359,7 @@ export const TOOLS = {
   },
   check: {
     description:
-      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are. Overlap and clearance are exact, from the B-rep, unless the reply says approximate, and overlap and mesh can take seconds on large parts. Use it after changing parts that must fit together, and before saying a part is ready to print.',
+      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are. A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap and mesh can take seconds on large parts. Use it after changing parts that must fit together, and before saying a part is ready to print.',
     inputSchema: checkInput
   },
   scans: {

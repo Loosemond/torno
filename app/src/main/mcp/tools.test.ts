@@ -17,7 +17,7 @@ const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket'
 const STAND: ObjectInfo = { id: 'helmet-stand', name: 'helmet-stand', dir: '/ws/helmet-stand', model: 'stand.py' }
 
 function part(layout: string, name: string, min: [number, number, number], max: [number, number, number], more: Partial<Part> = {}): Part {
-  return { key: `${layout}:${name}`, name, layout, bbox: { min, max }, volume: 6000, faceCount: 6, edgeCount: 12, valid: true, ...more } as Part
+  return { key: `${layout}:${name}`, name, layout, bbox: { min, max }, volume: 6000, volumeExact: true, bboxExact: true, faceCount: 6, edgeCount: 12, valid: true, ...more } as Part
 }
 
 const SCENE: Scene = {
@@ -204,6 +204,20 @@ describe('the tool descriptions', () => {
 })
 
 describe('scene', () => {
+  it('says of each part whether its size and its volume are exact, as the kernel says, and what to do for a number to rely on', () => {
+    const loft = part('assembly', 'stand', [-64.4355, 0, 0], [65, 207.96, 120], { volume: 609220.72, volumeExact: false, bboxExact: false })
+    const old = part('assembly', 'legacy', [0, 0, 0], [1, 2, 3], { volumeExact: undefined, bboxExact: undefined })
+    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: { ...SCENE, parts: [SCENE.parts[0], loft, old] } }) }), 'bracket')))
+    expect(scene.parts.map((p: { name: string; sizeExact: boolean; volumeExact: boolean }) => [p.name, p.sizeExact, p.volumeExact])).toEqual([['base', true, true], ['stand', false, false], ['legacy', false, false]])
+    expect(scene.note).toContain('A size (and bbox) with sizeExact false, or a volume with volumeExact false, is approximate: call measure for a number to rely on.')
+    // Nothing is said where everything is exact.
+    expect(JSON.parse(textOf(sceneTool(fake(), 'bracket'))).note ?? '').not.toContain('approximate')
+    // And the description no longer sends the agent here for dimensions.
+    expect(TOOLS.scene.description).not.toContain('whenever you need dimensions')
+    expect(TOOLS.scene.description).toContain('Sizes and volumes here are for orientation (sizeExact and volumeExact say which are exact): call measure for a number to rely on.')
+    expect(TOOLS.check.description).not.toContain('Overlap and clearance are exact')
+  })
+
   // Final fix wave (I11's seam): the kernel let the build go to make room, and the agent is told what to expect.
   it('says when the kernel let the last build go to make room, and when tools will answer again', () => {
     const building = JSON.parse(textOf(sceneTool(fake({ state: { ...OK, status: 'building', stale: true, letGo: 'memory' } }), 'bracket')))
@@ -226,10 +240,10 @@ describe('scene', () => {
       layout: 'assembly',
       layouts: ['assembly', 'print'],
       parts: [
-        { name: 'base', layout: 'assembly', visible: true, size: [40, 30, 5], bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, faces: 6, edges: 12, valid: true },
-        { name: 'post', layout: 'assembly', visible: false, size: [8, 8, 20], bbox: { min: [-4, -4, 2.5], max: [4, 4, 22.5] }, volume: 1005.31, faces: 3, edges: 3, valid: false },
-        { name: 'base', layout: 'print', visible: true, size: [40, 30, 5], bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, faces: 6, edges: 12, valid: true },
-        { name: 'post', layout: 'print', visible: false, size: [8, 20, 8], bbox: { min: [56, -10, 0], max: [64, 10, 8] }, volume: 6000, faces: 6, edges: 12, valid: true }
+        { name: 'base', layout: 'assembly', visible: true, size: [40, 30, 5], sizeExact: true, bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true },
+        { name: 'post', layout: 'assembly', visible: false, size: [8, 8, 20], sizeExact: true, bbox: { min: [-4, -4, 2.5], max: [4, 4, 22.5] }, volume: 1005.31, volumeExact: true, faces: 3, edges: 3, valid: false },
+        { name: 'base', layout: 'print', visible: true, size: [40, 30, 5], sizeExact: true, bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true },
+        { name: 'post', layout: 'print', visible: false, size: [8, 20, 8], sizeExact: true, bbox: { min: [56, -10, 0], max: [64, 10, 8] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true }
       ],
       camera: { position: [100.12, -80, 60], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
       section: null,
@@ -693,6 +707,16 @@ describe('highlight', () => {
     expect(textOf(result)).toBe(
       'nothing was highlighted: M1 was placed on base/F5, which has moved since: the ref may name something else now; the part M2 was placed on is gone'
     )
+    expect(deps.w.highlights).toEqual([])
+  })
+
+  it('does not point at what a mark is on when the last build has not confirmed it, as measure does not measure through it', async () => {
+    const deps = fake()
+    // Checked against r2; the build is r3: its ref is of the build before, where F5 may have been another face.
+    deps.w.list[0] = { ...deps.w.list[0], checkedRevision: 2 } as Mark
+    const result = await highlightTool(deps, 'bracket', { refs: ['M1'] })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe('nothing was highlighted: M1 has not been checked against r3 yet, so what it is on is not known: give a ref, or ask again in a moment')
     expect(deps.w.highlights).toEqual([])
   })
 

@@ -38,7 +38,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       else if (pressed(e, 'fit')) viewport.fit()
       else if (pressed(e, 'ortho')) setOrtho(viewport, !store.getState().ortho)
       // After the tool in hand, which was offered the key first (the viewport pane listens before this bar does).
-      else if (pressed(e, 'explode')) toggleExplode()
+      else if (pressed(e, 'explode')) toggleExplode(viewport)
       else return
       e.preventDefault()
     }

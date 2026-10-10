@@ -41,7 +41,10 @@ export function aligned(scan: Scan, layout: string, alignment: ScanAlignment | n
   if (was?.sourceChanged && byHand && samePairs(was, candidate)) kept.sourceChanged = true
   if (kept.scaled && accepted.scaled !== true) throw new Error(`this alignment changes the size of the scan (× ${number(kept.transform.s)}): it is kept only when that scale was chosen`)
   if (kept.rough !== undefined && accepted.rough !== true) throw new Error(`this alignment is rough (${kept.rough}): it is kept only once that is accepted`)
-  kept.before = was ? withoutBefore(was) : null
+  // The one it takes the place of, for an undo; but the same one kept again (a field kept twice) takes the place of nothing: what there was to go back to stays.
+  const same = was !== null && isDeepStrictEqual(what(was), what(kept))
+  if (!same) kept.before = was ? withoutBefore(was) : null
+  else if (was.before !== undefined) kept.before = was.before
   return { ...scan, alignments: Object.fromEntries([...others(scan, layout), [layout, kept]]) }
 }
 
@@ -114,6 +117,12 @@ export function frameOf(scene: Scene | undefined, layout: string): Record<string
 function samePairs(a: ScanAlignment, b: ScanAlignment): boolean {
   const ends = (alignment: ScanAlignment): unknown => (alignment.pairs ?? []).map((pair) => [pair.scan, pair.model])
   return (a.pairs?.length ?? 0) > 0 && isDeepStrictEqual(ends(a), ends(b))
+}
+
+/** What an alignment is, apart from when it was kept and what it took the place of: where the scan stands, and how it came there. */
+function what(alignment: ScanAlignment): unknown {
+  const { before: _before, at: _at, ...rest } = alignment
+  return rest
 }
 
 /** An alignment as it is kept for an undo: without what was before it. */

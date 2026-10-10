@@ -422,7 +422,7 @@ export class PictureMaker {
       return { camera, pixels, drawn: host.scans.shown(extent).filter((scan) => scan.visible).map((scan) => (scan.id === colouring?.scan ? { ...scan, opacity: 1 } : scan)) }
     })
 
-    const picture = new OffscreenCanvas(width, height)
+    const picture = pictureCanvas(width, height)
     const ctx = picture.getContext('2d')
     if (!ctx) throw new Error('Could not get a 2D canvas to compose the picture')
     ctx.putImageData(new ImageData(pixels, width, height), 0, 0)
@@ -459,8 +459,7 @@ export class PictureMaker {
     const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${beyondNote(beyond, typeof req.view === 'string' && req.view !== 'current' && req.frame !== 'all')}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote}${explodedNote(explode, drawn.length > 0, split)}${together} · ${projection} · ${width}×${height}`
     const layout = req.layout
     const encoded = async (): Promise<Picture> => {
-      const blob = await picture.convertToBlob({ type: 'image/png' })
-      return { png: new Uint8Array(await blob.arrayBuffer()), width, height, caption, layout, scans: drawn.map((scan) => scan.id), exploded: explode !== null }
+      return { png: pngBytes(picture), width, height, caption, layout, scans: drawn.map((scan) => scan.id), exploded: explode !== null }
     }
     return encoded()
   }
@@ -551,13 +550,33 @@ export function pixelsOf(renderer: THREE.WebGLRenderer, encoder: Encoder, drawn:
   return pixels
 }
 
-/** A drawn target as PNG bytes: `pixelsOf`, written by an OffscreenCanvas. `alpha` keeps the alpha the target has. */
+/** A canvas to compose a picture on, off the page: one whose PNG can be written at once (`pngBytes`). */
+export function pictureCanvas(width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  return canvas
+}
+
+/**
+ * A canvas as PNG bytes, encoded now. Not `convertToBlob`: that has the PNG written in the window's idle
+ * time, and a window that has a frame pending which it is not given (one nobody is looking at) has no idle
+ * time, so every picture waited a second for Chromium to give up waiting for it.
+ */
+export function pngBytes(canvas: HTMLCanvasElement): Uint8Array {
+  const url = canvas.toDataURL('image/png')
+  const text = atob(url.slice(url.indexOf(',') + 1))
+  const bytes = new Uint8Array(text.length)
+  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i)
+  return bytes
+}
+
+/** A drawn target as PNG bytes: `pixelsOf`, written through a canvas. `alpha` keeps the alpha the target has. */
 export async function pngOf(renderer: THREE.WebGLRenderer, encoder: Encoder, drawn: THREE.WebGLRenderTarget, encoded: THREE.WebGLRenderTarget, opts: { alpha?: boolean } = {}): Promise<Uint8Array> {
   const pixels = pixelsOf(renderer, encoder, drawn, encoded, opts)
-  const picture = new OffscreenCanvas(encoded.width, encoded.height)
+  const picture = pictureCanvas(encoded.width, encoded.height)
   const ctx = picture.getContext('2d')
   if (!ctx) throw new Error('Could not get a 2D canvas to compose the picture')
   ctx.putImageData(new ImageData(pixels, encoded.width, encoded.height), 0, 0)
-  const blob = await picture.convertToBlob({ type: 'image/png' })
-  return new Uint8Array(await blob.arrayBuffer())
+  return pngBytes(picture)
 }

@@ -307,7 +307,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
           <p className="export-never">Never in the file: where anything is on this computer, the session with the agent, what a model printed, a view the agent proposed and you did not keep.</p>
         </div>
         <footer className="export-foot">
-          <div className="export-size" aria-live="polite">
+          <div className="export-size" aria-live="polite" data-bytes={plan && !plan.refusal ? plan.bytes : undefined}>
             {plan?.refusal ? (
               <p data-tone={plan.bytes > 0 ? 'fail' : undefined}>{plan.refusal}</p>
             ) : plan ? (

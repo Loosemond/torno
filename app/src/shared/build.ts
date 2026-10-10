@@ -12,6 +12,11 @@ export interface BuildState {
   letGo?: 'memory'
 }
 
+/** The key of "Rebuild", written out: main's sentences name it and do not carry the table of keys (`keys.test.ts` holds it to the table). */
+export const REBUILD_KEY = 'Ctrl+Shift+B'
+/** How whoever is told that something must be built again is told how: the button is in the status line, whatever the build's state. */
+export const REBUILD_HOW = `Press Rebuild in the status line of torno (${REBUILD_KEY}) to build again`
+
 /** What is said, in the status line and to the agent, while the kernel holds no build of an object because it let the last one go to make room; null otherwise. */
 export function letGoText(state: Pick<BuildState, 'status' | 'letGo'>): string | null {
   if (state.letGo !== 'memory') return null

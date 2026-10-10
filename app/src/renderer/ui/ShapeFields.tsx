@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MarkPatch, Quat, ShapeIntent, ShapeMark, Vec3 } from '../../shared/marks'
 import { GIZMO_MODES, setGizmo, useGizmo } from '../state/tools'
 import { eulerOf, quatOf } from '../tools/shapeTool'
+import { giveKeysBack } from './typing'
 import { fitSize } from '../viewport/marks/markObjects'
 
 const INTENTS: { intent: ShapeIntent; label: string; title: string }[] = [
@@ -57,7 +58,7 @@ function sameRotation(a: Quat, b: Quat): boolean {
  */
 export function ShapeFields({ mark, change }: { mark: ShapeMark; change: (patch: MarkPatch) => Promise<unknown> }) {
   const mode = useGizmo()
-  /** The angles as typed, while the rotation fields hold the focus. */
+  /** The angles as typed, for as long as they are what the shape is turned by: three angles read back from a quaternion are others, and would jump under the hand. */
   const [typed, setTyped] = useState<Vec3 | null>(null)
   /**
    * What has been sent and main has not yet told back. The next number typed
@@ -106,12 +107,8 @@ export function ShapeFields({ mark, change }: { mark: ShapeMark; change: (patch:
         ))}
       </fieldset>
 
-      <fieldset
-        className="shape-group"
-        onBlur={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget)) setTyped(null)
-        }}
-      >
+      {/* The angles stay as they were typed after the focus has left them (Enter gives the keys back to the view): they are what the shape is turned by until something else turns it. */}
+      <fieldset className="shape-group">
         <legend>
           Rotation <span className="num">°</span>
         </legend>
@@ -174,8 +171,11 @@ export function ShapeFields({ mark, change }: { mark: ShapeMark; change: (patch:
 function NumberField({ name, sign, axis, value, commit }: { name: string; sign: string; axis?: Axis; value: number; commit: (value: number) => void }) {
   // What is being typed; null while the field only shows the number.
   const [draft, setDraft] = useState<string | null>(null)
+  /** Kept already: Enter keeps what was typed, and the focus that then leaves the field must not keep it again. */
+  const kept = useRef(false)
   const done = (): void => {
-    if (draft === null) return
+    if (draft === null || kept.current) return
+    kept.current = true
     setDraft(null)
     const text = draft.trim().replace(',', '.')
     const typed = text === '' ? Number.NaN : Number(text)
@@ -195,14 +195,21 @@ function NumberField({ name, sign, axis, value, commit }: { name: string; sign: 
         aria-label={name}
         value={draft ?? shown(value)}
         onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          kept.current = false
+          setDraft(e.target.value)
+        }}
         onBlur={done}
         onKeyDown={(e) => {
           if (pressed(e, 'field.keep')) done()
-          else if (pressed(e, 'field.leave')) setDraft(null)
-          else return
+          else if (pressed(e, 'field.leave')) {
+            // Left as it was: the blur that follows keeps nothing of what was typed.
+            kept.current = true
+            setDraft(null)
+          } else return
           e.preventDefault()
           e.stopPropagation()
+          giveKeysBack(e.currentTarget)
         }}
       />
     </label>

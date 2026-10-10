@@ -350,3 +350,20 @@ describe('the view a caption names', () => {
     expect(viewSaid(camera as never)).toBe('custom')
   })
 })
+
+// Final review I7, the sweep's finding 9 and Task 4's 1,001 ms: `convertToBlob` has its PNG written in the
+// window's idle time, and a window with a frame pending that it is not given (one nobody looks at) has none: the
+// picture then waits a second for Chromium to give up waiting. A picture is encoded at once (`pngBytes`).
+it('encodes no picture in the window\'s idle time', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const found: string[] = []
+  for (const dir of [__dirname, join(__dirname, 'marks'), join(__dirname, '../state'), join(__dirname, '../ui')]) {
+    for (const name of readdirSync(dir)) {
+      if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue
+      const source = readFileSync(join(dir, name), 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '')
+      if (/convertToBlob\s*\(|\.toBlob\s*\(/.test(source)) found.push(name)
+    }
+  }
+  expect(found).toEqual([])
+})

@@ -19,6 +19,17 @@ export function number(value: number): string {
   return text === '-0' ? '0' : text
 }
 
+/** What of a part's extent is nothing: a coordinate or a size under a millionth of the diagonal of its box (the kernel's rule, `describe.number`'s `least`). */
+export const OF_THE_PART = 1e-6
+
+/**
+ * `number`, of a coordinate or a size of something `extent` millimetres across: what is under a millionth of
+ * that is what modelling left where 0 was meant, and is written `0`. (`-0.000004772` on a part of 270 mm.)
+ */
+export function numberWithin(value: number, extent: number): string {
+  return Math.abs(value) < Math.max(NOISE, OF_THE_PART * extent) ? '0' : number(value)
+}
+
 /**
  * How well something fits, in millimetres: `number`, of the value to the thousandth. What a fit of clicked
  * points leaves is never known finer than that, and `0.000004247 mm` says nothing `0 mm` does not.

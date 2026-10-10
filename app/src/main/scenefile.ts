@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { writeFileAtomic } from './atomic'
+import { FOLDER, writeOwn } from './own'
 import { type ExplodeState, NO_EXPLODE, explodeOf, sameExplode } from '../shared/explode'
 import { MIN_SCAN_OPACITY, type ScanView } from '../shared/scans'
 import type { LayerSettings, SceneFile } from '../shared/scenefile'
@@ -10,7 +10,6 @@ import { type SavedView, findView, savedViewsOf } from '../shared/views'
 
 export type { LayerSettings, SceneFile }
 
-const FOLDER = '.torno'
 const NAME = 'scene.json'
 
 /**
@@ -136,7 +135,7 @@ export function saveSceneFile(dir: string, f: SceneFile): Promise<void> {
   if (file.views) file.views = owned(file.views, (known.get(dir) ?? onDisk(dir)).views ?? [], asked.get(dir) ?? new Set())
   known.set(dir, file)
   given.set(dir, (given.get(dir) ?? 0) + 1)
-  const save = writeFileAtomic(join(dir, FOLDER, NAME), `${JSON.stringify(file, null, 2)}\n`)
+  const save = writeOwn(dir, NAME, `${JSON.stringify(file, null, 2)}\n`)
   written.set(dir, save)
   saving.add(save)
   const over = (): void => void saving.delete(save)

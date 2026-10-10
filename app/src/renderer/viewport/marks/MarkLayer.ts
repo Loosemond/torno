@@ -136,7 +136,7 @@ export class MarkLayer {
 
   /** The colours changed, as with the colour scheme: everything is made again. */
   setColours(colours: MarkColours): void {
-    if (colours.user === this.colours.user && colours.agent === this.colours.agent && colours.reference === this.colours.reference) return
+    if (colours.user === this.colours.user && colours.agent === this.colours.agent && colours.reference === this.colours.reference && colours.casing === this.colours.casing) return
     this.colours = colours
     const marks = [...this.entries.values()].map((e) => e.mark)
     const draft = this.draft?.is ?? null

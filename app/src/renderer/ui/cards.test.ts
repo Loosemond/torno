@@ -96,7 +96,7 @@ it('keeps the cards whose name holds what was typed, whatever the case', () => {
 
 describe('moving between cards with the arrow keys', () => {
   // Ten cards, four to a row: 0 1 2 3 / 4 5 6 7 / 8 9.
-  const step = (key: string, at: number): number | 'field' | null => stepCard(key, at, 10, 4)
+  const step = (key: string, at: number): number | 'field' | null => stepCard({ key }, at, 10, 4)
 
   it('goes to the next and the one before, and stops at the ends', () => {
     expect(step('ArrowRight', 0)).toBe(1)
@@ -119,6 +119,6 @@ describe('moving between cards with the arrow keys', () => {
     expect(step('ArrowDown', -1)).toBe(0)
     expect(step('ArrowRight', -1)).toBe(0)
     expect(step('a', 3)).toBeNull()
-    expect(stepCard('ArrowDown', -1, 0, 1)).toBeNull()
+    expect(stepCard({ key: 'ArrowDown' }, -1, 0, 1)).toBeNull()
   })
 })

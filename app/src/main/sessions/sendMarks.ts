@@ -10,19 +10,26 @@ export function sendLine(markIds: readonly string[]): string {
   return `torno: ${markIds.length} new mark${markIds.length === 1 ? '' : 's'} (${named}) and the build status are in .torno/prompt.md. Read it first.`
 }
 
+/**
+ * How a line begins, as it is looked for in what the agent shows: its words up to the first mark it names
+ * (`torno: 2 new marks (M4`), or its first words when it names none. Short enough to stand on one row of a
+ * terminal, and not what a CLI writes of its own accord about a server called torno.
+ */
+export function lineHead(line: string): string {
+  return /^torno: \d+ new marks? \(M\d+/.exec(line)?.[0] ?? line.slice(0, 23)
+}
+
 /** What `.torno/prompt.md` holds: when it was written, then the context. */
 export function promptFile(context: string, at: Date): string {
   return `Written ${at.toISOString().slice(0, 19).replace('T', ' ')} UTC by torno, for the prompt that follows it.\n\n${context}\n`
 }
 
-/** What the file is made to hold once its prompt has gone or will not come: one line, so that nothing old is read as new. */
+/** What the file is made to hold when a session of an agent without hooks starts or ends: one line, so that nothing an earlier session was to be told is read as new. */
 export function nothingNew(at: Date): string {
   return `Nothing new from torno as of ${at.toISOString().slice(0, 19).replace('T', ' ')} UTC: no line of its is waiting to be sent. The build and the open marks are in .torno/state.md.\n`
 }
 
 const ESC = '\x1b'
-/** How every line torno puts at an agent's cursor begins: what is looked for in what the agent shows. */
-const MARKER = 'torno:'
 const PASTE_START = `${ESC}[200~`
 const PASTE_END = `${ESC}[201~`
 
@@ -138,14 +145,21 @@ export function hasEnter(data: string): boolean {
 
 /**
  * Whether what an agent wrote to its terminal shows the line torno put at
- * its cursor: its beginning, once colours, moves and titles are taken out.
+ * its cursor: the head of that very line (`lineHead`), once colours, moves
+ * and titles are taken out, and not followed by the number of another mark.
  * A prompt shows what is pasted into it; a question that is up in its place
- * (whether the folder is trusted, a permission) does not.
+ * (whether the folder is trusted, a permission) does not, and what the CLI
+ * says by itself of a server named torno is not that line.
  */
-export function lineShown(output: string): boolean {
+export function lineShown(output: string, line: string): boolean {
   const plain = output
     .replace(/\x1b[\]P][\s\S]*?(\x07|\x1b\\|$)/g, '')
     .replace(/\x1b\[[0-9:;<=>?]*[ -/]*[@-~]/g, '')
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
-  return plain.includes(MARKER)
+  const head = lineHead(line)
+  for (let at = plain.indexOf(head); at >= 0; at = plain.indexOf(head, at + 1)) {
+    // `(M4` is not shown by `(M45`.
+    if (!/\d$/.test(head) || !/\d/.test(plain[at + head.length] ?? '')) return true
+  }
+  return false
 }

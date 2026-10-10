@@ -6,10 +6,11 @@ import type { Scene } from '../shared/scene'
 import { type SavedView, viewGone } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
 import { writeFileAtomic } from './atomic'
+import { ensureIgnored } from './ignored'
+import { FOLDER, ownTorno } from './own'
 import { describeMark, sizes } from './marks/describe'
 import { alignmentSaid } from './scans/said'
 
-const FOLDER = '.torno'
 const NAME = 'state.md'
 const TRACEBACK_LINES = 12
 /** How long after the last change of an object its file is written, in ms. */
@@ -43,8 +44,10 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     if (last.scene.model) lines.push(`Model: ${last.scene.model}, r${last.revision}.`, '')
     for (const layout of last.scene.layouts) {
       const parts = last.scene.parts.filter((p) => p.layout === layout)
-      lines.push(`- ${layout}: ${parts.map((p) => `${p.name} ${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
+      lines.push(`- ${layout}: ${parts.map((p) => `${p.name} ${p.bboxExact === true ? '' : '≈ '}${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
     }
+    // Exact only where the kernel says so.
+    if (last.scene.parts.some((p) => p.bboxExact !== true)) lines.push('', 'A size with ≈ is approximate (the part has freeform or turned faces): measure it for a number to rely on.')
   }
   if (views && views.length > 0) lines.push('', `Saved views: ${views.map((view) => viewSaid(view, last?.scene)).join(', ')}.`)
   if (scans && scans.length > 0) {
@@ -60,7 +63,7 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     )
     for (const layout of [...new Set(open.map((m) => m.layout))]) {
       lines.push('', `In layout ${layout}:`, '')
-      for (const mark of open) if (mark.layout === layout) lines.push(`- ${describeMark(mark, { revision: last?.revision, layout, ...(scans ? { scans } : {}) })}`)
+      for (const mark of open) if (mark.layout === layout) lines.push(`- ${describeMark(mark, { revision: last?.revision, layout, ...(last ? { scene: last.scene } : {}), ...(scans ? { scans } : {}) })}`)
     }
   }
   return `${lines.join('\n')}\n`
@@ -102,7 +105,7 @@ function scanLine(scan: ScanInfo, last: { revision: number; scene: Scene } | und
   return `${[head, ...aligned, ...(not.length > 0 ? [`not aligned in ${not.join(', ')}`] : []), ...(gone.length > 0 ? [`aligned in ${gone.join(', ')}, which r${last.revision} does not have`] : [])].join('; ')}.`
 }
 
-/** To 0.01 mm, as the scene tool gives sizes: a bounding box comes from the mesh, which is that much off a round part. */
+/** To 0.01 mm, as the scene tool gives sizes. */
 function toHundredth(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -182,7 +185,10 @@ export class StateFiles {
     const text = stateText(obj, build, this.deps.scene(objectId), marks, scans, views)
     const path = join(obj.dir, FOLDER, NAME)
     if (this.written.get(path) === text) return
+    await ownTorno(obj.dir)
     await (this.deps.write ?? writeFileAtomic)(path, `${writtenLine(this.deps.now?.() ?? new Date())}\n\n${text}`)
     this.written.set(path, text)
+    // It changes at every build and every mark: not for git. (Not when a test writes it elsewhere.)
+    if (!this.deps.write) await ensureIgnored(obj.dir, [NAME])
   }
 }

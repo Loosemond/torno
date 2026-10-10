@@ -1,11 +1,13 @@
 import { pressed } from '../../shared/keys'
 import { useEffect, useMemo, useRef } from 'react'
+import { newCut } from '../../shared/cut'
 import { number } from '../../shared/format'
 import { useAgentHighlight } from '../state/agent'
 import { actions, useStore } from '../state/store'
 import { setTool, useTool } from '../state/tools'
 import { sectionNudge, setFromFace, useFromFace } from '../tools/sectionTool'
-import { atOffset, axisOf, flipped, planeOnAxis, sectionExtent, sectionOffset, typedOffset, type Axis } from '../viewport/section'
+import { atOffset, axisOf, flipped, sectionExtent, sectionOffset, typedOffset, type Axis } from '../viewport/section'
+import { giveKeysBack } from './typing'
 import type { Viewport } from '../viewport/Viewport'
 
 const AXES: Axis[] = ['x', 'y', 'z']
@@ -108,7 +110,8 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
             title={`Cut across ${axis.toUpperCase()}, through the middle of the parts`}
             onClick={() => {
               setFromFace(false)
-              actions.setSection(planeOnAxis(axis, box))
+              // Open towards whoever looks (`newCut`): the half taken away is the one on the camera's side.
+              actions.setSection(newCut(box, viewport.getCamera(), axis))
             }}
           >
             {axis.toUpperCase()}
@@ -161,7 +164,7 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
             else return
             e.preventDefault()
             e.stopPropagation()
-            e.currentTarget.select()
+            giveKeysBack(e.currentTarget)
           }}
         />
         <span className="num" aria-hidden="true">

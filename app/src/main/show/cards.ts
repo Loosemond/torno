@@ -6,7 +6,7 @@ import { standingOf, unmetDimensions } from '../../shared/dimension'
 import type { DimensionMark, Mark } from '../../shared/marks'
 import type { ObjectCard, ThumbnailOf } from '../../shared/show'
 import type { ObjectInfo } from '../../shared/workspace'
-import { writeFileAtomic } from '../atomic'
+import { FOLDER, writeOwn } from '../own'
 import { ensureIgnored } from '../ignored'
 import { sanitiseMarksFile } from '../marks/file'
 
@@ -14,7 +14,6 @@ import { sanitiseMarksFile } from '../marks/file'
 // builds an object, starts a worker, opens a session or loads a scan, and of an object not opened in this run
 // nothing is written or set aside either.
 
-const FOLDER = '.torno'
 export const THUMB_PNG = 'thumb.png'
 export const THUMB_JSON = 'thumb.json'
 /** The most a picture may weigh. One of 480 × 360 is some 20 KB; the worst there is, noise in every pixel, 700 KB. */
@@ -87,7 +86,11 @@ async function cardOf(deps: CardDeps, obj: ObjectInfo, commonOf: (dir: string) =
   if (thumb && (await deps.size(join(obj.dir, FOLDER, THUMB_PNG)).catch(() => null)) !== (meta as { bytes?: unknown }).bytes) thumb = null
 
   const card: ObjectCard = { id: obj.id, name: obj.name, opened, thumb, marks: marks && { open: marks.filter((m) => m.status !== 'resolved').length, drafts: marks.filter((m) => m.status === 'draft').length }, dimensions: null, session: deps.session(obj.id) }
-  if (obj.problem !== undefined) card.problem = obj.problem
+  if (obj.problem !== undefined) {
+    // The folder by its name: the card is of that folder, and where it is on this machine is for whoever asks.
+    card.problem = obj.problem.split(obj.dir).join(obj.name)
+    if (card.problem !== obj.problem) card.problemAt = obj.problem
+  }
   if (state) {
     card.build = { status: state.status, revision: state.revision, stale: state.stale }
     if (state.letGo) card.build.letGo = state.letGo
@@ -172,8 +175,8 @@ export function saveThumbnail(dir: string, png: Uint8Array, of: ThumbnailOf & { 
       if (of.cut) meta.cut = true
       if (of.apart) meta.apart = true
       if (of.hidden) meta.hidden = of.hidden
-      await writeFileAtomic(join(dir, FOLDER, THUMB_PNG), png)
-      await writeFileAtomic(join(dir, FOLDER, THUMB_JSON), `${JSON.stringify(meta)}\n`)
+      await writeOwn(dir, THUMB_PNG, png)
+      await writeOwn(dir, THUMB_JSON, `${JSON.stringify(meta)}\n`)
       await ensureIgnored(dir, [THUMB_PNG, THUMB_JSON])
     })
     .finally(() => {

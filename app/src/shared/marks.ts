@@ -294,6 +294,35 @@ export function markPoints(mark: Mark): Vec3[] {
   }
 }
 
+/** How many sides a circle of a shape's outline is drawn with. */
+const OUTLINE_SIDES = 48
+
+/**
+ * The outline of a shape as lines through points of the object frame, each a polyline (a closed one ends where
+ * it began): a box by its two rectangles and four uprights, a plane by its rectangle, a cylinder by its two
+ * circles and four uprights, a sphere by three great circles. Plain arithmetic, for whoever draws a shape
+ * without the viewport: an exported page.
+ */
+export function shapeOutline(mark: Pick<ShapeMark, 'shape' | 'size' | 'position' | 'rotation'>): Vec3[][] {
+  const [hx, hy, hz] = mark.size.map((s) => s / 2)
+  const at = (local: Vec3): Vec3 => moved(turned(local, mark.rotation), mark.position)
+  const rectangle = (z: number): Vec3[] => ([[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy], [-hx, -hy]] as const).map(([x, y]) => at([x, y, z]))
+  const circle = (point: (cos: number, sin: number) => Vec3): Vec3[] => Array.from({ length: OUTLINE_SIDES + 1 }, (_, n) => {
+    const angle = ((n % OUTLINE_SIDES) / OUTLINE_SIDES) * 2 * Math.PI
+    return at(point(Math.cos(angle), Math.sin(angle)))
+  })
+  switch (mark.shape) {
+    case 'plane':
+      return [rectangle(0)]
+    case 'box':
+      return [rectangle(-hz), rectangle(hz), ...([[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]] as const).map(([x, y]) => [at([x, y, -hz]), at([x, y, hz])])]
+    case 'cylinder':
+      return [circle((c, s) => [hx * c, hy * s, -hz]), circle((c, s) => [hx * c, hy * s, hz]), ...([[hx, 0], [0, hy], [-hx, 0], [0, -hy]] as const).map(([x, y]) => [at([x, y, -hz]), at([x, y, hz])])]
+    case 'sphere':
+      return [circle((c, s) => [hx * c, hy * s, 0]), circle((c, s) => [hx * c, 0, hz * s]), circle((c, s) => [0, hy * c, hz * s])]
+  }
+}
+
 /** How far outside a part's box a point may lie and still be at that part, in millimetres. */
 const AT_PART_MM = 0.5
 

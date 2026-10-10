@@ -77,7 +77,7 @@ it('names the files torno writes and the variables it reads', () => {
 it('lists in one section what nobody has seen on a visible screen or with a real agent', () => {
   expect(headings.filter((line) => line.includes('Not yet verified'))).toHaveLength(1)
   const section = readme.slice(readme.indexOf('## Not yet verified on a visible screen'))
-  for (const item of ['Hyprland', 'Only one torno', 'Alt-drag', 'no menu', 'clipboard', 'dark', 'dropped on the view', 'folder dialog', 'save dialog', 'replace', 'Claude Code', 'Copilot CLI', 'Firefox', 'file://', 'thumbnail', 'Ctrl+Shift+E', '--install-desktop']) {
+  for (const item of ['Hyprland', 'Only one torno', 'Alt-drag', 'no menu', 'clipboard', 'dark', 'dropped on the view', 'folder dialog', 'save dialog', 'replace', 'Claude Code', 'Copilot CLI', 'Firefox', 'file://', 'thumbnail', 'Ctrl+Shift+E', '--install-desktop', 'another workspace with a session working', 'hyprctl clients']) {
     expect([item, section.includes(item)]).toEqual([item, true])
   }
 })

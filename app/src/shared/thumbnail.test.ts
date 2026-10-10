@@ -61,7 +61,8 @@ describe('thumbnailPlan', () => {
     expect(exploded.section).toBeNull()
     expect(exploded.explode).toEqual(apart.assembly)
     expect(exploded.offsets.lid[2]).toBeGreaterThan(0)
-    expect(exploded.offsets.tub[2]).toBeLessThan(0)
+    // Along z the lowest part stays: nothing is drawn under the ground.
+    expect(exploded.offsets.tub[2]).toBe(0)
     // An explode kept for another layout is not this one's.
     expect(thumbnailPlan(HOLLOW, { layers: {}, explode: { print: apart.assembly } })!.explode).toBeNull()
     // One part drawn alone is not apart from anything, though the layout is.

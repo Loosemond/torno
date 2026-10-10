@@ -10,6 +10,8 @@ export interface ObjectCard {
   name: string
   /** Why it cannot be built, as the object list says it. */
   problem?: string
+  /** The same with the folder's whole path, where `problem` names it by its name alone: for a tooltip. */
+  problemAt?: string
   /** Opened in this run: it has a build state, and its marks are checked against it. */
   opened: boolean
   build?: { status: 'idle' | 'building' | 'ok' | 'failed'; revision: number; stale: boolean; letGo?: 'memory'; error?: string }

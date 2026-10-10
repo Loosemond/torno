@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { SCAN_FORMATS } from '../../shared/scans'
+import { FOLDER } from '../own'
 
 // The one path main is given for a scan: the file it is read from. It is checked here, and only ever read.
 
@@ -21,7 +22,7 @@ export async function sourceOf(dir: string, given: unknown): Promise<string> {
   const formats: readonly string[] = SCAN_FORMATS
   if (!formats.includes(extname(source).toLowerCase())) throw new Error(`${basename(source)} is not a scan torno reads: ${formats.slice(0, -1).join(', ')} or ${formats.at(-1)}`)
   // By where the file is, whatever name led to it.
-  if (isWithin(await real(join(dir, '.torno')), await real(source))) throw new Error(`${basename(source)} is in this object's .torno folder, where torno keeps its own files: import it from somewhere else`)
+  if (isWithin(await real(join(dir, FOLDER)), await real(source))) throw new Error(`${basename(source)} is in this object's .torno folder, where torno keeps its own files: import it from somewhere else`)
   return source
 }
 

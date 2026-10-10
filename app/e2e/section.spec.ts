@@ -151,6 +151,13 @@ test('the bar comes with the tool, and a plane across Z through the middle of th
   await page.keyboard.press('x')
   await expect(page.locator('.tool-button[data-tool="section"]')).toHaveAttribute('aria-pressed', 'true')
   await expect(bar()).toBeVisible()
+  // The tool taken in hand with nothing cut cuts at once (final fix wave): across the axis looked most along, open towards the viewer.
+  const first = (await section())!
+  expect(first).not.toBeNull()
+  expect(first.normal.filter((c) => Math.abs(c) === 1)).toHaveLength(1)
+  await expect(offset()).toBeEnabled()
+  // "Off" leaves the tool in hand with nothing cut, as it was before that.
+  await bar().getByRole('button', { name: 'Off' }).click()
   await expect(offset()).toBeDisabled()
   expect(await section()).toBeNull()
 
@@ -543,9 +550,8 @@ test('off shows the parts whole again, and the file has no section', async () =>
 test('a hollow part is closed where it is cut, each part in its own colour, and the hollow stays open', async () => {
   await open('hollow')
   await page.keyboard.press('x')
-  // Across Y through the middle, the half towards the front taken away.
+  // Across Y through the middle: a new cut opens towards the viewer, so the half towards the front is the one taken away.
   await cutAt('Y', 0)
-  await bar().getByRole('button', { name: 'Flip' }).click()
   expect(await section()).toEqual({ origin: [0, 0, 20], normal: [0, -1, 0] })
 
   // From the front, 40 × 40 fitted to the picture's height: the lid's cut is the top 2 mm, the tub's wall the

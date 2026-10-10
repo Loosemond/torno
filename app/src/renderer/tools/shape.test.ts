@@ -261,3 +261,40 @@ describe('the shape tool', () => {
     expect(committed[0].kind === 'shape' && 'descriptor' in committed[0].anchor!).toBe(false)
   })
 })
+
+// Final review M3: while the parts are drawn apart nothing is marked, and a shape is not edited either: its
+// gizmo would stand where the shape is, away from the part it was put on, which is drawn elsewhere.
+describe('the shape in hand', () => {
+  const box = (z: number) => ({ min: [0, 0, z] as Vec3, max: [10, 10, z + 2] as Vec3 })
+  const part = (name: string, z: number) => ({ key: `assembly:${name}`, name, layout: 'assembly', bbox: box(z) })
+  const scene = { model: 'm.py', layouts: ['assembly'], parts: [part('tray', 0), part('lid', 10)], seconds: 0, output: '' }
+  const shape = { id: 'M1', kind: 'shape', author: 'user', status: 'draft', layout: 'assembly', note: '' } as unknown as Mark
+
+  it('has no gizmo and takes no key of it while the parts are apart; together again, it has', async () => {
+    const { store } = await import('../state/store')
+    const { connectShapeEdit, editedShape } = await import('./shapeTool')
+    const { toolStore } = await import('../state/tools')
+    const keys: Array<(e: KeyboardEvent) => void> = []
+    vi.stubGlobal('Element', class {})
+    vi.stubGlobal('window', { addEventListener: (_type: string, cb: (e: KeyboardEvent) => void) => void keys.push(cb), removeEventListener: () => {} })
+    const edited: Array<string | null> = []
+    store.setState({ objectId: 'hollow', scene: scene as never, layout: 'assembly', marks: [shape], activeMark: 'M1', section: null, explode: {} })
+    const off = connectShapeEdit({ editShape: (id) => void edited.push(id) })
+    expect(edited.at(-1)).toBe('M1')
+    store.setState({ explode: { assembly: { amount: 0.5, scale: 1, axis: 'z' } } })
+    expect(edited.at(-1)).toBeNull()
+    // The mark is still the active one, and still a shape of this layout: it is only not in hand.
+    expect(editedShape(store.getState())?.id).toBe('M1')
+    toolStore.setState({ gizmo: 'translate' })
+    let prevented = false
+    keys[0]({ key: 'r', preventDefault: () => void (prevented = true) } as unknown as KeyboardEvent)
+    expect([toolStore.getState().gizmo, prevented]).toEqual(['translate', false])
+    store.setState({ explode: { assembly: { amount: 0, scale: 1, axis: 'z' } } })
+    expect(edited.at(-1)).toBe('M1')
+    keys[0]({ key: 'r', preventDefault: () => void (prevented = true) } as unknown as KeyboardEvent)
+    expect([toolStore.getState().gizmo, prevented]).toEqual(['rotate', true])
+    off()
+    toolStore.setState({ gizmo: 'translate' })
+    vi.unstubAllGlobals()
+  })
+})

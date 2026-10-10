@@ -1,3 +1,4 @@
+import { layerOf } from './store'
 import { explodeShown, nothingApart, sameExplode } from '../../shared/explode'
 import type { Camera, SectionPlane } from '../../shared/view'
 import { type SavedView, cleanViewName } from '../../shared/views'
@@ -10,7 +11,7 @@ type Shown = Pick<TornoState, 'scene' | 'layout' | 'layers' | 'section' | 'explo
 
 /** The names of the parts of a layout that are switched off. */
 export function hiddenIn(s: Pick<TornoState, 'scene' | 'layers'>, layout: string): string[] {
-  return (s.scene?.parts ?? []).filter((part) => part.layout === layout && s.layers[part.name]?.visible === false).map((part) => part.name)
+  return (s.scene?.parts ?? []).filter((part) => part.layout === layout && layerOf(s.layers, part.name)?.visible === false).map((part) => part.name)
 }
 
 /** How every scan of the object is shown now, as a view keeps it: whether it is on, and how thin when it is not solid. Undefined with no scans. */

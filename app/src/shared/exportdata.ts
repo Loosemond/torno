@@ -1,4 +1,4 @@
-import type { ExplodeState } from './explode'
+import type { ExplodePart, ExplodeState } from './explode'
 import { number } from './format'
 import type { Mark, MarkStatus, Quat, Vec3 } from './marks'
 import type { SavedView } from './views'
@@ -55,6 +55,8 @@ export interface ExportMark {
   ends?: [string | null, string | null]
   at: Vec3
   line?: Vec3[]
+  /** Of a shape: its outline, as lines through points (`shapeOutline`). */
+  outline?: Vec3[][]
   /** A dimension's value as torno's row says it: `6 mm`, or `—` when it has none of the build exported. */
   text?: string
   verdict?: 'pass' | 'fail'
@@ -95,6 +97,12 @@ export interface ExportObject {
   parts: ExportPart[]
   /** By the part's content hash: the same shape in two layouts is in the file once. */
   meshes: Record<string, PackedMesh>
+  /**
+   * The boxes of the parts that were left out of the file, and nothing else of them: no name, no mesh. How the
+   * parts of a layout are drawn apart is a rule of all of them (`explodeOffsets`), so the page needs to know
+   * where the others are. `before` is how many of `parts` of that layout come before it in the build's order.
+   */
+  ghosts?: Array<{ layout: string; before: number; bbox: { min: Vec3; max: Vec3 } }>
   explode: Record<string, ExplodeState>
   views: SavedView[]
   marks?: ExportMark[]
@@ -228,6 +236,33 @@ export function unpackScan(header: Pick<ExportScan, 'vertices' | 'triangles' | '
     indices[i] = index
   }
   return { positions, colours, triangles: indices }
+}
+
+/**
+ * The parts of a layout as the rule for drawing them apart is asked (`explodeShown`, `explodeOffsets`): those in
+ * the file and the boxes of those left out, in the build's order. A box left out has a name no part has.
+ */
+export function apartParts(object: Pick<ExportObject, 'ghosts'> & { parts: ReadonlyArray<ExplodePart & { layout: string }> }, layout: string): ExplodePart[] {
+  const parts: ExplodePart[] = object.parts.filter((part) => part.layout === layout).map(({ name, bbox }) => ({ name, bbox }))
+  const ghosts = (Array.isArray(object.ghosts) ? object.ghosts : []).filter((ghost) => ghost.layout === layout)
+  if (ghosts.length === 0) return parts
+  const taken = new Set(parts.map((part) => part.name))
+  const all: ExplodePart[] = []
+  let n = 0
+  const put = (at: number): void => {
+    for (const ghost of ghosts) {
+      if (Math.min(Math.max(Math.trunc(ghost.before) || 0, 0), parts.length) !== at) continue
+      let name = `\u0000left out ${n++}`
+      while (taken.has(name)) name = `\u0000left out ${n++}`
+      all.push({ name, bbox: ghost.bbox })
+    }
+  }
+  parts.forEach((part, at) => {
+    put(at)
+    all.push(part)
+  })
+  put(parts.length)
+  return all
 }
 
 /** What the person asks to be written: the objects, whether their marks go with them, and each scan they ticked. */

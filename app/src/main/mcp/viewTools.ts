@@ -17,10 +17,22 @@ import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, cl
 // from the window, `show`, which changes what the window shows for now, and `save_view`, which leaves the user a
 // view the agent proposes. `look` and `show` take the name of a saved view (`namedView`).
 
+/** Said in `scene` when a part's size or volume is not exact. */
+export const APPROXIMATE_NOTE = 'A size (and bbox) with sizeExact false, or a volume with volumeExact false, is approximate: call measure for a number to rely on.'
+
+/** What is said of a view that is neither a name nor a camera. */
+export const NO_CAMERA = 'view, as a camera, takes position and target as [x, y, z] in mm, as scene gives them: {"position": [120, -90, 60], "target": [0, 0, 6]}; or give a name: current, iso, front, back, left, right, top, bottom, or a saved view'
+
 /** Why a view given as a camera holds a key a camera does not take, or a lens or a zoom that is none; or null. */
 export const cameraKeys = (view: unknown): string | null => {
+  if (view === undefined || typeof view === 'string') return null
+  // The schema lets anything through, so that what is no camera is answered with what one is (`loose`).
+  const point = (value: unknown): boolean => Array.isArray(value) && value.length === 3 && value.every((c) => typeof c === 'number' && Number.isFinite(c))
+  const said = view as { position?: unknown; target?: unknown; up?: unknown; ortho?: unknown } | null
+  if (typeof said !== 'object' || said === null || Array.isArray(said) || !point(said.position) || !point(said.target)) return NO_CAMERA
+  if ((said.up !== undefined && !point(said.up)) || (said.ortho !== undefined && typeof said.ortho !== 'boolean')) return NO_CAMERA
   const wrong = unknownKeys(view, CAMERA_KEYS, 'view, as a camera,')
-  if (wrong !== null || typeof view !== 'object' || view === null) return wrong
+  if (wrong !== null) return wrong
   const { fov, zoom } = view as { fov?: number; zoom?: number }
   if (zoom !== undefined && !(Number.isFinite(zoom) && zoom > 0)) return 'view, as a camera, takes a zoom above 0 (1 is not zoomed), as scene gives it'
   if (fov !== undefined && !(Number.isFinite(fov) && fov >= 1 && fov <= 120)) return 'view, as a camera, takes a fov between 1 and 120 degrees, as scene gives it'
@@ -65,6 +77,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   // The parts are drawn apart on their screen: said, so that nothing told here is taken for where they are drawn.
   const explode = view && isExploded(view.explode) ? view.explode : null
   if (explode) notes.push(`The user's view is ${explodeText(explode)}: ${EXPLODED_NOTE}.`)
+  if (scene.parts.some((p) => p.bboxExact !== true || p.volumeExact !== true)) notes.push(APPROXIMATE_NOTE)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -84,8 +97,11 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
       // A part with no namesake in the layout shown has not been seen to be switched off.
       ...(shown && hideable ? { visible: shown.has(p.name) || !hideable.has(p.name) } : {}),
       size: p.bbox.max.map((max, i) => round(max - p.bbox.min[i])),
+      // Exact only where the kernel says so: nothing is claimed of a part it said nothing of.
+      sizeExact: p.bboxExact === true,
       bbox: { min: p.bbox.min.map(round), max: p.bbox.max.map(round) },
       volume: round(p.volume),
+      volumeExact: p.volumeExact === true,
       faces: p.faceCount,
       edges: p.edgeCount,
       valid: p.valid,

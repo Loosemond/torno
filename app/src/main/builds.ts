@@ -1,15 +1,16 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
-import type { BuildError, BuildState } from '../shared/build'
+import { type BuildError, type BuildState, REBUILD_KEY } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { type KernelClient, KernelError } from './kernel/client'
+import { FOLDER } from './own'
 
 const DEBOUNCE_MS = 300
 // torno's own folder, and where models and tools keep what they make: exports,
 // caches, environments. A model may write there while it builds.
-const IGNORED_FOLDERS = new Set(['out', '.torno', '__pycache__', 'cache', 'build', 'dist', 'node_modules', '.venv', '.git'])
+const IGNORED_FOLDERS = new Set(['out', FOLDER, '__pycache__', 'cache', 'build', 'dist', 'node_modules', '.venv', '.git'])
 
 /** Told the files that changed in a burst, as absolute paths. */
 export type OnChange = (paths: string[]) => void
@@ -283,7 +284,7 @@ export class Builds {
     const failure = entry.state.status === 'failed' && !this.displaced.has(objectId) ? entry.failure : undefined
     if (opts?.restore === false) throw failure ? new NotBuilding('no_build', NOT_HELD) : new KernelError('no_build', NOT_HELD)
     if (failure) {
-      throw new NotBuilding(failure.kind, `there is no build of ${objectId} to answer from: the kernel let the last one go, and the model does not build now (${failure.message}). It is built again when a source changes or Rebuild is pressed.`)
+      throw new NotBuilding(failure.kind, `there is no build of ${objectId} to answer from: the kernel let the last one go, and the model does not build now (${failure.message}). It is built again when a source changes, or when the user presses Rebuild in the status line of torno (${REBUILD_KEY}).`)
     }
     try {
       await this.builtAgain(entry)

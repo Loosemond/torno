@@ -142,3 +142,19 @@ export function reachingApart(sphere: THREE.Sphere, parts: readonly ExplodePart[
   }
   return all
 }
+
+/**
+ * Whether any of some parts, drawn off by `offsets`, is outside the view: a corner of its box is projected off
+ * the screen (`project` answers in fractions of the half size of the view, -1 to 1 across it). What decides
+ * whether drawing the parts apart is followed by fitting them: only when one of them would no longer be seen whole.
+ */
+export function leavesView(parts: readonly ExplodePart[], offsets: Offsets, project: (point: Vec3) => readonly [number, number]): boolean {
+  for (const part of parts) {
+    const by = offsets[part.name] ?? STILL
+    for (let corner = 0; corner < 8; corner++) {
+      const [x, y] = project([0, 1, 2].map((i) => ((corner >> i) & 1 ? part.bbox.max[i] : part.bbox.min[i]) + by[i]) as Vec3)
+      if (!(Math.abs(x) <= 1 && Math.abs(y) <= 1)) return true
+    }
+  }
+  return false
+}

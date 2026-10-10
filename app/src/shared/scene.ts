@@ -14,8 +14,12 @@ export interface Part {
   name: string
   layout: string         // "assembly" | "print" | "main"
   loc: { t: [number, number, number]; q: [number, number, number, number] }  // local → object frame, quaternion xyzw
-  bbox: { min: [number, number, number]; max: [number, number, number] }      // object frame, from the mesh
-  volume: number         // mm³, exact
+  bbox: { min: [number, number, number]; max: [number, number, number] }      // object frame: the kernel's box of the part, the one `describe` and `measure bbox` tell
+  /** Whether that box is exact: only of planes and cylinders with straight and circular edges. Of any other part it is approximate (widened to the mesh, or the mesh's alone). Absent from a kernel that does not say: then nothing is claimed. */
+  bboxExact?: boolean
+  volume: number         // mm³; above 0 of a closed solid, which is how the window knows one
+  /** Whether the volume is exact: only of a part all planes, cylinders, cones, spheres and tori. Of any other it is integrated, approximate. */
+  volumeExact?: boolean
   faceCount: number
   edgeCount: number
   triangleCount: number

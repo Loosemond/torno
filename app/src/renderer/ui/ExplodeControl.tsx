@@ -49,13 +49,26 @@ function whyNot(s: TornoState): string | null {
  * them together when they are apart. Where it cannot (one part, a section, a shared centre) the bar opens and
  * says why for a moment.
  */
-export function toggleExplode(): void {
+export function toggleExplode(viewport?: Pick<Viewport, 'keepApartInView'>): void {
   const s = store.getState()
   const apart = explodeNow(s)
   const refused = apart ? null : (whyNot(s) ?? actions.setExplode({ amount: lastAmounts.get(keyOf(s)) ?? FIRST_AMOUNT }))
   if (apart) actions.setExplode({ amount: 0 })
+  // Drawn apart in one go: the camera stays as it is, unless a part would go out of sight.
+  else if (refused === null) viewport?.keepApartInView()
+  say(refused)
+}
+
+/**
+ * Says why the parts were not drawn apart, for a moment. With one part there is nothing in the bar to choose
+ * either: it is said beside the button and no bar is opened. A section or a shared centre leaves how the parts
+ * would go apart to choose, so the bar opens with the sentence in it.
+ */
+function say(refused: string | null): void {
   clearTimeout(saidTimer)
-  ui.setState(refused === null ? { said: null } : { said: refused, open: true })
+  if (refused === null) ui.setState({ said: null })
+  else if (refused === ONE_PART) ui.setState({ said: refused, open: false })
+  else ui.setState({ said: refused, open: true })
   if (refused !== null) saidTimer = setTimeout(() => ui.setState({ said: null }), SAID_FOR_MS)
 }
 
@@ -65,8 +78,9 @@ export function toggleExplode(): void {
  */
 export function ExplodeToggle() {
   const amount = useStore((s) => explodeNow(s)?.amount ?? null)
-  const open = useZustand(ui, (s) => s.open)
-  const shown = open || amount !== null
+  const onePart = useStore((s) => s.scene !== null && partsInLayout(s).length < 2)
+  const { open, said } = useZustand(ui)
+  const shown = (open && !onePart) || amount !== null
 
   // What `E` goes back to: the last amount this layout was drawn apart by, however it came to be.
   useEffect(() => {
@@ -82,6 +96,7 @@ export function ExplodeToggle() {
   }, [])
 
   return (
+    <>
     <button
       type="button"
       className="bar-button explode-toggle"
@@ -91,12 +106,20 @@ export function ExplodeToggle() {
       title={amount !== null ? `Put the parts together (${hint('explode')})` : `Draw the parts apart, for display only (${hint('explode')})`}
       onClick={() => {
         if (amount !== null) actions.setExplode({ amount: 0 })
+        // One part: there is nothing to choose in a bar. It says why, here, and opens nothing.
+        if (onePart) return say(ONE_PART)
         ui.setState({ open: amount === null && !open, said: null })
       }}
     >
       Explode
       {amount !== null && <span className="num"> {percent(amount * 100)}</span>}
     </button>
+    {onePart && said === ONE_PART && (
+      <span className="explode-said" role="status">
+        {said}
+      </span>
+    )}
+    </>
   )
 }
 
@@ -118,7 +141,8 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
   const slider = useRef<HTMLInputElement>(null)
   const amount = useRef<HTMLSpanElement>(null)
   const shown = apart ? Math.round(kept.amount * 100) : 0
-  const visible = open || apart
+  // With one part there is nothing in it to choose: it is never opened (the button says why).
+  const visible = (open && why !== ONE_PART) || apart
 
   // The slider and the number are the DOM's own while they are being changed.
   useEffect(() => {
@@ -182,7 +206,9 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
             aria-pressed={kept.axis === axis}
             title={title}
             disabled={nothing}
-            onClick={() => actions.setExplode({ axis })}
+            onClick={() => {
+              if (actions.setExplode({ axis }) === null) viewport.keepApartInView()
+            }}
           >
             {label}
           </button>
@@ -191,7 +217,9 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
       <span className="viewbar-rule" aria-hidden="true" />
       <div className="viewbar-group" role="group" aria-label="Distance">
         {SCALES.map((scale) => (
-          <button key={scale} type="button" className="bar-button num" aria-pressed={kept.scale === scale} title={`${number(scale)} times the reach of the layout at 100 %`} disabled={nothing} onClick={() => actions.setExplode({ scale })}>
+          <button key={scale} type="button" className="bar-button num" aria-pressed={kept.scale === scale} title={`${number(scale)} times the reach of the layout at 100 %`} disabled={nothing} onClick={() => {
+            if (actions.setExplode({ scale }) === null) viewport.keepApartInView()
+          }}>
             ×{number(scale)}
           </button>
         ))}

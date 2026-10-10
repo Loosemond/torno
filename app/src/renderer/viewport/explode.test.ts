@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { explodeOffsets } from '../../shared/explode'
 import type { Vec3 } from '../../shared/marks'
 import * as THREE from 'three'
-import { EXPLODE_MS, PartsApart, asBuilt, drawnAt, drawnBox, reachingApart } from './explode'
+import { EXPLODE_MS, PartsApart, asBuilt, drawnAt, drawnBox, reachingApart, leavesView } from './explode'
 import type { Hit } from './picking'
 
 const part = (name: string, min: Vec3, max: Vec3) => ({ name, bbox: { min, max } })
@@ -18,7 +18,9 @@ describe('the parts of a layout, drawn apart', () => {
     apart.set(Z, [TRAY, LID])
     expect(apart.get()).toEqual(Z)
     expect(apart.offsets()).toEqual(explodeOffsets([TRAY, LID], Z))
-    expect(apart.offsets().lid[2]).toBeCloseTo(R, 9)
+    // Along z upward from the lowest part, which stays: the lid goes the whole of the step.
+    expect(apart.offsets().lid[2]).toBeCloseTo(2 * R, 9)
+    expect(apart.offsets().tray[2]).toBe(0)
     expect([apart.any, apart.moving]).toEqual([true, false])
     apart.set(null, [TRAY, LID])
     expect([apart.get(), apart.offsets(), apart.any]).toEqual([null, {}, false])
@@ -35,13 +37,13 @@ describe('the parts of a layout, drawn apart', () => {
     apart.set(Z, [TRAY, LID], 1000)
     // Nothing has been drawn yet: the parts are where they were.
     expect(apart.offsets()).toEqual({})
-    expect(apart.target().lid[2]).toBeCloseTo(R, 9)
+    expect(apart.target().lid[2]).toBeCloseTo(2 * R, 9)
     expect([apart.any, apart.moving]).toEqual([true, true])
     expect(apart.step(1000 + EXPLODE_MS / 2)).toBe(true)
     const half = apart.offsets().lid[2]
-    expect(half).toBeGreaterThan(0.3 * R)
-    expect(half).toBeLessThan(R)
-    expect(apart.offsets().tray[2]).toBeCloseTo(-half, 9)
+    expect(half).toBeGreaterThan(0.6 * R)
+    expect(half).toBeLessThan(2 * R)
+    expect(apart.offsets().tray[2]).toBe(0)
     expect(apart.step(1000 + EXPLODE_MS)).toBe(true)
     expect(apart.offsets()).toEqual(explodeOffsets([TRAY, LID], Z))
     expect(apart.moving).toBe(false)
@@ -125,7 +127,25 @@ describe('where a part is drawn, and how far the camera must reach', () => {
     expect(reach).not.toBe(built)
     expect(built.radius).toBe(30)
     // To a hair: the corners of what a sphere is drawn round lie on it.
-    for (const corner of [[20, 15, 12 + R], [-20, -15, -R], [20, 15, 12], [-20, -15, 0]]) expect(reach.distanceToPoint(new THREE.Vector3(...corner))).toBeLessThan(1e-9)
-    expect(built.distanceToPoint(new THREE.Vector3(20, 15, 12 + R))).toBeGreaterThan(1)
+    for (const corner of [[20, 15, 12 + 2 * R], [-20, -15, 0]]) expect(reach.distanceToPoint(new THREE.Vector3(...corner))).toBeLessThan(1e-9)
+    expect(built.distanceToPoint(new THREE.Vector3(20, 15, 12 + 2 * R))).toBeGreaterThan(1)
+  })
+})
+
+describe('whether parts drawn apart leave the view', () => {
+  // A view 200 wide and 100 high, looking down z: a point is on screen where it is in the box, in fractions of the half size.
+  const project = (p: Vec3): [number, number] => [p[0] / 100, p[1] / 50]
+
+  it('is so when a corner of any part, where it is going, is off the screen', () => {
+    const offsets = { tray: [0, 0, 0] as Vec3, lid: [90, 0, 0] as Vec3 }
+    expect(leavesView([TRAY, LID], offsets, project)).toBe(true)
+    expect(leavesView([TRAY, LID], { ...offsets, lid: [0, 40, 0] }, project)).toBe(true)
+    expect(leavesView([TRAY], offsets, project)).toBe(false)
+  })
+
+  it('is not so while every part is still within it, and of no parts', () => {
+    expect(leavesView([TRAY, LID], { tray: [-70, 0, 0], lid: [70, 0, 0] }, project)).toBe(false)
+    expect(leavesView([TRAY, LID], {}, project)).toBe(false)
+    expect(leavesView([], {}, project)).toBe(false)
   })
 })

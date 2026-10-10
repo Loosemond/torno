@@ -393,6 +393,18 @@ describe('ScanStore', () => {
     expect((await scans.undoAlign('bracket', 'S1', 'print')).alignments).not.toHaveProperty('print')
   })
 
+  it('keeps nothing to undo to that is the alignment itself: the same one kept twice still goes back to the one before', async () => {
+    const scans = store()
+    await scans.import('bracket', source)
+    await scans.align('bracket', 'S1', 'assembly', FITTED)
+    const typed = { ...FITTED, steps: ['pairs', 'typed'] as ScanAlignment['steps'], transform: { ...FITTED.transform, t: [5, 0.8, 1] as [number, number, number] } }
+    await scans.align('bracket', 'S1', 'assembly', typed)
+    // As a field that kept its value on Enter and again when the focus left it (the sweep's finding 6).
+    const again = (await scans.align('bracket', 'S1', 'assembly', { ...typed, at: '2026-10-10T05:00:00.002Z' })).alignments.assembly
+    expect(again.before).toMatchObject({ steps: ['pairs'], transform: { t: [5, 0, 1] } })
+    expect((await scans.undoAlign('bracket', 'S1', 'assembly')).alignments.assembly).toMatchObject({ steps: ['pairs'], transform: { t: [5, 0, 1] } })
+  })
+
   it('marks every alignment of a scan read again from a changed source, until it is aligned again or said to hold', async () => {
     const scans = store()
     await scans.import('bracket', source)

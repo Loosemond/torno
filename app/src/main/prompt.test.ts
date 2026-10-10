@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SYSTEM_PROMPT } from './prompt'
+import { TOOLS } from './mcp/schemas'
+import { NO_HOOKS_PROMPT, SYSTEM_PROMPT, systemPrompt } from './prompt'
 
 describe('the system prompt', () => {
   it('says what each thing means that a prompt may say of a mark, and what its other lines are', () => {
@@ -74,5 +75,42 @@ describe('the system prompt', () => {
   // Final fix wave (I8, T9, C1).
   it('says the whole way for a part torno moved, and that a dimension never has an end on a scan', () => {
     for (const said of ['the user aligns it there: an alignment is of one layout', 'adding one if need be; the user then aligns the scan in it', 'A dimension is of the model: it never has an end on a scan.']) expect(SYSTEM_PROMPT).toContain(said)
+  })
+})
+
+// Final fix wave (I5): what is told to an agent that posts no hooks never says that anything comes with its prompts.
+describe('what an agent without hooks is told', () => {
+  const WITH_A_PROMPT = /with (the|every|each|your|its) (next )?prompts?|with a prompt(?!, or in \.torno\/prompt\.md)/i
+  const hookless = `${systemPrompt((tool) => `the torno tool ${tool}`, false)}\n\n${NO_HOOKS_PROMPT}`
+
+  it('is its instructions, which never say that something arrives with a prompt, and stay short', () => {
+    expect(hookless).not.toMatch(WITH_A_PROMPT)
+    expect(hookless).not.toMatch(/arrive|pushed to you with/)
+    // AGENTS.md is read into every conversation of that agent: the prompt's own bound, the tool names in words, and the paragraph on the two files.
+    expect(hookless.length).toBeLessThan(7600)
+    expect(NO_HOOKS_PROMPT.length).toBeLessThan(500)
+  })
+
+  it('and the tools, whose descriptions are the same for every agent: none says so either', () => {
+    const texts: string[] = []
+    const walk = (value: unknown): void => {
+      if (typeof value === 'string') texts.push(value)
+      else if (typeof value === 'object' && value !== null) {
+        const described = (value as { description?: unknown }).description
+        if (typeof described === 'string') texts.push(described)
+        for (const inner of Object.values(value)) if (typeof inner === 'object' && inner !== null) walk(inner)
+      }
+    }
+    walk(TOOLS)
+    expect(texts.length).toBeGreaterThan(60)
+    for (const text of texts) expect(text, text).not.toMatch(WITH_A_PROMPT)
+    // Said so that it is true of both kinds of agent.
+    expect(TOOLS.marks.description).toContain('new ones are told to you as a line each (with a prompt, or in .torno/prompt.md)')
+    expect(TOOLS.add_mark.description).toContain('it is told to you again for as long as it fails (with a prompt, or in .torno/prompt.md)')
+  })
+
+  it('while one with hooks is told that they do', () => {
+    expect(SYSTEM_PROMPT).toContain('New marks arrive with the prompt')
+    expect(SYSTEM_PROMPT).toContain('with every prompt until they pass')
   })
 })

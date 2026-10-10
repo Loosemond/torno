@@ -164,7 +164,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
         field.current?.select()
         return
       }
-      const to = stepCard(e.key, found.indexOf(document.activeElement as HTMLElement), found.length, columnsOf(found))
+      const to = stepCard(e, found.indexOf(document.activeElement as HTMLElement), found.length, columnsOf(found))
       if (to !== null) {
         e.preventDefault()
         const next = to === 'field' ? field.current : found[to]
@@ -274,7 +274,7 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
           </span>
           {open && <span className="card-open">Open</span>}
         </span>
-        <span className="card-line" data-part="build" data-tone={build.tone} data-status={build.standing} title={build.text}>
+        <span className="card-line" data-part="build" data-tone={build.tone} data-status={build.standing} title={card.problemAt ?? build.text}>
           {/* Of a build of this run only: the status line's dot, and the line in ink. */}
           {build.standing && <span className="status-dot" aria-hidden="true" />}
           {numbered(build.text)}

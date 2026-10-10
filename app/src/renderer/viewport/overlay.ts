@@ -32,7 +32,7 @@ const AXES: { letter: string; axis: Vec3 }[] = [
  * The axes of the light theme (styles/tokens.css; contrast.test.ts holds them equal). They are the gizmo's:
  * kept clear of the two mark colours, so that in a picture nothing but a mark is a mark's red or green.
  */
-export const AXIS_COLOURS: readonly [string, string, string] = ['#9A3350', '#4C7F2C', '#2E5FA9']
+export const AXIS_COLOURS: readonly [string, string, string] = ['#9A3350', '#457528', '#2E5FA9']
 
 /**
  * How many pixels of a picture a nominal one is: sizes are in units of a

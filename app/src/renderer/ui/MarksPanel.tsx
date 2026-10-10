@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { type MarkPatch, awaitsAcknowledgement, markAnchors } from '../../shared/marks'
-import { actions, useStore } from '../state/store'
+import { actions, layerOf, useStore } from '../state/store'
 import { TOOLS } from '../state/tools'
 import { MarkRow } from './MarkRow'
 
@@ -44,7 +44,7 @@ export function MarksPanel() {
     if (mark.status === 'resolved') return false
     // A region is drawn on its scan, and not while that is switched off.
     if (mark.kind === 'region') return mark.anchorState !== 'orphaned' && scanViews[mark.scan]?.visible === false
-    const off = (part: string | undefined): boolean => part !== undefined && layers[part]?.visible === false && (parts?.some((p) => p.layout === mark.layout && p.name === part) ?? false)
+    const off = (part: string | undefined): boolean => part !== undefined && layerOf(layers, part)?.visible === false && (parts?.some((p) => p.layout === mark.layout && p.name === part) ?? false)
     const ends = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)
     return ends.length > 0 && ends.every((anchor) => off(anchor.part))
   }

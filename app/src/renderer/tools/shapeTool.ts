@@ -2,7 +2,7 @@ import { which } from '../../shared/keys'
 import * as THREE from 'three'
 import type { Quat, ShapeKind, ShapeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
-import { actions, store, type TornoState } from '../state/store'
+import { actions, store, type TornoState, explodeNow } from '../state/store'
 import { GIZMO_MODES, setGizmo, toolStore, type GizmoMode } from '../state/tools'
 import { TYPING } from '../ui/typing'
 import type { Hit } from '../viewport/picking'
@@ -136,7 +136,8 @@ export function connectShapeEdit(viewport: Pick<Viewport, 'editShape'>): () => v
   const apply = (force = false): void => {
     const s = store.getState()
     const { objectId } = s
-    const id = editedShape(s)?.id ?? null
+    // Not while the parts are drawn apart: nothing is marked then, and the gizmo would stand away from where its part is drawn.
+    const id = explodeNow(s) === null ? (editedShape(s)?.id ?? null) : null
     const mode = toolStore.getState().gizmo
     if (!force && id === on.id && mode === on.mode) return
     on = { id, mode }
@@ -154,7 +155,7 @@ export function connectShapeEdit(viewport: Pick<Viewport, 'editShape'>): () => v
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
     if (e.target instanceof Element && e.target.closest(TYPING)) return
     const wanted = GIZMO_MODES[which(e, 'gizmo')]
-    if (!wanted || !editedShape(store.getState())) return
+    if (!wanted || !editedShape(store.getState()) || explodeNow(store.getState()) !== null) return
     setGizmo(wanted.mode)
     e.preventDefault()
   }
