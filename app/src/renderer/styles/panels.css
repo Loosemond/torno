@@ -1,0 +1,166 @@
+/* ---- Left column: objects, then the layers of the open one ---- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.objects {
+  /* The list that gives way first: with a scan in, the layers and the marks need their rows. */
+  flex: 0 2 auto;
+  max-height: 38%;
+  padding-bottom: var(--space-2);
+}
+
+.layers {
+  /* Never cut mid-row: an object has a handful of parts, and they are all shown. */
+  flex: 0 0 auto;
+  max-height: 34%;
+  border-top: var(--divider);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
+.scans {
+  flex: 0 1 auto;
+  max-height: 32%;
+  border-top: var(--divider);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
+.marks {
+  flex: 1 1 0;
+  /* The scans above may be many: the marks keep room for a few rows. */
+  min-height: 96px;
+  border-top: var(--divider);
+  padding-top: var(--space-1);
+}
+
+/* A title with the one thing to do in its section beside it. */
+.section-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: var(--space-2);
+}
+
+.section-title {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-4) var(--space-1);
+  font-size: var(--text-small);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.section-note {
+  padding: 0 var(--space-4);
+  color: var(--muted);
+}
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+}
+
+.row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-row {
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.object-row:hover {
+  background: var(--accent-wash);
+}
+
+.object-row[aria-current] {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.object-row[data-problem] {
+  color: var(--muted);
+}
+
+.object-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.layer-row .row-name {
+  font-size: var(--text-small);
+}
+
+.layer-row[data-hidden] .row-name {
+  color: var(--muted);
+}
+
+.layer-row[data-hidden] .swatch {
+  opacity: 0.35;
+}
+
+/* Opacity: out of the way until the row is pointed at, unless it has been set. */
+.layer-opacity {
+  appearance: none;
+  flex: none;
+  width: 56px;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  opacity: 0;
+}
+
+.layer-row:hover .layer-opacity,
+.layer-opacity:focus-visible,
+.layer-opacity[data-set] {
+  opacity: 1;
+}
+
+.layer-opacity::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--hairline);
+}
+
+.layer-opacity::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.layer-opacity:hover::-webkit-slider-thumb,
+.layer-opacity:focus-visible::-webkit-slider-thumb {
+  background: var(--accent);
+}

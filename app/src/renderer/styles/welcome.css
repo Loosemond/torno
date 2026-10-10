@@ -1,0 +1,131 @@
+/* ---- The first screen (ui/Welcome.tsx): what torno is, and the ways in ---- */
+
+.welcome-page {
+  display: grid;
+  /* One column as wide as the page and no wider: a long path is cut, it does not push the page off its centre. */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: var(--space-4);
+  width: min(520px, 100%);
+  text-align: center;
+}
+
+.welcome-head {
+  display: grid;
+  justify-items: center;
+}
+
+.welcome-says {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.welcome-says p {
+  text-wrap: balance;
+}
+
+/* What it is, said first and a size up; what an object is and what to do follow it. */
+.welcome-says p:first-child {
+  font-size: 15px;
+}
+
+.welcome-ways {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+}
+
+.welcome-problem {
+  color: var(--fail);
+  text-wrap: balance;
+}
+
+.welcome-recent {
+  width: 100%;
+  border-top: var(--divider);
+  text-align: left;
+}
+
+.welcome-recent .section-title {
+  padding: var(--space-3) var(--space-2) var(--space-1);
+}
+
+.welcome-recent ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-recent li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.recent-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  text-align: left;
+}
+
+.recent-row:hover:enabled {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.recent-name {
+  /* One width for all: the paths beside them begin on one edge. */
+  flex: 0 0 14ch;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The path is long and its end says most: it is cut at its start. */
+.recent-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.recent-row:hover:enabled .recent-path {
+  color: inherit;
+}
+
+/* A folder that is no longer there: struck, and said so in words beside it. */
+[data-missing] .recent-name,
+[data-missing] .recent-path {
+  text-decoration: line-through;
+}
+
+[data-missing] .recent-row {
+  color: var(--muted);
+}
+
+.recent-gone {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.welcome-foot {
+  max-width: 44ch;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-wrap: balance;
+}

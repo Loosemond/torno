@@ -1,0 +1,584 @@
+/* ---- Marks: what the person and the agent have pointed at ----
+   The only place besides the viewport where --user-mark and --agent-mark are
+   used. The person's chips are filled, the agent's outlined: who made a mark
+   shows without telling red from green. */
+
+.marks-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--space-2);
+}
+
+.mark-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mark-row {
+  --row-bg: var(--panel);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  background: var(--row-bg);
+}
+
+.mark-row:hover,
+.mark-row:focus-within,
+.mark-row[data-active] {
+  --row-bg: var(--accent-wash);
+}
+
+/* The active mark: a scribed line down the edge of the column. */
+.mark-row[data-active]::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.mark-chip {
+  flex: none;
+  box-sizing: border-box;
+  min-width: 26px;
+  height: 17px;
+  padding: 0 4px;
+  border: 1.5px solid var(--user-mark);
+  border-radius: 4px;
+  background: var(--user-mark);
+  color: var(--panel);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+
+.mark-chip[data-author='agent'] {
+  border-color: var(--agent-mark);
+  background: var(--panel);
+  color: var(--agent-mark);
+}
+
+.mark-kind {
+  display: grid;
+  flex: none;
+  color: var(--muted);
+}
+
+.mark-kind svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mark-note {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.mark-note[data-empty] {
+  color: var(--muted);
+}
+
+.mark-note-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  margin: 0 -5px;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+}
+
+.mark-note-input:focus-visible {
+  outline: none;
+}
+
+.mark-layout,
+.mark-status {
+  flex: none;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.mark-status[data-status='draft'] {
+  color: var(--accent);
+}
+
+/* A mark that is no draft says its status once its row is pointed at, in focus or the active one: until then
+   the width is its note's. The word stays in the row for whoever has it read out. */
+.mark-row:not(:hover, :focus-within, [data-active]) .mark-status:not([data-status='draft']) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* What the last build did to the surface a mark is on. */
+.mark-anchor {
+  flex: none;
+  font-size: var(--text-small);
+}
+
+.mark-anchor[data-state='drifted'] {
+  color: var(--warn);
+}
+
+.mark-anchor[data-state='orphaned'] {
+  color: var(--fail);
+}
+
+/* Nothing has checked the mark against the build on show. */
+.mark-anchor[data-state='unchecked'] {
+  color: var(--warn);
+}
+
+/* Done with, of another layout or on a part that is switched off: its chip is an outline in its colour, with its
+   number in muted ink. Quieter than a chip that is filled, and still read (no text is made faint by opacity). */
+.mark-row[data-status='resolved'] .mark-chip,
+.mark-row[data-elsewhere] .mark-chip,
+.mark-row[data-hidden] .mark-chip {
+  border-width: 1px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.mark-row[data-status='resolved'] .mark-note,
+.mark-row[data-elsewhere] .mark-note,
+.mark-row[data-hidden] .mark-note {
+  color: var(--muted);
+}
+
+/* A mark the agent resolved, until the person has seen that: it stays among the open ones, as it was. */
+.mark-row[data-awaiting] .mark-chip {
+  border-width: 1.5px;
+  background: var(--user-mark);
+  color: var(--panel);
+}
+
+.mark-row[data-awaiting] .mark-chip[data-author='agent'] {
+  background: var(--panel);
+  color: var(--agent-mark);
+}
+
+.mark-row[data-awaiting] .mark-note {
+  color: var(--ink);
+}
+
+/* What the agent did about it, in words, and the two things to do about that. */
+.mark-resolution {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0 9px;
+  font-size: var(--text-small);
+}
+
+.mark-resolution-note {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.mark-resolution-by {
+  font-weight: 600;
+}
+
+.mark-resolution .button {
+  height: 22px;
+  padding: 0 9px;
+}
+
+/* What can be done with a mark: over the end of the row while it is pointed at or holds the focus. */
+.mark-actions {
+  position: absolute;
+  inset: 0 var(--space-2) 0 auto;
+  display: flex;
+  align-items: center;
+  padding-left: 18px;
+  background: linear-gradient(to right, transparent, var(--row-bg) 14px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mark-row:hover .mark-actions,
+.mark-row:focus-within .mark-actions,
+.mark-row[data-replacing] .mark-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mark-actions .icon-button:hover {
+  background: var(--panel);
+}
+
+/* The mark the pin tool is in hand to put somewhere else. */
+.mark-actions .icon-button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+/* ---- A shape's numbers: its row, opened out while it is the active mark ---- */
+
+.mark-row[data-expanded] {
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: auto;
+  padding-top: 4px;
+}
+
+/* What can be done with the mark stays on its first line. */
+.mark-row[data-expanded] .mark-actions {
+  bottom: auto;
+  height: 30px;
+}
+
+.shape-fields {
+  flex: none;
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 0 12px;
+  font-size: var(--text-small);
+}
+
+/* A row of choices of which one holds: what the shape is for, what a drag does. */
+.segmented {
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+}
+
+.segmented button {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 21px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.segmented button:hover {
+  color: var(--ink);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.segmented kbd {
+  font-size: 10px;
+}
+
+.shape-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.shape-group legend {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 3px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.shape-group legend .num {
+  font-size: 11px;
+}
+
+/* One number: the sign of what it is (an axis, a diameter) and the number itself, set to the right like a column of figures. */
+.shape-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: var(--divider);
+  border-radius: 4px;
+  background: var(--panel);
+  cursor: text;
+}
+
+.shape-field:focus-within {
+  border-color: var(--accent);
+}
+
+.shape-sign {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* The same three colours as the handles of the gizmo: this number is that arrow. */
+.shape-field[data-axis='x'] .shape-sign {
+  color: var(--axis-x);
+}
+
+.shape-field[data-axis='y'] .shape-sign {
+  color: var(--axis-y);
+}
+
+.shape-field[data-axis='z'] .shape-sign {
+  color: var(--axis-z);
+}
+
+.shape-field input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  height: 100%;
+  padding: 0 0 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-small);
+  text-align: right;
+}
+
+.shape-field input:focus-visible {
+  outline: none;
+}
+
+.shape-drag {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+/* ---- A dimension: its value in its row, and what it should be ---- */
+
+/* The value beside the number, as it is written on the part. */
+.mark-value {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-small);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.mark-value[data-none] {
+  font-family: var(--font-ui);
+  color: var(--muted);
+}
+
+.mark-value[data-verdict='fail'] {
+  color: var(--fail);
+}
+
+/* A value of another build than the one on show: what it was, not what it is. */
+.mark-value[data-stale],
+.dimension-value[data-stale] {
+  color: var(--muted);
+}
+
+.verdict-icon {
+  flex: none;
+  width: 11px;
+  height: 11px;
+}
+
+.mark-value[data-verdict='pass'] .verdict-icon,
+.dimension-verdict[data-verdict='pass'] .verdict-icon {
+  color: var(--ok);
+}
+
+.mark-row[data-status='resolved'] .mark-value {
+  color: var(--muted);
+}
+
+.dimension-fields {
+  flex: none;
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 0 12px;
+  font-size: var(--text-small);
+}
+
+.dimension-read {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+}
+
+/* The one large number of the panel: what the kernel measured. */
+.dimension-value {
+  flex: none;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ink);
+  cursor: default;
+}
+
+.dimension-value[data-none] {
+  font-family: var(--font-ui);
+  font-size: var(--text-size);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.dimension-how {
+  min-width: 0;
+  color: var(--muted);
+}
+
+.dimension-expect {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dimension-expect input::placeholder {
+  color: var(--muted);
+}
+
+.dimension-verdict {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--ink);
+}
+
+.dimension-verdict[data-verdict='fail'] {
+  color: var(--fail);
+}
+
+.dimension-verdict[data-verdict='none'] {
+  color: var(--muted);
+}
+
+.marks-problem {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  font-size: var(--text-small);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.marks-empty {
+  padding: 0 var(--space-4);
+  color: var(--muted);
+}
+
+.marks-empty p {
+  margin: 0 0 var(--space-2);
+  text-wrap: balance;
+}
+
+.marks-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-small);
+  list-style: none;
+}
+
+.marks-keys li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.marks-keys kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  border: var(--divider);
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: var(--ink);
+}
+
+/* The heading the resolved marks are folded under. */
+.marks-fold {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 28px;
+  margin-top: var(--space-1);
+  padding: 0 var(--space-4) 0 11px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: left;
+}
+
+.marks-fold:hover {
+  color: var(--ink);
+}
+
+.marks-fold:focus-visible {
+  outline-offset: -2px;
+}
+
+.marks-fold svg {
+  width: 12px;
+  height: 12px;
+}
+
+.marks-fold[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}

@@ -1,11 +1,25 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, it } from 'vitest'
 
 // What the stylesheets are held to beyond their tokens' contrasts (`shared/contrast.test.ts`): nothing in the
 // window or in an exported page animates without end, and no text is made fainter than its colour by `opacity`.
 
-const SHEETS = { 'app.css': resolve(__dirname, 'app.css'), 'tokens.css': resolve(__dirname, 'tokens.css'), 'page.css': resolve(__dirname, '../../export/page.css') }
+/** The stylesheets of the window by area, in the order `app.css` imports them: the order of the cascade. */
+const AREAS = [...readFileSync(resolve(__dirname, 'app.css'), 'utf8').matchAll(/^@import '\.\/([a-z]+\.css)';$/gm)].map((match) => match[1])
+
+const SHEETS: Record<string, string> = { ...Object.fromEntries(AREAS.map((name) => [name, resolve(__dirname, name)])), 'tokens.css': resolve(__dirname, 'tokens.css'), 'page.css': resolve(__dirname, '../../export/page.css') }
+
+it('app.css is the list of the stylesheets by area and nothing else: every one of the folder, once, in the order of the cascade', () => {
+  const index = readFileSync(resolve(__dirname, 'app.css'), 'utf8')
+  // Nothing but imports: a rule here would come after every area's, whatever it was meant to follow.
+  expect(index).toBe(AREAS.map((name) => `@import './${name}';\n`).join(''))
+  expect(new Set(AREAS).size).toBe(AREAS.length)
+  const there = readdirSync(__dirname).filter((name) => name.endsWith('.css') && name !== 'app.css' && name !== 'tokens.css')
+  expect([...AREAS].sort()).toEqual(there.sort())
+  // The shell first, and last what was found late and must win over the areas it mends.
+  expect([AREAS[0], AREAS.at(-1)]).toEqual(['layout.css', 'late.css'])
+})
 
 /** Every rule of a stylesheet, flat: its selector (with the at-rules it is under) and its declarations. Comments are taken out first. */
 export function rules(css: string): Array<{ selector: string; body: string }> {

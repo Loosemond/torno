@@ -1,0 +1,237 @@
+/* ---- Export: what goes into the file, asked over the view or over the page of objects ---- */
+
+/* In the status line it is the one thing to press among read-outs: it has a button's frame. */
+.status-export {
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.status-export:hover,
+.status-rebuild:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The one way to build again by hand: small and always there, beside how the build stands. */
+.status-rebuild {
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+}
+
+/* The thing to press: the last build failed, or was let go. */
+.status-rebuild[data-primary] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+}
+
+.status-rebuild[data-primary]:hover {
+  color: var(--panel);
+}
+
+/* A card and, over its corner, the way to export that one object: shown when the card is pointed at or has the focus. */
+.card-cell {
+  display: grid;
+  min-width: 0;
+}
+
+.card-cell > * {
+  grid-area: 1 / 1;
+}
+
+.card-export {
+  z-index: 1;
+  align-self: start;
+  justify-self: end;
+  height: 24px;
+  margin: var(--space-2);
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  font-size: var(--text-small);
+  opacity: 0;
+}
+
+.card-cell:hover .card-export,
+.card-cell:focus-within .card-export {
+  opacity: 1;
+}
+
+.card-export:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.export-what[data-tone='warn'] {
+  color: var(--warn);
+}
+
+.show-export {
+  flex: none;
+  height: 30px;
+  margin-left: auto;
+}
+
+.export-layer {
+  /* Over the whole window, so that nothing behind takes a click while it is up; the sheet stands over the view. */
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: start center;
+  padding: var(--space-3) calc(var(--dock-space) + var(--space-4)) calc(var(--status-h) + var(--space-4)) calc(var(--left-w) + var(--space-4));
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.export-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 100%;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.export-sheet:focus {
+  outline: none;
+}
+
+.export-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) 0 var(--space-4);
+}
+
+.export-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.export-body {
+  min-height: 0;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.export-body .section-title {
+  margin: var(--space-4) 0 var(--space-1);
+  padding: 0;
+}
+
+.export-lead {
+  max-width: 62ch;
+  color: var(--muted);
+}
+
+.export-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.export-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: var(--space-2);
+  align-items: center;
+  padding: 3px 0;
+}
+
+.export-row input {
+  grid-row: 1;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.export-cannot {
+  max-width: 62ch;
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.export-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-what {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.export-warning,
+.export-never {
+  max-width: 62ch;
+  font-size: var(--text-small);
+}
+
+.export-warning {
+  margin-bottom: var(--space-1);
+  color: var(--warn);
+}
+
+.export-never {
+  margin-top: var(--space-4);
+  color: var(--muted);
+}
+
+.export-foot {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--divider);
+}
+
+.export-size {
+  min-width: 0;
+  font-size: var(--text-small);
+}
+
+.export-size [data-tone='warn'] {
+  color: var(--warn);
+}
+
+.export-size [data-tone='fail'] {
+  color: var(--fail);
+}
+
+.export-path {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+
+.export-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}

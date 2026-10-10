@@ -1,0 +1,138 @@
+/* ---- Regions of a scan ---- */
+
+/* The bar of the Region tool: the surface of the other bars, two rows. The first is how the scan is painted,
+   the second what to do next and how much is painted. Nothing in it moves with the pointer. */
+.regionbar {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: 4px 5px 5px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+}
+
+.regionbar[data-raised='1'] {
+  bottom: calc(var(--space-3) + 40px);
+}
+
+.regionbar[data-raised='2'] {
+  bottom: calc(var(--space-3) + 80px);
+}
+
+.regionbar[data-raised='3'] {
+  bottom: calc(var(--space-3) + 120px);
+}
+
+.regionbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.regionbar-row .segmented {
+  flex: none;
+  border-color: transparent;
+  padding: 0;
+}
+
+.regionbar-row .segmented button {
+  height: 24px;
+  padding: 0 9px;
+}
+
+.regionbar-label {
+  padding-left: 6px;
+  color: var(--muted);
+}
+
+.regionbar .align-field {
+  flex: 0 0 76px;
+}
+
+.regionbar-rule {
+  align-self: stretch;
+  width: 0;
+  margin: 3px 2px;
+  border-left: var(--divider);
+}
+
+.regionbar-row[data-part='foot'] {
+  padding-left: 6px;
+  gap: 6px;
+}
+
+/* The one line that says what to do next: the loudest text of the bar. It may take a second line in a narrow view. */
+.regionbar-next {
+  margin: 0;
+  padding: 0 6px;
+  color: var(--ink);
+  font-size: var(--text-size);
+  text-wrap: pretty;
+}
+
+.regionbar-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.regionbar-count .num {
+  color: var(--ink);
+}
+
+.regionbar-count[data-empty] .num {
+  color: var(--muted);
+}
+
+/* What Enter does: the one button of the bar that stands out, as every primary button does: the accent, never a mark's colour. */
+.regionbar-keep:not(:disabled) {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+}
+
+.regionbar-note {
+  margin: 0;
+  padding: 0 6px 1px;
+  color: var(--muted);
+  text-wrap: pretty;
+  white-space: normal;
+}
+
+.regionbar-note[data-part='refused'] {
+  color: var(--fail);
+}
+
+/* The rectangle of a box being dragged over the scan: the person's mark colour, as what it takes will be. */
+.region-box {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid var(--user-mark);
+  background: color-mix(in srgb, var(--user-mark) 10%, transparent);
+  pointer-events: none;
+}
+
+/* A painting waits while another tool is in hand: a dot on the Region tool, in the colour of what it will be. */
+.tool-button[data-waiting]::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--user-mark);
+}

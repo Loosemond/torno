@@ -1,0 +1,135 @@
+/* ---- Tools: the palette at the left edge of the viewport ---- */
+
+.toolbox {
+  position: absolute;
+  top: 50%;
+  left: var(--space-3);
+  transform: translateY(-50%);
+  display: grid;
+  gap: 2px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.tool-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+}
+
+/* The Shape tool and, beside it while it is open, the choice of which shape it places. */
+.tool-with-choice {
+  position: relative;
+  display: grid;
+}
+
+.tool-choice {
+  position: absolute;
+  top: -4px;
+  left: calc(100% + 10px);
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+/* In the bottom corner of the viewport while the Measure tool is in hand, clear of the part and of the bars: what its clicks measure. */
+.measure-choice {
+  position: absolute;
+  bottom: var(--space-3);
+  left: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.measure-choice .segmented {
+  border-color: transparent;
+  padding: 0;
+}
+
+.measure-choice .segmented + .segmented {
+  padding-left: 4px;
+  border-left: var(--divider);
+  border-radius: 0;
+}
+
+.measure-choice .segmented button {
+  height: 24px;
+  padding: 0 8px;
+}
+
+.measure-key {
+  padding: 0 7px 0 8px;
+  border-left: var(--divider);
+  line-height: 24px;
+}
+
+.measure-key kbd {
+  color: var(--ink);
+}
+
+.tool-choice .tool-button svg {
+  transform: none;
+}
+
+.tool-choice .tool-button[aria-checked='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.tool-button svg {
+  width: 16px;
+  height: 16px;
+  /* Up and left a little: the key sits in the other corner. */
+  transform: translate(-2px, -2px);
+}
+
+.tool-button:hover:enabled {
+  background: var(--accent-wash);
+}
+
+.tool-button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.tool-button:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+/* The key that chooses the tool, like the size stamped on a drill's shank. */
+.tool-key {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--muted);
+}
+
+.tool-button[aria-pressed='true'] .tool-key {
+  color: inherit;
+}

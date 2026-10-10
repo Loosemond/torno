@@ -1,0 +1,134 @@
+/* ---- Found by the pass over the themes (e2e/themes.spec.ts) ---- */
+
+/* What a mark's row says beside its note ("spans parts drawn apart") is cut to the row's width, and its
+   tooltip says it whole. It used to push the row wider than the column, which then scrolled sideways. */
+.mark-row .row-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The lists of the left column scrolled with the system's own bars, arrows and all: the loudest thing in the
+   column. Thin, and in a grey that shows where the list is (3:1 on the panel), as on the page of objects and in the sheets. */
+.left,
+.left * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+/* ---- Final fix wave ---- */
+
+/* Why E drew nothing apart of one part, said beside the button for a moment: no bar is opened for it. */
+.explode-said {
+  padding: 0 var(--space-2);
+  color: var(--ink);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+/* What the next prompt carries, for an agent that is told with every prompt: one quiet line under the header. */
+.session-next {
+  flex: none;
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* Under the name of the workspace while it is the example: it does not outlive torno. */
+.workspace-example {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--warn);
+  font-size: var(--text-small);
+}
+
+/* The folder button and its menu: the folders opened lately, the dialog, the example. */
+.folder-menu-host {
+  position: relative;
+  flex: none;
+}
+
+.folder-menu {
+  z-index: 20;
+  left: auto;
+  right: 0;
+  width: 232px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.menu-title {
+  margin: 0;
+  padding: 4px 9px 2px;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.menu-rule {
+  width: 100%;
+  margin: 3px 0;
+  border: 0;
+  border-top: var(--divider);
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.folder-item {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 4px 9px;
+}
+
+.folder-item:disabled {
+  color: var(--ink);
+}
+
+.folder-name,
+.folder-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-path {
+  color: var(--muted);
+  font-size: 11px;
+  direction: rtl;
+  text-align: left;
+}
+
+.folder-row[data-missing] .folder-name {
+  text-decoration: line-through;
+}
+
+.folder-row[data-missing] .folder-item {
+  color: var(--muted);
+}
+
+.folder-said {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.folder-remove {
+  flex: none;
+  color: var(--accent);
+}
+
+/* Under the two ways in: what opening the example means. */
+.welcome-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}

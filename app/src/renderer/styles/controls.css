@@ -1,0 +1,146 @@
+/* ---- A question asked in place (ui/Confirm.tsx) ---- */
+
+.confirm {
+  flex: none;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--divider);
+  border-bottom: var(--divider);
+  background: var(--panel);
+}
+
+.confirm p {
+  text-wrap: pretty;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The button that ends something: marked, but not the one a stray Enter presses. */
+.confirm-accept {
+  border-color: var(--fail);
+  color: var(--fail);
+}
+
+.confirm-accept:hover {
+  border-color: var(--fail);
+  background: var(--fail);
+  color: var(--panel);
+}
+
+/* Over the top of the terminal, which keeps its size. */
+.session-body > .confirm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Above the terminal's own layers, which are stacked up to 11. */
+  z-index: 20;
+  border-top: none;
+}
+
+/* ---- Controls ---- */
+
+.spacer {
+  flex: 1;
+}
+
+.selectable {
+  user-select: text;
+  cursor: text;
+}
+
+.button {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+}
+
+.button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* A button in a panel header: no frame until it is pointed at. */
+.button-quiet {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.button-quiet:hover {
+  border-color: transparent;
+  background: var(--accent-wash);
+}
+
+.button-primary {
+  height: 32px;
+  padding: 0 var(--space-4);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+  font-weight: 500;
+}
+
+.button-primary:hover {
+  color: var(--panel);
+  filter: brightness(1.1);
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+}
+
+.icon-button:hover {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+}
+
+.icon-button:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---- First launch: no folder open ---- */
+
+.welcome {
+  display: grid;
+  /* Centred while it fits; from the top, and scrolled, in a window too low for it. */
+  place-items: safe center;
+  padding: var(--space-4);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}

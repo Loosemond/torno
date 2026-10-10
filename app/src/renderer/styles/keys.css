@@ -1,0 +1,170 @@
+/* ---- The sheet of keys (ui/KeySheet.tsx), and its button at the foot of the tools ---- */
+
+.toolbox-rule {
+  height: 1px;
+  margin: 2px 5px;
+  background: var(--hairline);
+}
+
+.tool-keys {
+  height: 26px;
+  color: var(--muted);
+  font-size: var(--text-size);
+}
+
+.keys-layer {
+  /* Over the whole window: a press beside the sheet puts it away, and nothing behind takes it. */
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  /* One row as high as the window allows and no higher: the sheet's `max-height: 100%` is of it, and what does not fit scrolls inside the sheet. */
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+  padding: var(--space-4);
+  /* A scrim: the sheet is over the window, not part of it. */
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.keys-sheet:focus {
+  outline: none;
+}
+
+.keys-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(940px, 100%);
+  max-height: 100%;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.keys-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-bottom: var(--divider);
+}
+
+.keys-head h2 {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.keys-search {
+  display: flex;
+  width: 220px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: text;
+}
+
+.keys-search:focus-within {
+  border-color: var(--accent);
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.keys-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.keys-search input::placeholder {
+  color: var(--muted);
+}
+
+.keys-search input:focus-visible {
+  outline: none;
+}
+
+.keys-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.keys-columns {
+  columns: 3 250px;
+  column-gap: var(--space-4);
+}
+
+.keys-group {
+  margin-bottom: var(--space-4);
+  break-inside: avoid;
+}
+
+.keys-group h3 {
+  font-size: var(--text-size);
+  font-weight: 600;
+}
+
+.keys-when {
+  margin-bottom: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* Two columns a group: the caps, and what they do, which all begins on one edge. */
+.keys-group ul {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) 1fr;
+  align-items: baseline;
+  gap: 6px var(--space-2);
+  margin: 0;
+  padding: 3px 0;
+  list-style: none;
+}
+
+.keys-group li {
+  display: contents;
+}
+
+.keys-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+/* How many keys are shown: what is said aloud as the search is typed. */
+.keys-count {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* A key cap of the sheet: a size up from those in a line of text, and in the ink. */
+.keys-sheet kbd {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.keys-none {
+  color: var(--muted);
+}
+
+.keys-typed {
+  color: var(--ink);
+  font-weight: 500;
+}

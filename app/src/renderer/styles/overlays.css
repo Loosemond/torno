@@ -1,0 +1,404 @@
+/* ---- Pointing: the readout at the pointer, and the selection ---- */
+
+.pick-readout {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  max-width: min(420px, calc(100% - 16px));
+  padding: 3px 7px;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  font-size: var(--text-small);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.pick-readout[hidden],
+.pick-readout [hidden] {
+  display: none;
+}
+
+.pick-readout-ref {
+  color: var(--accent);
+}
+
+.pick-readout-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+/* A sentence rather than a ref and its numbers: in the face of the UI, but for the builds and refs it names. */
+.pick-readout[data-says='sentence'] .pick-readout-detail {
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
+.pick-readout[data-says='sentence'] .pick-readout-detail .num,
+.mark-value[data-none] .num,
+.dimension-value[data-none] .num,
+.dimension-how .num {
+  font-family: var(--font-mono);
+}
+
+/* A sentence may be a long one (why the kernel would not measure something): it runs on, where a ref is cut. */
+.pick-readout[data-says='sentence'] {
+  white-space: normal;
+}
+
+.selection {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.selection-chips {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  list-style: none;
+}
+
+.selection-chip {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  height: 26px;
+  padding: 0 9px;
+  line-height: 26px;
+}
+
+.selection-chip + .selection-chip {
+  border-left: var(--divider);
+}
+
+.selection-ref {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.selection-descriptor {
+  color: var(--muted);
+}
+
+.selection-descriptor:empty {
+  display: none;
+}
+
+/* ---- Section: the plane the parts are cut by, at the bottom of the viewport like the selection ---- */
+
+.sectionbar {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+/* Above the selection, and above what the agent points at: each has a row of its own. */
+.sectionbar[data-raised='1'] {
+  bottom: calc(var(--space-3) + 40px);
+}
+
+.sectionbar[data-raised='2'] {
+  bottom: calc(var(--space-3) + 80px);
+}
+
+/* The three axes in their own colours, as on the gizmo: this letter is that direction. */
+.section-axis {
+  width: 26px;
+  padding: 0;
+  font-weight: 500;
+}
+
+.section-axis[data-axis='x'] {
+  color: var(--axis-x);
+}
+
+.section-axis[data-axis='y'] {
+  color: var(--axis-y);
+}
+
+.section-axis[data-axis='z'] {
+  color: var(--axis-z);
+}
+
+/* A rule to slide along: a hairline with a mark at the middle of the parts, and the plane as a tick across it. */
+.section-slider {
+  appearance: none;
+  flex: 0 1 168px;
+  min-width: 72px;
+  height: 26px;
+  margin: 0 var(--space-2) 0 var(--space-1);
+  background:
+    linear-gradient(var(--muted), var(--muted)) center / 1px 7px no-repeat,
+    linear-gradient(var(--hairline), var(--hairline)) center / 100% 1px no-repeat;
+  cursor: ew-resize;
+}
+
+.section-slider::-webkit-slider-runnable-track {
+  height: 26px;
+  background: transparent;
+}
+
+.section-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 3px;
+  height: 16px;
+  margin-top: 5px;
+  border: 0;
+  border-radius: 1.5px;
+  background: var(--accent);
+}
+
+.section-slider:focus-visible {
+  outline: none;
+}
+
+.section-slider:focus-visible::-webkit-slider-thumb {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.section-slider:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.section-slider:disabled::-webkit-slider-thumb {
+  background: var(--muted);
+}
+
+.section-offset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  height: 22px;
+  padding: 0 6px;
+  border: var(--divider);
+  border-radius: 4px;
+  background: var(--panel);
+  cursor: text;
+}
+
+.section-offset:focus-within {
+  border-color: var(--accent);
+}
+
+.section-offset[data-disabled] {
+  opacity: 0.45;
+}
+
+.section-offset input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-small);
+  text-align: right;
+}
+
+.section-offset input:focus-visible {
+  outline: none;
+}
+
+/* Said in the bar when the plane leaves nothing to see. */
+.sectionbar-note {
+  padding: 0 var(--space-1) 0 var(--space-2);
+  color: var(--muted);
+}
+
+.section-offset span {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* ---- What the agent points at: a line where the selection is shown, in the colour of its marks ---- */
+
+.agent-line {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: 3px 3px 3px 9px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+}
+
+/* Above the selection, when something is selected too. */
+.agent-line[data-above] {
+  bottom: calc(var(--space-3) + 40px);
+}
+
+.agent-refs {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  max-width: 50%;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  list-style: none;
+}
+
+.agent-ref {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.agent-note {
+  display: -webkit-box;
+  min-width: 0;
+  max-width: 60ch;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* ---- The note of a mark: a card beside it, over the viewport ---- */
+
+.note-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 288px;
+  padding: 6px 6px 7px 9px;
+  border: var(--divider);
+  /* The pencil that made the mark, down the edge of its note. */
+  border-left: 2px solid var(--user-mark);
+  border-radius: 3px var(--radius-palette) var(--radius-palette) 3px;
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.note-card[data-author='agent'] {
+  border-left-color: var(--agent-mark);
+}
+
+.note-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 24px;
+}
+
+.note-ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What the kernel says the mark is on. */
+.note-detail {
+  margin: 1px 0 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The last build moved the mark off its surface, or dropped its part: the same colours as in its row. */
+.note-detail[data-state='drifted'] {
+  color: var(--warn);
+}
+
+.note-detail[data-state='orphaned'] {
+  color: var(--fail);
+}
+
+.note-field {
+  display: block;
+  width: 100%;
+  min-height: calc(1lh + 10px);
+  max-height: calc(6lh + 10px);
+  margin: 6px 0 0;
+  padding: 4px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  line-height: var(--text-leading);
+  resize: none;
+  field-sizing: content;
+}
+
+.note-field::placeholder {
+  color: var(--muted);
+}
+
+.note-field:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.note-keys {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.note-keys kbd {
+  padding: 0 4px;
+  border: var(--divider);
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--ink);
+}
+
+.note-keys kbd:not(:first-child) {
+  margin-left: var(--space-2);
+}

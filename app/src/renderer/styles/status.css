@@ -1,0 +1,151 @@
+/* ---- Status line ---- */
+
+.status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--status-h);
+  padding: 0 var(--space-4);
+  border-top: var(--divider);
+  background: var(--panel);
+  font-size: var(--text-small);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.status-name {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.status-build {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.status-build[data-status='ok'] .status-dot {
+  background: var(--ok);
+}
+
+.status-build[data-status='failed'] .status-dot {
+  background: var(--fail);
+}
+
+.status-build[data-status='building'] .status-dot {
+  background: var(--accent);
+  transition: opacity 0.4s ease-in-out;
+}
+
+/* It beats with the count of the build's seconds: the status line sets this once a second, and nothing animates on between. */
+.status-build[data-status='building'] .status-dot[data-beat='off'] {
+  opacity: 0.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-build[data-status='building'] .status-dot {
+    transition: none;
+  }
+}
+
+.status-fail {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fail);
+  font-weight: 500;
+}
+
+.status-letgo {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--warn);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-dimensions {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-weight: 500;
+}
+
+.status-dimensions[data-state='fail'] {
+  color: var(--fail);
+}
+
+.status-dimensions[data-state='unmeasured'] {
+  color: var(--warn);
+}
+
+.status-dimensions:hover,
+.status-fail:hover,
+.status-fail[aria-expanded='true'] {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- Build error sheet: rises from the status line over the viewport ---- */
+
+.sheet {
+  position: absolute;
+  left: var(--left-w);
+  right: var(--dock-space);
+  bottom: 100%;
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 560px);
+  border-top: var(--divider);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--text-size);
+  white-space: normal;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-3);
+  height: 44px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+}
+
+.sheet-title {
+  font-weight: 600;
+  color: var(--fail);
+}
+
+.sheet-body {
+  min-height: 0;
+  padding: 0 0 var(--space-4);
+  overflow-y: auto;
+  user-select: text;
+  cursor: text;
+}
+
+.sheet-message {
+  max-width: 90ch;
+  padding: 0 var(--space-4) var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.sheet-pre {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  font: 400 var(--text-small) / 1.55 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

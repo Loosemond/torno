@@ -1,0 +1,148 @@
+/* ---- View bar: the one palette floating on the viewport ---- */
+
+/* The bars at the top of the view, one under the other, in the middle: the view bar, and under it what it opens. */
+.viewbars {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  /* Only the bars take the pointer: between and beside them it is the view's. */
+  pointer-events: none;
+}
+
+.viewbar {
+  position: relative;
+  max-width: 100%;
+  pointer-events: auto;
+  /* Its menus are stacked within it, and over the bar under it. */
+  z-index: 1;
+  display: flex;
+  /* One row; in a pane too narrow for it, what does not fit goes to a second rather than under the panels. */
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.viewbar-group {
+  display: flex;
+  gap: 2px;
+}
+
+.viewbar-rule {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--space-1);
+  background: var(--hairline);
+}
+
+.bar-button {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.bar-button:hover {
+  background: var(--accent-wash);
+}
+
+/* A button of a bar that cannot be pressed now: fainter, and it does not answer the pointer. One rule for every bar. */
+.bar-button:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.bar-button:disabled:hover {
+  background: transparent;
+}
+
+.bar-button[aria-pressed='true'],
+.bar-button[aria-expanded='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+/* The view the camera is locked on: square to a principal plane, so what is
+   drawn there is a profile in millimetres. A small padlock before its name. */
+.bar-button[data-locked] {
+  color: var(--accent);
+}
+
+.bar-button[data-locked]:not(.bar-icon) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.view-lock,
+.bar-icon .view-lock {
+  flex: none;
+  width: 9px;
+  height: 11px;
+}
+
+.menu-item[data-locked] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--accent);
+}
+
+.bar-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.bar-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.viewbar-more {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 7px);
+  left: 0;
+  display: grid;
+  min-width: 96px;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.menu-item {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--accent-wash);
+}
