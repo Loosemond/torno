@@ -4,8 +4,8 @@ import type { Mark } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo } from '../../shared/scans'
 import type { Camera } from '../../shared/view'
-import { MAX_PROPOSALS } from '../../shared/views'
-import { viewMatches } from './savedViews'
+import { MAX_PROPOSALS, MAX_VIEWS, type SavedView } from '../../shared/views'
+import { stripChips, viewMatches } from './savedViews'
 import { actions, explodeNow, partsInLayout, runningSession, sceneFileOf, store, visibleKeys } from './store'
 
 const BUF = { offset: 0, length: 0 }
@@ -1123,6 +1123,72 @@ describe('saved views', () => {
     actions.applyView('A')
     actions.removeView('a')
     expect(store.getState()).toMatchObject({ activeView: null, views: [] })
+  })
+
+  it('keeps a proposal only while the person has room for one more view of theirs, and never counts proposals against them (review M3)', () => {
+    open()
+    for (let n = 0; n < MAX_VIEWS - 1; n++) actions.saveView(`v${n}`, CAMERA)
+    const mine = store.getState().views[0]
+    for (let n = 0; n < MAX_PROPOSALS; n++) expect(actions.proposeView({ ...mine, name: `p${n}`, at: `2026-10-09T21:00:${10 + n}.000Z` })).toBe(true)
+    expect(store.getState().views).toHaveLength(MAX_VIEWS - 1 + MAX_PROPOSALS)
+    // Room for one more of theirs, whatever the agent has waiting.
+    expect(actions.keepView('p3')).toBeNull()
+    expect(actions.keepView('p4')).toBe('There are 24 views: remove one first')
+    expect(actions.saveView('one more', CAMERA)).toBe('There are 24 views: remove one first')
+    expect(actions.saveView('p5', CAMERA)).toBe('There are 24 views: remove one first')
+    expect(store.getState().views.find((v) => v.name === 'p4')?.proposed).toBe(true)
+    // The agent still has room: it is never told to remove what it cannot.
+    expect(actions.proposeView({ ...mine, name: 'again' })).toBe(true)
+    actions.removeView('v0')
+    expect(actions.keepView('p4')).toBeNull()
+  })
+
+  it('keeps a name without what does not show in it (review M4)', () => {
+    open()
+    expect(actions.saveView('\u200b', CAMERA)).toBe('A view needs a name')
+    expect(actions.saveView(' Hinge\u200b side ', CAMERA)).toBeNull()
+    expect(actions.renameView('Hinge side', 'Lid\u202e off')).toBeNull()
+    actions.proposeView({ ...store.getState().views[0], name: 'Wall\u2060 here' })
+    expect(names()).toEqual(['Lid off', 'Wall here'])
+  })
+
+  it('marks the view the agent put on screen, and a view whose explode can no longer be drawn while its parts are together (review M6, M12)', () => {
+    open()
+    actions.setExplode({ amount: 0.5 })
+    actions.saveView('Apart', CAMERA)
+    actions.setExplode({ amount: 0 })
+    const on = (): string | null => {
+      const s = store.getState()
+      const view = s.views.find((v) => v.name === s.activeView)
+      return view && viewMatches(s, view) ? view.name : null
+    }
+    expect(on()).toBeNull()
+    actions.showForAgent('assembly', {}, null, undefined, { amount: 0.5, scale: 1, axis: 'centre' })
+    actions.viewShown('apart')
+    expect(on()).toBe('Apart')
+    actions.viewShown('nothing')
+    expect(store.getState().activeView).toBe('Apart')
+    // The layout has one part now: the view is applied with its parts together, and is the one that is on.
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: scene({ assembly: ['base'] }) })
+    actions.applyView('Apart')
+    expect(on()).toBe('Apart')
+  })
+
+  it('shows six chips at most: the one that is on, then the proposals, then the others as they were saved (review I4)', () => {
+    const view = (name: string, proposed = false): SavedView => ({ name, author: proposed ? 'agent' : 'user', layout: 'assembly', camera: CAMERA, hidden: [], at: '', ...(proposed ? { proposed: true as const } : {}) })
+    const few = [view('a'), view('b'), view('p', true)]
+    expect(stripChips(few, null)).toEqual({ shown: few, more: 0 })
+    const many = [...Array.from({ length: 10 }, (_, n) => view(`v${n}`)), view('p0', true), view('p1', true)]
+    // Chosen in that order, and shown in the order they were saved: no chip changes place under the pointer that clicked it.
+    expect(stripChips(many, 'v7').shown.map((v) => v.name)).toEqual(['v0', 'v1', 'v2', 'v7', 'p0', 'p1'])
+    expect(stripChips(many, 'v7').more).toBe(6)
+    expect(stripChips(many, null).shown.map((v) => v.name)).toEqual(['v0', 'v1', 'v2', 'v3', 'p0', 'p1'])
+    // More proposals than chips: the first of them.
+    expect(stripChips([view('a'), ...Array.from({ length: 8 }, (_, n) => view(`p${n}`, true))], 'a').shown.map((v) => v.name)).toEqual(['a', 'p0', 'p1', 'p2', 'p3', 'p4'])
+    // Exactly as many as fit: none is put behind "more" to be the only one there.
+    expect(stripChips(many.slice(0, 6), null).more).toBe(0)
+    expect(stripChips(many.slice(0, 7), null)).toMatchObject({ more: 1 })
+    expect(stripChips(many.slice(0, 7), null).shown).toHaveLength(6)
   })
 
   it('are of their object: another object has its own, and a file\'s are read with it', () => {

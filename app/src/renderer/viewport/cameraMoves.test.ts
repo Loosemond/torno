@@ -39,3 +39,20 @@ describe('a move of the camera', () => {
     expect(standingAt(ISO).position.toArray()).toEqual([90, -90, 110])
   })
 })
+
+describe('where a camera is going', () => {
+  it('is the view it was sent to while it is on its way, and nowhere once it has arrived or the move was given up', () => {
+    const from = { position: [0, -100, 0], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 } as Camera
+    const to = { ...from, position: [100, 0, 0] } as Camera
+    const move = new CameraMove()
+    expect(move.goal).toBeNull()
+    move.begin(from, to, 1000)
+    move.step(1100)
+    expect(move.goal).toEqual(to)
+    move.step(1000 + MOVE_MS)
+    expect(move.goal).toBeNull()
+    move.begin(from, to, 2000)
+    move.drop()
+    expect(move.goal).toBeNull()
+  })
+})

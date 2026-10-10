@@ -597,6 +597,11 @@ export class Viewport {
     return this.shownParts().map((part) => ({ min: [...part.bbox.min] as Vec3, max: [...part.bbox.max] as Vec3 }))
   }
 
+  /** Where the camera is going when it was sent somewhere and is on its way, else where it is: what a view kept now should hold. */
+  cameraGoal(): Camera {
+    return this.move.goal ?? this.getCamera()
+  }
+
   getCamera(): Camera {
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion)
     return {

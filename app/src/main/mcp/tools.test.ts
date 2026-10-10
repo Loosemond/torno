@@ -1432,7 +1432,7 @@ describe('saved views', () => {
     const drawn = await lookTool(d, 'bracket', { view: 'Hinge side' })
     // The scans the view switches on, and those it says nothing of as they are on screen.
     expect(d.looks.at(-1)!.req).toMatchObject({ parts: ['base'], scans: ['S1', 'S3'] })
-    expect(textOf(drawn).split('\n')[0]).toBe(`${PICTURE.caption}${SAID}`)
+    expect(textOf(drawn).split('\n')[0]).toBe(`${PICTURE.caption}${SAID}; how thin it has S1 (50 %), which is drawn as thin as the user's screen has it`)
     const shown = await showTool(d, 'bracket', { view: 'Hinge side' })
     expect(d.w.shows.at(-1)).toMatchObject({ parts: ['base'], scanViews: { S1: { visible: true, opacity: 0.5 }, S2: { visible: false } } })
     expect(d.w.shows.at(-1)!.scans).toBeUndefined()
@@ -1512,5 +1512,39 @@ describe('saved views', () => {
     expect(refusedKeys('save_view', { name: 'a', note: 'b', view: 'iso', layout: 'print', parts: [], section: null, explode: 0 })).toBeNull()
     expect(TOOLS.look.inputSchema.view.description).toContain('the name of a saved view')
     expect(TOOLS.show.inputSchema.view.description).toContain('the name of a saved view')
+  })
+
+  it('says of a scan it draws as thin as the screen has it that the view has it otherwise (review I3)', async () => {
+    const view = { ...HINGE, hidden: [], explode: undefined, scans: { S1: { visible: true, opacity: 0.5 }, S2: { visible: true }, S3: { visible: true, opacity: 0.25 } } } as SavedView
+    const d = withViews([view], { scans: async () => [scan('S1'), scan('S2'), scan('S3')], view: () => ({ ...VIEW, scans: [{ id: 'S1', visible: true, opacity: 1, loaded: true }, { id: 'S2', visible: true, opacity: 0.3, loaded: true }, { id: 'S3', visible: false, opacity: 0.25, loaded: true }] }) })
+    const drawn = await lookTool(d, 'bracket', { view: 'Hinge side' })
+    expect(textOf(drawn).split('\n')[0]).toBe(`${PICTURE.caption} · passed over, of the view "Hinge side": how thin it has S1 (50 %) and S2 (solid), which are drawn as thin as the user's screen has them`)
+    // show puts each scan on screen as the view has it: nothing is passed over.
+    expect(textOf(await showTool(d, 'bracket', { view: 'Hinge side' })).split('\n')[0]).not.toContain('passed over')
+    // Scans named beside the view are the call's own.
+    expect(textOf(await lookTool(d, 'bracket', { view: 'Hinge side', scans: ['S1'] })).split('\n')[0]).toBe(PICTURE.caption)
+  })
+
+  it('draws an exploded view apart when asked with the user\'s section and they have none, and says so when they have one (review M7)', async () => {
+    const d = withViews([HINGE])
+    await lookTool(d, 'bracket', { view: 'Hinge side', section: 'current' })
+    expect(d.looks.at(-1)!.req).toMatchObject({ section: 'current', explode: HINGE.explode })
+    const cut = withViews([HINGE], { view: () => ({ ...VIEW, section: { origin: [0, 0, 3], normal: [0, 0, 1] } }) })
+    const drawn = await lookTool(cut, 'bracket', { view: 'Hinge side', section: 'current' })
+    expect(cut.looks.at(-1)!.req).toMatchObject({ section: 'current', explode: null })
+    expect(textOf(drawn).split('\n')[0]).toBe(`${PICTURE.caption} · passed over, of the view "Hinge side": its explode, as the picture is cut by the user's section`)
+  })
+
+  it('takes a name without what does not show in it, and none of nothing that shows (review M4)', async () => {
+    const d = withViews([HINGE])
+    expect(textOf(await saveViewTool(d, 'bracket', { name: '\u200b' }))).toBe('A view needs a name')
+    await saveViewTool(d, 'bracket', { name: ' Wall\u202e at the latch ' })
+    expect(d.savedViews[0].name).toBe('Wall at the latch')
+    expect(textOf(await saveViewTool(d, 'bracket', { name: 'Hinge\u200b side' }))).toContain('the user has a view named "Hinge side"')
+  })
+
+  it('never tells the agent to remove a view (review M3)', async () => {
+    const full = withViews(Array.from({ length: 24 }, (_, n) => ({ ...HINGE, name: `v${n}` })))
+    expect((await saveViewTool(full, 'bracket', { name: 'one more' })).isError).toBeUndefined()
   })
 })

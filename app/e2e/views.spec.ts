@@ -64,6 +64,8 @@ const sceneFile = (id: string): { views?: Array<Record<string, unknown>>; layers
 const chip = (name: string) => page.locator(`.view-chip[data-view="${name}"]`)
 const field = () => page.getByRole('textbox', { name: 'Name of the view' })
 const edits = async (): Promise<number> => (await state()).edits
+/** The tool in hand, as the palette shows it pressed. */
+const tool = (): Promise<string | null> => page.locator('.toolbox [aria-pressed="true"]').first().getAttribute('data-tool')
 const slider = () => page.getByRole('slider', { name: 'Explode' })
 /** The button that switches a part on and off: pressed while the part is shown. */
 const layerButton = (part: string) => page.locator(`.layer-row[data-layer="${part}"]`).getByRole('button', { name: `Show ${part}` })
@@ -171,13 +173,29 @@ test('a chip is a button for the keyboard, and its actions rename it, update it 
   await page.keyboard.press('Enter')
   await expect(chip('Apart')).toHaveAttribute('aria-pressed', 'true')
 
+  // The menu takes the focus, the arrows move in it, Escape gives the focus back and leaves the tool in hand (review M8).
+  await page.keyboard.press('p')
+  expect(await tool()).toBe('pin')
   await page.getByRole('button', { name: 'Actions for Apart' }).click()
-  await page.getByRole('menuitem', { name: 'Rename' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByRole('menuitem', { name: 'Update to what is on screen' })).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowUp')
+  await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Actions for Apart' })).toBeFocused()
+  expect(await tool()).toBe('pin')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter')
   await expect(field()).toHaveValue('Apart')
   await field().fill('Lid off 40')
   await page.keyboard.press('Enter')
   await expect(chip('Lid off 40')).toBeVisible()
   await expect(chip('Apart')).toHaveCount(0)
+  // The focus is with the view still, not with the tools.
+  await expect(page.getByRole('button', { name: 'Actions for Lid off 40' })).toBeFocused()
   // As written, and its number in the face of numbers.
   await expect(chip('Lid off 40').locator('.view-name')).toHaveText('Lid off 40')
   await expect(chip('Lid off 40').locator('.num')).toHaveText('40')
@@ -191,20 +209,31 @@ test('a chip is a button for the keyboard, and its actions rename it, update it 
   await page.getByRole('menuitem', { name: 'Update to what is on screen' }).click()
   await expect.poll(() => sceneFile('hollow').views?.[0]?.hidden).toEqual(['lid'])
   expect(sceneFile('hollow').views![0].explode).toBeUndefined()
-  await expect(chip('Lid off 40')).toHaveAttribute('title', 'layout assembly · 1 part hidden')
+  await expect(chip('Lid off 40')).toHaveAttribute('title', 'Lid off 40 · layout assembly · 1 part hidden')
 
   // Deleting asks; Cancel leaves it.
   await page.getByRole('button', { name: 'Actions for Lid off 40' }).click()
   await page.getByRole('menuitem', { name: 'Delete' }).click()
   await expect(page.getByRole('alertdialog')).toContainText('Delete "Lid off 40"?')
   expect((await state()).views).toHaveLength(1)
+  // Escape in the question leaves the view, and the tool in hand.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(chip('Lid off 40')).toBeVisible()
+  expect(await tool()).toBe('pin')
+  await page.getByRole('button', { name: 'Actions for Lid off 40' }).click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expect(chip('Lid off 40')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Actions for Lid off 40' })).toBeFocused()
   await page.getByRole('button', { name: 'Actions for Lid off 40' }).click()
   await page.getByRole('menuitem', { name: 'Delete' }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
   await expect(chip('Lid off 40')).toHaveCount(0)
   await expect.poll(() => sceneFile('hollow').views).toBeUndefined()
+  await expect(page.getByRole('button', { name: 'Save view' })).toBeFocused()
+  await page.keyboard.press('v')
+  expect(await tool()).toBe('select')
 
   // Left for the tests that follow: the lid back on, the parts apart, and that kept as "Apart".
   await layerButton('lid').click()
@@ -272,9 +301,26 @@ test('the agent lists the views, draws one by name, and proposes one the person 
   expect(caption(shown)).toMatch(/^view "tub alone" · layout assembly · parts tub · orthographic$/)
   expect((await state()).layers.lid?.visible).toBe(false)
   expect((await state()).shownByAgent).not.toBeNull()
+  // What the agent put on screen is the view that is on, once the camera is there.
+  await rested()
+  await expect(chip('tub alone')).toHaveAttribute('aria-pressed', 'true')
+  // Saved right after a show, while the camera is on its way: the view kept is where it was going (review I2).
+  await page.keyboard.press('1')
+  await rested()
+  await call(hollow, 'show', { view: 'top' })
+  const flying = await call(hollow, 'save_view', { name: 'From the top' })
+  expect(flying.isError).toBe(false)
+  const top = await rested()
+  const keptCamera = (await state()).views.find((view) => view.name === 'From the top')!.camera
+  // To a hundredth: a camera looking straight down is leant by a hair where it stands.
+  for (let i = 0; i < 3; i++) expect(keptCamera.position[i]).toBeCloseTo(top.position[i], 2)
+  // On the disk before the tool answered (review M13).
+  expect(sceneFile('hollow').views?.map((view) => view.name)).toContain('From the top')
+  await page.getByRole('button', { name: 'Discard From the top' }).click()
+  await expect(chip('From the top')).toHaveCount(0)
   expect(sceneFile('hollow').layers.lid?.visible).not.toBe(false)
-  // Proposing, keeping and showing were no edit of how the person looks at the object but the two that changed the views.
-  expect(await edits()).toBe(changes + 3)
+  // Showing was no edit; what changed the views was: two proposals and their keeping, one more and its discarding.
+  expect(await edits()).toBe(changes + 5)
   // The person clicks their own view: the screen is theirs again.
   await chip('Apart').click()
   await expect.poll(async () => (await state()).shownByAgent).toBeNull()
@@ -287,10 +333,10 @@ test('a view that no longer fits the model stays, says so, and is applied withou
   // The broken one is lost alone.
   await expect(page.locator('.view-chip[data-view]')).toHaveCount(2)
   await expect(chip('Old bed')).toHaveAttribute('aria-disabled', 'true')
-  await expect(chip('Old bed')).toHaveAttribute('title', 'Layout bed is no longer in the model')
+  await expect(chip('Old bed')).toHaveAttribute('title', 'Old bed · Layout bed is no longer in the model')
   await expect(chip('Old bed')).toContainText('layout gone')
   await expect(chip('No clip')).toContainText('1 part and 1 scan gone')
-  await expect(chip('No clip')).toHaveAttribute('title', 'layout assembly · 2 parts hidden · clip, S7 are no longer there: passed over')
+  await expect(chip('No clip')).toHaveAttribute('title', 'No clip · layout assembly · 2 parts hidden · clip, S7 are no longer there: passed over')
 
   const before = await state()
   // Pressed all the same (Playwright waits for a button that is not disabled): nothing comes of it.
@@ -318,4 +364,77 @@ test('a view that no longer fits the model stays, says so, and is applied withou
   ])
   // The state file names them, with what is gone.
   await expect.poll(() => (existsSync(join(root, 'bracket', '.torno', 'state.md')) ? readFileSync(join(root, 'bracket', '.torno', 'state.md'), 'utf8') : ''), { timeout: 10_000 }).toContain('Saved views: "Old bed" (of layout bed, which the model no longer has), "No clip" (hides clip, which layout assembly no longer has).')
+})
+
+test('twenty-four views and the agent\'s proposals keep the strip to two rows, with the rest behind one chip (review I4, M3)', async () => {
+  // The layout of plain, then its scene file as a long use would leave it: read when the object is opened again.
+  await open('plain')
+  const layout = (await state()).layout
+  await open('hollow')
+  const one = (name: string, more: Record<string, unknown> = {}) => ({ name, author: 'user', layout, camera: CAMERA, hidden: [], at: '2026-10-09T21:14:03.000Z', ...more })
+  const names = ['A very long name for a view, forty chars', ...Array.from({ length: 23 }, (_, n) => `View ${String(n + 2).padStart(2, '0')}`)]
+  mkdirSync(join(root, 'plain', '.torno'), { recursive: true })
+  writeFileSync(join(root, 'plain', '.torno', 'scene.json'), JSON.stringify({ layers: {}, views: [...names.map((name) => one(name)), one('Idea 1', { author: 'agent', proposed: true, at: 'a' }), one('Idea 2', { author: 'agent', proposed: true, at: 'b' })] }))
+  await open('plain')
+  expect((await state()).views).toHaveLength(26)
+
+  // Six chips: the proposals, then the first as they were saved; the others behind "20 more".
+  await expect(page.locator('.view-chip[data-view]')).toHaveCount(6)
+  expect(await page.locator('.view-chip[data-view]').evaluateAll((chips) => chips.map((c) => c.getAttribute('data-view')))).toEqual([...names.slice(0, 4), 'Idea 1', 'Idea 2'])
+  const list = page.getByRole('button', { name: '20 more' })
+  await expect(list).toBeVisible()
+  const strip = (await page.locator('.viewstrip').boundingBox())!
+  const pane = (await page.locator('.viewport-pane').boundingBox())!
+  // Two rows of chips at most, inside the pane.
+  expect(strip.height).toBeLessThanOrEqual(2 * 24 + 4 + 1)
+  expect(strip.x).toBeGreaterThanOrEqual(pane.x)
+  expect(strip.x + strip.width).toBeLessThanOrEqual(pane.x + pane.width)
+  // A long name is cut in the chip and whole in its tooltip.
+  expect((await chip(names[0]).boundingBox())!.width).toBeLessThanOrEqual(160.5)
+  await expect(chip(names[0])).toHaveAttribute('title', `${names[0]} · layout ${layout}`)
+
+  // The list has them all, takes the focus and the arrows, and Escape gives the focus back.
+  await list.click()
+  const menu = page.getByRole('menu', { name: 'Every saved view' })
+  await expect(menu.locator('[data-row]')).toHaveCount(26)
+  await expect(menu.locator(`[data-row="${names[0]}"]`)).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.locator('[data-row="View 02"]')).toBeFocused()
+  await expect(menu.locator('[data-row="View 02"]')).toContainText(`layout ${layout}`)
+  await expect(menu.getByRole('menuitem', { name: 'Keep Idea 1' })).toBeVisible()
+  const box = (await menu.boundingBox())!
+  expect(box.height).toBeLessThanOrEqual(321)
+  // Nothing of a row is beyond the list: what each view holds is in sight beside its name.
+  expect(await menu.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0)
+  const holds = (await menu.locator('[data-row="View 02"] .view-row-holds').boundingBox())!
+  expect(holds.x + holds.width).toBeLessThanOrEqual(box.x + box.width)
+  expect(box.x).toBeGreaterThanOrEqual(pane.x)
+  expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width)
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(list).toBeFocused()
+  // A click on a row applies it and closes the list; the view that is on has a chip.
+  await list.click()
+  await menu.locator('[data-row="View 20"]').click()
+  await expect(menu).toHaveCount(0)
+  await rested()
+  await expect(chip('View 20')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.view-chip[data-view]')).toHaveCount(6)
+  expect((await page.locator('.viewstrip').boundingBox())!.height).toBeLessThanOrEqual(2 * 24 + 4 + 1)
+
+  // The person has as many views as there may be: said where they ask for one more, and nothing is lost.
+  await page.getByRole('button', { name: 'Save view' }).click()
+  await field().fill('One more')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('alert')).toHaveText('There are 24 views: remove one first')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Keep Idea 1' }).click()
+  await expect(page.locator('.viewstrip-said')).toHaveText('There are 24 views: remove one first')
+  await expect(chip('Idea 1')).toContainText('proposed')
+  // The agent is never told to remove what it cannot: its proposals have a count of their own.
+  const plain = await clientFor('plain')
+  const proposed = await call(plain, 'save_view', { name: 'Idea 3' })
+  expect(proposed.isError).toBe(false)
+  expect((await state()).views).toHaveLength(27)
+  expect((await state()).views.filter((view) => !view.proposed)).toHaveLength(24)
 })

@@ -1,4 +1,4 @@
-import { type ExplodeState, explodeOf, explodeText, isExploded } from './explode'
+import { type ExplodePart, type ExplodeState, explodeOf, explodeText, isExploded, nothingApart } from './explode'
 import { MIN_SCAN_OPACITY } from './scans'
 import { type Camera, type SectionPlane, sectionOf } from './view'
 
@@ -39,14 +39,15 @@ export const RESERVED_VIEW_NAMES = ['current', 'iso', 'front', 'back', 'left', '
 export function savedViewOf(value: unknown): SavedView | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
   const said = value as Record<string, unknown>
-  const name = typeof said.name === 'string' ? said.name.trim() : ''
+  const name = typeof said.name === 'string' ? cleanViewName(said.name) : ''
   if (viewNameShape(name) !== null) return null
   if (said.author !== 'user' && said.author !== 'agent') return null
-  if (typeof said.layout !== 'string' || said.layout === '' || said.layout.length > 100) return null
+  // A layout and a part are named to the agent in lines of their own: neither is more than a line.
+  if (typeof said.layout !== 'string' || said.layout === '' || said.layout.length > 100 || CONTROL.test(said.layout)) return null
   const camera = cameraOfFile(said.camera)
   if (!camera) return null
   const view: SavedView = { name, author: said.author, layout: said.layout, camera, hidden: [], at: typeof said.at === 'string' ? said.at.slice(0, 40) : '' }
-  if (Array.isArray(said.hidden)) view.hidden = [...new Set(said.hidden.filter((part): part is string => typeof part === 'string' && part.length > 0 && part.length <= 200))].slice(0, 256)
+  if (Array.isArray(said.hidden)) view.hidden = [...new Set(said.hidden.filter((part): part is string => typeof part === 'string' && part.length > 0 && part.length <= 200 && !CONTROL.test(part)))].slice(0, 256)
   if (said.author === 'agent' && said.proposed === true) view.proposed = true
   if (typeof said.note === 'string') {
     const note = said.note.replace(/\s+/g, ' ').trim().slice(0, MAX_VIEW_NOTE)
@@ -71,44 +72,64 @@ export function savedViewOf(value: unknown): SavedView | null {
   return view
 }
 
+/** A control character: what makes a text more than one line, or none of it. */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/
+/** Characters that do not show, and those that turn the direction a line is read in. */
+const UNSEEN = /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\u3164\ufeff\uffa0]/g
+
+/** A name as it is kept: without what does not show or turns its reading, and with no space at its ends. A name of nothing that shows is no name. */
+export function cleanViewName(name: string): string {
+  return name.replace(UNSEEN, '').trim()
+}
+
 /** Why a text is no name for a view, or null: the shape of it only, not whether it is taken. */
 function viewNameShape(name: string): string | null {
   if (name === '') return 'A view needs a name'
   if (name.length > MAX_VIEW_NAME) return `A name has at most ${MAX_VIEW_NAME} characters`
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(name)) return 'A name is one line'
+  if (CONTROL.test(name)) return 'A name is one line'
   if ((RESERVED_VIEW_NAMES as readonly string[]).includes(name.toLowerCase())) return `"${name}" is a standard view: choose another name`
   return null
 }
 
-/** A camera out of a file: position, target and up as three finite numbers each, a lens of 1 to 120 degrees, a zoom above 0, and a position that is not its target. */
+/** The furthest a camera may be, on any axis: what the kernel takes of a coordinate, in mm. */
+const MAX_COORDINATE = 1e9
+/** What a zoom is kept within. */
+const ZOOM = { least: 0.001, most: 1000 }
+
+/** A camera out of a file: position, target and up as three finite numbers each, none beyond `MAX_COORDINATE`, a lens of 1 to 120 degrees, a zoom above 0, kept within `ZOOM`, and a position that is not its target. */
 function cameraOfFile(value: unknown): Camera | null {
   const said = value as Partial<Record<keyof Camera, unknown>> | null
   if (typeof said !== 'object' || said === null) return null
-  const triple = (v: unknown): [number, number, number] | null => (Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? [v[0], v[1], v[2]] : null)
+  const triple = (v: unknown): [number, number, number] | null => (Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= MAX_COORDINATE) ? [v[0], v[1], v[2]] : null)
   const position = triple(said.position)
   const target = triple(said.target)
   const up = triple(said.up)
   if (!position || !target || !up || position.every((c, i) => c === target[i]) || up.every((c) => c === 0)) return null
   const fov = typeof said.fov === 'number' && said.fov >= 1 && said.fov <= 120 ? said.fov : 35
-  const zoom = typeof said.zoom === 'number' && Number.isFinite(said.zoom) && said.zoom > 0 ? said.zoom : 1
+  const zoom = typeof said.zoom === 'number' && Number.isFinite(said.zoom) && said.zoom > 0 ? Math.min(Math.max(said.zoom, ZOOM.least), ZOOM.most) : 1
   return { position, target, up, ortho: said.ortho === true, fov, zoom }
 }
 
-/** The views of a file: each that is one, the first of each name, `MAX_VIEWS` at most. */
+/**
+ * The views of a file: each that is one, the first of each name; `MAX_VIEWS` at most of the person's (those
+ * they made or kept), and `MAX_PROPOSALS` of the agent's that wait: a proposal takes no place of theirs.
+ */
 export function savedViewsOf(value: unknown): SavedView[] {
   const views: SavedView[] = []
   if (!Array.isArray(value)) return views
-  for (const raw of value) {
-    if (views.length === MAX_VIEWS) break
+  let [own, waiting] = [0, 0]
+  // A file may hold anything: no more of it is looked at than could be views twice over.
+  for (const raw of value.slice(0, 4 * (MAX_VIEWS + MAX_PROPOSALS))) {
     const view = savedViewOf(raw)
-    if (view && !findView(views, view.name)) views.push(view)
+    if (!view || findView(views, view.name)) continue
+    if (view.proposed ? waiting++ < MAX_PROPOSALS : own++ < MAX_VIEWS) views.push(view)
   }
   return views
 }
 
 /** The view of a name, whatever the case it is written in. */
 export function findView(views: readonly SavedView[], name: string): SavedView | undefined {
-  const wanted = name.trim().toLowerCase()
+  const wanted = cleanViewName(name).toLowerCase()
   return views.find((view) => view.name.toLowerCase() === wanted)
 }
 
@@ -118,15 +139,24 @@ export function findView(views: readonly SavedView[], name: string): SavedView |
  * given this one instead: it may not be that of another view.
  */
 export function viewNameRefusal(name: string, views: readonly SavedView[], author: 'user' | 'agent', renaming?: string): string | null {
-  const shape = viewNameShape(name.trim())
+  const shape = viewNameShape(cleanViewName(name))
   if (shape !== null) return shape
   const there = findView(views, name)
   if (renaming !== undefined) return there && there !== findView(views, renaming) ? `There is a view named "${there.name}" already` : null
   if (author === 'agent' && there?.author === 'user') return `the user has a view named "${there.name}": choose another name`
   if (author === 'agent' && there && !there.proposed) return `the user kept the view "${there.name}": choose another name`
-  // One more than there may be: not when it takes the place of another (its namesake, or the proposal it drops).
-  if (!there && views.length >= MAX_VIEWS && !(author === 'agent' && proposalToDrop(views, name) !== null)) return `There are ${MAX_VIEWS} views: remove one first`
+  // One more of the person's than there may be, also in place of a proposal, which is none of theirs. The agent is
+  // never told so: its proposals have a count of their own, and one more of them drops the oldest (`proposalToDrop`).
+  if (author === 'user' && (!there || there.proposed) && ownViews(views) >= MAX_VIEWS) return TOO_MANY_VIEWS
   return null
+}
+
+/** Said to the person who would have one more view than there may be. */
+export const TOO_MANY_VIEWS = `There are ${MAX_VIEWS} views: remove one first`
+
+/** How many views are the person's: those they made, and those of the agent's they kept. */
+export function ownViews(views: readonly SavedView[]): number {
+  return views.filter((view) => !view.proposed).length
 }
 
 /**
@@ -160,24 +190,30 @@ export function holdsText(view: SavedView): string {
   return [`layout ${view.layout}`, view.section ? 'section' : view.explode ? explodeText(view.explode) : '', view.hidden.length > 0 ? `${view.hidden.length} ${view.hidden.length === 1 ? 'part' : 'parts'} hidden` : ''].filter(Boolean).join(' · ')
 }
 
-/** What a view names that is no longer there: its layout, parts it hides, scans it shows or hides. */
-export interface ViewGone { layout: boolean; parts: string[]; scans: string[] }
+/** What a view names that is no longer there: its layout, parts it hides, scans it shows or hides; and why its explode can no longer be drawn, or null. */
+export interface ViewGone { layout: boolean; parts: string[]; scans: string[]; explode: 'one part' | 'shared centre' | null }
 
 /**
  * What of a view is gone, against what there is: the layouts of the build, the names of the parts in the view's
  * layout, and the object's scans by id (left out when they are not known: nothing is then said of them). With
  * its layout gone a view cannot be applied, and nothing else is said of it; a part or a scan that is gone is
- * passed over when it is.
+ * passed over when it is. With `boxes`, the parts of the view's layout as the build has them: an explode the view
+ * holds that would draw nothing apart of them (`nothingApart`) is passed over too.
  */
-export function viewGone(view: SavedView, has: { layouts: readonly string[]; parts: readonly string[]; scans?: readonly string[] }): ViewGone {
-  if (!has.layouts.includes(view.layout)) return { layout: true, parts: [], scans: [] }
-  return { layout: false, parts: view.hidden.filter((name) => !has.parts.includes(name)), scans: has.scans ? Object.keys(view.scans ?? {}).filter((id) => !has.scans!.includes(id)) : [] }
+export function viewGone(view: SavedView, has: { layouts: readonly string[]; parts: readonly string[]; scans?: readonly string[]; boxes?: readonly ExplodePart[] }): ViewGone {
+  if (!has.layouts.includes(view.layout)) return { layout: true, parts: [], scans: [], explode: null }
+  return {
+    layout: false,
+    parts: view.hidden.filter((name) => !has.parts.includes(name)),
+    scans: has.scans ? Object.keys(view.scans ?? {}).filter((id) => !has.scans!.includes(id)) : [],
+    explode: view.explode && has.boxes ? nothingApart(view.explode, has.boxes) : null
+  }
 }
 
-/** `2 parts gone`, `1 part and 1 scan gone`, `layout gone`; '' when nothing is. */
+/** `2 parts gone`, `1 part and 1 scan gone`, `not drawn apart`, `1 part gone, not drawn apart`, `layout gone`; '' when nothing is. */
 export function goneText(gone: ViewGone): string {
   if (gone.layout) return 'layout gone'
   const counted = (n: number, one: string): string => (n === 0 ? '' : `${n} ${one}${n === 1 ? '' : 's'}`)
   const what = [counted(gone.parts.length, 'part'), counted(gone.scans.length, 'scan')].filter(Boolean)
-  return what.length === 0 ? '' : `${what.join(' and ')} gone`
+  return [what.length === 0 ? '' : `${what.join(' and ')} gone`, gone.explode ? 'not drawn apart' : ''].filter(Boolean).join(', ')
 }

@@ -9,7 +9,7 @@ import { startHttp } from './http'
 import { contextFor } from './context'
 import { buildState, closeWorkspace, findObject, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart } from './kernel/client'
-import { latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
+import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
 import { maskReadsOf, maskStampOf, meshesOf } from './marks/regions'
@@ -22,7 +22,7 @@ import { SYSTEM_PROMPT } from './prompt'
 import { quitGate } from './quit'
 import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
-import { proposalAsked, sceneFileNow, sceneFilesSettled } from './scenefile'
+import { proposing, sceneFileNow, sceneFilesSettled } from './scenefile'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
@@ -235,11 +235,8 @@ const toolDeps: ToolDeps = {
   saveView(objectId, req) {
     const obj = findObject(objectId)
     if (!obj) return Promise.reject(new Error(`unknown object: ${objectId}`))
-    // Until the window has answered, the scene file it gives may say of this view that it is the agent's, and proposed.
-    const done = proposalAsked(obj.dir, req.name)
-    return theWindow()
-      .then((win) => requestSaveView(win, req))
-      .finally(done)
+    // The name is the agent's to propose until the window has answered, and the answer waits for the file to be on the disk (`proposing`).
+    return proposing(obj.dir, req.name, () => theWindow().then((win) => requestSaveView(win, req)), (e) => e instanceof NoAnswer)
   }
 }
 

@@ -5,7 +5,8 @@ import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, exp
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
 import { type Camera, type LookRequest, type LookResult, type SaveViewRequest, type SaveViewResult, type SectionPlane, type ShowRequest, type ShowResult, type ViewName, axisForm, planeText } from '../../shared/view'
-import { type SavedView, MAX_PROPOSALS, VIEW_NOT_BOTH, findView, viewGone, viewNameRefusal, viewSummary } from '../../shared/views'
+import { type SavedView, MAX_PROPOSALS, VIEW_NOT_BOTH, cleanViewName, findView, viewGone, viewNameRefusal, viewSummary } from '../../shared/views'
+import { number } from '../../shared/format'
 import { alignmentSaid } from '../scans/said'
 import { unknownKeys } from './keys'
 import { NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanColourFor, scanIds } from './scanTools'
@@ -136,7 +137,7 @@ export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs
     const view = await namedView(deps, objectId, scene, given.view, { layout: given.layout, others: `current, ${STANDARD_VIEWS}` })
     if ('content' in view) return view
     named = view
-    args = { ...given, ...besideView(view, given), ...(given.scans === undefined && view.scans ? { scans: view.scans } : {}) }
+    args = { ...given, ...besideView(view, given, Boolean(deps.view(objectId)?.section)), ...(given.scans === undefined && view.scans ? { scans: view.scans } : {}) }
   }
 
   const wrong = cameraKeys(args.view)
@@ -198,7 +199,7 @@ export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs
   return {
     content: [
       { type: 'image', data: Buffer.from(picture.png).toString('base64'), mimeType: 'image/png' },
-      { type: 'text', text: `${picture.caption}${named ? passedOver(named, given) : ''}${spreadBesideScans(scene, picture)}${await undrawnScans(deps, objectId, args.scans === false ? [] : Array.isArray(args.scans) ? args.scans : undefined)}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
+      { type: 'text', text: `${picture.caption}${named ? passedOver(named, given, { picture: true, cut: Boolean(deps.view(objectId)?.section) }) : ''}${spreadBesideScans(scene, picture)}${await undrawnScans(deps, objectId, args.scans === false ? [] : Array.isArray(args.scans) ? args.scans : undefined)}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
     ]
   }
 }
@@ -359,8 +360,8 @@ interface NamedView {
   scans?: string[]
   /** How it has each scan the object still has. */
   scanViews?: NonNullable<SavedView['scans']>
-  /** What it names that is gone, or holds that cannot be drawn now, by what it is of. */
-  passed: { parts?: string; scans?: string; explode?: string }
+  /** What it names that is gone, or holds that cannot be drawn now, by what it is of; `thin`: the scans a picture draws as thin as the screen has them, where the view has them otherwise. */
+  passed: { parts?: string; scans?: string; explode?: string; thin?: string }
 }
 
 /**
@@ -396,6 +397,10 @@ export async function namedView(deps: ToolDeps, objectId: string, scene: Scene, 
     const has = view.scans
     named.scans = scans.filter((scan) => (scan.id in has ? has[scan.id].visible !== false : onScreen?.find((one) => one.id === scan.id)?.visible !== false)).map((scan) => scan.id)
     named.scanViews = Object.fromEntries(Object.entries(has).filter(([id]) => scans.some((scan) => scan.id === id)))
+    // A picture draws a scan as thin as the screen has it: where the view has it otherwise, that is said.
+    const thin = (opacity: number): string => (opacity >= 1 ? 'solid' : `${number(opacity * 100)} %`)
+    const other = named.scans.filter((id) => id in has && onScreen && (has[id].opacity ?? 1) !== (onScreen.find((one) => one.id === id)?.opacity ?? 1)).map((id) => `${id} (${thin(has[id].opacity ?? 1)})`)
+    if (other.length > 0) passed.thin = `how thin it has ${other.length === 1 ? other[0] : `${other.slice(0, -1).join(', ')} and ${other.at(-1)}`}, which ${other.length === 1 ? 'is' : 'are'} drawn as thin as the user's screen has ${other.length === 1 ? 'it' : 'them'}`
   }
   return named
 }
@@ -405,21 +410,35 @@ export async function namedView(deps: ToolDeps, objectId: string, scene: Scene, 
  * beside it. A view holds a section or an explode, never both, so one given beside it takes the place of the
  * other: a cut given leaves the parts together, and parts asked apart are drawn whole.
  */
-function besideView(named: NamedView, given: { layout?: string; parts?: string[]; section?: unknown; explode?: unknown }): { view: CameraArg; layout: string; parts: string[]; section?: never; explode?: never } {
+function besideView(named: NamedView, given: { layout?: string; parts?: string[]; section?: unknown; explode?: unknown }, screenCut = false): { view: CameraArg; layout: string; parts: string[]; section?: never; explode?: never } {
   const apart = explodeAsked(given.explode)
-  const cut = given.section !== undefined && given.section !== null
   return {
     view: named.view.camera,
     layout: named.layout,
     parts: given.parts ?? named.parts,
     ...(given.section === undefined ? { section: isExploded(apart as ExplodeState | null | undefined) ? null : (named.view.section ?? null) } : {}),
-    ...(given.explode === undefined ? { explode: cut ? null : named.explode } : {})
+    ...(given.explode === undefined ? { explode: cutBeside(given.section, screenCut) ? null : named.explode } : {})
   } as { view: CameraArg; layout: string; parts: string[] }
 }
 
-/** Said after the caption of a picture, or of what the window shows, of a saved view: what the view names that was passed over, but what the call itself gave instead. '' for nothing. */
-function passedOver(named: NamedView, given: { parts?: unknown; scans?: unknown; scanOpacity?: unknown; explode?: unknown; section?: unknown }): string {
-  const said = [given.parts === undefined ? named.passed.parts : undefined, given.scans === undefined && given.scanOpacity === undefined ? named.passed.scans : undefined, given.explode === undefined && (given.section === undefined || given.section === null) ? named.passed.explode : undefined].filter((one) => one !== undefined)
+/** Whether a section given beside a view cuts: a plane does; `'current'`, the user's own, only when they have one. */
+const cutBeside = (section: unknown, screenCut: boolean): boolean => (section === 'current' ? screenCut : section !== undefined && section !== null)
+
+/**
+ * Said after the caption of a picture, or of what the window shows, of a saved view: what the view names or
+ * holds that was passed over, but what the call itself gave instead. Of a picture (`of.picture`), also the scans
+ * drawn as thin as the screen has them where the view has them otherwise, and the view's explode when the
+ * picture is cut by the user's own section (`of.cut`: they have one). '' for nothing.
+ */
+function passedOver(named: NamedView, given: { parts?: unknown; scans?: unknown; scanOpacity?: unknown; explode?: unknown; section?: unknown }, of: { picture?: boolean; cut?: boolean } = {}): string {
+  const theirScans = given.scans === undefined && given.scanOpacity === undefined
+  const said = [
+    given.parts === undefined ? named.passed.parts : undefined,
+    theirScans ? named.passed.scans : undefined,
+    given.explode === undefined && (given.section === undefined || given.section === null) ? named.passed.explode : undefined,
+    given.explode === undefined && given.section === 'current' && of.cut && named.explode ? "its explode, as the picture is cut by the user's section" : undefined,
+    of.picture && theirScans ? named.passed.thin : undefined
+  ].filter((one) => one !== undefined)
   return said.length === 0 ? '' : ` · passed over, of the view "${named.view.name}": ${said.join('; ')}`
 }
 
@@ -449,7 +468,7 @@ export async function saveViewTool(deps: ToolDeps, objectId: string, args: SaveV
     if (unknown !== undefined) return failure(`unknown part '${unknown}'; parts in layout ${layout}: ${inLayout.map((part) => part.name).join(', ')}`)
   }
 
-  const request: SaveViewRequest = { objectId, name: args.name.trim() }
+  const request: SaveViewRequest = { objectId, name: cleanViewName(args.name) }
   if (args.note !== undefined) request.note = args.note
   if (args.view !== undefined) {
     if (typeof args.view === 'string' && !(VIEW_NAMES as readonly string[]).includes(args.view)) return failure("view is iso, front, back, left, right, top or bottom, or a camera as scene gives one; left out, it is the camera on the user's screen")

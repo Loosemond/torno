@@ -26,6 +26,9 @@ import { MIN_SCAN_OPACITY } from '../shared/scans'
 // over the channel and is answered over `<channel>Reply` (src/main/ipc.ts
 // passes each answer to `resolveRequest`).
 
+/** The window gave no answer: it took too long, or was closed. It may still do what was asked when it gets to it. */
+export class NoAnswer extends Error {}
+
 interface Waiting {
   resolve: (result: never) => void
   reject: (error: Error) => void
@@ -49,7 +52,7 @@ function request<T>(win: BrowserWindow, channel: string, req: unknown, timeoutMs
       if (!asked) return
       waiting.delete(id)
       clearTimeout(asked.timer)
-      reject(new Error('the torno window was closed'))
+      reject(new NoAnswer('the torno window was closed'))
     }
     const settled = <A extends unknown[]>(settle: (...args: A) => void) => {
       return (...args: A): void => {
@@ -60,7 +63,7 @@ function request<T>(win: BrowserWindow, channel: string, req: unknown, timeoutMs
     const timer = setTimeout(
       settled(() => {
         waiting.delete(id)
-        reject(new Error(`the torno window did not answer within ${Math.round(timeoutMs / 1000)} s`))
+        reject(new NoAnswer(`the torno window did not answer within ${Math.round(timeoutMs / 1000)} s`))
       }),
       timeoutMs
     )

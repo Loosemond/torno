@@ -1,6 +1,6 @@
-import { explodeShown, sameExplode } from '../../shared/explode'
+import { explodeShown, nothingApart, sameExplode } from '../../shared/explode'
 import type { Camera, SectionPlane } from '../../shared/view'
-import type { SavedView } from '../../shared/views'
+import { type SavedView, cleanViewName } from '../../shared/views'
 import type { TornoState } from './store'
 
 // What a saved view is made of, read off the window's state, and whether the screen still shows one. Pure: the
@@ -33,13 +33,13 @@ export function scansShown(s: Pick<TornoState, 'scans' | 'scanViews'>): SavedVie
 export function viewOnScreen(s: Shown, name: string, camera: Camera, at: string): SavedView {
   const explode = explodeShown(s.explode[s.layout], s.section, (s.scene?.parts ?? []).filter((part) => part.layout === s.layout))
   const scans = scansShown(s)
-  return { name: name.trim(), author: 'user', layout: s.layout, camera, hidden: hiddenIn(s, s.layout), ...(s.section ? { section: s.section } : explode ? { explode } : {}), ...(scans ? { scans } : {}), at }
+  return { name: cleanViewName(name), author: 'user', layout: s.layout, camera, hidden: hiddenIn(s, s.layout), ...(s.section ? { section: s.section } : explode ? { explode } : {}), ...(scans ? { scans } : {}), at }
 }
 
 /**
  * Whether the screen shows what a view holds, the camera aside: its layout, its hidden parts (of those the layout
  * still has), its section or none, its parts apart as it has them or together, and each of its scans that is
- * still there as it has it.
+ * still there as it has it. An explode it holds that would draw nothing apart of the parts there are now counts as none.
  */
 export function viewMatches(s: Shown, view: SavedView): boolean {
   if (s.layout !== view.layout) return false
@@ -48,7 +48,9 @@ export function viewMatches(s: Shown, view: SavedView): boolean {
   const wanted = view.hidden.filter((name) => parts.some((part) => part.name === name))
   if (wanted.length !== hidden.size || wanted.some((name) => !hidden.has(name))) return false
   if (!samePlaneAs(s.section, view.section ?? null)) return false
-  if (!sameExplode(explodeShown(s.explode[s.layout], s.section, parts), view.explode ?? null)) return false
+  // An explode the view holds that can no longer be drawn is passed over when it is applied: its parts are together then.
+  const apart = view.explode && nothingApart(view.explode, parts) === null ? view.explode : null
+  if (!sameExplode(explodeShown(s.explode[s.layout], s.section, parts), apart)) return false
   return Object.entries(view.scans ?? {}).every(([id, has]) => {
     if (!s.scans.some((scan) => scan.id === id)) return true
     const shown = s.scanViews[id]
@@ -80,4 +82,20 @@ function rightOf(camera: Camera): [number, number, number] {
   const r: [number, number, number] = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]]
   const length = Math.hypot(...r)
   return length > 0 ? [r[0] / length, r[1] / length, r[2] / length] : [0, 0, 0]
+}
+
+/** The most chips of saved views the strip shows: the others are behind "more". */
+export const MAX_CHIPS = 6
+
+/**
+ * The views the strip shows as chips, and how many more there are: all of them while they are `MAX_CHIPS` or
+ * fewer; of more, the one that is on, then the agent's proposals, then the others as they were saved, until
+ * there are `MAX_CHIPS`. They are shown in the order they were saved, so that no chip changes place under the
+ * pointer that clicked it. A count, not a measure: the strip stays two rows at most in the narrowest pane.
+ */
+export function stripChips(views: readonly SavedView[], active: string | null): { shown: SavedView[]; more: number } {
+  if (views.length <= MAX_CHIPS) return { shown: [...views], more: 0 }
+  const first = [...views.filter((view) => view.name === active), ...views.filter((view) => view.proposed && view.name !== active), ...views.filter((view) => !view.proposed && view.name !== active)]
+  const chosen = new Set(first.slice(0, MAX_CHIPS))
+  return { shown: views.filter((view) => chosen.has(view)), more: views.length - chosen.size }
 }

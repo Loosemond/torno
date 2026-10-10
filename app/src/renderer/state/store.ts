@@ -7,7 +7,7 @@ import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanView } from '../../shared/scans'
 import { sectionOf, snappedSection, type Camera, type SectionPlane, type ViewName } from '../../shared/view'
-import { type SavedView, findView, proposalToDrop, viewNameRefusal } from '../../shared/views'
+import { type SavedView, MAX_VIEWS, TOO_MANY_VIEWS, cleanViewName, findView, ownViews, proposalToDrop, viewNameRefusal } from '../../shared/views'
 import { sameCamera, viewOnScreen } from './savedViews'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
@@ -416,7 +416,7 @@ export const actions = {
     if (!view) return `There is no view named "${name}"`
     const refused = viewNameRefusal(to, s.views, 'user', view.name)
     if (refused !== null) return refused
-    const renamed = to.trim()
+    const renamed = cleanViewName(to)
     if (renamed === view.name) return null
     store.setState({ views: s.views.map((one) => (one === view ? { ...view, name: renamed } : one)), activeView: s.activeView === view.name ? renamed : s.activeView, edits: s.edits + 1 })
     return null
@@ -429,13 +429,25 @@ export const actions = {
     if (view) store.setState({ views: s.views.filter((one) => one !== view), activeView: s.activeView === view.name ? null : s.activeView, edits: s.edits + 1 })
   },
 
-  /** The agent's proposal becomes one of the views: `proposed` goes, and it is no longer the agent's to replace. */
-  keepView(name: string): void {
+  /**
+   * The agent's proposal becomes one of the person's views: `proposed` goes, and it is no longer the agent's to
+   * replace. Returns why not, as a sentence (they have as many views as there may be), or null.
+   */
+  keepView(name: string): string | null {
     const s = store.getState()
     const view = findView(s.views, name)
-    if (!view?.proposed) return
+    if (!view?.proposed) return null
+    if (ownViews(s.views) >= MAX_VIEWS) return TOO_MANY_VIEWS
     const { proposed: _kept, ...rest } = view
     store.setState({ views: s.views.map((one) => (one === view ? rest : one)), edits: s.edits + 1 })
+    return null
+  },
+
+  /** The agent's `show` put a saved view on screen: it is the one that is on, while the screen shows what it holds. No edit of the person's. */
+  viewShown(name: string): void {
+    const s = store.getState()
+    const view = findView(s.views, name)
+    if (view && s.activeView !== view.name) store.setState({ activeView: view.name })
   },
 
   /**
@@ -447,7 +459,7 @@ export const actions = {
   proposeView(view: SavedView): boolean {
     const s = store.getState()
     if (viewNameRefusal(view.name, s.views, 'agent') !== null) return false
-    const proposal: SavedView = { ...view, name: view.name.trim(), author: 'agent', proposed: true }
+    const proposal: SavedView = { ...view, name: cleanViewName(view.name), author: 'agent', proposed: true }
     const there = findView(s.views, proposal.name)
     const dropped = proposalToDrop(s.views, proposal.name)
     const views = there ? s.views.map((one) => (one === there ? proposal : one)) : [...s.views.filter((one) => one.name !== dropped), proposal]

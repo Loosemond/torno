@@ -2969,7 +2969,9 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 260px;
+  /* A long name is cut here and whole in the tooltip: six chips, "more" and "Save view" are two rows at most in the narrowest pane. */
+  max-width: 160px;
+  min-width: 0;
   height: 100%;
   padding: 0 4px 0 10px;
   border: 0;
@@ -2987,12 +2989,14 @@ button {
   cursor: default;
 }
 
-.view-chip[aria-disabled='true'] .view-name {
+.view-chip[aria-disabled='true'] .view-name,
+.view-row-apply[aria-disabled='true'] .view-name {
+  /* In the name's own colour: a line that can be seen. The words beside it say why. */
   text-decoration: line-through;
-  text-decoration-color: var(--hairline);
 }
 
 .view-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -3071,7 +3075,7 @@ button {
   white-space: normal;
 }
 
-.view-item-add .view-popover {
+.view-popover[data-side='right'] {
   left: auto;
   right: 0;
 }
@@ -3139,6 +3143,99 @@ button {
 .view-delete:hover {
   border-color: var(--fail);
   color: var(--fail);
+}
+
+/* "Discard" cannot be undone: a step away from "Keep", and quieter. */
+.view-item[data-proposed] .view-discard,
+.view-row .view-discard {
+  margin-left: 6px;
+  color: var(--muted);
+}
+
+/* Behind this chip, the views the strip does not show. */
+.view-list-button {
+  padding: 0 10px;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.view-item-list:hover .view-list-button,
+.view-list-button[aria-expanded='true'] {
+  color: var(--accent);
+}
+
+/* Every view, a row each: its name, and what it holds. */
+.view-list {
+  /* Rows of its own width, not of what is written in them: a long name is cut, and nothing scrolls sideways. */
+  display: block;
+  width: 280px;
+  max-height: 320px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.view-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.view-row .view-name {
+  flex: 1 1 auto;
+}
+
+.view-row[data-active] {
+  background: var(--accent-wash);
+}
+
+.view-row-apply {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.view-row-apply[aria-current='true'] .view-name {
+  color: var(--accent);
+}
+
+.view-row-apply[aria-disabled='true'] {
+  color: var(--muted);
+  cursor: default;
+}
+
+.view-row-holds {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+}
+
+.view-row .view-act {
+  height: 26px;
+}
+
+/* What could not be done with a view, said under the strip for a moment. */
+.viewstrip-said {
+  flex-basis: 100%;
+  margin: 0;
+  text-align: center;
+  white-space: normal;
+}
+
+.viewstrip-said span {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  pointer-events: auto;
 }
 
 /* ---- The page of objects (ui/ShowPage.tsx): a card for each object of the workspace, over the 3D view ---- */

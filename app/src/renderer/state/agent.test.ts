@@ -27,10 +27,13 @@ const release = (x = 100, y = 100, button = 0): void => canvasEvents.pointerup({
 let disconnect: () => void
 /** Whether the person has a button down in the viewport. */
 let busy: boolean
+/** Where the camera is going, while it is on its way there. */
+let goal: Camera | null
 
 beforeEach(() => {
   vi.useFakeTimers()
   replies = []
+  goal = null
   savedFiles = []
   busy = false
   canvasEvents = {}
@@ -60,6 +63,7 @@ beforeEach(() => {
   disconnect = connectAgent({
     setView: (view) => views.push(view),
     getCamera: () => CAMERA,
+    cameraGoal: () => goal ?? CAMERA,
     pointerBusy: () => busy,
     setAgentHighlight: (refs) => tinted.push(refs),
     canvas: { addEventListener: (type: string, cb: (typeof canvasEvents)[string]) => (canvasEvents[type] = cb), removeEventListener: () => {} } as unknown as HTMLCanvasElement
@@ -384,9 +388,24 @@ describe('a saved view, shown for the agent', () => {
     // S1 and S2 as the view says; S3, of which it says nothing, as it was; S9, which is gone, is nothing.
     expect(s.scanViews).toEqual({ S1: { visible: true, colour: 'plain', opacity: 0.5 }, S2: { visible: false, opacity: 1 }, S3: { visible: false } })
     expect((replies[0].result as { caption: string }).caption).toMatch(/^view "Hinge side" · layout print · parts base · scans S1/)
+    // Not lit: the screen shows other parts than the view has, since the call named its own.
+    expect(store.getState().activeView).toBeNull()
     expect(views).toEqual([CAMERA])
     // For now: the file says what the person had.
     expect(sceneFileOf(s)).toEqual(theirs)
+  })
+})
+
+describe('a saved view the agent shows', () => {
+  it('is the one that is on in the strip, as when the person clicks it (review M12)', () => {
+    actions.setLayer('post', { visible: false })
+    actions.saveView('Base alone', CAMERA)
+    actions.setLayer('post', { visible: true })
+    actions.cameraSettled({ ...CAMERA, position: [9, 9, 9] })
+    expect(store.getState().activeView).toBeNull()
+    const edits = store.getState().edits
+    onShow({ id: 9, request: { objectId: 'bracket', view: CAMERA, viewName: 'Base alone', layout: 'assembly', parts: ['base'], section: null, explode: null } })
+    expect(store.getState()).toMatchObject({ activeView: 'Base alone', edits })
   })
 })
 
@@ -412,6 +431,12 @@ describe('save_view', () => {
     const after = store.getState()
     expect([after.layout, after.layers, after.section, after.explode, after.shownByAgent, after.activeView]).toEqual([before.layout, before.layers, before.section, before.explode, before.shownByAgent, null])
     expect(views).toEqual([])
+  })
+
+  it('keeps where the camera is going, not where it is on the way: a view saved right after show is the view shown (review I2)', () => {
+    goal = { ...CAMERA, position: [0, -80, 6], ortho: true }
+    save({})
+    expect(kept().view.camera).toEqual(goal)
   })
 
   it('takes of the request what it gives: a layout, the parts shown, a standard view fitted to them, a cut or how far apart', () => {

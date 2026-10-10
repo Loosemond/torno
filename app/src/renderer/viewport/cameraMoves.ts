@@ -32,6 +32,11 @@ export class CameraMove {
     return this.move !== null
   }
 
+  /** Where the camera is going, while it is on its way; null when it is at rest. */
+  get goal(): Camera | null {
+    return this.move?.to ?? null
+  }
+
   begin(from: Camera, to: Camera, now: number): void {
     this.move = { from, to, start: now }
   }

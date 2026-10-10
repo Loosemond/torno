@@ -110,6 +110,8 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // For now only: what the person had chosen stays what their scene file says.
   actions.showForAgent(layout, req.parts ? Object.fromEntries(parts.map((part) => [part.name, req.parts!.includes(part.name)])) : {}, section, scans, explode)
   if (req.view !== undefined) viewport.setView(req.view, true)
+  // A saved view put on screen is the one that is on in the strip, while the screen shows what it holds.
+  if (req.viewName !== undefined) actions.viewShown(req.viewName)
 
   const after = store.getState()
   const names = partsInLayout(after, layout)
@@ -140,14 +142,15 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
 
 /**
  * Keep a view the agent proposes among the saved views of the open object: the agent's, and proposed, until the
- * person keeps or discards it. What the request leaves out is as on screen: the camera, the layout, the parts
+ * person keeps or discards it. What the request leaves out is as on screen: the camera (where it is going, when
+ * it is on its way: `cameraGoal`), the layout, the parts
  * switched off, the section or else how the parts are drawn apart, how the scans are shown. A view holds a section
  * or an explode: one the request gives takes the place of the other on screen, and both given are refused. A
  * standard view is fitted to the parts the view shows, where it draws them, orthographic as a picture's is.
  * Everything is checked before anything is kept, nothing on screen changes, and the scene file is given to main
  * at once, so that what main tells of the views is true as soon as this is answered.
  */
-export function proposeView(viewport: Pick<Viewport, 'getCamera' | 'canvas'>, req: SaveViewRequest): SaveViewResult {
+export function proposeView(viewport: Pick<Viewport, 'cameraGoal' | 'canvas'>, req: SaveViewRequest): SaveViewResult {
   const s = openObject(req.objectId)
   const layout = req.layout ?? s.layout
   if (!s.scene.layouts.includes(layout)) throw new Error(`no layout '${layout}'; layouts: ${s.scene.layouts.join(', ')}`)
@@ -170,7 +173,8 @@ export function proposeView(viewport: Pick<Viewport, 'getCamera' | 'canvas'>, re
   const explode = section ? null : apart !== undefined ? apart : explodeNow(s, layout)
 
   const hidden = req.parts ? parts.filter((p) => !req.parts!.includes(p.name)).map((p) => p.name) : hiddenIn(s, layout)
-  let camera = typeof req.view === 'object' ? req.view : viewport.getCamera()
+  // Where the camera is going, when `show` has just sent it somewhere: not a camera in flight.
+  let camera = typeof req.view === 'object' ? req.view : viewport.cameraGoal()
   if (typeof req.view === 'string') {
     const box = drawnBox(parts.filter((p) => !hidden.includes(p.name)), explodeOffsets(parts, explode))
     if (!box) throw new Error(`the view shows no part to fit ${req.view} to: give a camera, or parts`)
@@ -213,7 +217,7 @@ function missing(ref: string, parts: ReturnType<typeof partsInLayout>): string |
  * dismisses it, the object, the layout or the build changes, or a minute has
  * passed. Returns what undoes the joining.
  */
-export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointerBusy' | 'setAgentHighlight' | 'canvas'>): () => void {
+export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'cameraGoal' | 'pointerBusy' | 'setAgentHighlight' | 'canvas'>): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
   const clear = (): void => {
     clearTimeout(timer)

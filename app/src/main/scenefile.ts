@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from './atomic'
@@ -26,6 +27,7 @@ const asked = new Map<string, Set<string>>()
  * that is missing, unreadable or not what this version writes gives the defaults; it is left as it is.
  */
 export async function loadSceneFile(dir: string): Promise<SceneFile> {
+  const before = given.get(dir)
   await sceneFilesSettled()
   let file: SceneFile
   try {
@@ -33,8 +35,26 @@ export async function loadSceneFile(dir: string): Promise<SceneFile> {
   } catch {
     file = { layers: {} }
   }
+  // Given a file to save while this one was read: that one is the newer, whatever the disk held a moment ago.
+  const newer = given.get(dir) === before ? undefined : known.get(dir)
+  if (newer) return newer
   known.set(dir, file)
   return file
+}
+
+/** By folder, how many files main was given to save: a read that began before one of them does not replace it. */
+const given = new Map<string, number>()
+
+/** By folder, the last write of its scene file: over, or under way. Rejects when that write failed. */
+const written = new Map<string, Promise<void>>()
+
+/** The scene file of a folder as the disk has it now, read at once: for the one save that comes before any read of that folder. */
+function onDisk(dir: string): SceneFile {
+  try {
+    return clean(JSON.parse(readFileSync(join(dir, FOLDER, NAME), 'utf8')))
+  } catch {
+    return { layers: {} }
+  }
 }
 
 /** The scene file of a folder as main last read it or was given it to save: what `scene`, `look` and `show` answer from. Reads the disk the first time. */
@@ -47,6 +67,8 @@ export function sceneFileNow(dir: string): Promise<SceneFile> {
 export function forgetSceneFiles(): void {
   known.clear()
   asked.clear()
+  given.clear()
+  written.clear()
 }
 
 /**
@@ -58,6 +80,32 @@ export function proposalAsked(dir: string, name: string): () => void {
   const names = asked.get(dir) ?? new Set<string>()
   asked.set(dir, names.add(wanted))
   return () => void names.delete(wanted)
+}
+
+/**
+ * Has the window keep a view of the agent's under a name (`ask`), and answers with what it said once the scene
+ * file it gave is on the disk. The name is let go of only when the window has answered, kept or refused: when it
+ * has not (`unanswered` says so of the rejection: it took too long, or was closed), it may still keep the view
+ * when it gets to it, and that view is the agent's proposal then too. A name left held harms nothing: to be
+ * called the agent's is the lesser claim. A file that could not be written is said: the view is then only in
+ * the window.
+ */
+export async function proposing<T>(dir: string, name: string, ask: () => Promise<T>, unanswered: (e: unknown) => boolean): Promise<T> {
+  const done = proposalAsked(dir, name)
+  let answer: T
+  try {
+    answer = await ask()
+  } catch (e) {
+    if (!unanswered(e)) done()
+    throw e
+  }
+  done()
+  try {
+    await written.get(dir)
+  } catch (e) {
+    throw new Error(`the view is in the user's strip of views but could not be written to scene.json (${e instanceof Error ? e.message : String(e)}): it will be gone when torno is closed`)
+  }
+  return answer
 }
 
 /**
@@ -84,9 +132,12 @@ const saving = new Set<Promise<void>>()
 /** Writes `<dir>/.torno/scene.json`, creating the folder. Readers see the old file or the new one, never half of one. */
 export function saveSceneFile(dir: string, f: SceneFile): Promise<void> {
   const file = clean(f)
-  if (file.views) file.views = owned(file.views, known.get(dir)?.views ?? [], asked.get(dir) ?? new Set())
+  // Against the file as main knows it; for a folder it has not read, as the disk has it: what that says is the agent's stays so.
+  if (file.views) file.views = owned(file.views, (known.get(dir) ?? onDisk(dir)).views ?? [], asked.get(dir) ?? new Set())
   known.set(dir, file)
+  given.set(dir, (given.get(dir) ?? 0) + 1)
   const save = writeFileAtomic(join(dir, FOLDER, NAME), `${JSON.stringify(file, null, 2)}\n`)
+  written.set(dir, save)
   saving.add(save)
   const over = (): void => void saving.delete(save)
   save.then(over, over)

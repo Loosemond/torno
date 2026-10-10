@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MIN_SCAN_OPACITY } from '../shared/scans'
 import type { SavedView } from '../shared/views'
-import { forgetSceneFiles, loadSceneFile, proposalAsked, saveSceneFile, sceneFileNow, sceneFilesSettled, type SceneFile } from './scenefile'
+import { forgetSceneFiles, loadSceneFile, proposalAsked, proposing, saveSceneFile, sceneFileNow, sceneFilesSettled, type SceneFile } from './scenefile'
 
 let dir: string
 
@@ -171,5 +171,64 @@ describe('scene file', () => {
     forgetSceneFiles()
     writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layers: {}, views: [view('Read', { author: 'agent', proposed: true })] }))
     expect((await loadSceneFile(dir)).views?.[0].proposed).toBe(true)
+  })
+
+  describe('a view the agent proposes, kept through the window (review I1, M13)', () => {
+    const proposal = view('Wall', { author: 'agent', proposed: true })
+    class NoAnswer extends Error {}
+    const unanswered = (e: unknown): boolean => e instanceof NoAnswer
+
+    it('is still the agent\'s proposal when the window keeps it after main stopped waiting for its answer', async () => {
+      await saveSceneFile(dir, { layers: {} })
+      await expect(proposing(dir, 'Wall', () => Promise.reject(new NoAnswer('the torno window did not answer within 10 s')), unanswered)).rejects.toThrow('did not answer')
+      // The window gets to it later, keeps it, and gives the file.
+      await saveSceneFile(dir, { layers: {}, views: [proposal] })
+      expect((await sceneFileNow(dir)).views).toEqual([proposal])
+      expect(JSON.parse(readFileSync(join(dir, '.torno', 'scene.json'), 'utf8')).views[0]).toMatchObject({ name: 'Wall', author: 'agent', proposed: true })
+    })
+
+    it('lets go of the name once the window has answered, kept or refused', async () => {
+      await saveSceneFile(dir, { layers: {} })
+      await expect(proposing(dir, 'Wall', () => Promise.reject(new Error('the user has a view named "Wall": choose another name')), unanswered)).rejects.toThrow('choose another name')
+      await saveSceneFile(dir, { layers: {}, views: [proposal] })
+      expect((await sceneFileNow(dir)).views).toEqual([view('Wall')])
+      expect(await proposing(dir, 'Latch', async () => (void saveSceneFile(dir, { layers: {}, views: [view('Wall'), view('Latch', { author: 'agent', proposed: true })] }), 'kept'), unanswered)).toBe('kept')
+      await saveSceneFile(dir, { layers: {}, views: [view('Wall'), view('Other', { author: 'agent', proposed: true, at: 'later' })] })
+      expect((await sceneFileNow(dir)).views?.[1]).toEqual(view('Other', { at: 'later' }))
+    })
+
+    it('answers once the file the window gave is on the disk, and says so when it could not be written', async () => {
+      await saveSceneFile(dir, { layers: {} })
+      let onDisk: string[] | undefined
+      await proposing(dir, 'Wall', async () => void saveSceneFile(dir, { layers: {}, views: [proposal] }), unanswered).then(() => {
+        onDisk = JSON.parse(readFileSync(join(dir, '.torno', 'scene.json'), 'utf8')).views.map((v: SavedView) => v.name)
+      })
+      expect(onDisk).toEqual(['Wall'])
+      // The folder cannot be written: the view is in the window, and not kept.
+      const blocked = mkdtempSync(join(tmpdir(), 'torno-scenefile-'))
+      writeFileSync(join(blocked, '.torno'), 'a file where the folder would be')
+      await expect(proposing(blocked, 'Wall', async () => void saveSceneFile(blocked, { layers: {}, views: [proposal] }).catch(() => {}), unanswered)).rejects.toThrow(/^the view is in the user's strip of views but could not be written to scene\.json \(.+\): it will be gone when torno is closed$/)
+      rmSync(blocked, { recursive: true, force: true })
+    })
+  })
+
+  it('does not take what it read for newer than what it was given meanwhile (review M1)', async () => {
+    mkdirSync(join(dir, '.torno'), { recursive: true })
+    writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layers: {}, views: [view('On disk')] }))
+    for (let n = 0; n < 20; n++) {
+      forgetSceneFiles()
+      const reading = sceneFileNow(dir)
+      const save = saveSceneFile(dir, { layers: {}, views: [view('On disk'), view('New')] })
+      await Promise.all([reading, save])
+      expect((await sceneFileNow(dir)).views?.map((v) => v.name)).toEqual(['On disk', 'New'])
+      writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layers: {}, views: [view('On disk')] }))
+    }
+  })
+
+  it('reads the file before the first save of a folder it has not read: what the file says is the agent\'s stays so (review M2)', async () => {
+    mkdirSync(join(dir, '.torno'), { recursive: true })
+    writeFileSync(join(dir, '.torno', 'scene.json'), JSON.stringify({ layers: {}, views: [view('Wall', { author: 'agent', proposed: true }), view('Kept', { author: 'agent' })] }))
+    await saveSceneFile(dir, { layout: 'print', layers: {}, views: [view('Wall', { author: 'agent', proposed: true }), view('Kept', { author: 'agent' }), view('Sly', { author: 'agent', proposed: true, at: 'later' })] })
+    expect((await sceneFileNow(dir)).views).toEqual([view('Wall', { author: 'agent', proposed: true }), view('Kept', { author: 'agent' }), view('Sly', { at: 'later' })])
   })
 })
