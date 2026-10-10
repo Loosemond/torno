@@ -1022,7 +1022,11 @@ agent is never told to remove a view.
   An area is exact of planes, cylinders, cones, spheres and tori, and
   of a curve extruded straight whose length settles; of any other face `measure area` takes three integrals and
   says the digits they agree to, never as exact, and a face's descriptor (`describe`, `nearest`) takes one
-  (`areaExact: false`, `≈`). A part has one box, told alike by the scene, `describe` and `measure bbox`
+  (`areaExact: false`, `≈`). The whole area `describe` tells of a part is its faces' areas as their
+  descriptors have them, added up (`extent.area_of_all_at_a_glance`: one integral a face, `areaExact: false`
+  when any is not exact, with no count of digits); `measure area` of the part keeps its three integrals a face
+  and its digits. The two are kept apart in the worker (`area_at_a_glance_of`, `area_of` in `queries.py`) and
+  neither is told as the other; an area that is exact is one number, measured once whoever asks first. A part has one box, told alike by the scene, `describe` and `measure bbox`
   (`tess.part_box`), exact only of planes and cylinders with straight and circular edges
   (`extent.boxed_exactly`, `bboxExact`).
 - The app says `≈` wherever the kernel does not say exact: `scene` gives each part `sizeExact` and
@@ -1031,9 +1035,10 @@ agent is never told to remove a view.
   `scene`'s sizes are for orientation: its description sends the agent to `measure` for a number to rely on.
 - A build spends about a second on the volume of a part of a hundred freeform faces and up to a second on its
   box: on the owner's `guitar-wall-stand` (two halves of 92 and 94 faces, in two layouts) 3.7 s on volumes and
-  1.3 s on boxes, where volumes to 1e-9 took 164 s. The whole area of a freeform part still costs three
-  integrals a face, in `describe` of the part and `measure area`: 1.5 s there, 10 s on the lid of
-  `micra-intake` (2,635 faces) when it was last measured. A query has 30 s.
+  1.3 s on boxes, where volumes to 1e-9 took 164 s. The whole area of a freeform part costs three
+  integrals a face in `measure area` (1.5 s there, 10 s on the lid of
+  `micra-intake` (2,635 faces) when it was last measured, when `describe` of the part cost the same) and one
+  integral a face in `describe` of the part, at a fixed order (not timed on those parts since). A query has 30 s.
 - A coordinate or a size under a millionth of its part's extent is told as 0: by the kernel in what it words
   (`describe.number`'s `least`), by the app in a mark's line (`describeMark` given the `scene`,
   `numberWithin` in `shared/format.ts`). A direction of a region is told to two decimals (`directionText`).

@@ -313,6 +313,19 @@ def area_at_a_glance(face: Any) -> Area:
     return Area(_integrated(face, None), False) if known is None else known
 
 
+def area_of_all_at_a_glance(shape: Any) -> Area:
+    """The whole area of a part for ``describe``: its faces' areas as their descriptors have them, added up.
+
+    One integral a face (``area_at_a_glance``), where ``area`` takes three of
+    every face that is not exact: on a part of 2,635 lofted faces that was
+    10 s of a query that has 30. Exact only if every face's is. Otherwise it
+    is told as approximate and says nothing of how far it is to be relied on:
+    that is asked of ``area`` (``measure area``).
+    """
+    each = [area_at_a_glance(face) for face in topo.faces(shape)]
+    return Area(math.fsum(one.value for one in each), all(one.exact for one in each))
+
+
 def _known_area(face: Any) -> Area | None:
     """The area of a face of a kind whose area is exact, None of any other."""
     type = _face_type(face)

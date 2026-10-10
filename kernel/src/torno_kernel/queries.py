@@ -142,6 +142,22 @@ def area_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> extent.Area:
     return _held(kept, "area", key, lambda: extent.area(shape))
 
 
+def area_at_a_glance_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> extent.Area:
+    """The area ``describe`` tells of the part ``key``: one integral a face, once for as long as ``kept`` is.
+
+    An exact one is the area whoever asks: it is kept as ``area_of``'s too, and
+    taken from there when that was asked first, so it is measured once. One
+    that is not exact is kept apart: ``measure area`` answers from its own
+    three integrals a face, and neither is ever told as the other.
+    """
+    if kept is not None and getattr(kept.get(("area", key)), "exact", False):
+        return kept["area", key]
+    area = _held(kept, "area at a glance", key, lambda: extent.area_of_all_at_a_glance(shape))
+    if kept is not None and area.exact:
+        kept.setdefault(("area", key), area)
+    return area
+
+
 def box_of(shape: Any, key: str | None, kept: dict[Any, Any] | None) -> tuple[list[float], list[float]]:
     """The least and the greatest corner of the axis-aligned box of a shape.
 
@@ -504,7 +520,8 @@ def _pick(items: list[Any], index: int, key: str, plural: str, letter: str) -> A
 
 def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[str, Any]:
     low, high = box_of(shape, key, kept)
-    area = area_of(shape, key, kept)
+    # From one integral a face where it is not exact, as its faces' descriptors: what is to be relied on is asked of measure.
+    area = area_at_a_glance_of(shape, key, kept)
     volume = volume_of(shape, key, kept)
     facts = {
         "kind": "part",

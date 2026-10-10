@@ -741,6 +741,59 @@ def test_the_descriptor_of_a_freeform_face_takes_one_integral_and_measure_area_t
     assert (queries.describe(made, flat)["areaExact"], asked) == (True, [1e-9])
 
 
+def test_describe_of_a_whole_freeform_part_takes_one_integral_a_face_and_measure_area_three(monkeypatch):
+    """The whole area of a part, as `describe` tells it, costs what its faces' descriptors would: one integral each."""
+    from build123d import Circle, Ellipse, Pos, loft
+
+    from torno_kernel import extent, topo
+
+    horn = loft([Circle(10).face(), Pos(0, 0, 15) * Ellipse(13.5, 5).face(), Pos(3, 0, 30) * Circle(4).face()])
+    made = {"assembly:horn": horn}
+    faces = topo.faces(horn)
+    freeform = [face for face in faces if extent._known_area(face) is None]
+    assert 0 < len(freeform) < len(faces)
+    asked: list = []
+    integrated = extent._integrated
+
+    def counted(face, tolerance):
+        asked.append(tolerance)
+        return integrated(face, tolerance)
+
+    monkeypatch.setattr(extent, "_integrated", counted)
+    kept: dict = {}
+    described = queries.describe(made, "assembly:horn", kept)
+    # One integral of every face: at a fixed order of a freeform one, to the tolerance an exact one always took.
+    assert len(asked) == len(faces)
+    assert sorted(asked, key=str) == sorted([None] * len(freeform) + [1e-9] * (len(faces) - len(freeform)), key=str)
+    # It is said as approximate, as it was.
+    assert described["areaExact"] is False
+    # Asked again of the same build, it costs nothing.
+    del asked[:]
+    assert queries.describe(made, "assembly:horn", kept)["area"] == described["area"]
+    assert asked == []
+    # It is the sum of what each face is described with.
+    each = [queries.describe(made, f"assembly:horn/F{i}")["area"] for i in range(len(faces))]
+    assert described["area"] == pytest.approx(sum(each), rel=1e-12)
+    # What is to be relied on is asked of measure, which takes three of each freeform face and says how far
+    # they agree: describe having been asked first does not make it take fewer, nor tell describe's number as its own.
+    del asked[:]
+    measured = queries.run(made, "measure", {"kind": "area", "a": {"ref": "assembly:horn"}}, kept)
+    assert asked.count(None) == len(freeform) and asked.count(1e-12) == len(freeform)
+    assert len(asked) == 3 * len(freeform) + (len(faces) - len(freeform))
+    assert measured["exact"] is False and "digits" in measured["how"]
+    assert described["area"] == pytest.approx(measured["value"], rel=1e-3)
+    # And describe after it is still its own one integral a face: the same number as before.
+    assert queries.describe(made, "assembly:horn", kept)["area"] == described["area"]
+
+
+def test_describe_of_a_part_whose_every_face_is_exact_tells_its_area_as_exact_as_before(shapes, monkeypatch):
+    from torno_kernel import extent
+
+    before = queries.describe(shapes, "assembly:post")
+    assert before["areaExact"] is True
+    assert before["area"] == pytest.approx(extent.area(shapes["assembly:post"]).value, rel=1e-12)
+
+
 @pytest.mark.parametrize(
     "span, text",
     [

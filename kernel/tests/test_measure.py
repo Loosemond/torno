@@ -1447,6 +1447,8 @@ def test_what_is_measured_of_a_whole_part_is_measured_once_for_all_its_queries(s
         return count
 
     monkeypatch.setattr(extent, "area", counting("area", area))
+    # `describe` takes the area of a part from one integral a face, which of a part of exact faces is its area.
+    monkeypatch.setattr(extent, "area_of_all_at_a_glance", counting("area", extent.area_of_all_at_a_glance))
     monkeypatch.setattr(extent, "volume", counting("volume", volume))
     monkeypatch.setattr(extent, "box", counting("box", box))
     kept: dict = {}

@@ -873,8 +873,10 @@ each build. On prismatic parts that is nothing: the test models build in a
 tenth of a second. On a freeform part it is about a second for the volume and
 up to a second for the box: an object of three lofted parts of about 90 faces
 each, whose model runs in 10 s, builds in 17 s, 5 s of it for volumes and
-boxes. `describe` and `area` of the whole of such a part take a second or two
-on the first ask and are then kept until the next build. A question the kernel has not answered within
+boxes. `area` of the whole of such a part takes a second or two on the first
+ask (three integrals of every freeform face, to say how many digits agree);
+`describe` of the part takes one integral a face and says its area with `≈`.
+Both are then kept until the next build. A question the kernel has not answered within
 30 s is an error that says so.
 
 **The agent's tools are for whoever was given their address.** The MCP
