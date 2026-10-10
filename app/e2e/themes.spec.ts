@@ -1,4 +1,4 @@
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -131,12 +131,12 @@ for (const theme of ['light', 'dark'] as const) {
         ['section', { view: 'front', section: { origin: [0, 0, 3], normal: [0, -1, 0] } }],
         ['exploded', { explode: { amount: 1, scale: 1, axis: 'z' } }]
       ]
-      const sizes: number[] = []
+      const pictures: Buffer[] = []
       for (const [name, request] of shots) {
         const picture = await page.evaluate((request) => window.__tornoTest!.look(request as never).then((p) => ({ png: Array.from(p.png), caption: p.caption })), request)
         writeFileSync(join(out, `${theme}-${name}.png`), Buffer.from(picture.png))
         expect(picture.png.length).toBeGreaterThan(5000)
-        sizes.push(picture.png.length)
+        pictures.push(Buffer.from(picture.png))
       }
       // The picture of the object's card, as it is on file: a clear ground, whatever the theme.
       const thumb = join(root, 'hollow', '.torno', 'thumb.png')
@@ -148,7 +148,22 @@ for (const theme of ['light', 'dark'] as const) {
       await page.keyboard.press('?')
       await expect(page.getByRole('dialog', { name: 'Keys' })).toBeVisible()
       await capture(app, page, `${theme}-window`)
-      expect(existsSync(join(out, `${theme}-window.png`))).toBe(true)
+      // What was captured is a picture, and of the whole window.
+      const captured = readFileSync(join(out, `${theme}-window.png`))
+      expect(captured.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+      const size = await page.evaluate(() => [window.innerWidth, window.innerHeight])
+      expect([captured.readUInt32BE(16) >= size[0], captured.readUInt32BE(20) >= size[1]]).toEqual([true, true])
+
+      // The same view in the other theme is another picture, where asking twice in one theme gives the same one.
+      const look = (): Promise<Buffer> => page.evaluate((request) => window.__tornoTest!.look(request as never).then((p) => Array.from(p.png)), shots[0][1]).then((png) => Buffer.from(png))
+      expect((await look()).equals(pictures[0])).toBe(true)
+      const other: Theme = theme === 'light' ? 'dark' : 'light'
+      await app.evaluate(({ nativeTheme }, to) => void (nativeTheme.themeSource = to), other)
+      await page.emulateMedia({ colorScheme: other })
+      await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim())).not.toBe(tokens['--surface'])
+      const again = await look()
+      expect(again.length).toBeGreaterThan(5000)
+      expect(again.equals(pictures[0])).toBe(false)
     } finally {
       await client?.close()
       await app.close()

@@ -5,6 +5,7 @@ import { grid, meshBin } from '../../test/scanFixtures'
 import { TriangleSet } from './scanPaint'
 import { ScanLayer } from './scans'
 import { PAINT_OPACITY, REGION_OPACITY } from './scanTints'
+import { LIGHT_THEME } from './theme'
 
 // What is laid over a scan: the regions kept and the set being painted, in a layer with no graphics card behind it.
 
@@ -52,6 +53,15 @@ describe('the regions kept', () => {
     // The colours follow the theme.
     made.setLook({ plain: '#B4AFA5', surface: '#17191C', marks: { user: '#e0709a', agent: '#4fb894' } }, false)
     expect(made.tints.state().regions.map((region) => region.colour)).toEqual(['#e0709a', '#4fb894'])
+  })
+
+  it('are in the mark colours of the light tokens until a theme is given: no colour of their own', () => {
+    const { layer: made } = layer()
+    made.tints.setRegions([
+      { id: 'M1', scan: 'S1', author: 'user', bits: bitsOf(0) },
+      { id: 'M2', scan: 'S1', author: 'agent', bits: bitsOf(9) }
+    ])
+    expect(made.tints.state().regions.map((region) => region.colour)).toEqual([LIGHT_THEME.user.toLowerCase(), LIGHT_THEME.agent.toLowerCase()])
   })
 
   it('are drawn in every layout, since they are of the scan wherever it stands, only while the scan is, and cut by the section with it', () => {

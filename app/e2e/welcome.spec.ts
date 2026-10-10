@@ -75,7 +75,7 @@ test('the first run says what torno is, what an object is and what to do, and a 
     expect(await bare.evaluate(() => (globalThis as unknown as { __tornoMain: Main }).__tornoMain.picks)).toBe(1)
     const name = empty.split('/').pop()!
     await expect(says).toContainText(`No objects in ${name} yet`)
-    await expect(says).toContainText(`Make a folder with a Python model in it, for example ${name}/part/part.py, and it appears here.`)
+    await expect(says).toContainText(`Make a folder with a Python model in it, for example part/part.py, and it appears here.`)
     await expect(says).toContainText('This folder has no pyproject.toml: models are built with torno\'s own build123d.')
     // Nothing was made in it for the opening.
     expect(readdirSync(empty)).toEqual([])

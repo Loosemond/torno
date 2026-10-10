@@ -195,6 +195,30 @@ function gizmoPixels(p: Page = page): Promise<number> {
   })
 }
 
+/** A picture of the current view, as the agent gets it. */
+const pictureNow = (p: Page = page): Promise<number[]> => p.evaluate(() => window.__tornoTest!.look({ view: 'current' }).then((picture) => Array.from(picture.png)))
+
+/** How many pixels of two pictures of one size differ at all; -1 when they are not of one size. */
+function differing(a: number[], b: number[], p: Page = page): Promise<number> {
+  return p.evaluate(
+    async ([first, second]) => {
+      const pixels = async (png: number[]) => {
+        const bitmap = await createImageBitmap(new Blob([new Uint8Array(png)], { type: 'image/png' }))
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(bitmap, 0, 0)
+        return ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      }
+      const [one, two] = [await pixels(first), await pixels(second)]
+      if (one.width !== two.width || one.height !== two.height) return -1
+      let count = 0
+      for (let i = 0; i < one.data.length; i += 4) if (one.data[i] !== two.data[i] || one.data[i + 1] !== two.data[i + 1] || one.data[i + 2] !== two.data[i + 2]) count += 1
+      return count
+    },
+    [a, b] as const
+  )
+}
+
 /**
  * Bring the pointer onto the handle of the gizmo that runs along an axis of
  * the object frame from a point: out from where the point is drawn, a few
@@ -816,10 +840,16 @@ test('G, R and T choose what the gizmo does while a shape is active, and only th
   await fieldsButton('Move').click()
 
   // Another mark is the active one: no gizmo, and the keys do nothing.
+  await atRest()
+  const [held, view] = [await pictureNow(), await camera()]
   await page.locator('.mark-row[data-mark="M1"] .mark-note').click()
   await page.keyboard.press('Escape')
   await expect.poll(async () => (await state()).activeMark).toBe('M1')
   await expect(canvas()).not.toHaveAttribute('data-gizmo')
+  // The agent's picture is the same with the gizmo on the shape and without: to the pixel, the triad's corner too.
+  await atRest()
+  expect(await camera()).toEqual(view)
+  expect(await differing(held, await pictureNow())).toBe(0)
   await expect(page.locator('.shape-fields')).toHaveCount(0)
   await page.keyboard.press('r')
   await page.locator(`.mark-row[data-mark="${box}"] .mark-note`).click()

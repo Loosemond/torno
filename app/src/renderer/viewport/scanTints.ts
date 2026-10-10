@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { type SetWatcher, PaintedIndex, TriangleSet, tintIndex } from './scanPaint'
 import type { BuiltScan } from './scanMesh'
+import { LIGHT_THEME } from './theme'
 
 /** A region that was kept, as the window draws it: its mark's number, its scan, who made it, and its triangles as the bits of its mask. It is of its scan in every layout. */
 export interface KeptRegion { id: string; scan: string; author: 'user' | 'agent'; bits: Uint8Array }
@@ -28,7 +29,8 @@ export class ScanTints {
   /** The set in hand, whether or not its scan's mesh is there to draw it on. */
   private inHand: { scan: string; set: TriangleSet } | null = null
   private painting: { scan: string; set: TriangleSet; index: PaintedIndex; attribute: THREE.BufferAttribute; built: BuiltScan; mesh: Tint } | null = null
-  private colours = { user: '#B8336A', agent: '#1F7A5C' }
+  /** The mark colours of the light tokens until the theme is told (`setColours`): a region is a mark, and has no colour of its own. */
+  private colours = { user: LIGHT_THEME.user, agent: LIGHT_THEME.agent }
   private planes: THREE.Plane[] | null = null
   /** While a picture is made: whether it draws the marks. The set in hand is in no picture. */
   private pictured: { regions: boolean } | null = null

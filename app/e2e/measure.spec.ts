@@ -427,6 +427,15 @@ test('given to the agent they are pinned: the next prompt says only how many pas
   expect(first).not.toContain('Dimensions')
   await expect(row('M1', page).locator('.mark-status')).toHaveText('pinned')
   await expect(row('M2', page).locator('.mark-status')).toHaveText('pinned')
+  // The word of a row that is no draft takes no room until the row is pointed at: the width is the note's.
+  const quiet = (await page.evaluate(() => window.__tornoTest!.state().activeMark)) === 'M1' ? 'M2' : 'M1'
+  const word = row(quiet, page).locator('.mark-status')
+  await page.mouse.move(700, 400)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await expect.poll(async () => (await word.boundingBox())!.width).toBeLessThanOrEqual(1)
+  await row(quiet, page).hover()
+  await expect.poll(async () => (await word.boundingBox())!.width).toBeGreaterThan(20)
+  await page.mouse.move(700, 400)
   // From then on: nothing of them but the count, while they pass.
   const second = await prompted()
   expect(second).toMatch(/Dimensions\(measuredonr\d+\):2pinneddimensionspassOpenmarks:M1,M2$/)

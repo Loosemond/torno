@@ -67,6 +67,12 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   await expect(page.getByRole('region', { name: /^Objects of torno-e2e-show-/ })).toBeVisible()
   await expect(card('hollow')).toContainText('Not opened in this run')
   await expect(card('hollow')).toContainText('No picture yet')
+  // With no picture to show, the picture's room is a third as tall as it is wide, and its three lines fit in it.
+  const room = (await card('hollow').locator('.card-picture').boundingBox())!
+  expect(room.width / room.height).toBeGreaterThan(2.9)
+  await card('hollow').hover()
+  const lines = (await card('hollow').locator('.card-nopicture').evaluate((el) => [el.scrollHeight, el.clientHeight]))
+  expect(lines[0]).toBeLessThanOrEqual(lines[1])
   // One that cannot be built says why, as the list does.
   await expect(card('two')).toContainText('more than one model file')
   // Looking at the page built nothing, and wrote nothing.

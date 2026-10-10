@@ -216,7 +216,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
           <DatumMark />
           <h3>No objects in {name} yet</h3>
           <p>
-            Make a folder with a Python model in it, for example <span className="num">{name}/part/part.py</span>, and it appears here.
+            Make a folder with a Python model in it, for example <span className="num">part/part.py</span>, and it appears here.
           </p>
           {!hasProject && (
             <p>
@@ -361,7 +361,7 @@ function Picture({ card, of, dimmed, onMissing }: { card: ObjectCard; of: string
   }, [near, of, card.id, onMissing])
 
   return (
-    <span ref={holder} className="card-picture" data-dimmed={dimmed && url ? '' : undefined}>
+    <span ref={holder} className="card-picture" data-dimmed={dimmed && url ? '' : undefined} data-empty={!url && card.thumb === null ? '' : undefined}>
       {url ? (
         <img src={url} alt="" width={480} height={360} draggable={false} />
       ) : card.thumb === null ? (

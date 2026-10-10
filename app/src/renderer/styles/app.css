@@ -1115,6 +1115,17 @@ button {
   color: var(--accent);
 }
 
+/* A mark that is no draft says its status once its row is pointed at, in focus or the active one: until then
+   the width is its note's. The word stays in the row for whoever has it read out. */
+.mark-row:not(:hover, :focus-within, [data-active]) .mark-status:not([data-status='draft']) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* What the last build did to the surface a mark is on. */
 .mark-anchor {
   flex: none;
@@ -3490,6 +3501,11 @@ button {
   background: var(--surface);
 }
 
+/* A card with no picture is as tall as its three lines need: the picture's room is for a picture. */
+.card-picture[data-empty] {
+  aspect-ratio: 3 / 1;
+}
+
 .card-picture img {
   display: block;
   width: 100%;
@@ -3514,18 +3530,21 @@ button {
   position: absolute;
   inset: 0;
   display: grid;
+  grid-template-columns: auto minmax(0, max-content);
   place-content: center;
-  justify-items: center;
-  gap: 2px;
-  padding: var(--space-4);
+  justify-items: start;
+  gap: 2px var(--space-3);
+  padding: var(--space-2) var(--space-4);
   color: var(--muted);
-  text-align: center;
+  text-align: left;
 }
 
+/* The datum stands beside the lines, not over them: the room is low. */
 .card-nopicture .datum {
+  grid-row: 1 / span 2;
+  align-self: center;
   width: 32px;
   height: 32px;
-  margin-bottom: var(--space-2);
   color: var(--hairline);
 }
 
