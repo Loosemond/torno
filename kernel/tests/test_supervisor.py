@@ -505,7 +505,12 @@ def test_check_over_the_protocol_for_the_object_asked(fresh, ws):
     assert standing["ok"] is True, standing
     assert (standing["result"]["distance"], standing["result"]["overlapping"]) == (0, False)
     assert standing["result"]["points"][0][2] == pytest.approx(2.5)
-    assert check(bracket, "overlap", a="post", b="base")["result"] == {"volume": 0, "bbox": None}
+    assert check(bracket, "overlap", a="post", b="base")["result"] == {
+        "volume": 0,
+        "volumeExact": True,
+        "how": "of what the two share",
+        "bbox": None,
+    }
     mesh = check(plate, "mesh", a="plate")["result"]
     assert mesh == {"watertight": True, "openEdges": 0, "where": [], "triangles": mesh["triangles"]}
     # As many triangles as the build said the part is drawn with: it is the same mesh.
@@ -804,7 +809,9 @@ def test_a_worker_answers_from_what_its_build_worked_out_of_each_part(monkeypatc
     built.seek(0)
     scene = read_frame(built)[0]["scene"]
     volumes = {part["key"]: part["volume"] for part in scene["parts"]}
-    assert {key: kept["volume", key] for key in shapes} == volumes
+    assert {key: kept["volume", key] for key in shapes} == {
+        key: extent.Volume(volume, True) for key, volume in volumes.items()
+    }
     assert all(kept["deflection", key] > 0 and kept["valid", key] is True for key in shapes)
 
     monkeypatch.setattr(extent, "volume_and_centre", lambda *args, **more: pytest.fail("measured again"))

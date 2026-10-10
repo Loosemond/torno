@@ -101,7 +101,10 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
       says how far, mm; one further off is refused.
     - ``bbox`` of a part, a face or an edge, exact when all its faces are
       planes or cylinders and all its edges lines or circles; ``volume`` and
-      ``mass`` of a part that is a solid; ``area`` of a part or a face,
+      ``mass`` of a part that is a solid, exact of one all planes, cylinders,
+      cones, spheres and tori that end in lines and circles, and of any
+      other approximate (``extent``), with the digits of it that are good
+      in ``how``; ``area`` of a part or a face,
       exact of planes, cylinders, cones, spheres, tori and curves extruded
       straight; of any other face it is approximate (``extent``), and ``how``
       says about how many significant digits of it are good, two to six, or
@@ -468,7 +471,9 @@ def _extent(kind: str, target: _Target, kept: dict[Any, Any] | None) -> dict[str
         if target.kind != "part":
             raise QueryError("bad_request", f"volume is measured of a part; {target.what}")
         need_solid(target.shape, target.key)
-        return _exactly(volume_of(target.shape, target.key, kept), "mm3", "of the solid")
+        volume = volume_of(target.shape, target.key, kept)
+        how = "of the solid" + volume_doubt(volume)
+        return {"value": volume.value, "unit": "mm3", "how": how, "exact": volume.exact}
     if target.kind not in ("part", "face"):
         raise QueryError("bad_request", f"area is measured of a part or a face; {target.what}")
     if target.kind == "part":
@@ -493,8 +498,17 @@ def _doubt(area: extent.Area) -> str:
     return f": its integrals differ by {number(percent)} %"
 
 
-def _exactly(value: float, unit: str, how: str) -> dict[str, Any]:
-    return {"value": float(value), "unit": unit, "how": how, "exact": True}
+def volume_doubt(volume: extent.Volume) -> str:
+    """What follows ``how`` of a volume: nothing of an exact one, else how far it can be relied on."""
+    if volume.exact:
+        return ""
+    if volume.digits is not None:
+        return f", approximate, good to about {volume.digits} significant digits"
+    if not (math.isfinite(volume.value) and math.isfinite(volume.spread)) or volume.value <= 0:
+        return ", approximate"
+    # Too much in doubt to vouch for two digits: how much, as a part of the volume, to two digits.
+    percent = float(f"{100 * volume.spread / volume.value:.2g}")
+    return f", approximate: in doubt by {number(percent)} %"
 
 
 def _mass(
@@ -516,14 +530,18 @@ def _mass(
         raise QueryError("bad_request", "density is a positive number, in g/cm³")
     need_solid(target.shape, target.key)
     volume = volume_of(target.shape, target.key, kept)
+    how = f"PLA {number(PLA)} g/cm³ (default)" if default else f"at {number(density)} g/cm³"
+    if not volume.exact:
+        # No more exact than the volume it is of.
+        how += f"; volume{volume_doubt(volume)[1:]}"
     return {
         # mm³ to cm³.
-        "value": volume / 1000 * density,
+        "value": volume.value / 1000 * density,
         "unit": "g",
-        "how": f"PLA {number(PLA)} g/cm³ (default)" if default else f"at {number(density)} g/cm³",
+        "how": how,
         "density": float(density),
-        "volume": volume,
-        "exact": True,
+        "volume": volume.value,
+        "exact": volume.exact,
     }
 
 

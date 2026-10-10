@@ -4,10 +4,16 @@ Neither is taken from the quick forms OCC and build123d use by default, which
 integrate at a fixed order: exact of planes, cylinders and spheres, but out in
 the fourth digit on a face that ends in a spline, and still said as if exact.
 
-- A volume is integrated by Gauss-Kronrod until it has converged to EPSILON
-  of itself. That is right wherever it was checked, to 1e-9. Of a shape all
-  planes, cylinders, cones, spheres and tori that end in lines and circles,
-  the quick form is exact and is taken instead: it costs a tenth.
+- A volume is exact only of a shape all planes, cylinders, cones, spheres
+  and tori that end in lines and circles: the quick form is exact of those.
+  Of any other it is integrated by Gauss-Kronrod, never to a tolerance that
+  costs minutes (to 1e-9 a part of 92 faces, lofts and fillets, took 41 s at
+  every build, and four of them made a build of 178 s out of one of 13),
+  and is told as approximate (``Volume``): at two tolerances at the least,
+  and at finer ones for as long as that costs next to nothing, with about
+  how many digits of it are good by what the last two agree to and by what
+  the integral says of itself. Neither is a proof: on that part, integrals
+  that agreed to 1e-13 were 2e-5 out, and one that claimed 3e-7 was 2e-6 out.
 - An area is the sum of the areas of the faces, each taken as its surface
   allows, and says whether it is exact (``Area``). It is exact of a plane, a
   cylinder, a cone, a sphere and a torus, and of a curve extruded straight
@@ -21,12 +27,26 @@ the fourth digit on a face that ends in a spline, and still said as if exact.
 
 import math
 import re
+import time
 from typing import Any, NamedTuple
 
 from . import topo
 
-# How near its true value an area or a volume is integrated, as a part of it.
+# How near its true value an area of a known kind is integrated, as a part of it.
 EPSILON = 1e-9
+# The tolerances a volume that is not exact is integrated to by Gauss-Kronrod,
+# as parts of it, one after the other: the first two always, the finer ones
+# for as long as all before them took less than _SPARE together. Measured on
+# the half of a guitar stand (92 faces, lofts and fillets): 0.05 s, 0.9 s,
+# then 2.7 s, 6.4 s, 12 s, 19 s, and 41 s to 1e-9; on a part of a few freeform
+# faces every one of them takes milliseconds.
+VOLUME_TOLERANCES = (1.0, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7)
+# Seconds of this process: so little that the next integral, which costs two
+# or three times the last, is not noticed in a build.
+_SPARE = 0.05
+# What tells how long an integral took: the processor's time on this thread,
+# which neither a loaded machine nor another thread stretches.
+_clock = time.thread_time
 # The finer tolerance an area of no known kind is integrated to: the nearest
 # of the three integrals wherever it was checked, but for the kinds below.
 _FINEST = 1e-12
@@ -78,12 +98,48 @@ def area(shape: Any) -> Area:
     return Area(value, False, _digits(spread, value), spread)
 
 
-def volume(shape: Any) -> float:
-    """The volume of the solids of a shape, mm³: 0 of one that has none."""
-    return volume_and_centre(shape, centre=False)[0]
+class Volume(NamedTuple):
+    """A volume in mm³, whether it is exact, and if not how far it can be relied on.
+
+    As an ``Area``: ``digits`` is about how many significant digits of it are
+    good, None of an exact one and of one too much in doubt to say; then
+    ``spread``, mm³, how much of it is in doubt, is what there is to tell.
+    """
+
+    value: float
+    exact: bool
+    digits: int | None = None
+    spread: float = 0.0
 
 
-def volume_and_centre(shape: Any, centre: bool = True) -> tuple[float, Any]:
+def volume(shape: Any, known: list[tuple[Any, "Volume"]] | None = None) -> Volume:
+    """The volume of the solids of a shape, mm³: 0 of one that has none.
+
+    ``known`` holds the shapes whose volume was taken with it before, and
+    gets this one: a solid placed again, in another layout or twice in one,
+    is the same solid (one ``TShape``) wherever it is put, and is integrated
+    once.
+    """
+    wrapped = _topods(shape)
+    if known is not None:
+        for placed, measured in known:
+            if _same_solid(wrapped, placed):
+                return measured
+    measured, _ = volume_and_centre(shape, centre=False)
+    if known is not None:
+        known.append((wrapped, measured))
+    return measured
+
+
+def _same_solid(one: Any, other: Any) -> bool:
+    """Whether two shapes are one, placed twice: a placement that scaled it would change its volume."""
+    if not one.IsPartner(other):
+        return False
+    scales = [abs(shape.Location().Transformation().ScaleFactor()) for shape in (one, other)]
+    return abs(scales[0] - scales[1]) <= 1e-12
+
+
+def volume_and_centre(shape: Any, centre: bool = True) -> tuple[Volume, Any]:
     """The volume of the solids of a shape and, if wanted, their centre of mass as a ``gp_Pnt``.
 
     Taken of the shape itself, however its solids are nested in compounds. A
@@ -95,19 +151,57 @@ def volume_and_centre(shape: Any, centre: bool = True) -> tuple[float, Any]:
 
     wrapped = _topods(shape)
     if not topo.solids(wrapped):
-        return 0.0, None
-    measured = GProp_GProps()
+        return Volume(0.0, True), None
     if round_and_straight(wrapped):
         # The quick integral is exact of these (1e-15 wherever it was checked),
         # and Gauss-Kronrod takes 2 ms more of every torus: 0.9 s against
         # 0.07 s on a block with 289 filleted holes, at every build.
+        measured = GProp_GProps()
         BRepGProp.VolumeProperties_s(wrapped, measured)
-    else:
-        # Gauss-Kronrod: the quick integral is 0.02 % out on a prism with a
-        # spline for its outline, and the form of it that takes an epsilon
-        # does not converge there (0.7 % out at 1e-9).
-        BRepGProp.VolumePropertiesGK_s(wrapped, measured, EPSILON, False, False, centre)
-    return abs(float(measured.Mass())), measured.CentreOfMass() if centre else None
+        return Volume(abs(float(measured.Mass())), True), measured.CentreOfMass() if centre else None
+    # Gauss-Kronrod: the quick integral is 0.02 % out on a prism with a spline
+    # for its outline and 0.6 % on a loft, and the form of it that takes an
+    # epsilon does not converge there (0.7 % out at 1e-9).
+    spent, taken = 0.0, []
+    for tolerance in VOLUME_TOLERANCES:
+        started = _clock()
+        taken.append(_gauss_kronrod(wrapped, tolerance, centre))
+        spent += _clock() - started
+        # It cannot be interrupted: what bounds its cost is the tolerance it is
+        # asked for, and that is chosen by what the looser ones took.
+        if len(taken) >= 2 and spent >= _SPARE:
+            break
+    (before, _, _), (value, claimed, at) = taken[-2:]
+    spread = abs(value - before)
+    if math.isfinite(claimed) and claimed > 0:
+        # No nearer than the integral says it is of itself.
+        spread = max(spread, claimed * value)
+    return Volume(value, False, _volume_digits(abs(value - before), claimed, value), spread), at
+
+
+def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float, float, Any]:
+    """A volume integrated by Gauss-Kronrod to a tolerance, as a part of it: the volume,
+    the error the integral says it has left, as a part of it too, and the centre of
+    mass if wanted."""
+    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
+
+    measured = GProp_GProps()
+    claimed = BRepGProp.VolumePropertiesGK_s(wrapped, measured, tolerance, False, False, centre)
+    return abs(float(measured.Mass())), float(claimed), measured.CentreOfMass() if centre else None
+
+
+def _volume_digits(apart: float, claimed: float, value: float) -> int | None:
+    """About how many significant digits are good of a volume whose last two integrals lie
+    ``apart`` and whose last says it is within ``claimed`` of itself.
+
+    The fewer of the two: one fewer than the integrals agree to, as of an
+    area (``_digits``), and as many as the integral claims.
+    """
+    digits = _digits(apart, value)
+    if digits is None or not (math.isfinite(claimed) and claimed > 0):
+        return digits
+    digits = min(digits, math.floor(-math.log10(claimed)))
+    return digits if digits >= FEWEST_DIGITS else None
 
 
 def round_and_straight(shape: Any) -> bool:

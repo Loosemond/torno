@@ -306,3 +306,44 @@ def test_print_parts_that_only_touch_are_left_alone():
 
 def test_spread_scene_is_json_serialisable(stacked):
     json.dumps(stacked[0], allow_nan=False)
+
+
+# Volumes: once per solid, never as finely as costs minutes
+
+
+def test_a_solid_placed_in_two_layouts_is_integrated_once_and_a_build_spends_little_on_volumes(monkeypatch):
+    from build123d import Circle, Ellipse, Pos, loft
+
+    from torno_kernel import extent
+
+    horn = loft([Circle(10).face(), Pos(0, 0, 15) * Ellipse(13.5, 5).face(), Pos(3, 0, 30) * Circle(4).face()])
+    other = loft([Circle(8).face(), Pos(0, 0, 15) * Ellipse(13.5, 5).face(), Pos(3, 0, 30) * Circle(4).face()])
+    asked: list[float] = []
+    clock = [0.0]
+    integrate = extent._gauss_kronrod
+
+    def counted(wrapped, tolerance, centre):
+        asked.append(tolerance)
+        clock[0] += 0.5  # as on a part of a hundred freeform faces
+        return integrate(wrapped, tolerance, centre)
+
+    monkeypatch.setattr(extent, "_gauss_kronrod", counted)
+    monkeypatch.setattr(extent, "_clock", lambda: clock[0])
+    layouts = {
+        "assembly": {"horn": horn, "other": Pos(40, 0, 0) * other},
+        "print": {"horn": Pos(0, 50, 0) * horn, "other": Pos(40, 50, 0) * other},
+    }
+    kept: dict = {}
+    scene, _, shapes = build_scene(layouts, "horns.py", kept)
+    # Two solids in two layouts each: two integrals of each solid, a second of each by this clock.
+    assert asked == list(extent.VOLUME_TOLERANCES[:2]) * 2
+    assert clock[0] == 2.0
+    volumes = {p["key"]: (p["volume"], p["volumeExact"]) for p in scene["parts"]}
+    assert volumes["assembly:horn"] == volumes["print:horn"] != volumes["assembly:other"]
+    assert all(volume > 0 and exact is False for volume, exact in volumes.values())
+    assert {key: (kept["volume", key].value, kept["volume", key].exact) for key in shapes} == volumes
+
+
+def test_the_scene_says_which_volumes_are_exact(bracket):
+    scene, _, _ = bracket
+    assert all(p["volumeExact"] is True for p in scene["parts"])

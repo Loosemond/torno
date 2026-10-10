@@ -1,6 +1,7 @@
 """``check``, in-process: overlap, clearance and whether a part's mesh is closed."""
 
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,9 @@ from torno_kernel.loader import load_scene
 from torno_kernel.tess import build_scene
 
 WS = Path(__file__).parent / "fixtures" / "ws"
+
+
+NOTHING_SHARED = {"volume": 0, "volumeExact": True, "how": "of what the two share", "bbox": None}
 
 
 def boxes(at) -> dict:
@@ -40,18 +44,20 @@ def test_overlap_is_the_volume_the_two_share_and_where():
     result = check(boxes([10, 10, 5]), "overlap", "a", "b")
     assert result == {
         "volume": pytest.approx(500),
+        "volumeExact": True,
+        "how": "of what the two share",
         "bbox": {"min": pytest.approx([0, 0, 0], abs=1e-9), "max": pytest.approx([10, 10, 5])},
     }
 
 
 def test_parts_that_are_apart_or_only_touch_share_nothing():
-    assert check(boxes([23, 0, 0]), "overlap", "a", "b") == {"volume": 0, "bbox": None}
-    assert check(boxes([20, 0, 0]), "overlap", "a", "b") == {"volume": 0, "bbox": None}
+    assert check(boxes([23, 0, 0]), "overlap", "a", "b") == NOTHING_SHARED
+    assert check(boxes([20, 0, 0]), "overlap", "a", "b") == NOTHING_SHARED
     # Boxes around them overlap; they do not.
     from build123d import Box, Pos, Sphere
 
     near = {"assembly:a": Box(10, 10, 10), "assembly:b": Pos(9, 9, 9) * Sphere(5)}
-    assert check(near, "overlap", "a", "b") == {"volume": 0, "bbox": None}
+    assert check(near, "overlap", "a", "b") == NOTHING_SHARED
 
 
 def test_a_part_inside_another_overlaps_by_its_whole_volume():
@@ -341,10 +347,21 @@ def test_vertices_are_one_within_a_tenth_of_a_micron_in_any_direction():
         assert count == 4
 
 
-def test_the_volume_shared_with_a_freeform_solid_is_exact_to_a_millionth(spline_prism):
-    from build123d import Box
+def test_the_volume_shared_with_a_freeform_solid_is_approximate_and_right_to_a_millionth(spline_prism):
+    from build123d import Box, Pos
 
     prism, true_area, _ = spline_prism
     shapes = {"assembly:prism": prism, "assembly:block": Box(100, 100, 100)}
     # The block holds all of the prism, 5 mm high.
-    assert check(shapes, "overlap", "prism", "block")["volume"] == pytest.approx(true_area * 5, rel=1e-6)
+    shared = check(shapes, "overlap", "prism", "block")
+    assert shared["volume"] == pytest.approx(true_area * 5, rel=1e-6)
+    # Never told as exact: it is integrated as a part's is, and says how far it can be relied on.
+    assert shared["volumeExact"] is False
+    assert re.fullmatch(r"of what the two share, approximate, good to about [56] significant digits", shared["how"])
+    apart = {**shapes, "assembly:block": Pos(500, 0, 0) * Box(100, 100, 100)}
+    assert check(apart, "overlap", "prism", "block") == {
+        "volume": 0,
+        "volumeExact": True,
+        "how": "of what the two share",
+        "bbox": None,
+    }

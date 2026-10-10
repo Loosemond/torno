@@ -34,8 +34,8 @@ def build_scene(
     buffers point into, and the shapes by part key, in the object frame, for
     queries. Into ``kept``, when one is given, goes what was worked out of
     each part that a query would otherwise work out again (``queries.run``):
-    its ``volume``, whether it is ``valid`` and the ``deflection`` it was
-    drawn with, each under ``(what, key)``.
+    its ``volume`` (an ``extent.Volume``), whether it is ``valid`` and the
+    ``deflection`` it was drawn with, each under ``(what, key)``.
 
     Parts of the print layout that overlap are first moved apart along X. The
     shape itself is moved, so the mesh, the bounding box and the shape kept for
@@ -44,6 +44,8 @@ def build_scene(
     blob = bytearray()
     parts = []
     shapes = {}
+    # The solids integrated so far: one placed in two layouts is integrated once.
+    solids: list[tuple[Any, extent.Volume]] = []
     for layout, named in layouts.items():
         moves: dict[str, list[float]] = {}
         if layout == ARRANGED_LAYOUT:
@@ -52,9 +54,10 @@ def build_scene(
         for name, shape, mesh, loc, cache_id, drawn_at in _tessellate(named):
             key = f"{layout}:{name}"
             shapes[key] = shape
-            part = _part(key, name, layout, shape, mesh, loc, cache_id, blob)
+            volume = extent.volume(shape, solids)
+            part = _part(key, name, layout, shape, mesh, loc, cache_id, blob, volume)
             if kept is not None:
-                kept["volume", key] = part["volume"]
+                kept["volume", key] = volume
                 kept["valid", key] = part["valid"]
                 kept["deflection", key] = drawn_at
             if name in moves:
@@ -159,6 +162,7 @@ def _part(
     loc: Any,
     cache_id: str | None,
     blob: bytearray,
+    volume: extent.Volume,
 ) -> dict[str, Any]:
     t = [float(x) for x in loc[0]]
     q = [float(x) for x in loc[1]]
@@ -173,7 +177,9 @@ def _part(
         "layout": layout,
         "loc": {"t": t, "q": q},
         "bbox": _bbox(vertices, t, q),
-        "volume": extent.volume(shape),
+        # Above 0 of a solid: the window cuts a part with a volume as a closed one.
+        "volume": volume.value,
+        "volumeExact": volume.exact,
         "faceCount": len(arrays["trianglesPerFace"]),
         "edgeCount": len(arrays["segmentsPerEdge"]),
         "triangleCount": len(arrays["triangles"]) // 3,

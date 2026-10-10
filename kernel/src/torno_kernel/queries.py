@@ -132,8 +132,8 @@ def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
     return shapes[key]
 
 
-def volume_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> float:
-    """The volume of the part ``key``, mm³: measured once for as long as ``kept`` is."""
+def volume_of(shape: Any, key: str, kept: dict[Any, Any] | None) -> extent.Volume:
+    """The volume of the part ``key`` and whether it is exact: measured once for as long as ``kept`` is."""
     return _held(kept, "volume", key, lambda: extent.volume(shape))
 
 
@@ -504,11 +504,13 @@ def _pick(items: list[Any], index: int, key: str, plural: str, letter: str) -> A
 def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[str, Any]:
     low, high = box_of(shape, key, kept)
     area = area_of(shape, key, kept)
+    volume = volume_of(shape, key, kept)
     facts = {
         "kind": "part",
         "key": key,
         "bbox": {"min": list(low), "max": list(high)},
-        "volume": volume_of(shape, key, kept),
+        "volume": volume.value,
+        "volumeExact": volume.exact,
         "area": area.value,
         "areaExact": area.exact,
         "faceCount": len(topo.faces(shape)),

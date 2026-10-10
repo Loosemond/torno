@@ -86,7 +86,9 @@ def _part(facts: dict[str, Any]) -> str:
     low, high = facts["bbox"]["min"], facts["bbox"]["max"]
     size = " × ".join(number(b - a) for a, b in zip(low, high, strict=True))
     faces = facts["faceCount"]
-    return f"part, {size} mm, {number(facts['volume'])} mm³, {faces} face{'' if faces == 1 else 's'}"
+    # A volume that is not exact is said as about that much.
+    about = "≈ " if facts.get("volumeExact") is False else ""
+    return f"part, {size} mm, {about}{number(facts['volume'])} mm³, {faces} face{'' if faces == 1 else 's'}"
 
 
 def _axis_index(direction: Sequence[float]) -> int | None:

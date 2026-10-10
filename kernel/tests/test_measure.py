@@ -701,7 +701,7 @@ def test_volumes_of_an_ellipsoid_and_a_torus_and_the_area_of_the_torus_are_right
     )
 
 
-def test_a_volume_is_right_by_the_quick_integral_and_by_the_one_that_converges(spline_prism):
+def test_a_volume_is_exact_by_the_quick_integral_and_approximate_by_gauss_kronrod(spline_prism):
     from build123d import Align, Box, Cone, Cylinder, Pos, Rot, Sphere, Torus, fillet, scale
 
     from torno_kernel import extent
@@ -722,7 +722,8 @@ def test_a_volume_is_right_by_the_quick_integral_and_by_the_one_that_converges(s
         + math.pi * 4 * (6 + 16 + 26)
         + 4 / 3 * math.pi * 8,
     }
-    # Anything else is integrated until it converges.
+    # Anything else is integrated by Gauss-Kronrod, as finely as costs next to nothing, and is
+    # never told as exact.
     slow = {
         prism: outline_area * 5,
         scale(Sphere(5), by=(1, 2, 3)): 4 / 3 * math.pi * 5 * 10 * 15,
@@ -733,12 +734,15 @@ def test_a_volume_is_right_by_the_quick_integral_and_by_the_one_that_converges(s
     for shapes, plain, tolerance in ((quick, True, 1e-12), (slow, False, 1e-6)):
         for shape, volume in shapes.items():
             assert extent.round_and_straight(shape) is plain
-            assert extent.volume(shape) == pytest.approx(volume, rel=tolerance)
+            assert extent.volume(shape).value == pytest.approx(volume, rel=tolerance)
+            # Only the quick integral of planes and round faces is told as exact.
+            assert extent.volume(shape).exact is plain
             made = {"assembly:it": shape}
             result = measure(made, "volume", "assembly:it")
-            assert (result["value"], result["exact"]) == (pytest.approx(volume, rel=tolerance), True)
+            assert (result["value"], result["exact"]) == (pytest.approx(volume, rel=tolerance), plain)
             scene, _, _ = build_scene({"assembly": {"it": shape}}, "it.py")
             assert scene["parts"][0]["volume"] == pytest.approx(volume, rel=tolerance)
+            assert scene["parts"][0]["volumeExact"] is plain
 
 
 def test_a_compound_inside_a_compound_has_the_volume_of_its_solid():
@@ -753,6 +757,126 @@ def test_a_compound_inside_a_compound_has_the_volume_of_its_solid():
     assert described["descriptor"] == "part, 10 × 10 × 10 mm, 1000 mm³, 6 faces"
     scene, _, _ = build_scene({"assembly": dict(nest=made["assembly:nest"])}, "nest.py")
     assert scene["parts"][0]["volume"] == pytest.approx(1000)
+
+
+def said_volume_digits(how: str) -> int:
+    """The digits a volume that is not exact says are good, from its ``how``."""
+    import re
+
+    [digits] = re.findall(r"approximate, good to about (\d) significant digits$", how)
+    return int(digits)
+
+
+def reference_volume(shape) -> float:
+    """The volume by Gauss-Kronrod to 1e-10 of itself: affordable of a part of a few faces only."""
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+
+    measured = GProp_GProps()
+    BRepGProp.VolumePropertiesGK_s(shape.wrapped, measured, 1e-10, False, False, False)
+    return abs(measured.Mass())
+
+
+def test_the_volume_of_a_freeform_part_is_approximate_and_as_near_as_it_says(spline_prism):
+    from build123d import Cylinder, Pos, Rot
+
+    prism, outline_area, _ = spline_prism
+    horn = tuned_loft()
+    bored = horn - Pos(0, 0, 10) * Rot(90, 0, 0) * Cylinder(2, 60)
+    references = {"prism": (prism, outline_area * 5), "horn": (horn, None), "bored": (bored, None)}
+    for name, (shape, true) in references.items():
+        true = reference_volume(shape) if true is None else true
+        made = {f"assembly:{name}": shape}
+        result = measure(made, "volume", f"assembly:{name}")
+        assert (result["unit"], result["exact"]) == ("mm3", False), name
+        digits = said_volume_digits(result["how"])
+        assert result["how"] == f"of the solid, approximate, good to about {digits} significant digits"
+        assert 2 <= digits <= 6
+        assert result["value"] == pytest.approx(true, rel=10**-digits), name
+        # A part of a few faces costs nothing to integrate finely: it is good to five digits at least.
+        assert digits >= 5, name
+        # The mass is of that volume, and no more exact; describe says the same number.
+        mass = measure(made, "mass", f"assembly:{name}", density=2)
+        assert (mass["value"], mass["volume"], mass["exact"]) == (result["value"] / 500, result["value"], False)
+        assert mass["how"] == f"at 2 g/cm³; volume approximate, good to about {digits} significant digits"
+        described = queries.describe(made, f"assembly:{name}")
+        assert (described["volume"], described["volumeExact"]) == (result["value"], False)
+        assert f", ≈ {number(result['value'])} mm³, " in described["descriptor"]
+
+
+def test_the_volume_and_the_mass_of_planes_and_round_faces_stay_exact(shapes):
+    result = measure(shapes, "volume", PLATE)
+    assert (result["how"], result["exact"]) == ("of the solid", True)
+    mass = measure(shapes, "mass", PLATE)
+    assert (mass["how"], mass["exact"]) == ("PLA 1.24 g/cm³ (default)", True)
+    described = queries.describe(shapes, PLATE)
+    assert described["volumeExact"] is True and "≈" not in described["descriptor"]
+
+
+def gauss_kronrod_asked(monkeypatch, seconds: float = 0.0) -> list[float]:
+    """The tolerances Gauss-Kronrod is asked for from here on, each integral taking ``seconds`` by the clock."""
+    from torno_kernel import extent
+
+    asked: list[float] = []
+    clock = [0.0]
+    integrate = extent._gauss_kronrod
+
+    def counted(wrapped, tolerance, centre):
+        asked.append(tolerance)
+        clock[0] += seconds
+        return integrate(wrapped, tolerance, centre)
+
+    monkeypatch.setattr(extent, "_gauss_kronrod", counted)
+    monkeypatch.setattr(extent, "_clock", lambda: clock[0])
+    return asked
+
+
+def test_no_volume_is_integrated_to_a_billionth_and_a_costly_one_twice_only(monkeypatch):
+    from torno_kernel import extent
+
+    horn = tuned_loft()
+    asked = gauss_kronrod_asked(monkeypatch)
+    cheap = extent.volume(horn)
+    # Each integral took no time: every rung is climbed, and none is finer than the last.
+    assert asked == list(extent.VOLUME_TOLERANCES) and min(asked) >= 1e-7
+    del asked[:]
+    asked = gauss_kronrod_asked(monkeypatch, seconds=0.5)
+    costly = extent.volume(horn)
+    # Each took half a second: the two loosest, a second in all, and no more.
+    assert asked == list(extent.VOLUME_TOLERANCES[:2])
+    assert not costly.exact and costly.value == pytest.approx(cheap.value, rel=1e-3)
+    # What was integrated less finely says fewer digits, never more.
+    assert (costly.digits or 0) <= cheap.digits
+
+
+@pytest.mark.parametrize(
+    "integrals, claimed, digits, percent",
+    [
+        ((100.0, 100.0), 1e-9, 6, None),  # never more than six
+        ((100.0, 100.0001), 1e-9, 5, None),  # 1e-6 apart: one fewer than they agree to
+        ((100.0, 100.0), 1.2e-4, 3, None),  # they coincide, and the integral itself claims no better
+        ((100.0, 100.0001), 2e-3, 2, None),
+        ((100.0, 100.2), 1e-9, None, "0.2"),  # 2e-3 apart: no count of digits
+        ((100.0, 100.0), 2e-2, None, "2"),
+    ],
+)
+def test_the_digits_said_of_a_volume_are_what_its_integrals_agree_to_and_claim(
+    monkeypatch, integrals, claimed, digits, percent
+):
+    from torno_kernel import extent
+
+    values = iter(integrals)
+    monkeypatch.setattr(extent, "_gauss_kronrod", lambda wrapped, tolerance, centre: (next(values), claimed, None))
+    monkeypatch.setattr(extent, "_clock", iter(range(100)).__next__)
+    volume = extent.volume(tuned_loft())
+    assert (volume.value, volume.exact, volume.digits) == (integrals[1], False, digits)
+    made = {"assembly:horn": tuned_loft()}
+    values = iter(integrals)
+    how = measure(made, "volume", "assembly:horn")["how"]
+    if digits is None:
+        assert how == f"of the solid, approximate: in doubt by {percent} %"
+    else:
+        assert how == f"of the solid, approximate, good to about {digits} significant digits"
 
 
 def test_a_part_that_is_not_a_solid_is_described_with_no_volume():
@@ -1210,7 +1334,8 @@ def test_a_build_keeps_the_volume_of_each_part_and_no_query_measures_it_again(mo
     kept: dict = {}
     scene, _, made = build_scene(load_scene(WS / "measures", "measures.py"), "measures.py", kept)
     [plate] = [part for part in scene["parts"] if part["key"] == PLATE]
-    assert kept[("volume", PLATE)] == plate["volume"]
+    assert kept[("volume", PLATE)] == extent.Volume(plate["volume"], True)
+    assert plate["volumeExact"] is True
     assert kept[("valid", PLATE)] is True
     monkeypatch.setattr(extent, "volume_and_centre", lambda *args, **more: pytest.fail("measured again"))
     args = {"kind": "volume", "a": {"ref": PLATE}}

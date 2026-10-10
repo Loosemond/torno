@@ -1,6 +1,7 @@
 """What is wrong between two parts or with one: the ``check`` query.
 
-``overlap`` and ``clearance`` are of the B-rep, exact. ``mesh`` is of the
+``overlap`` and ``clearance`` are of the B-rep: a distance is exact, and a
+shared volume as a part's is (``extent``). ``mesh`` is of the
 tessellation the part is drawn and exported with, since that is what a slicer
 is given: a hole in it is a hole in the print, whatever the solid says.
 """
@@ -10,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from . import extent, tess, topo
+from .measure import volume_doubt
 from .queries import QueryError, need_part, need_solid
 
 KINDS = ("overlap", "clearance", "mesh")
@@ -19,6 +21,8 @@ WELD = 1e-4
 MAX_WHERE = 20
 # Less shared volume than this, mm³, is none: parts that touch share what tolerance leaves.
 _SHARED = 1e-6
+# How the volume two parts share was taken: followed by how far it can be relied on.
+_SHARED_HOW = "of what the two share"
 # Parts nearer than this, mm, touch.
 _TOUCHING = 1e-7
 
@@ -26,7 +30,9 @@ _TOUCHING = 1e-7
 def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | None) -> dict[str, Any]:
     """Answer ``check``: ``args`` are ``kind``, ``layout``, the part ``a`` and, for two, ``b``.
 
-    - ``overlap``: the ``volume`` the two parts share, mm³, and its ``bbox``,
+    - ``overlap``: the ``volume`` the two parts share, mm³, whether it is
+      exact (``volumeExact``: as of a part, only of planes and round faces;
+      ``how`` says how far any other can be relied on) and its ``bbox``,
       null when they share none. Both are solids: a shell or a face has no
       volume to share, and is refused.
     - ``clearance``: the least ``distance`` between the two, mm, and the
@@ -76,7 +82,7 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
     if kind == "overlap":
         need_solid(first, a)
         need_solid(second, b)
-        return {"volume": shared()["volume"], "bbox": shared()["bbox"]}
+        return {key: shared()[key] for key in ("volume", "volumeExact", "how", "bbox")}
     not_solid = [name for name, shape in ((a, first), (b, second)) if not topo.solids(shape)]
     return _clearance(_topods(first), _topods(second), f"{a} and {b}", shared, not_solid)
 
@@ -92,19 +98,22 @@ def _shared(one: Any, other: Any, names: str) -> dict[str, Any]:
     """What two solids share: its ``volume``, its ``bbox`` and its centre, ``at``."""
     from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
 
+    nothing = {"volume": 0.0, "volumeExact": True, "how": _SHARED_HOW, "bbox": None, "at": None}
     if _boxes_apart(one, other):
-        return {"volume": 0.0, "bbox": None, "at": None}
+        return nothing
     common = _common(one, other)
     if not common.IsDone():
         raise QueryError("exception", f"what {names} share could not be computed")
+    # As a part's volume: exact only of planes and round faces, never integrated for minutes.
     volume, centre = extent.volume_and_centre(common.Shape())
-    if volume < _SHARED:
-        return {"volume": volume, "bbox": None, "at": None}
+    told = {"volume": volume.value, "volumeExact": volume.exact, "how": _SHARED_HOW + volume_doubt(volume)}
+    if volume.value < _SHARED:
+        return {**nothing, **told}
     box = Bnd_Box()
     # Of the geometry itself: not of a mesh, and not widened by the shape's tolerance.
     BRepBndLib.AddOptimal_s(common.Shape(), box, False, False)
     return {
-        "volume": volume,
+        **told,
         "bbox": {"min": _xyz(box.CornerMin()), "max": _xyz(box.CornerMax())},
         "at": _xyz(centre),
     }
