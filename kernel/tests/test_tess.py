@@ -452,3 +452,14 @@ def test_a_box_taken_face_by_face_is_the_one_occ_takes_of_the_whole(bracket):
             [low.X() + 0.0, low.Y() + 0.0, low.Z() + 0.0],
             [high.X() + 0.0, high.Y() + 0.0, high.Z() + 0.0],
         )
+
+
+def test_a_box_is_not_widened_by_what_single_precision_leaves_of_a_mesh(monkeypatch):
+    from build123d import Sphere
+
+    from torno_kernel import extent, tess
+
+    monkeypatch.setattr(extent, "box", lambda shape, within=None: ([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]))
+    drawn = {"min": [-2.7e-6, 0.0, -1.0], "max": [10.000001, 10.0, 9.0]}
+    # A vertex 0.0000027 mm under a part of 17 mm is on it: one a millimetre under is not.
+    assert tess.part_box(Sphere(7), drawn=drawn) == ([0.0, 0.0, -1.0], [10.0, 10.0, 10.0])

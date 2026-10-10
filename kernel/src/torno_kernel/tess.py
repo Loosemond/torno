@@ -1,11 +1,13 @@
 """Tessellate a loaded scene into the Scene JSON and its binary blob."""
 
 import hashlib
+import math
 from typing import Any
 
 import numpy as np
 
 from . import arrange, extent
+from .describe import OF_THE_PART
 
 DEVIATION = 0.1
 ANGULAR_TOLERANCE = 0.2
@@ -86,8 +88,8 @@ def part_box(
     The kernel's (``extent.box``). Of a part whose box is not exact
     (``extent.boxed_exactly``) it is widened to hold the mesh the part is
     drawn with, ``drawn`` when the caller has its box: every vertex of that
-    is a point of the part, and OCC's box has been short of one. ``within``
-    as ``extent.box`` takes it.
+    is a point of the part, to a millionth of its extent, and OCC's box has
+    been short of one. ``within`` as ``extent.box`` takes it.
     """
     low, high = extent.box(shape, within)
     if extent.boxed_exactly(shape):
@@ -98,9 +100,11 @@ def part_box(
         except Exception:
             # What cannot be meshed alone is drawn with nothing to hold.
             return low, high
+    # Not by what single precision leaves of a vertex: 0.000003 mm under a part of 200 is on it.
+    least = OF_THE_PART * math.dist(low, high)
     return (
-        [min(a, b) + 0.0 for a, b in zip(low, drawn["min"], strict=True)],
-        [max(a, b) + 0.0 for a, b in zip(high, drawn["max"], strict=True)],
+        [b if b < a - least else a for a, b in zip(low, drawn["min"], strict=True)],
+        [b if b > a + least else a for a, b in zip(high, drawn["max"], strict=True)],
     )
 
 
