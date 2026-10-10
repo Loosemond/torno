@@ -159,7 +159,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty'] as const
+const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -174,6 +174,13 @@ for (const theme of ['light', 'dark'] as const) {
         writeFileSync(join(root, 'config.json'), JSON.stringify({ recent: [join(root, 'objects'), join(root, 'helmet'), join(root, 'printer-parts')] }))
         env.TORNO_CONFIG = join(root, 'config.json')
       } else env.TORNO_WORKSPACE = root
+      if (shot === 'folders') {
+        // The menu of the folder button, with folders opened lately, one of them gone. The file is this test's own, outside the workspace.
+        const home = temp('folders')
+        mkdirSync(join(home, 'printer-parts'))
+        writeFileSync(join(home, 'config.json'), JSON.stringify({ recent: [join(home, 'helmet'), join(home, 'printer-parts')] }))
+        env.TORNO_CONFIG = join(home, 'config.json')
+      }
       const { app, page } = await start(theme, env)
       let client: Client | null = null
       const canvas = page.locator('[data-region="viewport"] canvas').first()
@@ -240,6 +247,9 @@ for (const theme of ['light', 'dark'] as const) {
           await canvas.click({ position: { x: 5, y: 5 } })
           await page.keyboard.press('Control+Shift+E')
           await expect(page.getByRole('dialog', { name: 'Export' })).toContainText('hollow')
+        } else if (shot === 'folders') {
+          await page.getByRole('button', { name: 'Folders' }).click()
+          await expect(page.getByRole('menu', { name: 'Folders' }).getByRole('menuitem').first()).toBeVisible()
         } else if (shot === 'error') {
           await open(page, 'bracket')
           appendFileSync(join(root, 'bracket', 'bracket.py'), '\nraise ValueError("the post is taller than the base is wide")\n')
