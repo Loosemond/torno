@@ -253,11 +253,20 @@ what was never seen on a visible screen is one section.
   from `hint(id)`; the palette's tools, the view bar's views and the gizmo's
   ways are `TOOL_KEYS`, `VIEW_KEYS` and `GIZMO_KEYS`; the sheet of keys (`?`,
   `ui/KeySheet.tsx`) is `cheatSheet()`. A new key is added there first:
-  `keys.test.ts` reads the sources of the window and of main and fails for a
-  key compared with a name of its own, for a key written out on a button, for
-  two rows of one scope with the same key (`keyClashes`), and for a key heard
-  while typing (scope `global`) that a field or the terminal would take
-  (`typed`). A tool in hand is offered a key before the viewport is, so the
+  `keys.test.ts` reads the sources of the window, the preload and
+  `main/devkeys.ts` and fails for any read of `.key`, `.code`, `.keyCode` or
+  `.which` outside `shared/keys.ts` (a handler hands the press whole to
+  `pressed` or `which`; main through `pressOf`), for a key of the keyboard
+  named in a source, for a key or a chord written out in a text, for two rows
+  of one scope with the same key, for a key of the shape in hand that the
+  viewport has too (`keyClashes`), and for a key heard while typing (scope
+  `global`) that a field or the terminal would take (`typed`). The scan is by
+  source text: what else in the window is called a key (a part's, a light's,
+  a row's) is read through a receiver listed in the test (`NOT_A_PRESS`), and
+  its fixtures hold every spelling of a bypass it is to catch.
+  `Ctrl+Shift+B` is "Rebuild" (`rebuild`, heard everywhere; the button is in
+  the status line, `ui/BuildStatus.tsx`); main's sentences name it by
+  `REBUILD_HOW` in `shared/build.ts`. A tool in hand is offered a key before the viewport is, so the
   Region tool's `E` stays its own and explode's is the viewport's. Shift with
   a key is that key unless Shift with it has a row of its own in that scope.
   A slider is no field to type in (`ui/typing.ts`): the keys work with one in
@@ -287,6 +296,12 @@ what was never seen on a visible screen is one section.
   dimmed (`MarkLayer.setSection`).
 - Picking sees what is drawn (`pickUnder`): on a cut face nothing is hit and
   the pointer says so.
+- Taken in hand with nothing cut (`X`), the Section tool cuts at once: `newCut` (`shared/cut.ts`) puts the
+  plane through the middle of the parts (to 0.01 mm), across the axis the camera looks most along, open
+  towards the viewer (`towardsViewer`: the half taken away is the one on the camera's side). The bar's X, Y
+  and Z and an exported page's cut ask the same rule.
+- A number field gives the keys back to the view on Enter and on Escape (`giveKeysBack` in `ui/typing.ts`),
+  and keeps what was typed once (`toKeep` in `ui/Field.tsx`).
 - The Section tool (`tools/sectionTool.ts`) moves the plane only by a drag
   that starts on its handle; any other drag turns the camera. The bar is
   `ui/SectionBar.tsx`. The plane moves in the viewport during a drag and is
@@ -307,7 +322,22 @@ part of a layout is drawn from where it is: from the centre by
 to the centre of the part's (`R` half the diagonal of the layout's box, `d`
 the part's distance from that centre; a part within `SHARED_CENTRE_MM`,
 0.01 mm, of the centre stays); along an axis the parts are ranked by their
-centres on it and set `2R × amount × scale` apart.
+centres on it (level ones, within `SHARED_CENTRE_MM`, in the scene's order)
+and set `2R × amount × scale` apart: to both sides of the middle along x and
+y, along z upward from the lowest part, which stays (nothing goes under the
+ground).
+
+- `scene.json` may hold a section and, for a layout, an explode above 0 at
+  once (a view applied, a layout changed): `explodeShown` decides what is
+  drawn, and no picture is wrong for it.
+- The parts the rule is asked of are all of the layout, drawn or not. An
+  exported page that leaves parts out carries their boxes (`ghosts`, no names)
+  and asks the rule of `apartParts` (`shared/exportdata.ts`).
+- `E` on a layout of one part opens no bar: the button says why for a moment.
+  Drawn apart in one go (a key, an axis or scale button), the camera is fitted
+  only when a part would leave the view (`Viewport.keepApartInView`,
+  `leavesView`). While the parts are apart no shape is in hand
+  (`connectShapeEdit`).
 
 - **One rule says what is drawn apart: `explodeShown(explode, section,
   parts)`** (`shared/explode.ts`). Nothing is while there is a section, of a
@@ -534,9 +564,19 @@ agent is never told to remove a view.
   one it names with `TORNO_CONFIG`.
 - The example is a copy of four objects of `kernel/tests/fixtures/ws`
   (`EXAMPLE_OBJECTS` in `src/main/example.ts`) made in the system's temporary
-  folder when it is asked for, once in a run, and removed when torno ends.
+  folder when it is asked for, once in a run, with a marker file at its top
+  (`EXAMPLE_MARKER`). It is removed at the end of `will-quit`, after the
+  writes that were under way and the sessions have ended (`removeExample`),
+  and one a crash left is removed at the next start (`sweepExamples`): only
+  ever a real folder that marker names, of a torno that no longer runs.
+  `WorkspaceInfo.example` says the open folder is it, and the window says
+  `EXAMPLE_NOTE` under the workspace's name.
   The fixtures are never opened in place and never written to. The copy is
   not remembered: not as the workspace to open next, not as a recent folder.
+- With a folder open, the folder button of the left column is a menu
+  (`ui/FolderMenu.tsx`): the recent folders, "Open folder…", "Open the
+  example". A folder torno is started with (`TORNO_WORKSPACE`) is added to the
+  recent ones; the workspace to open next stays the one chosen in the window.
 - A workspace with no object says what to make (`ui/ShowPage.tsx`), and one
   without a `pyproject.toml` that its models are built with torno's own
   build123d. torno runs no `uv` command there.
@@ -550,9 +590,22 @@ agent is never told to remove a view.
   accent on its wash; the sixteen terminal colours on the panel, but the dark
   theme's black); what is only drawn is 3:1 (the two mark colours on the
   surface); a hairline is between 1.15 and 2. A token is changed there first.
-- In light a verdict (`--ok`, `--fail`) is a step darker than the mark colour
-  it is near (`--agent-mark`, `--user-mark`): a verdict is read, a mark is
-  drawn. The axes (`--axis-x`, `-y`, `-z`) are the gizmo's and the triad's of
+- A verdict (`--ok`, `--fail`) is no mark's colour to the eye, in both
+  themes: 1.5:1 at least from the mark colour of its hue (`--agent-mark`,
+  `--user-mark`), darker in light and lighter in dark. A verdict is read, a
+  mark is drawn. Muted words and the verdicts are 4.5:1 on `--accent-wash`
+  too. The dark `--warn` is an ochre, not an amber.
+- A mark's lines (a pin's leader, an arrow's shaft, a stroke, a dimension's
+  lines, a shape's outline) are drawn over a casing in `--panel`, 2 px wider
+  (`MarkColours.casing`, `Parts.cased` in `viewport/marks/markObjects.ts`; in
+  an exported page `.mark-casing` under `.mark-line`, as SVG over the
+  canvas). The line is 3:1 on its casing; the casing is 3:1 on every part
+  colour in dark and 2:1 in light, where no panel-coloured casing can do more
+  against pastel parts.
+- No text is dimmed by `opacity`, and nothing animates without end
+  (`styles/styles.test.ts` reads the stylesheets): the dot of a session at
+  work is still, and a build's beats with the count of its seconds
+  (`data-beat`, set by `BuildStatus` once a second). The axes (`--axis-x`, `-y`, `-z`) are the gizmo's and the triad's of
   a picture, and are neither mark colour.
 - The light values are written out where no stylesheet is read
   (`viewport/theme.ts` `LIGHT_THEME`, `viewport/sectionDrawing.ts` `SHEET`,
@@ -624,7 +677,13 @@ agent is never told to remove a view.
 - **`.torno/.gitignore` has one writer**, `src/main/ignored.ts` `ensureIgnored(dir, lines)`: it adds the
   lines that are missing at the end, makes the file when there is none, never removes or rewrites what is
   there, and adds nothing against a line the person negated (`!thumb.png`). The thumbnails ask it for
-  `thumb.png` and `thumb.json`. (`.torno/views/` and `.torno/scans/` each have a `.gitignore` of their own
+  `thumb.png` and `thumb.json`, the state file for `state.md`, a conversation put on file for `session.json`,
+  a hookless start for `prompt.md` and `agent/`, an export for `exports/`, a picture for `views/`. What is the
+  object's travels: `scene.json`, `marks.json`, `scans.json`, `agent.json`.
+- **`.torno` is named in one module, `src/main/own.ts`** (`FOLDER`), and every write under it goes through
+  `ownTorno(dir)` first (`writeOwn` for a file written whole): a link or a file in its place is refused with a
+  plain reason, nothing is written, and the person is told once for each object, in the Marks panel
+  (`onNotOwn`, wired in `index.ts`). (`.torno/views/` and `.torno/scans/` each have a `.gitignore` of their own
   inside them, written by whoever makes the folder.)
 - **A card says how far its picture can be trusted** (`ui/cards.ts`): when it was made (with the year when
   that is not this one); what it draws otherwise than the object is (`cut by its section`, `parts drawn
@@ -924,32 +983,39 @@ agent is never told to remove a view.
 - Lengths are millimetres, angles degrees, areas mm², volumes mm³, masses
   grams. Numbers shown go through `shared/format.ts` (four significant
   digits at most); numbers stored and returned as data are in full.
-- Every number told to the agent is the kernel's, from the B-rep. The mesh
+- Every number told to the agent is the kernel's, from the B-rep, and says whether it is exact. The one
+  exception is the box of a part that is not exact: it is widened to hold the mesh the part is drawn with, and
+  it is the mesh's alone when the kernel's took a build more than a second (`tess.BOX_SECONDS`), `bboxExact:
+  false` either way. The mesh
   drives only the estimate read out at the pointer while a measurement is
   pending (`≈`), which the kernel's value replaces. What is taken from a scan
   is the one exception, and is never said to be exact (see Scans).
-- Areas and volumes are measured in one place, `kernel/src/torno_kernel/extent.py`.
-  A volume is integrated by Gauss-Kronrod to 1e-9 of itself and given as
-  exact. An area is exact of planes, cylinders, cones, spheres and tori, and
-  of a curve extruded straight and not cut along its height. The area of any
-  other face (loft, B-spline, revolved spline, offset) is never said to be
-  exact: `exact: false` (`areaExact` in `describe` and `section`), and `how`
-  says `approximate, good to about N significant digits` (2 to 6), or
-  `approximate: its integrals differ by 2.1 %`, with no count of digits, when
-  they are too far apart for two. A part's digits are of its own area (its
-  faces' spreads summed, against the whole), so it may say N while one small
-  face says none. The app reads neither: it tells `how` as it is.
-  A bbox is exact only of planes and cylinders with straight and circular
-  edges (`measure.py` `_boxed_exactly`).
-- This costs time on freeform parts, at every build (each part's volume is in
-  the scene) and in `describe`, `volume`, `mass` and `area` of a whole part:
-  seconds on the first ask of a freeform part, then kept by the worker until
-  the next build. A query has 30 s. Measured in the sweep of Milestone 5 on
-  the owner's `guitar-wall-stand` (three lofted parts of about 90 faces, two
-  layouts): the model runs in 10 s and the build takes 178 s, 164 s of them
-  in four calls of `BRepGProp.VolumePropertiesGK_s` (`extent.py`
-  `volume_and_centre`, asked by `tess.py` for the scene). Nothing says so in
-  the window; `describe` of a part then takes 1.6 s.
+- Areas, volumes and boxes are measured in one place, `kernel/src/torno_kernel/extent.py`. A volume is exact
+  only of a part all planes, cylinders, cones, spheres and tori that end in lines and circles. Of any other it
+  is integrated by Gauss-Kronrod, never to 1e-9: at two tolerances at least and at finer ones while that costs
+  next to nothing (`VOLUME_TOLERANCES`), once per solid in a build, and told as approximate (`volumeExact:
+  false` in the scene, `describe` and `check overlap`; `exact: false` in `measure volume` and `mass`) with the
+  digits that can be relied on, two to six. How many digits a borderline part gets may differ by one between
+  builds (the choice of tolerances is by the thread's clock): no test pins that number of a freeform fixture.
+  An area is exact of planes, cylinders, cones, spheres and tori, and
+  of a curve extruded straight whose length settles; of any other face `measure area` takes three integrals and
+  says the digits they agree to, never as exact, and a face's descriptor (`describe`, `nearest`) takes one
+  (`areaExact: false`, `≈`). A part has one box, told alike by the scene, `describe` and `measure bbox`
+  (`tess.part_box`), exact only of planes and cylinders with straight and circular edges
+  (`extent.boxed_exactly`, `bboxExact`).
+- The app says `≈` wherever the kernel does not say exact: `scene` gives each part `sizeExact` and
+  `volumeExact` (true only where the kernel's flag is) and a note when one is false; `state.md` writes `≈`
+  before such a size; `measureReading` and `checkReading` (`mcp/readTools.ts`) write `≈` and the kernel's `how`.
+  `scene`'s sizes are for orientation: its description sends the agent to `measure` for a number to rely on.
+- A build spends about a second on the volume of a part of a hundred freeform faces and up to a second on its
+  box: on the owner's `guitar-wall-stand` (two halves of 92 and 94 faces, in two layouts) 3.7 s on volumes and
+  1.3 s on boxes, where volumes to 1e-9 took 164 s. The whole area of a freeform part still costs three
+  integrals a face, in `describe` of the part and `measure area`: 1.5 s there, 10 s on the lid of
+  `micra-intake` (2,635 faces) when it was last measured. A query has 30 s.
+- A coordinate or a size under a millionth of its part's extent is told as 0: by the kernel in what it words
+  (`describe.number`'s `least`), by the app in a mark's line (`describeMark` given the `scene`,
+  `numberWithin` in `shared/format.ts`). A direction of a region is told to two decimals (`directionText`).
+  A new cut is put at the middle of the parts to 0.01 mm (`newCut` in `shared/cut.ts`).
 - `measure`'s `moved`, on a thickness, is how far the given point was from
   the face it was laid on; it says nothing of the value's precision.
 - A `print` layout that was spread (`arrange.py`) has its parts where torno
@@ -1111,13 +1177,11 @@ window on it.
 - Pictures of the parts come only from `window.__tornoTest.look(request)`, the
   same code the `look` tool uses; it renders to a target and does not wait for
   a frame.
-- A CSS animation that never ends (the dot of a working session, of a running
-  build) grows the hidden window's memory by about 3 MB a second for as long
-  as it runs, and the window and the GPU process keep a core and a half busy:
-  146 MB to 2.5 GB in half an hour of the sweep. It stops when the animation
-  does. A long script has the stand-in say `hook Stop` after each `hook`, and
-  watches `ps`. Whether a visible window does the same is not known. A `look`
-  with an explode of its own takes a second there, against 50 ms without.
+- A CSS animation that never ends grew the hidden window's memory by about
+  3 MB a second for as long as it ran (146 MB to 2.5 GB in half an hour of
+  the sweep). There is none any more, and `styles/styles.test.ts` fails for
+  one. Nothing that is ready waits on `requestIdleCallback` or a frame
+  either (`state/thumbs.ts`): a window nobody looks at is given frames late.
 - State is read through hooks, not pixels: `window.__tornoTest.state()` and
   `.camera()`, `.pickAt(fx, fy)` for what a point of the canvas is on and
   `.project(point)` for where a point of the object is drawn (both in fractions
@@ -1190,22 +1254,30 @@ window on it.
     (`lineShown`: the CLI showed it at a prompt, which a question that is up in its place does not); and
     nothing was typed or pasted after it (`followTyped`: a printable character, a bracketed paste whole or cut
     short, Esc Enter, a key that deletes, clears, completes or recalls, or a sequence torno does not know, all
-    drop the line at once). What leaves it waiting: the terminal's own answers, focus in and out, reports of
+    drop the line at once; so does anything torno itself puts in after it that is not that line, the
+    selection's "Insert": `Sessions.insert`, `Delivery.inserted`). The line is looked for by its own head
+    (`lineHead`: `torno: 2 new marks (M4`), not by any `torno:` the CLI writes. What leaves it waiting: the terminal's own answers, focus in and out, reports of
     the pointer, and Left, Right, Home and End. Dropped, nothing is delivered, the marks stay drafts, the file
-    is made to say there is nothing new, and the pane says which it was (`toldLine`: "Something was typed after
+    stays as it was written (the line may still be sent by hand, and names it), and the pane says which it was (`toldLine`: "Something was typed after
     the line" / "The line was not at the prompt when Enter was pressed") and offers the button again. A session
     that ends first delivers nothing. The pane's word for success is "Enter was pressed with the line at the
     prompt": never that the agent has the marks.
-  - `prompt.md` says only that there is nothing new (`nothingNew`) when such a session starts, when its line is
-    dropped and when it ends: what it told of before is never read as news.
+  - `prompt.md` says only that there is nothing new (`nothingNew`) when such a session starts and when it
+    ends: what it told an earlier session of is never read as news.
   - No draft is consumed by anything but a `UserPromptSubmit` hook or that Enter.
-- What torno writes for an agent it writes into folders of its own: `<object>/.torno` and `.torno/agent` are
-  checked with `lstat` before an adapter's files are written, and a link or a file under either name refuses
-  the start with the path (`ownFolder` in `manager.ts`). Copilot CLI is not started in an object whose path has
+- What torno writes for an agent it writes into folders of its own: `<object>/.torno` (`ownTorno`) and
+  `.torno/agent` (`ownFolder` in `manager.ts`) are checked with `lstat` before an adapter's files are written,
+  and a link or a file under either name refuses the start with the path. Copilot CLI is not started in an object whose path has
   a comma (its list of folders for instructions is separated by commas): the start is refused, naming the path.
 - `.torno/.gitignore` (`ensureIgnored`) has `prompt.md` and `agent/` from the first hookless start: they are
   written anew at every start or send. `agent.json` is not ignored: the choice is the object's and travels with
-  it, as `scene.json` does. `session.json` is as it was before this (not ignored by torno).
+  it, as `scene.json` does. `session.json` is ignored from the first conversation put on file.
+- For an agent with hooks the pane says in one line what the next prompt carries (`nextPromptLine`,
+  `nextCarries` in `shared/agents.ts`); for one without, the "Send marks" strip is that.
+- `stopAll` ends the sessions there are and those being started when it is called, not one started while it
+  waits (`Sessions.busy` says whether any is there or on its way).
+- The tools' descriptions are the same for every agent and never say that something comes "with every
+  prompt" (`prompt.test.ts` scans them and the hookless instructions, and bounds the latter's length).
 
 ## Never run a real agent CLI from tests
 
