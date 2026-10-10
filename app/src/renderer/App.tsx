@@ -9,6 +9,7 @@ import { MarksPanel } from './ui/MarksPanel'
 import { ObjectList } from './ui/ObjectList'
 import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
+import { ExportSheet } from './ui/ExportSheet'
 import { ShowPage, usePageKey } from './ui/ShowPage'
 import { DatumMark, ViewportPane } from './ui/ViewportPane'
 
@@ -239,6 +240,8 @@ export function App() {
       <main className="viewport" data-region="viewport">
         <ViewportPane onShowError={() => setErrorOpen(true)} />
         {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} />}
+        {/* Over either: what goes into an export, asked before anything is written. */}
+        <ExportSheet />
       </main>
 
       <aside className="left" data-region="left" aria-label="Objects, layers, scans and marks">

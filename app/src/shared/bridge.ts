@@ -1,4 +1,5 @@
 import type { BuildState } from './build'
+import type { ExportPlan, ExportRequest } from './exportdata'
 import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
 import type { Scene } from './scene'
@@ -115,6 +116,13 @@ export interface TornoBridge {
     saveThumbnail(objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf): void
     /** Something a card says may have changed. */
     onChanged(cb: () => void): () => void
+  }
+  /** One HTML file of an object or of several, that opens by itself: see `main/export`. Calls reject with a plain message. */
+  export: {
+    /** What a file of this request would hold and weigh, with every object of the workspace and whether it can be exported. Writes nothing. */
+    plan(req: ExportRequest): Promise<ExportPlan>
+    /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
+    save(req: ExportRequest): Promise<{ path: string; bytes: number; dropped: string[] } | null>
   }
   session: {
     /** What there is for an object: its running session, and whether an earlier conversation can be resumed. */

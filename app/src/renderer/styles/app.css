@@ -3653,3 +3653,178 @@ button {
     animation: none;
   }
 }
+
+/* ---- Export: what goes into the file, asked over the view or over the page of objects ---- */
+
+.status-export {
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+}
+
+.status-export:hover {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.show-export {
+  flex: none;
+  height: 30px;
+  margin-left: auto;
+}
+
+.export-layer {
+  position: absolute;
+  inset: 0 var(--dock-space) var(--status-h) var(--left-w);
+  z-index: 6;
+  display: grid;
+  place-items: start center;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  pointer-events: none;
+}
+
+.export-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 100%;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  pointer-events: auto;
+}
+
+.export-sheet:focus {
+  outline: none;
+}
+
+.export-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) 0 var(--space-4);
+}
+
+.export-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.export-body {
+  min-height: 0;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
+}
+
+.export-body .section-title {
+  margin: var(--space-4) 0 var(--space-1);
+  padding: 0;
+}
+
+.export-lead {
+  max-width: 62ch;
+  color: var(--muted);
+}
+
+.export-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.export-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: var(--space-2);
+  align-items: center;
+  padding: 3px 0;
+}
+
+.export-row input {
+  grid-row: 1;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.export-cannot {
+  max-width: 62ch;
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.export-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-what {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.export-warning,
+.export-never {
+  max-width: 62ch;
+  font-size: var(--text-small);
+}
+
+.export-warning {
+  margin-bottom: var(--space-1);
+  color: var(--warn);
+}
+
+.export-never {
+  margin-top: var(--space-4);
+  color: var(--muted);
+}
+
+.export-foot {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--divider);
+}
+
+.export-size {
+  min-width: 0;
+  font-size: var(--text-small);
+}
+
+.export-size [data-tone='warn'] {
+  color: var(--warn);
+}
+
+.export-size [data-tone='fail'] {
+  color: var(--fail);
+}
+
+.export-path {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+
+.export-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}

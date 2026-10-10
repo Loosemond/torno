@@ -57,6 +57,8 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
   const { failing, unmeasured } = unmetDimensions(marks, revision)
   // Every build leaves every dimension unmeasured for the moment the measuring takes: said only when it lasts.
   const waiting = useLasting(unmeasured.length > 0, UNCHECKED_AFTER_MS)
+  const objectId = useStore((st) => st.objectId)
+  const paged = useStore((st) => st.page === 'objects')
   const building = build?.status === 'building'
   const elapsed = useElapsed(building ? build.startedAt : undefined)
   const error = build?.status === 'failed' ? build.error : undefined
@@ -115,6 +117,12 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
         </>
       )}
       <span className="spacer" />
+      {/* The open object, as one HTML file. With the page of objects up, the page has the button for them all. */}
+      {objectId !== null && !paged && (
+        <button type="button" className="status-export" title="Export this object to one HTML file that opens by itself" onClick={() => actions.exportSheet([objectId])}>
+          Export…
+        </button>
+      )}
       {build123d && <span className="num">build123d {build123d}</span>}
       {errorOpen && error && name !== null && (
         <BuildErrorSheet objectName={name} error={error} onClose={() => onErrorOpen(false)} />

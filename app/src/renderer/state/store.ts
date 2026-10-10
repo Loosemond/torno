@@ -135,6 +135,8 @@ export interface TornoState {
    * open object stays as it is under the page: its selection, its camera, the note being written.
    */
   page: 'object' | 'objects'
+  /** The export sheet, while it is up: the objects it opens with ticked, or `all` for every one that can be exported. Null when it is away. */
+  exportOf: string[] | 'all' | null
 }
 
 const NOTHING_SELECTED: string[] = []
@@ -156,7 +158,8 @@ export const store = createStore<TornoState>(() => ({
   lockedView: null,
   edits: 0,
   sessions: {},
-  page: 'object'
+  page: 'object',
+  exportOf: null
 }))
 
 export function useStore<T>(selector: (s: TornoState) => T): T {
@@ -167,7 +170,13 @@ export const actions = {
   /** A workspace was opened (or there is none): nothing of the old one stays. */
   setWorkspace(workspace: WorkspaceInfo | null): void {
     // Several objects are met on their page; one alone is the thing to open, and none has the page say what an object is.
-    store.setState({ workspace, workspaceKnown: true, versions: {}, ...NO_OBJECT, sessions: {}, page: workspace && workspace.objects.length !== 1 ? 'objects' : 'object' })
+    store.setState({ workspace, workspaceKnown: true, versions: {}, ...NO_OBJECT, sessions: {}, page: workspace && workspace.objects.length !== 1 ? 'objects' : 'object', exportOf: null })
+  },
+
+  /** Brings up the export sheet with these objects ticked (`all`: every one that can be exported), or puts it away. */
+  exportSheet(of: string[] | 'all' | null): void {
+    if (of !== null && store.getState().workspace === null) return
+    store.setState({ exportOf: of })
   },
 
   /** Show the page of objects, or go back from it to the object that is open: with none open there is nothing to go back to. */

@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
+import type { ExportPlan, ExportRequest } from '../shared/exportdata'
 import type { Described } from '../shared/geometry'
 import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks'
 import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
@@ -13,6 +14,9 @@ import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
+import { type ExportDeps, exportFile, exportPlan } from './export/build'
+import { loadAssets } from './export/html'
+import { defaultExportPath, htmlPath, prepareExports, writeExport } from './export/save'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
@@ -24,7 +28,7 @@ import { kernelDir } from './paths'
 import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
-import { forgetSceneFiles, loadSceneFile, saveSceneFile } from './scenefile'
+import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
@@ -38,7 +42,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           show:cards, show:thumbnail
+//           show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
@@ -360,6 +364,8 @@ export function queryObject<T = unknown>(id: string, name: string, args: object)
  * `pickFolder` answers "Open folder" in place of the dialog, which tests must
  * never open; `pickFile` answers "Import scan" likewise.
  * `scans` backs the scans of the objects; without it there are none.
+ * `pickSave` answers the save dialog of an export likewise: it is given the path the dialog would have
+ * opened on, and answers with the path to write, or null.
  */
 export function registerIpc(
   opts: {
@@ -376,6 +382,8 @@ export function registerIpc(
     scans?: ScanStore
     /** Stands in for the file dialog: the file to import, or null for none. */
     pickFile?: () => Promise<string | null>
+    /** Stands in for the save dialog of an export: given the path it would open on, the path to write, or null for none. */
+    pickSave?: (defaultPath: string) => Promise<string | null>
   } = {}
 ): void {
   sessions = opts.sessions ?? null
@@ -651,6 +659,70 @@ export function registerIpc(
       (e) => console.error(`cannot keep the picture of ${String(objectId)}: ${e instanceof Error ? e.message : String(e)}`)
     )
   })
+
+  // An export: one HTML file of the last build of this run of each object named, made in main from what it
+  // holds. Nothing is built for it. A plan writes nothing. A save writes one file, to the path the save dialog
+  // answered with and no other: the window names objects, never a path, and no agent has a tool for this.
+  const exportDeps = (): ExportDeps => {
+    const ws = requireWorkspace()
+    return {
+      object: (id) => ws.info.objects.find((o) => o.id === id),
+      last: (id) => ws.builds.scene(id),
+      sceneFile: (id) => {
+        const obj = ws.info.objects.find((o) => o.id === id)
+        return obj ? sceneFileNow(obj.dir) : Promise.resolve({ layers: {} })
+      },
+      marks: (id) => (marks ? marks.list(id) : Promise.resolve([])),
+      scans: (id) => (scans ? scans.list(id) : Promise.resolve([])),
+      scanMesh: (id, scanId) => requireScans().mesh(id, scanId),
+      now: () => new Date()
+    }
+  }
+  /** A request out of whatever the window sent: names of objects, a yes or no, keys of scans, and nothing else. */
+  const exportAsked = (given: unknown): ExportRequest => {
+    const said = Object(given) as { objects?: unknown; marks?: unknown; scans?: unknown }
+    const names = (list: unknown): string[] => (Array.isArray(list) ? [...new Set(list.filter((one): one is string => typeof one === 'string' && one !== ''))].slice(0, 1000) : [])
+    return { objects: names(said.objects), marks: said.marks === true, scans: names(said.scans) }
+  }
+  const plainly = async <T>(work: () => Promise<T>): Promise<T> => {
+    try {
+      return await work()
+    } catch (e) {
+      throw new Error(e instanceof Error ? e.message : String(e))
+    }
+  }
+  ipcMain.handle('export:plan', (_event, given: unknown): Promise<ExportPlan> =>
+    plainly(async () => {
+      const deps = exportDeps()
+      return exportPlan(deps, exportAsked(given), await loadAssets(), requireWorkspace().info.objects.map((o) => o.id))
+    })
+  )
+  ipcMain.handle('export:save', (event, given: unknown) =>
+    plainly(async () => {
+      const ws = requireWorkspace()
+      const deps = exportDeps()
+      const req = exportAsked(given)
+      // Made before the dialog is up: it is of the builds there were when "Export" was pressed.
+      const made = await exportFile(deps, req, await loadAssets())
+      const first = deps.object(req.objects[0])!
+      await prepareExports(first.dir)
+      const defaultPath = req.objects.length > 1 ? defaultExportPath(first.dir, basename(ws.info.root)) : defaultExportPath(first.dir, first.name, deps.last(first.id)?.revision)
+      let picked: string | null
+      if (opts.pickSave) picked = await opts.pickSave(defaultPath)
+      else {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        const options: Electron.SaveDialogOptions = { title: 'Export', defaultPath, filters: [{ name: 'HTML', extensions: ['html'] }] }
+        const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
+        picked = answer.canceled || !answer.filePath ? null : answer.filePath
+      }
+      if (picked === null) return null
+      const path = htmlPath(picked)
+      // The dialog asked about the name it was given: a file of the name torno made of it was never asked about.
+      if (path !== picked && existsSync(path)) throw new Error(`${path} is there already: choose it by its whole name to replace it`)
+      await writeExport(path, made.html)
+      return { path, bytes: made.bytes, dropped: made.dropped }
+    })
+  )
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

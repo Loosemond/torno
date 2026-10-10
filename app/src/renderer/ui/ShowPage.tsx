@@ -195,6 +195,11 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
           )}
         </div>
         {cards && cards.length > 0 && (
+          <button type="button" className="button show-export" title="Export objects to one HTML file that opens by itself" onClick={() => actions.exportSheet('all')}>
+            Export…
+          </button>
+        )}
+        {cards && cards.length > 0 && (
           <label className="show-filter">
             <input ref={field} type="text" value={typed} placeholder="Filter by name" aria-label="Filter the objects by name" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
             <kbd aria-hidden="true">/</kbd>

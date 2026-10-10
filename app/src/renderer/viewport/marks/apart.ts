@@ -1,5 +1,5 @@
 import { type ExplodePart, type ExplodeState, explodeOffsets } from '../../../shared/explode'
-import { type Mark, type Vec3, markAnchors } from '../../../shared/marks'
+import { type Mark, type Vec3, markAnchors, markEndParts } from '../../../shared/marks'
 
 // How a mark is drawn while the parts of its layout are drawn apart (explode). Never the mark: what is kept and
 // told of it is where it was put on the parts as built. Only its objects and its label are drawn elsewhere.
@@ -11,27 +11,9 @@ export type PartBoxes = Readonly<Record<string, { min: Vec3; max: Vec3 }>>
 
 /** Drawn where it is. */
 export const STILL: Vec3 = [0, 0, 0]
-/** How far outside a part's box a point may lie and still be at that part, in millimetres. */
-const AT_PART_MM = 0.5
-
-const within = (point: Vec3, box: { min: Vec3; max: Vec3 }): boolean => point.every((c, i) => c >= box.min[i] - AT_PART_MM && c <= box.max[i] + AT_PART_MM)
-
-/** The part a free point is at: `own` when it is at that one, else the first other part whose box holds it, else none (it is in the open). */
-function partAt(point: Vec3, boxes: PartBoxes, own: string | undefined): string | undefined {
-  if (own !== undefined && boxes[own] && within(point, boxes[own])) return own
-  return Object.keys(boxes).find((name) => name !== own && within(point, boxes[name]))
-}
-
 /** How far each end of a mark is drawn from where it is: one end for most marks; two for a dimension between two ends, and for an arrow whose head is at another part than its foot. */
 function endOffsets(mark: Mark, offsets: Offsets, boxes: PartBoxes): Vec3[] {
-  const of = (part: string | undefined): Vec3 => (part !== undefined && offsets[part]) || STILL
-  if (mark.kind === 'dimension') return markAnchors(mark).map((anchor) => of(anchor.part))
-  if (mark.kind === 'arrow') {
-    const head = partAt(mark.to, boxes, mark.from.part)
-    // In the open it points nowhere in particular: it goes whole with what it starts on.
-    return head === undefined || head === mark.from.part ? [of(mark.from.part)] : [of(mark.from.part), of(head)]
-  }
-  return markAnchors(mark).slice(0, 1).map((anchor) => of(anchor.part))
+  return markEndParts(mark, boxes).map((part) => (part !== undefined && offsets[part]) || STILL)
 }
 
 /**

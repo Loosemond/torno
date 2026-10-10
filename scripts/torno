@@ -51,13 +51,14 @@ if [ ! -d "$root/node_modules" ] || [ ! -d "$app/node_modules" ]; then
   (cd "$root" && pnpm install) >&2
 fi
 
-# Built once, and again whenever a source or the build's own configuration is
+# Built once, and again whenever a source, the build's own configuration or one
+# of its scripts (the viewer of exported pages is bundled by app/scripts) is
 # newer than the last build that succeeded. That is what the stamp records: the
 # build's own files will not do, since the main bundle is written before the
 # renderer is compiled, and a build that then fails would leave it looking fresh.
 stamp=$app/out/.built
-if [ ! -f "$stamp" ] || [ ! -f "$app/out/main/index.js" ] || [ ! -f "$app/out/preload/index.js" ] || [ ! -f "$app/out/renderer/index.html" ] ||
-  [ -n "$(find "$app/src" "$app/package.json" "$app/electron.vite.config.ts" "$app/tsconfig.json" "$root/pnpm-lock.yaml" -newer "$stamp" -print | head -n 1)" ]; then
+if [ ! -f "$stamp" ] || [ ! -f "$app/out/main/index.js" ] || [ ! -f "$app/out/preload/index.js" ] || [ ! -f "$app/out/renderer/index.html" ] || [ ! -f "$app/out/viewer/viewer.js" ] ||
+  [ -n "$(find "$app/src" "$app/scripts" "$app/package.json" "$app/electron.vite.config.ts" "$app/tsconfig.json" "$root/pnpm-lock.yaml" -newer "$stamp" -print | head -n 1)" ]; then
   echo "torno: building the app" >&2
   # The stamp carries the time the build began: a source saved while it ran is newer.
   began=$(date +%Y%m%d%H%M.%S)

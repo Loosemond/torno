@@ -1238,6 +1238,19 @@ describe('the page of objects', () => {
     expect(store.getState()).toMatchObject({ page: 'object', objectId: 'bracket', selection: ['post/F1'] })
   })
 
+  it('has the export sheet up only over a workspace, and away again when another is opened', () => {
+    actions.setWorkspace(null)
+    actions.exportSheet(['bracket'])
+    expect(store.getState().exportOf).toBeNull()
+    actions.setWorkspace(workspace('bracket', 'gear'))
+    actions.exportSheet('all')
+    expect(store.getState().exportOf).toBe('all')
+    actions.exportSheet(['bracket'])
+    expect(store.getState().exportOf).toEqual(['bracket'])
+    actions.setWorkspace(workspace('other'))
+    expect(store.getState().exportOf).toBeNull()
+  })
+
   it('is not left for an object when none is open', () => {
     actions.setWorkspace(workspace('bracket', 'gear'))
     actions.showPage('object')

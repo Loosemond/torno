@@ -4,7 +4,10 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
-import { type DimensionMark, type Mark, type RegionMark, type ShapeKind, type ShapeMark, type StrokeMark, type Vec3, MIN_SHAPE_SIZE } from '../../../shared/marks'
+import { type DimensionMark, type Mark, type RegionMark, type ShapeKind, type ShapeMark, type StrokeMark, type Vec3, MIN_SHAPE_SIZE, markPoints, strokePoints } from '../../../shared/marks'
+
+// What a mark's points are is plain arithmetic, asked by main too (an export): `shared/marks.ts`.
+export { markPoints, strokePoints }
 
 /** The colours marks are drawn in: by author, and the grey of a shape that is only a reference. */
 export interface MarkColours {
@@ -196,17 +199,6 @@ class Parts {
   }
 }
 
-/**
- * The points of a stroke in the object frame: its own on a surface, or those
- * of its plane, `origin + x·u + y·v`.
- */
-export function strokePoints(mark: StrokeMark): Vec3[] {
-  if (mark.space === 'surface') return mark.points ?? []
-  const plane = mark.plane
-  if (!plane) return []
-  return (mark.points2d ?? []).map(([u, v]) => plane.origin.map((o, i) => o + plane.x[i] * u + plane.y[i] * v) as Vec3)
-}
-
 /** The corner of a shape its label hangs from, or its top: in the object frame. */
 export function shapeLabelPoint(mark: ShapeMark): Vec3 {
   const [x, y, z] = mark.size
@@ -304,32 +296,6 @@ function angleArc(mark: DimensionMark, from: Vec3, to: Vec3): Extract<DimensionG
   const bisector = start.clone().add(end)
   if (bisector.length() < 1e-6) return null
   return { as: 'arc', vertex: vertex.toArray(), start: start.toArray(), end: end.toArray(), bisector: bisector.normalize().toArray() }
-}
-
-/** Points that bound what is drawn of a mark, in the object frame: what the camera's clip planes must keep in. */
-export function markPoints(mark: Mark): Vec3[] {
-  switch (mark.kind) {
-    case 'pin':
-    case 'pick':
-      return [mark.anchor.point]
-    case 'arrow':
-      return [mark.from.point, mark.to]
-    case 'stroke':
-      return [mark.anchor.point, ...strokePoints(mark)]
-    case 'shape': {
-      const q = quaternionOf(mark)
-      const centre = new THREE.Vector3().fromArray(mark.position)
-      const half = mark.size.map((s) => s / 2)
-      const corners: Vec3[] = []
-      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) corners.push(new THREE.Vector3(sx * half[0], sy * half[1], sz * half[2]).applyQuaternion(q).add(centre).toArray())
-      return corners
-    }
-    case 'dimension':
-      return [mark.a.point, ...(mark.b ? [mark.b.point] : []), ...(mark.points ?? [])]
-    case 'region':
-      // It is drawn on its scan, which is inside what the camera keeps in already.
-      return []
-  }
 }
 
 /**

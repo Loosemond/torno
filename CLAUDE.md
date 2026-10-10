@@ -9,12 +9,15 @@ says what it does and how to run it; the design is
   the hooks, the marks (`src/main/marks`) and the scans (`src/main/scans`). `src/renderer` is the UI, the
   three.js viewport (`viewport/`) and the tools that point at it (`tools/`).
   `src/shared` holds the types both sides use; `shared/bridge.ts` is everything
-  the renderer may ask of main.
+  the renderer may ask of main. `src/export` is the page an export writes: its
+  style and its viewer, which `app/scripts/build-viewer.mjs` bundles into
+  `out/viewer/viewer.js` as part of `pnpm build`.
 - `kernel/`: the Python package `torno_kernel` (uv). It loads build123d models
   and tessellates them, in forked workers, and imports scans, in a process of
   its own (`python -m torno_kernel.scans`).
-- `scripts/torno`: the launcher. It rebuilds the app when a source is newer
-  than `app/out/.built`, which it touches only after a build that succeeded.
+- `scripts/torno`: the launcher. It rebuilds the app when a source (or
+  `app/scripts`) is newer than `app/out/.built`, which it touches only after a
+  build that succeeded, or when `out/viewer/viewer.js` is missing.
 
 ## Tests
 
@@ -36,7 +39,7 @@ While iterating run the focused test; run all four suites before a commit.
 
 ## Global Constraints
 
-- Never write inside a user workspace except under `<object>/.torno/`. Never run `uv sync` there: always `uv run --no-sync`, and only when `<workspace>/.venv` exists: without it uv would create one, so no kernel is started and builds fail saying to run `uv sync`.
+- Never write inside a user workspace except under `<object>/.torno/`. The one exception: an export writes one file, to the path the person chose in the save dialog and to no other (`main/export/save.ts`): no folder is made for it and no other file beside it; the path never comes from the window or from an agent, and no agent has a tool for it. Never run `uv sync` there: always `uv run --no-sync`, and only when `<workspace>/.venv` exists: without it uv would create one, so no kernel is started and builds fail saying to run `uv sync`.
 - The kernel supervisor only imports. It never loads a model, builds, tessellates or answers a query. Workers never fork.
 - Kernel stdout carries protocol frames only. Model output goes to a captured buffer.
 - Units are millimetres, Z up. Coordinates crossing a process boundary are in the object frame unless named `local`.
@@ -887,6 +890,53 @@ agent is never told to remove a view.
   (`SPREAD_LINE` in `tools/measureTool.ts`), in place of the estimate. An answer of one part carries its `arranged`, and a `section` a
   note and each part's. Fit is checked in a layout that places the parts as
   assembled (`assembly(p)`).
+
+## Export
+
+- One HTML file of an object, or of several, for someone who has no torno (`src/main/export`, `src/export`).
+  It is made in main from the last good build of this run of each object (`Builds.scene`): nothing is built for
+  an export, and an object not built in this run cannot be exported (`NOT_BUILT`).
+- What is in a file is what the export sheet (`ui/ExportSheet.tsx`) showed ticked, and nothing else
+  (`ExportData` in `shared/exportdata.ts`): the parts of every layout with their colours, the explode kept for
+  each layout, the saved views that are the person's (`!view.proposed`, without the agent's `note`), the marks
+  and their notes only with "Include marks" (off by default), each scan only by its own tick (off by default,
+  under `SCAN_WARNING`). Never in it: a path of this machine (the workspace, a scan's `source`, the model's
+  file), what a model printed, the session, `state.md`, a view the agent proposed and nobody kept, a region
+  painted on a scan, a mark whose part is gone. `build.test.ts` and `e2e/export.spec.ts` hold the file to that
+  (no workspace root, no home folder, no user name, no `http://` at all).
+- A mesh is packed by `packMesh`: positions and edge points as `u16` in the part's own box (a coordinate comes
+  back within half of `span / 65535`), normals as `i8`, indices `u16` or `u32`; deflated (`zlib`, level 9) and
+  base64'd, by the part's `hash`, so a shape in two layouts is in the file once. A faceted part (`shared/faceted.ts`)
+  has no edges in the file: the page draws its creases. A scan is reduced by `clusterScan` (`decimate.ts`) to
+  60,000 triangles and packed by `packScan`.
+- The budget (`EXPORT_BUDGET`, 12 MB): over it the largest scan goes to 30,000, then 15,000 triangles, then out
+  (`SCAN_TRIANGLES`), each said in `dropped`: in the sheet before saving, and in the page under "About this
+  file". Parts are never reduced; with the parts alone over it the sheet says so and writes all the same; above
+  `EXPORT_MOST` (64 MB) nothing is written. The page with nothing in it is 0.67 MB (the viewer 580 kB, the
+  fonts 82 kB as base64); a part costs about 10 bytes a triangle.
+- Saving (`export:save` in `ipc.ts`): the file is made first, then the save dialog is asked (under test
+  `__tornoMain.pickSave`, with `savePicks` and `saveOffered`), opening in `<object>/.torno/exports/`
+  (`prepareExports`: made on demand, ignored through `ensureIgnored(dir, ['exports/'])`), and `writeExport`
+  writes that one path: one `open`, one write, one `fsync`; no temporary file, no folder made. A name without
+  `.html` gets it, and is refused if that file is there already (the dialog never asked about it).
+- The page (`main/export/html.ts`): its policy is `POLICY`, `default-src 'none'` with inline script and style
+  and `data:` fonts and images only, so it can ask for nothing and evaluate nothing; its data is JSON in a
+  script element that is not run, with every `<`, U+2028 and U+2029 escaped; `build-viewer.mjs` refuses a bundle
+  that holds `</script`, `<!--`, a dynamic import, `eval` or `innerHTML`.
+- The viewer (`src/export/viewer`: `main`, `model`, `overlay`, `panel`) sets every word of the workspace as
+  text (`textContent`), never as markup. It shares its rules with the app: `explodeShown` and `explodeOffsets`
+  (never a section and an explode at once: setting one puts the other to rest), `keepsNothing`, the palette,
+  `number`, and the viewport's lights, ground and standard views. It draws on demand, picks nothing and
+  measures nothing: a dimension shows the text torno made of it on the build exported (`shownDimension`: no
+  value and no verdict that is not of that build), and the page says so. A cut is by clipping alone, the inside
+  in a darker tone; a mark is a label, and a line for an arrow, a stroke or a dimension. With no WebGL 2 or no
+  `DecompressionStream` it says so in words. Each object's meshes are unpacked when it is first shown.
+- `window.__tornoExport` is the page's own hook, always there: `state()`, `setObject`, `setLayout`, `setPart`,
+  `setExplode`, `setSection`, `applyView`, `setMarks`, `setTheme`, `pixel(fx, fy)` (of the parts and scans,
+  without the grid and the marks) and `ground()`. A test opens the file in a second `BrowserWindow` with
+  `show: false`, a session of its own that refuses and counts every request but the file itself.
+- "Export…" is in the status line for the open object, and in the head of the page of objects for every object
+  that can be exported. There is no agent tool for it.
 
 ## Kernel invariants
 

@@ -249,3 +249,68 @@ export function translated<M extends Mark>(mark: M, by: Vec3, byB: Vec3 = by): M
       return mark
   }
 }
+
+/**
+ * The points of a stroke in the object frame: its own on a surface, or those
+ * of its plane, `origin + x·u + y·v`.
+ */
+export function strokePoints(mark: StrokeMark): Vec3[] {
+  if (mark.space === 'surface') return mark.points ?? []
+  const plane = mark.plane
+  if (!plane) return []
+  return (mark.points2d ?? []).map(([u, v]) => plane.origin.map((o, i) => o + plane.x[i] * u + plane.y[i] * v) as Vec3)
+}
+
+/** A vector turned by a rotation; one that is no rotation at all (all zeros) turns nothing. */
+function turned(v: Vec3, rotation: Quat): Vec3 {
+  const length = Math.hypot(...rotation)
+  if (!(length > 0)) return v
+  const [x, y, z, w] = rotation.map((c) => c / length)
+  const [tx, ty, tz] = [2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0])]
+  return [v[0] + w * tx + y * tz - z * ty, v[1] + w * ty + z * tx - x * tz, v[2] + w * tz + x * ty - y * tx]
+}
+
+/** Points that bound what is drawn of a mark, in the object frame: what the camera's clip planes must keep in. */
+export function markPoints(mark: Mark): Vec3[] {
+  switch (mark.kind) {
+    case 'pin':
+    case 'pick':
+      return [mark.anchor.point]
+    case 'arrow':
+      return [mark.from.point, mark.to]
+    case 'stroke':
+      return [mark.anchor.point, ...strokePoints(mark)]
+    case 'shape': {
+      const half = mark.size.map((s) => s / 2)
+      const corners: Vec3[] = []
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) corners.push(moved(turned([sx * half[0], sy * half[1], sz * half[2]], mark.rotation), mark.position))
+      return corners
+    }
+    case 'dimension':
+      return [mark.a.point, ...(mark.b ? [mark.b.point] : []), ...(mark.points ?? [])]
+    case 'region':
+      // It is drawn on its scan, which is inside what the camera keeps in already.
+      return []
+  }
+}
+
+/** How far outside a part's box a point may lie and still be at that part, in millimetres. */
+const AT_PART_MM = 0.5
+
+/**
+ * The part each end of a mark is at, undefined for an end on none: one end for most marks; two for a dimension
+ * between two ends, and for an arrow whose head is at another part than its foot (`boxes`, by part name, the
+ * parts' boxes as built, say which: its own when the head is at that one, else the first other part whose box
+ * holds it; in the open it goes whole with what it starts on). None for a mark tied to nothing. It is what says
+ * how a mark is drawn while its parts are drawn apart: in the window, and in an exported page.
+ */
+export function markEndParts(mark: Mark, boxes: Readonly<Record<string, { min: Vec3; max: Vec3 }>> = {}): Array<string | undefined> {
+  if (mark.kind === 'dimension') return markAnchors(mark).map((anchor) => anchor.part)
+  if (mark.kind === 'arrow') {
+    const own = mark.from.part
+    const within = (box: { min: Vec3; max: Vec3 }): boolean => mark.to.every((c, i) => c >= box.min[i] - AT_PART_MM && c <= box.max[i] + AT_PART_MM)
+    const head = own !== undefined && boxes[own] && within(boxes[own]) ? own : Object.keys(boxes).find((name) => name !== own && within(boxes[name]))
+    return head === undefined || head === own ? [own] : [own, head]
+  }
+  return markAnchors(mark).slice(0, 1).map((anchor) => anchor.part)
+}

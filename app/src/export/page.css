@@ -1,0 +1,338 @@
+/* The style of an exported page. torno's own look, by torno's own tokens: every custom property here has the
+   name and the value it has in src/renderer/styles/tokens.css (page.test.ts holds them equal), and no rule
+   below the three blocks of tokens declares another. Nothing is fetched: the fonts are written into the page. */
+
+:root {
+  color-scheme: light dark;
+  --surface: #F1EFEA;
+  --panel: #FAF9F6;
+  --ink: #22252A;
+  --muted: #6C7178;
+  --hairline: #DAD6CE;
+  --accent: #1D46B8;
+  --accent-wash: #E3E9F8;
+  --user-mark: #CF3F2C;
+  --agent-mark: #2B8A5C;
+  --ok: #2B8A5C;
+  --warn: #B7791F;
+  --fail: #CF3F2C;
+  --scan-plain: #B4AFA5;
+  --axis-x: #9A3350;
+  --axis-y: #4C7F2C;
+  --axis-z: #2E5FA9;
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --text-size: 13px;
+  --text-leading: 1.4;
+  --text-small: 12px;
+  --radius-control: 6px;
+  --radius-palette: 10px;
+  --divider: 1px solid var(--hairline);
+  --focus-ring: 2px solid var(--accent);
+  --palette-shadow: 0 6px 20px rgb(34 37 42 / 0.10);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #1A1C1F;
+    --panel: #222529;
+    --ink: #E9E7E2;
+    --muted: #9A9FA6;
+    --hairline: #33373C;
+    --accent: #7C9BF7;
+    --accent-wash: #252F4A;
+    --user-mark: #F0705E;
+    --agent-mark: #5CC492;
+    --ok: #5CC492;
+    --warn: #E0A94A;
+    --fail: #F0705E;
+    --scan-plain: #5A5E64;
+    --axis-x: #E886B0;
+    --axis-y: #9CC56C;
+    --axis-z: #82A6EA;
+    --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
+  }
+}
+
+:root[data-theme="dark"] {
+    --surface: #1A1C1F;
+    --panel: #222529;
+    --ink: #E9E7E2;
+    --muted: #9A9FA6;
+    --hairline: #33373C;
+    --accent: #7C9BF7;
+    --accent-wash: #252F4A;
+    --user-mark: #F0705E;
+    --agent-mark: #5CC492;
+    --ok: #5CC492;
+    --warn: #E0A94A;
+    --fail: #F0705E;
+    --scan-plain: #5A5E64;
+    --axis-x: #E886B0;
+    --axis-y: #9CC56C;
+    --axis-z: #82A6EA;
+    --palette-shadow: 0 6px 20px rgb(0 0 0 / 0.32);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 var(--text-size) / var(--text-leading) var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, p, ul { margin: 0; padding: 0; }
+ul { list-style: none; }
+button, input { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.name { overflow-wrap: anywhere; }
+
+:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
+/* ---- The page: the view large, a slim column of controls beside it ---- */
+
+#torno {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 264px;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+#view {
+  grid-area: 1 / 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  touch-action: none;
+  cursor: grab;
+}
+#view:active { cursor: grabbing; }
+#view:focus-visible { outline-offset: -2px; }
+
+#overlay {
+  grid-area: 1 / 1;
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#said {
+  grid-area: 1 / 1;
+  align-self: start;
+  justify-self: start;
+  margin: var(--space-3) var(--space-4);
+  padding: 2px var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--text-small);
+  pointer-events: none;
+}
+
+.message {
+  grid-area: 1 / 1 / 2 / -1;
+  place-self: center;
+  max-width: 46ch;
+  padding: var(--space-4);
+  text-align: center;
+}
+noscript { grid-area: 1 / 1 / 2 / -1; place-self: center; }
+
+/* ---- The line under the view: what this file is ---- */
+
+#foot {
+  grid-area: 1 / 1;
+  align-self: end;
+  justify-self: start;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: var(--space-1);
+  max-width: min(60ch, calc(100% - 2 * var(--space-4)));
+  margin: 0 var(--space-4) var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+#foot summary { width: fit-content; cursor: pointer; border-radius: 3px; }
+#foot summary:hover { color: var(--ink); }
+#foot details[open] {
+  padding: var(--space-2) var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  color: var(--ink);
+}
+#foot details[open] summary { margin-bottom: var(--space-1); color: var(--muted); }
+#foot details p + p { margin-top: var(--space-1); }
+
+/* ---- The controls ---- */
+
+#panel {
+  grid-area: 1 / 2;
+  overflow-y: auto;
+  border-left: var(--divider);
+  background: var(--panel);
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
+}
+
+.head { padding: var(--space-3) var(--space-4); }
+.head h1 { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.head h1 .num { color: var(--muted); font-size: var(--text-size); font-weight: 400; }
+
+.objects { margin: var(--space-2) calc(-1 * var(--space-2)) 0; }
+.object {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.object .num { color: var(--muted); }
+.object:hover { background: var(--accent-wash); }
+.object[aria-current="true"] { background: var(--accent-wash); color: var(--accent); font-weight: 600; }
+.object:disabled { cursor: progress; }
+
+.block { padding: var(--space-3) var(--space-4); border-top: var(--divider); }
+.block h2 { margin-bottom: var(--space-2); color: var(--muted); font-size: var(--text-small); font-weight: 600; }
+.block > * + .row, .block > * + .slider, .block > .row + .hint, .block > * + .chips { margin-top: var(--space-2); }
+
+.row, .chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+
+.button, .viewchip {
+  min-height: 24px;
+  padding: 1px var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  cursor: pointer;
+}
+.viewchip { max-width: 100%; padding: 1px 10px; border-radius: 999px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.button:hover:not(:disabled), .viewchip:hover:not(:disabled) { border-color: var(--muted); }
+.button[aria-pressed="true"], .viewchip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); }
+.button:disabled, .viewchip:disabled { color: var(--muted); cursor: default; opacity: 0.6; }
+
+.slider { display: flex; align-items: center; gap: var(--space-2); }
+.slider .num { flex: none; min-width: 5ch; color: var(--muted); text-align: right; }
+input[type="range"] { flex: 1; min-width: 0; height: 20px; margin: 0; accent-color: var(--accent); }
+input[type="checkbox"] { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+
+.hint { margin-top: var(--space-2); color: var(--muted); font-size: var(--text-small); }
+
+.parts label, .scans label, .check { display: flex; align-items: center; gap: var(--space-2); min-height: 24px; cursor: pointer; }
+.swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.scans li + li { margin-top: var(--space-2); }
+.scans input[type="range"] { display: block; width: 100%; }
+
+.marks { margin: var(--space-1) calc(-1 * var(--space-2)) 0; }
+.mark {
+  display: grid;
+  grid-template-columns: 4ch minmax(0, 1fr);
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.mark:hover { background: var(--accent-wash); }
+.mark-body { display: flex; flex-direction: column; min-width: 0; }
+.mark-body .muted { font-size: var(--text-small); }
+.note { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* The two colours of marks, and nothing else in them: the person's, and the agent's. */
+.mark-id[data-author="user"], .chip[data-author="user"] .chip-id { color: var(--user-mark); }
+.mark-id[data-author="agent"], .chip[data-author="agent"] .chip-id { color: var(--agent-mark); }
+.chip[data-author="user"] { border-color: var(--user-mark); }
+.chip[data-author="agent"] { border-color: var(--agent-mark); }
+.chip[data-author="user"]::before { background: var(--user-mark); }
+.chip[data-author="agent"]::before { background: var(--agent-mark); }
+
+.verdict[data-verdict="pass"] { color: var(--ok); }
+.verdict[data-verdict="fail"] { color: var(--fail); }
+
+/* A mark's label: it hangs a little up and to the right of its point, which has a dot. */
+.chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 6px;
+  margin: -27px 0 0 7px;
+  padding: 0 6px;
+  border: 1px solid;
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  font-size: var(--text-small);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.chip::before {
+  content: '';
+  position: absolute;
+  left: -11px;
+  top: 23px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.chip[data-dimmed] { opacity: 0.45; }
+
+#drawer { display: none; }
+
+/* ---- A narrow screen: the controls come up from the bottom when asked ---- */
+
+@media (max-width: 640px) {
+  #torno { grid-template-columns: minmax(0, 1fr); }
+  #torno[data-panel="open"] { grid-template-rows: minmax(0, 1fr) minmax(0, 52%); }
+  #panel {
+    grid-area: 2 / 1;
+    display: none;
+    border-left: 0;
+    border-top: var(--divider);
+  }
+  #torno[data-panel="open"] #panel { display: block; }
+  #drawer {
+    display: block;
+    grid-area: 1 / 1;
+    align-self: start;
+    justify-self: end;
+    z-index: 1;
+    min-height: 32px;
+    margin: var(--space-3);
+    padding: 0 var(--space-3);
+    border: var(--divider);
+    border-radius: var(--radius-control);
+    background: var(--panel);
+    cursor: pointer;
+  }
+  #drawer[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); }
+  #foot { max-width: calc(100% - 2 * var(--space-4)); }
+}

@@ -92,6 +92,10 @@ const bridge: TornoBridge = {
     saveThumbnail: (objectId, revision, png, of) => ipcRenderer.send('show:saveThumbnail', objectId, revision, png, of),
     onChanged: (cb) => subscribe<void>('show:changed', () => cb())
   },
+  export: {
+    plan: (req) => invokePlain('export:plan', req),
+    save: (req) => invokePlain('export:save', req)
+  },
   session: {
     current: (objectId) => ipcRenderer.invoke('session:current', objectId),
     start: (objectId, opts) => ipcRenderer.invoke('session:start', objectId, opts),
