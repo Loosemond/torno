@@ -1,3 +1,4 @@
+import { pressed, which } from '../../shared/keys'
 import * as THREE from 'three'
 import { alignStore, scanInHand } from '../state/align'
 import { radiusOf, regionStore } from '../state/region'
@@ -337,21 +338,21 @@ export function regionTool(): Tool {
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
       paintOn(ctx.viewport)
-      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
-      if (key === '[' || key === ']') {
+      const size = which(e, 'region.brush')
+      if (size >= 0) {
         const scan = current()?.scan ?? scanInHand(alignStore.getState().scan, store.getState().scans)?.id
         const now = radiusOf(regionStore.getState().radius) ?? (scan === undefined ? null : brushRadius(scan, ctx.viewport))
-        if (now !== null) regionStore.setState({ radius: radiusOf(key === ']' ? now * BRUSH_STEP : now / BRUSH_STEP) })
+        if (now !== null) regionStore.setState({ radius: radiusOf(size === 1 ? now * BRUSH_STEP : now / BRUSH_STEP) })
         return true
       }
-      if (key === 'e') return regionStore.setState({ erase: !regionStore.getState().erase }), true
-      if (key === 'z') return undoStroke(), true
-      if (key === 'Enter') {
+      if (pressed(e, 'region.erase')) return regionStore.setState({ erase: !regionStore.getState().erase }), true
+      if (pressed(e, 'region.undo')) return undoStroke(), true
+      if (pressed(e, 'region.keep')) {
         // On a button of the bar Enter is that button's: it is not also "Keep".
         if (typeof Element !== 'undefined' && e.target instanceof Element && e.target.closest('button')) return false
         return void keepRegion(ctx), true
       }
-      if (key === 'Escape') {
+      if (pressed(e, 'escape')) {
         // In the middle of a stroke it gives up that stroke, and no more. Otherwise it is not the tool's: the
         // pane puts the tool down, and what is painted waits.
         if (!drag) return false

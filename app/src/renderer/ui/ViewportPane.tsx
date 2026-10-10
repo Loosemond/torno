@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { MeshAsks } from './scanMeshes'
 import { useEffect, useRef, useState } from 'react'
 import { apply } from '../../shared/align'
@@ -250,7 +251,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // No tool but Select is handed a key either while the parts are drawn apart: a key measures and keeps as a press does.
     const handed = tool && (tool.id === 'select' || (explodeNow(store.getState()) === null && !viewport.exploded())) ? tool : undefined
     if (handed?.onKey?.(e, context())) return e.preventDefault()
-    if (e.key !== 'Escape' || toolStore.getState().tool === 'select') return
+    if (!pressed(e, 'escape') || toolStore.getState().tool === 'select') return
     setTool('select')
     e.preventDefault()
   }

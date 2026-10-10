@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
 import { anchorFromHit, clickGuard, type Tool, type ToolContext } from './Tool'
@@ -75,7 +76,7 @@ export function pinTool(): Tool {
       ctx.readout.show(e.client, e.hit.ref)
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
-      if (e.key !== 'Escape' || (ctx.replacing ?? null) === null) return false
+      if (!pressed(e, 'escape') || (ctx.replacing ?? null) === null) return false
       ctx.endReplace?.()
       return true
     },

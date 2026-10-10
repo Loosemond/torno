@@ -1,22 +1,13 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
+import { GIZMO_KEYS, TOOL_KEYS } from '../../shared/keys'
 import type { ShapeKind } from '../../shared/marks'
 import type { GizmoMode } from '../viewport/Viewport'
 
 export type ToolName = 'select' | 'pin' | 'arrow' | 'draw' | 'shape' | 'section' | 'measure' | 'align' | 'region'
 
-/** The tools of the palette, in its order. One that is not `ready` is shown, and cannot be chosen yet. */
-export const TOOLS: { name: ToolName; label: string; key: string; ready: boolean }[] = [
-  { name: 'select', label: 'Select', key: 'V', ready: true },
-  { name: 'pin', label: 'Pin', key: 'P', ready: true },
-  { name: 'arrow', label: 'Arrow', key: 'A', ready: true },
-  { name: 'draw', label: 'Draw', key: 'D', ready: true },
-  { name: 'shape', label: 'Shape', key: 'S', ready: true },
-  { name: 'section', label: 'Section', key: 'X', ready: true },
-  { name: 'measure', label: 'Measure', key: 'M', ready: true },
-  { name: 'align', label: 'Align scan', key: 'L', ready: true },
-  { name: 'region', label: 'Region of a scan', key: 'B', ready: true }
-]
+/** The tools of the palette, in its order, each with its key: from the one table of keys. One that is not `ready` is shown, and cannot be chosen yet. */
+export const TOOLS: { name: ToolName; label: string; key: string; ready: boolean }[] = TOOL_KEYS.map((t) => ({ name: t.name, label: t.label, key: t.key, ready: true }))
 
 export type { GizmoMode }
 
@@ -28,12 +19,8 @@ export const SHAPES: { kind: ShapeKind; label: string }[] = [
   { kind: 'plane', label: 'Plane' }
 ]
 
-/** The ways of the gizmo, each with its key. `S` is the Shape tool, which is why sizing is `T`. */
-export const GIZMO_MODES: { mode: GizmoMode; label: string; key: string }[] = [
-  { mode: 'translate', label: 'Move', key: 'G' },
-  { mode: 'rotate', label: 'Rotate', key: 'R' },
-  { mode: 'scale', label: 'Size', key: 'T' }
-]
+/** The ways of the gizmo, each with its key: from the one table of keys. */
+export const GIZMO_MODES: { mode: GizmoMode; label: string; key: string }[] = GIZMO_KEYS.map((g) => ({ ...g }))
 
 /** What the Measure tool takes between two picks, and of one round thing: each with the one chosen last. */
 export type BetweenMeasure = 'distance' | 'angle'

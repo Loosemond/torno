@@ -581,21 +581,12 @@ button {
 
 .welcome {
   display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: var(--space-2);
+  /* Centred while it fits; from the top, and scrolled, in a window too low for it. */
+  place-items: safe center;
   padding: var(--space-4);
-  text-align: center;
-}
-
-.welcome p {
-  max-width: 38ch;
-  color: var(--muted);
-  text-wrap: balance;
-}
-
-.welcome .button {
-  margin-top: var(--space-3);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
 }
 
 /* ---- Left column: objects, then the layers of the open one ---- */
@@ -3419,7 +3410,9 @@ button {
 /* A key, wherever the page names one: in its row of the list, in the filter, in the line of keys. */
 .page-row kbd,
 .show-filter kbd,
-.show-keys kbd {
+.show-keys kbd,
+.welcome-foot kbd,
+.keys-sheet kbd {
   display: inline-grid;
   place-items: center;
   min-width: 17px;
@@ -3920,4 +3913,292 @@ button {
   flex: none;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* ---- The first screen (ui/Welcome.tsx): what torno is, and the ways in ---- */
+
+.welcome-page {
+  display: grid;
+  /* One column as wide as the page and no wider: a long path is cut, it does not push the page off its centre. */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: var(--space-4);
+  width: min(520px, 100%);
+  text-align: center;
+}
+
+.welcome-head {
+  display: grid;
+  justify-items: center;
+}
+
+.welcome-says {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.welcome-says p {
+  text-wrap: balance;
+}
+
+/* What it is, said first and a size up; what an object is and what to do follow it. */
+.welcome-says p:first-child {
+  font-size: 15px;
+}
+
+.welcome-ways {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+}
+
+.welcome-problem {
+  color: var(--fail);
+  text-wrap: balance;
+}
+
+.welcome-recent {
+  width: 100%;
+  border-top: var(--divider);
+  text-align: left;
+}
+
+.welcome-recent .section-title {
+  padding: var(--space-3) var(--space-2) var(--space-1);
+}
+
+.welcome-recent ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-recent li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.recent-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  text-align: left;
+}
+
+.recent-row:hover:enabled {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.recent-name {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The path is long and its end says most: it is cut at its start. */
+.recent-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.recent-row:hover:enabled .recent-path {
+  color: inherit;
+}
+
+/* A folder that is no longer there: struck, and said so in words beside it. */
+[data-missing] .recent-name,
+[data-missing] .recent-path {
+  text-decoration: line-through;
+}
+
+[data-missing] .recent-row {
+  color: var(--muted);
+}
+
+.recent-gone {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.welcome-foot {
+  max-width: 44ch;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-wrap: balance;
+}
+
+/* ---- The sheet of keys (ui/KeySheet.tsx), and its button at the foot of the tools ---- */
+
+.toolbox-rule {
+  height: 1px;
+  margin: 2px 5px;
+  background: var(--hairline);
+}
+
+.tool-keys {
+  height: 26px;
+  color: var(--muted);
+  font-size: var(--text-size);
+}
+
+.keys-layer {
+  /* Over the whole window: a press beside the sheet puts it away, and nothing behind takes it. */
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+
+.keys-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(940px, 100%);
+  max-height: 100%;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.keys-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-bottom: var(--divider);
+}
+
+.keys-head h2 {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.keys-search {
+  display: flex;
+  width: 220px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: text;
+}
+
+.keys-search:focus-within {
+  border-color: var(--accent);
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.keys-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.keys-search input::placeholder {
+  color: var(--muted);
+}
+
+.keys-search input:focus-visible {
+  outline: none;
+}
+
+.keys-body {
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+  columns: 3 250px;
+  column-gap: var(--space-4);
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
+}
+
+.keys-group {
+  margin-bottom: var(--space-4);
+  break-inside: avoid;
+}
+
+.keys-group h3 {
+  font-size: var(--text-size);
+  font-weight: 600;
+}
+
+.keys-when {
+  margin-bottom: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.keys-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.keys-group li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+  padding: 3px 0;
+}
+
+.keys-group li > span:last-child {
+  flex: 1 1 14ch;
+}
+
+.keys-caps {
+  display: flex;
+  /* Four arrows with Shift are wider than a column: they go on two lines, not into the next column. */
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+/* A key cap of the sheet: a size up from those in a line of text, and in the ink. */
+.keys-sheet kbd {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.keys-none {
+  color: var(--muted);
+}
+
+.keys-typed {
+  color: var(--ink);
+  font-weight: 500;
 }

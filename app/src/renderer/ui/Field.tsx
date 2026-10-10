@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { useEffect, useRef } from 'react'
 import { typed } from './typed'
 
@@ -32,8 +33,8 @@ export function Field({ label, sign, axis, value, unit, disabled, commit }: { la
         onFocus={(e) => e.currentTarget.select()}
         onBlur={(e) => done(e.currentTarget)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') done(e.currentTarget)
-          else if (e.key === 'Escape') e.currentTarget.value = value
+          if (pressed(e, 'field.keep')) done(e.currentTarget)
+          else if (pressed(e, 'field.leave')) e.currentTarget.value = value
           else return
           e.preventDefault()
           e.stopPropagation()

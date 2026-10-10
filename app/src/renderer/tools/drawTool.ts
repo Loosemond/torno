@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { MAX_STROKE_POINTS, type Vec3 } from '../../shared/marks'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
@@ -186,7 +187,7 @@ export function drawTool(): Tool {
       void place(drawn, ctx)
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
-      if (e.key !== 'Escape' || !drawing) return false
+      if (!pressed(e, 'escape') || !drawing) return false
       ctx.viewport.setDraft(null)
       drop(ctx)
       return true

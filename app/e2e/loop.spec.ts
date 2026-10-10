@@ -447,7 +447,8 @@ test.describe('the workspace is remembered', () => {
         // What choosing a folder in the dialog does, without the dialog.
         await firstPage.evaluate((dir) => window.torno.workspace.open(dir), workspace)
         await expect.poll(() => existsSync(config)).toBe(true)
-        expect(JSON.parse(readFileSync(config, 'utf8'))).toEqual({ workspace })
+        // And it is the first of the folders opened lately, which the first screen lists.
+        expect(JSON.parse(readFileSync(config, 'utf8'))).toEqual({ workspace, recent: [workspace] })
       } finally {
         await first.close()
       }

@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { useState } from 'react'
 import { NOT_MEASURABLE, type ShownDimension, defaultTolerance, exactText, isOffEdge, offBy, shownDimension, standingOf, unitOf } from '../../shared/dimension'
 import { namedPieces } from '../../shared/format'
@@ -169,8 +170,8 @@ function OptionalNumber({ name, sign, value, placeholder, least, commit }: { nam
         onChange={(e) => setDraft(e.target.value)}
         onBlur={done}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') done()
-          else if (e.key === 'Escape') setDraft(null)
+          if (pressed(e, 'field.keep')) done()
+          else if (pressed(e, 'field.leave')) setDraft(null)
           else return
           e.preventDefault()
           e.stopPropagation()

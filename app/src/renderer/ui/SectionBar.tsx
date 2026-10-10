@@ -1,9 +1,10 @@
+import { pressed } from '../../shared/keys'
 import { useEffect, useMemo, useRef } from 'react'
 import { number } from '../../shared/format'
 import { useAgentHighlight } from '../state/agent'
 import { actions, useStore } from '../state/store'
 import { setTool, useTool } from '../state/tools'
-import { NUDGE_FINE_MM, NUDGE_MM, setFromFace, useFromFace } from '../tools/sectionTool'
+import { sectionNudge, setFromFace, useFromFace } from '../tools/sectionTool'
 import { atOffset, axisOf, flipped, planeOnAxis, sectionExtent, sectionOffset, typedOffset, type Axis } from '../viewport/section'
 import type { Viewport } from '../viewport/Viewport'
 
@@ -60,10 +61,10 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
     const keep = (): void => actions.setSection(at())
     // The browser's own step for a key is a share of the range: a millimetre is what an arrow is everywhere else.
     const nudge = (e: KeyboardEvent): void => {
-      const way = e.key === 'ArrowUp' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? -1 : 0
-      if (way === 0 || e.ctrlKey || e.metaKey || e.altKey) return
+      const by = sectionNudge(e)
+      if (by === 0) return
       e.preventDefault()
-      actions.setSection(atOffset(section, box, sectionOffset(section, box) + way * (e.shiftKey ? NUDGE_FINE_MM : NUDGE_MM)))
+      actions.setSection(atOffset(section, box, sectionOffset(section, box) + by))
     }
     range.addEventListener('input', preview)
     range.addEventListener('change', keep)
@@ -155,8 +156,8 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
           onFocus={(e) => e.currentTarget.select()}
           onBlur={typed}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') typed()
-            else if (e.key === 'Escape') e.currentTarget.value = number(offset)
+            if (pressed(e, 'field.keep')) typed()
+            else if (pressed(e, 'field.leave')) e.currentTarget.value = number(offset)
             else return
             e.preventDefault()
             e.stopPropagation()

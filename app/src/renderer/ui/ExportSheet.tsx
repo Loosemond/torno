@@ -1,3 +1,4 @@
+import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import { type ExportPlan, type ExportRequest, SCAN_WARNING, megabytes } from '../../shared/exportdata'
 import { count } from '../../shared/format'
@@ -73,7 +74,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
     sheet.current?.focus()
     // Escape puts it away from wherever the focus is; from within, the sheet hears it first.
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !e.defaultPrevented && !saving.current) actions.exportSheet(null)
+      if (pressed(e, 'sheet.close') && !e.defaultPrevented && !saving.current) actions.exportSheet(null)
     }
     window.addEventListener('keydown', onKey)
     return () => {
@@ -130,8 +131,8 @@ function Sheet({ of }: { of: string[] | 'all' }) {
         onKeyDown={(e) => {
           // No tool of the view under it is handed a key: what is exported is what was on screen when the sheet came up.
           e.stopPropagation()
-          if (e.key === 'Escape' && busy !== 'saving') actions.exportSheet(null)
-          if (e.key !== 'Tab') return
+          if (pressed(e, 'sheet.close') && busy !== 'saving') actions.exportSheet(null)
+          if (!pressed(e, 'sheet.round')) return
           // Tab goes round within the sheet.
           const stops = [...sheet.current!.querySelectorAll<HTMLElement>(FOCUSABLE)]
           if (stops.length === 0) return e.preventDefault()
@@ -144,7 +145,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
       >
         <header className="export-head">
           <h2>Export to one HTML file</h2>
-          <button type="button" className="icon-button" aria-label="Close" title="Close (Esc)" disabled={busy === 'saving'} onClick={() => actions.exportSheet(null)}>
+          <button type="button" className="icon-button" aria-label="Close" title={`Close (${hint('sheet.close')})`} disabled={busy === 'saving'} onClick={() => actions.exportSheet(null)}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
               <path d="m4 4 8 8M12 4l-8 8" />
             </svg>

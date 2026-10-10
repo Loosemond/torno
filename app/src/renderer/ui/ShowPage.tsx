@@ -1,3 +1,4 @@
+import { ARROWS_CAP, domKey, hint, keyName, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import type { ObjectCard } from '../../shared/show'
 import { actions, store, useStore } from '../state/store'
@@ -7,7 +8,7 @@ import { TYPING } from './typing'
 import { DatumMark } from './ViewportPane'
 
 /** The key that brings the page of objects up from an object's view. On the page, Escape goes back. */
-export const PAGE_KEY = 'W'
+export const PAGE_KEY = hint('page')
 
 /**
  * `W` outside any field shows the page of objects over the object that is open. The way back is the page's own
@@ -19,7 +20,7 @@ export function usePageKey(): void {
     let held = 0
     const onPointer = (e: PointerEvent): void => void (held = e.buttons)
     const onKey = (e: KeyboardEvent): void => {
-      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.key.toUpperCase() !== PAGE_KEY) return
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || !pressed(e, 'page')) return
       if (e.target instanceof Element && e.target.closest(TYPING)) return
       if (held !== 0 || store.getState().page !== 'object') return
       actions.showPage('objects')
@@ -71,6 +72,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
   const filter = useRef(typed)
   filter.current = typed
   const root = workspace?.root
+  const hasProject = workspace?.hasProject ?? true
 
   // The cards, asked for again whenever main says one may say something else.
   useEffect(() => {
@@ -127,16 +129,18 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
       // Somewhere else to type: the session's terminal, a field of the left column. A slider or a tick box there
       // keeps its keys, and so does whatever asks a question of its own (the build's error, a confirm).
       if (!here && target?.closest(`${TYPING}, input, ${OVER}`)) return
+      // The sheet of keys is asked for here as everywhere, outside a field.
+      if (pressed(e, 'keys') && !target?.closest(TYPING)) return
       // Whatever else is pressed is the page's: no tool of the view under it is handed a key.
       e.stopPropagation()
-      if (e.key === 'Tab') return
+      if (pressed(e, 'page.tab')) return
       const found = [...page.current!.querySelectorAll<HTMLElement>('.card')]
-      if (e.key === 'Escape') {
+      if (pressed(e, 'page.back')) {
         e.preventDefault()
         // Escape goes to what is on top: a sheet or a question first, as if it had been pressed there; then the page.
         const over = topmostOver(page.current!)
         if (over) {
-          over.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+          over.dispatchEvent(new KeyboardEvent('keydown', { key: domKey(hint('sheet.close')), bubbles: true, cancelable: true }))
           return
         }
         if (filter.current !== '') {
@@ -147,13 +151,14 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
       }
       if (target === field.current) {
         // In the field the keys are the field's, but for the two that leave it: down to the cards, Enter for the first of them.
-        if (e.key !== 'ArrowDown' && e.key !== 'Enter') return
+        const first = pressed(e, 'filter.first')
+        if (!first && !pressed(e, 'filter.down')) return
         e.preventDefault()
-        if (e.key === 'Enter') found[0]?.click()
+        if (first) found[0]?.click()
         else found[0]?.focus()
         return
       }
-      if (e.key === '/') {
+      if (pressed(e, 'page.filter')) {
         e.preventDefault()
         field.current?.focus()
         field.current?.select()
@@ -168,7 +173,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
         return
       }
       // A letter or a figure starts a name: it goes into the field, which takes it from here. Enter and the space bar are the button's in focus.
-      if (e.key.length === 1 && e.key !== ' ') field.current?.focus()
+      if (keyName(e).length === 1) field.current?.focus()
     }
     // Before anything else hears of the key: the tools' own listeners are on the window too.
     window.addEventListener('keydown', onKey, true)
@@ -202,15 +207,22 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
         {cards && cards.length > 0 && (
           <label className="show-filter">
             <input ref={field} type="text" value={typed} placeholder="Filter by name" aria-label="Filter the objects by name" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
-            <kbd aria-hidden="true">/</kbd>
+            <kbd aria-hidden="true">{hint('page.filter')}</kbd>
           </label>
         )}
       </header>
       {cards && cards.length === 0 && (
         <div className="show-empty">
           <DatumMark />
-          <h3>No objects here yet</h3>
-          <p>An object is a folder in this one with a build123d model in it: a Python file that builds its parts. Make one, or ask the agent for one, and its card appears here.</p>
+          <h3>No objects in {name} yet</h3>
+          <p>
+            Make a folder with a Python model in it, for example <span className="num">{name}/part/part.py</span>, and it appears here.
+          </p>
+          {!hasProject && (
+            <p>
+              This folder has no <span className="num">pyproject.toml</span>: models are built with torno's own build123d. For your own packages, make it a uv project (<span className="num">uv init</span>, <span className="num">uv add build123d</span>, <span className="num">uv sync</span>) and open it again.
+            </p>
+          )}
         </div>
       )}
       {cards && cards.length > 0 && shown.length === 0 && (
@@ -227,11 +239,11 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
       )}
       {cards && cards.length > 0 && (
         <p className="show-keys">
-          <kbd>Arrows</kbd> move · <kbd>Enter</kbd> opens · <kbd>/</kbd> or a letter filters
+          <kbd>{ARROWS_CAP}</kbd> move · <kbd>{hint('page.open')}</kbd> opens · <kbd>{hint('page.filter')}</kbd> or a letter filters
           {openId !== null && (
             <>
               {' '}
-              · <kbd>Esc</kbd> back to {openId}
+              · <kbd>{hint('page.back')}</kbd> back to {openId}
             </>
           )}
         </p>

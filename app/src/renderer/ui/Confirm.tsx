@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { useEffect, useRef, type ReactNode } from 'react'
 
 /**
@@ -15,7 +16,7 @@ export function Confirm(props: { label: string; children: ReactNode; accept: str
       role="alertdialog"
       aria-label={props.label}
       onKeyDown={(e) => {
-        if (e.key !== 'Escape') return
+        if (!pressed(e, 'sheet.close')) return
         e.stopPropagation()
         props.onCancel()
       }}

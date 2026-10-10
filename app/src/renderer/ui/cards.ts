@@ -1,3 +1,4 @@
+import { which } from '../../shared/keys'
 import type { ObjectCard } from '../../shared/show'
 
 // What a card of the page of objects says, in words, and how the arrow keys go from card to card. A card says
@@ -86,20 +87,22 @@ export function matching(cards: ObjectCard[], typed: string): ObjectCard[] {
  * moves nothing.
  */
 export function stepCard(key: string, at: number, count: number, columns: number): number | 'field' | null {
-  if (count === 0 || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(key)) return null
-  if (at < 0 || at >= count) return key === 'End' ? count - 1 : 0
+  // Left, right, up, down, Home, End: the order of the table's row.
+  const move = which({ key }, 'page.move')
+  if (count === 0 || move < 0) return null
+  if (at < 0 || at >= count) return move === 5 ? count - 1 : 0
   const row = Math.max(columns, 1)
-  switch (key) {
-    case 'ArrowLeft':
+  switch (move) {
+    case 0:
       return Math.max(at - 1, 0)
-    case 'ArrowRight':
+    case 1:
       return Math.min(at + 1, count - 1)
-    case 'ArrowUp':
+    case 2:
       return at - row < 0 ? 'field' : at - row
-    case 'ArrowDown':
+    case 3:
       // A shorter last row: its last card stands for the one that would be under this.
       return at + row < count ? at + row : Math.floor(at / row) < Math.floor((count - 1) / row) ? count - 1 : at
-    case 'Home':
+    case 4:
       return 0
     default:
       return count - 1

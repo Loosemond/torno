@@ -1,3 +1,4 @@
+import { VIEW_KEYS, hint, pressed, which } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import type { ViewName } from '../../shared/view'
 import { actions, store, useStore } from '../state/store'
@@ -6,12 +7,8 @@ import { ExplodeBar, ExplodeToggle, toggleExplode } from './ExplodeControl'
 import { TYPING } from './typing'
 import { ViewsStrip } from './ViewsStrip'
 
-const MAIN_VIEWS: { view: ViewName; label: string; key: string }[] = [
-  { view: 'iso', label: 'Iso', key: '1' },
-  { view: 'front', label: 'Front', key: '2' },
-  { view: 'right', label: 'Right', key: '3' },
-  { view: 'top', label: 'Top', key: '4' }
-]
+/** The four views with a button and a key: from the one table of keys. */
+const MAIN_VIEWS: readonly { view: ViewName; label: string; key: string }[] = VIEW_KEYS
 const MORE_VIEWS: { view: ViewName; label: string }[] = [
   { view: 'back', label: 'Back' },
   { view: 'left', label: 'Left' },
@@ -36,12 +33,12 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
       if (e.target instanceof Element && e.target.closest(TYPING)) return
-      const named = MAIN_VIEWS.find((v) => v.key === e.key)
+      const named = MAIN_VIEWS[which(e, 'views')]
       if (named) viewport.setView(named.view, true)
-      else if (e.key === 'f' || e.key === 'F') viewport.fit()
-      else if (e.key === 'o' || e.key === 'O') setOrtho(viewport, !store.getState().ortho)
+      else if (pressed(e, 'fit')) viewport.fit()
+      else if (pressed(e, 'ortho')) setOrtho(viewport, !store.getState().ortho)
       // After the tool in hand, which was offered the key first (the viewport pane listens before this bar does).
-      else if (e.key === 'e' || e.key === 'E') toggleExplode()
+      else if (pressed(e, 'explode')) toggleExplode()
       else return
       e.preventDefault()
     }
@@ -52,7 +49,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
   useEffect(() => {
     if (!moreOpen) return
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !more.current?.contains(e.target as Node)) setMoreOpen(false)
+      if (e instanceof KeyboardEvent ? pressed(e, 'menu.close') : !more.current?.contains(e.target as Node)) setMoreOpen(false)
     }
     window.addEventListener('pointerdown', close)
     window.addEventListener('keydown', close)
@@ -142,16 +139,16 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       <span className="viewbar-rule" aria-hidden="true" />
 
       <div className="viewbar-group" role="group" aria-label="Projection">
-        <button type="button" className="bar-button" aria-pressed={!ortho} title="Perspective (O)" onClick={() => setOrtho(viewport, false)}>
+        <button type="button" className="bar-button" aria-pressed={!ortho} title={`Perspective (${hint('ortho')})`} onClick={() => setOrtho(viewport, false)}>
           Perspective
         </button>
-        <button type="button" className="bar-button" aria-pressed={ortho} title="Orthographic (O)" onClick={() => setOrtho(viewport, true)}>
+        <button type="button" className="bar-button" aria-pressed={ortho} title={`Orthographic (${hint('ortho')})`} onClick={() => setOrtho(viewport, true)}>
           Ortho
         </button>
       </div>
       <span className="viewbar-rule" aria-hidden="true" />
 
-      <button type="button" className="bar-button" title="Fit the parts in view (F)" onClick={() => viewport.fit()}>
+      <button type="button" className="bar-button" title={`Fit the parts in view (${hint('fit')})`} onClick={() => viewport.fit()}>
         Fit
       </button>
       <span className="viewbar-rule" aria-hidden="true" />

@@ -1,8 +1,10 @@
+import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ShapeKind } from '../../shared/marks'
 import { BETWEEN, ROUND, SHAPES, TOOLS, setBetween, setRound, setShape, setTool, useBetween, useRound, useShape, useTool, type ToolName } from '../state/tools'
 import { count } from '../../shared/format'
 import { useRegion } from '../state/region'
+import { showKeys } from './KeySheet'
 import { TYPING } from './typing'
 
 /**
@@ -26,7 +28,7 @@ export function ToolPalette() {
   useEffect(() => {
     if (!choosing) return
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key !== 'Escape' : choice.current?.contains(e.target as Node)) return
+      if (e instanceof KeyboardEvent ? !pressed(e, 'menu.close') : choice.current?.contains(e.target as Node)) return
       setChoosing(false)
       // Escape closed the choice, and that is all it did: the tool stays in hand.
       if (e instanceof KeyboardEvent) e.preventDefault()
@@ -43,7 +45,7 @@ export function ToolPalette() {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
       if (e.target instanceof Element && e.target.closest(TYPING)) return
-      const wanted = TOOLS.find((t) => t.key === e.key.toUpperCase())
+      const wanted = TOOLS.find((t) => pressed(e, `tool.${t.name}`))
       if (!wanted?.ready) return
       setTool(wanted.name)
       e.preventDefault()
@@ -123,6 +125,11 @@ export function ToolPalette() {
           </button>
         )
       )}
+      {/* At the foot, apart from the tools: every key there is, on one sheet. */}
+      <span className="toolbox-rule" aria-hidden="true" />
+      <button type="button" className="tool-button tool-keys num" aria-label="Keys" aria-keyshortcuts={hint('keys')} title={`Keys (${hint('keys')})`} onClick={() => showKeys()}>
+        {hint('keys')}
+      </button>
     </div>
     </>
   )
@@ -153,8 +160,8 @@ function MeasureChoice() {
           </button>
         ))}
       </div>
-      <span className="measure-key" title="Press T with the pointer on a face to measure the wall under it. Shift-click measures from a bare point">
-        <kbd className="num">T</kbd> thickness
+      <span className="measure-key" title={`Press ${hint('measure.wall')} with the pointer on a face to measure the wall under it. Shift-click measures from a bare point`}>
+        <kbd className="num">{hint('measure.wall')}</kbd> thickness
       </span>
     </div>
   )

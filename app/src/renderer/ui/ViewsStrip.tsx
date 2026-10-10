@@ -1,3 +1,4 @@
+import { pressed, which } from '../../shared/keys'
 import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import type { Scene } from '../../shared/scene'
 import { type SavedView, MAX_VIEW_NAME, findView, goneText, holdsText, viewGone, viewNameRefusal } from '../../shared/views'
@@ -42,7 +43,7 @@ export function ViewsStrip({ viewport }: { viewport: Viewport }) {
   useEffect(() => {
     if (open === null) return
     const close = (e: Event): void => {
-      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !(e.target instanceof Element && e.target.closest('.view-popover, [aria-haspopup]') && strip.current?.contains(e.target))) setOpen(null)
+      if (e instanceof KeyboardEvent ? pressed(e, 'menu.close') : !(e.target instanceof Element && e.target.closest('.view-popover, [aria-haspopup]') && strip.current?.contains(e.target))) setOpen(null)
     }
     window.addEventListener('pointerdown', close)
     window.addEventListener('keydown', close)
@@ -187,7 +188,7 @@ export function ViewsStrip({ viewport }: { viewport: Viewport }) {
                 role="alertdialog"
                 aria-label={`Delete the view ${view.name}?`}
                 onKeyDown={(e) => {
-                  if (e.key !== 'Escape') return
+                  if (!pressed(e, 'sheet.close')) return
                   // Its own to end: the pane's Escape, which puts a tool down, is not meant.
                   e.preventDefault()
                   e.stopPropagation()
@@ -331,11 +332,12 @@ function Menu({ label, side, className, close, children }: { label: string; side
   const onKeyDown = (e: ReactKeyboardEvent): void => {
     const all = items()
     const at = all.indexOf(document.activeElement as HTMLElement)
-    if (e.key === 'Escape' || e.key === 'Tab') close()
-    else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') all[(at + 1) % all.length]?.focus()
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') all[(at - 1 + all.length) % all.length]?.focus()
-    else if (e.key === 'Home') all[0]?.focus()
-    else if (e.key === 'End') all.at(-1)?.focus()
+    const end = which(e, 'menu.ends')
+    if (pressed(e, 'menu.close')) close()
+    else if (pressed(e, 'menu.next')) all[(at + 1) % all.length]?.focus()
+    else if (pressed(e, 'menu.previous')) all[(at - 1 + all.length) % all.length]?.focus()
+    else if (end === 0) all[0]?.focus()
+    else if (end === 1) all.at(-1)?.focus()
     else return
     // The menu's own: neither the pane (Escape puts a tool down) nor the view bar (the arrows) is meant.
     e.preventDefault()
@@ -380,7 +382,7 @@ function NameField({ label, first, side, refusal, keep, done }: { label: string 
         submit()
       }}
       onKeyDown={(e) => {
-        if (e.key !== 'Escape') return
+        if (!pressed(e, 'sheet.close')) return
         e.preventDefault()
         e.stopPropagation()
         done()

@@ -1,3 +1,4 @@
+import { pressed } from '../../../shared/keys'
 import { useRef } from 'react'
 import { type PairFit, WEAK_SPREAD, unitHint } from '../../../shared/align'
 import { fitNumber, number } from '../../../shared/format'
@@ -117,7 +118,7 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
           onFocus={(e) => e.currentTarget.select()}
           onKeyDown={(e) => {
             // Escape gives up what was typed in the three fields: they show the end as it is kept again.
-            if (e.key === 'Escape') {
+            if (pressed(e, 'field.leave')) {
               const inputs = [...(row.current?.querySelectorAll<HTMLInputElement>('input') ?? [])]
               if (inputs.every((input) => input.value === input.defaultValue)) return
               e.preventDefault()
@@ -126,7 +127,7 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
               e.currentTarget.select()
               return
             }
-            if (e.key !== 'Enter') return
+            if (!pressed(e, 'field.keep')) return
             e.preventDefault()
             e.stopPropagation()
             keep()

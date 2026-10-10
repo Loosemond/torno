@@ -1,3 +1,4 @@
+import { hint, pressed, which } from '../../shared/keys'
 import { apply, compose, fitPlane, fitPlaneTrimmed, inverse, nudged, reckoned } from '../../shared/align'
 import { number } from '../../shared/format'
 import type { Quat, Vec3 } from '../../shared/marks'
@@ -148,7 +149,7 @@ function standing(state: AlignState, current: ScanAlignment | null): { drawn: Sc
 }
 
 /** Said at the pointer over a part while a pair is asked for its scan end, and of a click there: it is kept as no end. */
-export const WANTS_SCAN = 'That is the model: click the scan, or press Tab to give the model end first'
+export const WANTS_SCAN = `That is the model: click the scan, or press ${hint('align.first')} to give the model end first`
 /** And over the scan, away from every part, while a pair is asked for its model end. */
 export const WANTS_MODEL = 'That is the scan: click the same point on the model, or type it'
 
@@ -293,18 +294,18 @@ export function alignTool(): Tool {
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
       const state = alignStore.getState()
-      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
       // Which end of a new pair is given first: the model's, for whoever would rather click it before the scan.
       // Not on a button or a link: there Tab goes on to the next, as everywhere.
       const onControl = typeof (e.target as Element | null)?.closest === 'function' && (e.target as Element).closest('button, a, [role="button"]') !== null
-      if (key === 'Tab' && state.mode === 'pairs' && !onControl) {
+      if (pressed(e, 'align.first') && state.mode === 'pairs' && !onControl) {
         if (!state.asking && !state.sending) alignStore.setState({ first: state.first === 'scan' ? 'model' : 'scan' })
         quiet(ctx)
         return true
       }
-      if (key === 'Escape' || (key === 'Backspace' && state.mode === 'pairs' && !state.asking)) {
-        const step = key === 'Backspace' ? (state.pairs.length > 0 ? { pairs: withoutLastEnd(state.pairs) } : null) : stepBack(state)
-        if (!step) return key === 'Backspace'
+      const back = pressed(e, 'align.back')
+      if (pressed(e, 'escape') || (back && state.mode === 'pairs' && !state.asking)) {
+        const step = back ? (state.pairs.length > 0 ? { pairs: withoutLastEnd(state.pairs) } : null) : stepBack(state)
+        if (!step) return back
         asked += 1
         if (step.asking === null && state.asking) declineRough()
         else alignStore.setState(step)
@@ -312,8 +313,9 @@ export function alignTool(): Tool {
         quiet(ctx)
         return true
       }
-      if (state.mode === 'floor' && (key === '[' || key === ']')) {
-        patch = Math.min(Math.max(patch * (key === ']' ? 1 + PATCH_STEP : 1 - PATCH_STEP), 0.1), 10)
+      const size = which(e, 'align.patch')
+      if (state.mode === 'floor' && size >= 0) {
+        patch = Math.min(Math.max(patch * (size === 1 ? 1 + PATCH_STEP : 1 - PATCH_STEP), 0.1), 10)
         const hand = inHand()
         const at = ctx.viewport.pointerAt?.()
         if (hand && at && !state.floor && state.points.length === 0) {
@@ -322,9 +324,10 @@ export function alignTool(): Tool {
         }
         return true
       }
-      if (state.mode === 'nudge' && (key === 'g' || key === 'r' || key === 't')) {
+      const handle = which(e, 'align.handle')
+      if (state.mode === 'nudge' && (handle >= 0 || pressed(e, 'align.size'))) {
         // A scan is moved and turned, never sized: T is taken, and does nothing.
-        if (key !== 't') alignStore.setState({ handle: key === 'g' ? 'translate' : 'rotate' })
+        if (handle >= 0) alignStore.setState({ handle: handle === 0 ? 'translate' : 'rotate' })
         return true
       }
       return false

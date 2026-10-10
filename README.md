@@ -771,7 +771,10 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 Add `.torno/` to the workspace's `.gitignore` if you do not want these in git.
 
 Outside the workspace: `~/.config/torno/config.json` holds the workspace last
-opened. Claude Code keeps its own records as it always does.
+opened and the folders opened lately (eight at most), which the first screen
+lists. "Open the example" on that screen copies four small objects of the
+repository's test workspace to a temporary folder, which is removed when torno
+ends. Claude Code keeps its own records as it always does.
 
 ## Tests
 
@@ -825,5 +828,11 @@ No test runs a real agent CLI. These are checked by hand, with the real one:
 - Copilot CLI: `/clear`, end the session, "Resume": which conversation comes back? (torno cannot see a new conversation started inside Copilot: `session.json` keeps the id torno gave, so "Resume" resumes that one.)
 - Copilot CLI: Shift+Enter (torno writes Esc Enter): a new line, or a send? (torno takes it for a change of the line either way.)
 - Either agent, torno started from a desktop launcher: an agent whose command is only on the PATH of a login shell (nvm, a global npm folder) is listed as not installed and cannot be started; start torno from a terminal, or put the command on the launcher's PATH.
+
+No test puts a window or a dialog on the desktop. These are checked by hand, on a visible screen:
+
+- "Open folder" on the first screen and in the left column: the system's folder dialog opens, and the folder chosen is opened. (Tests answer in its place.)
+- `Ctrl+Shift+E` with the terminal in focus and a real agent CLI at its prompt: the export sheet comes up and nothing reaches the CLI (left to the terminal, the chord would be its Ctrl+E).
+- `?` on the keyboard in use: the sheet of keys comes up outside a field and the terminal, and from a field it is a question mark.
 
 Known without running anything: Copilot CLI is not started in an object whose path has a comma, because the list of folders it reads instructions from is separated by commas; the session pane says so and names the path.

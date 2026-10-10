@@ -1,3 +1,4 @@
+import { hint } from '../../shared/keys'
 import { useEffect, useState, type ReactNode } from 'react'
 import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, importText, standingOf } from '../../shared/scans'
 import { setAlignScan, startedFrom } from '../state/align'
@@ -233,7 +234,7 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
           type="button"
           className="link-button"
           aria-label={`Align ${id}`}
-          title="Stand this scan where the model is, in the layout shown (L)"
+          title={`Stand this scan where the model is, in the layout shown (${hint('tool.align')})`}
           disabled={meshGone}
           onClick={() => {
             // The tool first: taking it up puts down whatever was in hand.

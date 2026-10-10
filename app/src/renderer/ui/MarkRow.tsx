@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { exactText, shownDimension } from '../../shared/dimension'
 import { EXPLODED_TOOLS } from '../../shared/explode'
@@ -198,8 +199,8 @@ export function MarkRow({
           onChange={(e) => setDraft(e.target.value)}
           onBlur={save}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') save()
-            else if (e.key === 'Escape') setDraft(null)
+            if (pressed(e, 'field.keep')) save()
+            else if (pressed(e, 'field.leave')) setDraft(null)
             else return
             e.preventDefault()
             e.stopPropagation()

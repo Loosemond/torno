@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { alignmentOf, alignmentText, standingOf } from '../../shared/scans'
 import { useAgentHighlight } from '../state/agent'
@@ -193,7 +194,7 @@ function AskRough({ why, busy, onKeep }: { why: string; busy: boolean; onKeep: (
       role="alertdialog"
       aria-label="Keep a rough alignment?"
       onKeyDown={(e) => {
-        if (e.key !== 'Escape') return
+        if (!pressed(e, 'sheet.close')) return
         e.stopPropagation()
         declineRough()
       }}

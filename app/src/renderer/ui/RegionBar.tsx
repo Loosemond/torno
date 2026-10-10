@@ -1,3 +1,4 @@
+import { hint } from '../../shared/keys'
 import { numbered } from './numbered'
 import { count as counted, number } from '../../shared/format'
 import { alignmentOf } from '../../shared/scans'
@@ -55,7 +56,7 @@ export function RegionBar() {
             <span className="regionbar-label" title="How far the brush reaches round the pointer. [ and ] change it by a quarter">
               Radius
             </span>
-            <span aria-keyshortcuts="[ ]">
+            <span aria-keyshortcuts={`${hint('region.brush', 0)} ${hint('region.brush', 1)}`}>
               <Field label="Brush radius" unit="mm" value={shown === null ? '' : number(shown)} commit={(value) => regionStore.setState({ radius: radiusOf(value) })} />
             </span>
           </>
@@ -64,14 +65,14 @@ export function RegionBar() {
             Through
           </button>
         )}
-        <button type="button" className="bar-button" aria-pressed={erase} aria-keyshortcuts="E" title="The brush, and a box, take paint off (E). Ctrl-drag does it for one stroke" onClick={() => regionStore.setState({ erase: !erase })}>
+        <button type="button" className="bar-button" aria-pressed={erase} aria-keyshortcuts={hint('region.erase')} title={`The brush, and a box, take paint off (${hint('region.erase')}). Ctrl-drag does it for one stroke`} onClick={() => regionStore.setState({ erase: !erase })}>
           Erase
         </button>
         <span className="regionbar-rule" aria-hidden="true" />
         <button type="button" className="bar-button" disabled={!painted || sending} title="Spreads what is painted over what lies flat with it: within 2 mm of its plane, turned no more than 15° from it" onClick={() => void growRegion()}>
           Grow to flat
         </button>
-        <button type="button" className="bar-button" disabled={!canUndo || sending} aria-keyshortcuts="Z" title="Takes back the last stroke, or brings back what Clear put down (Z)" onClick={undoStroke}>
+        <button type="button" className="bar-button" disabled={!canUndo || sending} aria-keyshortcuts={hint('region.undo')} title={`Takes back the last stroke, or brings back what Clear put down (${hint('region.undo')})`} onClick={undoStroke}>
           Undo
         </button>
       </div>
@@ -93,7 +94,7 @@ export function RegionBar() {
         <button type="button" className="bar-button" disabled={(!painted && !editing) || sending} title={editing ? `Puts the painting down: ${editing} stays as it was. Undo brings the painting back` : 'Puts down what is painted, without keeping it. Undo brings it back'} onClick={clearRegion}>
           Clear
         </button>
-        <button type="button" className="bar-button regionbar-keep" disabled={!painted || sending} aria-keyshortcuts="Enter" title={editing ? `Makes what is painted the triangles of ${editing} (Enter)` : 'Keeps it as a mark and opens its note, to say what it is (Enter)'} onClick={() => void keepRegion()}>
+        <button type="button" className="bar-button regionbar-keep" disabled={!painted || sending} aria-keyshortcuts={hint('region.keep')} title={editing ? `Makes what is painted the triangles of ${editing} (${hint('region.keep')})` : `Keeps it as a mark and opens its note, to say what it is (${hint('region.keep')})`} onClick={() => void keepRegion()}>
           Keep
         </button>
       </div>

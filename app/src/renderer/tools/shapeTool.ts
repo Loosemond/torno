@@ -1,3 +1,4 @@
+import { which } from '../../shared/keys'
 import * as THREE from 'three'
 import type { Quat, ShapeKind, ShapeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
@@ -152,7 +153,7 @@ export function connectShapeEdit(viewport: Pick<Viewport, 'editShape'>): () => v
   const onKey = (e: KeyboardEvent): void => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
     if (e.target instanceof Element && e.target.closest(TYPING)) return
-    const wanted = GIZMO_MODES.find((m) => m.key === e.key.toUpperCase())
+    const wanted = GIZMO_MODES[which(e, 'gizmo')]
     if (!wanted || !editedShape(store.getState())) return
     setGizmo(wanted.mode)
     e.preventDefault()

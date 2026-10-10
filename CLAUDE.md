@@ -235,13 +235,23 @@ While iterating run the focused test; run all four suites before a commit.
   nothing else in the UI uses those colours. A picture for the agent draws
   every mark alike: no active mark, no selection, no hover, no gizmo. A mark
   on a part that is not drawn is not drawn either, on screen or in a picture.
-- Tools and keys: `V` select, `P` pin, `A` arrow, `D` draw, `S` shape, `X`
-  section, `M` measure (`T` there: the wall under the pointer as of the key,
-  picked anew where `Viewport.pointerAt` says the pointer is), `L` align a
-  scan (`G`, `R` there for its handles, `Tab` in Pairs for which end is asked first), `B` region of a scan (`[`, `]`, `E`,
-  `Z` there); `G`, `R`, `T` for the gizmo of the active shape; `E` draws the parts apart or
-  together (explode, below: offered to the tool in hand first, so the Region tool's `E` stays its own); `W` shows the page of objects (below). A slider is no field to type in
-  (`ui/typing.ts`): the keys work with one in focus. The Measure tool is `tools/measureTool.ts`;
+- Tools and keys: every key torno listens to is a row of `shared/keys.ts`
+  (`KEYS`: its keys, what it does, the group the sheet lists it in, and the
+  scope it is listened to in). A handler asks `pressed(e, id)` or
+  `which(e, id)` and never names a key; a button or a tooltip takes its key
+  from `hint(id)`; the palette's tools, the view bar's views and the gizmo's
+  ways are `TOOL_KEYS`, `VIEW_KEYS` and `GIZMO_KEYS`; the sheet of keys (`?`,
+  `ui/KeySheet.tsx`) is `cheatSheet()`. A new key is added there first:
+  `keys.test.ts` reads the sources of the window and of main and fails for a
+  key compared with a name of its own, for a key written out on a button, for
+  two rows of one scope with the same key (`keyClashes`), and for a key heard
+  while typing (scope `global`) that a field or the terminal would take
+  (`typed`). A tool in hand is offered a key before the viewport is, so the
+  Region tool's `E` stays its own and explode's is the viewport's. Shift with
+  a key is that key unless Shift with it has a row of its own in that scope.
+  A slider is no field to type in (`ui/typing.ts`): the keys work with one in
+  focus. The exported page's own keys (`src/export/viewer`) are not in the
+  table: it is another program. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
   `ui/DimensionFields.tsx`. A tool is a `Tool`
@@ -498,6 +508,27 @@ agent is never told to remove a view.
   "Discard": in no mark's colour, as a view is not a mark. The digits are
   not bound to the saved views: `1` to `4` are the standard views.
 - `state.md` names the views in a line, with what of each is gone.
+
+## The first screen
+
+- With no folder open the window is `ui/Welcome.tsx`: what torno is, what an
+  object is and what to do, a sentence each; "Open folder"; the folders
+  opened lately; and, where torno runs from its repository, "Open the
+  example".
+- The folders opened lately are `recent` in torno's own config file
+  (`~/.config/torno/config.json`, or `TORNO_CONFIG`; `src/main/recent.ts`):
+  the newest first, eight at most, beside `workspace`. Never in a workspace.
+  One that is no longer a folder is shown struck and leaves the list only
+  when the person removes it. A test run reads and writes no config file but
+  one it names with `TORNO_CONFIG`.
+- The example is a copy of four objects of `kernel/tests/fixtures/ws`
+  (`EXAMPLE_OBJECTS` in `src/main/example.ts`) made in the system's temporary
+  folder when it is asked for, once in a run, and removed when torno ends.
+  The fixtures are never opened in place and never written to. The copy is
+  not remembered: not as the workspace to open next, not as a recent folder.
+- A workspace with no object says what to make (`ui/ShowPage.tsx`), and one
+  without a `pyproject.toml` that its models are built with torno's own
+  build123d. torno runs no `uv` command there.
 
 ## The page of objects
 

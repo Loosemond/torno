@@ -12,7 +12,7 @@ import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
 import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
-import type { ObjectInfo, WorkspaceInfo } from '../shared/workspace'
+import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
 import { loadAssets } from './export/html'
@@ -40,6 +40,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
+//           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:stop,
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
@@ -385,6 +386,12 @@ export function registerIpc(
     onSceneFile?: (objectId: string) => void
     /** The open workspace was left: object ids mean nothing any more. */
     onWorkspaceClosed?: () => void
+    /** The folders opened lately, each with whether it is still there. */
+    recent?: () => Promise<RecentFolder[]>
+    /** Takes a folder off that list, and answers with the list. */
+    forget?: (root: string) => Promise<RecentFolder[]>
+    /** Makes the copy of the example and answers with its folder; absent where there is no example. */
+    example?: () => Promise<string | null>
     /** Stands in for the folder dialog: the folder to open, or null for none. */
     pickFolder?: () => Promise<string | null>
     scans?: ScanStore
@@ -444,6 +451,16 @@ export function registerIpc(
   })
 
   ipcMain.handle('workspace:open', async (_event, root: string) => chosen(await openWorkspace(root)))
+
+  ipcMain.handle('workspace:recent', async () => (await opts.recent?.()) ?? [])
+  ipcMain.handle('workspace:forget', async (_event, root: string) => (await opts.forget?.(String(root))) ?? [])
+  ipcMain.handle('workspace:hasExample', () => opts.example !== undefined)
+  // Not `chosen`: a copy in the temporary folder is not what to open at the next start, nor a folder opened lately.
+  ipcMain.handle('workspace:openExample', async () => {
+    const folder = await opts.example?.()
+    if (!folder) throw new Error('this torno has no example beside it')
+    return openWorkspace(folder)
+  })
 
   ipcMain.handle('workspace:versions', async () => {
     const ws = requireWorkspace()

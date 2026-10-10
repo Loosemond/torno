@@ -1,3 +1,4 @@
+import { pressed, which } from '../shared/keys'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { busyWith } from '../shared/agents'
 import type { WorkspaceInfo } from '../shared/workspace'
@@ -12,7 +13,9 @@ import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
 import { ExportSheet } from './ui/ExportSheet'
 import { ShowPage, usePageKey } from './ui/ShowPage'
-import { DatumMark, ViewportPane } from './ui/ViewportPane'
+import { ViewportPane } from './ui/ViewportPane'
+import { KeySheet, useKeysKey } from './ui/KeySheet'
+import { Welcome } from './ui/Welcome'
 
 const LEFT_WIDTH = 248
 const DOCK_DEFAULT = 520
@@ -165,9 +168,32 @@ function useMain(): void {
   }, [])
 }
 
+/**
+ * The key that brings up the sheet of what goes into an export: of the open object, or from the page of
+ * objects of any of them. It is heard everywhere, also in a field and in the terminal, which it never
+ * reaches: before anything else hears of it. Not while a sheet of the export is already up.
+ */
+function useExportKey(): void {
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (!pressed(e, 'export')) return
+      e.preventDefault()
+      e.stopPropagation()
+      const s = store.getState()
+      if (e.repeat || !s.workspace || s.exportOf !== null) return
+      if (s.page === 'objects') actions.exportSheet('all')
+      else if (s.objectId !== null) actions.exportSheet([s.objectId])
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+}
+
 export function App() {
   useMain()
   usePageKey()
+  useKeysKey()
+  useExportKey()
   const workspace = useStore((s) => s.workspace)
   const page = useStore((s) => s.page)
   const workspaceKnown = useStore((s) => s.workspaceKnown)
@@ -202,9 +228,10 @@ export function App() {
   }
 
   function onEdgeKey(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    const way = which(e, 'dock.resize')
+    if (way < 0) return
     e.preventDefault()
-    setDockWidth((w) => clampDock(w + (e.key === 'ArrowLeft' ? KEY_STEP : -KEY_STEP)))
+    setDockWidth((w) => clampDock(w + (way === 0 ? KEY_STEP : -KEY_STEP)))
   }
 
   // Leaving a workspace ends its sessions. `leaving` is where to, while that is
@@ -229,13 +256,9 @@ export function App() {
     return (
       <div className="shell">
         <main className="viewport welcome" data-region="viewport">
-          <DatumMark />
-          <h1 className="wordmark">torno</h1>
-          <p>Open the folder that holds your objects. Each object is a folder with a Python model in it.</p>
-          <button type="button" className="button button-primary" onClick={() => void pickWorkspace()}>
-            Open folder
-          </button>
+          <Welcome onPick={() => void pickWorkspace()} onOpened={showWorkspace} />
         </main>
+        <KeySheet />
       </div>
     )
   }
@@ -313,6 +336,8 @@ export function App() {
       </button>
 
       <BuildStatus errorOpen={errorOpen} onErrorOpen={errorOpened} />
+      {/* Over everything: the keys, asked for with ? or at the foot of the tools. */}
+      <KeySheet />
     </div>
   )
 }

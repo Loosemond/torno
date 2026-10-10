@@ -1,3 +1,4 @@
+import { hint, pressed } from '../../shared/keys'
 import { dimensionText, measuredValue } from '../../shared/dimension'
 import { count, number } from '../../shared/format'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -220,8 +221,8 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
         // and the prompt typed there must carry the note. Kept, and the card stays for more.
         onBlur={keep}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) save()
-          else if (e.key === 'Escape') {
+          if (pressed(e, 'field.keep') && !e.nativeEvent.isComposing) save()
+          else if (pressed(e, 'field.leave')) {
             latest.current.ended = true
             actions.closeNote()
           } else return
@@ -230,8 +231,8 @@ function NoteCard({ viewport, objectId, mark }: { viewport: Viewport; objectId: 
         }}
       />
       <p className="note-keys">
-        <kbd className="num">Enter</kbd>save
-        <kbd className="num">Esc</kbd>leave it for later
+        <kbd className="num">{hint('field.keep')}</kbd>save
+        <kbd className="num">{hint('field.leave')}</kbd>leave it for later
       </p>
     </div>
   )

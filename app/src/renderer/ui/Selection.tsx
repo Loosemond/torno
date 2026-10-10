@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { useEffect, useState } from 'react'
 import { EXPLODED_TOOLS } from '../../shared/explode'
 import { describe, descriptorOf } from '../state/descriptors'
@@ -54,7 +55,7 @@ export function Selection({ viewport }: { viewport: Viewport }) {
   useEffect(() => {
     if (!selecting || selection.length === 0) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
+      if (!pressed(e, 'escape') || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
       if (e.target instanceof Element && e.target.closest(TYPING)) return
       actions.setSelection([])
       e.preventDefault()

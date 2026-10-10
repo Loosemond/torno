@@ -7,7 +7,7 @@ import type { AlignMade, NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } 
 import type { SceneFile } from './scenefile'
 import type { ObjectCard, ThumbnailOf } from './show'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
-import type { WorkspaceInfo } from './workspace'
+import type { RecentFolder, WorkspaceInfo } from './workspace'
 
 export interface TornoBridge {
   workspace: {
@@ -15,6 +15,14 @@ export interface TornoBridge {
     pick(): Promise<WorkspaceInfo | null>            // folder dialog
     open(root: string): Promise<WorkspaceInfo>
     versions(): Promise<Record<string, string>>     // of the kernel, once it is ready: build123d, python
+    /** The folders opened lately, the newest first, eight at most: kept in torno's own config file, never in a workspace. */
+    recent(): Promise<RecentFolder[]>
+    /** Takes one off that list; answers with the list. */
+    forget(root: string): Promise<RecentFolder[]>
+    /** Whether this torno has an example to open: it has when it runs from its repository. */
+    hasExample(): Promise<boolean>
+    /** Opens a copy of the example, made in a temporary folder. It is not remembered. */
+    openExample(): Promise<WorkspaceInfo>
     onRequested(cb: (root: string) => void): () => void  // a second launch of torno was given this folder to open
   }
   object: {

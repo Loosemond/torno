@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import type { MarkPatch, Quat, ShapeIntent, ShapeMark, Vec3 } from '../../shared/marks'
 import { GIZMO_MODES, setGizmo, useGizmo } from '../state/tools'
@@ -197,8 +198,8 @@ function NumberField({ name, sign, axis, value, commit }: { name: string; sign: 
         onChange={(e) => setDraft(e.target.value)}
         onBlur={done}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') done()
-          else if (e.key === 'Escape') setDraft(null)
+          if (pressed(e, 'field.keep')) done()
+          else if (pressed(e, 'field.leave')) setDraft(null)
           else return
           e.preventDefault()
           e.stopPropagation()

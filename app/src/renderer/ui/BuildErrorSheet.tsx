@@ -1,3 +1,4 @@
+import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import type { BuildError } from '../../shared/build'
 
@@ -20,7 +21,7 @@ export function BuildErrorSheet({ objectName, error, onClose }: { objectName: st
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (pressed(e, 'sheet.close')) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -54,7 +55,7 @@ export function BuildErrorSheet({ objectName, error, onClose }: { objectName: st
         <button type="button" className="button" onClick={copy}>
           {copied ? 'Copied' : 'Copy'}
         </button>
-        <button type="button" className="icon-button" aria-label="Close" title="Close (Esc)" onClick={onClose}>
+        <button type="button" className="icon-button" aria-label="Close" title={`Close (${hint('sheet.close')})`} onClick={onClose}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
             <path d="m4 4 8 8M12 4l-8 8" />
           </svg>

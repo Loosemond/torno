@@ -98,9 +98,10 @@ const model = () => join(root, 'bracket', 'bracket.py')
 
 test('the palette shows the tools, each with its key', async () => {
   await openFromAbove()
-  const tools = page.getByRole('toolbar', { name: 'Tools' }).getByRole('button')
-  // One button for every tool there is, and no other.
+  const tools = page.getByRole('toolbar', { name: 'Tools' }).locator('button[data-tool]')
+  // One button for every tool there is, and at their foot the one for the sheet of keys.
   await expect(tools).toHaveCount(TOOLS.length)
+  await expect(page.getByRole('toolbar', { name: 'Tools' }).getByRole('button')).toHaveCount(TOOLS.length + 1)
   await expect(page.getByRole('button', { name: 'Section', exact: true })).toHaveAttribute('title', 'Section (X)')
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('title', 'Select (V)')

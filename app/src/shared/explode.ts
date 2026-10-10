@@ -20,6 +20,7 @@ export const MAX_EXPLODE_SCALE = 4
 /** Said with every picture and caption that draws parts apart. */
 export const EXPLODED_NOTE = 'the parts are drawn apart for display: every position, ref and number told is of the parts as assembled'
 /** Said at the pointer by every tool but Select while the layout shown is exploded. */
+// The key is written out, and `keys.test.ts` holds it to the table: the exported page's viewer is bundled with this file, and is not to carry the table of torno's keys.
 export const EXPLODED_TOOLS = 'The parts are drawn apart: put them together (E, or the slider at 0) to mark, measure or cut'
 /** Said to the person who asks for the parts apart while they are cut: a section is never drawn exploded. */
 export const SECTION_FIRST = 'Take the section away to draw the parts apart'

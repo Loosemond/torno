@@ -1,10 +1,14 @@
+import { existsSync, rmSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, nativeTheme } from 'electron'
 import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
 import { devShortcut } from './devkeys'
+import { copyExample, exampleSource } from './example'
+import { type Config, configOf, listed, recentWith, recentWithout } from './recent'
 import { startHttp } from './http'
 import { contextFor } from './context'
 import { buildState, closeWorkspace, findObject, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
@@ -66,24 +70,51 @@ Menu.setApplicationMenu(null)
 const configPath: string | null =
   process.env.TORNO_CONFIG ?? (isTest ? null : join(app.getPath('appData'), 'torno', 'config.json'))
 
-async function rememberedWorkspace(): Promise<string | undefined> {
-  if (!configPath) return undefined
+// The same file keeps the folders opened lately (`recent`, eight at most), for the first screen. Nothing
+// of that is ever written in a workspace, and none of it leaves this machine.
+async function readConfig(): Promise<Config> {
+  if (!configPath) return { recent: [] }
   try {
-    const config: unknown = JSON.parse(await readFile(configPath, 'utf8'))
-    const root = (config as { workspace?: unknown } | null)?.workspace
-    return typeof root === 'string' && root ? root : undefined
+    return configOf(JSON.parse(await readFile(configPath, 'utf8')))
   } catch {
-    return undefined // no file yet, or not one of ours
+    return { recent: [] } // no file yet, or not one of ours
   }
 }
 
-async function rememberWorkspace(root: string): Promise<void> {
-  if (!configPath) return
-  try {
-    await writeFileAtomic(configPath, `${JSON.stringify({ workspace: root }, null, 2)}\n`)
-  } catch (e) {
-    console.error(`cannot write ${configPath}: ${(e as Error).message}`)
-  }
+/** One change of the file at a time: each reads what the one before wrote. */
+let configWritten: Promise<unknown> = Promise.resolve()
+function changeConfig(change: (config: Config) => Config): Promise<Config> {
+  const done = configWritten.then(async () => {
+    const config = change(await readConfig())
+    if (!configPath) return config
+    try {
+      await writeFileAtomic(configPath, `${JSON.stringify(config, null, 2)}\n`)
+    } catch (e) {
+      console.error(`cannot write ${configPath}: ${(e as Error).message}`)
+    }
+    return config
+  })
+  configWritten = done.catch(() => {})
+  return done
+}
+
+async function rememberedWorkspace(): Promise<string | undefined> {
+  return (await readConfig()).workspace
+}
+
+function rememberWorkspace(root: string): Promise<Config> {
+  return changeConfig((config) => ({ workspace: root, recent: recentWith(config.recent, root) }))
+}
+
+// The example of the first screen: where torno runs from its repository, a copy of some objects of the
+// repository's test workspace, made in a temporary folder when it is asked for, once in a run, and removed
+// when torno ends. It is not remembered: at the next start it would be gone.
+const exampleFrom = exampleSource(app.getAppPath(), app.isPackaged)
+let exampleCopy: string | null = null
+async function exampleFolder(): Promise<string | null> {
+  if (exampleFrom === null) return null
+  if (exampleCopy === null || !existsSync(exampleCopy)) exampleCopy = await copyExample(exampleFrom, tmpdir())
+  return exampleCopy
 }
 
 // The window's own background, painted before the renderer's first frame.
@@ -318,6 +349,10 @@ void app.whenReady().then(async () => {
   })
   registerIpc({
     onWorkspaceChosen: (root) => void rememberWorkspace(root),
+    // The folders opened lately, for the first screen, and the one way one leaves the list: the person removes it.
+    recent: async () => listed((await readConfig()).recent),
+    forget: async (root) => listed((await changeConfig((config) => ({ ...config, recent: recentWithout(config.recent, root) }))).recent),
+    example: exampleFrom === null ? undefined : exampleFolder,
     sessions,
     marks,
     onBuild: (state) => {
@@ -395,6 +430,9 @@ const writesBeforeQuit = quitGate(WRITES_WAIT_MS)
 
 app.on('will-quit', (event) => {
   void closeWorkspace()
+  // The copy of the example was torno's own, in the temporary folder: it goes with the run.
+  if (exampleCopy !== null) rmSync(exampleCopy, { recursive: true, force: true })
+  exampleCopy = null
   const waits: Promise<unknown>[] = []
   const written = writesBeforeQuit([marks.settled(), scans.settled(), sceneFilesSettled()])
   if (written) waits.push(written)

@@ -29,15 +29,16 @@ test.afterAll(async () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('with no folder open, the window is one prompt with one button', async () => {
+test('with no folder open, the window is one prompt with its ways in', async () => {
   const bare = await launch()
   try {
     const barePage = await bare.firstWindow()
     await expect(barePage.locator('[data-region="viewport"]')).toContainText('torno')
-    await expect(barePage.getByRole('button')).toHaveText(['Open folder'])
+    // The way in, and, run from the repository, its example.
+    await expect(barePage.getByRole('button')).toHaveText(['Open folder', 'Open the example'])
     await expect(barePage.locator('[data-region="left"], [data-region="session"], [data-region="status"]')).toHaveCount(0)
     // Centred in the window.
-    const button = (await barePage.getByRole('button').boundingBox())!
+    const button = (await barePage.getByRole('button', { name: 'Open folder' }).boundingBox())!
     expect(Math.abs(button.x + button.width / 2 - 720)).toBeLessThan(1)
   } finally {
     await bare.close()
@@ -70,7 +71,7 @@ test('the window is hidden, 1440 × 900, and titled torno', async () => {
 test('the four shell regions exist with their placeholders', async () => {
   await expect(page.locator('aside[data-region="left"] .workspace-name')).toHaveText(root.split('/').pop()!)
   // Said once, by the page of objects, which is where a workspace with none starts.
-  await expect(page.locator('main[data-region="viewport"]')).toContainText('No objects here yet')
+  await expect(page.locator('main[data-region="viewport"]')).toContainText(`No objects in ${root.split('/').pop()!} yet`)
   await expect(page.locator('aside[data-region="left"]')).not.toContainText('No objects here yet')
   await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
   await expect(page.locator('main[data-region="viewport"]')).toContainText('No object open')

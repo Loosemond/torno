@@ -1,3 +1,4 @@
+import { hint } from '../../../shared/keys'
 import { useState } from 'react'
 import type { Vec3 } from '../../../shared/marks'
 import { type ScanAlignment, IDENTITY } from '../../../shared/scans'
@@ -52,17 +53,13 @@ export function NudgeBody({ state, current, disabled }: { state: AlignState; cur
           />
         ))}
         <div className="segmented" role="group" aria-label="What the handles do">
-          <button type="button" aria-pressed={state.handle === 'translate'} aria-keyshortcuts="G" title="Move the scan with the handles in the view (G)" onClick={() => alignStore.setState({ handle: 'translate' })}>
+          <button type="button" aria-pressed={state.handle === 'translate'} aria-keyshortcuts={hint('align.handle', 0)} title={`Move the scan with the handles in the view (${hint('align.handle', 0)})`} onClick={() => alignStore.setState({ handle: 'translate' })}>
             Move
-            <kbd className="num" aria-hidden="true">
-              G
-            </kbd>
+            <kbd className="num" aria-hidden="true">{hint('align.handle', 0)}</kbd>
           </button>
-          <button type="button" aria-pressed={state.handle === 'rotate'} aria-keyshortcuts="R" title="Turn the scan with the handles in the view (R)" onClick={() => alignStore.setState({ handle: 'rotate' })}>
+          <button type="button" aria-pressed={state.handle === 'rotate'} aria-keyshortcuts={hint('align.handle', 1)} title={`Turn the scan with the handles in the view (${hint('align.handle', 1)})`} onClick={() => alignStore.setState({ handle: 'rotate' })}>
             Turn
-            <kbd className="num" aria-hidden="true">
-              R
-            </kbd>
+            <kbd className="num" aria-hidden="true">{hint('align.handle', 1)}</kbd>
           </button>
         </div>
       </div>

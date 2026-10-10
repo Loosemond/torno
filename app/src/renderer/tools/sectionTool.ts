@@ -1,3 +1,4 @@
+import { pressed, which, type KeyPress } from '../../shared/keys'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import { number } from '../../shared/format'
@@ -29,6 +30,14 @@ export const NOT_CONFIRMED = 'The kernel has not said that face is flat: click i
 /** By how much an arrow key moves the plane, in millimetres, and with Shift. */
 export const NUDGE_MM = 1
 export const NUDGE_FINE_MM = 0.1
+
+/** How far an arrow key moves the plane, in mm with its sign: up and right along the normal, with Shift a tenth of it. 0 for any other key. */
+export function sectionNudge(e: KeyPress): number {
+  const fine = which(e, 'section.fine')
+  const at = fine >= 0 ? fine : which(e, 'section.step')
+  // Left, right, up, down: the order of the table's row.
+  return at < 0 ? 0 : (at === 1 || at === 2 ? 1 : -1) * (fine >= 0 ? NUDGE_FINE_MM : NUDGE_MM)
+}
 
 /** Looking along the plane's normal more nearly than this (as a cosine), a drag has no way along it on screen: it goes by its height instead. */
 const ALONG_VIEW = 0.98
@@ -176,7 +185,7 @@ export function sectionTool(): Tool {
       ctx.readout.show(e.client, `${number(sectionOffset(drag.to, boxOf(ctx)))} mm`)
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
-      if (e.key === 'Escape') {
+      if (pressed(e, 'escape')) {
         if (drag) {
           end(ctx, false)
           return true
@@ -189,11 +198,11 @@ export function sectionTool(): Tool {
         ctx.readout.hide()
         return true
       }
-      const way = e.key === 'ArrowUp' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? -1 : 0
+      const nudge = sectionNudge(e)
       const plane = store.getState().section
-      if (way === 0 || !plane || drag) return false
+      if (nudge === 0 || !plane || drag) return false
       const box = boxOf(ctx)
-      actions.setSection(atOffset(plane, box, sectionOffset(plane, box) + way * (e.shiftKey ? NUDGE_FINE_MM : NUDGE_MM)))
+      actions.setSection(atOffset(plane, box, sectionOffset(plane, box) + nudge))
       return true
     },
     cancel(ctx: ToolContext) {

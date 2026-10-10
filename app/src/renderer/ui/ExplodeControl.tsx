@@ -1,3 +1,4 @@
+import { hint } from '../../shared/keys'
 import { useEffect, useRef } from 'react'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
@@ -87,7 +88,7 @@ export function ExplodeToggle() {
       aria-pressed={shown}
       aria-expanded={shown}
       aria-controls="explodebar"
-      title={amount !== null ? 'Put the parts together (E)' : 'Draw the parts apart, for display only (E)'}
+      title={amount !== null ? `Put the parts together (${hint('explode')})` : `Draw the parts apart, for display only (${hint('explode')})`}
       onClick={() => {
         if (amount !== null) actions.setExplode({ amount: 0 })
         ui.setState({ open: amount === null && !open, said: null })
@@ -160,7 +161,7 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
         type="range"
         aria-label="Explode"
         aria-valuetext={percent(shown)}
-        title={why ?? 'How far apart the parts are drawn, for display only (E)'}
+        title={why ?? `How far apart the parts are drawn, for display only (${hint('explode')})`}
         min={0}
         max={100}
         step={1}

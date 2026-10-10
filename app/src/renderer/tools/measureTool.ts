@@ -1,3 +1,4 @@
+import { pressed } from '../../shared/keys'
 import { isSpreadRefusal, measuredValue, notMeasuredText, valueText } from '../../shared/dimension'
 import type { Described } from '../../shared/geometry'
 import type { Anchor, MeasureKind, Vec3 } from '../../shared/marks'
@@ -219,7 +220,7 @@ export function measureTool(): Tool {
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
       if (ctx.stale !== null) return false
-      if (e.key === 'Escape') {
+      if (pressed(e, 'escape')) {
         const said = held?.sticky === true
         if (said) {
           release()
@@ -229,7 +230,7 @@ export function measureTool(): Tool {
         drop(ctx)
         return true
       }
-      if (e.key.toUpperCase() !== 'T') return false
+      if (!pressed(e, 'measure.wall')) return false
       // The wall under the pointer as of now. What the last move was on may not be there any more (the wheel
       // zooms without a move), and a tool just taken has been told of no move at all: the viewport knows where
       // the pointer is, and is asked what is under it.

@@ -1,3 +1,4 @@
+import { hint, keyName, pressed } from '../../shared/keys'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -114,18 +115,18 @@ function terminalFor(objectId: string): ObjectTerminal {
     if (t.sessionId) window.torno.session.resize(t.sessionId, cols, rows)
   })
   term.attachCustomKeyEventHandler((e) => {
-    const plain = !e.ctrlKey && !e.altKey && !e.metaKey
-    if (e.key === 'Enter' && e.shiftKey && plain) {
+    if (pressed(e, 'session.newline')) {
       // A new line in the agent's prompt, not a submit. Every stage of the key
       // is taken from the terminal, or its text field would add a line break of its own.
       e.preventDefault()
       if (e.type === 'keydown' && t.sessionId) window.torno.session.write(t.sessionId, '\x1b\r')
       return false
     }
-    if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.code === 'KeyC' || e.code === 'KeyV')) {
+    const copy = pressed(e, 'session.copy')
+    if (copy || pressed(e, 'session.paste')) {
       e.preventDefault()
       if (e.type !== 'keydown') return false
-      if (e.code === 'KeyC') {
+      if (copy) {
         const selected = term.getSelection()
         if (selected) void navigator.clipboard.writeText(selected).catch(() => {})
       } else {
@@ -252,7 +253,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
 
     // Ctrl+`: from anywhere to the session, and from the session back to the viewport.
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.code !== 'Backquote' || e.shiftKey || e.altKey || e.metaKey) return
+      if (keyName(e) !== hint('session.focus')) return
       e.preventDefault()
       e.stopPropagation()
       const dock = host.current?.closest('[data-region="session"]')
