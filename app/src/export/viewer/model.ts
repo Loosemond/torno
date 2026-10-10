@@ -53,7 +53,6 @@ export class Model {
   private readonly grid = new LineSegments(new BufferGeometry(), new LineBasicMaterial())
   private readonly parts = new Group()
   private readonly scans = new Group()
-  private readonly marks = new Group()
   private readonly plane = new Plane()
   private drawn: DrawnPart[] = []
   private drawnScans: DrawnScan[] = []
@@ -81,7 +80,7 @@ export class Model {
     this.controls.enableDamping = false
     this.controls.addEventListener('change', () => this.request())
     this.grid.material.transparent = true
-    this.scene.add(this.lights.sky, this.lights.key, this.lights.key.target, this.grid, this.parts, this.scans, this.marks)
+    this.scene.add(this.lights.sky, this.lights.key, this.lights.key.target, this.grid, this.parts, this.scans)
     this.setTheme(theme)
   }
 
@@ -380,12 +379,10 @@ export class Model {
   /** The colour of the parts and the scans drawn at a point of the canvas, in fractions of it, on a frame drawn for the asking without the grid and the marks; and the colour of the ground alone. */
   pixel(fx: number, fy: number): [number, number, number, number] {
     this.grid.visible = false
-    this.marks.visible = false
     this.frame()
     this.renderer.render(this.scene, this.camera)
     const read = this.read(fx, fy)
     this.grid.visible = true
-    this.marks.visible = true
     this.draw()
     return read
   }

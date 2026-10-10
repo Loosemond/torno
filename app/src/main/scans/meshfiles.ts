@@ -3,7 +3,7 @@ import type { Dirent } from 'node:fs'
 import { mkdir, readdir, rm, writeFile, lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Scan } from '../../shared/scans'
-import { FOLDER } from '../own'
+import { FOLDER, ownTorno } from '../own'
 
 /** What names a scan: `S1`. Its folder under `.torno/scans/` has this name, so nothing else is ever taken for one. */
 export const SCAN_ID = /^S[1-9]\d{0,14}$/
@@ -71,6 +71,8 @@ export async function nextFolderId(dir: string): Promise<number> {
  * somewhere else. One that is not there yet is no link. Rejects with what is linked.
  */
 export async function ownFolders(dir: string, id?: string): Promise<void> {
+  // `.torno` itself by the one rule of every write there (`ownTorno`), which tells the window; then the folders the scans have under it.
+  await ownTorno(dir)
   const folder = await linkedFolder(dir, id)
   if (folder !== null) throw new Error(`${folder} is a link: torno writes only inside the object's own folder, and wrote nothing`)
 }

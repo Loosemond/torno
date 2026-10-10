@@ -199,7 +199,7 @@ export const noMark = (id: string, marks: Mark[]): ToolResult => failure(`no mar
  * A region of a scan is told where the scan's alignment in its layout puts
  * it, which takes the `scans` of the object (`scansFor`).
  */
-const withLine = (mark: Mark, revision?: number, scans?: readonly ScanInfo[], layout?: string): object => ({ ...markData(mark, revision, scans, layout), line: describeMark(mark, { revision, ...(layout ? { layout } : {}), ...(scans ? { scans } : {}) }) })
+const withLine = (mark: Mark, revision?: number, scans?: readonly ScanInfo[], layout?: string, scene?: Scene): object => ({ ...markData(mark, revision, scans, layout), line: describeMark(mark, { revision, ...(layout ? { layout } : {}), ...(scans ? { scans } : {}), ...(scene ? { scene } : {}) }) })
 
 /** The layout a region is told in by a tool: the one asked for, else the one on screen, else the build's first; none before a build, or for a layout the build has not (the region is then told in its own). */
 /** The refusal for a layout that was asked for and that the build has not: it is not answered in another. Null otherwise, and before anything is built. */
@@ -251,7 +251,7 @@ export async function marksTool(deps: ToolDeps, objectId: string, args: MarksArg
   const wrong = noSuchLayout(deps, objectId, args.layout)
   if (wrong) return wrong
   const layout = regionLayout(deps, objectId, args.layout)
-  return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined, scans, layout)) })
+  return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined, scans, layout, deps.scene(objectId)?.scene)) })
 }
 
 /**
@@ -273,7 +273,7 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
     const build = ofBuild(deps, objectId)
     const wrong = noSuchLayout(deps, objectId, args.layout)
     if (wrong) return wrong
-    return mark ? json({ ...build, mark: withLine(mark, build.revision ?? undefined, await scansFor(deps, objectId, [mark]), regionLayout(deps, objectId, args.layout)) }) : noMark(args.ref, marks)
+    return mark ? json({ ...build, mark: withLine(mark, build.revision ?? undefined, await scansFor(deps, objectId, [mark]), regionLayout(deps, objectId, args.layout), deps.scene(objectId)?.scene) }) : noMark(args.ref, marks)
   }
   const found = built(deps, objectId)
   if ('content' in found) return found

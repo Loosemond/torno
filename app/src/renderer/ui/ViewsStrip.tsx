@@ -88,7 +88,13 @@ export function ViewsStrip({ viewport }: { viewport: Viewport }) {
   const apply = (view: SavedView): void => {
     const applied = actions.applyView(view.name)
     // The camera goes there once the store has the rest: the viewport follows the store as it is set.
-    if (typeof applied === 'object') viewport.setView(applied.camera, true)
+    if (typeof applied !== 'object') return
+    // A view that draws the parts apart was framed for where they went when it was saved; where they go now may
+    // be elsewhere (along z they go up from the lowest). The camera is the view's, at once, and is fitted only
+    // if a part would be out of sight (`keepApartInView`, the rule of `E`).
+    const apart = applied.explode !== undefined && applied.explode !== null && applied.explode.amount > 0 && !applied.section
+    viewport.setView(applied.camera, !apart)
+    if (apart) viewport.keepApartInView()
   }
   const actionsOf = (name: string): string => `[data-actions="${CSS.escape(name)}"]`
   /** The focus, once the button that was pressed is gone from the page: on the first of these there is, else on "Save view". */

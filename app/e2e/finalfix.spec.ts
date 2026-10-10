@@ -149,6 +149,8 @@ test('the folder button opens a menu: the folders opened lately, the dialog and 
   await button.click()
   const menu = page.getByRole('menu', { name: 'Folders' })
   await expect(menu).toBeVisible()
+  // Whole when it comes: never the dialog alone first, with the list arriving after.
+  expect(await menu.getByRole('menuitem').count()).toBe(3)
   await expect(menu.getByRole('menuitem')).toHaveText([/torno-e2e-finalfix-/, 'Open folder…', 'Open the example'])
   // The open one is marked, and is not to be opened again.
   await expect(menu.locator('.folder-row[data-open]')).toContainText('Open')
@@ -192,6 +194,68 @@ test('the sheet of keys is a dialog: a click inside it keeps the keys in it, and
   await page.keyboard.press('Escape')
   await expect(sheet).toHaveCount(0)
   expect(await tool()).toBe(before)
+})
+
+// Re-review I-1: the sheet was 989 px high whatever the window, and nothing in it scrolled.
+test('the sheet of keys ends inside the window, however small, and what does not fit scrolls inside it', async () => {
+  const size = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getContentSize())
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 720))
+  try {
+    await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(720)
+    await canvas().click({ position: { x: 5, y: 5 } })
+    await page.keyboard.press('?')
+    const sheet = page.getByRole('dialog', { name: 'Keys' })
+    await expect(sheet).toBeVisible()
+    const box = (await sheet.boundingBox())!
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height).toBeLessThanOrEqual(720)
+    // Its rows are more than it shows: the body scrolls, and the last row can be brought into view within the sheet.
+    const body = sheet.locator('.keys-body')
+    const scroll = await body.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, sideways: el.scrollWidth > el.clientWidth }))
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight)
+    expect(scroll.sideways).toBe(false)
+    // The row that is furthest down, in whichever column it is.
+    const lowest = await sheet.locator('.keys-group li span').evaluateAll((rows) => {
+      let at = 0
+      rows.forEach((row, i) => {
+        if (row.getBoundingClientRect().bottom > rows[at].getBoundingClientRect().bottom) at = i
+      })
+      return at
+    })
+    const last = sheet.locator('.keys-group li span').nth(lowest)
+    expect((await last.boundingBox())!.y).toBeGreaterThan(box.y + box.height - 40)
+    await last.evaluate((el) => el.scrollIntoView({ block: 'nearest' }))
+    const row = (await last.boundingBox())!
+    const inside = (await body.boundingBox())!
+    expect(row.y).toBeGreaterThanOrEqual(inside.y)
+    expect(row.y + row.height).toBeLessThanOrEqual(inside.y + inside.height)
+    expect(await body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    await page.keyboard.press('Escape')
+    await expect(sheet).toHaveCount(0)
+  } finally {
+    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), size)
+    await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(size[1])
+  }
+})
+
+test('Rebuild takes no press while a build runs: it says Building, and the key starts nothing over', async () => {
+  // An object whose model takes a minute.
+  await page.getByRole('button', { name: 'slow', exact: true }).click()
+  await expect.poll(async () => ((await state()).objectId === 'slow' ? (await state()).build?.status : null)).toBe('building')
+  const started = (await state()).build!.startedAt
+  expect(started).toBeGreaterThan(0)
+  const button = page.locator('[data-region="status"] .status-rebuild')
+  await expect(button).toHaveText('Building…')
+  await expect(button).toBeDisabled()
+  await page.keyboard.press('Control+Shift+B')
+  // Asked of main outright as well: it starts none either.
+  await page.evaluate(() => window.torno.object.rebuild('slow'))
+  await page.waitForTimeout(500)
+  // The build under way is the one that was: it was not started over.
+  expect((await state()).build).toMatchObject({ status: 'building', startedAt: started })
+  await open('hollow')
+  await expect(button).toHaveText('Rebuild')
+  await expect(button).toBeEnabled()
 })
 
 test('the example says for as long as it is open that it is a temporary copy', async () => {

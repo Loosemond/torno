@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { type ExplodePart, type ExplodeState, explodeOffsets, isExploded } from '../../shared/explode'
+import { type ExplodePart, type ExplodeState, explodeOffsets, isExploded, leavesView } from '../../shared/explode'
 import type { Vec3 } from '../../shared/marks'
 import type { Hit } from './picking'
 
@@ -143,18 +143,5 @@ export function reachingApart(sphere: THREE.Sphere, parts: readonly ExplodePart[
   return all
 }
 
-/**
- * Whether any of some parts, drawn off by `offsets`, is outside the view: a corner of its box is projected off
- * the screen (`project` answers in fractions of the half size of the view, -1 to 1 across it). What decides
- * whether drawing the parts apart is followed by fitting them: only when one of them would no longer be seen whole.
- */
-export function leavesView(parts: readonly ExplodePart[], offsets: Offsets, project: (point: Vec3) => readonly [number, number]): boolean {
-  for (const part of parts) {
-    const by = offsets[part.name] ?? STILL
-    for (let corner = 0; corner < 8; corner++) {
-      const [x, y] = project([0, 1, 2].map((i) => ((corner >> i) & 1 ? part.bbox.max[i] : part.bbox.min[i]) + by[i]) as Vec3)
-      if (!(Math.abs(x) <= 1 && Math.abs(y) <= 1)) return true
-    }
-  }
-  return false
-}
+// Whether parts drawn apart leave the view is asked by the window and by an exported page: `shared/explode.ts`.
+export { leavesView }

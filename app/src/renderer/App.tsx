@@ -204,7 +204,8 @@ function useRebuildKey(): void {
       e.preventDefault()
       e.stopPropagation()
       const { objectId, workspace } = store.getState()
-      if (e.repeat || !workspace || objectId === null) return
+      // Not while a build runs: there is nothing to start over (main would start none either).
+      if (e.repeat || !workspace || objectId === null || store.getState().build?.status === 'building') return
       void window.torno.object.rebuild(objectId).catch(() => {})
     }
     window.addEventListener('keydown', onKey, true)

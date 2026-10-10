@@ -124,7 +124,9 @@ function Sheet() {
           <span className="num">{count}</span> {count === 1 ? 'key' : 'keys'}
           {typed.trim() !== '' && ' found'}
         </p>
+        {/* The scroller, and inside it the columns: columns on the box that scrolls would overflow sideways, not down. */}
         <div className="keys-body">
+          <div className="keys-columns">
           {groups.length === 0 && (
             <p className="keys-none">
               No key says <span className="keys-typed">{typed.trim()}</span>.
@@ -148,6 +150,7 @@ function Sheet() {
               </ul>
             </section>
           ))}
+          </div>
         </div>
       </section>
     </div>

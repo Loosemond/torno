@@ -99,10 +99,12 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
             type="button"
             className="status-rebuild"
             data-primary={build.status === 'failed' || letGoText(build) ? '' : undefined}
-            title={`Build ${name} again from its sources as they are (${hint('rebuild')})`}
+            title={building ? 'A build is running: it is of the sources as they are' : `Build ${name} again from its sources as they are (${hint('rebuild')})`}
+            // While a build runs there is nothing to start over: it says so, and takes no press.
+            disabled={building}
             onClick={() => objectId !== null && void window.torno.object.rebuild(objectId).catch(() => {})}
           >
-            Rebuild
+            {building ? 'Building…' : 'Rebuild'}
           </button>
           {letGoText(build) && <span className="status-letgo" data-part="let-go">{letGoText(build)}</span>}
           {build.revision > 0 && (

@@ -4094,6 +4094,8 @@ button {
   inset: 0;
   z-index: 40;
   display: grid;
+  /* One row as high as the window allows and no higher: the sheet's `max-height: 100%` is of it, and what does not fit scrolls inside the sheet. */
+  grid-template-rows: minmax(0, 1fr);
   place-items: center;
   padding: var(--space-4);
   /* A scrim: the sheet is over the window, not part of it. */
@@ -4166,13 +4168,17 @@ button {
 }
 
 .keys-body {
+  flex: 1 1 auto;
   min-height: 0;
   padding: var(--space-4);
   overflow-y: auto;
-  columns: 3 250px;
-  column-gap: var(--space-4);
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.keys-columns {
+  columns: 3 250px;
+  column-gap: var(--space-4);
 }
 
 .keys-group {

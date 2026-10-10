@@ -380,7 +380,7 @@ describe('an explode in a file that leaves parts out', () => {
     const clip: Part = { ...lid, key: 'assembly:clip', name: 'clip', hash: 'h-lid', loc: { t: [60, 10, 3], q: [0, 0, 0, 1] }, bbox: { min: [55, 5, 2], max: [65, 15, 4] } }
     return { scene: { ...last.scene, parts: [tray, clip, lid, ...print] }, blob: last.blob }
   }
-  const off = (names: string[], explode: unknown) => async () => ({ layout: 'assembly', layers: Object.fromEntries(names.map((name) => [name, { visible: false }])), explode: { assembly: explode } })
+  const off = (names: string[], explode: unknown) => async () => ({ layout: 'assembly', layers: Object.fromEntries(names.map((name) => [name, { visible: false }])), explode: { assembly: explode }, views: [{ name: 'Clip side', author: 'user', layout: 'assembly', camera, hidden: ['clip', 'tray'], at: '2026-10-09T21:14:03.000Z' }] })
 
   for (const axis of ['centre', 'x', 'z'] as const) {
     it(`moves the parts that go as torno moves them, ${axis === 'centre' ? 'from the centre' : `along ${axis}`}, and names no part left out`, async () => {
@@ -390,6 +390,8 @@ describe('an explode in a file that leaves parts out', () => {
       const [object] = (await exportData(made, { objects: ['hollow'], marks: false, scans: [] })).objects
       expect(object.parts.filter((part) => part.layout === 'assembly').map((part) => part.name)).toEqual(['tray', 'lid'])
       expect(JSON.stringify(object)).not.toContain('clip')
+      // Nor does a saved view that hid it (re-review m4): what it hides of the parts that go is all it says.
+      expect(object.views.map((view) => view.hidden)).toEqual([['tray']])
       const app = explodeOffsets(last.scene.parts.filter((part) => part.layout === 'assembly'), explode)
       const page = explodeOffsets(apartParts(object, 'assembly'), explodeShown(object.explode.assembly, null, apartParts(object, 'assembly')))
       expect(page.tray).toEqual(app.tray)

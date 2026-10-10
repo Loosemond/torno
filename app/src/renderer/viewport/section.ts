@@ -25,20 +25,6 @@ export function planeFromFace(hit: { point: Vec3; normal: Vec3 | null }): Sectio
   return { origin: [...hit.point], normal: hit.normal.map((c) => c / length + 0) as Vec3 }
 }
 
-/**
- * A plane across an axis, through the middle of a box; `t` puts it elsewhere
- * along the axis, from 0 at the box's low side to 1 at its high side. What is
- * further along the axis is removed.
- */
-export function planeOnAxis(axis: Axis, box: Box, t = 0.5): SectionPlane {
-  const i = AXES.indexOf(axis)
-  const origin = centreOf(box)
-  origin[i] = box.min[i] + (box.max[i] - box.min[i]) * t
-  const normal: Vec3 = [0, 0, 0]
-  normal[i] = 1
-  return { origin, normal }
-}
-
 /** The plane `mm` further along its normal: less is removed for a positive distance. */
 export function movedAlongNormal(plane: SectionPlane, mm: number): SectionPlane {
   return { origin: plane.origin.map((c, i) => c + plane.normal[i] * mm) as Vec3, normal: plane.normal }

@@ -1,6 +1,6 @@
 import { themeOf } from '../../renderer/viewport/theme'
 import { towardsViewer } from '../../shared/cut'
-import { type ExplodeState, NO_EXPLODE, explodeOf, explodeOffsets, explodeShown, neverBoth, nothingApart } from '../../shared/explode'
+import { type ExplodeState, NO_EXPLODE, explodeOf, explodeOffsets, explodeShown, leavesView, neverBoth, nothingApart } from '../../shared/explode'
 import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type MeshArrays, apartParts, record, unpackMesh, unpackScan } from '../../shared/exportdata'
 import type { Vec3 } from '../../shared/marks'
 import { type Camera, type SectionPlane, type ViewName, axisForm, planeOf } from '../../shared/view'
@@ -35,6 +35,8 @@ export interface TornoExport {
     scans: Array<{ id: string; visible: boolean; opacity: number }>
     ortho: boolean
     camera: Camera
+    /** Whether a part that is switched on is drawn out of the view. */
+    leaves: boolean
   }
   /** Resolves once the object is unpacked and shown. */
   setObject(id: string): Promise<void>
@@ -164,6 +166,21 @@ function start(): void {
         if (ends.some((end) => end.some((c, i) => Math.abs(c - ends[0][i]) > 1e-9))) return { mark, drawn: false, why: 'not drawn while its parts are apart', by: still }
         return { mark, drawn: true, by: ends[0] }
       })
+  }
+
+  /** Whether a part that is switched on, drawn apart, is out of the view: torno's own rule (`leavesView`). */
+  const leaves = (): boolean => {
+    const moved = offsets()
+    if (Object.keys(moved).length === 0 || canvas.clientWidth === 0 || canvas.clientHeight === 0) return false
+    const seen = (point: Vec3): [number, number] => {
+      const at = model.project(point)
+      return [(at.x / canvas.clientWidth) * 2 - 1, 1 - (at.y / canvas.clientHeight) * 2]
+    }
+    return leavesView(parts().filter((part) => state().visible[part.name] !== false), moved, seen)
+  }
+  /** After the parts were drawn apart otherwise, or a view applied: the camera stays, unless a part would be out of sight. */
+  const keepInView = (): void => {
+    if (leaves()) model.fit()
   }
 
   const said = document.createElement('p')
@@ -300,6 +317,7 @@ function start(): void {
       }
       changed()
       refresh()
+      keepInView()
     },
     setSection(axis, t = 0.5) {
       const st = state()
@@ -356,6 +374,8 @@ function start(): void {
       }
       refresh()
       model.setCamera(view.camera)
+      // Framed for where the parts went when it was saved: fitted only if one of them is out of sight now.
+      keepInView()
       panel.sync()
       return true
     },
@@ -520,7 +540,8 @@ function start(): void {
           view: st.view,
           scans: (object.scans ?? []).map((scan) => ({ id: scan.id, ...(st.scans[scan.id] ?? { visible: true, opacity: 1 }) })),
           ortho: host.ortho(),
-          camera: model.getCamera()
+          camera: model.getCamera(),
+          leaves: leaves()
         }
       },
       setObject: async (id) => {

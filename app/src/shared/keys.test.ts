@@ -123,17 +123,33 @@ const files = [...sources(join(src, 'renderer')), ...sources(join(src, 'main')),
  * torno that have a key of another kind (a part's, a light's, a row of the table's). What a handler knows of a
  * press it hands whole to `pressed` or `which` of `shared/keys.ts`.
  */
-const NOT_A_PRESS = ['part', 'p', 'lights', 'this', 't', 'm', 'v', 'span', 'previewed', 'one']
-function keyReads(text: string): string[] {
+const NOT_A_PRESS = ['part', 'lights', 'this', 'span', 'previewed', 'tool']
+/** By file: a receiver of one letter that is a row of the table, a part or a painted set there, and never a key press. Nowhere else may a one-letter name have its `.key` read. */
+const SHORT_NAMES: Record<string, string[]> = {
+  'renderer/ui/MarksPanel.tsx': ['t'],
+  'renderer/state/tools.ts': ['t'],
+  'renderer/state/store.ts': ['p'],
+  'renderer/ui/ViewBar.tsx': ['v'],
+  'renderer/tools/regionTints.ts': ['one'],
+  'renderer/ui/ShapeFields.tsx': ['m'],
+  'renderer/ui/ToolPalette.tsx': ['t']
+}
+const KEY_NAMES = '(?:key|code|keyCode|which|charCode)'
+function keyReads(text: string, also: readonly string[] = []): string[] {
   const named = /['"`](?:Escape|Arrow(?:Left|Right|Up|Down)|Backquote|Backspace|Space|Key[A-Z]|Digit\d|F\d{1,2})['"`]/
-  const read = /([A-Za-z_$][\w$]*|[\])])\s*\??\.\s*(key|code|keyCode|which|charCode)\b(?!\s*[:(])/g
-  const indexed = /\[\s*['"`](key|code|keyCode|which|charCode)['"`]\s*\]/
-  const apart = /\{[^{}]*\b(key|code|keyCode|which)\b[^{}]*\}\s*(?::\s*(?:globalThis\.)?(?:React\.)?Keyboard\w*|=\s*(?:e|ev|evt|event|press|input)\b)/
+  const read = new RegExp(`([A-Za-z_$][\\w$]*|[\\])])\\s*\\??\\.\\s*${KEY_NAMES}\\b(?!\\s*[:(])`, 'g')
+  const indexed = new RegExp(`\\[\\s*['"\`]${KEY_NAMES}['"\`]\\s*\\]|Reflect\\.get\\([^)]*['"\`]${KEY_NAMES}['"\`]`)
+  // Taken apart: as a parameter (`({ key }) =>`, `function ({ key }: KeyboardEvent)`), or from something (`const { key } = e`) that is no receiver listed.
+  const parameter = new RegExp(`\\(\\s*\\{[^{}]*\\b${KEY_NAMES}\\b[^{}]*\\}\\s*(?::[^)]*)?\\)\\s*(?:=>|:|\\{)`)
+  const apart = new RegExp(`(?:const|let|var)\\s*\\{[^{}]*\\b${KEY_NAMES}\\b[^{}]*\\}\\s*=\\s*([A-Za-z_$][\\w$]*)`)
+  const allowed = [...NOT_A_PRESS, ...also]
   const found: string[] = []
   text.split('\n').forEach((line, i) => {
     if (/^\s*(\/\/|\*|\/\*)/.test(line)) return
-    let hit = named.test(line) || indexed.test(line) || apart.test(line)
-    for (const match of line.matchAll(read)) if (!NOT_A_PRESS.includes(match[1])) hit = true
+    let hit = named.test(line) || indexed.test(line) || parameter.test(line)
+    const from = apart.exec(line)
+    if (from && !allowed.includes(from[1])) hit = true
+    for (const match of line.matchAll(read)) if (!allowed.includes(match[1])) hit = true
     if (hit) found.push(`${i + 1}: ${line.trim()}`)
   })
   return found
@@ -155,19 +171,26 @@ it('catches a key handled outside the table, however the handler spells it', () 
     'if (ev.which === 13) send()',
     "case 'Enter':".replace('Enter', 'Escape'),
     'handlers.get(press?.key)?.()',
-    'const k = (e as KeyboardEvent).key'
+    'const k = (e as KeyboardEvent).key',
+    // The re-review's four (m3): a destructured parameter, an event under a one-letter name, taken apart from any name, and by reflection.
+    "const onKey = ({ key }) => key === 'q' && quit()",
+    'window.addEventListener("keydown", ({ code, shiftKey }) => go(code, shiftKey))',
+    "if (p.key === 'q') quit()",
+    'const { key } = k',
+    "const name = Reflect.get(e, 'key')",
+    'const { code: where } = press'
   ]
   for (const line of bypasses) expect([line, keyReads(line).length]).toEqual([line, 1])
   expect(keyReads(bypasses.join('\n'))).toHaveLength(bypasses.length)
   // What torno has that is called a key and is none of the keyboard's is left alone, and so is handing a press on whole.
-  for (const fine of ['const shown = view.visible.includes(part.key)', "if (pressed(e, 'fit')) fit()", 'const way = which(e, \'dock.resize\')', 'return { key: `${layout}:${name}`, name }', 'lights.key.intensity = 2', '// e.key is never read here', 'title={hint(t.key)}']) expect([fine, keyReads(fine)]).toEqual([fine, []])
+  for (const fine of ['const shown = view.visible.includes(part.key)', "if (pressed(e, 'fit')) fit()", 'const way = which(e, \'dock.resize\')', 'return { key: `${layout}:${name}`, name }', 'lights.key.intensity = 2', '// e.key is never read here', 'title={hint(tool.key)}', 'const { key, name } = part']) expect([fine, keyReads(fine)]).toEqual([fine, []])
 })
 
 it('is the only place a key is read or named: no handler in the window, the preload or main reads a key press itself', () => {
   const found: string[] = []
   // In main a `key` is also a key of an object and of a part: there the file that hears the keyboard is the one looked at.
   for (const file of files.filter((f) => !f.includes(`${join('src', 'main')}`) || f.endsWith('devkeys.ts'))) {
-    for (const line of keyReads(readFileSync(file, 'utf8'))) found.push(`${relative(src, file)}:${line}`)
+    for (const line of keyReads(readFileSync(file, 'utf8'), SHORT_NAMES[relative(src, file)])) found.push(`${relative(src, file)}:${line}`)
   }
   expect(found).toEqual([])
   expect(files.length).toBeGreaterThan(100)

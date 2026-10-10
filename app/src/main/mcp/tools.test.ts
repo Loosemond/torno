@@ -489,6 +489,15 @@ const said = (result: { content: Array<{ type: string; text?: string }> }): stri
 const jsonOf = (result: { content: Array<{ type: string; text?: string }> }): any => JSON.parse(textOf(result))
 
 describe('marks', () => {
+  it('tells in a mark\'s line what is nothing within its part as 0, as the prompt does (re-review m10)', async () => {
+    const deps = fake()
+    deps.w.list[0] = { ...deps.w.list[0], anchor: { point: [-0.000004772, 2, 2.5], part: 'base', ref: 'base/F5' } } as Mark
+    const [first] = jsonOf(await marksTool(deps, 'bracket', {})).marks
+    expect(first.line).toContain('at (0, 2, 2.5)')
+    expect(jsonOf(await describeTool(deps, 'bracket', { ref: 'M1' })).mark.line).toContain('at (0, 2, 2.5)')
+    expect(textOf(await resolveMarkTool(deps, 'bracket', { id: 'M1' }))).toContain('at (0, 2, 2.5)')
+  })
+
   it('is JSON of every mark with all its fields, a stroke with its points', async () => {
     const deps = fake()
     const result = await marksTool(deps, 'bracket', {})

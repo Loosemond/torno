@@ -4,7 +4,17 @@ import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
 import { sectionOf, snappedSection } from '../../shared/view'
 import { buildPart } from './partMesh'
-import { SectionCut, atOffset, axisOf, capColour, cutOutline, describeSection, keepsNothing, nearSegmentOnScreen, flipped, movedAlongNormal, planeFromFace, planeOnAxis, planeRect, sectionExtent, sectionOffset, typedOffset } from './section'
+import { SectionCut, atOffset, axisOf, capColour, cutOutline, describeSection, keepsNothing, nearSegmentOnScreen, flipped, movedAlongNormal, planeFromFace, planeRect, sectionExtent, sectionOffset, typedOffset } from './section'
+
+/** A plane across an axis of a box, at a share of the way along it: what the tests cut by. */
+function planeOnAxis(axis: 'x' | 'y' | 'z', box: { min: number[]; max: number[] }, t = 0.5): { origin: [number, number, number]; normal: [number, number, number] } {
+  const i = 'xyz'.indexOf(axis)
+  const origin = box.min.map((lo, n) => (lo + box.max[n]) / 2) as [number, number, number]
+  origin[i] = box.min[i] + (box.max[i] - box.min[i]) * t
+  const normal: [number, number, number] = [0, 0, 0]
+  normal[i] = 1
+  return { origin, normal }
+}
 
 const BOX = { min: [-20, -15, -2.5], max: [20, 15, 22.5] }
 
@@ -26,19 +36,6 @@ describe('planeFromFace', () => {
   })
 })
 
-describe('planeOnAxis', () => {
-  it('goes through the middle of the box, its normal along the axis', () => {
-    expect(planeOnAxis('x', BOX)).toEqual({ origin: [0, 0, 10], normal: [1, 0, 0] })
-    expect(planeOnAxis('y', BOX)).toEqual({ origin: [0, 0, 10], normal: [0, 1, 0] })
-    expect(planeOnAxis('z', BOX)).toEqual({ origin: [0, 0, 10], normal: [0, 0, 1] })
-  })
-
-  it('goes through the box at a share of its extent along the axis', () => {
-    expect(planeOnAxis('z', BOX, 0).origin).toEqual([0, 0, -2.5])
-    expect(planeOnAxis('z', BOX, 1).origin).toEqual([0, 0, 22.5])
-    expect(planeOnAxis('x', BOX, 0.25).origin).toEqual([-10, 0, 10])
-  })
-})
 
 describe('moving and flipping', () => {
   it('moves along the normal by millimetres, either way', () => {

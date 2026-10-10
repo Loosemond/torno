@@ -213,9 +213,16 @@ export class Builds {
     else this.startChanged(entry)
   }
 
-  rebuild(objectId: string): void {
+  /**
+   * Build an object again by hand ("Rebuild"). Not while a build of it runs: that one is of the sources as
+   * they are (a change of them starts another by itself), and starting it over would only cost its time again.
+   * False when nothing was started.
+   */
+  rebuild(objectId: string): boolean {
     const entry = this.entries.get(objectId)
-    if (entry) this.startChanged(entry)
+    if (!entry || entry.state.status === 'building') return false
+    this.startChanged(entry)
+    return true
   }
 
   /** Build because the sources may have changed: what is on screen is stale until it ends. */

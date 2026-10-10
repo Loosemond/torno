@@ -1,3 +1,4 @@
+import { giveKeysBack } from '../typing'
 import { pressed } from '../../../shared/keys'
 import { useRef } from 'react'
 import { type PairFit, WEAK_SPREAD, unitHint } from '../../../shared/align'
@@ -124,13 +125,15 @@ function PairRow({ n, pair, residual, worst }: { n: number; pair: PairDraft; res
               e.preventDefault()
               e.stopPropagation()
               for (const input of inputs) input.value = input.defaultValue
-              e.currentTarget.select()
+              // Left as they were: the keys are the view's again, as after every number field.
+              giveKeysBack(e.currentTarget)
               return
             }
             if (!pressed(e, 'field.keep')) return
             e.preventDefault()
             e.stopPropagation()
             keep()
+            giveKeysBack(e.currentTarget)
           }}
         />
       ))}

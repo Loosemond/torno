@@ -585,7 +585,8 @@ describe('Builds', () => {
     const { kernel, builds, scenes } = setup()
     builds.open(bracket)
     const old = kernel.calls[0]
-    builds.rebuild('bracket')
+    // A source changed: another build takes its place. (Rebuild by hand starts none while one runs.)
+    builds.changed('bracket')
     // The old build's success was already on its way when the new one was requested.
     old.settle({ ok: true, scene: sceneOf('old'), blob: Buffer.from([9]) })
     await flush()
@@ -1063,5 +1064,25 @@ describe('watchFolder', () => {
     stop!()
     await sleep(500)
     expect(changes()).toBe(0)
+  })
+})
+
+// Re-review m6: an impatient second press must not start a build of 17 s over.
+describe('Rebuild pressed while a build runs', () => {
+  it('starts nothing: the build under way goes on, and is the one that lands', async () => {
+    const { kernel, builds } = setup()
+    builds.open(bracket)
+    expect(kernel.calls).toHaveLength(1)
+    expect(builds.state('bracket')!.status).toBe('building')
+    expect(builds.rebuild('bracket')).toBe(false)
+    expect(kernel.calls).toHaveLength(1)
+    expect(kernel.cancels).toBe(0)
+    kernel.calls[0].settle({ ok: true, scene: { model: 'bracket.py', layouts: ['main'], parts: [], seconds: 0.1, output: '' } as never, blob: Buffer.alloc(0) })
+    await flush()
+    expect(builds.state('bracket')).toMatchObject({ status: 'ok', revision: 1 })
+    // Once it has landed, Rebuild builds again, as ever.
+    expect(builds.rebuild('bracket')).toBe(true)
+    expect(kernel.calls).toHaveLength(2)
+    expect(builds.rebuild('nowhere')).toBe(false)
   })
 })

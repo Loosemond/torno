@@ -254,7 +254,8 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
     ...(ghosts.length > 0 ? { ghosts } : {}),
     explode,
     // The person's, and those of the agent's they kept: a proposal nobody kept is not theirs to send. Why the agent proposed one stays here.
-    views: (file.views ?? []).filter((view) => !view.proposed).map(({ note: _note, ...view }) => view)
+    // Nor does a view name a part that is left out of the file: what it hides of the parts that go is all it says.
+    views: (file.views ?? []).filter((view) => !view.proposed).map(({ note: _note, ...view }) => ({ ...view, hidden: view.hidden.filter((name) => !left.has(name)) }))
   }
   if (req.marks) {
     const boxes = new Map<string, Record<string, { min: Vec3; max: Vec3 }>>()

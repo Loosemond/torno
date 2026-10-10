@@ -457,7 +457,7 @@ export async function addMarkTool(deps: ToolDeps, objectId: string, args: AddMar
   const why = behind(deps, objectId)
   const stale = why ? `, stale: ${why}, so the mark was placed on the parts of r${revision}; it is checked against the next build that works` : ''
   // A dimension says its value as that of a build: the one it was placed and measured on, whose ends were found a moment ago.
-  const line = added.kind === 'dimension' ? describeMark({ ...added, checkedRevision: revision }, { revision }) : describeMark(added)
+  const line = added.kind === 'dimension' ? describeMark({ ...added, checkedRevision: revision }, { revision, scene }) : describeMark(added, { scene })
   return { content: [{ type: 'text', text: `placed in layout ${layout}: ${line}${said ? `\n${said}` : ''}\nrevision r${revision}${stale}` }] }
 }
 
@@ -476,7 +476,7 @@ function keptUnmeasured(deps: ToolDeps, objectId: string, layout: string, added:
     why === 'rebuilt'
       ? `the model was rebuilt while this was measured. ${added.id} was kept without a value, and is measured when its ends have been found on ${on}: read it then with describe.`
       : `the kernel gave no answer${reason ? ` (${reason})` : ''}. ${added.id} was kept without a value, and is measured when the marks are next checked against ${on}: read it then with describe.`
-  return { content: [{ type: 'text', text: `NOT MEASURED: ${said}\nplaced in layout ${layout}: ${describeMark(added, { revision })}\nrevision ${on}` }] }
+  return { content: [{ type: 'text', text: `NOT MEASURED: ${said}\nplaced in layout ${layout}: ${describeMark(added, { revision, ...(deps.scene(objectId) ? { scene: deps.scene(objectId)!.scene } : {}) })}\nrevision ${on}` }] }
 }
 
 /**
@@ -570,7 +570,7 @@ export async function resolveMarkTool(deps: ToolDeps, objectId: string, args: Re
     const unmeasured = mark.kind === 'dimension' ? `\n${mark.id} is no longer measured.` : ''
     const scans = await scansFor(deps, objectId, [mark])
     const told = mark.kind === 'region' ? deps.view(objectId)?.layout : undefined
-    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision, ...(told ? { layout: told } : {}), ...(scans ? { scans } : {}) })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}${unmeasured}` }] }
+    return { content: [{ type: 'text', text: `resolved: ${describeMark(mark, { revision, ...(told ? { layout: told } : {}), ...(scans ? { scans } : {}), ...(deps.scene(objectId) ? { scene: deps.scene(objectId)!.scene } : {}) })}${mark.resolvedNote ? `\nnote: ${mark.resolvedNote}` : ''}${unmeasured}` }] }
   } catch (e) {
     return failure(messageOf(e))
   }

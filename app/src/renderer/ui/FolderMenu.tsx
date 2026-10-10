@@ -24,19 +24,22 @@ export function FolderMenu({ open: current, disabled, onChoose }: { open: string
   const menu = useRef<HTMLDivElement>(null)
   const items = (): HTMLElement[] => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])]
 
+  /** Asks for the list and the example, then shows the menu whole: it does not come up with the dialog alone and fill in after. */
+  const show = (): void => {
+    void Promise.all([window.torno.workspace.recent().catch(() => [] as RecentFolder[]), window.torno.workspace.hasExample().catch(() => false)]).then(([list, has]) => {
+      setRecent(list)
+      setExample(has)
+      setShown(true)
+    })
+  }
+
   useEffect(() => {
     if (!shown) return
-    let live = true
-    void window.torno.workspace.recent().then((list) => live && setRecent(list), () => {})
-    void window.torno.workspace.hasExample().then((has) => live && setExample(has), () => {})
     const away = (e: PointerEvent): void => {
       if (!menu.current?.contains(e.target as Node) && !button.current?.contains(e.target as Node)) setShown(false)
     }
     window.addEventListener('pointerdown', away)
-    return () => {
-      live = false
-      window.removeEventListener('pointerdown', away)
-    }
+    return () => window.removeEventListener('pointerdown', away)
   }, [shown])
 
   // Into the menu once it is there: the first thing that can be chosen.
@@ -68,7 +71,7 @@ export function FolderMenu({ open: current, disabled, onChoose }: { open: string
 
   return (
     <div className="folder-menu-host">
-      <button ref={button} type="button" className="icon-button" aria-label="Folders" title="Open another folder" aria-haspopup="menu" aria-expanded={shown} disabled={disabled} onClick={() => setShown((was) => !was)}>
+      <button ref={button} type="button" className="icon-button" aria-label="Folders" title="Open another folder" aria-haspopup="menu" aria-expanded={shown} disabled={disabled} onClick={() => (shown ? setShown(false) : show())}>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true">
           <path d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h2.6l1.5 1.75h5.4c.83 0 1.5.67 1.5 1.5v5.75c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.5Z" />
         </svg>

@@ -198,6 +198,8 @@ test('an object is exported to the path that was chosen, and the file opens by i
     expect(cut.section).toEqual({ origin: [0, 0, 20], normal: [0, 0, 1] })
     expect(cut.parts.every((p) => p.offset.every((c) => c === 0))).toBe(true)
     expect(await file.ask<string>('document.getElementById("said").textContent')).toBe('Cut open for display')
+    // The page framed the parts anew when the lid went out of sight above; "Fit" frames them as they are together.
+    await file.ask('[...document.querySelectorAll("#panel button")].find((b) => b.textContent === "Fit").click()')
     // Cut at half its height, the lid is in the half taken away, and the tub is open: its inside is drawn, in another tone than its outside.
     const inside = await file.ask<number[]>('window.__tornoExport.pixel(0.4, 0.5)')
     expect(inside.slice(0, 3)).not.toEqual(ground)
@@ -209,16 +211,24 @@ test('an object is exported to the path that was chosen, and the file opens by i
     expect(await file.pageState()).toMatchObject({ view: 'Lid off', explode: { amount: 0.5, axis: 'z' }, section: null })
     expect(await file.ask<string | null>('document.querySelector(".viewchip[aria-pressed=true]")?.textContent ?? null')).toBe('Lid off')
     expect(await file.ask<boolean>('window.__tornoExport.applyView("Agent idea")')).toBe(false)
-    // It looks from where the view was saved.
+    // It looks from the side the view was saved from. Where it was saved the lid, drawn apart, would now be out of
+    // sight (along z the parts go up from the lowest): the page frames the parts anew, without turning (re-review m5).
     const saved = (await file.pageState()).camera
-    expect(saved).toMatchObject({ target: [0, 0, 19], ortho: false })
-    saved.position.forEach((c, i) => expect(c).toBeCloseTo([120, -90, 60][i], 6))
+    expect(saved.ortho).toBe(false)
+    expect((await file.pageState()).leaves).toBe(false)
+    const way = (camera: { position: number[]; target: number[] }): number[] => {
+      const d = camera.position.map((c, i) => c - camera.target[i])
+      const length = Math.hypot(...d)
+      return d.map((c) => c / length)
+    }
+    way(saved).forEach((c, i) => expect(c).toBeCloseTo(way({ position: [120, -90, 60], target: [0, 0, 19] })[i], 6))
     // The view takes the keys when it has the focus: the arrows turn it about what it looks at.
     await file.ask('document.getElementById("view").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }))')
     const turned = (await file.pageState()).camera
-    expect(turned.target).toEqual([0, 0, 19])
+    turned.target.forEach((c, i) => expect(c).toBeCloseTo(saved.target[i], 6))
     expect(turned.position[0]).not.toBeCloseTo(120, 1)
-    expect(Math.hypot(turned.position[0], turned.position[1], turned.position[2] - 19)).toBeCloseTo(Math.hypot(120, 90, 41), 3)
+    const reach = (camera: { position: number[]; target: number[] }): number => Math.hypot(...camera.position.map((c, i) => c - camera.target[i]))
+    expect(reach(turned)).toBeCloseTo(reach(saved), 3)
     // The theme is the system's until one is chosen by hand in the footer, and the system's again when asked.
     expect(await file.pageState()).toMatchObject({ themeChoice: 'system' })
     expect(await file.ask<string[]>('[...document.querySelectorAll("#foot .themes button")].map((b) => b.textContent + ":" + b.getAttribute("aria-pressed"))')).toEqual(['System:true', 'Light:false', 'Dark:false'])
@@ -509,6 +519,10 @@ test('parts named like what every object has are parts like any other, and a fil
     // Along z upward from the lowest part, which stays where it is: nothing is drawn under the ground.
     expect(apart.parts.find((p) => p.name === 'constructor')!.offset[2]).toBe(0)
     expect(apart.labels).toEqual(['M1', 'M2', 'M4'])
+    // Drawn apart, no part is out of the view: the page frames them anew when one would be (re-review m5), by torno's own rule.
+    expect(apart.leaves).toBe(false)
+    await file.ask('window.__tornoExport.setExplode(1, "z")')
+    expect((await file.pageState()).leaves).toBe(false)
     expect(await file.ask<string>('document.getElementById("said").textContent')).toBe('Parts drawn apart for display')
     expect(await file.ask<string[]>('[...document.querySelectorAll(".parts .name")].map((n) => n.textContent)')).toEqual(['constructor', '__proto__'])
   } finally {

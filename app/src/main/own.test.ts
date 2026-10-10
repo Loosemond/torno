@@ -109,3 +109,23 @@ describe('a linked .torno', () => {
     })
   }
 })
+
+// Re-review m11: the scans had a guard of their own for the same rule, which told no one.
+describe('the scans\' guard', () => {
+  it('is the one rule: a linked .torno is refused in the same words, and the window is told', async () => {
+    const { ownFolders } = await import('./scans/meshfiles')
+    const told: string[] = []
+    onNotOwn((_dir, message) => told.push(message))
+    symlinkSync('..', join(obj, FOLDER))
+    await expect(ownFolders(obj)).rejects.toThrow('is a link, not a folder of torno\'s own inside the object')
+    await expect(ownFolders(obj, 'S1')).rejects.toThrow('is a link')
+    expect(told).toHaveLength(1)
+  })
+
+  it('still refuses a link deeper down, where the scans are kept', async () => {
+    const { ownFolders } = await import('./scans/meshfiles')
+    mkdirSync(join(obj, FOLDER))
+    symlinkSync('..', join(obj, FOLDER, 'scans'))
+    await expect(ownFolders(obj)).rejects.toThrow('is a link: torno writes only inside the object\'s own folder')
+  })
+})
