@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { type HttpRouter, startHttp } from '../http'
+import { onNotOwn } from '../own'
 import type { AgentId } from '../../shared/bridge'
 import { adapters } from './adapter'
 import { killGroup, Sessions } from './manager'
@@ -766,8 +767,14 @@ describe('an agent without hooks', () => {
     const outside = mkdtempSync(join(root, 'outside-'))
     rmSync(join(obj.dir, '.torno', 'agent'), { recursive: true })
     symlinkSync(outside, join(obj.dir, '.torno', 'agent'))
+    const told: Array<string | null> = []
+    onNotOwn((_dir, _message, inside) => told.push(inside))
     await expect(sessions.start(obj, {})).rejects.toThrow(`cannot start the agent: ${join(obj.dir, '.torno', 'agent')} is a link, not a folder`)
+    await expect(sessions.start(obj, {})).rejects.toThrow('is a link')
     expect(readdirSync(outside)).toEqual([])
+    // By the one rule of torno's folders: whoever listens is told, once.
+    expect(told).toEqual(['agent'])
+    onNotOwn(null)
     expect(sessions.current(obj.id)).toBeNull()
     expect(sessions.size).toBe(0)
 

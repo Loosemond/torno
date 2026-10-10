@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto'
 import type { Dirent } from 'node:fs'
-import { mkdir, readdir, rm, writeFile, lstat } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Scan } from '../../shared/scans'
 import { FOLDER, ownTorno } from '../own'
@@ -68,23 +68,11 @@ export async function nextFolderId(dir: string): Promise<number> {
 /**
  * Refuses to write through a link: `.torno`, `.torno/scans` and a scan's folder there are torno's own folders
  * in the object's folder, and a link in their place (a cloned repository may hold one) would have torno write
- * somewhere else. One that is not there yet is no link. Rejects with what is linked.
+ * somewhere else. One that is not there yet is no link. Rejects with what is linked, by the one rule of every
+ * write under `.torno` (`ownTorno`), which tells the window once.
  */
 export async function ownFolders(dir: string, id?: string): Promise<void> {
-  // `.torno` itself by the one rule of every write there (`ownTorno`), which tells the window; then the folders the scans have under it.
-  await ownTorno(dir)
-  const folder = await linkedFolder(dir, id)
-  if (folder !== null) throw new Error(`${folder} is a link: torno writes only inside the object's own folder, and wrote nothing`)
-}
-
-/** The first of torno's own folders of an object that is a link: `.torno`, `.torno/scans`, and a scan's folder when one is named. Null when none is. */
-export async function linkedFolder(dir: string, id?: string): Promise<string | null> {
-  const folders = [join(dir, FOLDER), join(dir, FOLDER, 'scans'), ...(id === undefined ? [] : [scanFolder(dir, id)])]
-  for (const folder of folders) {
-    const found = await lstat(folder).catch(() => null)
-    if (found?.isSymbolicLink()) return folder
-  }
-  return null
+  await ownTorno(dir, 'scans', ...(id === undefined ? [] : [id]))
 }
 
 export async function ignoreMeshes(dir: string): Promise<void> {
@@ -122,7 +110,7 @@ export async function removeMesh(folder: string, name: string): Promise<void> {
 export async function sweep(dir: string, scans: readonly Scan[], busy: ReadonlySet<string>): Promise<void> {
   const known = new Map(scans.map((scan) => [scan.id, meshName(scan)]))
   const remove = (path: string): Promise<void> => rm(path, { recursive: true, force: true }).catch(() => {})
-  if ((await linkedFolder(dir)) !== null) return
+  if (!(await ownFolders(dir).then(() => true, () => false))) return
   for (const entry of await entries(join(dir, FOLDER, 'scans'))) {
     const id = entry.name
     if (!entry.isDirectory() || !SCAN_ID.test(id) || busy.has(id)) continue

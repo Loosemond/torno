@@ -122,10 +122,98 @@ describe('the scans\' guard', () => {
     expect(told).toHaveLength(1)
   })
 
-  it('still refuses a link deeper down, where the scans are kept', async () => {
+  it('still refuses a link deeper down, where the scans are kept, by the same rule: the window is told of it', async () => {
     const { ownFolders } = await import('./scans/meshfiles')
+    const told: Array<[string, string, string | null]> = []
+    onNotOwn((dir, message, inside) => told.push([dir, message, inside]))
     mkdirSync(join(obj, FOLDER))
     symlinkSync('..', join(obj, FOLDER, 'scans'))
-    await expect(ownFolders(obj)).rejects.toThrow('is a link: torno writes only inside the object\'s own folder')
+    const words = `${join(obj, FOLDER, 'scans')} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`
+    await expect(ownFolders(obj)).rejects.toThrow(words)
+    await expect(ownFolders(obj, 'S1')).rejects.toThrow(words)
+    expect(told).toEqual([[obj, words, 'scans']])
+  })
+
+  it('and one in the place of a scan\'s own folder', async () => {
+    const { ownFolders } = await import('./scans/meshfiles')
+    mkdirSync(join(obj, FOLDER, 'scans'), { recursive: true })
+    symlinkSync('..', join(obj, FOLDER, 'scans', 'S1'))
+    await ownFolders(obj)
+    await expect(ownFolders(obj, 'S1')).rejects.toThrow(`${join(obj, FOLDER, 'scans', 'S1')} is a link, not a folder of torno's own inside the object`)
+  })
+})
+
+// Re-review m11, its second half: a folder under `.torno` may be a link of its own, where `.torno` is a real folder.
+describe('a link in the place of one of torno\'s folders under .torno', () => {
+  const linked = (name: string, into = 'elsewhere'): string => {
+    const target = join(root, into)
+    mkdirSync(target, { recursive: true })
+    mkdirSync(join(obj, FOLDER), { recursive: true })
+    symlinkSync(target, join(obj, FOLDER, name))
+    return target
+  }
+  const WORDS = (name: string): string => `${join(obj, FOLDER, name)} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`
+
+  it('is refused by ownTorno, which answers with the folder when it is a real one or not there yet', async () => {
+    expect(await ownTorno(obj, 'views')).toBe(join(obj, FOLDER, 'views'))
+    expect(existsSync(join(obj, FOLDER))).toBe(false)
+    linked('views')
+    await expect(ownTorno(obj, 'views')).rejects.toThrow(WORDS('views'))
+    // `.torno` itself is still torno's own, and so are the folders beside the link.
+    expect(await ownTorno(obj)).toBe(join(obj, FOLDER))
+    expect(await ownTorno(obj, 'exports')).toBe(join(obj, FOLDER, 'exports'))
+    writeFileSync(join(obj, FOLDER, 'exports'), '')
+    await expect(ownTorno(obj, 'exports')).rejects.toThrow(`${join(obj, FOLDER, 'exports')} is a file, not a folder: torno writes nothing there. Remove it.`)
+  })
+
+  it('.torno/views: no picture is written where it leads, none there is deleted, and the window is told once', async () => {
+    const target = linked('views')
+    // Twenty-five pictures of someone else's, numbered as torno numbers its own: the oldest would be cleared away.
+    for (let n = 1; n <= 25; n++) writeFileSync(join(target, `${n}.png`), 'theirs')
+    const told: Array<[string, string, string | null]> = []
+    onNotOwn((dir, message, inside) => told.push([dir, message, inside]))
+    await expect(saveView(obj, PNG)).rejects.toThrow(WORDS('views'))
+    await expect(saveView(obj, PNG)).rejects.toThrow(WORDS('views'))
+    expect(readdirSync(target)).toHaveLength(25)
+    expect(told).toEqual([[obj, WORDS('views'), 'views']])
+    // Nothing was written beside it either: not a line for git about a folder that is not torno's.
+    expect(readdirSync(join(obj, FOLDER))).toEqual(['views'])
+  })
+
+  it('.torno/exports: the folder is not made ready where it leads, and the window is told once', async () => {
+    const target = linked('exports')
+    const told: string[] = []
+    onNotOwn((_dir, message) => told.push(message))
+    await expect(prepareExports(obj)).rejects.toThrow(WORDS('exports'))
+    await expect(prepareExports(obj)).rejects.toThrow(WORDS('exports'))
+    expect(readdirSync(target)).toEqual([])
+    expect(readdirSync(join(obj, FOLDER))).toEqual(['exports'])
+    expect(told).toEqual([WORDS('exports')])
+  })
+
+  it('.torno/scans: nothing is made ready, and nothing swept, where it leads', async () => {
+    const { ignoreMeshes, sweep } = await import('./scans/meshfiles')
+    const target = linked('scans')
+    // What an import that never ended leaves, which a sweep takes away in a folder of torno's own.
+    mkdirSync(join(target, 'S1'))
+    writeFileSync(join(target, 'S1', 'importing'), 'x\n')
+    const told: string[] = []
+    onNotOwn((_dir, message) => told.push(message))
+    await expect(ignoreMeshes(obj)).rejects.toThrow(WORDS('scans'))
+    await sweep(obj, [], new Set())
+    expect(readdirSync(target)).toEqual(['S1'])
+    expect(readdirSync(join(target, 'S1'))).toEqual(['importing'])
+    expect(told).toEqual([WORDS('scans')])
+  })
+
+  it('each folder is told of by itself: one refusal does not silence another', async () => {
+    linked('views')
+    linked('exports', 'other')
+    const told: Array<string | null> = []
+    onNotOwn((_dir, _message, inside) => told.push(inside))
+    await expect(saveView(obj, PNG)).rejects.toThrow('is a link')
+    await expect(prepareExports(obj)).rejects.toThrow('is a link')
+    await expect(saveView(obj, PNG)).rejects.toThrow('is a link')
+    expect(told).toEqual(['views', 'exports'])
   })
 })

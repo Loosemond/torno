@@ -925,6 +925,11 @@ build is not built again until a source changes.
   stands; `Ctrl+Shift+B` does the same from anywhere.
 - **Nothing is kept of an object: no mark, no view, no picture.** Its `.torno`
   is a link or a file; the Marks panel says so. Put a real folder in its place.
+  A link in the place of `.torno/views`, `.torno/exports`, `.torno/scans` or
+  `.torno/agent` stops only what goes there (the agent's pictures, an export,
+  the scans, a session of an agent that reads its instructions from a file):
+  torno writes nothing through it and deletes nothing behind it. Take the
+  link away.
 - **The agent is listed as `(not installed)`, or "New session" says its
   command was not found on PATH.** Torno looks for `claude` or `copilot` on
   the `PATH` it was started with. Started from a desktop launcher, that may

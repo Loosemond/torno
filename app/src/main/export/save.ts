@@ -16,9 +16,9 @@ export function defaultExportPath(dir: string, name: string, revision?: number):
   return join(dir, FOLDER, EXPORTS, `${name}${revision === undefined ? '' : `-r${revision}`}.html`)
 }
 
-/** Makes `<dir>/.torno/exports/`, which git is told to pass over (`ensureIgnored`), so the dialog can open there. */
+/** Makes `<dir>/.torno/exports/`, which git is told to pass over (`ensureIgnored`), so the dialog can open there. Refused where that folder, or `.torno`, is a link (`ownTorno`). */
 export async function prepareExports(dir: string): Promise<string> {
-  const folder = join(await ownTorno(dir), EXPORTS)
+  const folder = await ownTorno(dir, EXPORTS)
   await mkdir(folder, { recursive: true })
   await ensureIgnored(dir, [`${EXPORTS}/`])
   return folder

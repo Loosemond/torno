@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { bytesFor } from '../../shared/regions'
 import { maskFile } from '../../shared/scans'
 import { writeFileAtomic } from '../atomic'
-import { linkedFolder, ownFolders, scanFolder } from './meshfiles'
+import { ownFolders, scanFolder } from './meshfiles'
 
 // A region's mask on the disk: `<object>/.torno/scans/<scan>/<stem>.mask`, a bit a triangle of the scan's mesh.
 // The path is made here, from the object's folder, the scan's id and the stem: never given. `ScanStore` calls
@@ -57,12 +57,12 @@ export async function removeMaskFile(dir: string, scan: string, stem: string): P
 
 /**
  * Why nothing is deleted under an object's scans folder, or in the folder of one scan: `.torno`, `.torno/scans`
- * or that scan's folder is a link, and what is behind it is not torno's to delete; with the way out, which is
- * the person's: to take the link away. Null when none is. Writes are refused for the same (`ownFolders`).
+ * or that scan's folder is a link (or a file), and what is behind it is not torno's to delete; with the way
+ * out, which is the person's: to take the link away. Null when none is. It is the rule writes are refused by
+ * (`ownFolders`, `ownTorno`), and the window is told of the folder once.
  */
 export async function linkRefusal(dir: string, scan?: string): Promise<string | null> {
-  const folder = await linkedFolder(dir, scan)
-  return folder === null ? null : `${folder} is a link: torno deletes nothing through it. Take the link away, then remove it again`
+  return ownFolders(dir, scan).then(() => null, (e: Error) => e.message)
 }
 
 /** The masks there are in a scan's folder, each by its stem: for whoever clears away those no mark names. */

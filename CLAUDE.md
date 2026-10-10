@@ -687,6 +687,13 @@ agent is never told to remove a view.
   plain reason, nothing is written, and the person is told once for each object, in the Marks panel
   (`onNotOwn`, wired in `index.ts`). (`.torno/views/` and `.torno/scans/` each have a `.gitignore` of their own
   inside them, written by whoever makes the folder.)
+  - The folders torno keeps under it are held to the same rule by the same function, named after the folder:
+    `ownTorno(dir, 'views')`, `ownTorno(dir, 'exports')`, `ownTorno(dir, 'scans', 'S1')` (`ownFolders` and
+    `linkRefusal` of the scans are that call), `ownTorno(dir, 'agent')`. It is asked before every write into
+    such a folder and before every delete in it (the pictures cleared away past the newest 20, a scan's
+    folder, a mask, a sweep): a link or a file in its place is refused, nothing is written or deleted where it
+    leads, and the window is told once for each such folder, by itself (`inside` of the listener: the rest of
+    the object is kept, and the Marks panel does not say that nothing is).
 - **A card says how far its picture can be trusted** (`ui/cards.ts`): when it was made (with the year when
   that is not this one); what it draws otherwise than the object is (`cut by its section`, `parts drawn
   apart`, `1 part left out`); and `A source has changed since` (`thumbOf`: `behind`). The sources of an object
@@ -1272,8 +1279,8 @@ window on it.
   - `prompt.md` says only that there is nothing new (`nothingNew`) when such a session starts and when it
     ends: what it told an earlier session of is never read as news.
   - No draft is consumed by anything but a `UserPromptSubmit` hook or that Enter.
-- What torno writes for an agent it writes into folders of its own: `<object>/.torno` (`ownTorno`) and
-  `.torno/agent` (`ownFolder` in `manager.ts`) are checked with `lstat` before an adapter's files are written,
+- What torno writes for an agent it writes into folders of its own: `<object>/.torno` and `.torno/agent`
+  (`ownTorno(dir, 'agent')`) are checked with `lstat` before an adapter's files are written,
   and a link or a file under either name refuses the start with the path. Copilot CLI is not started in an object whose path has
   a comma (its list of folders for instructions is separated by commas): the start is refused, naming the path.
 - `.torno/.gitignore` (`ensureIgnored`) has `prompt.md` and `agent/` from the first hookless start: they are

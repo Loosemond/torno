@@ -19,7 +19,8 @@ export function saveView(dir: string, png: Uint8Array): Promise<string> {
   const save = (saves.get(folder) ?? Promise.resolve())
     .catch(() => {})
     .then(async () => {
-      await ownTorno(dir)
+      // Before anything is written, numbered or cleared away: a `views` that is a link holds someone else's files.
+      await ownTorno(dir, 'views')
       await mkdir(folder, { recursive: true })
       await ensureIgnored(dir, ['views/'])
       // A picture may show the real world (a scan of a car, with its number plate): none is committed with `.torno/` unless the person says so.

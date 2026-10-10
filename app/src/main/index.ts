@@ -181,9 +181,11 @@ const marks: MarkStore = new MarkStore({ dirOf: (id) => findObject(id)?.dir, mes
 
 // A `.torno` that is a link or a file is written to by no one (`ownTorno`). The person is told once for each
 // object, where what is wrong with its marks is said: nothing of that object is kept until it is a real folder.
-onNotOwn((dir, message) => {
+// A folder under it that is a link (`views`, `exports`, `scans`, `agent`) is told of the same way, by itself:
+// the rest of the object is kept.
+onNotOwn((dir, message, inside) => {
   const obj = openWorkspaceInfo()?.objects.find((one) => one.dir === dir)
-  if (obj) void marks.report(obj.id, `${message} Nothing of this object is kept until then: no mark, no view, no picture.`).catch(() => {})
+  if (obj) void marks.report(obj.id, inside === null ? `${message} Nothing of this object is kept until then: no mark, no view, no picture.` : message).catch(() => {})
 })
 
 /** What runs the import process in the open workspace, once a scan was imported there: one at a time, and stopped when it is left. */

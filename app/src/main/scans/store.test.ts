@@ -1163,7 +1163,7 @@ describe('the masks of regions', () => {
     mkdirSync(elsewhere)
     renameSync(folder(), join(root, 'S1-kept'))
     symlinkSync(elsewhere, folder())
-    await expect(scans.writeMask('bracket', 'S1', 'M7', bits(0))).rejects.toThrow(`${folder()} is a link: torno writes only inside the object's own folder, and wrote nothing`)
+    await expect(scans.writeMask('bracket', 'S1', 'M7', bits(0))).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
     await expect(scans.reimport('bracket', 'S1')).rejects.toThrow('is a link')
     await expect(scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })).rejects.toThrow()
     expect(readdirSync(elsewhere)).toEqual([])
@@ -1185,8 +1185,8 @@ describe('the masks of regions', () => {
     writeFileSync(join(elsewhere, 'M7.mask'), 'x')
     rmSync(folder(), { recursive: true })
     symlinkSync(elsewhere, folder())
-    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${folder()} is a link: torno deletes nothing through it`)
-    await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${folder()} is a link: torno deletes nothing through it. Take the link away, then remove it again`)
+    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
+    await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
     expect(readFileSync(join(elsewhere, 'M7.mask'), 'utf8')).toBe('x')
     // It is refused before anything is changed: the scan is still the object's, and the link is as it was.
     expect((await scans.list('bracket')).map((scan) => scan.id)).toEqual(['S1'])
@@ -1204,7 +1204,7 @@ describe('the masks of regions', () => {
     mkdirSync(join(elsewhere, 'S9'))
     writeFileSync(join(elsewhere, 'S9', 'importing'), 'left over')
     symlinkSync(elsewhere, all)
-    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${all} is a link: torno deletes nothing through it`)
+    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${all} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
     await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${all} is a link`)
     // A store that reads the folder afresh sweeps it: not through the link.
     await store().list('bracket')

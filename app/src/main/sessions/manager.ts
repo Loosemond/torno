@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { lstat, mkdir } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import * as pty from 'node-pty'
 import type { AgentId, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
@@ -181,11 +181,11 @@ export class Sessions {
     // leads. Nothing is made for an adapter that has no file.
     const files = Object.entries(launch.files ?? {})
     if (files.length > 0) {
-      const own = await ownTorno(obj.dir).catch((e: Error) => {
+      // By the one rule of every folder under `.torno` (`ownTorno`), which tells the window once.
+      await ownTorno(obj.dir, AGENT_FOLDER).catch((e: Error) => {
         throw new Error(`cannot start the agent: ${e.message}`)
       })
-      await mkdir(own, { recursive: true })
-      await ownFolder(agentDir)
+      await mkdir(agentDir, { recursive: true })
       for (const [name, text] of files) await writeFileAtomic(join(agentDir, basename(name)), text)
     }
     if (!adapter.hooks) {
@@ -447,20 +447,6 @@ export class Sessions {
 
 function started(s: Session): Started {
   return { sessionId: s.id, cols: s.cols, rows: s.rows, status: s.status, agent: s.adapter.id, hooks: s.adapter.hooks }
-}
-
-/**
- * Makes a folder torno writes an agent's instructions into, or rejects when what is there under its name is
- * not a folder of its own: a link, which would lead the writing out of the object, or a file.
- */
-async function ownFolder(path: string): Promise<void> {
-  const what = await lstat(path).catch((e: NodeJS.ErrnoException) => {
-    if (e.code === 'ENOENT') return null
-    throw e
-  })
-  if (what === null) return void (await mkdir(path))
-  if (what.isSymbolicLink()) throw new Error(`cannot start the agent: ${path} is a link, not a folder of torno's own inside the object. Remove the link and start again.`)
-  if (!what.isDirectory()) throw new Error(`cannot start the agent: ${path} is not a folder. Remove it and start again.`)
 }
 
 function size(value: unknown, fallback: number): number {
