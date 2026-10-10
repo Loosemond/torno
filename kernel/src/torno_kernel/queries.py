@@ -85,7 +85,7 @@ def describe(
     if kind == "part":
         return _describe_part(key, shape, kept)
     if kind == "face":
-        return _describe_face(ref, shape)
+        return _describe_face(ref, shape, _held(kept, "span", key, lambda: extent.span(shapes[key])))
     return _describe_edge(ref, shape)
 
 
@@ -292,6 +292,7 @@ class _Surface:
         self._kinds = {"edge": TopAbs_EDGE, "vertex": TopAbs_VERTEX}
         self._around: dict[str, Any] = {}  # faces around each edge, and each vertex, once asked
         self._descriptors: dict[int, str | None] = {}
+        self._span: float | None = None  # about how large the part is, once a face is described
         self._extrema: Any = None  # holds the part taken apart and boxed, once asked
         self._edges: list[Any] | None = None  # in the kernel's order, once an anchor names one
         self._edge_index: Any = None  # the map topo.edges walks, once a point is on an edge
@@ -440,7 +441,9 @@ class _Surface:
         """The descriptor of a face, or None for one that cannot be described."""
         if index not in self._descriptors:
             try:
-                described = _describe_face(f"{key}/F{index}", self._faces[index])["descriptor"]
+                if self._span is None:
+                    self._span = extent.span(self._shape)
+                described = _describe_face(f"{key}/F{index}", self._faces[index], self._span)["descriptor"]
             except Exception:
                 # One odd face is not a reason to say nothing of the other anchors.
                 described = None
@@ -519,7 +522,9 @@ def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[st
     return {**facts, "descriptor": descriptor("part", facts)}
 
 
-def _describe_face(ref: str, topods_face: Any) -> dict[str, Any]:
+def _describe_face(ref: str, topods_face: Any, span: float) -> dict[str, Any]:
+    """What a face is. ``span`` is about how large its part is, mm: its descriptor
+    tells nothing as a coordinate that is nothing next to that."""
     from build123d import Face
 
     face = Face(topods_face)
@@ -537,7 +542,8 @@ def _describe_face(ref: str, topods_face: Any) -> dict[str, Any]:
         axis = None if axis is None else _xyz(axis.direction)
     except Exception:
         axis = None
-    area = extent.area(topods_face)
+    # From one integral where it is not exact: what is to be relied on is asked of measure.
+    area = extent.area_at_a_glance(topods_face)
     facts = {
         "kind": "face",
         "ref": ref,
@@ -548,7 +554,7 @@ def _describe_face(ref: str, topods_face: Any) -> dict[str, Any]:
         "normal": normal,
         "radius": None if radius is None else float(radius),
     }
-    return {**facts, "descriptor": descriptor("face", {**facts, "axis": axis})}
+    return {**facts, "descriptor": descriptor("face", {**facts, "axis": axis, "span": span})}
 
 
 def _describe_edge(ref: str, topods_edge: Any) -> dict[str, Any]:

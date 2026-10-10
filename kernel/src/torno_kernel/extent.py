@@ -255,6 +255,21 @@ def boxed_exactly(shape: Any) -> bool:
         return False
 
 
+def span(shape: Any) -> float:
+    """About how large a shape is, mm: the diagonal of a box that holds it, taken in no time.
+
+    For telling what is nothing next to it (``describe.number``), not for a size.
+    """
+    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+
+    holds = Bnd_Box()
+    BRepBndLib.Add_s(_topods(shape), holds, False)
+    if holds.IsVoid():
+        return 0.0
+    low, high = holds.CornerMin(), holds.CornerMax()
+    return math.dist((low.X(), low.Y(), low.Z()), (high.X(), high.Y(), high.Z()))
+
+
 def round_and_straight(shape: Any) -> bool:
     """Whether every face is a plane, a cylinder, a cone, a sphere or a torus, and every
     edge a line or a circle."""
@@ -280,16 +295,38 @@ def _kind(adaptor: Any) -> str:
     return re.split(r"[_.]", str(adaptor.GetType()))[-1].upper()
 
 
-def _face_area(face: Any) -> Area:
-    from build123d import Face
+def area_at_a_glance(face: Any) -> Area:
+    """The area of one face for its descriptor: exact where ``area`` is, else from one integral.
 
-    type = Face(face).geom_type.name
+    The integral at a fixed order, whose cost does not depend on the face: a
+    descriptor is written of every face a mark is on after every build, and
+    shows four digits after its ≈. It was 0.4 % out on an ellipsoid; what is
+    to be relied on is asked of ``area``, which takes three and says how far
+    they agree.
+    """
+    known = _known_area(face)
+    return Area(_integrated(face, None), False) if known is None else known
+
+
+def _known_area(face: Any) -> Area | None:
+    """The area of a face of a kind whose area is exact, None of any other."""
+    type = _face_type(face)
     if type in _ANALYTIC:
         return Area(_integrated(face, EPSILON), True)
-    if type == "EXTRUSION":
-        swept = _swept(face)
-        if swept is not None:
-            return swept
+    return _swept(face) if type == "EXTRUSION" else None
+
+
+def _face_type(face: Any) -> str:
+    from build123d import Face
+
+    return Face(face).geom_type.name
+
+
+def _face_area(face: Any) -> Area:
+    known = _known_area(face)
+    if known is not None:
+        return known
+    type = _face_type(face)
     # Three integrals, none of them a proof, nor their agreement: on a spline
     # extruded and cut on the slant the two with a tolerance are out by up to
     # 2 %, on a sphere scaled to an ellipsoid the one without by 0.4 %, and on

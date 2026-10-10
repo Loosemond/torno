@@ -1028,8 +1028,10 @@ def test_integrals_that_agree_are_no_proof_the_side_of_a_loft_is_approximate():
     assert result["value"] == pytest.approx(true_area, rel=1e-5)
     assert 2 <= said_digits(result["how"]) <= 5
     assert result["value"] == pytest.approx(true_area, rel=10 ** -said_digits(result["how"]))
+    # What describe says of the face is for its descriptor: one integral, near enough for the
+    # four digits shown after the ≈, and never exact. measure is what is asked for the area.
     described = queries.describe(made, side)
-    assert (described["area"], described["areaExact"]) == (result["value"], False)
+    assert (described["area"], described["areaExact"]) == (pytest.approx(true_area, rel=1e-5), False)
     assert described["descriptor"] == f"bspline, ≈ {number(result['value'])} mm²"
     # The part is two discs and that side: no more exact than its side, and to its digits.
     whole = measure(made, "area", "assembly:horn")

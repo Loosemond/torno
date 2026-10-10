@@ -15,14 +15,18 @@ _ZERO = 1e-9
 # A length, an area or a coordinate smaller than this is what modelling leaves
 # where it means nothing: a face "at z = -0.0000001" is at 0.
 _NOISE = 1e-6
+# Nor does a coordinate or a size under this part of its part's extent mean
+# anything: a plane "at z = -0.000004772" on a part 200 mm long is at 0.
+OF_THE_PART = 1e-6
 
 
 def descriptor(kind: str, facts: dict[str, Any]) -> str:
     """Describe a ``face``, an ``edge`` or a ``part`` in one line.
 
     ``facts`` are the fields of a ``describe`` reply for that kind; a cylinder's
-    line also wants its ``axis`` and a circle's its ``radius``. Lengths are in
-    millimetres, at most four significant digits::
+    line also wants its ``axis`` and a circle's its ``radius``, and a plane's
+    the ``span`` of its part, mm, under a millionth of which a coordinate is 0.
+    Lengths are in millimetres, at most four significant digits::
 
         plane, normal +Z, z = 20, 1180 mm²
         cylinder, radius 4, axis Z, 502.7 mm²
@@ -42,15 +46,17 @@ def descriptor(kind: str, facts: dict[str, Any]) -> str:
     raise ValueError(f"nothing is described as a {kind!r}; the kinds are face, edge and part")
 
 
-def number(value: float) -> str:
+def number(value: float, least: float = 0.0) -> str:
     """A number with at most four significant digits and no trailing zeros.
 
-    Millimetres are meant: a magnitude under a millionth is written ``0``.
+    Millimetres are meant: a magnitude under a millionth is written ``0``,
+    and so is one under ``least``, which a coordinate or a size is given: a
+    millionth of the extent of its part.
     """
     value = float(value)
     if not math.isfinite(value):
         return str(value)
-    if abs(value) < _NOISE:
+    if abs(value) < max(_NOISE, least):
         return "0"
     decimals = 3 - math.floor(math.log10(abs(value)))
     rounded = round(value, decimals)
@@ -67,7 +73,8 @@ def _surface(facts: dict[str, Any]) -> list[str]:
         if index is None:
             return [type, f"normal {_vector(normal)}"]
         sign = "+" if normal[index] > 0 else "-"
-        at = f"{_AXES[index].lower()} = {number(facts['center'][index])}"
+        least = OF_THE_PART * (facts.get("span") or 0.0)
+        at = f"{_AXES[index].lower()} = {number(facts['center'][index], least)}"
         return [type, f"normal {sign}{_AXES[index]}", at]
     if type == "cylinder" and radius is not None and axis is not None:
         index = _axis_index(axis)
@@ -85,7 +92,8 @@ def _curve(facts: dict[str, Any]) -> list[str]:
 
 def _part(facts: dict[str, Any]) -> str:
     low, high = facts["bbox"]["min"], facts["bbox"]["max"]
-    size = " × ".join(number(b - a) for a, b in zip(low, high, strict=True))
+    least = OF_THE_PART * math.dist(low, high)
+    size = " × ".join(number(b - a, least) for a, b in zip(low, high, strict=True))
     faces = facts["faceCount"]
     # A size and a volume that are not exact are said as about that much.
     boxed = "≈ " if facts.get("bboxExact") is False else ""

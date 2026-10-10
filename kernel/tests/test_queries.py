@@ -320,10 +320,10 @@ def test_nearest_on_a_face_that_cannot_be_described_still_answers_every_anchor(s
     top = face_of(shapes, "assembly:base", normal=[0, 0, 1])["ref"]
     describe_face = queries._describe_face
 
-    def odd(ref, face):
+    def odd(ref, face, span):
         if ref == top:
             raise RuntimeError("no parameter range")
-        return describe_face(ref, face)
+        return describe_face(ref, face, span)
 
     monkeypatch.setattr(queries, "_describe_face", odd)
     above, below = nearest(shapes, "assembly", ("base", [5, 3, 5.5]), ("base", [5, 3, -4.5]))
@@ -700,3 +700,76 @@ def test_nearest_of_a_point_inside_a_part_that_is_a_bare_solid_is_on_its_surface
         [inside, outside] = queries.nearest(shapes, "assembly", [{"part": part, "point": [0.5, 0.5, 1]}, {"part": part, "point": [0.5, 0.5, 9]}], {})
         assert inside["distance"] == pytest.approx(4) and inside["point"] == pytest.approx([0.5, 0.5, 5]) and inside["support"] == "face"
         assert outside["distance"] == pytest.approx(4) and outside["ref"] == inside["ref"]
+
+
+# What a descriptor costs, and what it calls nothing
+
+
+def test_the_descriptor_of_a_freeform_face_takes_one_integral_and_measure_area_three(monkeypatch):
+    """After every build each face a mark is on is described: one integral of each, not three."""
+    from build123d import Circle, Ellipse, Pos, loft
+
+    from torno_kernel import extent
+
+    horn = loft([Circle(10).face(), Pos(0, 0, 15) * Ellipse(13.5, 5).face(), Pos(3, 0, 30) * Circle(4).face()])
+    made = {"assembly:horn": horn}
+    asked: list = []
+    integrated = extent._integrated
+
+    def counted(face, tolerance):
+        asked.append(tolerance)
+        return integrated(face, tolerance)
+
+    monkeypatch.setattr(extent, "_integrated", counted)
+    [anchor] = nearest(made, "assembly", ("horn", [30, 0, 10]))
+    side = f"assembly:{anchor['ref']}"
+    # At a fixed order: what it costs does not depend on the face.
+    assert asked == [None]
+    assert anchor["descriptor"].startswith("bspline, ≈ ")
+    del asked[:]
+    described = queries.describe(made, side)
+    assert asked == [None]
+    assert (described["areaExact"], described["descriptor"]) == (False, anchor["descriptor"])
+    del asked[:]
+    measured = queries.run(made, "measure", {"kind": "area", "a": {"ref": side}})
+    assert asked == [None, 1e-9, 1e-12]
+    # The one integral is near enough for the four digits a descriptor shows after its ≈.
+    assert described["area"] == pytest.approx(measured["value"], rel=1e-3)
+    # An area that is exact is as it was, by the one integral or the one length it always took.
+    flat = next(r for r in (f"assembly:horn/F{i}" for i in range(3)) if queries.describe(made, r)["type"] == "plane")
+    del asked[:]
+    assert (queries.describe(made, flat)["areaExact"], asked) == (True, [1e-9])
+
+
+@pytest.mark.parametrize(
+    "span, text",
+    [
+        (None, "plane, normal +Z, z = -0.000004772, 100 mm²"),
+        (207.0, "plane, normal +Z, z = 0, 100 mm²"),  # under a millionth of the part: nothing
+        (2.0, "plane, normal +Z, z = -0.000004772, 100 mm²"),  # of a part of 2 mm it is something
+    ],
+)
+def test_a_coordinate_under_a_millionth_of_its_part_is_told_as_zero(span, text):
+    facts = {"type": "plane", "normal": [0, 0, 1], "center": [3, 4, -0.000004772], "area": 100.0}
+    assert descriptor("face", facts if span is None else {**facts, "span": span}) == text
+
+
+def test_a_size_under_a_millionth_of_its_part_is_told_as_zero():
+    facts = {"bbox": {"min": [0, 0, 0], "max": [60, 0.000003338, 20]}, "volume": 12.0, "faceCount": 6}
+    assert descriptor("part", facts) == "part, 60 × 0 × 20 mm, 12 mm³, 6 faces"
+    assert number(0.000003338) == "0.000003338"
+    assert number(0.000003338, least=63e-6) == "0"
+    assert number(-0.00007, least=63e-6) == "-0.00007"
+
+
+def test_describe_and_nearest_tell_a_plane_meant_at_zero_as_at_zero():
+    """A plane a model leaves at z = -0.0000048 on a part 200 mm long is at 0."""
+    from build123d import Box, Pos
+
+    made = {"assembly:slab": Pos(0, 0, 10 - 0.000004772) * Box(200, 60, 20)}
+    [anchor] = nearest(made, "assembly", ("slab", [5, 3, -4]))
+    assert anchor["descriptor"] == "plane, normal -Z, z = 0, 12000 mm²"
+    described = queries.describe(made, f"assembly:{anchor['ref']}")
+    assert described["descriptor"] == anchor["descriptor"]
+    # The data are in full.
+    assert described["center"][2] == pytest.approx(-0.000004772, rel=1e-6)
