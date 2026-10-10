@@ -187,6 +187,9 @@ describe('the MCP server', () => {
     // Through the real schema: what is no explode reaches the tool, which says what one is; and null is taken, not refused.
     expect(await said('look', { explode: 'half' })).toMatch(/^explode is a number from 0 to 1 \(how far apart the parts are drawn/)
     expect(await said('show', { explode: [0.5] })).toMatch(/^explode is a number from 0 to 1/)
+    // What is nearly one is not made into one: a percentage, a scale out of range, an axis that is none, a slip in a key.
+    for (const given of [50, { amount: 0.5, scale: 100 }, { amount: 0.5, axis: 'up' }]) expect(await said('look', { explode: given }), JSON.stringify(given)).toMatch(/^explode is a number from 0 to 1 .*scale from 0.25 to 4/)
+    expect(await said('show', { explode: { amount: 0.5, axix: 'z' } })).toBe('explode takes no "axix": did you mean axis? An unknown key is not ignored: nothing was done. It takes: amount, scale, axis.')
     expect(await said('look', { explode: 0.5, section: { axis: 'z', at: 2 } })).toBe('a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)')
     expect((await client.callTool({ name: 'look', arguments: { explode: null } })).isError).toBeFalsy()
     expect((await client.callTool({ name: 'look', arguments: { explode: { amount: 1, axis: 'z', scale: 2 } } })).isError).toBeFalsy()

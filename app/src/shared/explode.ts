@@ -27,6 +27,10 @@ export const SECTION_FIRST = 'Take the section away to draw the parts apart'
 export const NOT_EXPLODED_AND_CUT = 'a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)'
 /** Said after the scans of a caption that draws parts apart: a scan is never moved, so it is no longer where the parts are drawn. */
 export const SCANS_STAY = 'scans are where they are'
+/** Said in the window of parts that do not move from the centre, because they share it. */
+export const SHARED_CENTRE = 'These parts share a centre: choose an axis'
+/** A part whose centre is nearer the layout's than this, in millimetres, shares it: it does not move from the centre. */
+export const SHARED_CENTRE_MM = 0.01
 const AXES = ['x', 'y', 'z'] as const
 
 /** Whether anything is drawn apart. */
@@ -53,7 +57,8 @@ export interface ExplodePart { name: string; bbox: { min: Vec3; max: Vec3 } }
 
 /**
  * By part name, how far each part of a layout is drawn from where it is. Empty when nothing is exploded or the
- * layout has fewer than two parts. Never a part of another layout: give it the parts of one.
+ * layout has fewer than two parts, or all its parts share a centre they would go from. Never a part of another
+ * layout: give it the parts of one.
  *
  * From the centre, a part goes along the line from the centre of the layout's box to the centre of its own, by
  * `(R + d) × amount × scale`: `R` half the diagonal of the layout's box, `d` how far the part's centre is from the
@@ -77,11 +82,13 @@ export function explodeOffsets(parts: readonly ExplodePart[], explode: ExplodeSt
     parts.forEach((part, n) => {
       const d = centres[n].map((c, i) => c - centre[i])
       const far = Math.hypot(d[0], d[1], d[2])
-      // A part at the centre has no way to go: it stays, and the others leave it.
-      const k = far > reach * 1e-6 ? ((reach + far) * by) / far : 0
+      // A part at the centre has no way to go: it stays, and the others leave it. What modelling leaves of a
+      // difference is no direction: a centre within `SHARED_CENTRE_MM` is at the centre.
+      const k = far > SHARED_CENTRE_MM ? ((reach + far) * by) / far : 0
       offsets[part.name] = [d[0] * k + 0, d[1] * k + 0, d[2] * k + 0]
     })
-    return offsets
+    // Every part at the centre: nothing is drawn apart, and nothing is said to be.
+    return Object.values(offsets).some((moved) => moved.some((c) => c !== 0)) ? offsets : {}
   }
   const i = AXES.indexOf(explode.axis)
   // By where each centre is along the axis; the scene's order where two are level (the sort is stable).
@@ -104,4 +111,27 @@ export function explodeText(explode: ExplodeState): string {
 export function sameExplode(a: ExplodeState | null | undefined, b: ExplodeState | null | undefined): boolean {
   if (!a || !b) return !a && !b
   return a.amount === b.amount && a.scale === b.scale && a.axis === b.axis
+}
+
+/** Why an explode of something would draw nothing apart of these parts: there are fewer than two, or none moves from a centre they share. Null when it would. */
+export function nothingApart(explode: ExplodeState, parts: readonly ExplodePart[]): 'one part' | 'shared centre' | null {
+  if (parts.length < 2) return 'one part'
+  return Object.keys(explodeOffsets(parts, { ...explode, amount: 1 })).length === 0 ? 'shared centre' : null
+}
+
+/** That, as the agent is told it of a layout it asked to see drawn apart. */
+export function nothingApartText(why: 'one part' | 'shared centre', layout: string): string {
+  if (why === 'one part') return `nothing can be drawn apart in layout ${layout}: it has fewer than two parts (explode: null draws it as it is)`
+  return `nothing is drawn apart from the centre in layout ${layout}: its parts share a centre; give an axis, {"amount": 0.5, "axis": "z"}`
+}
+
+/**
+ * The one rule for what is drawn apart: the explode kept for a layout, when it is of something, there is no
+ * section (one is never drawn exploded) and it moves a part of the layout (two parts at least, not all at the
+ * centre they would go from). Null otherwise: then nothing is apart, nothing is locked and nothing says exploded.
+ * The window, a picture, main and an exported page all ask this.
+ */
+export function explodeShown(explode: ExplodeState | null | undefined, section: unknown, parts: readonly ExplodePart[]): ExplodeState | null {
+  if (!isExploded(explode) || (section !== null && section !== undefined)) return null
+  return nothingApart(explode, parts) === null ? explode : null
 }

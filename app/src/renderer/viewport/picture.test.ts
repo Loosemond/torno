@@ -283,41 +283,59 @@ describe('a picture whose parts are drawn apart', () => {
   const Z = { amount: 1, scale: 1, axis: 'z' } as const
   const HALF = { amount: 0.5, scale: 1, axis: 'centre' } as const
   const CUT = { origin: [0, 0, 3] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }
-  const on = (over: Partial<Parameters<typeof pictureExplode>[1]> = {}): Parameters<typeof pictureExplode>[1] => ({ layout: 'assembly', onScreen: 'assembly', current: null, section: null, parts: 2, ...over })
+  const box = (name: string, min: [number, number, number], max: [number, number, number]) => ({ name, bbox: { min, max } })
+  const TWO = [box('tub', [-20, -20, 0], [20, 20, 38]), box('lid', [-20, -20, 38], [20, 20, 40])]
+  const NESTED = [box('ring', [-20, -20, 0], [20, 20, 10]), box('shaft', [-3, -3, -15], [3, 3, 25])]
+  const on = (over: Partial<Parameters<typeof pictureExplode>[1]> = {}): Parameters<typeof pictureExplode>[1] => ({ layout: 'assembly', onScreen: 'assembly', current: null, section: null, parts: TWO, coloured: false, ...over })
+  const NOTE = 'the parts are drawn apart for display: every position, ref and number told is of the parts as assembled'
 
   it('says so in its caption, with the sentence that nothing in it is where it is', () => {
-    expect(explodedNote(Z, false)).toBe(' · exploded 100 % along z (the parts are drawn apart for display: every position, ref and number told is of the parts as assembled)')
-    expect(explodedNote(HALF, false)).toBe(' · exploded 50 % from the centre (the parts are drawn apart for display: every position, ref and number told is of the parts as assembled)')
+    expect(explodedNote(Z, false)).toBe(` · exploded 100 % along z (${NOTE})`)
+    expect(explodedNote(HALF, false)).toBe(` · exploded 50 % from the centre (${NOTE})`)
     expect(explodedNote(null, true)).toBe('')
     expect(explodedNote({ amount: 0, scale: 2, axis: 'z' }, true, ['M5'])).toBe('')
   })
 
-  it('says that the scans drawn with them have not moved, and which marks it leaves out', () => {
+  it('says that the scans drawn with them have not moved, and which marks span parts drawn apart', () => {
     expect(explodedNote(Z, true)).toMatch(/as assembled\) · scans are where they are$/)
-    expect(explodedNote(Z, false, ['M5'])).toMatch(/as assembled\) · M5 is not drawn: it runs between parts drawn apart$/)
-    expect(explodedNote(Z, true, ['M5', 'M7'])).toMatch(/ · scans are where they are · M5, M7 are not drawn: they run between parts drawn apart$/)
+    expect(explodedNote(Z, false, ['M5'])).toMatch(/as assembled\) · M5 spans parts drawn apart: it is drawn dashed between them, as long as they are apart, which measures nothing$/)
+    expect(explodedNote(Z, true, ['M5', 'M7'])).toMatch(/ · scans are where they are · M5, M7 span parts drawn apart: they are drawn dashed between them, as long as they are apart, which measures nothing$/)
   })
 
   it('is drawn as on screen unless it says how: of the layout on screen, by the explode there; of another, together', () => {
-    expect(pictureExplode(undefined, on({ current: Z }))).toEqual(Z)
-    expect(pictureExplode('current', on({ current: Z }))).toEqual(Z)
-    expect(pictureExplode('current', on({ current: Z, layout: 'print' }))).toBeNull()
-    expect(pictureExplode(undefined, on())).toBeNull()
-    expect(pictureExplode(null, on({ current: Z }))).toBeNull()
-    expect(pictureExplode(HALF, on({ current: Z }))).toEqual(HALF)
-    expect(pictureExplode(HALF, on({ layout: 'print' }))).toEqual(HALF)
-    // An explode of nothing, and one of no parts, draw nothing apart.
-    expect(pictureExplode({ amount: 0, scale: 2, axis: 'z' }, on())).toBeNull()
-    expect(pictureExplode(HALF, on({ parts: 0 }))).toBeNull()
-    expect(pictureExplode(HALF, on({ parts: 1 }))).toBeNull()
-    expect(pictureExplode('current', on({ current: Z, parts: 1 }))).toBeNull()
+    expect(pictureExplode(undefined, on({ current: Z }))).toEqual({ explode: Z, said: '' })
+    expect(pictureExplode('current', on({ current: Z })).explode).toEqual(Z)
+    expect(pictureExplode('current', on({ current: Z, layout: 'print' })).explode).toBeNull()
+    expect(pictureExplode(undefined, on())).toEqual({ explode: null, said: '' })
+    expect(pictureExplode(null, on({ current: Z })).explode).toBeNull()
+    expect(pictureExplode(HALF, on({ current: Z })).explode).toEqual(HALF)
+    expect(pictureExplode(HALF, on({ layout: 'print' })).explode).toEqual(HALF)
+    expect(pictureExplode({ amount: 0, scale: 2, axis: 'z' }, on()).explode).toBeNull()
+  })
+
+  it('says why when it is asked to draw apart what cannot be: one part, or parts that share the centre they would go from (M2)', () => {
+    expect(() => pictureExplode(HALF, on({ parts: TWO.slice(0, 1) }))).toThrow('nothing can be drawn apart in layout assembly: it has fewer than two parts (explode: null draws it as it is)')
+    expect(() => pictureExplode(HALF, on({ parts: NESTED, layout: 'print' }))).toThrow('nothing is drawn apart from the centre in layout print: its parts share a centre; give an axis, {"amount": 0.5, "axis": "z"}')
+    expect(pictureExplode(Z, on({ parts: NESTED })).explode).toEqual(Z)
+    // As on screen, there is nothing to say: the screen does not draw them apart either.
+    expect(pictureExplode('current', on({ current: HALF, parts: NESTED }))).toEqual({ explode: null, said: '' })
+    expect(pictureExplode(undefined, on({ current: Z, parts: [] }))).toEqual({ explode: null, said: '' })
   })
 
   it('is never cut: asked for both it is refused, and a cut of the picture\'s own is drawn of the parts together', () => {
     expect(() => pictureExplode(HALF, on({ section: CUT }))).toThrow('a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)')
     // Apart only because the screen is: the cut is what was asked for.
-    expect(pictureExplode('current', on({ current: Z, section: CUT }))).toBeNull()
-    expect(pictureExplode(undefined, on({ current: Z, section: CUT }))).toBeNull()
-    expect(pictureExplode(null, on({ section: CUT }))).toBeNull()
+    expect(pictureExplode('current', on({ current: Z, section: CUT })).explode).toBeNull()
+    expect(pictureExplode(undefined, on({ current: Z, section: CUT })).explode).toBeNull()
+    expect(pictureExplode(null, on({ section: CUT })).explode).toBeNull()
+  })
+
+  it('is never taken with a scan coloured by its distance to a part: the part is drawn where it is, and the caption says so (M5)', () => {
+    const TOGETHER = ' · the parts are drawn together: the scan is coloured by its distance to the part where it is'
+    expect(pictureExplode(undefined, on({ current: Z, coloured: true }))).toEqual({ explode: null, said: TOGETHER })
+    expect(pictureExplode(HALF, on({ coloured: true }))).toEqual({ explode: null, said: TOGETHER })
+    // Together anyway: nothing to say.
+    expect(pictureExplode(undefined, on({ coloured: true }))).toEqual({ explode: null, said: '' })
+    expect(pictureExplode(null, on({ current: Z, coloured: true }))).toEqual({ explode: null, said: '' })
   })
 })

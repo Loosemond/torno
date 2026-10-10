@@ -561,6 +561,28 @@ export function setDimmed(object: THREE.Object3D, dimmed: boolean): void {
   }
 }
 
+/** The dashes of a mark made dashed all over, in pixels. */
+const SPAN_DASH_PX = { dash: 6, gap: 4 }
+
+/**
+ * Makes every line of a mark dashed, for good (the mark is built anew to be drawn solid): for one that spans
+ * parts drawn apart, whose line is as long as the parts are drawn apart and measures nothing.
+ */
+export function setDashed(object: THREE.Object3D): void {
+  const sizing = object.userData.sizing as Sizing | undefined
+  if (!sizing) return
+  object.traverse((child) => {
+    const line = child as LineSegments2
+    if (!line.isLineSegments2 || line.material.dashed) return
+    line.computeLineDistances()
+    line.material.dashed = true
+    line.material.needsUpdate = true
+    // Measured where the line begins: near enough for the length of a dash on screen.
+    const start = line.geometry.getAttribute('instanceStart')
+    sizing.dashes.push({ material: line.material, ...SPAN_DASH_PX, at: new THREE.Vector3().fromBufferAttribute(start, 0) })
+  })
+}
+
 /** Whether the mark is the one being worked on: its lines are drawn wider, and a stroke shows its plane. Takes effect at the next `rescale`. */
 export function setActive(object: THREE.Object3D, active: boolean): void {
   const sizing = object.userData.sizing as Sizing | undefined

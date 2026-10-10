@@ -472,7 +472,7 @@ export class Viewport {
   /** Puts every part, and the marks on the parts, where they are drawn; `layout` is the one whose parts are drawn apart. */
   private placeParts(layout = this.layout): void {
     for (const entry of this.entries.values()) this.placePart(entry, layout)
-    this.marks.setOffsets(this.apart.offsets())
+    this.marks.setOffsets(this.apart.offsets(), Object.fromEntries(this.partsOf(layout).map((part) => [part.name, part.bbox])))
     this.extent = this.measured()
     this.gizmo.place()
   }

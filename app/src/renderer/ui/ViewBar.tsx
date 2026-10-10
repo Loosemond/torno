@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ViewName } from '../../shared/view'
 import { actions, store, useStore } from '../state/store'
 import type { Viewport } from '../viewport/Viewport'
-import { ExplodeControl, toggleExplode } from './ExplodeControl'
+import { ExplodeBar, ExplodeToggle, toggleExplode } from './ExplodeControl'
 import { TYPING } from './typing'
 
 const MAIN_VIEWS: { view: ViewName; label: string; key: string }[] = [
@@ -22,7 +22,7 @@ function setOrtho(viewport: Viewport, ortho: boolean): void {
   actions.setOrtho(ortho)
 }
 
-/** The palette floating at the top of the viewport: layout, standard views, projection, fit, explode. */
+/** The palette floating at the top of the viewport: layout, standard views, projection, fit, explode; and under it the explode bar, while it is on. */
 export function ViewBar({ viewport }: { viewport: Viewport }) {
   const layouts = useStore((s) => s.scene?.layouts ?? NONE)
   const layout = useStore((s) => s.layout)
@@ -70,7 +70,8 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
   const lockedMore = MORE_VIEWS.find((v) => v.view === locked)
 
   return (
-    <div className="viewbar" role="toolbar" aria-label="View">
+    <div className="viewbars">
+      <div className="viewbar" role="toolbar" aria-label="View">
       {layouts.length > 1 && (
         <>
           <div className="viewbar-group" role="group" aria-label="Layout">
@@ -152,9 +153,12 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       <button type="button" className="bar-button" title="Fit the parts in view (F)" onClick={() => viewport.fit()}>
         Fit
       </button>
+      <span className="viewbar-rule" aria-hidden="true" />
 
-      {/* No rule before it: where the bar is wider than the view, this group goes to a row of its own. */}
-      <ExplodeControl viewport={viewport} />
+      <ExplodeToggle />
+      </div>
+      {/* Under the bar while the parts are apart or its button is pressed. */}
+      <ExplodeBar viewport={viewport} />
     </div>
   )
 }

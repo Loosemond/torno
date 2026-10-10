@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EXPLODED_NOTE, NO_EXPLODE, explodeArg, explodeOf, explodeOffsets, explodeText, isExploded } from './explode'
+import { EXPLODED_NOTE, NO_EXPLODE, explodeArg, explodeOf, explodeOffsets, explodeShown, explodeText, isExploded, nothingApart, nothingApartText } from './explode'
 
 const tray = { name: 'tray', bbox: { min: [-20, -15, 0] as [number, number, number], max: [20, 15, 10] as [number, number, number] } }
 const lid = { name: 'lid', bbox: { min: [-20, -15, 10] as [number, number, number], max: [20, 15, 12] as [number, number, number] } }
@@ -68,4 +68,46 @@ it('says it in words, and whether anything is apart', () => {
   expect(isExploded(null)).toBe(false)
   expect(isExploded({ amount: 0.01, scale: 1, axis: 'centre' })).toBe(true)
   expect(EXPLODED_NOTE).toContain('as assembled')
+})
+
+describe('what is drawn apart: one rule, for the screen, a picture, the file and the exported page', () => {
+  const ring = { name: 'ring', bbox: { min: [-20, -20, 0] as [number, number, number], max: [20, 20, 10] as [number, number, number] } }
+  const shaft = { name: 'shaft', bbox: { min: [-3, -3, -15] as [number, number, number], max: [3, 3, 25] as [number, number, number] } }
+  const HALF = { amount: 0.5, scale: 1, axis: 'centre' } as const
+  const CUT = { origin: [0, 0, 3] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }
+
+  it('parts that share a centre do not move from it: nothing is apart, and nothing says it is', () => {
+    expect(explodeOffsets([ring, shaft], { amount: 1, scale: 1, axis: 'centre' })).toEqual({})
+    expect(explodeShown(HALF, null, [ring, shaft])).toBeNull()
+    expect(nothingApart(HALF, [ring, shaft])).toBe('shared centre')
+    // Along an axis they part, ranked.
+    expect(explodeShown({ ...HALF, axis: 'z' }, null, [ring, shaft])).toEqual({ ...HALF, axis: 'z' })
+    expect(nothingApart({ ...HALF, axis: 'z' }, [ring, shaft])).toBeNull()
+  })
+
+  it('a centre within a hundredth of a millimetre of the layout\'s is the layout\'s: no part jumps along what modelling left', () => {
+    const off = (by: number) => ({ name: 'shaft', bbox: { min: [-3, -3, -15 + by] as [number, number, number], max: [3, 3, 25 + by] as [number, number, number] } })
+    expect(explodeOffsets([ring, off(0.0001)], { amount: 1, scale: 1, axis: 'centre' })).toEqual({})
+    expect(explodeOffsets([ring, off(0.009)], { amount: 1, scale: 1, axis: 'centre' })).toEqual({})
+    // Further, it goes: the ring's centre is then 0.05 mm from the layout's, which is the shaft's.
+    const moved = explodeOffsets([ring, off(0.05)], { amount: 1, scale: 1, axis: 'centre' })
+    expect(Math.abs(moved.ring[2])).toBeGreaterThan(10)
+    expect(moved.shaft).toEqual([0, 0, 0])
+  })
+
+  it('is nothing with a section, with fewer than two parts, and of an explode of nothing', () => {
+    expect(explodeShown(HALF, null, [tray, lid])).toEqual(HALF)
+    expect(explodeShown(HALF, CUT, [tray, lid])).toBeNull()
+    expect(explodeShown(HALF, null, [tray])).toBeNull()
+    expect(explodeShown(HALF, null, [])).toBeNull()
+    expect(explodeShown({ ...HALF, amount: 0 }, null, [tray, lid])).toBeNull()
+    expect(explodeShown(null, null, [tray, lid])).toBeNull()
+    expect(explodeShown(undefined, null, [tray, lid])).toBeNull()
+    expect([nothingApart(HALF, [tray]), nothingApart(HALF, []), nothingApart(HALF, [tray, lid])]).toEqual(['one part', 'one part', null])
+  })
+
+  it('says to the agent why nothing can be drawn apart in a layout, and what would be', () => {
+    expect(nothingApartText('one part', 'print')).toBe('nothing can be drawn apart in layout print: it has fewer than two parts (explode: null draws it as it is)')
+    expect(nothingApartText('shared centre', 'assembly')).toBe('nothing is drawn apart from the centre in layout assembly: its parts share a centre; give an axis, {"amount": 0.5, "axis": "z"}')
+  })
 })

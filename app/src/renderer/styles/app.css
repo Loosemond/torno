@@ -1511,17 +1511,28 @@ button {
 
 /* ---- View bar: the one palette floating on the viewport ---- */
 
-.viewbar {
+/* The bars at the top of the view, one under the other, in the middle: the view bar, and under it what it opens. */
+.viewbars {
   position: absolute;
   top: var(--space-3);
-  /* In the middle, and never wider than the view: what does not fit in one row goes to the next (the explode group first). */
   left: var(--space-3);
   right: var(--space-3);
-  width: fit-content;
-  margin-inline: auto;
-  /* Its menus are stacked within it: over its own second row, and no further up than the bar itself. */
-  isolation: isolate;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  /* Only the bars take the pointer: between and beside them it is the view's. */
+  pointer-events: none;
+}
+
+.viewbar {
+  position: relative;
+  max-width: 100%;
+  pointer-events: auto;
+  /* Its menus are stacked within it, and over the bar under it. */
+  z-index: 1;
+  display: flex;
+  /* One row; in a pane too narrow for it, what does not fit goes to a second rather than under the panels. */
   flex-wrap: wrap;
   justify-content: center;
   align-items: center;
@@ -2851,27 +2862,33 @@ button {
   background: var(--user-mark);
 }
 
-/* ---- Explode: in the view bar, the section bar's sibling. How far apart the parts are drawn, for display only ---- */
+/* ---- Explode: a button in the view bar, and under the bar the section bar's sibling. How far apart the parts are drawn, for display only ---- */
 
-.explode {
+/* How far apart, beside the word, while they are. */
+.explode-toggle .num {
+  margin-left: 2px;
+}
+
+.explodebar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
-  /* Set off from the views by room, not by a rule: a rule would be left at the end of the row when this wraps. */
-  padding-left: var(--space-2);
-}
-
-.explode-label {
-  padding: 0 0 0 7px;
-  color: var(--muted);
-}
-
-/* Apart: the word says so in the colour of what is on, as a pressed button of the bar does. */
-.explode[data-apart] .explode-label {
-  color: var(--accent);
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  white-space: nowrap;
+  pointer-events: auto;
 }
 
 /* The section's rule, with its mark at the left end: there the parts are as assembled. */
 .explode-slider {
-  flex: 0 0 96px;
+  flex: 0 1 140px;
   min-width: 96px;
   margin: 0 var(--space-1) 0 var(--space-2);
   background:
@@ -2883,7 +2900,6 @@ button {
   min-width: 5ch;
   padding-right: 2px;
   text-align: right;
-  font-size: var(--text-small);
 }
 
 .explode-amount[data-disabled] {
@@ -2891,47 +2907,14 @@ button {
   opacity: 0.55;
 }
 
-/* Along what, and how far: two rows, each named, and a line that says what explode is not. */
-.explode-more {
-  left: auto;
-  right: 0;
-  grid-template-columns: auto auto;
-  align-items: center;
-  gap: 2px var(--space-2);
-  min-width: 0;
-  padding: 6px;
-}
-
-.explode-more-label {
-  padding-left: 3px;
+/* What explode is, at the end of its bar: the notice that the parts are not where they are drawn. */
+.explodebar-note {
+  padding: 0 var(--space-2) 0 var(--space-2);
   color: var(--muted);
 }
 
-.explode-hint {
-  grid-column: 1 / -1;
-  max-width: 34ch;
-  margin: 4px 3px 1px;
-  color: var(--muted);
-  white-space: normal;
-  text-wrap: pretty;
-}
-
-/* Under the bar while the parts are apart: what is on screen is not where they are, and how to put them back. */
-.explode-note {
-  position: absolute;
-  top: calc(100% + 7px);
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 3px 9px;
-  border: var(--divider);
-  border-radius: var(--radius-palette);
-  background: var(--panel);
-  color: var(--muted);
-  pointer-events: none;
-}
-
-/* What E could not do, for a moment. */
-.explode-note[data-refused] {
+/* Why nothing is drawn apart, or what E could not do. */
+.explodebar-note[data-refused] {
   color: var(--ink);
 }
 

@@ -1,7 +1,7 @@
 import { type DimensionStanding, standingOf } from '../../shared/dimension'
 import type { DimensionMark, Mark } from '../../shared/marks'
 import { letGoText } from '../../shared/build'
-import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, explodeText, isExploded } from '../../shared/explode'
+import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, explodeText, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
 import { type Camera, type LookRequest, type LookResult, type SectionPlane, type ShowRequest, type ShowResult, axisForm } from '../../shared/view'
@@ -153,6 +153,9 @@ export async function lookTool(deps: ToolDeps, objectId: string, args: LookArgs)
   if (typeof explode === 'string') return failure(explode)
   request.explode = explode === undefined ? 'current' : explode
   if (isExploded(explode) && (args.section === undefined || args.section === 'current' ? deps.view(objectId)?.section : args.section)) return failure(NOT_EXPLODED_AND_CUT)
+  // Asked apart where nothing can be: said, not passed over with a picture of the parts together.
+  const nothing = drawsNothingApart(scene, args.layout ?? deps.view(objectId)?.layout, explode)
+  if (nothing !== null) return failure(nothing)
   if (args.frame !== undefined) {
     if (args.frame !== 'parts' && args.frame !== 'all') return failure('frame is "parts" (the default: a named view is fitted to the parts drawn) or "all" (to the scans drawn with them)')
     request.frame = args.frame
@@ -216,15 +219,31 @@ function staleNote(deps: ToolDeps, objectId: string, picture: { revision: number
 
 /**
  * How far apart the agent asks for the parts to be drawn: undefined when it does not say, null for together
- * (`null`, or the number 0), an explode, or what to answer when it gave something that is none.
+ * (`null`, the number 0, or an amount of 0), an explode, or what to answer when it gave something that is none.
+ * Nothing is made of what is nearly one: a number or an amount outside 0 to 1 (a percentage), a scale outside its
+ * range, an axis that is none and a key that is not taken are each refused, with what an explode is. For
+ * whatever takes an explode from the agent: `look`, `show`, `save_view`.
  */
-function explodeAsked(given: unknown): ExplodeState | null | undefined | string {
+export function explodeAsked(given: unknown): ExplodeState | null | undefined | string {
   if (given === undefined) return undefined
-  if (given === null || given === 0) return null
+  if (given === null) return null
+  const wrong = unknownKeys(given, ['amount', 'scale', 'axis'], 'explode')
+  if (wrong !== null) return wrong
+  const help = `explode is ${explodeHelp}`
+  const said = (typeof given === 'number' ? { amount: given } : given) as { amount?: unknown; scale?: unknown; axis?: unknown }
   const explode = explodeArg(given)
-  if (explode === null) return `explode is ${explodeHelp}`
-  // An amount of nothing, with an axis or a scale: together all the same.
+  // As given, or not at all: what `explodeOf` would bring into range for a file is refused here.
+  if (explode === null || explode.amount !== said.amount) return help
+  if (said.scale !== undefined && explode.scale !== said.scale) return help
+  if (said.axis !== undefined && explode.axis !== said.axis) return help
   return isExploded(explode) ? explode : null
+}
+
+/** Why an explode the agent asked for would draw nothing apart in a layout of the scene, as the answer to give; null when it would, or when the layout is none (whoever draws it says so). */
+function drawsNothingApart(scene: Scene, layout: string | undefined, explode: ExplodeState | null | undefined): string | null {
+  if (!isExploded(explode) || layout === undefined || !scene.layouts.includes(layout)) return null
+  const why = nothingApart(explode, scene.parts.filter((part) => part.layout === layout))
+  return why === null ? null : nothingApartText(why, layout)
 }
 
 /** The camera to ask the window for, or null for one that looks nowhere: its position is its target. */
@@ -268,6 +287,8 @@ export async function showTool(deps: ToolDeps, objectId: string, args: ShowArgs)
   if (explode !== undefined) request.explode = explode
   // Never apart and cut: the cut this call makes, or the one on their screen unless this call takes it away.
   if (isExploded(explode) && (args.section === undefined ? deps.view(objectId)?.section : args.section)) return failure(NOT_EXPLODED_AND_CUT)
+  const nothing = drawsNothingApart(scene, args.layout ?? deps.view(objectId)?.layout, explode)
+  if (nothing !== null) return failure(nothing)
   if (args.scans !== undefined) {
     const ids = await scanIds(deps, objectId, args.scans, NO_SHOW_SCANS)
     if ('content' in ids) return ids

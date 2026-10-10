@@ -4,7 +4,7 @@ import type { Camera, HighlightRequest, LookRequest, LookResult, SectionDrawingR
 import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, setPictures } from './agent'
 import { actions, explodeNow, sceneFileOf, store } from './store'
 
-const part = (layout: string, name: string): Part => ({ key: `${layout}:${name}`, name, layout, faceCount: 6, edgeCount: 12 }) as Part
+const part = (layout: string, name: string): Part => ({ key: `${layout}:${name}`, name, layout, faceCount: 6, edgeCount: 12, bbox: name === 'post' ? { min: [-4, -4, 2.5], max: [4, 4, 22.5] } : { min: [-20, -15, -2.5], max: [20, 15, 2.5] } }) as Part
 const SCENE: Scene = { model: 'bracket.py', layouts: ['assembly', 'print'], parts: [part('assembly', 'base'), part('assembly', 'post'), part('print', 'base'), part('print', 'post')], seconds: 1, output: '' }
 const CAMERA: Camera = { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 
@@ -220,6 +220,32 @@ describe('show', () => {
       expect(explodeNow(store.getState())).toEqual({ amount: 1, scale: 1, axis: 'x' })
       expect(explodeNow(store.getState(), 'assembly')).toBeNull()
       expect(caption()).toContain('layout print · parts base, post · exploded 100 % along x')
+    })
+
+    it('says why when asked to draw apart what cannot be, and changes nothing (M2)', () => {
+      actions.applyScene({ objectId: 'bracket', revision: 4, scene: { ...SCENE, layouts: ['assembly', 'solo'], parts: [part('assembly', 'base'), part('assembly', 'post'), part('solo', 'base')] } })
+      show({ layout: 'solo', explode: { amount: 0.5, scale: 1, axis: 'z' } })
+      expect(replies.at(-1)!.result).toEqual({ error: 'nothing can be drawn apart in layout solo: it has fewer than two parts (explode: null draws it as it is)' })
+      expect(store.getState().layout).toBe('assembly')
+      expect(store.getState().explode).toEqual({})
+    })
+
+    it('names the marks that span parts drawn apart, as a picture does (M4)', () => {
+      const mark = { author: 'user', note: '', status: 'sent', anchorState: 'ok', layout: 'assembly', revision: 3, camera: {}, createdAt: '' }
+      actions.setMarks({
+        objectId: 'bracket',
+        marks: [
+          { ...mark, id: 'M1', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 2.5], part: 'base' }, b: { point: [0, 0, 22.5], part: 'post' } },
+          { ...mark, id: 'M2', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 2.5], part: 'base' }, b: { point: [5, 0, 2.5], part: 'base' } },
+          { ...mark, id: 'M3', kind: 'dimension', measure: 'distance', status: 'resolved', a: { point: [0, 0, 2.5], part: 'base' }, b: { point: [0, 0, 22.5], part: 'post' } },
+          { ...mark, id: 'M4', kind: 'arrow', from: { point: [10, 0, 2.5], part: 'base' }, to: [3, 0, 12] },
+          { ...mark, id: 'M5', kind: 'arrow', layout: 'print', from: { point: [10, 0, 2.5], part: 'base' }, to: [3, 0, 12] }
+        ] as never
+      })
+      show({ explode: { amount: 1, scale: 1, axis: 'z' } })
+      expect(caption()).toContain(' · M1, M4 span parts drawn apart: they are drawn dashed between them, as long as they are apart, which measures nothing · perspective')
+      show({ explode: null })
+      expect(caption()).not.toContain('span')
     })
 
     it('never draws a section exploded: with the cut it asks for, or the one on screen unless it takes that away', () => {

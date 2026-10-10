@@ -265,7 +265,8 @@ While iterating run the focused test; run all four suites before a commit.
   kept in the store once, on release, to the millionth of a millimetre.
 - Numbers shown or told of a section go through `shared/format.ts`.
 - A section and an explode are never on together (Explode, below): cutting
-  puts the parts of every layout together.
+  puts the parts of the layout shown together, and nothing is drawn apart
+  while the section is there.
 
 ## Explode
 
@@ -276,10 +277,20 @@ geometry, never in a mark or a measurement. `explodeOffsets` says how far each
 part of a layout is drawn from where it is: from the centre by
 `(R + d) × amount × scale` along the line from the centre of the layout's box
 to the centre of the part's (`R` half the diagonal of the layout's box, `d`
-the part's distance from that centre); along an axis the parts are ranked by
-their centres on it and set `2R × amount × scale` apart. A layout with fewer
-than two parts is never exploded.
+the part's distance from that centre; a part within `SHARED_CENTRE_MM`,
+0.01 mm, of the centre stays); along an axis the parts are ranked by their
+centres on it and set `2R × amount × scale` apart.
 
+- **One rule says what is drawn apart: `explodeShown(explode, section,
+  parts)`** (`shared/explode.ts`). Nothing is while there is a section, of a
+  layout with fewer than two parts, or of parts that all share the centre
+  they would go from: then nothing is apart, no tool is locked and nothing
+  says exploded, whatever is kept for the layout. The window
+  (`explodeNow(state, layout)`), a picture (`pictureExplode`) and main ask
+  it; an exported page must too. `nothingApart` says which of the last two
+  it is: the bar says `These parts share a centre: choose an axis`, and
+  `look` or `show` asked for an explode there answers with
+  `nothingApartText`.
 - **Exploded is display only.** `Part.loc`, `Part.bbox`, every anchor, every
   `points` of a dimension and everything the kernel is asked are of the parts
   as built. `Viewport.setExplode` moves each part's group (`placePart`, the
@@ -293,46 +304,76 @@ than two parts is never exploded.
   offset of the part hit away from the point (`asBuilt`). Selecting,
   hovering, "Insert" and the readout at the pointer work exploded.
   `Viewport.project(point, part)` says where a point of a part is drawn;
-  `bounds()` and `sectionBox()` are of the parts as built, while `fit` and the
-  named views frame them where they are drawn.
-- **Nothing is marked, moved or measured from the window while the layout
-  shown is exploded.** Pin, Arrow, Draw, Shape, Measure, Section, Align and
+  `bounds()`, `partBoxes()` and `sectionBox()` are of the parts as built,
+  while `fit` and the named views frame them where they are drawn.
+- **Nothing is marked, moved or measured from the window while the parts
+  are drawn apart.** Pin, Arrow, Draw, Shape, Measure, Section, Align and
   Region are handed no pointer event and no key (`routePointer`,
-  `ToolContext.exploded`), and the pointer says `EXPLODED_TOOLS`; what a tool
-  had under way is dropped once when the parts go apart. "Note" on the
-  selection, "Re-place" and a region's "Edit" are disabled with the same
-  words, the gizmo holds nothing (a shape's or a scan's), and the points of
-  an alignment and the brush ring are not drawn.
-- **Marks are drawn moved with their part** (`markOffset`,
-  `MarkLayer.setOffsets`): the mark's objects and its label, never the mark.
-  A dimension whose two ends are on parts that moved differently (`'split'`)
-  is not drawn while exploded, its row says `not drawn while the parts are
-  apart`, and its value in the row is the kernel's, of the parts as built. A
-  mark on no part, and a region, do not move.
-- **A section is never drawn exploded (D2).** `explodeNow(state, layout)` is
-  the one rule for what is drawn apart: nothing while there is a section.
-  `actions.setExplode` answers `Take the section away to draw the parts
-  apart`; `actions.setSection` with a plane sets every layout's `amount` to 0
-  (the plane is the object's); `look` and `show` refuse the two together
+  `ToolContext.exploded`), and the pointer says `EXPLODED_TOOLS`. The gate
+  reads the store **and the screen** (`explodeNow(s) !== null ||
+  viewport.exploded()`): the parts are still apart for a moment after the
+  store says together, and under a slider being dragged before it says
+  apart, and a pointer's ray is of the screen. What a tool had under way is
+  dropped once when the parts go apart. "Note" on the selection, "Re-place"
+  and a region's "Edit" are disabled with the same words, the gizmo holds
+  nothing (a shape's or a scan's), and the points of an alignment and the
+  brush ring are not drawn.
+- **Marks are drawn moved with their part** (`viewport/marks/apart.ts`
+  `markOffset`, `MarkLayer.setOffsets`): the mark's objects and its label,
+  never the mark. A mark whose ends are on parts that moved differently
+  (`'split'`: a dimension between two parts, an arrow whose head is at
+  another part than its foot, by the parts' boxes) is drawn between them
+  where they are drawn, dimmed and dashed (`spanning`, `setDashed`): the
+  line is as long as the parts are apart, which measures nothing. Its row
+  says `spans parts drawn apart`, the caption of a picture and of `show`
+  names it (`spanningMarks`, `explodedNote`), and a dimension's value stays
+  the kernel's, of the parts as built. A mark on no part, and a region, do
+  not move.
+- **A section is never drawn exploded (D2).** While there is a section
+  nothing is drawn apart (the rule above). `actions.setExplode` answers
+  `Take the section away to draw the parts apart` to an amount above 0;
+  `actions.setSection` with a plane sets the `amount` of the layout shown to
+  0, as if by hand. Another layout keeps its own, in the file too, and is
+  drawn together while the section is there, apart again when it is gone.
+  `sceneFileOf` never writes a section with an amount above 0 for the layout
+  the file opens to. `look` and `show` refuse the two together
   (`NOT_EXPLODED_AND_CUT`), in main and again in the window. A picture that
   is cut by a plane of its own while the screen is exploded is drawn of the
-  parts together. Scans are not moved: a caption that draws both says
-  `scans are where they are`, and so does the line under the view bar.
+  parts together; so is one that colours a scan by its distance to a part
+  (`scanColour`), and its caption says so. Scans are not moved: a caption
+  that draws both says `scans are where they are`, and so does the bar.
 - **The agent.** `look` takes `explode` (a number, or `{amount, axis,
   scale}`; absent is as on screen for the layout on screen, `null` or `0`
-  together); `show` sets it for now (`shownByAgent.explode`, by layout: the
-  scene file goes on saying the person's own). `scene` reports `explode` and
-  says so in its `note`; the first line of the prompt's context says
-  `, exploded 40 % along z (display only)` after the layout. A picture drawn
-  exploded, and what `show` answers, say `exploded 40 % along z` with
-  `EXPLODED_NOTE`, and name the dimensions left out because they run between
-  parts drawn apart. Every other tool answers of the parts as built and says
-  nothing of explode. The view the window reports (`ViewState.explode`) is
-  kept by `reportView` only as what `explodeOf` makes of it.
-- The control is `ui/ExplodeControl.tsx`, in the view bar: the slider with
-  the amount beside it, the axis and the scale under "More", and a line
-  under the bar while the parts are apart. `window.__tornoTest.exploded()`
-  says whether the viewport draws them apart, or is on its way there or back.
+  together); `show` sets it for now. What is nearly an explode is refused
+  with what one is (`explodeAsked`, exported for `save_view`): an amount
+  outside 0 to 1 (a percentage), a scale outside its range, an axis that is
+  none, a key it does not take. Only a file and the window's own report are
+  brought into range (`explodeOf`). `scene` reports `explode` and says so in
+  its `note`; the first line of the prompt's context says `, exploded 40 %
+  along z (display only)` after the layout. A picture drawn exploded, and
+  what `show` answers, say `exploded 40 % along z` with `EXPLODED_NOTE`.
+  Every other tool answers of the parts as built and says nothing of
+  explode. The view the window reports (`ViewState.explode`) is kept by
+  `reportView` only as what `explodeOf` makes of it.
+- **What the agent shows is never the person's, field by field.**
+  `shownByAgent.explode` holds, by layout, how the person had it (`theirs`).
+  A field the person then sets by hand (the slider is `amount`, the bar's
+  buttons `axis` and `scale`, a cut by hand is `amount: 0`) is theirs from
+  then; the fields they did not set stay the agent's on screen, for now, and
+  theirs as they had them in the file (`apartByHand`), as with a scan's
+  view. A person who draws apart by hand a view the agent took the cut out
+  of has no cut of theirs any more: the file holds one or the other.
+- The control is `ui/ExplodeControl.tsx`: `ExplodeToggle`, one button in the
+  view bar (pressed while the parts are apart or its bar is open, with the
+  amount beside the word; pressed while apart it puts them together), and
+  `ExplodeBar` under the view bar (`.viewbars` stacks them): the slider with
+  the amount beside it, `From centre X Y Z`, `×0.5 ×1 ×2 ×4`, and a line
+  with `role="status"` that says it is for display only, or why nothing is
+  drawn apart. The bar is the notice that the parts are not where they are
+  drawn. The view bar is one row at 1440 × 900 for an object with two
+  layouts (`explode.spec.ts` holds it to that); in a narrower pane it wraps
+  rather than run under the panels. `window.__tornoTest.exploded()` says
+  whether the viewport draws the parts apart, or is on its way there or back.
 
 ## Scans
 

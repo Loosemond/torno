@@ -39,7 +39,7 @@ export const NO_PLANE = 'that is not a plane: give {"axis": "z", "at": 3} for th
 export const loose = <T extends z.ZodType>(shape: T) => z.union([shape, z.unknown()])
 /** How far apart the parts are drawn, as the agent may say it: a number, or the whole of it. Loose: what is neither reaches the tool, which says what one is (`explodeHelp`). */
 const explodeInput = loose(z.union([z.number(), z.strictObject({ amount: z.number(), scale: z.number().optional(), axis: z.enum(['centre', 'x', 'y', 'z']).optional() })]))
-export const explodeHelp = 'a number from 0 to 1 (how far apart the parts are drawn, away from the centre of the layout), or {"amount": 0.5, "axis": "z", "scale": 2} to set them apart along x, y or z and further. For display only: positions, refs and measurements are always of the parts as assembled.'
+export const explodeHelp = 'a number from 0 to 1 (how far apart the parts are drawn, away from the centre of the layout), or {"amount": 0.5, "axis": "z", "scale": 2} to set them apart along x, y or z (axis; "centre" is the default) and nearer or further (scale from 0.25 to 4, default 1). For display only: positions, refs and measurements are always of the parts as assembled.'
 const scanText = 'The number of a scan (S1), as listed by scans. Default: the only scan of the object.'
 // Loose: a key a camera does not take reaches the tool, which refuses it by name (`cameraKeys`).
 // A camera is what `scene` and a mark give as one, whole: the agent reads the view, shows something, and puts the view back.

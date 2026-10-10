@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import { type ExplodeState, NO_EXPLODE, SECTION_FIRST } from '../../shared/explode'
+import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, SHARED_CENTRE, nothingApart } from '../../shared/explode'
 import { number } from '../../shared/format'
 import { actions, explodeNow, partsInLayout, store, useStore, type TornoState } from '../state/store'
 import type { Viewport } from '../viewport/Viewport'
@@ -10,7 +10,7 @@ import type { Viewport } from '../viewport/Viewport'
 export const ONE_PART = 'One part: nothing to draw apart'
 /** How far apart `E` draws the parts of a layout that has not been drawn apart before. */
 const FIRST_AMOUNT = 0.5
-/** How long what `E` could not do stays said under the bar. */
+/** How long what `E` could not do stays said in the bar. */
 const SAID_FOR_MS = 4000
 
 const AXES: Array<{ axis: ExplodeState['axis']; label: string; title: string }> = [
@@ -25,19 +25,28 @@ const SCALES = [0.5, 1, 2, 4]
 const lastAmounts = new Map<string, number>()
 const keyOf = (s: Pick<TornoState, 'objectId' | 'layout'>): string => `${s.objectId ?? ''}\n${s.layout}`
 
-/** Why `E` drew nothing apart, for a moment; apart from the window's own state, like what the agent points at. */
-const saidStore = createStore<{ said: string | null }>(() => ({ said: null }))
+/**
+ * Whether the bar is open though the parts are together, and why `E` drew nothing apart, for a moment. Apart
+ * from the window's own state: nothing of it is kept.
+ */
+const ui = createStore<{ open: boolean; said: string | null }>(() => ({ open: false, said: null }))
 let saidTimer: ReturnType<typeof setTimeout> | undefined
 
-/** Why the parts of the layout shown cannot be drawn apart now, as a sentence, or null. */
+/**
+ * Why the parts of the layout shown cannot be drawn apart as things are, as a sentence, or null: there is one
+ * part, there is a section, or the parts share the centre they would go from.
+ */
 function whyNot(s: TornoState): string | null {
-  if (partsInLayout(s).length < 2) return ONE_PART
-  return s.section !== null ? SECTION_FIRST : null
+  const parts = partsInLayout(s)
+  if (parts.length < 2) return ONE_PART
+  if (s.section !== null) return SECTION_FIRST
+  return nothingApart({ ...(s.explode[s.layout] ?? NO_EXPLODE), amount: 1 }, parts) === 'shared centre' ? SHARED_CENTRE : null
 }
 
 /**
  * `E`: draws the parts of the layout shown apart, by as much as they last were (half, the first time), or puts
- * them together when they are apart. Where it cannot (one part, a section), the control says why for a moment.
+ * them together when they are apart. Where it cannot (one part, a section, a shared centre) the bar opens and
+ * says why for a moment.
  */
 export function toggleExplode(): void {
   const s = store.getState()
@@ -45,50 +54,89 @@ export function toggleExplode(): void {
   const refused = apart ? null : (whyNot(s) ?? actions.setExplode({ amount: lastAmounts.get(keyOf(s)) ?? FIRST_AMOUNT }))
   if (apart) actions.setExplode({ amount: 0 })
   clearTimeout(saidTimer)
-  saidStore.setState({ said: refused })
-  if (refused !== null) saidTimer = setTimeout(() => saidStore.setState({ said: null }), SAID_FOR_MS)
+  ui.setState(refused === null ? { said: null } : { said: refused, open: true })
+  if (refused !== null) saidTimer = setTimeout(() => ui.setState({ said: null }), SAID_FOR_MS)
 }
 
 /**
- * Explode, in the view bar: how far apart the parts of the layout shown are drawn, on a slider with the amount
- * beside it, and under "More" along what and how far that reaches. For display only: while the parts are apart
- * a line under the bar says so, since nothing can be marked, measured or cut meanwhile.
+ * Explode, in the view bar: one button, pressed while the parts of the layout shown are drawn apart or its bar
+ * is open, with how far apart beside the word while they are. Pressed while they are apart it puts them together.
+ */
+export function ExplodeToggle() {
+  const amount = useStore((s) => explodeNow(s)?.amount ?? null)
+  const open = useZustand(ui, (s) => s.open)
+  const shown = open || amount !== null
+
+  // What `E` goes back to: the last amount this layout was drawn apart by, however it came to be.
+  useEffect(() => {
+    const remember = (s: TornoState): void => {
+      const now = explodeNow(s)
+      if (!now) return
+      lastAmounts.set(keyOf(s), now.amount)
+      // The bar is there because the parts are apart, from now: it goes when they are put together.
+      if (ui.getState().open) ui.setState({ open: false })
+    }
+    remember(store.getState())
+    return store.subscribe(remember)
+  }, [])
+
+  return (
+    <button
+      type="button"
+      className="bar-button explode-toggle"
+      aria-pressed={shown}
+      aria-expanded={shown}
+      aria-controls="explodebar"
+      title={amount !== null ? 'Put the parts together (E)' : 'Draw the parts apart, for display only (E)'}
+      onClick={() => {
+        if (amount !== null) actions.setExplode({ amount: 0 })
+        ui.setState({ open: amount === null && !open, said: null })
+      }}
+    >
+      Explode
+      {amount !== null && <span className="num"> {percent(amount * 100)}</span>}
+    </button>
+  )
+}
+
+/**
+ * The explode bar, under the view bar while the button is pressed or the parts are apart: the section bar's
+ * sibling. How far apart on a slider with the amount beside it, along what, how far that reaches, and a line
+ * that says what explode is: for display only. It is the notice that the parts are not where they are drawn.
  *
  * The slider moves the parts in the viewport as it is dragged and the amount is kept when it is let go; the
  * number beside it follows without a render. Nothing of a drag goes through React or the store.
  */
-export function ExplodeControl({ viewport }: { viewport: Viewport }) {
+export function ExplodeBar({ viewport }: { viewport: Viewport }) {
   const kept = useStore((s) => s.explode[s.layout]) ?? NO_EXPLODE
   const apart = useStore((s) => explodeNow(s) !== null)
   const why = useStore(whyNot)
   // A scan is never moved: beside parts drawn apart it is no longer where they are drawn.
   const scans = useStore((s) => s.scans.some((scan) => scan.meshState === 'ok' && s.scanViews[scan.id]?.visible !== false))
-  const said = useZustand(saidStore, (s) => s.said)
-  const [open, setOpen] = useState(false)
+  const { open, said } = useZustand(ui)
   const slider = useRef<HTMLInputElement>(null)
   const amount = useRef<HTMLSpanElement>(null)
-  const more = useRef<HTMLDivElement>(null)
   const shown = apart ? Math.round(kept.amount * 100) : 0
+  const visible = open || apart
 
   // The slider and the number are the DOM's own while they are being changed.
   useEffect(() => {
-    if (slider.current) slider.current.value = String(shown)
-    if (amount.current) amount.current.textContent = percent(shown)
-  }, [shown])
+    if (slider.current) show(slider.current, amount.current, shown)
+  }, [shown, visible])
 
   useEffect(() => {
     const range = slider.current
     if (!range) return
     const preview = (): void => {
       viewport.setExplode({ ...kept, amount: Number(range.value) / 100 })
-      if (amount.current) amount.current.textContent = percent(Number(range.value))
+      show(range, amount.current, Number(range.value))
     }
     const keep = (): void => {
-      const refused = actions.setExplode({ amount: Number(range.value) / 100 })
+      // Slid back to nothing: the bar stays under the hand that is on it.
+      if (Number(range.value) === 0) ui.setState({ open: true })
       // Refused (a section came meanwhile): back to what is kept, on the slider and in the view.
-      if (refused === null) return
-      range.value = String(shown)
-      if (amount.current) amount.current.textContent = percent(shown)
+      if (actions.setExplode({ amount: Number(range.value) / 100 }) === null) return
+      show(range, amount.current, shown)
       viewport.setExplode(explodeNow(store.getState()))
     }
     range.addEventListener('input', preview)
@@ -97,44 +145,21 @@ export function ExplodeControl({ viewport }: { viewport: Viewport }) {
       range.removeEventListener('input', preview)
       range.removeEventListener('change', keep)
     }
-  }, [viewport, kept, shown])
+  }, [viewport, kept, shown, visible])
 
-  // What `E` goes back to: the last amount this layout was drawn apart by, however it came to be.
-  useEffect(() => {
-    const remember = (s: TornoState): void => {
-      const now = explodeNow(s)
-      if (now) lastAmounts.set(keyOf(s), now.amount)
-    }
-    remember(store.getState())
-    return store.subscribe(remember)
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const close = (e: Event): void => {
-      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !more.current?.contains(e.target as Node)) setOpen(false)
-    }
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('keydown', close)
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('keydown', close)
-    }
-  }, [open])
-
-  const note = said ?? (apart ? `Parts drawn apart for display${scans ? ': the scans stay where they are' : ''}. E puts them together` : null)
+  if (!visible) return null
+  // One part has no direction to go in either; a section or a shared centre leaves how it would be drawn apart to choose.
+  const nothing = why === ONE_PART
+  const line = said ?? why ?? `For display only${scans ? ': the scans stay where they are' : ''}${apart ? ' · E puts them together' : ''}`
 
   return (
-    <div className="viewbar-group explode" role="group" aria-label="Explode" title={why ?? undefined} data-apart={apart ? '' : undefined}>
-      <label className="explode-label" htmlFor="explode-amount">
-        Explode
-      </label>
+    <div id="explodebar" className="explodebar" role="group" aria-label="Explode" data-apart={apart ? '' : undefined}>
       <input
         ref={slider}
-        id="explode-amount"
         className="section-slider explode-slider"
         type="range"
         aria-label="Explode"
+        aria-valuetext={percent(shown)}
         title={why ?? 'How far apart the parts are drawn, for display only (E)'}
         min={0}
         max={100}
@@ -145,58 +170,45 @@ export function ExplodeControl({ viewport }: { viewport: Viewport }) {
       <span ref={amount} className="explode-amount num" data-disabled={why !== null ? '' : undefined} aria-hidden="true">
         {percent(shown)}
       </span>
-      <div className="viewbar-more" ref={more}>
-        <button type="button" className="bar-button bar-icon" aria-label="More" title="Along what the parts are set apart, and how far" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-          <MoreIcon />
-        </button>
-        {open && (
-          <div className="menu explode-more" role="group" aria-label="How the parts are drawn apart">
-            <span className="explode-more-label">Direction</span>
-            <div className="viewbar-group" role="group" aria-label="Direction">
-              {AXES.map(({ axis, label, title }) => (
-                <button
-                  key={axis}
-                  type="button"
-                  className={axis === 'centre' ? 'bar-button' : 'bar-button section-axis num'}
-                  data-axis={axis === 'centre' ? undefined : axis}
-                  aria-pressed={kept.axis === axis}
-                  title={title}
-                  disabled={why === ONE_PART}
-                  onClick={() => actions.setExplode({ axis })}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span className="explode-more-label">Distance</span>
-            <div className="viewbar-group" role="group" aria-label="Distance">
-              {SCALES.map((scale) => (
-                <button key={scale} type="button" className="bar-button num" aria-pressed={kept.scale === scale} title={`${number(scale)} times the reach of the layout at 100 %`} disabled={why === ONE_PART} onClick={() => actions.setExplode({ scale })}>
-                  ×{number(scale)}
-                </button>
-              ))}
-            </div>
-            <p className="explode-hint">For display only. Every pick, mark and measurement is of the parts as assembled.</p>
-          </div>
-        )}
+      <span className="viewbar-rule" aria-hidden="true" />
+      <div className="viewbar-group" role="group" aria-label="Direction">
+        {AXES.map(({ axis, label, title }) => (
+          <button
+            key={axis}
+            type="button"
+            className={axis === 'centre' ? 'bar-button' : 'bar-button section-axis num'}
+            data-axis={axis === 'centre' ? undefined : axis}
+            aria-pressed={kept.axis === axis}
+            title={title}
+            disabled={nothing}
+            onClick={() => actions.setExplode({ axis })}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {note !== null && (
-        <span className="explode-note" role="status" data-refused={said !== null ? '' : undefined}>
-          {note}
-        </span>
-      )}
+      <span className="viewbar-rule" aria-hidden="true" />
+      <div className="viewbar-group" role="group" aria-label="Distance">
+        {SCALES.map((scale) => (
+          <button key={scale} type="button" className="bar-button num" aria-pressed={kept.scale === scale} title={`${number(scale)} times the reach of the layout at 100 %`} disabled={nothing} onClick={() => actions.setExplode({ scale })}>
+            ×{number(scale)}
+          </button>
+        ))}
+      </div>
+      <span className="explodebar-note" role="status" data-refused={said !== null || why !== null ? '' : undefined}>
+        {line}
+      </span>
     </div>
   )
 }
 
-function percent(value: number): string {
-  return `${number(value)} %`
+/** Writes an amount on the slider, for whoever hears it and for whoever reads the number beside it. */
+function show(range: HTMLInputElement, beside: HTMLElement | null, value: number): void {
+  if (range.value !== String(value)) range.value = String(value)
+  range.setAttribute('aria-valuetext', percent(value))
+  if (beside) beside.textContent = percent(value)
 }
 
-function MoreIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m4.5 6.5 3.5 3.5 3.5-3.5" />
-    </svg>
-  )
+function percent(value: number): string {
+  return `${number(Math.round(value))} %`
 }

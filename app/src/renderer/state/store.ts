@@ -2,7 +2,7 @@ import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
-import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, isExploded, sameExplode } from '../../shared/explode'
+import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, explodeShown, isExploded, sameExplode } from '../../shared/explode'
 import type { Mark, Vec3 } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanView } from '../../shared/scans'
@@ -161,10 +161,7 @@ export const actions = {
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */
   openObject(objectId: string, file: SceneFile): void {
-    const section = sectionOf(file.section)
-    // A section is never drawn exploded: of a file that holds both, the section stays and the parts are together.
-    const explode = section ? together(file.explode ?? {}) : (file.explode ?? {})
-    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section, explode, scanViews: file.scans ?? {} })
+    store.setState({ ...NO_OBJECT, objectId, scansKnown: false, layout: file.layout ?? '', layers: file.layers, section: sectionOf(file.section), explode: file.explode ?? {}, scanViews: file.scans ?? {} })
   },
 
   applyBuild(build: BuildState): void {
@@ -220,24 +217,26 @@ export const actions = {
    * Cut the parts by a plane, or by none, by hand: when a drag of the plane is
    * let go, a field is left, a button is pressed. It is the person's own
    * choice, whatever the agent had shown, and is what the scene file keeps.
-   * A section is never drawn exploded: with a plane the parts come together,
-   * in every layout (the plane is the object's), and only how far apart they
-   * were is forgotten.
+   * A section is never drawn exploded: with a plane, how far apart the parts
+   * of the layout shown are drawn is 0 from now, as if set by hand (along
+   * what, and how far that reaches, are kept). Another layout keeps its own,
+   * and is drawn together while the section is there (`explodeNow`).
    */
   setSection(plane: SectionPlane | null): void {
     const s = store.getState()
     const section = plane && snappedSection(plane)
     if (samePlane(section, s.section) && !s.shownByAgent?.section) return
-    const { section: _theirsAgain, explode: agents, ...rest } = s.shownByAgent ?? { visible: {} }
-    // Together is their own choice too, whatever the agent had drawn apart.
-    const shownByAgent = section || !agents ? rest : { ...rest, explode: agents }
-    store.setState({ section, explode: section ? together(s.explode) : s.explode, edits: s.edits + 1, shownByAgent: s.shownByAgent && (nothingShown(shownByAgent) ? null : shownByAgent) })
+    const { section: _theirsAgain, ...rest } = s.shownByAgent ?? { visible: {} }
+    const cut = section && s.layout ? apartByHand(s.explode, s.shownByAgent ? rest : null, s.layout, { amount: 0 }) : { explode: s.explode, shownByAgent: s.shownByAgent && rest }
+    store.setState({ section, explode: cut.explode, edits: s.edits + 1, shownByAgent: cut.shownByAgent && (nothingShown(cut.shownByAgent) ? null : cut.shownByAgent) })
   },
 
   /**
    * Draw the parts of the layout shown apart, or otherwise apart, by hand:
-   * what is left out of `change` keeps its value. It is the person's own
-   * choice, whatever the agent had shown, and is what the scene file keeps.
+   * what is left out of `change` keeps its value. What is set is the
+   * person's own choice and is what the scene file keeps; where the agent
+   * shows that layout otherwise, the fields they did not set stay the agent's
+   * on screen, for now, and theirs as they had them (as with a scan's view).
    * Returns why not, as a sentence (there is a section: one is never drawn
    * exploded), or null.
    */
@@ -247,17 +246,16 @@ export const actions = {
     if (!layout) return null
     const had = s.explode[layout] ?? NO_EXPLODE
     const next = explodeOf({ ...had, ...change }) ?? had
-    if (s.section !== null && next.amount > 0) return SECTION_FIRST
+    if (s.section !== null && change.amount !== undefined && next.amount > 0) return SECTION_FIRST
     const agents = s.shownByAgent?.explode
     if (sameExplode(next, had) && !(agents && layout in agents)) return null
-    let shownByAgent = s.shownByAgent
-    if (shownByAgent && agents && layout in agents) {
-      const { [layout]: _theirsAgain, ...others } = agents
-      const { explode: _all, ...rest } = shownByAgent
-      const left = Object.keys(others).length > 0 ? { ...rest, explode: others } : rest
-      shownByAgent = nothingShown(left) ? null : left
+    let { explode, shownByAgent } = apartByHand(s.explode, s.shownByAgent, layout, change)
+    // Drawn apart by their own hand in a view the agent took the cut out of: no cut is theirs now. A view holds one or the other.
+    if (next.amount > 0 && shownByAgent?.section?.theirs) {
+      const { section: _theirsNoMore, ...rest } = shownByAgent
+      shownByAgent = rest
     }
-    store.setState({ explode: { ...s.explode, [layout]: next }, edits: s.edits + 1, shownByAgent })
+    store.setState({ explode, edits: s.edits + 1, shownByAgent: shownByAgent && (nothingShown(shownByAgent) ? null : shownByAgent) })
     return null
   },
 
@@ -269,8 +267,8 @@ export const actions = {
    * saying; this counts as no edit of theirs. With `scans`, each scan named
    * is looked at that way too (what is left out of one keeps its value).
    * With `explode`, the parts of that layout are drawn apart so, or together
-   * for null. A section is never drawn exploded: where the parts are cut
-   * once this is done, those of every layout are together.
+   * for null. A section is never drawn exploded: while the parts are cut,
+   * whoever cut them, nothing is drawn apart, whatever is kept here.
    */
   showForAgent(layout: string, visible: Record<string, boolean>, section?: SectionPlane | null, scans?: Record<string, ScanView>, explode?: ExplodeState | null): void {
     const s = store.getState()
@@ -330,9 +328,9 @@ export const actions = {
       }
       explodes = now ? { ...others, [name]: now } : others
     }
+    // Nothing is put together here for a cut: while there is one nothing is drawn apart (`explodeNow`), and what
+    // was apart is apart again when the cut is gone.
     if (explode !== undefined) drawApart(layout, explode && explodeOf(explode))
-    // Never apart and cut: the cut is what was asked for, or what is on screen and was not taken away.
-    if ((section !== undefined ? section : s.section) !== null) for (const name of Object.keys(explodes)) drawApart(name, null)
     if (Object.keys(apart).length > 0) theirs.explode = apart
     else delete theirs.explode
     store.setState({ ...next, layers, scanViews, explode: explodes, shownByAgent: nothingShown(theirs) ? null : theirs })
@@ -525,14 +523,12 @@ export function partsInLayout(s: TornoState, layout = s.layout): Part[] {
 
 /**
  * How the parts of a layout (the one shown, when none is named) are drawn apart now, or null when they are not:
- * nothing is while there is a section, which is never drawn exploded, nor of a layout with fewer than two parts,
- * whatever is kept of it. For display only: no position, ref or number that is kept or told is of a part as it is
- * drawn apart.
+ * the rule is `explodeShown` (nothing while there is a section, nor of fewer than two parts, nor of parts that
+ * share the centre they would go from), whatever is kept of the layout. For display only: no position, ref or
+ * number that is kept or told is of a part as it is drawn apart.
  */
 export function explodeNow(s: Pick<TornoState, 'explode' | 'section' | 'layout' | 'scene'>, layout = s.layout): ExplodeState | null {
-  const explode = s.explode[layout]
-  if (s.section !== null || !isExploded(explode)) return null
-  return (s.scene?.parts.filter((p) => p.layout === layout).length ?? 0) >= 2 ? explode : null
+  return explodeShown(s.explode[layout], s.section, s.scene ? s.scene.parts.filter((p) => p.layout === layout) : [])
 }
 
 /** Keys of the parts of a layout that are switched on. */
@@ -569,15 +565,29 @@ export function sceneFileOf(s: TornoState): SceneFile {
     if (theirs === null) delete explode[name]
     else explode[name] = theirs
   }
+  // One or the other: the file never opens to a layout that is both cut and apart. Another layout keeps its own.
+  if (section && layout && explode[layout]?.amount > 0) explode[layout] = { ...explode[layout], amount: 0 }
   // What says nothing but what is so anyway is left out.
   for (const [name, one] of Object.entries(explode)) if (sameExplode(one, NO_EXPLODE)) delete explode[name]
   return { ...(layout ? { layout } : {}), layers, ...(section ? { section } : {}), ...(Object.keys(scans).length > 0 ? { scans } : {}), ...(Object.keys(explode).length > 0 ? { explode } : {}) }
 }
 
-/** Every layout's parts together: only how far apart they were drawn is forgotten, not along what or how far that reaches. */
-function together(explode: Record<string, ExplodeState>): Record<string, ExplodeState> {
-  if (!Object.values(explode).some(isExploded)) return explode
-  return Object.fromEntries(Object.entries(explode).map(([name, one]) => [name, one.amount > 0 ? { ...one, amount: 0 } : one]))
+/**
+ * What a change by the person's own hand makes of how a layout is drawn apart: on screen, and in what is
+ * remembered of theirs where the agent shows that layout otherwise. Only the fields they set are theirs from now;
+ * the others stay as the agent shows them, and as the person had them. Nothing is left to remember once the two agree.
+ */
+function apartByHand(explode: Record<string, ExplodeState>, shown: TornoState['shownByAgent'], layout: string, change: Partial<ExplodeState>): { explode: Record<string, ExplodeState>; shownByAgent: TornoState['shownByAgent'] } {
+  const had = explode[layout]
+  const onScreen = explodeOf({ ...(had ?? NO_EXPLODE), ...change }) ?? had ?? NO_EXPLODE
+  const next = had === undefined && sameExplode(onScreen, NO_EXPLODE) ? explode : { ...explode, [layout]: onScreen }
+  const memory = shown?.explode?.[layout]
+  if (!shown || !memory) return { explode: next, shownByAgent: shown }
+  const theirs = explodeOf({ ...(memory.theirs ?? NO_EXPLODE), ...change }) ?? memory.theirs ?? NO_EXPLODE
+  const { [layout]: _was, ...others } = shown.explode ?? {}
+  const remembered = sameExplode(theirs, onScreen) ? others : { ...others, [layout]: { theirs } }
+  const { explode: _all, ...rest } = shown
+  return { explode: next, shownByAgent: Object.keys(remembered).length > 0 ? { ...rest, explode: remembered } : rest }
 }
 
 /** Whether two explodes draw the parts the same: both together, whatever else they say, or the same apart. */

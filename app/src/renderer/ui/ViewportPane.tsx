@@ -197,7 +197,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return viewport.getCamera()
       },
       stale: s.build?.stale ? staleMessage(s.build.status) : null,
-      exploded: explodeNow(s) ? EXPLODED_TOOLS : null,
+      // By the store and by the screen: the parts are still apart for a moment after the store says together (and under a slider being dragged before it says apart), and what a pointer's ray meets then is not where the parts are.
+      exploded: explodeNow(s) !== null || viewport.exploded() ? EXPLODED_TOOLS : null,
       descriptor: (ref) => descriptorOf(objectId, revision, layout, ref),
       describe: (ref) => describeWhole(objectId, revision, layout, ref),
       commit: (mark) => commitMark(objectId, mark),
@@ -238,7 +239,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
     if (e.target instanceof Element && e.target.closest(TYPING)) return
     // No tool but Select is handed a key either while the parts are drawn apart: a key measures and keeps as a press does.
-    const handed = tool && (tool.id === 'select' || explodeNow(store.getState()) === null) ? tool : undefined
+    const handed = tool && (tool.id === 'select' || (explodeNow(store.getState()) === null && !viewport.exploded())) ? tool : undefined
     if (handed?.onKey?.(e, context())) return e.preventDefault()
     if (e.key !== 'Escape' || toolStore.getState().tool === 'select') return
     setTool('select')
@@ -259,6 +260,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // A mark that can no longer be put somewhere else here (it is gone, resolved, or of another layout or object) is left be.
     if (toolStore.getState().replacing && replacingIn(s) === null) endReplace()
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
+    const apart = explodeNow(s)
+    const wasApart = explodeNow(prev)
+    // Together before a cut is made, by order and not by what a frame happens to see: a section is never drawn across parts that are apart.
+    if (apart === null && wasApart !== null && s.section !== null) viewport.setExplode(null)
     // The cut is of the object: another object has its own, or none.
     if (s.section !== prev.section) viewport.setSection(s.section)
     if (s.selection !== prev.selection && s.objectId === prev.objectId && s.scene === prev.scene && s.layout === prev.layout) reportSelection(s)
@@ -274,8 +279,6 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // What was pointed at belongs to the object, the layout and the build it was pointed at in.
     if (s.objectId !== prev.objectId || s.layout !== prev.layout || s.revision !== prev.revision || (s.build?.stale ?? false) !== (prev.build?.stale ?? false)) putDown()
     // The parts are drawn apart from now: whatever a tool had under way was of the parts where they are, and is dropped once.
-    const apart = explodeNow(s)
-    const wasApart = explodeNow(prev)
     if (apart !== null && wasApart === null) putDown()
     if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
       viewport.setScene(NO_SCENE, new ArrayBuffer(0))

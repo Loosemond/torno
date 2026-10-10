@@ -10,7 +10,7 @@ import { chipSize, drawLabels, type LabelStyle } from './overlay'
 /** What the overlay needs of the viewport it lies over. */
 export interface OverlayHost {
   readonly canvas: HTMLCanvasElement
-  readonly marks: Pick<MarkLayer, 'labels' | 'markOf' | 'anchorOf' | 'offsetOf' | 'activeId'>
+  readonly marks: Pick<MarkLayer, 'labels' | 'markOf' | 'anchorOf' | 'offsetOf' | 'drawn' | 'activeId'>
   camera(): THREE.Camera
   layout(): string
   style(): LabelStyle & { accent: string }
@@ -82,7 +82,7 @@ export class OverlayPass {
     const ys = [at[1], rect.top + label.box.y, rect.top + label.box.y + label.box.h]
     // Where it is drawn: with its part, while the parts are drawn apart (`anchorOf` says so of its anchor already).
     const by = host.marks.offsetOf(mark)
-    for (const point of markPoints(mark)) {
+    for (const point of markPoints(host.marks.drawn(mark))) {
       const [x, y] = host.project([point[0] + by[0], point[1] + by[1], point[2] + by[2]])
       xs.push(x)
       ys.push(y)

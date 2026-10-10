@@ -144,7 +144,7 @@ describe('marks while the parts are drawn apart', () => {
     expect(markOffset({ kind: 'arrow', from: { point: [0, 0, 12], part: 'lid' }, to: [0, 0, 30] } as unknown as Mark, offsets)).toEqual([0, 0, 15])
   })
 
-  const across: DimensionMark = { ...BASE, id: 'M5', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 2.5], part: 'base', ref: 'base/F4' }, b: { point: [0, 0, 12], part: 'post', ref: 'post/F0' }, value: 9.5, points: [[0, 0, 2.5], [0, 0, 12]] }
+  const across: DimensionMark = { ...BASE, id: 'M5', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 2.5], part: 'base', ref: 'base/F4' }, b: { point: [0, 0, 12], part: 'post', ref: 'post/F0' }, value: 9.5, measuredRevision: 1, points: [[0, 0, 2.5], [0, 0, 12]] }
   const APART = { base: [0, 0, -30] as Vec3, post: [0, 0, 40] as Vec3 }
 
   it('draws each mark where its part is drawn, and its label there; back where it is when the parts are together', () => {
@@ -175,22 +175,61 @@ describe('marks while the parts are drawn apart', () => {
     expect(label('M1').y).toBe(before.M1.y)
   })
 
-  it('does not draw a dimension between two parts that moved differently, nor its label, and draws it again when they are together', () => {
+  /** Whether a mark's objects are drawn dimmed all over, and whether every line of them is dashed. */
+  const looks = (marks: MarkLayer, id: string): { dimmed: boolean; dashed: boolean } => {
+    const object = marks.group.children.find((one) => one.name === id)!
+    const twins = (object.userData.sizing as { twins: Array<{ front: THREE.Object3D }> }).twins
+    const lines: Array<{ material: { dashed: boolean } }> = []
+    object.traverse((child) => {
+      if ((child as { isLineSegments2?: boolean }).isLineSegments2) lines.push(child as never)
+    })
+    return { dimmed: twins.every((twin) => !twin.front.visible), dashed: lines.length > 0 && lines.every((line) => line.material.dashed) }
+  }
+  const BOXES = { base: { min: [-20, -15, 0] as Vec3, max: [20, 15, 5] as Vec3 }, post: { min: [-4, -4, 5] as Vec3, max: [4, 4, 25] as Vec3 } }
+
+  it('draws a dimension between two parts drawn apart dimmed and dashed, each end with its own part, and as it was when they are together (M3)', () => {
     const { marks, drawn, labelled } = layer()
     marks.setMarks([...MARKS, across], 1)
     marks.show('assembly')
-    expect(drawn()).toContain('M5')
-    marks.setOffsets(APART)
-    expect(drawn()).not.toContain('M5')
-    expect(labelled()).toEqual(['M1', 'M2', 'M3'])
-    expect(marks.markOf('assembly', 'M5')).toBeUndefined()
-    expect(marks.split('assembly')).toEqual(['M5'])
-    // Both moved alike: it is drawn, moved with them.
-    marks.setOffsets({ base: [10, 0, 0], post: [10, 0, 0] })
-    expect(drawn()).toContain('M5')
-    expect(marks.split('assembly')).toEqual([])
-    marks.setOffsets({})
+    expect(looks(marks, 'M5')).toEqual({ dimmed: false, dashed: false })
+    marks.setOffsets(APART, BOXES)
     expect(drawn()).toContain('M5')
     expect(labelled()).toEqual(['M1', 'M2', 'M3', 'M5'])
+    expect(looks(marks, 'M5')).toEqual({ dimmed: true, dashed: true })
+    expect(marks.split('assembly')).toEqual(['M5'])
+    // Its ends ride their parts: it is drawn from where the base is drawn to where the post is.
+    const as = marks.drawn(across) as DimensionMark
+    expect([as.a.point, as.b!.point, as.points]).toEqual([[0, 0, -27.5], [0, 0, 52], [[0, 0, -27.5], [0, 0, 52]]])
+    expect(marks.group.children.find((one) => one.name === 'M5')!.position.toArray()).toEqual([0, 0, 0])
+    // The mark itself is as it was kept, and is still the mark to work on.
+    expect(marks.markOf('assembly', 'M5')).toBe(across)
+    expect(across.points).toEqual([[0, 0, 2.5], [0, 0, 12]])
+    // What a sphere round the marks must hold is where its ends are drawn.
+    expect(marks.extend(new THREE.Sphere(new THREE.Vector3(), 1), 'assembly').containsPoint(new THREE.Vector3(0, 0, 51))).toBe(true)
+    // Both moved alike: one thing again, moved with them, drawn as ever.
+    marks.setOffsets({ base: [10, 0, 0], post: [10, 0, 0] }, BOXES)
+    expect([looks(marks, 'M5'), marks.split('assembly'), marks.drawn(across)]).toEqual([{ dimmed: false, dashed: false }, [], across])
+    marks.setOffsets({})
+    expect([looks(marks, 'M5'), marks.split('assembly')]).toEqual([{ dimmed: false, dashed: false }, []])
+  })
+
+  it('draws an arrow from one part to another the same way: its foot with the part it is on, its head with the part it points at', () => {
+    const toPost = { ...BASE, id: 'M6', kind: 'arrow', from: { point: [10, 0, 5], part: 'base', ref: 'base/F4' }, to: [3, 0, 15] } as Mark
+    const intoSpace = { ...BASE, id: 'M7', kind: 'arrow', from: { point: [10, 0, 5], part: 'base', ref: 'base/F4' }, to: [40, 0, 60] } as Mark
+    const along = { ...BASE, id: 'M8', kind: 'arrow', from: { point: [10, 0, 5], part: 'base', ref: 'base/F4' }, to: [15, 0, 5.2] } as Mark
+    expect(markOffset(toPost, APART, BOXES)).toBe('split')
+    // Its head in the open, or on its own part: it goes whole with what it starts on.
+    expect(markOffset(intoSpace, APART, BOXES)).toEqual([0, 0, -30])
+    expect(markOffset(along, APART, BOXES)).toEqual([0, 0, -30])
+    // Without the parts' boxes nothing says what a head points at.
+    expect(markOffset(toPost, APART)).toEqual([0, 0, -30])
+    const { marks } = layer()
+    marks.setMarks([...MARKS, toPost, intoSpace])
+    marks.show('assembly')
+    marks.setOffsets(APART, BOXES)
+    expect(marks.drawn(toPost)).toMatchObject({ from: { point: [10, 0, -25] }, to: [3, 0, 55] })
+    expect(looks(marks, 'M6')).toEqual({ dimmed: true, dashed: true })
+    expect(looks(marks, 'M7')).toEqual({ dimmed: false, dashed: false })
+    expect(marks.split('assembly')).toEqual(['M6'])
   })
 })

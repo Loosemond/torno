@@ -12,7 +12,8 @@ import {
   NOT_A_PLANE,
   sectionOf
 } from '../../shared/view'
-import { NOT_EXPLODED_AND_CUT, explodeOf, isExploded } from '../../shared/explode'
+import { NOT_EXPLODED_AND_CUT, explodeOf, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
+import { spanningMarks } from '../viewport/marks/apart'
 import { tenth } from '../../shared/format'
 import { type ScanView, MIN_SCAN_OPACITY, standingOf } from '../../shared/scans'
 import { colorFor, colorsByName } from '../viewport/palette'
@@ -91,6 +92,9 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   const explode = asked === undefined ? undefined : isExploded(asked) ? asked : null
   // A section is never drawn exploded: the one this asks for, or the one on screen unless this takes it away.
   if (explode && (section !== undefined ? section : s.section)) throw new Error(NOT_EXPLODED_AND_CUT)
+  // Asked apart where nothing can be: said, and nothing is changed.
+  const nothing = explode ? nothingApart(explode, parts) : null
+  if (nothing !== null) throw new Error(nothingApartText(nothing, layout))
 
   // The viewport follows the store as this is set, so the camera below is fitted to what it leaves on.
   // For now only: what the person had chosen stays what their scene file says.
@@ -113,7 +117,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // Drawn apart now, by this or as they were: said as the caption of a picture says it, with what that means of the scans.
   const apart = explodeNow(after, layout)
   return {
-    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''}${explodedNote(apart, shown.length > 0)} · ${ortho ? 'orthographic' : 'perspective'}`,
+    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''}${explodedNote(apart, shown.length > 0, spanningMarks(after.marks, layout, partsInLayout(after, layout), apart, new Set(partsInLayout(after, layout).filter((p) => after.layers[p.name]?.visible === false).map((p) => p.name))))} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,
     revision: after.revision,
     stale: after.build?.stale ?? false,

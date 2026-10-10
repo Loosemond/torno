@@ -10,7 +10,7 @@ import type { NearestAnchor } from '../marks/reanchor'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
 import { TOOLS } from './schemas'
 import { describeTool, marksTool, type ToolDeps } from './tools'
-import { lookTool, sceneTool, showTool } from './viewTools'
+import { explodeAsked, lookTool, sceneTool, showTool } from './viewTools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 const STAND: ObjectInfo = { id: 'helmet-stand', name: 'helmet-stand', dir: '/ws/helmet-stand', model: 'stand.py' }
@@ -1327,6 +1327,46 @@ describe('explode', () => {
     expect((await showTool(cut, 'bracket', { explode: 0.5, section: null })).isError).toBeUndefined()
     expect((await showTool(cut, 'bracket', { explode: 0 })).isError).toBeUndefined()
     expect(d.w.shows).toHaveLength(5)
+  })
+
+  it('refuses what is no explode with what one is, and never makes one of it in silence (I4)', async () => {
+    const d = fake()
+    for (const given of [50, -0.2, 1.01, Number.NaN, { amount: 0.5, axis: 'up' }, { amount: 0.5, scale: 100 }, { amount: 0.5, scale: 0.1 }, { amount: 7 }, { axis: 'z' }, { amount: '0.5' }, 'half', [0.5], true]) {
+      for (const tool of [lookTool, showTool]) {
+        const said = textOf(await tool(d, 'bracket', { explode: given as never }))
+        expect(said, JSON.stringify(given)).toMatch(/^explode is a number from 0 to 1 \(how far apart the parts are drawn, away from the centre of the layout\), or \{"amount": 0.5, "axis": "z", "scale": 2\}/)
+        expect(said).toContain('scale from 0.25 to 4')
+      }
+    }
+    // A key it does not take is named, with the one that was meant.
+    expect(textOf(await lookTool(d, 'bracket', { explode: { amount: 0.5, axix: 'z' } as never }))).toBe('explode takes no "axix": did you mean axis? An unknown key is not ignored: nothing was done. It takes: amount, scale, axis.')
+    expect([d.looks, d.w.shows]).toEqual([[], []])
+    // The ends of the ranges are in them.
+    expect((await lookTool(d, 'bracket', { explode: { amount: 1, scale: 0.25, axis: 'centre' } })).isError).toBeUndefined()
+    expect((await lookTool(d, 'bracket', { explode: { amount: 1, scale: 4 } })).isError).toBeUndefined()
+    expect(explodeAsked(1)).toEqual({ amount: 1, scale: 1, axis: 'centre' })
+    expect([explodeAsked(undefined), explodeAsked(null), explodeAsked(0), explodeAsked({ amount: 0, axis: 'z' })]).toEqual([undefined, null, null, null])
+  })
+
+  it('says that nothing can be drawn apart where a layout has one part, or parts that share the centre they would go from (M2)', async () => {
+    const scene: Scene = {
+      ...SCENE,
+      layouts: ['assembly', 'solo', 'nested'],
+      parts: [...SCENE.parts.filter((p) => p.layout === 'assembly'), part('solo', 'base', [0, 0, 0], [1, 1, 1]), part('nested', 'ring', [-20, -20, 0], [20, 20, 10]), part('nested', 'shaft', [-3, -3, -15], [3, 3, 25])]
+    }
+    const d = fake({ scene: () => ({ revision: 3, scene }) })
+    const ONE = 'nothing can be drawn apart in layout solo: it has fewer than two parts (explode: null draws it as it is)'
+    const SHARED = 'nothing is drawn apart from the centre in layout nested: its parts share a centre; give an axis, {"amount": 0.5, "axis": "z"}'
+    expect(textOf(await lookTool(d, 'bracket', { explode: 0.5, layout: 'solo' }))).toBe(ONE)
+    expect(textOf(await showTool(d, 'bracket', { explode: 0.5, layout: 'solo' }))).toBe(ONE)
+    expect(textOf(await lookTool(d, 'bracket', { explode: 1, layout: 'nested' }))).toBe(SHARED)
+    expect(textOf(await showTool(d, 'bracket', { explode: 1, layout: 'nested' }))).toBe(SHARED)
+    expect([d.looks, d.w.shows]).toEqual([[], []])
+    // Along an axis they part; and the layout on screen is the one meant when none is named.
+    expect((await lookTool(d, 'bracket', { explode: { amount: 1, axis: 'z' }, layout: 'nested' })).isError).toBeUndefined()
+    expect((await showTool(d, 'bracket', { explode: 0.5 })).isError).toBeUndefined()
+    // Together is never refused, wherever.
+    expect((await showTool(d, 'bracket', { explode: null, layout: 'solo' })).isError).toBeUndefined()
   })
 
   it('names explode in the schemas of look and show, so that the wrapper lets it through', () => {
