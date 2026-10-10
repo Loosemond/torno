@@ -1,0 +1,63 @@
+# torno: the exported page (`app/src/export`)
+
+The page an export writes: its style (`page.css`) and its viewer (`viewer/`), which
+`app/scripts/build-viewer.mjs` bundles into `out/viewer/viewer.js`. What makes the file is in
+`src/main/export` (see also `app/src/main/CLAUDE.md`, "Export").
+
+What binds every part of torno is in the `CLAUDE.md` at the root of the repository: read that first. Here
+is the detail of this folder, under the heading it has there. Paths are from `app/`.
+
+## Export
+
+- One HTML file of an object, or of several, for someone who has no torno (`src/main/export`, `src/export`).
+  It is made in main from the last good build of this run of each object (`Builds.scene`): nothing is built for
+  an export, and an object not built in this run cannot be exported (`NOT_BUILT`).
+- What is in a file is what the export sheet (`ui/ExportSheet.tsx`) showed ticked, and nothing else
+  (`ExportData` in `shared/exportdata.ts`): the parts of every layout with their colours, the explode kept for
+  each layout, the saved views that are the person's (`!view.proposed`, without the agent's `note`), the marks
+  and their notes only with "Include marks" (off by default; drafts go with them and the sheet says how many),
+  each scan only by its own tick (off by default, under `SCAN_WARNING`). A part switched off in torno is left
+  out, with its mesh and the marks that are only on it, unless "Include parts that are switched off" is ticked
+  (`ExportRequest.hidden`); a resolved mark is left out unless "Include resolved marks" is
+  (`ExportRequest.resolved`). The sheet names what goes with counts, says of an object whose model has failed
+  since that the file is of its last good build, and its size follows every tick. Never in it: a path of this machine (the workspace, a scan's `source`, the model's
+  file), what a model printed, the session, `state.md`, a view the agent proposed and nobody kept, a region
+  painted on a scan, a mark whose part is gone. `build.test.ts` and `e2e/export.spec.ts` hold the file to that
+  (no workspace root, no home folder, no user name, no `http://` at all).
+- A mesh is packed by `packMesh`: positions and edge points as `u16` in the part's own box (a coordinate comes
+  back within half of `span / 65535`), normals as `i8`, indices `u16` or `u32`; deflated (`zlib`, level 9) and
+  base64'd, by the part's `hash`, so a shape in two layouts is in the file once. A faceted part (`shared/faceted.ts`)
+  has no edges in the file: the page draws its creases. A scan is reduced by `clusterScan` (`decimate.ts`) to
+  60,000 triangles and packed by `packScan`.
+- The budget (`EXPORT_BUDGET`, 12 MB): over it the largest scan goes to 30,000, then 15,000 triangles, then out
+  (`SCAN_TRIANGLES`), the last of each scan said in `dropped`: in the sheet before saving, and in the page under
+  "About this file". Parts are never reduced; with the parts alone over it the sheet says so and writes all the same; above
+  `EXPORT_MOST` (64 MB) nothing is written. The page with nothing in it is 0.68 MB (the viewer 583 kB, the
+  fonts 82 kB as base64); a part costs about 10 bytes a triangle.
+- Whatever is keyed by the name of a part or a layout, in main and in the page, is a `Map` or a record with no
+  prototype (`record`), and what was read from a file is asked only for its own keys (`own`, both in
+  `shared/exportdata.ts`); `explodeOffsets` answers with such a record. A part may be called `constructor`.
+- The page (`main/export/html.ts`): its policy is `policyOf(script, style)`: `default-src 'none'`, the one
+  script and the one style named by their sha256 (no `unsafe-inline`: no other script, no handler in an
+  attribute, no `eval`), `font-src data:`, `base-uri 'none'`, `form-action 'none'`. The viewer sets styles
+  through the CSSOM only, never a `style` attribute. Fonts are `font-display: swap`; its data is JSON in a
+  script element that is not run, with every `<`, U+2028 and U+2029 escaped; `build-viewer.mjs` refuses a bundle
+  that holds `</script`, `<!--`, a dynamic import, `eval`, `innerHTML`, `MeshBVH`, `react` or `ipcRenderer`, or
+  is over 650,000 bytes; `export/page.test.ts` holds the viewer's imports to three.js, `shared/*` and
+  `lights`, `ground`, `views`, `theme` of the viewport.
+- The viewer (`src/export/viewer`: `main`, `model`, `overlay`, `panel`) sets every word of the workspace as
+  text (`textContent`), never as markup. It shares its rules with the app: `explodeShown` and `explodeOffsets`
+  (never a section and an explode at once: `neverBoth` in `shared/explode.ts` is the one rule for what setting
+  one makes of the other, asked by the window's store and by the page), `keepsNothing`, the palette,
+  `number`, and the viewport's lights, ground and standard views. It draws on demand, picks nothing and
+  measures nothing: a dimension shows the text torno made of it on the build exported (`shownDimension`: no
+  value and no verdict that is not of that build), and the page says so. A cut is by clipping alone, the inside
+  in a darker tone, and the page says it draws no cut faces; a mark is a label with a dot at its point (a
+  dimension has one at each end of its line), put under a label it would cover; a resolved mark is in the list
+  and is labelled only when asked. The theme is the system's, light or dark, chosen in the footer line. With
+  no WebGL 2 or no `DecompressionStream` it says so in words, alone on the page; a failure to show an object
+  is said once and never loops. Each object's meshes are unpacked when it is first shown.
+- `window.__tornoExport` is the page's own hook, always there: `state()`, `setObject`, `setLayout`, `setPart`,
+  `setExplode`, `setSection`, `applyView`, `setMarks`, `setResolved`, `setTheme('system' | 'light' | 'dark')`, `pixel(fx, fy)` (of the parts and scans,
+  without the grid and the marks) and `ground()`. A test opens the file in a second `BrowserWindow` with
+  `show: false`, a session of its own that refuses and counts every request but the file itself.

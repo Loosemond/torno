@@ -1,0 +1,290 @@
+# torno: the window (`app/src/renderer`)
+
+The UI (`ui/`), the three.js viewport (`viewport/`), the tools that point at it (`tools/`), the store
+(`state/`) and the stylesheets (`styles/`: `tokens.css`, and `app.css`, which is nothing but the list of
+the stylesheets by area in the order of the cascade; `styles.test.ts` holds it to that).
+
+What binds every part of torno is in the `CLAUDE.md` at the root of the repository: read that first. Here
+is the detail of this folder, under the headings it has there. Paths are from `app/`.
+
+## Marks
+
+- User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and
+  nothing else in the UI uses those colours. A picture for the agent draws
+  every mark alike: no active mark, no selection, no hover, no gizmo. A mark
+  on a part that is not drawn is not drawn either, on screen or in a picture.
+- Tools and keys: every key torno listens to is a row of `shared/keys.ts`
+  (`KEYS`: its keys, what it does, the group the sheet lists it in, and the
+  scope it is listened to in). A handler asks `pressed(e, id)` or
+  `which(e, id)` and never names a key; a button or a tooltip takes its key
+  from `hint(id)`; the palette's tools, the view bar's views and the gizmo's
+  ways are `TOOL_KEYS`, `VIEW_KEYS` and `GIZMO_KEYS`; the sheet of keys (`?`,
+  `ui/KeySheet.tsx`) is `cheatSheet()`. A new key is added there first:
+  `keys.test.ts` reads the sources of the window, the preload and
+  `main/devkeys.ts` and fails for any read of `.key`, `.code`, `.keyCode` or
+  `.which` outside `shared/keys.ts` (a handler hands the press whole to
+  `pressed` or `which`; main through `pressOf`), for a key of the keyboard
+  named in a source, for a key or a chord written out in a text, for two rows
+  of one scope with the same key, for a key of the shape in hand that the
+  viewport has too (`keyClashes`), and for a key heard while typing (scope
+  `global`) that a field or the terminal would take (`typed`). The scan is by
+  source text: what else in the window is called a key (a part's, a light's,
+  a row's) is read through a receiver listed in the test (`NOT_A_PRESS`; a one-letter name only in the
+  files `SHORT_NAMES` lists), a key taken apart (`({ key }) =>`, `const { key } = e`) is a read too, and
+  its fixtures hold every spelling of a bypass it is to catch.
+  `Ctrl+Shift+B` is "Rebuild" (`rebuild`, heard everywhere; while a build runs the button reads
+  "Building…" and neither it nor the key nor `Builds.rebuild` starts one over; the button is in
+  the status line, `ui/BuildStatus.tsx`); main's sentences name it by
+  `REBUILD_HOW` in `shared/build.ts`. A tool in hand is offered a key before the viewport is, so the
+  Region tool's `E` stays its own and explode's is the viewport's. Shift with
+  a key is that key unless Shift with it has a row of its own in that scope.
+  A slider is no field to type in (`ui/typing.ts`): the keys work with one in
+  focus. The exported page's own keys (`src/export/viewer`) are not in the
+  table: it is another program. The Measure tool is `tools/measureTool.ts`;
+  what its clicks measure is chosen in the strip `MeasureChoice` of
+  `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
+  `ui/DimensionFields.tsx`. A tool is a `Tool`
+  (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
+  subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
+  through React or the store.
+
+## Section
+
+- Drawing is `viewport/section.ts`: the parts' materials are clipped, and each
+  closed solid (`BuiltPart.solid`) gets its cut face by stencil counting, per
+  part, with an outline from the mesh. A part that is no closed solid is cut
+  open. What lies in the plane is kept (`KEPT_WITHIN_MM`); a part the plane
+  only touches or leaves nothing of is not drawn (`keepsNothing`). Marks,
+  grid and gizmo are not cut; a mark anchored in the half taken away is drawn
+  dimmed (`MarkLayer.setSection`).
+- Picking sees what is drawn (`pickUnder`): on a cut face nothing is hit and
+  the pointer says so.
+- Taken in hand with nothing cut (`X`), the Section tool cuts at once: `newCut` (`shared/cut.ts`) puts the
+  plane through the middle of the parts (to 0.01 mm), across the axis the camera looks most along, open
+  towards the viewer (`towardsViewer`: the half taken away is the one on the camera's side). The bar's X, Y
+  and Z and an exported page's cut ask the same rule.
+- A number field gives the keys back to the view on Enter and on Escape (`giveKeysBack` in `ui/typing.ts`),
+  and keeps what was typed once (`toKeep` in `ui/Field.tsx`).
+- The Section tool (`tools/sectionTool.ts`) moves the plane only by a drag
+  that starts on its handle; any other drag turns the camera. The bar is
+  `ui/SectionBar.tsx`. The plane moves in the viewport during a drag and is
+  kept in the store once, on release, to the millionth of a millimetre.
+
+## Explode
+
+- `E` on a layout of one part opens no bar: the button says why for a moment.
+  Drawn apart in one go (a key, an axis or scale button), the camera is fitted
+  only when a part would leave the view, and so is a saved view that draws them apart when it is applied,
+  in the window and in an exported page (`leavesView` in `shared/explode.ts`; `Viewport.keepApartInView`). While the parts are apart no shape is in hand
+  (`connectShapeEdit`).
+- **Exploded is display only.** `Part.loc`, `Part.bbox`, every anchor, every
+  `points` of a dimension and everything the kernel is asked are of the parts
+  as built. `Viewport.setExplode` moves each part's group (`placePart`, the
+  one place a group is put; `viewport/explode.ts` holds the offsets as drawn
+  and as they will be once a move has ended, `PartsApart`), and nothing else:
+  the scans and the grid stay. The slider moves the parts as it is dragged
+  and the store keeps the amount once, on release (`actions.setExplode`);
+  `E` and the agent's `show` go there over 220 ms, a step a frame, with no
+  state in React.
+- **A pick is of the part as built.** `Viewport.pick` takes the display
+  offset of the part hit away from the point (`asBuilt`). Selecting,
+  hovering, "Insert" and the readout at the pointer work exploded.
+  `Viewport.project(point, part)` says where a point of a part is drawn;
+  `bounds()`, `partBoxes()` and `sectionBox()` are of the parts as built,
+  while `fit` and the named views frame them where they are drawn.
+- **Nothing is marked, moved or measured from the window while the parts
+  are drawn apart.** Pin, Arrow, Draw, Shape, Measure, Section, Align and
+  Region are handed no pointer event and no key (`routePointer`,
+  `ToolContext.exploded`), and the pointer says `EXPLODED_TOOLS`. The gate
+  reads the store **and the screen** (`explodeNow(s) !== null ||
+  viewport.exploded()`): the parts are still apart for a moment after the
+  store says together, and under a slider being dragged before it says
+  apart, and a pointer's ray is of the screen. What a tool had under way is
+  dropped once when the parts go apart. "Note" on the selection, "Re-place"
+  and a region's "Edit" are disabled with the same words, the gizmo holds
+  nothing (a shape's or a scan's), and the points of an alignment and the
+  brush ring are not drawn.
+- **Marks are drawn moved with their part** (`viewport/marks/apart.ts`
+  `markOffset`, `MarkLayer.setOffsets`): the mark's objects and its label,
+  never the mark. A mark whose ends are on parts that moved differently
+  (`'split'`: a dimension between two parts, an arrow whose head is at
+  another part than its foot, by the parts' boxes) is drawn between them
+  where they are drawn, dimmed and dashed (`spanning`, `setDashed`): the
+  line is as long as the parts are apart, which measures nothing. Its row
+  says `spans parts drawn apart`, the caption of a picture and of `show`
+  names it (`spanningMarks`, `explodedNote`), and a dimension's value stays
+  the kernel's, of the parts as built. A mark on no part, and a region, do
+  not move.
+- **A section is never drawn exploded (D2).** While there is a section
+  nothing is drawn apart (the rule above). `actions.setExplode` answers
+  `Take the section away to draw the parts apart` to an amount above 0;
+  `actions.setSection` with a plane sets the `amount` of the layout shown to
+  0, as if by hand. Another layout keeps its own, in the file too, and is
+  drawn together while the section is there, apart again when it is gone.
+  `sceneFileOf` never writes a section with an amount above 0 for the layout
+  the file opens to. `look` and `show` refuse the two together
+  (`NOT_EXPLODED_AND_CUT`), in main and again in the window. A picture that
+  is cut by a plane of its own while the screen is exploded is drawn of the
+  parts together; so is one that colours a scan by its distance to a part
+  (`scanColour`), and its caption says so. Scans are not moved: a caption
+  that draws both says `scans are where they are`, and so does the bar.
+- The control is `ui/ExplodeControl.tsx`: `ExplodeToggle`, one button in the
+  view bar (pressed while the parts are apart or its bar is open, with the
+  amount beside the word; pressed while apart it puts them together), and
+  `ExplodeBar` under the view bar (`.viewbars` stacks them): the slider with
+  the amount beside it, `From centre X Y Z`, `×0.5 ×1 ×2 ×4`, and a line
+  with `role="status"` that says it is for display only, or why nothing is
+  drawn apart. The bar is the notice that the parts are not where they are
+  drawn. The view bar is one row at 1440 × 900 for an object with two
+  layouts (`explode.spec.ts` holds it to that); in a narrower pane it wraps
+  rather than run under the panels. `window.__tornoTest.exploded()` says
+  whether the viewport draws the parts apart, or is on its way there or back.
+
+## Views
+
+- **The person** saves what is on screen (`actions.saveView`, also where the
+  agent's `show` has it otherwise: they save what they see), over any view
+  of that name ("Replace"), which is theirs from then on; renames, updates
+  to what is on screen and deletes (asked twice) from the chip's menu.
+  `actions.applyView` is one edit of theirs: the layout first, every part of
+  it on but those hidden, the section or none, the layout's explode or
+  together, each scan still there as the view has it; `shownByAgent` is
+  cleared, and what the view does not set is as the person had it
+  (`sceneFileOf`). The caller then moves the camera
+  (`viewport.setView(view.camera, true)`).
+- **The strip** (`ui/ViewsStrip.tsx`, the last child of `.viewbars`,
+  `role="toolbar"`): a chip per view (`button.view-chip[data-view]`), the
+  one that is on marked (`aria-pressed`: `activeView`, while the screen
+  still shows what it holds, `viewMatches`, and until the camera rests
+  somewhere else, `actions.cameraSettled`), and "+ Save view" with one field.
+  Six chips at most (`stripChips`: the one that is on, then the proposals,
+  then the others as saved, shown in saved order), each name cut at 160 px
+  and whole in the tooltip; with more views a chip `18 more` opens the list
+  of all of them, a row each with what it holds. The strip is two rows at
+  most at the default pane (`views.spec.ts` holds it to that with 26). Its
+  menus take the focus, the arrows, Home and End; Escape and every action
+  give the focus back to the chip, and never reach the pane's own Escape.
+  A proposal is drawn dashed with the word `proposed`, "Keep" and
+  "Discard": in no mark's colour, as a view is not a mark. The digits are
+  not bound to the saved views: `1` to `4` are the standard views.
+
+## The first screen
+
+- With no folder open the window is `ui/Welcome.tsx`: what torno is, what an
+  object is and what to do, a sentence each; "Open folder"; the folders
+  opened lately; and, where torno runs from its repository, "Open the
+  example".
+- With a folder open, the folder button of the left column is a menu
+  (`ui/FolderMenu.tsx`): the recent folders, "Open folder…", "Open the
+  example". A folder torno is started with (`TORNO_WORKSPACE`) is added to the
+  recent ones; the workspace to open next stays the one chosen in the window.
+- A workspace with no object says what to make (`ui/ShowPage.tsx`), and one
+  without a `pyproject.toml` that its models are built with torno's own
+  build123d. torno runs no `uv` command there.
+
+## Light and dark
+
+- The tokens (`app/src/renderer/styles/tokens.css`) are held to their
+  contrasts by `shared/contrast.test.ts`, which reads the file: whatever is
+  read as text is 4.5:1 on the ground it stands on (`--ink` 7:1; `--muted`,
+  `--accent`, `--ok`, `--warn`, `--fail` on `--surface` and `--panel`; the
+  accent on its wash; the sixteen terminal colours on the panel, but the dark
+  theme's black); what is only drawn is 3:1 (the two mark colours on the
+  surface); a hairline is between 1.15 and 2. A token is changed there first.
+- A verdict (`--ok`, `--fail`) is no mark's colour to the eye, in both
+  themes: 1.5:1 at least from the mark colour of its hue (`--agent-mark`,
+  `--user-mark`), darker in light and lighter in dark. A verdict is read, a
+  mark is drawn. Muted words and the verdicts are 4.5:1 on `--accent-wash`
+  too. The dark `--warn` is an ochre, not an amber.
+- A mark's lines (a pin's leader, an arrow's shaft, a stroke, a dimension's
+  lines, a shape's outline) are drawn over a casing in `--panel`, 2 px wider
+  (`MarkColours.casing`, `Parts.cased` in `viewport/marks/markObjects.ts`; in
+  an exported page `.mark-casing` under `.mark-line`, as SVG over the
+  canvas). The line is 3:1 on its casing; the casing is 3:1 on every part
+  colour in dark and 2:1 in light, where no panel-coloured casing can do more
+  against pastel parts.
+- No text is dimmed by `opacity`, and nothing animates without end
+  (`styles/styles.test.ts` reads the stylesheets): the dot of a session at
+  work is still, and a build's beats with the count of its seconds
+  (`data-beat`, set by `BuildStatus` once a second). The axes (`--axis-x`, `-y`, `-z`) are the gizmo's and the triad's of
+  a picture, and are neither mark colour.
+- The light values are written out where no stylesheet is read
+  (`viewport/theme.ts` `LIGHT_THEME`, `viewport/sectionDrawing.ts` `SHEET`,
+  `viewport/overlay.ts` `AXIS_COLOURS`, `SURFACE` in `src/main/index.ts`,
+  `src/export/page.css`): the same test, and `export/page.test.ts`, hold them
+  to the tokens.
+
+## The page of objects
+
+- `ui/ShowPage.tsx`, over the 3D view (`store.page`: `'object' | 'objects'`; the view stays mounted under it,
+  `inert` and not painted, and the open object keeps its selection, camera and note). A workspace of several
+  objects, or of none, starts on it; one object alone is shown itself. `W` outside a field or the first row of
+  the object list brings it up (not while a button of the pointer is held: a drag in the view is not over); a
+  card, or Escape, leaves it, and what had the focus has it again.
+- **The keys on the page** are one capture-phase listener. Left alone: what is typed in a field or the
+  terminal (`TYPING`), any `input` outside the page (a slider of the left column keeps its arrows), and
+  whatever is inside a `[role="dialog"]` or `[role="alertdialog"]`. Everything else is the page's and goes no
+  further, so no tool under it is handed a key: arrows from card to card (`ui/cards.ts` `stepCard`), Enter
+  opens, `/` or a letter filters by name. **Escape goes to what is on top**: a sheet or a confirm that is
+  there to be seen (not one of the view put away under the page) gets it first, as if pressed there; then the
+  filter is emptied; then the page goes. A sheet opened over the page (the export's) needs one of those two
+  roles and nothing more.
+- **No build is ever started for a picture.** A thumbnail is made by the window when a build of an object
+  opened in this run lands (`state/thumbs.ts` `connectThumbs`): one at a time, in an idle callback, the latest
+  build of each object only, one sent again as it was passed over. It subscribes to nothing: the viewport's
+  one handler of `object.onScene` (`ViewportPane.tsx`) hands it each message (`landed`), so a build's meshes
+  cross the bridge once, and are held only until the picture is drawn. An object not built in this run keeps
+  the picture it has on file, or has none and says `No picture yet`.
+- **A card says how far its picture can be trusted** (`ui/cards.ts`): when it was made (with the year when
+  that is not this one); what it draws otherwise than the object is (`cut by its section`, `parts drawn
+  apart`, `1 part left out`); and `A source has changed since` (`thumbOf`: `behind`). The sources of an object
+  are what a change in has it built again (`Builds.open`): the `.py` files directly in its folder and in
+  `<workspace>/common` (`sourceFolders`, `newestPython`; the kernel does not say which files a model read, so
+  there is nothing finer). `sourcesMtimeMs` is the newest of them when the picture was kept, and no later
+  than when that build was started, so a source saved during the build is newer than its picture; a card is
+  behind when the newest now is newer, when either cannot be said, or when the model is another file. When
+  the last build failed the status says so in `--fail`, the picture is dimmed and is said to be `of the last
+  build that worked`. A picture is asked of main only once its card is in view or near it
+  (IntersectionObserver).
+
+## Scans
+
+- In the window a scan's bounds tree is built in a worker
+  (`viewport/scanBvh.worker.ts`), indirect, so triangle numbers hold; a scan
+  is drawn before it can be pointed at. A scan drawn at 95 % or more blocks
+  the pick of a part behind it, and the pointer says so (`hiddenByScan`); a
+  thinner one does not. Seen through, a scan lays its depth down first
+  (`depthOnly`), so only its nearest layer is blended. Nothing of a brush
+  stroke or of a drag of the gizmo goes through React or the store. A picture
+  coloured by distance is refused past 60,000 points or 1.5 s
+  (`scanDeviation.ts`): it is worked out on the window's thread. It is lit,
+  seen through beyond the range, and what is inside the part is drawn over
+  it (`ScanLayer.colourFor`): its caption says the colours are approximate.
+  A named view frames the parts; `look`'s `frame: 'all'` and "Frame" on a
+  scan's row take the scans in, and a caption says when a scan reaches
+  beyond the picture (`beyondNote`), when spread parts are not where a scan
+  drawn has them (`spreadBesideScans`), and which scans have no mesh. The
+  camera reaches for a scan no further than `SCAN_REACH` (200) times the
+  sphere round the parts (`reaching`); a scan drawn of which some is outside
+  the sphere the camera is then given is cut by the far plane, and says so
+  (`beyondReach`, each scan against that one sphere: `ScanLayerState.clipped`,
+  the chip "not all in view" on its row from `store.scansClipped`, which
+  the viewport sets with every view it reports, and `reaches beyond the
+  view: not all of it is drawn` in a picture's caption).
+- The align bar is `ui/AlignBar.tsx`, its three bodies `ui/align/`
+  (`FloorBody`, `PairsBody`, `NudgeBody`, and `format.ts` for what they
+  share); the field one number is typed in is `ui/Field.tsx`, the Region
+  bar's too, and what was typed is read by `ui/typed.ts`.
+- Refs and numbers in a sentence are set in the monospace face by
+  `ui/numbered.tsx`, a ref whole. `.torno/views/` ignores itself for git.
+- A scan and a picture coloured by distance use tokens of their own
+  (`--scan-plain`, `--deviation-*`); a region is a mark and is tinted in its
+  author's mark colour.
+
+## Export
+
+- "Export…" is a button in the status line for the open object, in the head of the page of objects for every
+  object that can be exported, and on each card that has a build of this run, for that object. The sheet is
+  modal (`aria-modal`, Tab stays in it, nothing behind it takes a click). `Ctrl+Shift+E` (the row `export` of
+  `shared/keys.ts`, heard everywhere, the terminal included) brings it up: for the open object, or from the page
+  of objects for any. There is no agent tool for it.
