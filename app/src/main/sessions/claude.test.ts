@@ -8,6 +8,7 @@ const ctx = {
   cwd: '/ws/bracket',
   mcpUrl: 'http://127.0.0.1:4100/mcp/bracket',
   hookUrl: (event: string) => `http://127.0.0.1:4100/hooks/s1/${event}`,
+  agentDir: '/ws/bracket/.torno/agent',
   systemPrompt: 'You are in torno.'
 }
 
@@ -63,5 +64,30 @@ describe('the Claude Code adapter', () => {
     expect(launch.command).toBe('node')
     expect(launch.args).toEqual(['/abs/fake-agent.mjs', ...usual.args])
     expect(claudeAdapter('   ').launch(ctx).command).toBe('claude')
+  })
+
+  it('passes its arguments as a list, each one string, to the letter as before there was another agent', () => {
+    const spaced = { ...ctx, cwd: '/ws/my parts/lid 2', mcpUrl: 'http://127.0.0.1:4100/mcp/lid%202', agentDir: '/ws/my parts/lid 2/.torno/agent', systemPrompt: 'You are in torno. Mind the "quotes" and $HOME.' }
+    const launch = claudeAdapter().launch(spaced)
+    expect(launch.args).toEqual([
+      '--session-id',
+      ctx.conversationId,
+      '--mcp-config',
+      '{"mcpServers":{"torno":{"type":"http","url":"http://127.0.0.1:4100/mcp/lid%202"}}}',
+      '--allowedTools',
+      'mcp__torno__*',
+      '--settings',
+      JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: 5 }] }]])) }),
+      '--append-system-prompt',
+      'You are in torno. Mind the "quotes" and $HOME.'
+    ])
+    // It adds nothing to the environment and is given no file: everything is on its command line.
+    expect(launch.env).toEqual({})
+    expect(launch.files).toBeUndefined()
+  })
+
+  it('says of itself that it posts hooks, and how it names a tool', () => {
+    const adapter = claudeAdapter('node /abs/fake-agent.mjs')
+    expect([adapter.id, adapter.label, adapter.command, adapter.hooks, adapter.toolName('scene')]).toEqual(['claude', 'Claude Code', 'claude', true, 'mcp__torno__scene'])
   })
 })

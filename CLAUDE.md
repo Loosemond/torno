@@ -91,7 +91,9 @@ While iterating run the focused test; run all four suites before a commit.
     has `edge` and, when two faces meet there, `between`.
 - Status: `draft` until a `UserPromptSubmit` hook has carried the mark to the
   agent of its own object (`src/main/context.ts`; turned `sent` only once the
-  answer has left), then `resolved`. No other hook consumes drafts. A sent
+  answer has left), then `resolved`. No other hook consumes drafts. For an
+  agent that posts no hooks, see "Agents": the Enter that sends the line of
+  "Send marks" is the one other thing that does. A sent
   mark of the person's whose note or shape changes is a draft again
   (`sentBefore`: told as `(changed)`), as is a dimension of the agent's whose
   `expected` or `tolerance` the person changes; and one the person makes a
@@ -1035,10 +1037,58 @@ window on it.
 - `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
   side by side.
 
-## Never run the real `claude` CLI from tests
+## Agents
+
+- An agent CLI is started by an adapter (`src/main/sessions/adapter.ts`: `AgentAdapter`, `adapters()`): Claude
+  Code (`claude.ts`) and Copilot CLI (`copilot.ts`). An adapter says its `label`, the `command` looked for on
+  PATH, whether its CLI posts `hooks`, how its client names a tool of torno's to the model (`toolName`:
+  `mcp__torno__scene`, `the torno tool scene`), and `launch(ctx)`: the command, its arguments as a list of
+  strings (never a line for a shell), variables to add to the environment, and `files` to write.
+  Everything an agent is given of torno is on its command line, in its environment or under
+  `<object>/.torno/agent/` (`ctx.agentDir`, where `files` are written atomically before the start; nothing is
+  made for an adapter without files). Nothing of the person's configuration of an agent is read or written, and
+  nothing is written in the object folder outside `.torno/`. The MCP address given is of that object alone.
+- The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName)`; `SYSTEM_PROMPT` is Claude
+  Code's, under 6,800 characters). An agent without hooks gets it with `NO_HOOKS_PROMPT` after it: read
+  `.torno/state.md` at the start of each task, and `.torno/prompt.md` when a line begins with `torno:`.
+  `contextFor` names tools through `opts.toolName` likewise.
+- The agent of an object is chosen in the session header (`ui/AgentPicker.tsx`) and kept in
+  `<object>/.torno/agent.json` (`{ "agent": "copilot" }`; `sessions/choice.ts`, main's alone, atomic). No file is
+  Claude Code; a file that cannot be read or names an agent torno does not know is Claude Code too, with a `note`
+  the pane shows. Main refuses a choice while a session runs or starts in the object (`End the session first`):
+  the window asks, ends the session, then chooses, and starts none. Which agents are installed is asked when an
+  object is shown and whenever the list is opened (`installedAgents`); one that is not is listed disabled.
+  `TORNO_AGENT_CMD` is run in place of whichever is chosen, with that agent's arguments.
+- `session.json` holds the conversation to resume and the `agent` it is of (a file without the key is Claude
+  Code's), and under `kept` the last conversation of each other agent. A conversation is resumed only by its own
+  agent. `Sessions.start` is a promise (the choice is read from the disk); a second start for an object while
+  the first is under way is answered with the first, and `stopAll` waits for one that is.
+- An agent without hooks:
+  - Its status is `starting`, then `idle` from its first output until `exited`; what is shown and told of it is
+    `running` (`shared/agents.ts` `sessionSaid`), never idle, working or waiting. Whatever asks before ending a
+    session takes it for one that may be working (`busyWith`). `/hooks/<session>/…` answers 404 for it.
+  - Its conversation is put on file by the first Enter written to its terminal.
+  - Nothing goes with its prompts. "Send marks" (`Sessions.sendMarks`; offered only while there are drafts or
+    dimensions it was given that the build does not meet, `toSend`) writes what a hook would have carried to
+    `<object>/.torno/prompt.md` (`sessions/sendMarks.ts` `promptFile`) and pastes one line that names the file
+    at its cursor (`sendLine`), not sent. While that line waits, the file is written again whenever the marks or
+    the build change (`Sessions.changed`), and a second "Send marks" pastes nothing more.
+  - **When its marks are sent.** Only by the Enter that sends that line: `followTyped` reads everything written
+    to the terminal after the paste. Text typed or pasted beside the line, Esc Enter (a new line) and the
+    terminal's own answers and reports leave it waiting; a carriage return then delivers the marks the file
+    tells of (`onDelivered`, as a hook's answer does). Any other key or sequence (backspace, `^U`, `^C`, Esc, a
+    tab, an arrow, one torno does not know) means the line may no longer be what was put there: nothing is
+    delivered, the marks stay drafts, and the pane says so and offers the button again. A session that ends
+    first delivers nothing. What is known is that the line left; whether the agent read the file is not, and the
+    pane says that too (`toldLine`).
+  - No draft is consumed by anything but a `UserPromptSubmit` hook or that Enter.
+
+## Never run a real agent CLI from tests
 
 Tests set `TORNO_AGENT_CMD` to the stand-in, `node app/test/fake-agent.mjs`,
-which prints its arguments and posts hooks on request. The real CLI spends the
-person's subscription, depends on their login and settings, and asks questions
-in folders it has not seen. Checking torno against the real CLI is done by
-hand, once per change that needs it.
+which prints its arguments and posts hooks on request; started with Copilot
+CLI's arguments it has no hook to post, as an agent without hooks. No test
+runs `claude` or `copilot`: a real CLI spends the person's subscription,
+depends on their login and settings, and asks questions in folders it has not
+seen. Checking torno against a real CLI is done by hand, once per change that
+needs it (the README lists what is still to be checked).

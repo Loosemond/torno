@@ -761,7 +761,10 @@ Inside a workspace torno writes only under `<object>/.torno/`:
 | `.torno/scans.json` | the scans of the object: where each source file is and its hash, how it was imported, and its alignment in each layout |
 | `.torno/scans/<id>/mesh.bin` | the scan as torno draws and checks it, in millimetres and Z up (`mesh.<n>.bin` once it was converted or imported again). `.torno/scans/.gitignore` keeps the meshes out of git: a clone has the record, and its row offers "Import again" |
 | `.torno/scans/<id>/<mark>.mask` | the triangles of a region, a bit each (`<mark>.<n>.mask` once it was painted again) |
-| `.torno/session.json` | the id of the conversation to resume |
+| `.torno/session.json` | the id of the conversation to resume and the agent it is of (`agent`); under `kept`, the last conversation of each other agent |
+| `.torno/agent.json` | the agent the object's sessions run: `{ "agent": "copilot" }`. Without it, Claude Code |
+| `.torno/agent/` | what torno tells an agent that takes no system prompt on its command line: for Copilot CLI, `AGENTS.md`, named to it by `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
+| `.torno/prompt.md` | what "Send marks" last wrote for an agent that posts no hooks: the build status, what is on screen and the new marks, under the time it was written |
 | `.torno/views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20. The folder ignores itself for git (`.gitignore`, written once): a picture of a scan may show the real world |
 | `.torno/state.md` | the build, the parts, the scans and the open marks as text, for an agent without torno's tools. Its first line says when it was written: nothing keeps it current once torno has quit |
 
@@ -789,7 +792,7 @@ by the test code; none is in the repository. Those of the window are in
 | Variable | Effect |
 |---|---|
 | `TORNO_WORKSPACE=<path>` | the workspace to open at start, instead of the one remembered. `scripts/torno <path>` sets it. |
-| `TORNO_AGENT_CMD=<cmd>` | the command to run for a session instead of `claude`, split on spaces: `TORNO_AGENT_CMD="claude --model sonnet"` |
+| `TORNO_AGENT_CMD=<cmd>` | the command to run for a session in place of the command of whichever agent is chosen (`claude`, `copilot`), split on spaces and given that agent's arguments: `TORNO_AGENT_CMD="claude --model sonnet"` |
 | `TORNO_BUILD_TIMEOUT=<seconds>` | how long a build may run before it is stopped: 600 by default, a day at most. `TORNO_BUILD_TIMEOUT=1800` for a model that needs up to half an hour. |
 | `TORNO_CONFIG=<path>` | the config file to use instead of `~/.config/torno/config.json` |
 | `TORNO_DEBUG=1` | print to stderr the workspace opened at start, the address of the MCP server, and the command line and hooks of every session |
@@ -803,3 +806,16 @@ such as `CLAUDE_CODE_USE_BEDROCK`, are passed on.
 ## Next
 
 5. **Show.** Explode, named views, HTML export, adapters for other agent CLIs.
+
+## Not yet verified on a visible screen
+
+No test runs a real agent CLI. These are checked by hand, with the real one:
+
+- Copilot CLI: choose it for an object and start a session. Does /mcp list torno with its tools? (If not: the keys of the JSON torno passes to --additional-mcp-config are a guess from the help: "type", "url", "tools".)
+- Copilot CLI: does /instructions list .torno/agent/AGENTS.md? (COPILOT_CUSTOM_INSTRUCTIONS_DIRS is documented; that a bare AGENTS.md in such a folder is read is not.)
+- Copilot CLI: press "Send marks" with a draft, then Enter: does it read .torno/prompt.md and name the mark?
+- Copilot CLI: end the session and resume it: does --session-id <the same id> continue the conversation?
+- Claude Code: one prompt after this milestone, to see that the marks still arrive with it (the arguments did not change; the manager did).
+- Copilot CLI: after "Send marks", click into the terminal and press Enter: does the mark turn sent? (torno takes the line for changed on any key it cannot follow; if Copilot's terminal modes make the focus or Enter arrive in a form torno does not know, the pane says the line may have been changed and the mark stays a draft.)
+- Copilot CLI: does a tool of torno's run without a permission prompt (--allow-tool=torno), and what does Copilot call the tool to its model? (The instructions say "the torno tool scene".)
+- Copilot CLI in an object whose folder has a comma in its path: COPILOT_CUSTOM_INSTRUCTIONS_DIRS is a comma-separated list, so its instructions may not be found there.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { busyWith } from '../shared/agents'
 import type { WorkspaceInfo } from '../shared/workspace'
 import { connectLook } from './state/agent'
 import { actions, sceneFileOf, store, useStore } from './state/store'
@@ -55,9 +56,15 @@ async function goTo(to: string): Promise<void> {
   if (info) showWorkspace(info)
 }
 
-/** Whether a session of this workspace is in the middle of something that leaving the workspace would end. */
-function sessionsBusy(): boolean {
-  return Object.values(store.getState().sessions).some((s) => s.status === 'working' || s.status === 'needs_input')
+/**
+ * What a session of this workspace is in the middle of that leaving the workspace would end, as a sentence; null
+ * when none is. One of an agent that says nothing of its work may be in the middle of it: asked about like one
+ * that is, and said as what it is.
+ */
+function sessionsBusy(): string | null {
+  const busy = Object.values(store.getState().sessions).filter((s) => busyWith(s.status, s.hooks) !== undefined)
+  if (busy.length === 0) return null
+  return busy.some((s) => s.hooks) ? 'A session here is in the middle of its work.' : 'A session here may be in the middle of its work: its agent does not say.'
 }
 
 let opening = 0
@@ -203,9 +210,12 @@ export function App() {
   // Leaving a workspace ends its sessions. `leaving` is where to, while that is
   // being asked about: a folder, or 'pick' for the one still to be chosen.
   const [leaving, setLeaving] = useState<string | null>(null)
+  const [leavingWhat, setLeavingWhat] = useState('')
   const leave = useCallback((to: string) => {
-    if (sessionsBusy()) setLeaving(to)
-    else void goTo(to)
+    const busy = sessionsBusy()
+    if (busy === null) return void goTo(to)
+    setLeavingWhat(busy)
+    setLeaving(to)
   }, [])
   // Another launch of torno was given a folder: it is opened here.
   useEffect(() => window.torno.workspace.onRequested((root) => leave(root)), [leave])
@@ -264,7 +274,7 @@ export function App() {
               void goTo(leaving)
             }}
           >
-            A session here is in the middle of its work. Opening another folder ends it.
+            {leavingWhat} Opening another folder ends it.
           </Confirm>
         )}
         <ObjectList onOpen={(id) => void openObject(id)} />

@@ -18,12 +18,13 @@ import { mountMcp } from './mcp/server'
 import { kernelDir } from './paths'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
-import { SYSTEM_PROMPT } from './prompt'
+import { systemPrompt } from './prompt'
 import { quitGate } from './quit'
 import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
 import { proposing, sceneFileNow, sceneFilesSettled } from './scenefile'
-import { claudeAdapter } from './sessions/claude'
+import { adapters } from './sessions/adapter'
+import { loadAgentChoice } from './sessions/choice'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
 
@@ -243,6 +244,8 @@ const toolDeps: ToolDeps = {
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
 const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
+// A line of "Send marks" that waits at an agent's cursor names a file: it is kept as the marks are.
+marks.on('changed', ({ objectId }) => sessions?.changed(objectId))
 // Where a region is told to be follows its scan's alignment.
 scans.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 // A mask that did not read for a region is asked for again: what the scans are has changed.
@@ -299,7 +302,8 @@ void app.whenReady().then(async () => {
   mountMcp(http, toolDeps)
   sessions = new Sessions({
     http,
-    adapter: claudeAdapter(process.env.TORNO_AGENT_CMD),
+    // The agent chosen for the object, as its file says now. TORNO_AGENT_CMD is run in place of whichever it is.
+    adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD)[await loadAgentChoice(obj.dir)],
     // The marks of an object that cannot be read are not a reason to tell the agent nothing of its build.
     // Nor are scans that cannot be read: they are then not known, which is not the same as there being none.
     contextFor: async (id, opts) => {
@@ -308,7 +312,7 @@ void app.whenReady().then(async () => {
     },
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
-    systemPrompt: SYSTEM_PROMPT,
+    systemPromptFor: (adapter) => systemPrompt(adapter.toolName),
     mcpUrlFor,
     debug: isDebug
   })
@@ -316,7 +320,10 @@ void app.whenReady().then(async () => {
     onWorkspaceChosen: (root) => void rememberWorkspace(root),
     sessions,
     marks,
-    onBuild: (state) => stateFiles.changed(state.objectId),
+    onBuild: (state) => {
+      stateFiles.changed(state.objectId)
+      sessions?.changed(state.objectId)
+    },
     // The saved views are named in the state file.
     onSceneFile: (objectId) => stateFiles.changed(objectId),
     // What was waiting to be written was of objects of the workspace that is left.

@@ -1,4 +1,4 @@
-import type { SessionStatus } from './bridge'
+import type { SessionSaid } from './agents'
 
 /**
  * What the page of objects says of one object of the workspace. Everything here is read: from what main already
@@ -28,7 +28,8 @@ export interface ObjectCard {
    * failed when they were last measured, in a run before. No verdict: of no build of this run.
    */
   lastRun?: { dimensions: number; failed: number }
-  session: SessionStatus | null
+  /** Where its session stands; of an agent that says nothing of its work, only that it runs. */
+  session: SessionSaid | null
 }
 
 /** What a picture is of besides its layout, as the window says it of one it drew. */

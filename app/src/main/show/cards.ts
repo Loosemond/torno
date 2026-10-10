@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import { standingOf, unmetDimensions } from '../../shared/dimension'
 import type { DimensionMark, Mark } from '../../shared/marks'
@@ -31,7 +30,7 @@ export interface CardDeps {
   build(objectId: string): BuildState | undefined
   /** The marks of an object opened in this run, from the store. */
   marks(objectId: string): Promise<Mark[]>
-  session(objectId: string): SessionStatus | null
+  session(objectId: string): ObjectCard['session']
   /** Rejects when there is none. */
   readFile(path: string): Promise<string>
   /** When the newest of the Python files directly in a folder was last saved (`newestPython`); null when it has none, or is none. */

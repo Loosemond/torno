@@ -242,6 +242,17 @@ describe('contextFor', () => {
       expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [marks[1]]).text).toBe([STATUS, 'Open marks: M2'].join('\n'))
     })
 
+    it('names the tool as the agent\'s client does: for one that is not Claude Code, in words, and within the same limit', () => {
+      const toolName = (tool: string): string => `the torno tool ${tool}`
+      const flagged = [pin(1, { status: 'sent', anchorState: 'drifted' })]
+      expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', flagged, { toolName }).text).toBe([STATUS, 'Open marks: M1 (moved); call the torno tool marks for their data'].join('\n'))
+      const many = Array.from({ length: 200 }, (_, i) => pin(i + 1, { note: `note ${i + 1} ${'n'.repeat(60)}` }))
+      const context = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', many, { toolName })
+      expect(context.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+      expect(context.text.split('\n').at(-1)).toBe(`… and ${200 - context.sentMarkIds.length} more: call the torno tool marks`)
+      expect(context.text).not.toContain('mcp__torno__')
+    })
+
     it('still says where to get their data when the flagged marks do not all fit', () => {
       const marks = Array.from({ length: 200 }, (_, i) => pin(i + 1, { status: 'sent', anchorState: 'drifted' }))
       const last = contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks).text.split('\n').at(-1)!

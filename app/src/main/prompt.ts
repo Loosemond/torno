@@ -1,5 +1,9 @@
-/** Appended to the agent's system prompt in every session torno starts. */
-export const SYSTEM_PROMPT = [
+/**
+ * What every agent torno starts is told of torno. A tool is written here as
+ * Claude Code names it to its model (`mcp__torno__scene`); `systemPrompt`
+ * writes it as another client does.
+ */
+const TEXT = [
   'You are running inside torno, a CAD workbench. The user sees the parts of this object in a 3D viewport next to this terminal.',
   'torno rebuilds the model every time its file is saved, so do not run the model yourself to preview it.',
   'Its tools show you what torno shows the user.',
@@ -42,3 +46,20 @@ export const SYSTEM_PROMPT = [
   'Do not write to the .torno/ folder: it is torno’s own.',
   'Scratch scripts belong outside the object folder or in a tools/ subfolder of it, so that the folder keeps one model file.'
 ].join(' ')
+
+const CLAUDE_TOOL = /mcp__torno__([a-z_]+)/g
+
+/** The system prompt, with torno's tools named as an agent's client names them. */
+export function systemPrompt(toolName: (tool: string) => string): string {
+  return TEXT.replace(CLAUDE_TOOL, (_all, tool: string) => toolName(tool))
+}
+
+/** Appended to Claude Code's system prompt in every session torno starts. */
+export const SYSTEM_PROMPT = systemPrompt((tool) => `mcp__torno__${tool}`)
+
+/**
+ * Added for an agent that posts no hooks: nothing goes with its prompts, so it
+ * is told where to read what a hook would have carried.
+ */
+export const NO_HOOKS_PROMPT =
+  'torno cannot add to your prompts in this CLI. When the user sends a line that begins with "torno:", read the file .torno/prompt.md in this folder before anything else: it holds the build status, what is on their screen and the marks they have just made. .torno/state.md always holds the build, the parts and every open mark as text. At the start of each task read .torno/state.md, since nothing is pushed to you. Read these two files only; never write in .torno/.'

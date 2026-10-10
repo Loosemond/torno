@@ -1,28 +1,33 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import type { SessionStatus } from '../../shared/bridge'
+import { type SessionSaid, AGENT_LABEL, busyWith, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
+import type { AgentId } from '../../shared/bridge'
 import { actions, store, useStore } from '../state/store'
+import { type AgentChoice, AgentPicker } from './AgentPicker'
 import { Confirm } from './Confirm'
 
-const AGENT = 'Claude Code'
 const FONT_SIZE = 13
 
-/** What a session is in the middle of, when ending it would lose something; null when it would not. */
-const BUSY: Partial<Record<SessionStatus, string>> = {
-  working: 'is working',
-  needs_input: 'is waiting for your answer'
-}
-
-const STATUS_WORD: Record<SessionStatus, string> = {
+const STATUS_WORD: Record<SessionSaid, string> = {
   starting: 'Starting',
   idle: 'Idle',
   working: 'Working',
   needs_input: 'Needs input',
+  // Of an agent that posts no hooks: nothing says whether it is at work.
+  running: 'Running',
   exited: 'Ended'
 }
+
+/** Until main has said which are installed. */
+const AGENTS: AgentChoice[] = [
+  { id: 'claude', label: AGENT_LABEL.claude, installed: true, hooks: true },
+  { id: 'copilot', label: AGENT_LABEL.copilot, installed: true, hooks: false }
+]
+
+const SEND_TITLE = 'Writes .torno/prompt.md and puts a line at the cursor for you to send'
 
 // ---- Terminals ----
 //
@@ -204,11 +209,21 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const objectId = useStore((s) => s.objectId)
   const objectName = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const session = useStore((s) => (s.objectId ? s.sessions[s.objectId] : undefined))
+  const marks = useStore((s) => s.marks)
+  const revision = useStore((s) => s.revision)
   const [resumable, setResumable] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   /** Whether "New session" is waiting for a yes: the session it would end is in the middle of something. */
   const [asking, setAsking] = useState(false)
+  /** The agent the object's next session runs, as its `.torno/agent.json` has it; `note` when that file could not be followed. */
+  const [choice, setChoice] = useState<{ agent: AgentId; note?: string }>({ agent: 'claude' })
+  const [agents, setAgents] = useState<AgentChoice[]>(AGENTS)
+  /** The agent chosen while a session runs, waiting for a yes: choosing it ends that session. */
+  const [choosing, setChoosing] = useState<AgentId | null>(null)
+  /** Counted up when the choice was written, so that what main has for the object is asked again. */
+  const [chosen, setChosen] = useState(0)
+  const [sending, setSending] = useState(false)
   const host = useRef<HTMLDivElement>(null)
   const reveal = useRef(onReveal)
   reveal.current = onReveal
@@ -218,6 +233,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     const offData = window.torno.session.onData(({ sessionId, data }) => {
       for (const t of terminals.values()) if (t.sessionId === sessionId) t.term.write(data)
     })
+    const offSend = window.torno.session.onSend((m) => actions.applySend(m))
     const offStatus = window.torno.session.onStatus((m) => {
       actions.applySessionStatus(m)
       if (m.status !== 'exited') return
@@ -298,6 +314,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
 
     return () => {
       offData()
+      offSend()
       offStatus()
       scheme.removeEventListener('change', onScheme)
       window.removeEventListener('keydown', onKey, true)
@@ -314,6 +331,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   useEffect(() => {
     setProblem(null)
     setAsking(false)
+    setChoosing(null)
+    setChoice({ agent: 'claude' })
     if (!objectId) return
     const mine = terminals.get(objectId)
     if (mine) mount(mine, host.current!)
@@ -334,6 +353,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       ([info]) => {
         if (!live) return
         setResumable(info.resumable)
+        setChoice({ agent: info.agent, ...(info.note ? { note: info.note } : {}) })
         if (!info.running || store.getState().sessions[objectId]) return
         const t = terminalFor(objectId)
         t.sessionId = info.running.sessionId
@@ -346,7 +366,13 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     return () => {
       live = false
     }
-  }, [objectId, root, status])
+  }, [objectId, root, status, chosen])
+
+  // Which agents are installed: asked for each object shown, and again whenever the list is opened.
+  const askAgents = (): void => void window.torno.session.agents().then(setAgents, () => {})
+  useEffect(() => {
+    if (objectId) askAgents()
+  }, [objectId, root])
 
   // A session just started takes the keyboard, once its terminal is no longer hidden.
   const focusWanted = useRef(false)
@@ -376,7 +402,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       const started = await window.torno.session.start(objectId, { resume, cols: t.term.cols, rows: t.term.rows })
       t.sessionId = started.sessionId
       // As main has it: a session that was already running here is not starting, and may say nothing more for a while.
-      actions.setSession(objectId, { sessionId: started.sessionId, status: started.status })
+      actions.setSession(objectId, { sessionId: started.sessionId, status: started.status, agent: started.agent, hooks: started.hooks })
       focusWanted.current = true
     } catch (e) {
       setProblem(reason(e))
@@ -386,7 +412,51 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   }
 
   const ended = status === 'exited'
-  const busy = status ? BUSY[status] : undefined
+  const busy = session ? busyWith(session.status, session.hooks) : undefined
+  /** The agent of the session shown; of none, the one a new session would run. */
+  const agentLabel = AGENT_LABEL[session?.agent ?? choice.agent]
+  // What an agent without hooks has not been told: there is a button for it only while there is something.
+  const unsent = useMemo(() => toSend(marks, revision > 0 ? revision : undefined), [marks, revision])
+  const send = sendLabel(unsent)
+  const told = session && !ended && !session.hooks
+
+  /** Write the file and put the line that names it at the agent's cursor, where the person's Enter sends it. */
+  async function sendMarks(): Promise<void> {
+    if (!objectId || !session || sending) return
+    setSending(true)
+    setProblem(null)
+    try {
+      await window.torno.session.sendMarks(session.sessionId)
+      terminals.get(objectId)?.term.focus()
+    } catch (e) {
+      setProblem(reason(e))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  /** Keep another agent for the object's sessions to come. One that runs is ended first, and none is started. */
+  async function applyChoice(agent: AgentId): Promise<void> {
+    if (!objectId) return
+    setProblem(null)
+    try {
+      const live = store.getState().sessions[objectId]
+      if (live && live.status !== 'exited') await window.torno.session.stop(live.sessionId)
+      await window.torno.session.chooseAgent(objectId, agent)
+      if (store.getState().objectId === objectId) setChoice({ agent })
+    } catch (e) {
+      setProblem(reason(e))
+    } finally {
+      setChosen((n) => n + 1)
+    }
+  }
+
+  /** Another agent was picked: asked about first while a session runs, since it ends that one. */
+  function choose(agent: AgentId): void {
+    if (agent === choice.agent && !choice.note) return
+    if (session && !ended) setChoosing(agent)
+    else void applyChoice(agent)
+  }
 
   /** A new session in place of the one running, asked about first if that one is in the middle of something. */
   function startNew(): void {
@@ -402,14 +472,15 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   return (
     <>
       <header className="panel-head session-head">
-        <h2 className="panel-title">{objectId ? AGENT : 'Session'}</h2>
+        <h2 className="panel-title">{objectId ? agentLabel : 'Session'}</h2>
         {session && (
-          <span className="session-status" role="status" data-status={session.status}>
+          <span className="session-status" role="status" data-status={sessionSaid(session.status, session.hooks)}>
             <span className="status-dot" />
-            {STATUS_WORD[session.status]}
+            {STATUS_WORD[sessionSaid(session.status, session.hooks)]}
           </span>
         )}
         <span className="spacer" />
+        {objectId && <AgentPicker value={choice.agent} agents={agents} disabled={starting || asking || choosing !== null} onOpen={askAgents} onChoose={choose} />}
         {session && (
           <>
             {ended && resumable && (
@@ -424,6 +495,23 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         )}
       </header>
 
+      {/* An agent that posts no hooks is told nothing with a prompt: said here, with the button that tells it. */}
+      {told && (
+        <div className="session-told">
+          <p aria-live="polite">{toldLine(session.send, unsent.drafts)}</p>
+          {send && (
+            <button type="button" className="button session-send" title={SEND_TITLE} disabled={sending} onClick={() => void sendMarks()}>
+              {send.text} (<span className="num">{send.count}</span>)
+            </button>
+          )}
+        </div>
+      )}
+      {choice.note && objectId && (
+        <p className="session-told" role="note">
+          {choice.note}
+        </p>
+      )}
+
       <div className="session-body">
         {asking && session && (
           <Confirm
@@ -436,7 +524,25 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
               void start(false)
             }}
           >
-            {AGENT} {busy ?? 'is running'}. A new session ends this one.
+            {agentLabel} {busy ?? 'is running'}. A new session ends this one.
+          </Confirm>
+        )}
+        {choosing !== null && session && (
+          <Confirm
+            label="End the running session?"
+            accept={`End it and choose ${AGENT_LABEL[choosing]}`}
+            cancel="Keep it"
+            onCancel={() => {
+              setChoosing(null)
+              keepSession()
+            }}
+            onAccept={() => {
+              const agent = choosing
+              setChoosing(null)
+              void applyChoice(agent)
+            }}
+          >
+            {agentLabel} {busy ?? 'is running'}. Choosing another agent ends this session, and starts none.
           </Confirm>
         )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
@@ -457,7 +563,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
                 )}
               </div>
               <p>
-                {AGENT} runs here, in the folder of {objectName}, and works on it with you.
+                {agentLabel} runs here, in the folder of {objectName}, and works on it with you.
               </p>
             </div>
           )

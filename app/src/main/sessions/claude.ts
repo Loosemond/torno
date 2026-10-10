@@ -1,3 +1,4 @@
+import { AGENT_LABEL } from '../../shared/agents'
 import type { AgentAdapter } from './adapter'
 import { HOOK_EVENTS } from './status'
 
@@ -17,6 +18,10 @@ export function claudeAdapter(agentCmd?: string): AgentAdapter {
   const [command = 'claude', ...before] = (agentCmd ?? '').split(' ').filter(Boolean)
   return {
     id: 'claude',
+    label: AGENT_LABEL.claude,
+    command: 'claude',
+    hooks: true,
+    toolName: (tool) => `mcp__torno__${tool}`,
     launch(ctx) {
       const hook = (event: string) => [{ hooks: [{ type: 'http', url: ctx.hookUrl(event), timeout: HOOK_TIMEOUT_S }] }]
       const settings = { hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, hook(event)])) }

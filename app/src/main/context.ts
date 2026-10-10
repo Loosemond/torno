@@ -25,7 +25,10 @@ const SELECTED_DESCRIPTOR_LIMIT = 100
 export const SCANS_LIMIT = 600
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
 const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
-const MARKS_DATA = '; call mcp__torno__marks for their data'
+/** A tool of torno's as Claude Code names it to its model: what is said when nothing says how another client does. */
+const CLAUDE_TOOL = (tool: string): string => `mcp__torno__${tool}`
+type ToolName = (tool: string) => string
+const marksData = (toolName: ToolName): string => `; call ${toolName('marks')} for their data`
 
 /**
  * The head of the dimensions: which build their values and verdicts are of,
@@ -53,8 +56,8 @@ function passing(passes: readonly DimensionMark[]): string {
 }
 
 /** What is said in place of the marks that did not fit, and of the dimensions that did not. */
-const moreMarks = (count: number): string => `… and ${count} more: call mcp__torno__marks`
-const moreDimensions = (count: number): string => `… and ${count} more unmet or unmeasured: call mcp__torno__marks`
+const moreMarksBy = (toolName: ToolName) => (count: number): string => `… and ${count} more: call ${toolName('marks')}`
+const moreDimensionsBy = (toolName: ToolName) => (count: number): string => `… and ${count} more unmet or unmeasured: call ${toolName('marks')}`
 
 export interface ContextDeps {
   object(objectId: string): ObjectInfo | undefined
@@ -104,9 +107,15 @@ export interface PromptContext {
  * line after the selection: each with how it is aligned in the layout on
  * screen (the first, of an object that is not open) and how it is shown.
  *
+ * A tool of torno's is named as the agent's client names it to its model
+ * (`opts.toolName`; as Claude Code does when nothing says).
+ *
  * It changes nothing: whoever delivers the text turns `sentMarkIds` into sent.
  */
-export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean; scans?: readonly ScanInfo[] } = {}): PromptContext {
+export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string } = {}): PromptContext {
+  const toolName = opts.toolName ?? CLAUDE_TOOL
+  const moreMarks = moreMarksBy(toolName)
+  const moreDimensions = moreDimensionsBy(toolName)
   const revision = deps.scene(objectId)?.revision
   const drafts = marks.filter((m) => m.status === 'draft')
   const open = marks.filter((m) => m.status !== 'resolved' && !drafts.includes(m))
@@ -130,7 +139,7 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   // Before the marks are given their room: the line is counted in what they have left.
   const scanned = scansLine(deps, objectId, opts.scans ?? [])
   if (scanned) lines.push(scanned)
-  const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision)}` : ''
+  const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision, toolName)}` : ''
   const named = layoutNamed(deps, objectId)
   // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
   const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + moreDimensions(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
@@ -182,7 +191,7 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   if (passLine) lines.push(...(unmet.length > 0 ? [] : [DIMENSIONS_HEAD]), passLine)
   // What has its line above is not named again; never longer than the line room was kept for.
   const rest = open.filter((m) => !listedUnmet.includes(m))
-  if (rest.length > 0) lines.push(`Open marks: ${openMarks(rest, revision, openLine.length - 'Open marks: '.length)}`)
+  if (rest.length > 0) lines.push(`Open marks: ${openMarks(rest, revision, toolName, openLine.length - 'Open marks: '.length)}`)
   const text = lines.join('\n')
   if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id) }
   // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is
@@ -195,10 +204,10 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
  * on of it: its part is gone, the build moved its surface, or nothing has
  * checked it against the build. When any is said, so is where their data is.
  */
-function openMarks(open: readonly Mark[], revision: number | undefined, limit = OPEN_LIMIT): string {
+function openMarks(open: readonly Mark[], revision: number | undefined, toolName: ToolName, limit = OPEN_LIMIT): string {
   const flag = (m: Mark): string => (m.anchorState === 'orphaned' ? ' (part gone)' : m.anchorState === 'drifted' ? ' (moved)' : isUnchecked(m, revision) ? ' (unchecked)' : '')
   const names = open.map((m) => `${m.id}${flag(m)}`)
-  const after = names.some((name) => name.includes(' ')) ? MARKS_DATA : ''
+  const after = names.some((name) => name.includes(' ')) ? marksData(toolName) : ''
   const full = names.join(', ') + after
   return full.length <= limit ? full : someOf(names, limit - after.length) + after
 }

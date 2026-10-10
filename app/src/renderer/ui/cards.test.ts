@@ -80,6 +80,8 @@ describe('the chips of a card', () => {
     expect(cardChips(card({ session: 'working' }))).toEqual([{ text: 'Session working' }])
     expect(cardChips(card({ session: 'needs_input' }))).toEqual([{ text: 'Session needs you', tone: 'warn' }])
     expect(cardChips(card({ session: 'idle' }))).toEqual([{ text: 'Session idle' }])
+    // Of an agent that says nothing of its work: that it runs, and no more.
+    expect(cardChips(card({ session: 'running' }))).toEqual([{ text: 'Session running' }])
     expect(cardChips(card({ session: 'starting' }))).toEqual([{ text: 'Session starting' }])
     expect(cardChips(card({ session: 'exited' }))).toEqual([])
   })

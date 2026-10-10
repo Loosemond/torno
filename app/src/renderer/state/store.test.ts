@@ -559,12 +559,25 @@ describe('the note that is open', () => {
 describe('the running session of the open object', () => {
   it('is the one an agent still runs in', () => {
     expect(runningSession(store.getState())).toBeUndefined()
-    actions.setSession('gear', { sessionId: 'g', status: 'idle' })
+    actions.setSession('gear', { sessionId: 'g', status: 'idle', agent: 'claude', hooks: true })
     expect(runningSession(store.getState())).toBeUndefined()
-    actions.setSession('bracket', { sessionId: 'b', status: 'working' })
-    expect(runningSession(store.getState())).toEqual({ sessionId: 'b', status: 'working' })
+    actions.setSession('bracket', { sessionId: 'b', status: 'working', agent: 'claude', hooks: true })
+    expect(runningSession(store.getState())).toEqual({ sessionId: 'b', status: 'working', agent: 'claude', hooks: true })
     actions.applySessionStatus({ sessionId: 'b', status: 'exited' })
     expect(runningSession(store.getState())).toBeUndefined()
+  })
+
+  it('keeps whose it is when its status changes, and what became of the line put at its cursor', () => {
+    actions.setSession('bracket', { sessionId: 'c', status: 'starting', agent: 'copilot', hooks: false })
+    actions.applySessionStatus({ sessionId: 'c', status: 'idle' })
+    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', agent: 'copilot', hooks: false })
+    actions.applySend({ sessionId: 'c', state: 'waiting' })
+    expect(store.getState().sessions.bracket.send).toBe('waiting')
+    // Of a session that is no longer its object's, nothing is followed.
+    actions.applySend({ sessionId: 'gone', state: 'sent' })
+    expect(store.getState().sessions.bracket.send).toBe('waiting')
+    actions.applySend({ sessionId: 'c', state: 'sent' })
+    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', agent: 'copilot', hooks: false, send: 'sent' })
   })
 })
 

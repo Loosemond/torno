@@ -29,6 +29,10 @@ import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToM
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
+import { sessionSaid } from '../shared/agents'
+import type { AgentId } from '../shared/bridge'
+import { adapters } from './sessions/adapter'
+import { installedAgents, readAgentChoice, saveAgentChoice } from './sessions/choice'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
@@ -144,7 +148,10 @@ function cards(): Promise<ObjectCard[]> {
     opened: (id) => ws.opened.has(id),
     build: (id) => ws.builds.state(id),
     marks: (id) => (marks ? marks.list(id) : Promise.reject(new Error('marks are not available'))),
-    session: (id) => sessions?.current(id)?.status ?? null,
+    session: (id) => {
+      const session = sessions?.current(id)
+      return session ? sessionSaid(session.status, session.hooks) : null
+    },
     readFile: (path) => readFile(path, 'utf8'),
     sourcesMtimeMs: newestPython,
     size: (path) => stat(path).then((s) => s.size, () => null)
@@ -390,6 +397,7 @@ export function registerIpc(
   sessions?.on('data', (m) => broadcast('session:data', m))
   sessions?.on('status', (m) => broadcast('session:status', m))
   sessions?.on('status', () => cardsChanged())
+  sessions?.on('send', (m) => broadcast('session:send', { sessionId: m.sessionId, state: m.state, marks: m.marks }))
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')
     return sessions
@@ -478,19 +486,35 @@ export function registerIpc(
     onSceneFile?.(id)
   })
 
-  ipcMain.handle('session:current', (_event, objectId: string) => {
+  ipcMain.handle('session:current', async (_event, objectId: string) => {
     const obj = findObject(objectId)
     const running = sessions?.current(objectId) ?? null
+    // The agent its next session runs: the one chosen for it, whatever the session there now is of.
+    const choice = obj ? await readAgentChoice(obj.dir) : { agent: 'claude' as const }
     return {
-      running: running && { sessionId: running.sessionId, status: running.status },
-      resumable: obj !== undefined && sessions !== null && sessions.resumable(obj)
+      running: running && { sessionId: running.sessionId, status: running.status, agent: running.agent, hooks: running.hooks },
+      resumable: obj !== undefined && sessions !== null && sessions.resumable(obj, choice.agent),
+      agent: choice.agent,
+      hooks: adapters()[choice.agent].hooks,
+      ...(choice.note ? { note: choice.note } : {})
     }
   })
 
-  ipcMain.handle('session:start', (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }) => {
+  ipcMain.handle('session:start', async (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }) => {
     const obj = findObject(objectId)
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
     return requireSessions().start(obj, { resume: opts?.resume === true, cols: opts?.cols, rows: opts?.rows })
+  })
+
+  // Which agents there are, and of each whether its command is on PATH now: asked again whenever the list is opened.
+  ipcMain.handle('session:agents', () => installedAgents(adapters(process.env.TORNO_AGENT_CMD), process.env.PATH, process.env.TORNO_AGENT_CMD))
+
+  // The choice is of the sessions to come: the one that runs is of the agent it was started with, and is ended first.
+  ipcMain.handle('session:chooseAgent', async (_event, objectId: string, agent: AgentId) => {
+    const obj = findObject(String(objectId))
+    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
+    if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Error('End the session first')
+    await saveAgentChoice(obj.dir, agent)
   })
 
   ipcMain.handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
@@ -505,6 +529,12 @@ export function registerIpc(
 
   ipcMain.on('session:insert', (_event, sessionId: string, text: string) => {
     if (typeof text === 'string' && ofThisWorkspace(String(sessionId))) sessions?.insert(String(sessionId), text)
+  })
+
+  // Like what is typed: only into a session of the open workspace.
+  ipcMain.handle('session:sendMarks', async (_event, sessionId: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
+    return requireSessions().sendMarks(String(sessionId))
   })
 
   ipcMain.on('session:resize', (_event, sessionId: string, cols: number, rows: number) => {
