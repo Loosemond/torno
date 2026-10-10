@@ -1,4 +1,6 @@
 import type { Scene } from '../../shared/scene'
+import type { ThumbnailOf } from '../../shared/show'
+import type { ThumbnailView } from '../../shared/thumbnail'
 import type { Viewport } from '../viewport/Viewport'
 import { store } from './store'
 
@@ -7,22 +9,43 @@ import { store } from './store'
 // is opened for a picture and no build is ever started for one: an object not built in this run keeps the
 // picture it has on file, or has none.
 
-type Landed = { objectId: string; revision: number; scene: Scene; blob: ArrayBuffer }
+/** A build as main tells the window of it (`object.onScene`). */
+export type Landed = { objectId: string; revision: number; scene: Scene; blob: ArrayBuffer }
 
-const idle = (run: () => void): void => {
-  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => run(), { timeout: 2000 })
-  else setTimeout(run, 0)
+/** What the thumbnailer asks of the window around it. */
+export interface ThumbDeps {
+  /** How an object was last looked at: its scene file, as main has it (a read). */
+  loadSceneFile(objectId: string): Promise<ThumbnailView | undefined>
+  /** Hands main the picture of a build. */
+  save(objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf): void
+  /** Runs something when the window has nothing else to do. */
+  idle(run: () => void): void
+  /** The workspace that is open. */
+  root(): string | undefined
 }
 
+const ofTheWindow = (): ThumbDeps => ({
+  loadSceneFile: (objectId) => window.torno.object.loadSceneFile(objectId),
+  save: (objectId, revision, png, of) => window.torno.show.saveThumbnail(objectId, revision, png, of),
+  idle: (run) => {
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(() => run(), { timeout: 2000 })
+    else setTimeout(run, 0)
+  },
+  root: () => store.getState().workspace?.root
+})
+
 /**
- * Has a thumbnail made of every build main tells the window of (`object.onScene`: each build of each object
- * opened in this run, with its meshes, whether or not it is the one on show), one at a time, when the window
- * has nothing else to do. Of an object only its latest build is drawn; one sent again as it was is passed over.
- * It is drawn as the object was last looked at, as its scene file has it (a read). Returns what undoes it.
+ * Has a thumbnail made of every build it is told of (`landed`), one at a time, when the window has nothing else
+ * to do. It subscribes to nothing: whoever hears of the builds (the viewport's own handler of `object.onScene`,
+ * which carries each build of each object opened in this run, on show or not) hands the message on, so the
+ * meshes cross from main once, not once for the view and once more for the picture. Of an object only its
+ * latest build is drawn, and one sent again as it was is passed over; a build is held only until its picture is
+ * drawn. It is drawn as the object was last looked at, as its scene file has it. `stop` ends it.
  */
-export function connectThumbs(viewport: Pick<Viewport, 'thumbnail'>): () => void {
+export function connectThumbs(viewport: Pick<Viewport, 'thumbnail'>, deps: ThumbDeps = ofTheWindow()): { landed(m: Landed): void; stop(): void; /** How many builds wait for their picture. */ waiting(): number } {
   const waiting = new Map<string, Landed>()
   const made = new Map<string, number>()
+  let root = deps.root()
   let busy = false
   let live = true
 
@@ -34,14 +57,14 @@ export function connectThumbs(viewport: Pick<Viewport, 'thumbnail'>): () => void
     }
     waiting.delete(objectId)
     try {
-      const root = store.getState().workspace?.root
-      const view = await window.torno.object.loadSceneFile(objectId).catch(() => undefined)
+      const of = deps.root()
+      const view = await deps.loadSceneFile(objectId).catch(() => undefined)
       // The workspace was left meanwhile: its objects' names mean nothing in the next one.
-      if (live && store.getState().workspace?.root === root) {
+      if (live && deps.root() === of) {
         const picture = await viewport.thumbnail(landed.scene, landed.blob, view)
-        if (picture && live) {
-          const { png, ...of } = picture
-          window.torno.show.saveThumbnail(objectId, landed.revision, png, of)
+        if (picture && live && deps.root() === of) {
+          const { png, ...what } = picture
+          deps.save(objectId, landed.revision, png, what)
           made.set(objectId, landed.revision)
         }
       }
@@ -49,26 +72,28 @@ export function connectThumbs(viewport: Pick<Viewport, 'thumbnail'>): () => void
       // A card without its picture says so; nothing else depends on one.
       console.error(`no picture of ${objectId} was made: ${e instanceof Error ? e.message : String(e)}`)
     }
-    idle(() => void next())
+    deps.idle(() => void next())
   }
 
-  const offScene = window.torno.object.onScene((m) => {
-    if (made.get(m.objectId) === m.revision) return
-    waiting.set(m.objectId, m)
-    if (busy) return
-    busy = true
-    idle(() => void next())
-  })
-  // Revisions count from 1 in every workspace, and ids repeat between them.
-  const offStore = store.subscribe((s, prev) => {
-    if (s.workspace?.root === prev.workspace?.root) return
-    waiting.clear()
-    made.clear()
-  })
-  return () => {
-    live = false
-    waiting.clear()
-    offScene()
-    offStore()
+  return {
+    landed(m) {
+      if (!live) return
+      // Revisions count from 1 in every workspace, and ids repeat between them.
+      if (deps.root() !== root) {
+        root = deps.root()
+        waiting.clear()
+        made.clear()
+      }
+      if (made.get(m.objectId) === m.revision || waiting.get(m.objectId)?.revision === m.revision) return
+      waiting.set(m.objectId, m)
+      if (busy) return
+      busy = true
+      deps.idle(() => void next())
+    },
+    stop() {
+      live = false
+      waiting.clear()
+    },
+    waiting: () => waiting.size
   }
 }

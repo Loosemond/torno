@@ -3254,17 +3254,6 @@ button {
   height: 14px;
 }
 
-.page-row kbd {
-  display: inline-grid;
-  place-items: center;
-  min-width: 17px;
-  height: 17px;
-  border: var(--divider);
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-}
-
 .page-row:hover {
   background: var(--accent-wash);
   color: var(--ink);
@@ -3373,6 +3362,8 @@ button {
   outline: none;
 }
 
+/* A key, wherever the page names one: in its row of the list, in the filter, in the line of keys. */
+.page-row kbd,
 .show-filter kbd,
 .show-keys kbd {
   display: inline-grid;
@@ -3387,6 +3378,10 @@ button {
   color: var(--muted);
 }
 
+.page-row[aria-pressed='true'] kbd {
+  color: inherit;
+}
+
 .show-filter:focus-within kbd {
   visibility: hidden;
 }
@@ -3396,6 +3391,8 @@ button {
   flex: none;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 20px;
+  /* Clear of the line of keys at the foot. */
+  margin-bottom: 28px;
 }
 
 /* One object: its picture on the ground of the view, and under it what can be said of it. The whole of it opens the object. */
@@ -3451,6 +3448,13 @@ button {
   filter: grayscale(1);
 }
 
+/* On the dark ground the same share of it is nearly none. */
+@media (prefers-color-scheme: dark) {
+  .card-picture[data-dimmed] img {
+    opacity: 0.45;
+  }
+}
+
 .card-nopicture {
   position: absolute;
   inset: 0;
@@ -3470,9 +3474,16 @@ button {
   color: var(--hairline);
 }
 
+/* What makes a picture, said of the card that is pointed at or in focus: not on every card of a new workspace. */
 .card-nopicture-how {
+  visibility: hidden;
   font-size: var(--text-small);
   text-wrap: balance;
+}
+
+.card:hover .card-nopicture-how,
+.card:focus-visible .card-nopicture-how {
+  visibility: visible;
 }
 
 .card-body {
@@ -3495,7 +3506,7 @@ button {
 .card-name {
   min-width: 0;
   overflow: hidden;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3508,12 +3519,12 @@ button {
 .card-open {
   flex: none;
   padding: 0 6px;
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--accent-wash);
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--text-small);
   font-weight: 500;
-  line-height: 16px;
+  line-height: 18px;
 }
 
 .card-line {
@@ -3524,6 +3535,30 @@ button {
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* How a build of this run stands: in ink, behind the status line's dot. Of an object not opened here the line is quiet, and has none. */
+.card-line[data-status] {
+  color: var(--ink);
+}
+
+.card-line[data-status] .status-dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+.card-line[data-status='ok'] .status-dot {
+  background: var(--ok);
+}
+
+.card-line[data-status='failed'] .status-dot {
+  background: var(--fail);
+}
+
+.card-line[data-status='building'] .status-dot {
+  background: var(--accent);
+  animation: working 0.9s ease-in-out infinite alternate;
 }
 
 .card [data-tone='fail'] {
@@ -3546,14 +3581,14 @@ button {
 }
 
 /* A count, said quietly: an outline and no ground of its own. */
+/* A long one goes onto a second line within its outline, not out of the card. */
 .card-chip {
   padding: 0 7px;
   border: var(--divider);
   border-radius: 9px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--text-small);
   line-height: 18px;
-  white-space: nowrap;
 }
 
 .card-chip[data-tone] {
@@ -3591,15 +3626,20 @@ button {
   font-weight: 500;
 }
 
-/* The keys of the page, said once under the cards. */
+/* The keys of the page, at its foot whatever is scrolled: with forty objects the last card is far away. */
 .show-keys {
+  position: sticky;
+  /* Down to the foot of the page itself: what sticks is held within the page's padding otherwise. */
+  bottom: -20px;
   display: flex;
   flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin-top: auto;
-  padding-top: 24px;
+  margin: auto -36px -20px;
+  padding: 8px 36px;
+  border-top: var(--divider);
+  background: var(--surface);
   color: var(--muted);
   font-size: var(--text-small);
 }
@@ -3607,5 +3647,9 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .card {
     transition: none;
+  }
+
+  .card-line[data-status='building'] .status-dot {
+    animation: none;
   }
 }

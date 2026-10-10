@@ -1,4 +1,5 @@
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
@@ -88,6 +89,11 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   expect(readdirSync(join(root, 'hollow')).sort()).toEqual(['.torno', 'hollow.py'])
   await page.getByRole('button', { name: 'All objects' }).click()
   await expect(card('hollow')).toContainText('Built, r1')
+  // A build of this run is said in ink behind the status line's dot; an object not opened here has neither.
+  await expect(card('hollow').locator('[data-part="build"]')).toHaveAttribute('data-status', 'ok')
+  await expect(card('hollow').locator('[data-part="build"] .status-dot')).toHaveCount(1)
+  await expect(card('plain').locator('[data-part="build"]')).not.toHaveAttribute('data-status')
+  await expect(card('plain').locator('.status-dot')).toHaveCount(0)
   await expect(card('hollow')).toHaveAttribute('aria-current', 'true')
   await expect(card('hollow').locator('img')).toHaveJSProperty('naturalWidth', 480)
   // Parts on a clear ground: the card's own surface shows round them, in either theme.
@@ -108,11 +114,13 @@ test('a card says when its picture is older than the model, and a second object 
   await expect.poll(() => statSync(thumb('hollow')).mtimeMs, { timeout: 20_000 }).toBeGreaterThan(before)
   expect((await state()).objectId).toBe('plain')
   // A picture older than its model says so.
-  await expect.poll(() => meta('hollow').modelMtimeMs).toBe(statSync(join(root, 'hollow', 'hollow.py')).mtimeMs)
-  writeFileSync(thumb('hollow', 'thumb.json'), JSON.stringify({ ...meta('hollow'), modelMtimeMs: 1 }))
+  await expect.poll(() => meta('hollow').sourcesMtimeMs).toBe(statSync(join(root, 'hollow', 'hollow.py')).mtimeMs)
+  // Its facts say which picture they are of: its size and what its bytes hash to.
+  expect(meta('hollow')).toMatchObject({ bytes: statSync(thumb('hollow')).size, hash: createHash('sha256').update(readFileSync(thumb('hollow'))).digest('hex') })
+  writeFileSync(thumb('hollow', 'thumb.json'), JSON.stringify({ ...meta('hollow'), sourcesMtimeMs: 1 }))
   await page.getByRole('button', { name: 'All objects' }).click()
-  await expect(card('hollow')).toContainText('The model has changed since')
-  await expect(card('plain')).not.toContainText('The model has changed since')
+  await expect(card('hollow')).toContainText('A source has changed since')
+  await expect(card('plain')).not.toContainText('A source has changed since')
 })
 
 test('a picture is of the object as it was last looked at, and says what it leaves out', async () => {
@@ -143,6 +151,60 @@ test('a picture costs a few milliseconds, and leaves the view as it was', async 
   expect(timed.meanMs).toBeLessThan(100)
   // The same picture of the view as before: its target, its ground and its cut are as they were.
   expect(await looked()).toBe(before)
+  // With a button held in the view the page does not come up: it would take the view from under the drag.
+  const canvas = (await page.locator('.viewport-canvas').boundingBox())!
+  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(canvas.x + canvas.width / 2 + 30, canvas.y + canvas.height / 2 + 10, { steps: 3 })
+  await page.keyboard.press('w')
+  expect((await state()).page).toBe('object')
+  await page.mouse.up()
+  await page.keyboard.press('w')
+  expect((await state()).page).toBe('objects')
+})
+
+// What a picture of a large part costs: a mesh made here, of a million triangles in one face (a surface of
+// 708 × 708 squares), handed to the thumbnailer as a build's meshes are. No kernel is asked for it.
+// Measured with marks around each step (fix round 1): 7 ms to build the part, 21 to 49 ms to draw it, 6 to 35 ms
+// to read it back; and then, in this hidden window, exactly 1,001 ms in which not even a zero timeout runs
+// before the PNG comes: the second a hidden window waits for a frame it is never given. Hence the bound.
+test('a picture of a part of a million triangles is drawn, and costs the window no more than a moment', async () => {
+  test.setTimeout(120_000)
+  await page.keyboard.press('Escape')
+  const timed = await page.evaluate(async () => {
+    const n = 708
+    const vertices = new Float32Array((n + 1) * (n + 1) * 3)
+    const normals = new Float32Array(vertices.length)
+    for (let j = 0, v = 0; j <= n; j++) for (let i = 0; i <= n; i++, v += 3) {
+      vertices.set([(i / n) * 200 - 100, (j / n) * 200 - 100, 12 * Math.sin(i / 40) * Math.cos(j / 55)], v)
+      normals.set([0, 0, 1], v)
+    }
+    const triangles = new Uint32Array(n * n * 6)
+    for (let j = 0, t = 0; j < n; j++) for (let i = 0; i < n; i++, t += 6) {
+      const a = j * (n + 1) + i
+      triangles.set([a, a + 1, a + n + 2, a, a + n + 2, a + n + 1], t)
+    }
+    const rim = new Float32Array([-100, -100, 0, 100, -100, 0])
+    const counts = [new Uint32Array([n * n * 2]), new Uint32Array([1]), new Uint32Array([0]), new Uint32Array([0])]
+    const pieces = [vertices, normals, triangles, rim, ...counts]
+    const blob = new ArrayBuffer(pieces.reduce((sum, piece) => sum + piece.byteLength, 0))
+    const bufs: Array<{ offset: number; length: number }> = []
+    let offset = 0
+    for (const piece of pieces) {
+      new Uint8Array(blob, offset, piece.byteLength).set(new Uint8Array(piece.buffer))
+      bufs.push({ offset, length: piece.byteLength })
+      offset += piece.byteLength
+    }
+    const [v, nrm, tri, edges, trianglesPerFace, segmentsPerEdge, faceTypes, edgeTypes] = bufs
+    const part = { key: 'main:sheet', name: 'sheet', layout: 'main', loc: { t: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number] }, bbox: { min: [-100, -100, -12] as [number, number, number], max: [100, 100, 12] as [number, number, number] }, volume: 0, faceCount: 1, edgeCount: 1, triangleCount: n * n * 2, valid: true, hash: 'sheet', mesh: { vertices: v, normals: nrm, triangles: tri, edges, trianglesPerFace, segmentsPerEdge, faceTypes, edgeTypes } }
+    const scene = { model: 'sheet.py', layouts: ['main'], parts: [part], seconds: 0, output: '' }
+    const first = await window.__tornoTest!.timeThumbnail(1, { scene, blob })
+    const more = await window.__tornoTest!.timeThumbnail(5, { scene, blob })
+    return { triangles: n * n * 2, megabytes: blob.byteLength / 2 ** 20, firstMs: first.meanMs, meanMs: more.meanMs, worstMs: more.worstMs, bytes: more.bytes }
+  })
+  console.log(`[show] a thumbnail of ${timed.triangles} triangles (${timed.megabytes.toFixed(1)} MB of meshes): first ${timed.firstMs.toFixed(0)} ms, then mean ${timed.meanMs.toFixed(0)} ms, worst ${timed.worstMs.toFixed(0)} ms, PNG ${(timed.bytes / 1024).toFixed(1)} KB`)
+  expect(timed.bytes).toBeGreaterThan(1000)
+  expect(timed.worstMs).toBeLessThan(3000)
   await page.keyboard.press('w')
 })
 
@@ -265,21 +327,78 @@ test('a build that fails wins over the picture, which stays and is dimmed', asyn
   await page.keyboard.press('Escape')
 })
 
+test('a slider of the left column keeps its arrows while the page is up, and Escape closes what is on top first', async () => {
+  // plain is open, and failed: the page comes up over it.
+  await page.keyboard.press('w')
+  expect((await state()).page).toBe('objects')
+  const slider = page.locator('[data-region="left"]').getByRole('slider', { name: 'Opacity of plate' })
+  await slider.focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(slider).toBeFocused()
+  await expect.poll(async () => (await state()).layers.plate?.opacity).toBe(0.95)
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(async () => (await state()).layers.plate?.opacity).toBe(1)
+  // The build's error, opened from the status line, is over the page: Escape closes it, and the page stays.
+  await page.locator('.status-fail').click()
+  const sheet = page.getByRole('dialog', { name: 'Build error' })
+  await expect(sheet).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  expect((await state()).page).toBe('objects')
+  // A question asked in the left column: Escape answers it with the answer that changes nothing, and the page stays.
+  await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+  await expect.poll(() => page.evaluate(() => window.__tornoTerm!.text())).toContain('READY')
+  await page.locator('.session-term textarea').focus()
+  await page.keyboard.type('hook')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-region="session"]').getByRole('status')).toHaveText('Working')
+  expect((await state()).page).toBe('objects')
+  await page.locator('[data-region="left"]').getByRole('button', { name: 'Open folder' }).click()
+  const ask = page.getByRole('alertdialog', { name: 'End the sessions of this folder?' })
+  await expect(ask).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(ask).toHaveCount(0)
+  expect((await state()).page).toBe('objects')
+  expect(await app.evaluate(() => (globalThis as unknown as { __tornoMain: { picks: number } }).__tornoMain.picks)).toBe(0)
+  // With nothing over it, Escape is the page's again.
+  await page.keyboard.press('Escape')
+  expect(await state()).toMatchObject({ page: 'object', objectId: 'plain' })
+  // What had the focus when the page came up has it again when the page goes.
+  const all = page.getByRole('button', { name: 'All objects' })
+  await all.focus()
+  await page.keyboard.press('Enter')
+  expect((await state()).page).toBe('objects')
+  await expect.poll(() => focusedCard()).toBe('plain')
+  await page.keyboard.press('Escape')
+  expect((await state()).page).toBe('object')
+  await expect(all).toBeFocused()
+})
+
 // Forty objects, none opened: what the page costs when it is the face of a full workspace. Thirty have a picture
 // on file. Nothing is built, and only the pictures of the cards in view, or near it, are asked for.
 test('with forty objects the page is there at once, builds nothing, and asks for the pictures in view only', async () => {
   test.setTimeout(90_000)
   const many = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-show-many-'))
   const picture = readFileSync(thumb('hollow'))
+  const facts = { at: '2026-10-08T21:14:03.000Z', layout: 'assembly', parts: 2, bytes: picture.length, hash: createHash('sha256').update(picture).digest('hex') }
   const names = Array.from({ length: 40 }, (_, i) => `part-${String(i + 1).padStart(2, '0')}`)
+  const later = Date.now() + 60_000
   for (const [i, name] of names.entries()) {
     mkdirSync(join(many, name, '.torno'), { recursive: true })
     writeFileSync(join(many, name, `${name.replace('-', '_')}.py`), readFileSync(join(fixtures, 'plain', 'plain.py')))
     if (i % 4 !== 3) {
       writeFileSync(join(many, name, '.torno', 'thumb.png'), picture)
-      writeFileSync(join(many, name, '.torno', 'thumb.json'), JSON.stringify({ at: '2026-10-08T21:14:03.000Z', layout: 'assembly', parts: 2, model: `${name.replace('-', '_')}.py`, modelMtimeMs: i % 8 === 0 ? 1 : Date.now() + 60_000 }))
+      writeFileSync(join(many, name, '.torno', 'thumb.json'), JSON.stringify({ ...facts, model: `${name.replace('-', '_')}.py`, sourcesMtimeMs: i % 8 === 0 ? 1 : later }))
     }
   }
+  // part-02: another picture than its facts are of, of the same size. part-03: facts, and no picture.
+  // part-05: a helper beside its model, saved after its picture was made.
+  const other = Buffer.from(picture)
+  other[other.length - 20] ^= 0xff
+  writeFileSync(join(many, 'part-02', '.torno', 'thumb.png'), other)
+  rmSync(join(many, 'part-03', '.torno', 'thumb.png'))
+  writeFileSync(join(many, 'part-05', 'fits.py'), '# a helper\n')
+  utimesSync(join(many, 'part-05', 'fits.py'), (later + 60_000) / 1000, (later + 60_000) / 1000)
   const manyApp = await launch(many)
   try {
     const manyPage = await manyApp.firstWindow()
@@ -302,15 +421,26 @@ test('with forty objects the page is there at once, builds nothing, and asks for
     expect(first).toBeGreaterThan(0)
     expect(first).toBeLessThan(20)
     await expect(manyPage.locator('.card[data-object="part-38"] img')).toHaveCount(0)
-    await expect(manyPage.locator('.card[data-object="part-01"]')).toContainText('The model has changed since')
+    await expect(manyPage.locator('.card[data-object="part-01"]')).toContainText('A source has changed since')
     await expect(manyPage.locator('.card[data-object="part-04"]')).toContainText('No picture yet')
+    // A source that is not the model file: the helper beside it.
+    await expect(manyPage.locator('.card[data-object="part-05"]')).toContainText('A source has changed since')
+    await expect(manyPage.locator('.card[data-object="part-06"]')).not.toContainText('A source has changed since')
+    // Facts without their picture, and a picture that is not the one its facts are of, are no picture: nothing is said of one.
+    for (const id of ['part-02', 'part-03']) {
+      await expect(manyPage.locator(`.card[data-object="${id}"]`)).toContainText('No picture yet')
+      await expect(manyPage.locator(`.card[data-object="${id}"]`)).not.toContainText('Picture of')
+      await expect(manyPage.locator(`.card[data-object="${id}"] img`)).toHaveCount(0)
+    }
+    // The keys are said at the foot of the page, in view however far the cards go.
+    await expect(manyPage.locator('.show-keys')).toBeInViewport()
     // Brought into view by the keys, the last ones get theirs.
     await manyPage.keyboard.press('End')
     await expect(manyPage.locator('.card[data-object="part-38"] img')).toHaveJSProperty('naturalWidth', 480)
     const atEnd = await manyPage.locator('.card img').count()
     expect(await opened(manyApp)).toEqual([])
-    for (const name of names) expect(readdirSync(join(many, name, '.torno')).sort()).toEqual(names.indexOf(name) % 4 !== 3 ? ['thumb.json', 'thumb.png'] : [])
-    console.log(`[show] 40 objects: cards on the page ${shownAfter} ms after the window; show.cards() median ${timed.median.toFixed(1)} ms, worst ${timed.worst.toFixed(1)} ms; pictures asked for at first ${first} of 30, after End ${atEnd}`)
+    for (const name of names) expect(readdirSync(join(many, name, '.torno')).sort()).toEqual(name === 'part-03' ? ['thumb.json'] : names.indexOf(name) % 4 !== 3 ? ['thumb.json', 'thumb.png'] : [])
+    console.log(`[show] 40 objects: cards on the page ${shownAfter} ms after the window; show.cards() median ${timed.median.toFixed(1)} ms, worst ${timed.worst.toFixed(1)} ms; pictures shown at first ${first} of 28, after End ${atEnd}`)
     expect(timed.median).toBeLessThan(250)
   } finally {
     await manyApp.close()
@@ -359,7 +489,7 @@ for (const shot of ['light', 'dark', 'empty-light', 'empty-dark'] as const) {
         for (const [from, to] of [['gauge', 'morph'], ['spread', 'makers']] as const) {
           mkdirSync(join(shotRoot, to, '.torno'), { recursive: true })
           cpSync(join(shotRoot, from, '.torno', 'thumb.png'), join(shotRoot, to, '.torno', 'thumb.png'))
-          writeFileSync(made(to), JSON.stringify({ ...JSON.parse(readFileSync(made(from), 'utf8')), at: '2026-10-02T09:41:00.000Z', model: `${to}.py`, modelMtimeMs: to === 'morph' ? 1 : Date.now() + 60_000 }))
+          writeFileSync(made(to), JSON.stringify({ ...JSON.parse(readFileSync(made(from), 'utf8')), at: '2026-10-02T09:41:00.000Z', model: `${to}.py`, sourcesMtimeMs: to === 'morph' ? 1 : Date.now() + 60_000 }))
         }
         writeFileSync(join(shotRoot, 'makers', '.torno', 'marks.json'), JSON.stringify({ next: 5, marks: [pin('M1', 'draft'), pin('M2', 'sent'), { ...pin('M3', 'sent'), kind: 'dimension', measure: 'distance', a: { point: [0, 0, 0] }, b: { point: [0, 0, 6] }, value: 6, expected: 8, anchor: undefined }, { ...pin('M4', 'sent'), kind: 'dimension', measure: 'distance', a: { point: [0, 0, 0] }, b: { point: [0, 0, 8] }, value: 8, expected: 8, anchor: undefined }] }))
         // On hollow: a pin of the person's, not sent yet.

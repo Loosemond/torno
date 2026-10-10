@@ -6,29 +6,41 @@ import type { ObjectCard } from '../../shared/show'
 
 export type Tone = 'fail' | 'warn' | 'ok'
 export interface Said { text: string; tone?: Tone }
+/** How a build of this run stands, as the status line's dot says it: none for an object not opened in it. */
+export type Standing = 'ok' | 'failed' | 'building' | 'idle'
 
-/** How the object's build stands: in this run, or that it was not opened in it; why it cannot be built in place of all of it. */
-export function buildLine(card: ObjectCard): Said {
+/**
+ * How the object's build stands: in this run (`standing`: it is then said in ink, with the status line's dot
+ * before it), or that it was not opened in it; why it cannot be built in place of all of it.
+ */
+export function buildLine(card: ObjectCard): Said & { standing?: Standing } {
   if (card.problem !== undefined) return { text: card.problem }
   const build = card.opened ? card.build : undefined
   if (!build) return { text: 'Not opened in this run' }
-  if (build.status === 'building') return { text: 'Building…' }
-  if (build.status === 'failed') return { text: build.error ? `Failed: ${build.error}` : 'Failed', tone: 'fail' }
-  if (build.letGo === 'memory') return { text: 'Let go to make room: built again when opened' }
-  return { text: build.status === 'ok' ? `Built, r${build.revision}` : 'Not built yet' }
+  if (build.status === 'building') return { text: 'Building…', standing: 'building' }
+  if (build.status === 'failed') return { text: build.error ? `Failed: ${build.error}` : 'Failed', tone: 'fail', standing: 'failed' }
+  // Let go: the kernel holds no build of it now, whatever the last one was.
+  if (build.letGo === 'memory') return { text: 'Let go to make room: built again when opened', standing: 'idle' }
+  return build.status === 'ok' ? { text: `Built, r${build.revision}`, standing: 'ok' } : { text: 'Not built yet', standing: 'idle' }
 }
 
 const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+const DAY_OF_A_YEAR = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+
+/** Said under a picture that is older than what its object is built from. */
+export const BEHIND = 'A source has changed since'
 
 /**
- * When the picture on the card was made and what it draws otherwise than the object is, and whether the model
- * has changed since (`behind`, said beside it in the colour of a warning). Null for a card with no picture.
+ * When the picture on the card was made (with its year when that is not this one) and what it draws otherwise
+ * than the object is, and whether a source has changed since (`behind`: `BEHIND` is said under it, in the colour
+ * of a warning). Null for a card with no picture.
  */
-export function pictureLine(card: ObjectCard): { text: string; behind: boolean } | null {
+export function pictureLine(card: ObjectCard, now: Date = new Date()): { text: string; behind: boolean } | null {
   const thumb = card.thumb
   if (!thumb) return null
   const made = new Date(thumb.at)
-  const said = [`Picture of ${Number.isNaN(made.getTime()) ? 'an unknown day' : DAY.format(made)}`]
+  const day = Number.isNaN(made.getTime()) ? 'an unknown day' : (made.getFullYear() === now.getFullYear() ? DAY : DAY_OF_A_YEAR).format(made)
+  const said = [`Picture of ${day}`]
   if (thumb.cut) said.push('cut by its section')
   if (thumb.apart) said.push('parts drawn apart')
   if (thumb.hidden) said.push(`${thumb.hidden} ${thumb.hidden === 1 ? 'part' : 'parts'} left out`)

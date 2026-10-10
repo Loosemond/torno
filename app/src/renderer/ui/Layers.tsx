@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { actions, useStore } from '../state/store'
-import { colorFor, colorsByName } from '../viewport/palette'
+import { colorFor, colorsByName } from '../../shared/palette'
 
 /**
  * The parts of the layout shown: colour, name, an opacity slider that appears

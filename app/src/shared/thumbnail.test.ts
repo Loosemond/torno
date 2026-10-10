@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Part, Scene } from '../../shared/scene'
+import type { Part, Scene } from './scene'
 import { thumbnailLayout, thumbnailPlan } from './thumbnail'
 
 it('is of the assembly when there is one, else of the first layout, and of none when there is none', () => {
@@ -34,6 +34,16 @@ describe('thumbnailPlan', () => {
     expect(thumbnailPlan(HOLLOW, { layout: 'bed', layers: {} })!.layout).toBe('assembly')
     // Every part switched off is a picture of nothing: the parts are drawn, and none is said to be left out.
     expect(thumbnailPlan(HOLLOW, { layers: { lid: { visible: false }, tub: { visible: false } } })).toMatchObject({ hidden: 0, parts: [{ name: 'tub' }, { name: 'lid' }] })
+  })
+
+  it('takes a part thinned to nothing as one switched off, and never draws one that cannot be seen', () => {
+    const plan = thumbnailPlan(HOLLOW, { layers: { lid: { opacity: 0 } } })!
+    expect(plan.parts.map((p) => p.name)).toEqual(['tub'])
+    expect(plan.hidden).toBe(1)
+    // Both thinned to nothing: all are drawn, whole.
+    const all = thumbnailPlan(HOLLOW, { layers: { lid: { opacity: 0 }, tub: { opacity: 0 } } })!
+    expect(all).toMatchObject({ hidden: 0, parts: [{ name: 'tub' }, { name: 'lid' }] })
+    expect(Object.values(all.looks).map((look) => look.opacity)).toEqual([1, 1])
   })
 
   it('gives each part the colour it has in the window: by its place among the names of the whole scene', () => {

@@ -171,7 +171,11 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   /** The build on show as it came, kept only under test: what `timeThumbnail` draws. */
   let landed: { scene: Scene; blob: ArrayBuffer } | null = null
   const underTest = new URLSearchParams(location.search).has('test')
+  // The pictures on the cards of the page of objects: one of every build that lands, of whichever object. The
+  // one subscription to the builds is this one, which hands each on: the meshes cross from main once.
+  const thumbs = connectThumbs(viewport)
   const offScene = window.torno.object.onScene((m) => {
+    thumbs.landed(m)
     const first = store.getState().scene === null
     if (!actions.applyScene(m)) return
     if (underTest) landed = { scene: m.scene, blob: m.blob }
@@ -319,8 +323,6 @@ function connect(viewport: Viewport, readout: Readout): () => void {
 
   // What the agent asks of the window besides pictures: to show something, and to point something out.
   const offAgent = connectAgent(viewport)
-  // The pictures on the cards of the page of objects: one of every build that lands, of whichever object.
-  const offThumbs = connectThumbs(viewport)
 
   // Main's requests for a picture are answered by the app (`connectLook`), with this viewport while it is there.
   setPictures((request) => look(viewport, request))
@@ -388,14 +390,15 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst }
       },
       scans: () => viewport.scanState(),
-      timeThumbnail: async (count = 10) => {
-        if (!landed) throw new Error('no build yet')
+      timeThumbnail: async (count = 10, given) => {
+        const of = given ?? landed
+        if (!of) throw new Error('no build yet')
         let worst = 0
         let bytes = 0
         const started = performance.now()
         for (let i = 0; i < count; i++) {
           const before = performance.now()
-          bytes = (await viewport.thumbnail(landed.scene, landed.blob))?.png.length ?? 0
+          bytes = (await viewport.thumbnail(of.scene, of.blob))?.png.length ?? 0
           worst = Math.max(worst, performance.now() - before)
         }
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst, bytes }
@@ -420,7 +423,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offRegion()
     setPictures(null)
     offAgent()
-    offThumbs()
+    thumbs.stop()
     delete window.__tornoTest
   }
 }

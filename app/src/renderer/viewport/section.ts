@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { MeshBVH } from 'three-mesh-bvh'
 import { number } from '../../shared/format'
+import { KEPT_WITHIN_MM, keepsNothing, keptDepth } from '../../shared/cut'
 import { type SectionPlane, axisForm } from '../../shared/view'
 import type { BuiltPart } from './partMesh'
 
@@ -144,33 +145,8 @@ function unit(v: Vec3): Vec3 {
 
 // ---- the cut, as it is drawn ----
 
-/**
- * What lies in the plane itself is kept: a plane put on a face leaves the face
- * drawn, and whole, where to the last bit it would be neither. In millimetres.
- */
-export const KEPT_WITHIN_MM = 1e-3
-
-/**
- * How far into the half that is kept the furthest corner of a box reaches, in
- * millimetres: negative for a box that is wholly in the half taken away.
- */
-export function keptDepth(box: Box, plane: SectionPlane): number {
-  const n = plane.normal
-  let depth = 0
-  for (let i = 0; i < 3; i++) depth += -n[i] * ((box.min[i] + box.max[i]) / 2 - plane.origin[i]) + (Math.abs(n[i]) * (box.max[i] - box.min[i])) / 2
-  return depth
-}
-
-/**
- * Whether a section leaves nothing of what is in a box: no corner of it
- * reaches into the half that is kept by more than what counts as lying in the
- * plane. Such a part only touches the plane (it rests on the face the plane
- * was put on) or is beyond it: it is not drawn at all, where the rule that
- * what lies in the plane is kept would leave a sheet of it.
- */
-export function keepsNothing(box: Box, plane: SectionPlane): boolean {
-  return keptDepth(box, plane) <= 2 * KEPT_WITHIN_MM
-}
+// What a section keeps of a box, as plain numbers, is `shared/cut.ts`'s to say: main plans pictures by the same rule.
+export { KEPT_WITHIN_MM, keptDepth, keepsNothing }
 
 /**
  * Whether a section leaves nothing of a part, given the box around it. A part

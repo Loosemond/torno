@@ -69,7 +69,9 @@ test('the window is hidden, 1440 × 900, and titled torno', async () => {
 
 test('the four shell regions exist with their placeholders', async () => {
   await expect(page.locator('aside[data-region="left"] .workspace-name')).toHaveText(root.split('/').pop()!)
-  await expect(page.locator('aside[data-region="left"]')).toContainText('No objects here yet')
+  // Said once, by the page of objects, which is where a workspace with none starts.
+  await expect(page.locator('main[data-region="viewport"]')).toContainText('No objects here yet')
+  await expect(page.locator('aside[data-region="left"]')).not.toContainText('No objects here yet')
   await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
   await expect(page.locator('main[data-region="viewport"]')).toContainText('No object open')
   await expect(page.locator('aside[data-region="session"]')).toBeVisible()

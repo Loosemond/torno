@@ -6,17 +6,17 @@ const card = (over: Partial<ObjectCard> = {}): ObjectCard => ({ id: 'tub', name:
 
 describe('what a card says of its build', () => {
   it('says the build of this run, and nothing of a build for an object not opened in it', () => {
-    expect(buildLine(card())).toEqual({ text: 'Built, r3' })
-    expect(buildLine(card({ build: { status: 'building', revision: 3, stale: true } }))).toEqual({ text: 'Building…' })
-    expect(buildLine(card({ build: { status: 'idle', revision: 0, stale: false } }))).toEqual({ text: 'Not built yet' })
+    expect(buildLine(card())).toEqual({ text: 'Built, r3', standing: 'ok' })
+    expect(buildLine(card({ build: { status: 'building', revision: 3, stale: true } }))).toEqual({ text: 'Building…', standing: 'building' })
+    expect(buildLine(card({ build: { status: 'idle', revision: 0, stale: false } }))).toEqual({ text: 'Not built yet', standing: 'idle' })
     expect(buildLine(card({ opened: false, build: undefined }))).toEqual({ text: 'Not opened in this run' })
   })
 
   it('says a failure with its first line, in the colour of one, and that a build was let go', () => {
-    expect(buildLine(card({ build: { status: 'failed', revision: 3, stale: true, error: 'NameError: name x is not defined' } }))).toEqual({ text: 'Failed: NameError: name x is not defined', tone: 'fail' })
-    expect(buildLine(card({ build: { status: 'failed', revision: 0, stale: false } }))).toEqual({ text: 'Failed', tone: 'fail' })
-    expect(buildLine(card({ build: { status: 'ok', revision: 3, stale: false, letGo: 'memory' } }))).toEqual({ text: 'Let go to make room: built again when opened' })
-    expect(buildLine(card({ build: { status: 'building', revision: 3, stale: false, letGo: 'memory' } }))).toEqual({ text: 'Building…' })
+    expect(buildLine(card({ build: { status: 'failed', revision: 3, stale: true, error: 'NameError: name x is not defined' } }))).toEqual({ text: 'Failed: NameError: name x is not defined', tone: 'fail', standing: 'failed' })
+    expect(buildLine(card({ build: { status: 'failed', revision: 0, stale: false } }))).toEqual({ text: 'Failed', tone: 'fail', standing: 'failed' })
+    expect(buildLine(card({ build: { status: 'ok', revision: 3, stale: false, letGo: 'memory' } }))).toEqual({ text: 'Let go to make room: built again when opened', standing: 'idle' })
+    expect(buildLine(card({ build: { status: 'building', revision: 3, stale: false, letGo: 'memory' } }))).toEqual({ text: 'Building…', standing: 'building' })
   })
 
   it('says why an object cannot be built in place of all of it', () => {
@@ -26,21 +26,24 @@ describe('what a card says of its build', () => {
 
 describe('what a card says of its picture', () => {
   const thumb = { at: '2026-10-08T21:14:03', layout: 'assembly', behind: false }
+  const NOW = new Date('2026-10-10T02:00:00')
 
   it('says when the picture was made, and nothing for none', () => {
-    expect(pictureLine(card())).toBeNull()
-    expect(pictureLine(card({ thumb }))).toEqual({ text: 'Picture of 8 Oct, 21:14', behind: false })
-    expect(pictureLine(card({ thumb: { ...thumb, at: 'last week' } }))).toEqual({ text: 'Picture of an unknown day', behind: false })
+    expect(pictureLine(card(), NOW)).toBeNull()
+    expect(pictureLine(card({ thumb }), NOW)).toEqual({ text: 'Picture of 8 Oct, 21:14', behind: false })
+    expect(pictureLine(card({ thumb: { ...thumb, at: 'last week' } }), NOW)).toEqual({ text: 'Picture of an unknown day', behind: false })
+    // Of another year than this one: said with its year, or last October's reads as this one's.
+    expect(pictureLine(card({ thumb }), new Date('2027-03-01T10:00:00'))!.text).toBe('Picture of 8 Oct 2026, 21:14')
   })
 
-  it('says that the model has changed since, and what the picture draws otherwise than the object is', () => {
-    expect(pictureLine(card({ thumb: { ...thumb, behind: true } }))).toEqual({ text: 'Picture of 8 Oct, 21:14', behind: true })
-    expect(pictureLine(card({ thumb: { ...thumb, cut: true, hidden: 1 } }))!.text).toBe('Picture of 8 Oct, 21:14, cut by its section, 1 part left out')
-    expect(pictureLine(card({ thumb: { ...thumb, apart: true, hidden: 2 } }))!.text).toBe('Picture of 8 Oct, 21:14, parts drawn apart, 2 parts left out')
+  it('says that a source has changed since, and what the picture draws otherwise than the object is', () => {
+    expect(pictureLine(card({ thumb: { ...thumb, behind: true } }), NOW)).toEqual({ text: 'Picture of 8 Oct, 21:14', behind: true })
+    expect(pictureLine(card({ thumb: { ...thumb, cut: true, hidden: 1 } }), NOW)!.text).toBe('Picture of 8 Oct, 21:14, cut by its section, 1 part left out')
+    expect(pictureLine(card({ thumb: { ...thumb, apart: true, hidden: 2 } }), NOW)!.text).toBe('Picture of 8 Oct, 21:14, parts drawn apart, 2 parts left out')
   })
 
   it('says of which build the picture is when the last one failed', () => {
-    expect(pictureLine(card({ thumb, build: { status: 'failed', revision: 3, stale: true, error: 'x' } }))!.text).toBe('Picture of 8 Oct, 21:14, of the last build that worked')
+    expect(pictureLine(card({ thumb, build: { status: 'failed', revision: 3, stale: true, error: 'x' } }), NOW)!.text).toBe('Picture of 8 Oct, 21:14, of the last build that worked')
   })
 })
 

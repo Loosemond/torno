@@ -27,7 +27,7 @@ import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile } from './scenefile'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
-import { THUMB_MAX_BYTES, THUMB_PNG, cardsOf, saveThumbnail, thumbnailRefusal } from './show/cards'
+import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
 import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
@@ -131,8 +131,6 @@ export function openedObjects(): string[] {
   return [...(current?.opened ?? [])]
 }
 
-const mtimeOf = (path: string): Promise<number | null> => stat(path).then((s) => s.mtimeMs, () => null)
-
 /** The cards of the open workspace (`cardsOf`): read from what is known of the objects opened in this run and from the files of the others. */
 function cards(): Promise<ObjectCard[]> {
   const ws = current
@@ -144,46 +142,21 @@ function cards(): Promise<ObjectCard[]> {
     marks: (id) => (marks ? marks.list(id) : Promise.reject(new Error('marks are not available'))),
     session: (id) => sessions?.current(id)?.status ?? null,
     readFile: (path) => readFile(path, 'utf8'),
-    mtimeMs: mtimeOf
+    sourcesMtimeMs: newestPython,
+    size: (path) => stat(path).then((s) => s.size, () => null)
   })
 }
 
-/** The picture an object has on file, when it is one a card may show (`thumbnailRefusal`); null otherwise. */
-async function thumbnailOnFile(objectId: string): Promise<ArrayBuffer | null> {
-  const obj = findObject(objectId)
-  if (!obj) return null
-  const path = join(obj.dir, '.torno', THUMB_PNG)
-  try {
-    // Not read at all when it is no picture of ours by its size: whatever lies there is not handed to the window.
-    if ((await stat(path)).size > THUMB_MAX_BYTES) return null
-    const png = await readFile(path)
-    return thumbnailRefusal(png) === null ? toArrayBuffer(png) : null
-  } catch {
-    return null
+/** What keeping a picture of an object's build asks of the open workspace (`keepThumbnail`). */
+const keeping: KeepDeps = {
+  object: findObject,
+  opened: (id) => current?.opened.has(id) === true,
+  lastBuild(id) {
+    const revision = current?.builds.scene(id)?.revision
+    if (revision === undefined) return undefined
+    const built = current?.builtFrom.get(id)
+    return { revision, ...(built?.revision === revision && built.startedMs !== undefined ? { startedMs: built.startedMs } : {}) }
   }
-}
-
-/**
- * Keeps the picture the window drew of an object's build. Only of an object opened in this run of the open
- * workspace, only of its last good build, and only bytes that are such a picture: anything else is dropped. What
- * it is said to be of is main's to say: the model file, and when that was last saved as far as the build read it
- * (a model saved again since the build started is newer than its picture).
- */
-async function keepThumbnail(objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf): Promise<void> {
-  const ws = current
-  const obj = findObject(objectId)
-  if (!ws || !obj || obj.model === null || !ws.opened.has(objectId) || ws.builds.scene(objectId)?.revision !== revision) return
-  const said = Object(of) as Partial<ThumbnailOf>
-  if (thumbnailRefusal(png) !== null || typeof said.layout !== 'string' || said.layout === '' || said.layout.length > 100 || !Number.isSafeInteger(said.parts)) return
-  const built = ws.builtFrom.get(objectId)
-  const saved = await mtimeOf(join(obj.dir, obj.model))
-  const startedMs = built?.revision === revision ? built.startedMs : undefined
-  const modelMtimeMs = saved === null ? null : startedMs === undefined ? saved : Math.min(saved, startedMs)
-  // The workspace may have been left, or the object built again, while the file was looked at.
-  if (current !== ws || ws.builds.scene(objectId)?.revision !== revision) return
-  const hidden = typeof said.hidden === 'number' && Number.isSafeInteger(said.hidden) && said.hidden > 0 ? said.hidden : 0
-  await saveThumbnail(obj.dir, png, { layout: said.layout, parts: said.parts!, model: obj.model, modelMtimeMs, ...(said.cut === true ? { cut: true } : {}), ...(said.apart === true ? { apart: true } : {}), ...(hidden ? { hidden } : {}) }, new Date())
-  cardsChanged()
 }
 
 /** Open a workspace: scan it and start a kernel for it. Replaces the one open. */
@@ -667,9 +640,16 @@ export function registerIpc(
   // The page of objects. Asking for the cards, or for a picture on file, reads and does nothing else: no
   // object is opened or built for it. The window hands over the pictures it drew of the builds it was sent.
   ipcMain.handle('show:cards', () => cards())
-  ipcMain.handle('show:thumbnail', (_event, objectId: string) => thumbnailOnFile(String(objectId)))
+  ipcMain.handle('show:thumbnail', async (_event, objectId: string) => {
+    const obj = findObject(String(objectId))
+    const png = obj ? await thumbnailOnFile(obj.dir) : null
+    return png && toArrayBuffer(png)
+  })
   ipcMain.on('show:saveThumbnail', (_event, objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf) => {
-    keepThumbnail(String(objectId), revision, png, of).catch((e) => console.error(`cannot keep the picture of ${String(objectId)}: ${e instanceof Error ? e.message : String(e)}`))
+    keepThumbnail(keeping, String(objectId), revision, png, of).then(
+      (kept) => kept && cardsChanged(),
+      (e) => console.error(`cannot keep the picture of ${String(objectId)}: ${e instanceof Error ? e.message : String(e)}`)
+    )
   })
 
   ipcMain.on('view:report', (_event, view: ViewState) => {

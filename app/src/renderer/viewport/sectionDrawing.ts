@@ -2,7 +2,7 @@ import { number } from '../../shared/format'
 import type { Sectioned } from '../../shared/geometry'
 import { type ScanOutline, cutText, planeText } from '../../shared/view'
 import { overlayFonts } from './overlay'
-import { edgeTint } from './palette'
+import { edgeTint } from '../../shared/palette'
 import { gridStep } from './views'
 
 // A drawing of what a plane cuts, for the agent: the kernel's outlines laid

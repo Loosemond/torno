@@ -26,8 +26,8 @@ declare global {
       exploded(): boolean
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
-      /** What a thumbnail of the build on show costs, drawn `count` times off screen as a card's picture is: the mean and the worst, in milliseconds, and the size of the PNG. */
-      timeThumbnail(count?: number): Promise<{ count: number; meanMs: number; worstMs: number; bytes: number }>
+      /** What a thumbnail of the build on show (or of a scene given, with its meshes) costs, drawn `count` times off screen as a card's picture is: the mean and the worst, in milliseconds, and the size of the PNG. */
+      timeThumbnail(count?: number, given?: { scene: import('../shared/scene').Scene; blob: ArrayBuffer }): Promise<{ count: number; meanMs: number; worstMs: number; bytes: number }>
       /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */
       scans(): ScanLayerState[]
       /** What is tinted on the scans: the regions kept, each with how many triangles it draws and in which colour, and the set being painted. */

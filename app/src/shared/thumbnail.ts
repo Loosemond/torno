@@ -1,0 +1,86 @@
+import { keepsNothing } from './cut'
+import { type ExplodeState, explodeOffsets, explodeShown } from './explode'
+import type { Vec3 } from './marks'
+import { colorFor, colorsByName } from './palette'
+import type { Part, Scene } from './scene'
+import type { SceneFile } from './scenefile'
+import { type SectionPlane, sectionOf } from './view'
+
+// "The object as it was last looked at", as plain data: what a small picture of a build draws, given the
+// object's scene file. Nothing here draws: the window does (`renderer/viewport/thumbnail.ts`), and main may ask
+// the same rule for whatever it makes of a build (an export).
+
+export const THUMB_WIDTH = 480
+export const THUMB_HEIGHT = 360
+
+/** How an object was last looked at, as far as a thumbnail follows it: what its scene file keeps of the layout, the parts, the section and the explode. */
+export type ThumbnailView = Pick<SceneFile, 'layout' | 'layers' | 'section' | 'explode'>
+
+/** The layout a thumbnail is of when the object was never looked at in another: `assembly` when the build has it, else its first. */
+export function thumbnailLayout(layouts: readonly string[]): string | null {
+  return layouts.includes('assembly') ? 'assembly' : (layouts[0] ?? null)
+}
+
+export interface ThumbnailPlan {
+  layout: string
+  /** The parts drawn. */
+  parts: Part[]
+  /** How many parts of the layout are left out. */
+  hidden: number
+  /** By part key: the colour and the opacity each is drawn in. */
+  looks: Record<string, { color: string; opacity: number }>
+  section: SectionPlane | null
+  explode: ExplodeState | null
+  /** By part name, how far each is drawn from where it is; `{}` when none is. */
+  offsets: Record<string, Vec3>
+  /** Round the parts of the layout as built, and round the parts drawn where they are drawn. */
+  layoutBox: { min: number[]; max: number[] }
+  box: { min: number[]; max: number[] }
+}
+
+/**
+ * What a thumbnail of a build draws, given how its object was last looked at (its scene file; nothing for an
+ * object never looked at): the layout kept, when the build still has it; of its parts those switched on, in the
+ * colours they have in the window; cut by the section kept, or drawn apart, as the window would (`explodeShown`:
+ * never both). Null for a build with no part in that layout.
+ *
+ * A picture of nothing says nothing of the object, so what would leave it empty is passed over: a part thinned
+ * to nothing counts as switched off, with every part off all are drawn (whole), and a section that leaves nothing
+ * of what is drawn is left out.
+ */
+export function thumbnailPlan(scene: Scene, view?: ThumbnailView): ThumbnailPlan | null {
+  const layout = view?.layout !== undefined && scene.layouts.includes(view.layout) ? view.layout : thumbnailLayout(scene.layouts)
+  if (layout === null) return null
+  const all = scene.parts.filter((part) => part.layout === layout)
+  if (all.length === 0) return null
+  // Thinned to nothing is as good as off: neither is seen.
+  const seen = (part: Part): boolean => view?.layers[part.name]?.visible !== false && (view?.layers[part.name]?.opacity ?? 1) > 0
+  const on = all.filter(seen)
+  const parts = on.length > 0 ? on : all
+  const colours = colorsByName(scene.parts.map((part) => part.name))
+  const looks: ThumbnailPlan['looks'] = {}
+  for (const part of parts) {
+    const layer = view?.layers[part.name]
+    looks[part.key] = { color: layer?.color ?? colours.get(part.name) ?? colorFor(part.name, -1), opacity: Math.min(layer?.opacity && layer.opacity > 0 ? layer.opacity : 1, 1) }
+  }
+  const plane = sectionOf(view?.section)
+  const section = plane && !parts.every((part) => keepsNothing(part.bbox, plane)) ? plane : null
+  // Of the layout's parts, drawn or not: a part is drawn apart from those it belongs with.
+  const explode = explodeShown(view?.explode?.[layout], section, all)
+  const offsets = explodeOffsets(all, explode)
+  return { layout, parts, hidden: all.length - parts.length, looks, section, explode, offsets, layoutBox: boxOf(all, {}), box: boxOf(parts, offsets) }
+}
+
+/** The box round some parts where they are drawn: each part's box moved by how far the part is drawn off. */
+function boxOf(parts: readonly Part[], offsets: Record<string, Vec3>): { min: number[]; max: number[] } {
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+  for (const part of parts) {
+    const by = offsets[part.name] ?? [0, 0, 0]
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i], part.bbox.min[i] + by[i])
+      max[i] = Math.max(max[i], part.bbox.max[i] + by[i])
+    }
+  }
+  return { min, max }
+}

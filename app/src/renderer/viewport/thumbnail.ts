@@ -1,83 +1,27 @@
 import * as THREE from 'three'
-import { type ExplodeState, explodeOffsets, explodeShown } from '../../shared/explode'
 import type { Vec3 } from '../../shared/marks'
-import type { Part, Scene } from '../../shared/scene'
-import type { SceneFile } from '../../shared/scenefile'
+import { edgeTint } from '../../shared/palette'
+import type { Scene } from '../../shared/scene'
 import type { ThumbnailOf } from '../../shared/show'
-import { type SectionPlane, sectionOf } from '../../shared/view'
-import { drawnAt, drawnBox } from './explode'
+import { THUMB_HEIGHT, THUMB_WIDTH, type ThumbnailView, thumbnailPlan } from '../../shared/thumbnail'
+import { drawnAt } from './explode'
 import { aimKeyLight, makeLights } from './lights'
-import { colorFor, colorsByName, edgeTint } from './palette'
 import { type BuiltPart, buildPart, disposePart } from './partMesh'
 import { Encoder, pngOf } from './picture'
-import { SectionCut, keepsNothing } from './section'
+import { SectionCut } from './section'
 import { toHex } from './theme'
 import { DEFAULT_FOV, fitCamera, viewDirection } from './views'
+
+export { THUMB_HEIGHT, THUMB_WIDTH, thumbnailLayout, thumbnailPlan, type ThumbnailPlan, type ThumbnailView } from '../../shared/thumbnail'
 
 // The picture on an object's card: a small scene of its own, drawn off screen with the viewport's renderer from a
 // build main has already broadcast. The object need not be the one on show, and nothing on screen changes for it.
 // Only parts are in it: no mark, no scan (a scan may show the real world), no grid, no gizmo, and a clear ground,
 // so that one picture sits on the card's own surface in either theme. The parts' colours are the same in both.
+// What it draws is `shared/thumbnail.ts` `thumbnailPlan`'s to say.
 
-export const THUMB_WIDTH = 480
-export const THUMB_HEIGHT = 360
 /** How much of the picture's half width or height the parts reach, from its middle. */
 const FILL = 0.86
-
-/** How an object was last looked at, as far as a thumbnail follows it: what its scene file keeps of the layout, the parts, the section and the explode. */
-export type ThumbnailView = Pick<SceneFile, 'layout' | 'layers' | 'section' | 'explode'>
-
-/** The layout a thumbnail is of when the object was never looked at in another: `assembly` when the build has it, else its first. */
-export function thumbnailLayout(layouts: readonly string[]): string | null {
-  return layouts.includes('assembly') ? 'assembly' : (layouts[0] ?? null)
-}
-
-export interface ThumbnailPlan {
-  layout: string
-  /** The parts drawn. */
-  parts: Part[]
-  /** How many parts of the layout are left out. */
-  hidden: number
-  /** By part key: the colour and the opacity each is drawn in. */
-  looks: Record<string, { color: string; opacity: number }>
-  section: SectionPlane | null
-  explode: ExplodeState | null
-  /** By part name, how far each is drawn from where it is; `{}` when none is. */
-  offsets: Record<string, Vec3>
-  /** Round the parts of the layout as built, and round the parts drawn where they are drawn. */
-  layoutBox: { min: number[]; max: number[] }
-  box: { min: number[]; max: number[] }
-}
-
-/**
- * What a thumbnail of a build draws, given how its object was last looked at (its scene file; nothing for an
- * object never looked at): the layout kept, when the build still has it; of its parts those switched on, in the
- * colours they have in the window; cut by the section kept, or drawn apart, as the window would (`explodeShown`:
- * never both). Null for a build with no part in that layout.
- *
- * A picture of nothing says nothing of the object, so what would leave it empty is passed over: with every part
- * switched off all are drawn, and a section that leaves nothing of what is drawn is left out.
- */
-export function thumbnailPlan(scene: Scene, view?: ThumbnailView): ThumbnailPlan | null {
-  const layout = view?.layout !== undefined && scene.layouts.includes(view.layout) ? view.layout : thumbnailLayout(scene.layouts)
-  if (layout === null) return null
-  const all = scene.parts.filter((part) => part.layout === layout)
-  if (all.length === 0) return null
-  const on = all.filter((part) => view?.layers[part.name]?.visible !== false)
-  const parts = on.length > 0 ? on : all
-  const colours = colorsByName(scene.parts.map((part) => part.name))
-  const looks: ThumbnailPlan['looks'] = {}
-  for (const part of parts) {
-    const layer = view?.layers[part.name]
-    looks[part.key] = { color: layer?.color ?? colours.get(part.name) ?? colorFor(part.name, -1), opacity: Math.min(Math.max(layer?.opacity ?? 1, 0), 1) }
-  }
-  const plane = sectionOf(view?.section)
-  const section = plane && !parts.every((part) => keepsNothing(part.bbox, plane)) ? plane : null
-  // Of the layout's parts, drawn or not: a part is drawn apart from those it belongs with.
-  const explode = explodeShown(view?.explode?.[layout], section, all)
-  const offsets = explodeOffsets(all, explode)
-  return { layout, parts, hidden: all.length - parts.length, looks, section, explode, offsets, layoutBox: drawnBox(all, {})!, box: drawnBox(parts, offsets)! }
-}
 
 export class ThumbnailMaker {
   private readonly stage = new THREE.Scene()

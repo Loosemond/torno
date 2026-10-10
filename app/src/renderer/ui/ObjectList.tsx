@@ -11,7 +11,8 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
     <nav className="section objects" aria-label="Objects">
       <h2 className="section-title">Objects</h2>
       {objects.length === 0 ? (
-        <p className="section-note">No objects here yet. An object is a folder with a Python model in it.</p>
+        // The page of objects says it in full beside this: it is said once.
+        !paged && <p className="section-note">No objects here yet. An object is a folder with a Python model in it.</p>
       ) : (
         <ul className="rows">
           <li>
