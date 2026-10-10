@@ -50,7 +50,7 @@ what was never seen on a visible screen is one section.
 
 ## Global Constraints
 
-- Never write inside a user workspace except under `<object>/.torno/`. The one exception: an export writes one file, to the path the person chose in the save dialog (`main/export/save.ts`), whole or not at all: through `<path>.<pid>.tmp` beside it, which is gone when the write ends; no folder is made for it; the path never comes from the window or from an agent, and no agent has a tool for it. Never run `uv sync` there: always `uv run --no-sync`, and only when `<workspace>/.venv` exists: without it uv would create one, so no kernel is started and builds fail saying to run `uv sync`.
+- Never write inside a user workspace except under `<object>/.torno/`. The one exception: an export writes one file, to the path the person chose in the save dialog (`main/export/save.ts`), whole or not at all: through `<path>.<random>.tmp` beside it, which is gone when the write ends; no folder is made for it; the path never comes from the window or from an agent, and no agent has a tool for it. Never run `uv sync` there: always `uv run --no-sync`, and only when `<workspace>/.venv` exists: without it uv would create one, so no kernel is started and builds fail saying to run `uv sync`.
 - The kernel supervisor only imports. It never loads a model, builds, tessellates or answers a query. Workers never fork.
 - Kernel stdout carries protocol frames only. Model output goes to a captured buffer.
 - Units are millimetres, Z up. Coordinates crossing a process boundary are in the object frame unless named `local`.
@@ -262,9 +262,11 @@ what was never seen on a visible screen is one section.
   viewport has too (`keyClashes`), and for a key heard while typing (scope
   `global`) that a field or the terminal would take (`typed`). The scan is by
   source text: what else in the window is called a key (a part's, a light's,
-  a row's) is read through a receiver listed in the test (`NOT_A_PRESS`), and
+  a row's) is read through a receiver listed in the test (`NOT_A_PRESS`; a one-letter name only in the
+  files `SHORT_NAMES` lists), a key taken apart (`({ key }) =>`, `const { key } = e`) is a read too, and
   its fixtures hold every spelling of a bypass it is to catch.
-  `Ctrl+Shift+B` is "Rebuild" (`rebuild`, heard everywhere; the button is in
+  `Ctrl+Shift+B` is "Rebuild" (`rebuild`, heard everywhere; while a build runs the button reads
+  "Building…" and neither it nor the key nor `Builds.rebuild` starts one over; the button is in
   the status line, `ui/BuildStatus.tsx`); main's sentences name it by
   `REBUILD_HOW` in `shared/build.ts`. A tool in hand is offered a key before the viewport is, so the
   Region tool's `E` stays its own and explode's is the viewport's. Shift with
@@ -335,8 +337,8 @@ ground).
   and asks the rule of `apartParts` (`shared/exportdata.ts`).
 - `E` on a layout of one part opens no bar: the button says why for a moment.
   Drawn apart in one go (a key, an axis or scale button), the camera is fitted
-  only when a part would leave the view (`Viewport.keepApartInView`,
-  `leavesView`). While the parts are apart no shape is in hand
+  only when a part would leave the view, and so is a saved view that draws them apart when it is applied,
+  in the window and in an exported page (`leavesView` in `shared/explode.ts`; `Viewport.keepApartInView`). While the parts are apart no shape is in hand
   (`connectShapeEdit`).
 
 - **One rule says what is drawn apart: `explodeShown(explode, section,
@@ -983,20 +985,25 @@ agent is never told to remove a view.
 - Lengths are millimetres, angles degrees, areas mm², volumes mm³, masses
   grams. Numbers shown go through `shared/format.ts` (four significant
   digits at most); numbers stored and returned as data are in full.
-- Every number told to the agent is the kernel's, from the B-rep, and says whether it is exact. The one
-  exception is the box of a part that is not exact: it is widened to hold the mesh the part is drawn with, and
+- Every number told to the agent is the kernel's, from the B-rep, and says whether it is exact, with two
+  exceptions. One is the box of a part that is not exact: it is widened to hold the mesh the part is drawn with, and
   it is the mesh's alone when the kernel's took a build more than a second (`tess.BOX_SECONDS`), `bboxExact:
   false` either way. The mesh
   drives only the estimate read out at the pointer while a measurement is
   pending (`≈`), which the kernel's value replaces. What is taken from a scan
-  is the one exception, and is never said to be exact (see Scans).
+  is the other, and is never said to be exact (see Scans).
 - Areas, volumes and boxes are measured in one place, `kernel/src/torno_kernel/extent.py`. A volume is exact
-  only of a part all planes, cylinders, cones, spheres and tori that end in lines and circles. Of any other it
-  is integrated by Gauss-Kronrod, never to 1e-9: at two tolerances at least and at finer ones while that costs
-  next to nothing (`VOLUME_TOLERANCES`), once per solid in a build, and told as approximate (`volumeExact:
-  false` in the scene, `describe` and `check overlap`; `exact: false` in `measure volume` and `mass`) with the
-  digits that can be relied on, two to six. How many digits a borderline part gets may differ by one between
-  builds (the choice of tolerances is by the thread's clock): no test pins that number of a freeform fixture.
+  only of a part all planes, cylinders, cones, spheres and tori that end in lines and circles. Of any other part
+  the volume is integrated by Gauss-Kronrod, never to 1e-9: at finer and finer tolerances for
+  as long as the looser ones together took under 0.1 s of processor time (`VOLUME_TOLERANCES`, `_SPARE`), once
+  per solid in a build, and told as approximate (`volumeExact: false` in the scene, `describe` and `check
+  overlap`; `exact: false` in `measure volume` and `mass`). How far it can be relied on is what two integrals
+  that differ agree to, one digit fewer, two to six (`good to about N significant digits`), or, when they agree
+  to fewer than two, by how much they differ (`in doubt by X %`); when every integral gave the same number it is
+  held against the quick fixed-order one. That is agreement, not proof: on a half of `guitar-wall-stand` it says
+  4 digits of a volume that is 2e-5 out. Which tolerance is reached depends on what the looser ones cost on the
+  day, so the last digits of a freeform volume may differ from one build to the next, within what it says: no
+  app test pins the digit count of a freeform fixture.
   An area is exact of planes, cylinders, cones, spheres and tori, and
   of a curve extruded straight whose length settles; of any other face `measure area` takes three integrals and
   says the digits they agree to, never as exact, and a face's descriptor (`describe`, `nearest`) takes one
@@ -1068,7 +1075,7 @@ agent is never told to remove a view.
 - Saving (`export:save` in `ipc.ts`): the file is made first, then the save dialog is asked (under test
   `__tornoMain.pickSave`, with `savePicks` and `saveOffered`), opening in `<object>/.torno/exports/`
   (`prepareExports`: made on demand, ignored through `ensureIgnored(dir, ['exports/'])`), and `writeExport`
-  writes it whole or not at all: `<path>.<pid>.tmp` opened `wx`, written, synced, renamed onto the path, and
+  writes it whole or not at all: `<path>.<random>.tmp` opened `wx`, written, synced, renamed onto the path, and
   removed if anything fails; the file that was there is never truncated first. No folder is made. A name
   without `.html` gets it; if that file is there already the dialog never asked about it, so torno asks
   before replacing it (under test `__tornoMain.replace`, counted in `replaceAsked`).

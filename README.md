@@ -215,7 +215,8 @@ them is working or waiting for an answer.
 "Rebuild", in the line at the bottom beside how the build stands, builds the
 open object again from its sources as they are (`Ctrl+Shift+B` from anywhere).
 It is always there, and is the thing to press when the last build failed for a
-reason outside the model, or was let go to make room.
+reason outside the model, or was let go to make room. While a build runs it
+reads "Building…" and takes no press: that build is of the sources as they are.
 
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
 of it (`lid/E3`), with a line from the kernel on what that is, such as
@@ -841,8 +842,14 @@ and says `approximate`, and `how` says why.
   cones, spheres and tori. Of any other part (a loft, a spline, an offset) it
   is integrated and never said to be exact: `≈`, `volumeExact: false` in
   `scene` and `describe`, `exact: false` in `measure`, with `how` saying
-  `approximate, good to about N significant digits` (two to six). A mass
-  follows its volume, and so does what two parts share (`check overlap`).
+  `of the solid, approximate, good to about N significant digits` (two to
+  six: what two integrals that differ agree to, one digit fewer), or, when
+  they agree to fewer than two, `of the solid, approximate: in doubt by X %`.
+  That is agreement, not proof, and the last digits of a freeform volume may
+  differ from one build to the next, within what it says. A mass follows its
+  volume (`…; volume approximate, good to about N significant digits`), and
+  so does what two parts share (`check overlap`: `of what the two share,
+  approximate, …`).
 - An area is exact for planes, cylinders, cones, spheres and tori, and for a
   curve extruded straight. The area of any other face (a loft, a B-spline
   surface, an offset) is never said to be exact: `how` says `approximate, good
@@ -1002,7 +1009,7 @@ With a real agent:
 - **Copilot CLI: is torno's server there?** Choose Copilot CLI for an object, start a session, type `/mcp`: `torno` is listed with its tools. If not, the keys of the JSON torno passes to `--additional-mcp-config` (`type`, `url`, `tools`) are a guess from the help text.
 - **Copilot CLI: are torno's instructions read?** `/instructions` lists `.torno/agent/AGENTS.md`. That a bare `AGENTS.md` in a folder named by `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` is read is not documented.
 - **Copilot CLI: a tool without a prompt.** Ask for the scene: a tool of torno's runs without a permission question (`--allow-tool=torno`). Note what Copilot calls the tool: the instructions say "the torno tool scene".
-- **Copilot CLI: "Send marks".** Leave a pin, press "Send marks", then Enter: the agent reads `.torno/prompt.md` and names the pin, and the pin turns to sent. If the pane says the line was not at the prompt, Copilot shows a pasted line otherwise than as text (torno looks for `torno:` in what it writes after the paste), and the rule has to learn its form.
+- **Copilot CLI: "Send marks".** Leave a pin, press "Send marks", then Enter: the agent reads `.torno/prompt.md` and names the pin, and the pin turns to sent. If the pane says the line was not at the prompt, Copilot shows a pasted line otherwise than as text (torno looks for the head of the line it pasted, `torno: 1 new mark (M1`, in what the CLI writes after the paste), and the rule has to learn its form.
 - **Copilot CLI: what must not send.** "Send marks" while its trust question is up, then Enter; "Send marks", then type ` see @` and Enter; "Send marks", then paste two lines: each time the mark stays a draft and the pane says why.
 - **Copilot CLI: Shift+Enter.** Torno writes Esc Enter: a new line, or a send? Torno takes it for a change of the line either way.
 - **Copilot CLI: resume.** End the session, press "Resume": the earlier conversation continues (`--session-id` with the same id). After `/clear` inside Copilot, "Resume" still resumes the conversation torno started: torno cannot see a new one.
