@@ -819,6 +819,7 @@ def gauss_kronrod_asked(monkeypatch, seconds: float = 0.0) -> list[float]:
 
     asked: list[float] = []
     clock = [0.0]
+    monkeypatch.undo()
     integrate = extent._gauss_kronrod
 
     def counted(wrapped, tolerance, centre):
@@ -831,7 +832,7 @@ def gauss_kronrod_asked(monkeypatch, seconds: float = 0.0) -> list[float]:
     return asked
 
 
-def test_no_volume_is_integrated_to_a_billionth_and_a_costly_one_twice_only(monkeypatch):
+def test_no_volume_is_integrated_to_a_billionth_and_none_past_what_the_looser_ones_left(monkeypatch):
     from torno_kernel import extent
 
     horn = tuned_loft()
@@ -839,44 +840,129 @@ def test_no_volume_is_integrated_to_a_billionth_and_a_costly_one_twice_only(monk
     cheap = extent.volume(horn)
     # Each integral took no time: every rung is climbed, and none is finer than the last.
     assert asked == list(extent.VOLUME_TOLERANCES) and min(asked) >= 1e-7
-    del asked[:]
+    asked = gauss_kronrod_asked(monkeypatch, seconds=0.04)
+    extent.volume(horn)
+    # 0.04 s each: a third is begun with 0.08 s spent, a fourth with 0.12 s is not.
+    assert asked == list(extent.VOLUME_TOLERANCES[:3])
     asked = gauss_kronrod_asked(monkeypatch, seconds=0.5)
     costly = extent.volume(horn)
-    # Each took half a second: the two loosest, a second in all, and no more.
-    assert asked == list(extent.VOLUME_TOLERANCES[:2])
+    # The first took all a volume has: no second, whose cost nothing would bound.
+    assert asked == [extent.VOLUME_TOLERANCES[0]]
     assert not costly.exact and costly.value == pytest.approx(cheap.value, rel=1e-3)
-    # What was integrated less finely says fewer digits, never more.
-    assert (costly.digits or 0) <= cheap.digits
+    # It is held against the integral at a fixed order, and says no more digits than that bears out.
+    assert costly.digits is None or 2 <= costly.digits <= cheap.digits
 
 
 @pytest.mark.parametrize(
-    "integrals, claimed, digits, percent",
+    "integrals, fixed, digits, percent",
     [
-        ((100.0, 100.0), 1e-9, 6, None),  # never more than six
-        ((100.0, 100.0001), 1e-9, 5, None),  # 1e-6 apart: one fewer than they agree to
-        ((100.0, 100.0), 1.2e-4, 3, None),  # they coincide, and the integral itself claims no better
-        ((100.0, 100.0001), 2e-3, 2, None),
-        ((100.0, 100.2), 1e-9, None, "0.2"),  # 2e-3 apart: no count of digits
-        ((100.0, 100.0), 2e-2, None, "2"),
+        ((100.0, 100.00000001), None, 6, None),  # 1e-10 apart: never more than six
+        ((100.0, 100.0001), None, 5, None),  # 1e-6 apart: one fewer than they agree to
+        ((100.0, 100.05), None, 2, None),
+        ((100.0, 100.2), None, None, "0.2"),  # 2e-3 apart: no count of digits
+        # The last is held against the last that differs from it: one that is the same number did not refine.
+        ((100.005, 100.0, 100.0), None, 3, None),
+        ((100.0, 111.0, 111.0), None, None, "9.9"),
+        # All the same number: that is no agreement. Held against another kind of integral.
+        ((100.0, 100.0, 100.0), 100.00005, 5, None),
+        ((100.0, 100.0), 100.6, None, "0.6"),
+        ((100.0, 100.0), 100.0, 6, None),
     ],
 )
-def test_the_digits_said_of_a_volume_are_what_its_integrals_agree_to_and_claim(
-    monkeypatch, integrals, claimed, digits, percent
+def test_the_digits_said_of_a_volume_are_one_fewer_than_two_integrals_that_differ_agree_to(
+    monkeypatch, integrals, fixed, digits, percent
 ):
     from torno_kernel import extent
 
-    values = iter(integrals)
-    monkeypatch.setattr(extent, "_gauss_kronrod", lambda wrapped, tolerance, centre: (next(values), claimed, None))
-    monkeypatch.setattr(extent, "_clock", iter(range(100)).__next__)
+    def fake():
+        left = list(integrals)
+        clock = [0.0]
+
+        def integrate(wrapped, tolerance, centre):
+            # The last of them takes what a volume has: no other is begun.
+            clock[0] += 1.0 if len(left) == 1 else 0.0
+            return left.pop(0), None
+
+        monkeypatch.setattr(extent, "_gauss_kronrod", integrate)
+        monkeypatch.setattr(extent, "_clock", lambda: clock[0])
+
+    def fixed_order(wrapped):
+        assert fixed is not None, "integrals that differ need no other"
+        return fixed
+
+    monkeypatch.setattr(extent, "_fixed_order", fixed_order)
+    fake()
     volume = extent.volume(tuned_loft())
-    assert (volume.value, volume.exact, volume.digits) == (integrals[1], False, digits)
-    made = {"assembly:horn": tuned_loft()}
-    values = iter(integrals)
-    how = measure(made, "volume", "assembly:horn")["how"]
+    assert (volume.value, volume.exact, volume.digits) == (integrals[-1], False, digits)
+    fake()
+    how = measure({"assembly:horn": tuned_loft()}, "volume", "assembly:horn")["how"]
     if digits is None:
         assert how == f"of the solid, approximate: in doubt by {percent} %"
     else:
         assert how == f"of the solid, approximate, good to about {digits} significant digits"
+
+
+def campaign() -> dict:
+    """Freeform solids of the kinds the review of the volumes went over, its two lofts among them."""
+    from build123d import (
+        Align, Axis, Box, Cylinder, Edge, Ellipse, Face, Pos, Rectangle, Rot, Sphere, Vector, Wire,
+        extrude, fillet, loft, scale,
+    )
+
+    through = [(20, 0), (14, 9), (0, 12), (-12, 8), (-15, -2), (-6, -11), (8, -9)]
+    prism = extrude(Face(Wire([Edge.make_spline([Vector(*p) for p in through], periodic=True)])), 5)
+    body = loft(
+        [
+            Pos(math.sin(i) * 4, 0, i * 12) * Rot(0, 0, i * 17) * Ellipse(20 - 2 * i + 3 * math.cos(i), 9 + i).face()
+            for i in range(6)
+        ]
+    )
+    bored = body
+    for k in range(6):
+        bored -= Pos(0, 0, 8 + k * 8) * Rot(0, 90, k * 25) * Cylinder(2.5, 90)
+    half = Box(100, 100, 100, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    return {
+        "loft": body,
+        "loft with six bores": bored,
+        "loft, tuned": tuned_loft(),
+        "loft, twisted": loft([Pos(0, 0, i * 10) * Rot(0, 0, i * 25) * Rectangle(20, 8).face() for i in range(5)]),
+        "spline prism": prism,
+        "spline prism, filleted": fillet(prism.edges().group_by(Axis.Z)[-1], 1),
+        "ellipsoid": scale(Sphere(5), by=(1, 2, 3)),
+        "cylinder cut on the slant": Cylinder(5, 20) - Rot(0, 30, 0) * half,
+    }
+
+
+def test_no_freeform_volume_says_more_digits_than_a_slow_reference_bears_out_nor_calls_a_good_one_rough():
+    for name, shape in campaign().items():
+        true = reference_volume(shape)
+        made = {"assembly:it": shape}
+        result = measure(made, "volume", "assembly:it")
+        assert result["exact"] is False, name
+        # Digits, not a percentage: each of these is right to a millionth and better.
+        digits = said_volume_digits(result["how"])
+        assert result["value"] == pytest.approx(true, rel=1e-6), name
+        assert result["value"] == pytest.approx(true, rel=10**-digits), name
+        if name.startswith("loft"):
+            # A loft right to 1e-15 was told as good to 2 digits, and one with six bores as in doubt by 11 %.
+            assert digits >= 5, name
+        mass = measure(made, "mass", "assembly:it")
+        assert mass["how"] == f"PLA 1.24 g/cm³ (default); volume approximate, good to about {digits} significant digits"
+
+
+def test_a_volume_whose_first_integral_took_all_it_has_is_held_against_the_fixed_order_one(monkeypatch):
+    from torno_kernel import extent
+
+    asked = gauss_kronrod_asked(monkeypatch, seconds=0.5)
+    for name, shape in campaign().items():
+        del asked[:]
+        true = reference_volume(shape)
+        volume = extent.volume(shape)
+        assert asked == [extent.VOLUME_TOLERANCES[0]], name
+        # Rough, and says so: a percentage or few digits, and never more than are true.
+        assert volume.exact is False and volume.spread > 0, name
+        if volume.digits is not None:
+            assert volume.value == pytest.approx(true, rel=10**-volume.digits), name
 
 
 def test_a_part_that_is_not_a_solid_is_described_with_no_volume():

@@ -9,11 +9,11 @@ the fourth digit on a face that ends in a spline, and still said as if exact.
   Of any other it is integrated by Gauss-Kronrod, never to a tolerance that
   costs minutes (to 1e-9 a part of 92 faces, lofts and fillets, took 41 s at
   every build, and four of them made a build of 178 s out of one of 13),
-  and is told as approximate (``Volume``): at two tolerances at the least,
-  and at finer ones for as long as that costs next to nothing, with about
-  how many digits of it are good by what the last two agree to and by what
-  the integral says of itself. Neither is a proof: on that part, integrals
-  that agreed to 1e-13 were 2e-5 out, and one that claimed 3e-7 was 2e-6 out.
+  and is told as approximate (``Volume``): at finer and finer tolerances
+  for as long as the looser ones cost next to nothing, with about how many
+  digits of it are good by what the last agrees to with the last before it
+  that gave another number, or, when there is none, with the quick form.
+  That is no proof: on that part, integrals 1e-6 apart were 2e-5 out.
 - An area is the sum of the areas of the faces, each taken as its surface
   allows, and says whether it is exact (``Area``). It is exact of a plane, a
   cylinder, a cone, a sphere and a torus, and of a curve extruded straight
@@ -35,15 +35,15 @@ from . import topo
 # How near its true value an area of a known kind is integrated, as a part of it.
 EPSILON = 1e-9
 # The tolerances a volume that is not exact is integrated to by Gauss-Kronrod,
-# as parts of it, one after the other: the first two always, the finer ones
-# for as long as all before them took less than _SPARE together. Measured on
-# the half of a guitar stand (92 faces, lofts and fillets): 0.05 s, 0.9 s,
-# then 2.7 s, 6.4 s, 12 s, 19 s, and 41 s to 1e-9; on a part of a few freeform
+# as parts of it, one after the other: the first always, each finer one only
+# while all before it took less than _SPARE together. Measured on the half of
+# a guitar stand (92 faces, lofts and fillets): 0.03 to 0.06 s, 0.9 s, then
+# 2.7 s, 6.4 s, 12 s, 19 s, and 41 s to 1e-9; on a part of a few freeform
 # faces every one of them takes milliseconds.
 VOLUME_TOLERANCES = (1.0, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7)
-# Seconds of this process: so little that the next integral, which costs two
-# or three times the last, is not noticed in a build.
-_SPARE = 0.05
+# Seconds of this thread. An integral is begun with less than this spent, and
+# costs what its tolerance costs: on that half, 0.9 s after 0.06 s.
+_SPARE = 0.1
 # What tells how long an integral took: the processor's time on this thread,
 # which neither a loaded machine nor another thread stretches.
 _clock = time.thread_time
@@ -162,46 +162,51 @@ def volume_and_centre(shape: Any, centre: bool = True) -> tuple[Volume, Any]:
     # Gauss-Kronrod: the quick integral is 0.02 % out on a prism with a spline
     # for its outline and 0.6 % on a loft, and the form of it that takes an
     # epsilon does not converge there (0.7 % out at 1e-9).
-    spent, taken = 0.0, []
+    spent, taken, at = 0.0, [], None
     for tolerance in VOLUME_TOLERANCES:
-        started = _clock()
-        taken.append(_gauss_kronrod(wrapped, tolerance, centre))
-        spent += _clock() - started
         # It cannot be interrupted: what bounds its cost is the tolerance it is
-        # asked for, and that is chosen by what the looser ones took.
-        if len(taken) >= 2 and spent >= _SPARE:
+        # asked for, and a finer one is asked only while the looser ones left
+        # time. Not even a second is taken of a part whose first took it all.
+        if taken and spent >= _SPARE:
             break
-    (before, _, _), (value, claimed, at) = taken[-2:]
-    spread = abs(value - before)
-    if math.isfinite(claimed) and claimed > 0:
-        # No nearer than the integral says it is of itself.
-        spread = max(spread, claimed * value)
-    return Volume(value, False, _volume_digits(abs(value - before), claimed, value), spread), at
+        started = _clock()
+        value, at = _gauss_kronrod(wrapped, tolerance, centre)
+        spent += _clock() - started
+        taken.append(value)
+    value = taken[-1]
+    # Held against the last integral before it that gave another number: two
+    # that give the same did not refine (at 1 and at 0.1 a part of 92 faces
+    # had the same to 1e-13, 2e-5 out). When none did, or there is one only,
+    # against an integral of another kind, whose cost is that of its order:
+    # a value that agrees with itself says nothing.
+    other = next((earlier for earlier in reversed(taken) if earlier != value), None)
+    if other is None:
+        other = _fixed_order(wrapped)
+    spread = abs(value - other)
+    return Volume(value, False, _digits(spread, value), spread), at
 
 
-def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float, float, Any]:
-    """A volume integrated by Gauss-Kronrod to a tolerance, as a part of it: the volume,
-    the error the integral says it has left, as a part of it too, and the centre of
-    mass if wanted."""
+def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float, Any]:
+    """A volume integrated by Gauss-Kronrod to a tolerance, as a part of it, and the centre
+    of mass if wanted.
+
+    What OCC returns with it, the error it says it has left, is no estimate
+    and is not used: 1.1e-3 of a loft right to 1e-15, 3.4e-7 of a part 2e-6 out.
+    """
     from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
 
     measured = GProp_GProps()
-    claimed = BRepGProp.VolumePropertiesGK_s(wrapped, measured, tolerance, False, False, centre)
-    return abs(float(measured.Mass())), float(claimed), measured.CentreOfMass() if centre else None
+    BRepGProp.VolumePropertiesGK_s(wrapped, measured, tolerance, False, False, centre)
+    return abs(float(measured.Mass())), measured.CentreOfMass() if centre else None
 
 
-def _volume_digits(apart: float, claimed: float, value: float) -> int | None:
-    """About how many significant digits are good of a volume whose last two integrals lie
-    ``apart`` and whose last says it is within ``claimed`` of itself.
+def _fixed_order(wrapped: Any) -> float:
+    """A volume by the quick integral, at a fixed order: 0.25 s of a part of 92 freeform faces."""
+    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
 
-    The fewer of the two: one fewer than the integrals agree to, as of an
-    area (``_digits``), and as many as the integral claims.
-    """
-    digits = _digits(apart, value)
-    if digits is None or not (math.isfinite(claimed) and claimed > 0):
-        return digits
-    digits = min(digits, math.floor(-math.log10(claimed)))
-    return digits if digits >= FEWEST_DIGITS else None
+    measured = GProp_GProps()
+    BRepGProp.VolumeProperties_s(wrapped, measured)
+    return abs(float(measured.Mass()))
 
 
 class TookTooLong(Exception):

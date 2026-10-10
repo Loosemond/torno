@@ -335,9 +335,10 @@ def test_a_solid_placed_in_two_layouts_is_integrated_once_and_a_build_spends_lit
     }
     kept: dict = {}
     scene, _, shapes = build_scene(layouts, "horns.py", kept)
-    # Two solids in two layouts each: two integrals of each solid, a second of each by this clock.
-    assert asked == list(extent.VOLUME_TOLERANCES[:2]) * 2
-    assert clock[0] == 2.0
+    # Two solids in two layouts each: one integral of each solid, which took all a volume has
+    # by this clock, and no second of unknown cost.
+    assert asked == [extent.VOLUME_TOLERANCES[0]] * 2
+    assert clock[0] == 1.0
     volumes = {p["key"]: (p["volume"], p["volumeExact"]) for p in scene["parts"]}
     assert volumes["assembly:horn"] == volumes["print:horn"] != volumes["assembly:other"]
     assert all(volume > 0 and exact is False for volume, exact in volumes.values())
