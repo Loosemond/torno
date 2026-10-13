@@ -147,7 +147,8 @@ def volume_and_centre(shape: Any, centre: bool = True) -> tuple[Volume, Any]:
     shell is not one.
     """
     # OCP comes from the user's workspace, so it is imported only when used.
-    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
 
     wrapped = _topods(shape)
     if not topo.solids(wrapped):
@@ -193,7 +194,8 @@ def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float,
     What OCC returns with it, the error it says it has left, is no estimate
     and is not used: 1.1e-3 of a loft right to 1e-15, 3.4e-7 of a part 2e-6 out.
     """
-    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
 
     measured = GProp_GProps()
     BRepGProp.VolumePropertiesGK_s(wrapped, measured, tolerance, False, False, centre)
@@ -202,7 +204,8 @@ def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float,
 
 def _fixed_order(wrapped: Any) -> float:
     """A volume by the quick integral, at a fixed order: 0.25 s of a part of 92 freeform faces."""
-    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
 
     measured = GProp_GProps()
     BRepGProp.VolumeProperties_s(wrapped, measured)
@@ -362,7 +365,8 @@ def _digits(spread: float, value: float) -> int | None:
 
 def _integrated(face: Any, tolerance: float | None) -> float:
     """The area OCC integrates of a face: at a fixed order, or until it says it is within a tolerance."""
-    from ocp_tessellate.ocp_utils import BRepGProp, GProp_GProps
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
 
     measured = GProp_GProps()
     if tolerance is None:
