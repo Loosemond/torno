@@ -226,7 +226,8 @@ def box(shape: Any, within: float | None = None) -> tuple[list[float], list[floa
     of round faces. ``TookTooLong`` when ``within``, seconds, has passed.
     Whether it is the shape's own box is another question (``boxed_exactly``).
     """
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.Bnd import Bnd_Box
     from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SHAPE, TopAbs_VERTEX
     from OCP.TopExp import TopExp_Explorer
 
@@ -250,7 +251,7 @@ def boxed_exactly(shape: Any) -> bool:
     """Whether the box of a part, a face or an edge is its own: every face a plane or a
     cylinder, every edge a line or a circle. OCC's is not, of a freeform face or edge:
     it was 0.56 mm short of a lofted pad 130 mm wide."""
-    from ocp_tessellate.ocp_utils import BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 
     wrapped = _topods(shape)
     try:
@@ -268,7 +269,8 @@ def span(shape: Any) -> float:
 
     For telling what is nothing next to it (``describe.number``), not for a size.
     """
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.Bnd import Bnd_Box
 
     holds = Bnd_Box()
     BRepBndLib.Add_s(_topods(shape), holds, False)
@@ -281,7 +283,8 @@ def span(shape: Any) -> float:
 def round_and_straight(shape: Any) -> bool:
     """Whether every face is a plane, a cylinder, a cone, a sphere or a torus, and every
     edge a line or a circle."""
-    from ocp_tessellate.ocp_utils import BRep_Tool, BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 
     wrapped = _topods(shape)
     try:
@@ -383,7 +386,8 @@ def _swept(face: Any) -> Area | None:
     another, and straight edges along the extrusion between them. None for a
     face that is anything else, or whose length does not settle.
     """
-    from ocp_tessellate.ocp_utils import BRep_Tool, BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.GCPnts import GCPnts_AbscissaPoint
 
     if len(topo.wires(face)) != 1:

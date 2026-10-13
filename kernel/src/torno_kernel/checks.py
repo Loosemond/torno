@@ -119,7 +119,8 @@ def _shared(one: Any, other: Any, names: str) -> dict[str, Any]:
 
 def _boxes_apart(one: Any, other: Any) -> bool:
     """Whether boxes that hold the two parts are apart: then the parts are, and nothing is cut."""
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.Bnd import Bnd_Box
 
     boxes = []
     for shape in (one, other):

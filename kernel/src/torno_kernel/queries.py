@@ -6,6 +6,14 @@ from typing import Any
 
 from . import extent, tess, topo
 from .describe import descriptor
+from .ocp import (
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_VERTEX,
+    TopExp,
+    TopTools_IndexedDataMapOfShapeListOfShape,
+    TopTools_IndexedMapOfShape,
+)
 
 _SUBSHAPE = re.compile(r"^(?P<key>.+)/(?P<kind>[FE])(?P<index>\d+)$")
 # No part has a face or an edge of a million: a longer number is not one, and
@@ -274,16 +282,6 @@ class _Surface:
     """A part's faces, and which of them meet at each of its edges and corners."""
 
     def __init__(self, shape: Any) -> None:
-        # OCP comes from the user's workspace, so it is imported only when used.
-        # ocp_tessellate's shims paper over the names OCP 8 changed.
-        from ocp_tessellate.ocp_utils import (
-            TopAbs_EDGE,
-            TopAbs_FACE,
-            TopAbs_VERTEX,
-            TopExp,
-            TopTools_IndexedMapOfShape,
-        )
-
         self._shape = getattr(shape, "wrapped", shape)
         self._faces = topo.faces(shape)
         # The same map topo.faces walks, so an index here is an index there.
@@ -387,8 +385,6 @@ class _Surface:
 
     def _edge_number(self, edge: Any) -> int | None:
         """The index of an edge in the kernel's order, or None for one the part does not have."""
-        from ocp_tessellate.ocp_utils import TopAbs_EDGE, TopExp, TopTools_IndexedMapOfShape
-
         if self._edge_index is None:
             # The same map topo.edges walks, so an index here is an index there.
             self._edge_index = TopTools_IndexedMapOfShape()
@@ -472,12 +468,6 @@ class _Surface:
         return min(numbers) - 1
 
     def _faces_around(self, kind: str) -> Any:
-        from ocp_tessellate.ocp_utils import (
-            TopAbs_FACE,
-            TopExp,
-            TopTools_IndexedDataMapOfShapeListOfShape,
-        )
-
         if kind not in self._around:
             self._around[kind] = TopTools_IndexedDataMapOfShapeListOfShape()
             TopExp.MapShapesAndAncestors_s(
