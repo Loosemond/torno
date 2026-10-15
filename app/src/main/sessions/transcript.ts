@@ -586,7 +586,7 @@ export class Transcript {
     const text = texts.join('\n')
     // A picture is kept once, as an image, which the cap counts and the log leaves out: never also in the structured result.
     const structured = detail !== undefined && images.length === 0 && jsonSize(detail) <= MAX_DETAIL ? { detail: this.scrub(withoutPictures(detail)) } : {}
-    const next: ChatItem = { ...item, state: item.state === 'denied' || item.state === 'cancelled' ? item.state : block.is_error === true ? 'error' : 'done', images: [...item.images, ...images], ...(text !== '' ? { result: this.scrub(text) as string } : {}), ...structured }
+    const next: ChatItem = { ...item, state: item.state === 'denied' || item.state === 'cancelled' || item.state === 'stopped' ? item.state : block.is_error === true ? (REJECTED.test(text) ? 'stopped' : 'error') : 'done', images: [...item.images, ...images], ...(text !== '' ? { result: this.scrub(text) as string } : {}), ...structured }
     this.put(next)
     this.keepImages(item.id, images)
     if (item.torno) {
@@ -756,6 +756,8 @@ export class Transcript {
   }
 }
 
+/** What the CLI answers for a tool the person stopped or refused. */
+const REJECTED = /^The user doesn't want to proceed with this tool use/
 const INTERRUPTED = '[Request interrupted'
 
 /** Whether an item will not change any more (so the log may have it). */

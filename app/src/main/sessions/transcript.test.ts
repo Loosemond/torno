@@ -911,4 +911,18 @@ describe('a tool that was denied or cancelled', () => {
     t.message(toolResult('b', 'exit 1', { is_error: true }))
     expect(of(t, 'tool').map((x) => x.state)).toEqual(['done', 'error'])
   })
+
+  it('reads a running tool whose result is the CLI\'s rejection at an interrupt as stopped, never failed', () => {
+    const t = new Transcript()
+    t.userSent(text('go'), false, 'a0')
+    t.message(toolUse('s', 'Bash', { command: 'sleep 8; echo one' }))
+    t.message(toolUse('r', 'Bash', { command: 'sleep 9' }))
+    t.interruptAsked()
+    t.message(toolResult('s', "The user doesn't want to proceed with this tool use. The tool use was rejected.", { is_error: true }))
+    expect(of(t, 'tool').map((x) => x.state)).toEqual(['stopped', 'running'])
+    t.message({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] }, parent_tool_use_id: null })
+    t.message(result({ subtype: 'error_during_execution', is_error: true }))
+    expect(of(t, 'tool').map((x) => x.state)).toEqual(['stopped', 'stopped'])
+    expect(of(t, 'tool')[0].result).toMatch(/^The user doesn't want to proceed/)
+  })
 })

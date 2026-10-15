@@ -203,7 +203,14 @@ async function streamMode() {
     }
     await post('PreToolUse', { tool_name: name })
     if (holdMs > 0) await pause(holdMs)
-    if (turn.aborted) return
+    if (turn.aborted) {
+      // As the CLI does for a tool that was running: its result is the rejection, and the interrupt note says "for tool use".
+      if (holdMs > 0) {
+        out({ type: 'user', message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content: "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.", is_error: true }] }, ...base, uuid: next('uuid') })
+        turn.forTool = true
+      }
+      return
+    }
     if (!asked && name.startsWith('mcp__torno__')) {
       const result = await mcp(name, input).catch((e) => ({ content: [{ type: 'text', text: e.message }], isError: true }))
       content = result.content
@@ -320,7 +327,7 @@ async function streamMode() {
     await script(text)
     await takeFolded()
     const stopped = turn.aborted
-    if (stopped) out({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, ...base, uuid: next('uuid') })
+    if (stopped) out({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: turn.forTool ? '[Request interrupted by user for tool use]' : '[Request interrupted by user]' }] }, ...base, uuid: next('uuid') })
     else await post('Stop')
     out({ type: 'result', subtype: stopped ? 'error_during_execution' : 'success', is_error: stopped, duration_ms: Date.now() - started, duration_api_ms: 1, num_turns: 1, stop_reason: stopped ? 'tool_use' : 'end_turn', total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, ...base, uuid: next('uuid') })
     for (const uuid of turn.taken) life(uuid, 'completed')
