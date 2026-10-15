@@ -19,6 +19,7 @@ import { ShowPage, usePageKey } from './ui/ShowPage'
 import { ViewportPane } from './ui/ViewportPane'
 import { KeySheet, useKeysKey } from './ui/KeySheet'
 import { Welcome } from './ui/Welcome'
+import { giveKeysBack } from './ui/typing'
 
 const LEFT_WIDTH = 248
 const DOCK_DEFAULT = 520
@@ -246,12 +247,14 @@ export function App() {
     shell.current!.style.setProperty('--dock-w', `${d.width}px`)
   }
 
-  function onEdgeUp() {
+  function onEdgeUp(e: PointerEvent<HTMLDivElement>) {
     const d = drag.current
     if (!d) return
     drag.current = null
     shell.current!.toggleAttribute('data-resizing', false)
     setDockWidth(d.width)
+    // Dragged with the pointer, the edge is done with: the next letter is the view's, not the session pane's.
+    giveKeysBack(e.currentTarget)
   }
 
   function onEdgeKey(e: KeyboardEvent<HTMLDivElement>) {

@@ -1,10 +1,11 @@
 /**
- * Where a key press belongs to something else: a field to type in, a list being chosen in, or the session's
- * terminal. A slider or a tick box is an `input` that takes no letters: with one in focus, as the section's
- * slider is after a drag, the keys of the tools are still the tools'. So are the session pane's buttons, its
- * agent picker once chosen in and its edge: only its terminal is typed in.
+ * Where a key press belongs to something else: a field to type in, a list being chosen in, or the session
+ * pane, where its terminal lives. A slider or a tick box is an `input` that takes no letters: with one in
+ * focus, as the section's slider is after a drag, the keys of the tools are still the tools'. What only the
+ * pointer took up there gives the keys back when it is done with: the pane's edge once dragged, its agent
+ * picker once chosen in (`chosen`).
  */
-export const TYPING = 'input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea, select, [contenteditable], [data-region="session"] .session-term'
+export const TYPING = 'input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea, select, [contenteditable], [data-region="session"]'
 
 /**
  * A field is done with (Enter kept what was typed, Escape left it as it was): the keys go back to the view.

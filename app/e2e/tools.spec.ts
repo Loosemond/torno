@@ -640,7 +640,9 @@ test('while a stroke is drawn the wheel still zooms, the view stays locked, and 
   await page.mouse.wheel(0, -200)
   await expect.poll(async () => (await camera()).zoom).toBeGreaterThan(view.zoom)
   // Zoomed, not turned.
-  expect((await page.evaluate(() => window.__tornoTest!.camera().up))).toEqual(view.up)
+  // (Read back from the camera's turn, to a float's noise.)
+  const up = await page.evaluate(() => window.__tornoTest!.camera().up)
+  for (let i = 0; i < 3; i++) expect(up[i]).toBeCloseTo(view.up[i], 12)
   await page.keyboard.press('Escape')
   await expect(readout()).toBeHidden()
   await expect(tool('Draw')).toHaveAttribute('aria-pressed', 'true')
