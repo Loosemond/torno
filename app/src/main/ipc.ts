@@ -31,13 +31,14 @@ import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
 import { AGENT_VIEWS, sessionSaid } from '../shared/agents'
 import type { ChatAnswer } from '../shared/chat'
-import type { AgentId, AgentView, CreateRequest } from '../shared/bridge'
+import type { AgentId, AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
 import { adapters } from './sessions/adapter'
 import { installedAgents, readChoice, writeChoice } from './sessions/choice'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
-import { createObject } from './objects/create'
+import { onboardObject } from './onboard'
+import { createObject, RUN_STARTED, sweepStaleNew } from './objects/create'
 import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
@@ -50,7 +51,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:create, show:cards, show:thumbnail, export:plan, export:save
+//           objects:pickPhotos, objects:create, objects:onboard, show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer
@@ -183,6 +184,8 @@ const keeping: KeepDeps = {
 
 /** Open a workspace: scan it and start a kernel for it. Replaces the one open. */
 export async function openWorkspace(root: string, opts: { example?: boolean } = {}): Promise<WorkspaceInfo> {
+  // What a create that never ended left (a hidden folder of torno's own, from before this run) is removed first.
+  sweepStaleNew(resolve(root), RUN_STARTED)
   // What it is (the example's copy) is said with it for as long as it is open, whatever is scanned anew.
   const info: WorkspaceInfo = { ...(await scanWorkspace(resolve(root))), ...(opts.example ? { example: true as const } : {}) }
   // Until none is open: another call may have opened one while this one waited.
@@ -711,6 +714,23 @@ export function registerIpc(
     if (current !== ws) throw new Error(`${made.objectId} was made, but the workspace was left before it could be opened.`)
     if (!ws.info.objects.some((o) => o.id === made.objectId)) throw new Error(`${made.objectId} was made, but the workspace does not list it.`)
     return made
+  })
+  // The first half of a new object's life after `objects:create`: its scans imported, its chat started, the prompt sent.
+  ipcMain.handle('objects:onboard', (_event, objectId: string, draft: OnboardDraft) => {
+    const ws = current
+    if (!ws) throw new Error('No workspace is open.')
+    return onboardObject(
+      {
+        object: (id) => ws.info.objects.find((o) => o.id === id),
+        running: (id) => sessions?.current(id) != null,
+        importScan: (id, path) => requireScans().import(id, path),
+        start: (obj) => requireSessions().start(obj, {}),
+        prompt: (sessionId, blocks) => requireSessions().prompt(sessionId, blocks),
+        scene: (id) => ws.builds.scene(id)?.scene
+      },
+      String(objectId),
+      draft
+    )
   })
   ipcMain.handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
   // Read again, a scan may be another mesh: what the last build makes of its alignments is asked anew.

@@ -24,6 +24,30 @@ export interface CreateRequest {
   objects: Array<{ id: string; note: string }>
 }
 
+/**
+ * What the onboarding page hands main once the object is made and open (`objects.onboard`): the same things it
+ * made the object from, for the first prompt. The pictures are the window's, scaled to a long edge of 1280 px (a
+ * WebP turned into a PNG or a JPEG): main attaches only a PNG or a JPEG of at most 2000 px, 5 MB.
+ */
+export interface OnboardDraft {
+  description: string
+  /** The photos, then the doodles, as `create` named them: `reference/photo-1.jpg`, `reference/doodle-1.png`. */
+  items: Array<{ file: string; note: string; image?: Uint8Array }>
+  /** The scans to import into the new object, by the path the dialog or the drop gave. */
+  scans: Array<{ path: string; note: string }>
+  objects: Array<{ id: string; note: string }>
+}
+
+/** What came of `objects.onboard`. The object is made and open whatever it says. */
+export interface Onboarded {
+  /** The chat session started in the object; null when it could not be (then `problem` says why). */
+  sessionId: string | null
+  /** The text of the first prompt, for the composer to hold when it was not sent. */
+  prompt: string
+  /** Why the prompt was not sent: the agent could not be started, or has no chat. */
+  problem?: string
+}
+
 export interface TornoBridge {
   /** The person's home folder, to write `~` for in paths the chat shows; empty when unknown. */
   home: string
@@ -100,6 +124,12 @@ export interface TornoBridge {
     pathOf(file: File): string
     /** Makes the folder of a new object, whole or not at all, and answers with its id once the workspace lists it. */
     create(req: CreateRequest): Promise<{ objectId: string }>
+    /**
+     * Imports the draft's scans into the object, starts its chat session and sends the first prompt (text and up to 6
+     * pictures). Rejects for an object that is not of the open workspace or that has a session already. A session that
+     * cannot be started is not a rejection: `sessionId` is null and the prompt comes back to be held.
+     */
+    onboard(objectId: string, draft: OnboardDraft): Promise<Onboarded>
   }
   /** The scans of an object, kept by main in <object>/.torno/scans.json and .torno/scans/. Calls reject with a plain message. */
   scans: {

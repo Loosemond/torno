@@ -1,0 +1,245 @@
+import { constants } from 'node:fs'
+import { lstat, open } from 'node:fs/promises'
+import { basename, extname, isAbsolute, join } from 'node:path'
+import type { OnboardDraft, Onboarded } from '../shared/bridge'
+import { number } from '../shared/format'
+import { moduleName } from '../shared/objectName'
+import type { Scene } from '../shared/scene'
+import { SCAN_FORMATS } from '../shared/scans'
+import type { ObjectInfo } from '../shared/workspace'
+import { FOLDER } from './own'
+import { MOST, oneLine } from './objects/create'
+import { THUMB_MAX_BYTES, THUMB_PNG } from './show/cards'
+import type { PromptBlock } from './sessions/stream'
+
+// The first prompt of a new object and the call that sends it. The window made the object (`objects:create`) and
+// opened it; this imports its scans, starts its chat session, and tells the agent, in one prompt, all that the
+// person gave. What the window sends is checked again here, and a picture that is not what it says is left out.
+
+/** The most pictures one prompt carries: photos and doodles first, then the pictures of the objects referred to. */
+export const MOST_IMAGES = 6
+/** The longest edge of a picture main will attach (the window sends 1280; this is the rule's ceiling), and the biggest file. */
+export const MAX_EDGE = 2000
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MOST_PARTS_NAMED = 8
+const MAX_DESCRIPTION = 20_000
+const REFERENCE_FILE = /^reference\/(photo|doodle)-[1-9][0-9]*\.(png|jpg|jpeg|webp)$/
+
+export interface ImageBytes {
+  mediaType: 'image/png' | 'image/jpeg'
+  width: number
+  height: number
+  bytes: Uint8Array
+}
+
+/**
+ * A PNG or a JPEG of at most 5 MB whose long edge is at most 2000 px, read from its own header; null for
+ * anything else (a WebP, a PDF, a picture with no size, one that is too big). Nothing is decoded.
+ */
+export function checkedImage(bytes: unknown): ImageBytes | null {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 24 || bytes.length > MAX_IMAGE_BYTES) return null
+  const at = (i: number): number => bytes[i] ?? 0
+  const sized = (mediaType: ImageBytes['mediaType'], width: number, height: number): ImageBytes | null =>
+    width > 0 && height > 0 && Math.max(width, height) <= MAX_EDGE ? { mediaType, width, height, bytes } : null
+  if ([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((b, i) => at(i) === b)) {
+    // The header chunk is first: its length, `IHDR`, then the width and the height, 4 bytes each.
+    if (![0x49, 0x48, 0x44, 0x52].every((b, i) => at(12 + i) === b)) return null
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    return sized('image/png', view.getUint32(16), view.getUint32(20))
+  }
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) {
+    // The segments one after another until a start of frame, which has the size.
+    let i = 2
+    while (i + 9 < bytes.length) {
+      if (at(i) !== 0xff) return null
+      const marker = at(i + 1)
+      if (marker === 0xff) {
+        i += 1
+        continue
+      }
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+        i += 2
+        continue
+      }
+      if (marker === 0xd9 || marker === 0xda) return null
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return sized('image/jpeg', (at(i + 7) << 8) | at(i + 8), (at(i + 5) << 8) | at(i + 6))
+      i += 2 + ((at(i + 2) << 8) | at(i + 3))
+    }
+  }
+  return null
+}
+
+/** The picture an object has on file for its card, or none: a plain file under a plain `.torno`, a PNG within the card's size. */
+export async function readThumb(dir: string): Promise<ImageBytes | undefined> {
+  try {
+    const folder = await lstat(join(dir, FOLDER))
+    if (!folder.isDirectory()) return undefined
+    const path = join(dir, FOLDER, THUMB_PNG)
+    const stat = await lstat(path)
+    if (!stat.isFile() || stat.size > THUMB_MAX_BYTES) return undefined
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    try {
+      const bytes = Buffer.alloc(THUMB_MAX_BYTES + 1)
+      const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0)
+      return checkedImage(new Uint8Array(bytes.subarray(0, bytesRead))) ?? undefined
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * What an object is, as far as its last build in this run says: its parts and the box of the first layout, with
+ * whether the kernel says the box is exact. The numbers are the kernel's, written as every number told is.
+ */
+export function objectSummary(scene: Pick<Scene, 'layouts' | 'parts'> | undefined): string {
+  if (!scene) return 'not built in this run'
+  const layout = scene.layouts[0]
+  const parts = scene.parts.filter((p) => layout === undefined || p.layout === layout)
+  if (parts.length === 0) return 'built, with no parts'
+  const names = parts.slice(0, MOST_PARTS_NAMED).map((p) => p.name).join(', ')
+  const more = parts.length > MOST_PARTS_NAMED ? ` and ${parts.length - MOST_PARTS_NAMED} more` : ''
+  const size = [0, 1, 2].map((axis) => Math.max(...parts.map((p) => p.bbox.max[axis])) - Math.min(...parts.map((p) => p.bbox.min[axis])))
+  const exact = parts.every((p) => p.bboxExact === true)
+  return `${parts.length} ${parts.length === 1 ? 'part' : 'parts'}: ${names}${more}; box ${size.map(number).join(' x ')} mm, ${exact ? 'exact' : 'approximate'}`
+}
+
+export interface PromptInput {
+  name: string
+  description: string
+  /** Photos, then doodles. `image` is none for a picture that cannot be attached. */
+  items: Array<{ file: string; note: string; image?: ImageBytes }>
+  /** `id` is none for a scan that could not be imported, and `problem` says why. */
+  scans: Array<{ id: string | null; file: string; note: string; problem?: string }>
+  objects: Array<{ name: string; summary: string; note: string; thumb?: ImageBytes }>
+}
+
+const imageBlock = (image: ImageBytes): PromptBlock => ({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: Buffer.from(image.bytes).toString('base64') } })
+
+/** The first prompt of a new object: the text, then the pictures it says are attached, at most 6 in all. */
+export function onboardPrompt(input: PromptInput): { text: string; blocks: PromptBlock[] } {
+  const images: ImageBytes[] = []
+  /** Whether a picture fits in the prompt; it is attached when it does. */
+  const attach = (image: ImageBytes | undefined): boolean => {
+    if (!image || images.length >= MOST_IMAGES) return false
+    images.push(image)
+    return true
+  }
+  const said = (note: string): string => oneLine(note, 'note')
+  const lines: string[] = []
+  for (const item of input.items) {
+    const tail = attach(item.image) ? ' (attached below)' : ` (not attached: read ${item.file})`
+    lines.push(`- ${item.file}${said(item.note) === '' ? '' : `: ${said(item.note)}`}${tail}`)
+  }
+  for (const scan of input.scans) {
+    const note = said(scan.note)
+    const named = scan.id === null ? `Scan "${scan.file}"` : `Scan ${scan.id} "${scan.file}"`
+    const after = scan.id === null ? `It could not be imported (${said(scan.problem ?? 'for a reason torno did not get')}); the file is the person's to give again.` : 'It is imported into this object, not aligned yet; read it with the scan tools.'
+    lines.push(`- ${named}${note === '' ? '.' : `: ${note}.`} ${after}`)
+  }
+  for (const other of input.objects) {
+    const picture = other.thumb ? (attach(other.thumb) ? '; its picture is attached below' : '; its picture is not attached') : ''
+    const note = said(other.note)
+    lines.push(`- ../${other.name}/ (another object of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
+  }
+  const text = [
+    `This is a new object, ${input.name}, made in torno just now. What it is, in the person's words:`,
+    '',
+    input.description.trim(),
+    '',
+    ...(lines.length > 0 ? ['What they gave (all of it is also in brief.md; files are in reference/):', ...lines, ''] : []),
+    `${moduleName(input.name)}.py is torno's placeholder (a 20 mm cube). Read brief.md, look at what was given, ask what you need to know, then replace the placeholder with the real model.`
+  ].join('\n')
+  return { text, blocks: [{ type: 'text', text }, ...images.map(imageBlock)] }
+}
+
+export interface OnboardDeps {
+  /** An object of the open workspace. */
+  object(id: string): ObjectInfo | undefined
+  /** Whether the object has a chat or terminal session, or one starting. */
+  running(objectId: string): boolean
+  /** Imports a file as a scan of the object (`scans:import`); rejects with a reason. */
+  importScan(objectId: string, path: string): Promise<{ id: string; name: string }>
+  /** Starts the session of the object's agent; rejects with why it cannot. */
+  start(obj: ObjectInfo): Promise<{ sessionId: string; view: string }>
+  prompt(sessionId: string, blocks: PromptBlock[]): void
+  /** The last good build of an object in this run. */
+  scene(objectId: string): Pick<Scene, 'layouts' | 'parts'> | undefined
+}
+
+const firstLine = (e: unknown): string => (e instanceof Error ? e.message : String(e)).split('\n')[0].slice(0, 300)
+
+/** The draft held to what it may be; throws a plain reason. */
+async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft): Promise<void> {
+  if (typeof draft !== 'object' || draft === null) throw new Error('No draft to onboard.')
+  if (typeof draft.description !== 'string' || draft.description.length > MAX_DESCRIPTION) throw new Error('The description is not text of at most 20,000 characters.')
+  const lists = { items: MOST.photos + MOST.doodles, scans: MOST.scans, objects: MOST.objects }
+  for (const kind of ['items', 'scans', 'objects'] as const) {
+    if (!Array.isArray(draft[kind])) throw new Error(`The ${kind} are not a list.`)
+    if (draft[kind].length > lists[kind]) throw new Error(`At most ${lists[kind]} ${kind}.`)
+  }
+  for (const item of draft.items) {
+    if (typeof item?.file !== 'string' || !REFERENCE_FILE.test(item.file)) throw new Error('A photo or a doodle is a file of reference/ that torno made.')
+    if (typeof item.note !== 'string') throw new Error('The note of a photo or a doodle is not text.')
+    const stat = await lstat(join(obj.dir, item.file)).catch(() => null)
+    if (!stat?.isFile()) throw new Error(`${item.file} is not there.`)
+  }
+  for (const scan of draft.scans) {
+    if (typeof scan?.path !== 'string' || !isAbsolute(scan.path) || !(SCAN_FORMATS as readonly string[]).includes(extname(scan.path).toLowerCase())) throw new Error(`A scan is a ${SCAN_FORMATS.join(', ')} file given by its path.`)
+    if (typeof scan.note !== 'string') throw new Error('The note of a scan is not text.')
+  }
+  for (const other of draft.objects) {
+    if (typeof other?.id !== 'string' || deps.object(other.id) === undefined) throw new Error(`There is no object ${JSON.stringify(other?.id)} in this workspace.`)
+    if (other.id === obj.id) throw new Error('An object cannot refer to itself.')
+    if (typeof other.note !== 'string') throw new Error('The note of an object is not text.')
+  }
+}
+
+/**
+ * Onboards a new object: imports the scans of the draft, starts its session and sends the first prompt. Rejects, doing
+ * nothing, for an object that is not of the workspace, one with a session already, and a draft that is not what it
+ * may be. A scan that cannot be imported, a picture that cannot be attached and a session that cannot be started do not
+ * reject: the text says of the first two, and the answer has the prompt and the reason for the third.
+ */
+export async function onboardObject(deps: OnboardDeps, objectId: string, draft: OnboardDraft): Promise<Onboarded> {
+  const obj = deps.object(objectId)
+  if (!obj) throw new Error(`There is no object ${JSON.stringify(objectId)} in the open workspace.`)
+  if (deps.running(obj.id)) throw new Error(`${obj.id} has a session already.`)
+  await checked(deps, obj, draft)
+
+  const scans: PromptInput['scans'] = []
+  for (const scan of draft.scans) {
+    const file = basename(scan.path)
+    try {
+      const imported = await deps.importScan(obj.id, scan.path)
+      scans.push({ id: imported.id, file, note: scan.note })
+    } catch (e) {
+      scans.push({ id: null, file, note: scan.note, problem: firstLine(e) })
+    }
+  }
+  const objects: PromptInput['objects'] = []
+  for (const other of draft.objects) {
+    const found = deps.object(other.id)!
+    const thumb = await readThumb(found.dir)
+    objects.push({ name: found.id, summary: objectSummary(deps.scene(found.id)), note: other.note, ...(thumb ? { thumb } : {}) })
+  }
+  const { text, blocks } = onboardPrompt({
+    name: obj.id,
+    description: draft.description,
+    items: draft.items.map((item) => ({ file: item.file, note: item.note, image: checkedImage(item.image) ?? undefined })),
+    scans,
+    objects
+  })
+
+  let started: { sessionId: string; view: string }
+  try {
+    started = await deps.start(obj)
+  } catch (e) {
+    return { sessionId: null, prompt: text, problem: firstLine(e) }
+  }
+  if (started.view !== 'chat') return { sessionId: started.sessionId, prompt: text, problem: "This agent has no chat to send the first prompt to; it is held, for the person to paste." }
+  deps.prompt(started.sessionId, blocks)
+  return { sessionId: started.sessionId, prompt: text }
+}

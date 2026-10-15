@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { STDLIB_MODULES } from './pythonModules'
 import { moduleName, objectNameProblem } from './objectName'
 
 describe('objectNameProblem', () => {
@@ -40,6 +41,24 @@ describe('objectNameProblem', () => {
     expect(objectNameProblem('Clip', ['clip'])).toBe('A folder `clip` is there already.')
     expect(objectNameProblem('cable-clip', ['cable_clip'])).toMatch(/cable_clip/)
     expect(objectNameProblem('other', ['clip'])).toBeNull()
+  })
+})
+
+describe('names that would shadow a library', () => {
+  it('refuses what a model or the worker imports, and torno\'s own, in any case', () => {
+    for (const name of ['build123d', 'OCP', 'ocp', 'numpy', 'typing', 'dataclasses', 'math', 'json', 'JSON', 'os', 'sys', 'pathlib', 'functools', 'common', 'torno', 'torno_kernel', 'torno-kernel']) {
+      expect(objectNameProblem(name, []), name).not.toBeNull()
+    }
+  })
+
+  it('refuses any module of the standard library, and says so', () => {
+    for (const name of ['random', 'string', 'collections', 'logging', 'zlib', 'cProfile', 'cprofile']) expect(objectNameProblem(name, []), name).toMatch(/library/)
+  })
+
+  it('has the list as it was generated: 212 names, none starting with an underscore, and the names a model would use are not on it', () => {
+    expect(STDLIB_MODULES).toHaveLength(212)
+    expect(STDLIB_MODULES.some((m) => m.startsWith('_'))).toBe(false)
+    for (const name of ['clip', 'bracket', 'lid', 'cable-clip', 'stand', 'mount']) expect(objectNameProblem(name, []), name).toBeNull()
   })
 })
 

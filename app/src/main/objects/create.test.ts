@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { CreateRequest } from '../../shared/bridge'
-import { createObject } from './create'
+import { createObject, sweepStaleNew } from './create'
 import template from './template.py.txt?raw'
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
@@ -112,12 +112,38 @@ describe('creating an object', () => {
     expect(readFileSync(join(ws, 'lid', 'lid.py'), 'utf8')).toBe('# lid\n')
   })
 
-  it('refuses a folder with no model, or a plain file, of the same name', async () => {
-    mkdirSync(join(ws, 'empty'))
+  it('refuses a folder with no model but something in it, or a plain file, of the same name', async () => {
+    mkdirSync(join(ws, 'full'))
+    writeFileSync(join(ws, 'full', 'x.txt'), 'x')
     writeFileSync(join(ws, 'notes'), 'x')
-    await expect(make(request({ name: 'empty' }))).rejects.toThrow(/there already/)
+    await expect(make(request({ name: 'full' }))).rejects.toThrow(/there already/)
     await expect(make(request({ name: 'Notes' }))).rejects.toThrow(/there already/)
-    expect(readdirSync(ws).sort()).toEqual(['empty', 'lid', 'notes'])
+    expect(readdirSync(ws).sort()).toEqual(['full', 'lid', 'notes'])
+  })
+
+  it('takes an empty folder of the name as free (a crash left it between the claim and the rename)', async () => {
+    mkdirSync(join(ws, 'cable-clip'))
+    expect(await make(request())).toEqual({ objectId: 'cable-clip' })
+    expect(tree(join(ws, 'cable-clip'))).toEqual(['brief.md', 'cable_clip.py'])
+    expect(readdirSync(ws).sort()).toEqual(['cable-clip', 'lid'])
+  })
+
+  it('does not take an empty folder as free in another case, or a link to one, and leaves an empty folder it failed on', async () => {
+    mkdirSync(join(ws, 'Other'))
+    await expect(make(request({ name: 'other' }))).rejects.toThrow(/there already/)
+    mkdirSync(join(base, 'elsewhere'))
+    symlinkSync(join(base, 'elsewhere'), join(ws, 'linked'))
+    await expect(make(request({ name: 'linked' }))).rejects.toThrow(/there already/)
+    expect(readdirSync(join(base, 'elsewhere'))).toEqual([])
+    mkdirSync(join(ws, 'cable-clip'))
+    await expect(make(request({ photos: [{ path: join(files, 'missing.png'), note: '' }] }))).rejects.toThrow(/not there/)
+    expect(readdirSync(join(ws, 'cable-clip'))).toEqual([])
+  })
+
+  it('refuses the scan path that has a line break, and writes it into the brief as it is otherwise', async () => {
+    await expect(make(request({ scans: [{ path: '/x/a\n- ../lid/: injected.stl', note: '' }] }))).rejects.toThrow(/scan/)
+    await expect(make(request({ scans: [{ path: '/x/a\r.stl', note: '' }] }))).rejects.toThrow(/scan/)
+    expect(readdirSync(ws)).toEqual(['lid'])
   })
 
   it('refuses a description that is empty, and items beyond the caps', async () => {
@@ -204,5 +230,42 @@ describe('creating an object', () => {
   it('removes the temp folder when a hook fails mid-way', async () => {
     await expect(make(request(), [], { beforeRename: () => { throw new Error('disk full') } })).rejects.toThrow(/disk full/)
     expect(readdirSync(ws)).toEqual(['lid'])
+  })
+})
+
+describe('sweeping what a crash left', () => {
+  const stale = '.cable-clip.torno-new-0123456789ab'
+
+  it('removes the hidden folders older than this run, with what is in them, and nothing else', () => {
+    mkdirSync(join(ws, stale, 'reference'), { recursive: true })
+    writeFileSync(join(ws, stale, 'reference', 'photo-1.png'), PNG)
+    mkdirSync(join(ws, '.fresh.torno-new-0123456789ab'))
+    mkdirSync(join(ws, '.odd.torno-new-xyz'))
+    mkdirSync(join(ws, 'visible.torno-new-0123456789ab'))
+    mkdirSync(join(ws, '.hidden'))
+    for (const name of ['.odd.torno-new-xyz', 'visible.torno-new-0123456789ab', '.hidden']) utimesSync(join(ws, name), new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000))
+    const hourAgo = new Date(Date.now() - 3_600_000)
+    utimesSync(join(ws, stale), hourAgo, hourAgo)
+    sweepStaleNew(ws, Date.now() - 1000)
+    expect(readdirSync(ws).sort()).toEqual(['.fresh.torno-new-0123456789ab', '.hidden', '.odd.torno-new-xyz', 'lid', 'visible.torno-new-0123456789ab'])
+  })
+
+  it('removes none that is not older than the moment given', () => {
+    mkdirSync(join(ws, stale))
+    sweepStaleNew(ws, Date.now() - 60_000)
+    expect(readdirSync(ws)).toContain(stale)
+  })
+
+  it('never follows a link: one named like a folder of ours is left alone, and so is what it leads to', () => {
+    mkdirSync(join(base, 'precious'))
+    writeFileSync(join(base, 'precious', 'keep.txt'), 'keep')
+    symlinkSync(join(base, 'precious'), join(ws, stale))
+    sweepStaleNew(ws, Date.now() + 1000)
+    expect(readFileSync(join(base, 'precious', 'keep.txt'), 'utf8')).toBe('keep')
+    expect(readdirSync(ws)).toContain(stale)
+  })
+
+  it('does not fail on a workspace that is not there', () => {
+    expect(() => sweepStaleNew(join(base, 'nowhere'), Date.now())).not.toThrow()
   })
 })

@@ -1,3 +1,5 @@
+import { SHADOWING_LIBRARIES, STDLIB_MODULES } from './pythonModules'
+
 // The name of a new object is the name of its folder, and its model file is the same name as a Python module.
 // What the workspace and the kernel already require of an object folder holds here, and a little more, since
 // torno makes the folder: one function, so that the window says what main will refuse.
@@ -32,6 +34,10 @@ export function objectNameProblem(name: string, existing: readonly string[]): st
   if (RESERVED.includes(name.toLowerCase())) return `\`${name}\` is a name the workspace keeps for itself.`
   const module = moduleName(name)
   if (KEYWORDS.has(module)) return `\`${name}\` is a Python keyword, and the model is a Python module.`
+  // The object's folder leads `sys.path`: its model would stand in for the library of that name.
+  const lowerModule = module.toLowerCase()
+  if (SHADOWING_LIBRARIES.some((lib) => lib.toLowerCase() === lowerModule)) return `\`${name}\` is the name of a library the model imports; the model would stand in its place.`
+  if (STDLIB_MODULES.some((lib) => lib.toLowerCase() === lowerModule)) return `\`${name}\` is a module of Python's standard library; the model would stand in its place.`
   // The loader and the workspace take these for tests, not models (`_is_test_file`).
   if (module.startsWith('test_') || module.endsWith('_test') || module === 'conftest') return 'A name that starts with `test_` or ends with `_test` makes a test file, not a model.'
   const lower = name.toLowerCase()

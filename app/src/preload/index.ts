@@ -74,7 +74,8 @@ const bridge: TornoBridge = {
     pickPhotos: () => invokePlain('objects:pickPhotos'),
     pickScan: () => invokePlain('scans:pick'),
     pathOf: (file) => webUtils.getPathForFile(file),
-    create: (req) => invokePlain('objects:create', req)
+    create: (req) => invokePlain('objects:create', req),
+    onboard: (objectId, draft) => invokePlain('objects:onboard', objectId, draft)
   },
   scans: {
     list: (objectId) => invokePlain('scans:list', objectId),

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
+import { lstatSync, readdirSync, rmSync } from 'node:fs'
 import { lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises'
 import { extname, isAbsolute, join } from 'node:path'
 import type { CreateRequest } from '../../shared/bridge'
@@ -34,8 +35,43 @@ export interface CreateDeps {
   hooks?: { beforeRename?: (temp: string) => void | Promise<void> }
 }
 
+/** What a crash between the claim and the rename leaves: `.<name>.torno-new-<12 hex>`. Nothing else is ours to remove. */
+const TEMP_FOLDER = /^\.[A-Za-z0-9][A-Za-z0-9._-]*\.torno-new-[0-9a-f]{12}$/
+
+/** When this run began: a hidden folder older than that belongs to no create under way here. */
+export const RUN_STARTED = Date.now()
+
+/**
+ * Removes the hidden folders of a create that never ended (`.<name>.torno-new-<random>`) from the root of a
+ * workspace, when they are real folders last changed before `before`. A link of that name is left alone, as is
+ * whatever it leads to. Whatever cannot be removed is left; nothing is said.
+ */
+export function sweepStaleNew(root: string, before: number): void {
+  let names: string[]
+  try {
+    names = readdirSync(root)
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!TEMP_FOLDER.test(name)) continue
+    try {
+      const stat = lstatSync(join(root, name))
+      if (stat.isDirectory() && stat.mtimeMs < before) rmSync(join(root, name), { recursive: true, force: true })
+    } catch {
+      // Gone, or not ours to remove.
+    }
+  }
+}
+
+/** Whether the path is a real folder with nothing in it (not a link to one). */
+async function isEmptyFolder(path: string): Promise<boolean> {
+  const stat = await lstat(path).catch(() => null)
+  return stat !== null && stat.isDirectory() && (await readdir(path).catch(() => ['?'])).length === 0
+}
+
 /** What the window sent as a sentence in one line: a note is a line of `brief.md`. */
-function oneLine(note: unknown, what: string): string {
+export function oneLine(note: unknown, what: string): string {
   if (note === undefined || note === null) return ''
   if (typeof note !== 'string') throw new Error(`The note of a ${what} is not text.`)
   if (note.length > MAX_NOTE) throw new Error(`The note of a ${what} is over ${MAX_NOTE} characters.`)
@@ -94,6 +130,8 @@ function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string
     if (typeof scan?.path !== 'string' || !isAbsolute(scan.path) || !(SCAN_FORMATS as readonly string[]).includes(extname(scan.path).toLowerCase())) {
       throw new Error(`A scan is a ${SCAN_FORMATS.join(', ')} file given by its path.`)
     }
+    // The path is one line of `brief.md`: one with a line break (or any control character) could write lines of its own.
+    if (/\p{Cc}/u.test(scan.path)) throw new Error('The path of a scan has a control character or a line break in it.')
   }
   for (const other of req.objects) {
     if (typeof other?.id !== 'string' || !deps.objects.includes(other.id)) throw new Error(`There is no object ${JSON.stringify(other?.id)} in this workspace.`)
@@ -105,10 +143,14 @@ function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string
  * then nothing of it is left. The caller refreshes the workspace's listing.
  */
 export async function createObject(req: CreateRequest, deps: CreateDeps): Promise<{ objectId: string }> {
-  const existing = await readdir(deps.root)
-  checked(req, deps, existing)
-  const name = req.name
+  const name = typeof req?.name === 'string' ? req.name : ''
   const target = join(deps.root, name)
+  let existing = await readdir(deps.root)
+  // A folder of the name with nothing in it is free (a crash between the claim and the rename leaves one; it holds
+  // nothing to lose): the finished folder takes its place.
+  const reuse = name !== '' && existing.includes(name) && (await isEmptyFolder(target))
+  if (reuse) existing = existing.filter((entry) => entry !== name)
+  checked(req, deps, existing)
   const temp = join(deps.root, `.${name}.torno-new-${randomBytes(6).toString('hex')}`)
   let claimed = false
   await mkdir(temp)
@@ -141,11 +183,16 @@ export async function createObject(req: CreateRequest, deps: CreateDeps): Promis
     // The name is taken by making it, which fails if it is there (in any case, on a disk that does not tell them
     // apart): then the finished folder takes the place of that empty one, which refuses to be replaced if anyone
     // put anything in it meanwhile. The last step.
-    await mkdir(target).catch((e: NodeJS.ErrnoException) => {
-      throw e.code === 'EEXIST' ? new Error(`A folder \`${name}\` is there already.`) : e
-    })
+    if (!reuse) {
+      await mkdir(target).catch((e: NodeJS.ErrnoException) => {
+        throw e.code === 'EEXIST' ? new Error(`A folder \`${name}\` is there already.`) : e
+      })
+    }
     claimed = true
-    await rename(temp, target)
+    // A folder that was empty and had something put in it meanwhile is not replaced: the rename fails.
+    await rename(temp, target).catch((e: NodeJS.ErrnoException) => {
+      throw e.code === 'ENOTEMPTY' || e.code === 'EEXIST' ? new Error(`A folder \`${name}\` is there already.`) : e
+    })
   } catch (e) {
     if (claimed) await rmdir(target).catch(() => {})
     await rm(temp, { recursive: true, force: true }).catch(() => {})
