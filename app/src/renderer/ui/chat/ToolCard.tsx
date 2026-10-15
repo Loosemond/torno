@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { type ChatItem, toolLabel } from '../../../shared/chat'
 import { numbered } from '../numbered'
 import { Pictures } from './Pictures'
@@ -48,10 +48,11 @@ function Lines({ label, text }: { label: string; text: string }) {
  * A tool the agent used, on one line: what it did, and how it went. It opens to its input and its result. One of
  * torno's own has a thin rule in the accent colour, and its pictures under the line.
  */
-export function ToolCard({ item, beat }: { item: Tool; beat: boolean }) {
+export const ToolCard = memo(function ToolCard({ item, beat }: { item: Tool; beat: boolean }) {
   const [open, setOpen] = useState(false)
-  const label = toolLabel(item.name, item.input)
-  const input = inputText(item.input)
+  const label = useMemo(() => toolLabel(item.name, item.input), [item.name, item.input])
+  // Only an open card needs its input as text.
+  const input = useMemo(() => (open ? inputText(item.input) : ''), [open, item.input])
   return (
     <div className="chat-item chat-tool" data-kind="tool" data-torno={item.torno ? '' : undefined} data-state={item.state}>
       <button type="button" className="chat-tool-line" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -71,4 +72,4 @@ export function ToolCard({ item, beat }: { item: Tool; beat: boolean }) {
       )}
     </div>
   )
-}
+})

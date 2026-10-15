@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { hint, pressed } from '../../../shared/keys'
-import { nextCarries } from '../../../shared/agents'
+import { unmetDimensions } from '../../../shared/dimension'
 import { useStore } from '../../state/store'
 import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
@@ -11,6 +11,11 @@ const reason = (e: unknown): string => (e instanceof Error ? e.message : String(
 
 /** A prompt not yet sent, kept for a session while its pane is not shown (another object's, say). */
 const drafts = new Map<string, string>()
+
+/** The drafts of the prompts not sent are let go when the workspace they were written in is closed. */
+export function clearDrafts(): void {
+  drafts.clear()
+}
 
 /** The composer in the pane now, for what is inserted from outside (the selection's "Insert"). */
 let current: { insert(text: string): void } | null = null
@@ -29,21 +34,26 @@ const MOST_CHIPS = 8
 function Next() {
   const marks = useStore((s) => s.marks)
   const revision = useStore((s) => s.revision)
-  const carries = nextCarries(marks, revision > 0 ? revision : undefined)
-  const draft = marks.filter((m) => m.status === 'draft')
-  const rest = [
-    ...(carries.failing > 0 ? [`${carries.failing} failing ${carries.failing === 1 ? 'dimension' : 'dimensions'}`] : []),
-    ...(carries.unmeasured > 0 ? [`${carries.unmeasured} ${carries.unmeasured === 1 ? 'dimension' : 'dimensions'} with no value`] : [])
+  const { failing, unmeasured } = unmetDimensions(
+    marks.filter((m) => m.status === 'sent'),
+    revision > 0 ? revision : undefined
+  )
+  const things = [
+    ...marks.filter((m) => m.status === 'draft').map((m) => ({ id: m.id, word: '' })),
+    ...failing.map((m) => ({ id: m.id, word: 'fails' })),
+    ...unmeasured.map((m) => ({ id: m.id, word: 'no value' }))
   ]
-  if (draft.length === 0 && rest.length === 0) return null
+  if (things.length === 0) return null
   return (
     <p className="chat-next" role="status">
       <span>Goes with your next prompt:</span>
-      {draft.slice(0, MOST_CHIPS).map((m) => (
-        <RefChip key={m.id} value={m.id} />
+      {things.slice(0, MOST_CHIPS).map((one) => (
+        <span key={`${one.id}${one.word}`} className="chat-next-one">
+          <RefChip value={one.id} />
+          {one.word !== '' && <span className="chat-next-word">{one.word}</span>}
+        </span>
       ))}
-      {draft.length > MOST_CHIPS && <span>{numbered(`and ${draft.length - MOST_CHIPS} more`)}</span>}
-      {rest.length > 0 && <span>{numbered(rest.join(', '))}</span>}
+      {things.length > MOST_CHIPS && <span>{numbered(`and ${things.length - MOST_CHIPS} more`)}</span>}
     </p>
   )
 }

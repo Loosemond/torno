@@ -29,6 +29,8 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
   const chat = useChat(sessionId)
   useEffect(() => {
     void chatActions.load(sessionId)
+    // Once no pane shows it, a session lets go of its pictures: they are asked for again when it is shown.
+    return () => chatActions.release(sessionId)
   }, [sessionId])
 
   const box = useRef<HTMLDivElement>(null)
@@ -45,6 +47,18 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
     if (atEnd.current) el.scrollTop = el.scrollHeight
     else setBehind(true)
   }, [items, earlier])
+
+  // What grows without the items changing (a picture, a card opened) keeps the end in view while it was at the end.
+  const content = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!content.current || typeof ResizeObserver === 'undefined') return
+    const watching = new ResizeObserver(() => {
+      const el = box.current
+      if (el && atEnd.current) el.scrollTop = el.scrollHeight
+    })
+    watching.observe(content.current)
+    return () => watching.disconnect()
+  }, [])
 
   const toEnd = (): void => {
     atEnd.current = true
@@ -67,6 +81,7 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
             if (atEnd.current) setBehind(false)
           }}
         >
+          <div className="chat-content" ref={content}>
           {chat?.loading && <p className="chat-note chat-quiet">Loading the conversation…</p>}
           {chat?.failed !== undefined && (
             <p className="chat-note chat-quiet" role="alert">
@@ -83,6 +98,7 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
           {chat && !chat.loading && items!.length === 0 && (!earlier || earlier.length === 0) && (
             <p className="chat-empty">Say what to change, or ask about the part. The marks you leave go with your prompt.</p>
           )}
+          </div>
         </div>
         {behind && (
           <button type="button" className="button chat-behind" onClick={toEnd}>

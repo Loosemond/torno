@@ -233,6 +233,17 @@ describe('what is sent', () => {
     expect(of(t, 'context')).toMatchObject([{ forUser: b.id }])
   })
 
+  it('keeps the build and the selection the context named, as fields of the item', () => {
+    const t = new Transcript()
+    t.userSent(text('go'), false)
+    t.context({ text: 'ctx', sentMarkIds: ['M1'], revision: 4, buildState: 'ok', selection: ['lid/F1', 'tub/E2'] })
+    expect(of(t, 'context')[0]).toMatchObject({ marks: ['M1'], revision: 4, buildState: 'ok', selection: ['lid/F1', 'tub/E2'] })
+    t.userSent(text('again'), false)
+    t.context({ text: 'ctx', sentMarkIds: [] })
+    expect(of(t, 'context')[1]).not.toHaveProperty('revision')
+    expect(of(t, 'context')[1]).not.toHaveProperty('selection')
+  })
+
   it('shows nothing for a prompt that nothing was added to, and that prompt is not waited for again', () => {
     const t = new Transcript()
     t.userSent(text('first'), false)

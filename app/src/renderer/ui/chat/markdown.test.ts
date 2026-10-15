@@ -96,4 +96,24 @@ describe('the markdown of the agent\'s text', () => {
     const deep = Array.from({ length: 40 }, (_, n) => `${' '.repeat(n * 2)}- item ${n}`).join('\n')
     expect(html(deep)).toContain('<span class="num">39</span>')
   })
+
+  it('parses what is never closed in no time: a line of unmatched markers is no cost that grows with the square of its length', () => {
+    const inputs = ['*a b '.repeat(10_000), '_a '.repeat(17_000), '[a '.repeat(17_000), `# a${' '.repeat(3000)}x`, 'a'.repeat(50_000), `# ${'#'.repeat(50_000)} x`, `${' '.repeat(50_000)}x`, `| a |\n| ${'- '.repeat(20_000)}`]
+    for (const input of inputs) {
+      const before = performance.now()
+      html(input)
+      expect([input.slice(0, 12), performance.now() - before < 50]).toEqual([input.slice(0, 12), true])
+    }
+  })
+
+  it('draws a line too long to be read for markers as the plain text it is', () => {
+    const long = `${'word '.repeat(1000)}**not bold**`
+    expect(html(long)).not.toContain('<strong>')
+    expect(html(long)).toContain('**not bold**')
+  })
+
+  it('keeps a heading\'s closing hashes out of it', () => {
+    expect(html('## Title ##')).toContain('<strong>Title</strong>')
+  })
 })
+

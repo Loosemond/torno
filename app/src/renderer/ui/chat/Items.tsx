@@ -1,14 +1,21 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { type ChatItem, pulledFromTorno } from '../../../shared/chat'
 import { drawn } from '../../state/chat'
 import { numbered } from '../numbered'
-import { contextChips } from './contextChips'
 import { Markdown } from './markdown'
 import { Pictures } from './Pictures'
 import { RefChip } from './RefChip'
 import { ToolCard } from './ToolCard'
 
 type Of<K extends ChatItem['kind']> = Extract<ChatItem, { kind: K }>
+
+/** Under test only: how many times each item has been drawn, for the check that a delta draws its own item and no other. */
+const counted = typeof location !== 'undefined' && new URLSearchParams(location.search).has('test')
+function counting(id: string): void {
+  if (!counted) return
+  const counts = ((window as unknown as { __tornoChatRenders?: Record<string, number> }).__tornoChatRenders ??= {})
+  counts[id] = (counts[id] ?? 0) + 1
+}
 
 /** The still dot of something under way: set by the one-second beat the pane keeps, and by no animation that runs on. */
 function Dot({ beat }: { beat: boolean }) {
@@ -19,9 +26,8 @@ function Dot({ beat }: { beat: boolean }) {
  * What torno added to a prompt, under it: the marks it told of, the build, the selection, as chips that are live,
  * and the exact text the agent was given, to open out.
  */
-function Added({ item }: { item: Of<'context'> }) {
+const Added = memo(function Added({ item }: { item: Of<'context'> }) {
   const [open, setOpen] = useState(false)
-  const chips = useMemo(() => contextChips(item.text), [item.text])
   return (
     <div className="chat-item chat-added" data-kind="context">
       <div className="chat-added-line">
@@ -29,15 +35,15 @@ function Added({ item }: { item: Of<'context'> }) {
         {item.marks.map((id) => (
           <RefChip key={id} value={id} />
         ))}
-        {chips.build && (
+        {item.revision !== undefined && item.buildState && (
           <span className="chat-added-build">
-            <RefChip value={`r${chips.build.revision}`} /> <span data-verdict={chips.build.state}>{chips.build.state === 'ok' ? 'ok' : chips.build.state}</span>
+            <RefChip value={`r${item.revision}`} /> <span data-verdict={item.buildState}>{item.buildState}</span>
           </span>
         )}
-        {chips.selection.length > 0 && (
+        {item.selection && item.selection.length > 0 && (
           <span className="chat-added-selection">
             selection:{' '}
-            {chips.selection.map((ref) => (
+            {item.selection.map((ref) => (
               <RefChip key={ref} value={ref} />
             ))}
           </span>
@@ -49,9 +55,9 @@ function Added({ item }: { item: Of<'context'> }) {
       {open && <pre className="chat-pre chat-added-text selectable">{item.text}</pre>}
     </div>
   )
-}
+})
 
-function User({ item }: { item: Of<'user'> }) {
+const User = memo(function User({ item }: { item: Of<'user'> }) {
   return (
     <div className="chat-item chat-user" data-kind="user" data-state={item.state}>
       {item.text !== '' && <p className="chat-user-text selectable">{item.text}</p>}
@@ -60,7 +66,7 @@ function User({ item }: { item: Of<'user'> }) {
       {item.state === 'not-sent' && <p className="chat-user-state">Not sent</p>}
     </div>
   )
-}
+})
 
 function Turn({ item }: { item: Of<'turn'> }) {
   const pulled = pulledFromTorno(item.pulled)
@@ -83,8 +89,12 @@ function Ask({ item }: { item: Of<'ask'> }) {
   )
 }
 
-/** One item of the transcript. A `context` is drawn under its prompt, and not here. */
-export function ItemView({ item, beat }: { item: ChatItem; beat: boolean }) {
+/**
+ * One item of the transcript. Memoized: an item that did not change (the pane keeps its object) is not drawn again
+ * for what else changes; `beat` is passed only to the items that show a dot, a constant to the rest.
+ */
+export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem; beat: boolean }) {
+  counting(item.id)
   switch (item.kind) {
     case 'user':
       return <User item={item} />
@@ -124,7 +134,10 @@ export function ItemView({ item, beat }: { item: ChatItem; beat: boolean }) {
         </p>
       )
   }
-}
+})
+
+/** Whether an item is something under way, which shows a dot that beats. */
+const underWay = (item: ChatItem): boolean => ((item.kind === 'text' || item.kind === 'thinking') && item.streaming) || (item.kind === 'tool' && item.state === 'running')
 
 /** The items in the order they are drawn, with each `context` under the prompt it was made for. */
 export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean }) {
@@ -142,7 +155,7 @@ export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean })
         if (item.kind === 'context' && ids.has(item.forUser)) return null
         return (
           <div key={item.id} className="chat-group" data-id={item.id}>
-            <ItemView item={item} beat={beat} />
+            <ItemView item={item} beat={underWay(item) ? beat : true} />
             {item.kind === 'user' && under.get(item.id)?.map((context) => <Added key={context.id} item={context} />)}
           </div>
         )

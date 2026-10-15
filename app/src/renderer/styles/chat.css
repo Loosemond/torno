@@ -24,6 +24,12 @@
 }
 
 /* A document: one thing under another, a little air between the parts of a turn. */
+/* What is off screen is not laid out: a long conversation costs what is in view. */
+.chat-group {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+}
+
 .chat-group + .chat-group {
   margin-top: var(--space-3);
 }
@@ -465,6 +471,16 @@ button.ref-chip {
   flex: none;
   padding: var(--space-2) var(--space-4) var(--space-3);
   border-top: var(--divider);
+}
+
+.chat-next-one {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.chat-next-word {
+  color: var(--muted);
 }
 
 .chat-next {

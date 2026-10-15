@@ -10,6 +10,8 @@ declare global {
     /** Exposed by the preload script; see src/shared/bridge.ts. */
     torno: TornoBridge
     /** Only when main runs with TORNO_TEST=1: what the e2e tests read and the pictures they take. */
+    /** Only under test: how many times the chat has drawn each of its items, by id. */
+    __tornoChatRenders?: Record<string, number>
     __tornoTest?: {
       state(): TornoState
       look(req: LookRequest): Promise<LookResult>

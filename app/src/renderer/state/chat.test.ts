@@ -140,3 +140,38 @@ describe('the order the items are drawn in', () => {
     expect(ids()).toEqual(['s-i1', 's-i2', 's-i3', 's-i4'])
   })
 })
+
+describe('the pictures of a session that is no longer shown', () => {
+  const picture = (n: number): ChatItem => ({ kind: 'tool', id: `s-i${n}`, toolUseId: `t${n}`, name: 'mcp__torno__look', torno: true, input: {}, state: 'done', images: [{ id: `p${n}`, mediaType: 'image/png', data: 'AAAA', width: 1, height: 1 }] })
+  const dataOf = (id: string): Array<string | undefined> => (chatStore.getState().sessions[id].items.filter((i) => i.kind === 'tool') as Array<Extract<ChatItem, { kind: 'tool' }>>).flatMap((i) => i.images.map((p) => p.data))
+
+  it('lose their data, and what comes for the session after is stripped too', async () => {
+    await loaded([user(1), picture(2)], 2)
+    chatStore.setState({ sessions: { s: { ...chatStore.getState().sessions.s, earlier: [picture(0)] } } })
+    chatActions.release('s')
+    expect(dataOf('s')).toEqual([undefined])
+    expect((chatStore.getState().sessions.s.earlier[0] as Extract<ChatItem, { kind: 'tool' }>).images[0].data).toBeUndefined()
+    // Kept: everything else of the images.
+    expect((chatStore.getState().sessions.s.items[1] as Extract<ChatItem, { kind: 'tool' }>).images[0]).toMatchObject({ id: 'p2', mediaType: 'image/png', width: 1 })
+    onItem({ sessionId: 's', item: picture(3), seq: 3 })
+    expect(dataOf('s')).toEqual([undefined, undefined])
+  })
+
+  it('come back when the session is shown again: the history is asked for once more', async () => {
+    await loaded([user(1), picture(2)], 2)
+    chatActions.release('s')
+    const again = chatActions.load('s')
+    expect(asked).toHaveLength(2)
+    asked[1].answer(history([user(1), picture(2)], 2))
+    await again
+    expect(dataOf('s')).toEqual(['AAAA'])
+    // Loaded and shown, it is not asked for again.
+    await chatActions.load('s')
+    expect(asked).toHaveLength(2)
+  })
+
+  it('are not touched in a session that is not released', async () => {
+    await loaded([picture(1)], 1)
+    expect(dataOf('s')).toEqual(['AAAA'])
+  })
+})

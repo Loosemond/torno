@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, memo, useMemo, type ReactNode } from 'react'
 import { refsIn } from '../../../shared/chat'
 import { numbered } from '../numbered'
 import { RefChip } from './RefChip'
@@ -31,8 +31,15 @@ export type Block =
 // Backticks, bold, italic (an underscore only at the edge of a word, so `snake_case` stays whole) and links.
 const INLINE = /(`+)([\s\S]*?[^`])\1(?!`)|\*\*(?=\S)([\s\S]+?)\*\*|__(?=\S)([\s\S]+?)__|\*(?=[^\s*])([\s\S]*?[^\s*])\*|(?<![\p{L}\p{N}_])_(?=[^\s_])([\s\S]*?[^\s_])_(?![\p{L}\p{N}_])|\[([^\]\n]+)\]\(([^)\s]+)\)/u
 
+/**
+ * The most a line is read for markers: the scan for the end of a marker that never comes costs the square of the
+ * line, so a longer one (nothing a person writes, or a log pasted in) is drawn as the plain text it is.
+ */
+const MAX_INLINE = 4000
+
 /** A line of text in pieces. Nothing nests deeper than bold over italic over code, which is a few levels at most. */
 function inlines(text: string, depth = 0): Inline[] {
+  if (text.length > MAX_INLINE) return [{ t: 'text', text }]
   const found: Inline[] = []
   let rest = text
   while (rest !== '') {
@@ -52,11 +59,21 @@ function inlines(text: string, depth = 0): Inline[] {
 }
 
 const FENCE = /^\s{0,3}(```+|~~~+)/
-const HEADING = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/
+const HEADING = /^\s{0,3}#{1,6}\s+(.*)$/
 const BULLET = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
 const RULE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/
 const QUOTE = /^\s{0,3}>\s?(.*)$/
 const TABLE_SEPARATOR = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/
+
+/** A heading's text without the closing hashes (`## Title ##`) and the blanks round it, with no regex that backtracks. */
+function headingText(rest: string): string {
+  let end = rest.trimEnd().length
+  let hashes = end
+  while (hashes > 0 && rest[hashes - 1] === '#') hashes -= 1
+  // Hashes are closing ones only when a blank stands before them.
+  if (hashes < end && hashes > 0 && /\s/.test(rest[hashes - 1])) end = hashes
+  return rest.slice(0, end).trimEnd().trimStart()
+}
 
 const cells = (line: string): string[] => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
 
@@ -102,18 +119,20 @@ export function parseMarkdown(text: string): Block[] {
       blocks.push({ t: 'code', text: body.join('\n') })
       continue
     }
-    const heading = HEADING.exec(line)
+    // What is longer than this is no heading, rule or table row: it is a paragraph, whatever it begins with.
+    const short = line.length <= MAX_INLINE
+    const heading = short ? HEADING.exec(line) : null
     if (heading) {
-      blocks.push({ t: 'heading', of: inlines(heading[1]) })
+      blocks.push({ t: 'heading', of: inlines(headingText(heading[1])) })
       at += 1
       continue
     }
-    if (RULE.test(line) && !BULLET.test(line)) {
+    if (short && RULE.test(line) && !BULLET.test(line)) {
       blocks.push({ t: 'rule' })
       at += 1
       continue
     }
-    if (line.includes('|') && at + 1 < lines.length && TABLE_SEPARATOR.test(lines[at + 1]) && lines[at + 1].includes('-')) {
+    if (short && line.includes('|') && at + 1 < lines.length && lines[at + 1].length <= MAX_INLINE && TABLE_SEPARATOR.test(lines[at + 1]) && lines[at + 1].includes('-')) {
       const head = cells(line).map((c) => inlines(c))
       const rows: Inline[][][] = []
       at += 2
@@ -246,6 +265,8 @@ function drawBlock(block: Block, key: string): ReactNode {
 }
 
 /** The agent's text, drawn. */
-export function Markdown({ text }: { text: string }) {
-  return <div className="md">{parseMarkdown(text).map((block, n) => drawBlock(block, `b${n}`))}</div>
-}
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
+  // Parsed once for a text, not again for what else the pane draws meanwhile.
+  const blocks = useMemo(() => parseMarkdown(text), [text])
+  return <div className="md">{blocks.map((block, n) => drawBlock(block, `b${n}`))}</div>
+})

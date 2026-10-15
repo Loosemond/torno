@@ -1,5 +1,5 @@
 import { markAnchors } from '../../../shared/marks'
-import { layerOf, partsInLayout, type TornoState } from '../../state/store'
+import { layerOf, type TornoState } from '../../state/store'
 
 /** What a ref shown in the chat is, and what the window can do with it. */
 export interface RefInfo {
@@ -19,7 +19,10 @@ export interface RefInfo {
 const NOTE_WORDS = 80
 
 /** What a ref (`M4`, `r12`, `lid/F12`, `lid/E3`) is among what the window shows now. */
-export function refInfo(s: TornoState, value: string): RefInfo {
+/** The parts of the state a ref depends on: the rest of it (the selection, the camera) cannot change what a chip says. */
+export type RefState = Pick<TornoState, 'marks' | 'scene' | 'layers' | 'layout' | 'revision'>
+
+export function refInfo(s: RefState, value: string): RefInfo {
   if (/^M\d+$/.test(value)) {
     const mark = s.marks.find((m) => m.id === value)
     if (!mark) return { kind: 'mark', live: false, lights: [], title: `${value} is not among the marks of this object` }
@@ -37,7 +40,7 @@ export function refInfo(s: TornoState, value: string): RefInfo {
   const sub = /^(.*)\/([FE])(\d+)$/.exec(value)
   if (!sub) return { kind: 'none', live: false, lights: [], title: value }
   const [, name, letter, number] = sub
-  const found = partsInLayout(s).find((p) => p.name === name)
+  const found = s.scene?.parts.find((p) => p.layout === s.layout && p.name === name)
   const no = (title: string): RefInfo => ({ kind: 'geometry', live: false, lights: [], title })
   if (!found) return no(`${value} is not in the layout shown (${s.layout})`)
   if (layerOf(s.layers, name)?.visible === false) return no(`${value} is on a part that is switched off`)

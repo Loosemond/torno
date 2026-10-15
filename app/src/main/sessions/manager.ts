@@ -740,7 +740,7 @@ export class Sessions {
       context = { text: '', sentMarkIds: [] }
     }
     const { text, sentMarkIds } = context
-    session.chat?.transcript.context({ text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
+    session.chat?.transcript.context({ text, sentMarkIds, ...(context.revision !== undefined ? { revision: context.revision } : {}), ...(context.buildState ? { buildState: context.buildState } : {}), ...(context.selection ? { selection: context.selection } : {}), ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     this.emit('context', { sessionId: session.id, objectId, text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${text ? `, answered with: ${text}` : ''}`)
     // Marks are sent once the answer that names them has been handed over whole: not when the agent hung

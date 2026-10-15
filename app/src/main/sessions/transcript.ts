@@ -138,7 +138,7 @@ export class Transcript {
    * What a `UserPromptSubmit` was answered with, under the prompt it went with: the one `prompt` names if it names
    * one that is waiting, else the oldest that has none yet. Null when nothing was added, and when no prompt waits.
    */
-  context(c: { text: string; sentMarkIds: string[]; prompt?: string }): ChatItem | null {
+  context(c: { text: string; sentMarkIds: string[]; prompt?: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[] }): ChatItem | null {
     let made: ChatItem | null = null
     this.run(() => {
       if (this.awaiting.length === 0) return
@@ -146,7 +146,7 @@ export class Transcript {
       // A prompt that had no hook (a command the CLI ran itself) is passed over by one that names a later one.
       const [forUser] = this.awaiting.splice(0, Math.max(named, 0) + 1).slice(-1)
       if (c.text.trim() === '' && c.sentMarkIds.length === 0) return
-      made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds] }
+      made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.selection && c.selection.length > 0 ? { selection: c.selection.map((ref) => this.redact(ref)) } : {}) }
       this.put(made)
     })
     return made

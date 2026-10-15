@@ -10,6 +10,7 @@ import { chatActions, connectChat, useChat } from '../state/chat'
 import { actions, store, useStore } from '../state/store'
 import { type AgentChoice, AgentPicker } from './AgentPicker'
 import { ChatPane } from './chat/ChatPane'
+import { clearDrafts } from './chat/Composer'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
 import { edgeGround } from './termGround'
@@ -386,6 +387,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     () => () => {
       disposeTerminals()
       chatActions.dropAll()
+      clearDrafts()
     },
     [root]
   )

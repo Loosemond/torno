@@ -15,8 +15,8 @@ export interface ChatImage {
 export type ChatItem =
   /** What the person sent. `queued` until the CLI takes the prompt up (a prompt sent while it works waits). */
   | { kind: 'user'; id: string; text: string; images: ChatImage[]; state: 'queued' | 'sent' | 'not-sent'; at: number }
-  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it. */
-  | { kind: 'context'; id: string; forUser: string; text: string; marks: string[] }
+  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it: the marks sent, the build it named and the refs it said were selected. */
+  | { kind: 'context'; id: string; forUser: string; text: string; marks: string[]; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[] }
   /** The agent's words, as markdown. */
   | { kind: 'text'; id: string; text: string; streaming: boolean }
   /** The agent thought. This CLI leaves the text of a thought empty. */
@@ -77,7 +77,7 @@ export const isTornoTool = (name: string): boolean => name.startsWith(TORNO_TOOL
  * A mark (`M4`), a build (`r12`), a face or an edge of a part (`lid/F12`, `tub_2/E10`). A letter alone, a face
  * number alone and a decimal are none, nor is the name of a part standing alone.
  */
-const REF = /(\bM\d+\b|\br\d+\b|[\w.-]+\/[FE]\d+\b)/
+const REF = /(\bM\d+\b|\br\d+\b|(?<![\w.-])[\w.-]+\/[FE]\d+\b)/
 
 /** A text in pieces: plain text and refs, in order. A piece with a `ref` is one. */
 export function refsIn(text: string): Array<{ text: string; ref?: string }> {

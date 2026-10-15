@@ -75,6 +75,11 @@ export interface ContextDeps {
 export interface PromptContext {
   text: string
   sentMarkIds: string[]
+  /** What the text says of the build, as data for the chat's chips: the revision it names, and how that build stands. Absent where the text names none. */
+  revision?: number
+  buildState?: 'ok' | 'failed' | 'building'
+  /** The refs the text says are selected (as many as it lists). Absent when it says none. */
+  selection?: string[]
 }
 
 /**
@@ -113,6 +118,19 @@ export interface PromptContext {
  * It changes nothing: whoever delivers the text turns `sentMarkIds` into sent.
  */
 export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string } = {}): PromptContext {
+  const told = contextText(deps, objectId, marks, opts)
+  if (told.text === '') return told
+  const build = deps.build(objectId)
+  const refs = selectedRefs(deps, objectId)?.refs.slice(0, MAX_SELECTION_REPORTED).map(({ ref }) => ref) ?? []
+  return {
+    ...told,
+    ...(build && build.revision > 0 && build.status !== 'idle' ? { revision: build.revision } : {}),
+    ...(build && build.status !== 'idle' ? { buildState: build.status === 'ok' ? 'ok' : build.status === 'failed' ? 'failed' : 'building' } : {}),
+    ...(refs.length > 0 ? { selection: refs } : {})
+  }
+}
+
+function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[], opts: { fresh?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string }): PromptContext {
   const toolName = opts.toolName ?? CLAUDE_TOOL
   const moreMarks = moreMarksBy(toolName)
   const moreDimensions = moreDimensionsBy(toolName)
@@ -220,14 +238,21 @@ function openMarks(open: readonly Mark[], revision: number | undefined, toolName
  * build than the last or of another layout than is shown, or the parts on
  * screen are stale. Its refs name geometry of one build only.
  */
-function selection(deps: ContextDeps, objectId: string): string {
-  if (deps.openObjectId() !== objectId) return ''
+function selectedRefs(deps: ContextDeps, objectId: string): { refs: NonNullable<NonNullable<ViewState['selection']>['refs']>; view: ViewState } | null {
+  if (deps.openObjectId() !== objectId) return null
   const build = deps.build(objectId)
   const last = deps.scene(objectId)
   const view = deps.view(objectId)
   const refs = view?.selection?.refs
-  if (!build || build.status !== 'ok' || build.stale || !last || !view || !Array.isArray(refs) || refs.length === 0) return ''
-  if (view.selection?.revision !== last.revision || view.layout !== layoutShown(view, last.scene)) return ''
+  if (!build || build.status !== 'ok' || build.stale || !last || !view || !Array.isArray(refs) || refs.length === 0) return null
+  if (view.selection?.revision !== last.revision || view.layout !== layoutShown(view, last.scene)) return null
+  return { refs, view }
+}
+
+function selection(deps: ContextDeps, objectId: string): string {
+  const found = selectedRefs(deps, objectId)
+  if (!found) return ''
+  const { refs, view } = found
   const names = refs.slice(0, MAX_SELECTION_REPORTED).map(({ ref, descriptor }) => (descriptor ? `${ref} (${cutEnd(descriptor, SELECTED_DESCRIPTOR_LIMIT)})` : ref))
   // The window gives the first refs only, and how many are selected in all.
   const total = Math.max(refs.length, view.selection?.total ?? 0)

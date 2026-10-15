@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
@@ -22,6 +22,19 @@ let page: Page
 test.beforeAll(async () => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-chat-'))
   cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  // hollow has a draft of the person's and a dimension, given to the agent before, that its build does not meet.
+  mkdirSync(join(root, 'hollow', '.torno'), { recursive: true })
+  const base = { author: 'user', anchorState: 'ok', layout: 'assembly', revision: 1, camera: { position: [120, -90, 60], target: [0, 0, 6], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }, createdAt: '2026-10-09T20:00:00.000Z' }
+  writeFileSync(
+    join(root, 'hollow', '.torno', 'marks.json'),
+    JSON.stringify({
+      next: 4,
+      marks: [
+        { ...base, id: 'M1', kind: 'pin', status: 'draft', note: 'too thin here', anchor: { point: [20, 0, 20], normal: [1, 0, 0], part: 'tub' } },
+        { ...base, id: 'M3', kind: 'dimension', status: 'sent', note: 'height with the lid', measure: 'distance', a: { point: [0, 0, 0], normal: [0, 0, -1], part: 'tub' }, b: { point: [0, 0, 40], normal: [0, 0, 1], part: 'lid' }, expected: 42 }
+      ]
+    })
+  )
   // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
   app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root } })
   page = await app.firstWindow()
@@ -214,6 +227,23 @@ test('Shift+Enter breaks the line and Enter sends it, queued while the agent wor
   await expect(dock().getByRole('status').first()).toHaveText('Idle')
 })
 
+test('a delta of a streaming text draws that item and no other, whatever else is in the transcript', async () => {
+  const renders = (): Promise<Record<string, number>> => page.evaluate(() => ({ ...window.__tornoChatRenders }))
+  await say('slow 4')
+  const text = chat().locator('.chat-text').last()
+  await expect(text).toContainText('word2')
+  const early = await renders()
+  await expect(text).toContainText('word12')
+  const late = await renders()
+  const grown = Object.keys(late).filter((id) => late[id] !== early[id])
+  // One item changed, and it drew more often; every other item of the transcript was drawn no more.
+  expect(grown).toHaveLength(1)
+  expect(late[grown[0]]).toBeGreaterThan(early[grown[0]] ?? 0)
+  // The turn ends: the footer and the item's last state are drawn, and the beat of a second has drawn none else.
+  await expect(turns().last()).toContainText('Done in', { timeout: 10_000 })
+  await expect(chat().locator('.chat-text .chat-dot')).toHaveCount(0)
+})
+
 test('the view is switched to the terminal, which resumes the same conversation, and back to the chat, which shows what was said', async () => {
   await dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Terminal' }).click()
   await expect.poll(terminalText, { timeout: 15_000 }).toContain('READY')
@@ -260,4 +290,19 @@ test('the window reloaded in the middle of a stream shows every item once and go
   const ids = await chat().locator('.chat-group').evaluateAll((groups) => groups.map((g) => g.getAttribute('data-id')))
   expect(new Set(ids).size).toBe(ids.length)
   await expect(chat().locator('.chat-text .chat-dot')).toHaveCount(0)
+})
+
+test('what goes with the next prompt is chips of the marks themselves: the drafts, and the dimensions that fail', async () => {
+  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: 'hollow', status: 'ok' })
+  await dock().getByRole('button', { name: 'New session' }).click()
+  const next = chat().locator('.chat-next')
+  await expect(next).toContainText('Goes with your next prompt:')
+  await expect(next.locator('.ref-chip[data-ref="M1"]')).toBeVisible()
+  const failing = next.locator('.chat-next-one', { has: page.locator('.ref-chip[data-ref="M3"]') })
+  await expect(failing).toBeVisible()
+  await expect(failing).toContainText('fails')
+  // A chip is live: the pointer on M3 lights what it is anchored to.
+  await next.locator('.ref-chip[data-ref="M3"]').hover()
+  await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.peeked())).length).toBeGreaterThan(0)
 })

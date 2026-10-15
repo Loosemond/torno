@@ -23,6 +23,8 @@ export interface ChatSession {
   told: Told[]
   /** Why the history could not be had. */
   failed?: string
+  /** No pane shows it: its pictures have been let go (the data of each), and the history is asked for again when it is shown. */
+  released?: boolean
 }
 
 export const chatStore = createStore<{ sessions: Record<string, ChatSession> }>(() => ({ sessions: {} }))
@@ -63,9 +65,16 @@ export function drawn(items: ChatItem[]): ChatItem[] {
   return [...items.filter((item) => !queued(item)), ...items.filter(queued)]
 }
 
+/** An item without the data of its pictures: what is let go of a session nobody looks at. Main still keeps what it keeps. */
+function withoutData(item: ChatItem): ChatItem {
+  if ((item.kind !== 'user' && item.kind !== 'tool') || !item.images.some((image) => image.data !== undefined)) return item
+  return { ...item, images: item.images.map(({ data: _data, ...rest }) => rest) }
+}
+
 function apply(session: ChatSession, told: Told): ChatSession {
   if (told.seq <= session.seq) return session
-  return 'item' in told ? { ...session, items: placed(session.items, told.item), seq: told.seq } : { ...session, meta: told.meta, seq: told.seq }
+  if (!('item' in told)) return { ...session, meta: told.meta, seq: told.seq }
+  return { ...session, items: placed(session.items, session.released ? withoutData(told.item) : told.item), seq: told.seq }
 }
 
 const set = (sessionId: string, change: (session: ChatSession) => ChatSession): void => {
@@ -83,7 +92,7 @@ export const chatActions = {
   /** Asks main for the whole transcript of a session, unless it is on its way or already here; what is told meanwhile is kept and merged. */
   async load(sessionId: string): Promise<void> {
     const there = chatStore.getState().sessions[sessionId]
-    if (there && (there.loading || there.failed === undefined)) return
+    if (there && (there.loading || (there.failed === undefined && !there.released))) return
     chatStore.setState({ sessions: { ...chatStore.getState().sessions, [sessionId]: { ...FRESH } } })
     try {
       const h: ChatHistory = await window.torno.chat.history(sessionId)
@@ -95,6 +104,11 @@ export const chatActions = {
       const message = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
       set(sessionId, (session) => ({ ...session, loading: false, told: [], failed: message }))
     }
+  },
+
+  /** No pane shows this session: its pictures are let go, and what is told of it from now on carries none. */
+  release(sessionId: string): void {
+    set(sessionId, (session) => ({ ...session, released: true, items: session.items.map(withoutData), earlier: session.earlier.map(withoutData) }))
   },
 
   /** A session is no more of this window's concern: a session ended and another started in its place, or a workspace closed. */

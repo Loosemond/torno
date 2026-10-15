@@ -10,9 +10,14 @@ import { type RefInfo, refInfo } from './refs'
  * nothing else. `value` is the ref (`ref` is React's own word).
  */
 export function RefChip({ value }: { value: string }) {
-  // A string, so that the chip draws again only when what it says of the ref has changed.
-  const said = useStore((s) => JSON.stringify(refInfo(s, value)))
-  const info: RefInfo = useMemo(() => JSON.parse(said) as RefInfo, [said])
+  // Only what a ref depends on is followed (not the selection or the camera), and what it says is worked out again
+  // only when one of those changes.
+  const marks = useStore((s) => s.marks)
+  const scene = useStore((s) => s.scene)
+  const layers = useStore((s) => s.layers)
+  const layout = useStore((s) => s.layout)
+  const revision = useStore((s) => s.revision)
+  const info: RefInfo = useMemo(() => refInfo({ marks, scene, layers, layout, revision }, value), [marks, scene, layers, layout, revision, value])
   const lit = useRef(false)
   const light = (on: boolean): void => {
     if (on === lit.current) return

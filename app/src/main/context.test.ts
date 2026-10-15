@@ -45,6 +45,22 @@ describe('contextFor', () => {
     )
   })
 
+  it('hands the chat the build and the selection the text names, as data', () => {
+    const ok: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 0.8, stale: false }
+    const view = { camera: CAMERA, layout: 'assembly', visible: ['assembly:base'], selection: { revision: 3, total: 2, refs: [{ ref: 'base/F5', descriptor: 'plane' }, { ref: 'post' }] } } as ViewState
+    expect(contextFor(deps({ build: ok, scene: SCENE, view }), 'bracket')).toMatchObject({ revision: 3, buildState: 'ok', selection: ['base/F5', 'post'] })
+    const plain = contextFor(deps({ build: ok, scene: SCENE }), 'bracket')
+    expect(plain).toMatchObject({ revision: 3, buildState: 'ok' })
+    expect(plain).not.toHaveProperty('selection')
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 2, stale: true, error: { kind: 'exception', message: 'no' } }
+    expect(contextFor(deps({ build: failed, scene: SCENE }), 'bracket')).toMatchObject({ revision: 2, buildState: 'failed' })
+    // Nothing built: no revision to name; no text: no facts.
+    const first: BuildState = { objectId: 'bracket', status: 'building', revision: 0, startedAt: 0, stale: false }
+    expect(contextFor(deps({ build: first }), 'bracket')).toMatchObject({ buildState: 'building' })
+    expect(contextFor(deps({ build: first }), 'bracket')).not.toHaveProperty('revision')
+    expect(contextFor(deps({ build: ok }), 'nothing')).toEqual({ text: '', sentMarkIds: [] })
+  })
+
   it('uses the layout on screen, and says which of its parts are hidden', () => {
     const build: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 12.34, stale: false }
     const view: ViewState = { objectId: 'bracket', layout: 'print', camera: CAMERA, visible: ['print:base'] }
@@ -423,7 +439,7 @@ describe('contextFor', () => {
     })
 
     it('says nothing of marks when all are resolved', () => {
-      expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [pin(1, { status: 'resolved' })])).toEqual({ text: STATUS, sentMarkIds: [] })
+      expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [pin(1, { status: 'resolved' })])).toEqual({ text: STATUS, sentMarkIds: [], revision: 3, buildState: 'ok' })
     })
 
     it('lists the oldest drafts that fit, counts the rest and says how to get them: the limit holds for 200 marks', () => {
