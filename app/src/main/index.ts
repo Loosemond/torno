@@ -356,13 +356,13 @@ scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
  * person's. `marksChecks` says whether the marks of an object have been
  * checked against its build since something was done to them. `scans` is the
  * store of the scans; `pickFile` is what "Import scan" is answered with, and
- * `filePicks` counts how often it was asked; `pickSave` is what the save dialog of
+ * `filePicks` counts how often it was asked; `pickPhotos` (a list of paths) and `photoPicks` are the same for the photo dialog of a new object; `pickSave` is what the save dialog of
  * an export is answered with (the path to write, or null), `savePicks` counts
  * how often it was asked and `saveOffered` is the path it would have opened on; `replace` answers the question asked before an export replaces a file the dialog did not ask about, and `replaceAsked` counts it. `letGo` has an object's status
  * say that the kernel let its build go, which no test's kernel does. `opened`
  * are the objects opened in this run: those that are watched and built.
  */
-const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0 }
+const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickPhotos: [] as string[], photoPicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0 }
 
 /** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
 let requested: string | null = null
@@ -457,6 +457,13 @@ void app.whenReady().then(async () => {
       ? async () => {
           testHooks.filePicks += 1
           return testHooks.pickFile
+        }
+      : undefined,
+    // Nor the photo dialog of a new object.
+    pickPhotos: isTest
+      ? async () => {
+          testHooks.photoPicks += 1
+          return testHooks.pickPhotos
         }
       : undefined,
     // Nor a save dialog.

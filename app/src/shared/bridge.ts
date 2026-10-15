@@ -10,6 +10,20 @@ import type { ObjectCard, ThumbnailOf } from './show'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { RecentFolder, WorkspaceInfo } from './workspace'
 
+/** What the onboarding page asks for when the person presses "Create": the new object and everything they gave. */
+export interface CreateRequest {
+  name: string
+  description: string
+  /** Files on the disk (from a drop or main's dialog): copied into `reference/` as `photo-<n>.<ext>`. */
+  photos: Array<{ path: string; note: string }>
+  /** PNG bytes of a drawing: `reference/doodle-<n>.png`. */
+  doodles: Array<{ png: Uint8Array; note: string }>
+  /** Not copied: imported into the object after it is made. */
+  scans: Array<{ path: string; note: string }>
+  /** Other objects of the workspace, by id. */
+  objects: Array<{ id: string; note: string }>
+}
+
 export interface TornoBridge {
   /** The person's home folder, to write `~` for in paths the chat shows; empty when unknown. */
   home: string
@@ -75,6 +89,17 @@ export interface TornoBridge {
     /** What `onProblem` last said of an object, for a window that was not listening then; null when nothing, or once dismissed. */
     problem(objectId: string): Promise<string | null>
     dismissProblem(objectId: string): Promise<void>
+  }
+  /** Making a new object by onboarding. Calls reject with a plain message. */
+  objects: {
+    /** The photo dialog (several images); under test, what `__tornoMain.pickPhotos` holds. [] when cancelled. */
+    pickPhotos(): Promise<string[]>
+    /** The scan dialog (`scans.pick`). */
+    pickScan(): Promise<string | null>
+    /** Where a file dropped on the window is on the disk (`webUtils.getPathForFile`); '' for one that is nowhere. */
+    pathOf(file: File): string
+    /** Makes the folder of a new object, whole or not at all, and answers with its id once the workspace lists it. */
+    create(req: CreateRequest): Promise<{ objectId: string }>
   }
   /** The scans of an object, kept by main in <object>/.torno/scans.json and .torno/scans/. Calls reject with a plain message. */
   scans: {

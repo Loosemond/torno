@@ -59,7 +59,7 @@ window on it.
 - Never click "Open folder" unless main runs with `TORNO_TEST=1`: only then is
   the folder dialog replaced by `globalThis.__tornoMain.pickFolder` (the folder
   to answer with, or null), and `picks` counts the times it was asked. The
-  same holds for "Import scan…": `pickFile` and `filePicks`.
+  same holds for "Import scan…": `pickFile` and `filePicks`, and for "Add photos…" of a new object: `pickPhotos` (a list of paths) and `photoPicks`.
 - `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
   side by side.
 

@@ -686,3 +686,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   reads the tail of the file as "Earlier in this conversation". A log over 5 MB is cut to its last 2,000 lines, whole
   and atomically, when a session starts on it (`trimLog`). Switching `view` ends the session and resumes the
   conversation in the other kind (`session.json` is the same).
+
+## New objects
+
+- `objects/create.ts` (`objects:create`, the one place torno makes a folder in a workspace) makes `<root>/<name>/` from
+  `objects/template.py.txt` (the single source of torno's template, imported as raw text; the kernel's
+  `tests/test_template.py` builds that same file through the real loader), `brief.md` and `reference/`.
+  Everything is made in `.<name>.torno-new-<random>` (dot first: the listing of a workspace never shows it), then the name is
+  taken by `mkdir` (fails if it is there) and the temp folder is renamed onto it, the last step; on any failure the temp
+  folder is removed. The name rule is `shared/objectName.ts`, the window's and main's alike, compared with every entry of
+  the workspace folder without regard to case.
+- Photos come as paths, copied as `reference/photo-<n>.<ext>` (png, jpg, jpeg, webp; at most 25 MB; `lstat` and an
+  `O_NOFOLLOW` open, so no link, folder or pipe; read through the open handle, never more than the size said). Doodles
+  come as PNG bytes (signature checked, at most 8 MB). Scans are not copied (Task 2 imports them) and other objects are named
+  by id. At most 12, 6, 4 and 8. `brief.md` is `# name`, the description, and `## References` with a line per item in the
+  order photos, doodles, scans, objects.
+- `objects:create` answers after `rescan`, so the listing has the object. `objects:pickPhotos` is the photo dialog;
+  tests answer it with `__tornoMain.pickPhotos` (`photoPicks` counts).

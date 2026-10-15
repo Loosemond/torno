@@ -1,0 +1,155 @@
+import { randomBytes } from 'node:crypto'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises'
+import { extname, isAbsolute, join } from 'node:path'
+import type { CreateRequest } from '../../shared/bridge'
+import { moduleName, objectNameProblem } from '../../shared/objectName'
+import { SCAN_FORMATS } from '../../shared/scans'
+import { writeFileAtomic } from '../atomic'
+import template from './template.py.txt?raw'
+
+// Making an object is the one thing torno writes in a workspace outside `<object>/.torno/`: one new folder,
+// `<root>/<name>/`, with the template model, `brief.md` and `reference/`. Everything is made in a hidden
+// folder beside it (`.<name>.torno-new-<random>`, which the listing of a workspace never shows) and that
+// folder takes the name as the last step, so that the folder is whole or not there. Nothing that exists is
+// written into or replaced; whatever the window sent is checked here again.
+
+/** The most of each kind of reference. */
+export const MOST = { photos: 12, doodles: 6, scans: 4, objects: 8 }
+/** The biggest photo, and the biggest doodle, in bytes. */
+export const MAX_PHOTO = 25 * 1024 * 1024
+export const MAX_DOODLE = 8 * 1024 * 1024
+/** The longest description and the longest note, in characters. */
+const MAX_DESCRIPTION = 20_000
+const MAX_NOTE = 2_000
+const PHOTO_TYPES = ['.png', '.jpg', '.jpeg', '.webp']
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+export interface CreateDeps {
+  /** The open workspace's folder. */
+  root: string
+  /** The ids of its objects, which are what another object may be referred to by. */
+  objects: readonly string[]
+  /** For tests: called with the temp folder when everything is written, before it takes the name. */
+  hooks?: { beforeRename?: (temp: string) => void | Promise<void> }
+}
+
+/** What the window sent as a sentence in one line: a note is a line of `brief.md`. */
+function oneLine(note: unknown, what: string): string {
+  if (note === undefined || note === null) return ''
+  if (typeof note !== 'string') throw new Error(`The note of a ${what} is not text.`)
+  if (note.length > MAX_NOTE) throw new Error(`The note of a ${what} is over ${MAX_NOTE} characters.`)
+  return note.replace(/\s+/g, ' ').trim()
+}
+
+const line = (what: string, note: string): string => (note === '' ? `- ${what}` : `- ${what}: ${note}`)
+
+/**
+ * The bytes of a regular file of at most `cap` bytes, and nothing else: a link, a folder, a pipe and a file that
+ * is too big are refused before any of it is read. The file is opened without following a link and looked at
+ * through the open handle, so that what was checked is what is read.
+ */
+async function readRegular(path: unknown, cap: number, what: string): Promise<{ bytes: Buffer; ext: string }> {
+  if (typeof path !== 'string' || !isAbsolute(path)) throw new Error(`A ${what} is given by the path of a file; this is not one.`)
+  const ext = extname(path).toLowerCase()
+  if (!PHOTO_TYPES.includes(ext)) throw new Error(`${path} is not a ${PHOTO_TYPES.join(', ')} file.`)
+  const stat = await lstat(path).catch(() => null)
+  if (!stat) throw new Error(`${path} is not there.`)
+  if (!stat.isFile()) throw new Error(`${path} is ${stat.isSymbolicLink() ? 'a link' : 'not a plain file'}: torno copies only plain files.`)
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => {
+    throw new Error(`${path} cannot be opened as a plain file.`)
+  })
+  try {
+    const opened = await handle.stat()
+    if (!opened.isFile()) throw new Error(`${path} is not a plain file: torno copies only plain files.`)
+    if (opened.size > cap) throw new Error(`${path} is over ${cap / (1024 * 1024)} MB.`)
+    // One byte more than the size said: a file that grew since is caught, not read whole.
+    const bytes = Buffer.alloc(opened.size + 1)
+    let got = 0
+    while (got < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, got, bytes.length - got, got)
+      if (bytesRead === 0) break
+      got += bytesRead
+    }
+    if (got > opened.size) throw new Error(`${path} changed while it was read.`)
+    return { bytes: bytes.subarray(0, got), ext }
+  } finally {
+    await handle.close()
+  }
+}
+
+/** The request, held to what it may be; throws a plain reason. Returns what `brief.md` needs. */
+function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string[]): void {
+  if (typeof req !== 'object' || req === null) throw new Error('No object to make.')
+  if (typeof req.name !== 'string') throw new Error('Give the object a name.')
+  const problem = objectNameProblem(req.name, existing)
+  if (problem) throw new Error(problem)
+  if (typeof req.description !== 'string' || req.description.trim() === '') throw new Error('Say what it is first.')
+  if (req.description.length > MAX_DESCRIPTION) throw new Error(`The description is over ${MAX_DESCRIPTION} characters.`)
+  for (const kind of ['photos', 'doodles', 'scans', 'objects'] as const) {
+    if (!Array.isArray(req[kind])) throw new Error(`The ${kind} are not a list.`)
+    if (req[kind].length > MOST[kind]) throw new Error(`At most ${MOST[kind]} ${kind}.`)
+  }
+  for (const scan of req.scans) {
+    if (typeof scan?.path !== 'string' || !isAbsolute(scan.path) || !(SCAN_FORMATS as readonly string[]).includes(extname(scan.path).toLowerCase())) {
+      throw new Error(`A scan is a ${SCAN_FORMATS.join(', ')} file given by its path.`)
+    }
+  }
+  for (const other of req.objects) {
+    if (typeof other?.id !== 'string' || !deps.objects.includes(other.id)) throw new Error(`There is no object ${JSON.stringify(other?.id)} in this workspace.`)
+  }
+}
+
+/**
+ * Makes `<root>/<name>/` and answers with the object's id. Rejects, with the reason, when it could not, and
+ * then nothing of it is left. The caller refreshes the workspace's listing.
+ */
+export async function createObject(req: CreateRequest, deps: CreateDeps): Promise<{ objectId: string }> {
+  const existing = await readdir(deps.root)
+  checked(req, deps, existing)
+  const name = req.name
+  const target = join(deps.root, name)
+  const temp = join(deps.root, `.${name}.torno-new-${randomBytes(6).toString('hex')}`)
+  let claimed = false
+  await mkdir(temp)
+  try {
+    const references: string[] = []
+    await writeFileAtomic(join(temp, `${moduleName(name)}.py`), template)
+    let n = 0
+    for (const photo of req.photos) {
+      const { bytes, ext } = await readRegular(photo?.path, MAX_PHOTO, 'photo')
+      const file = `reference/photo-${++n}${ext}`
+      await writeFileAtomic(join(temp, file), bytes)
+      references.push(line(file, oneLine(photo.note, 'photo')))
+    }
+    n = 0
+    for (const doodle of req.doodles) {
+      const png = doodle?.png
+      if (!(png instanceof Uint8Array)) throw new Error('A doodle is the bytes of a PNG.')
+      if (png.length > MAX_DOODLE) throw new Error('A doodle is at most 8 MB.')
+      if (png.length < PNG_SIGNATURE.length || PNG_SIGNATURE.some((b, i) => png[i] !== b)) throw new Error('A doodle is a PNG; this is not one.')
+      const file = `reference/doodle-${++n}.png`
+      await writeFileAtomic(join(temp, file), png)
+      references.push(line(file, oneLine(doodle.note, 'doodle')))
+    }
+    for (const scan of req.scans) references.push(line(`scan ${scan.path}`, oneLine(scan.note, 'scan')))
+    for (const other of req.objects) references.push(line(`../${other.id}/`, oneLine(other.note, 'object')))
+    const brief = [`# ${name}`, '', req.description.trim(), ...(references.length ? ['', '## References', '', ...references] : []), ''].join('\n')
+    await writeFileAtomic(join(temp, 'brief.md'), brief)
+
+    await deps.hooks?.beforeRename?.(temp)
+    // The name is taken by making it, which fails if it is there (in any case, on a disk that does not tell them
+    // apart): then the finished folder takes the place of that empty one, which refuses to be replaced if anyone
+    // put anything in it meanwhile. The last step.
+    await mkdir(target).catch((e: NodeJS.ErrnoException) => {
+      throw e.code === 'EEXIST' ? new Error(`A folder \`${name}\` is there already.`) : e
+    })
+    claimed = true
+    await rename(temp, target)
+  } catch (e) {
+    if (claimed) await rmdir(target).catch(() => {})
+    await rm(temp, { recursive: true, force: true }).catch(() => {})
+    throw e
+  }
+  return { objectId: name }
+}

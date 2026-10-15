@@ -1,0 +1,20 @@
+"""A placeholder: a 20 mm cube, until the real model replaces it.
+
+What the person asked for is in brief.md beside this file, and what they gave
+(photos, doodles) is in reference/. Read those, then rewrite this file.
+"""
+
+from dataclasses import dataclass
+
+from build123d import Box, fillet
+
+
+@dataclass(frozen=True)
+class Params:
+    size: float = 20.0
+    rounding: float = 1.0
+
+
+def assembly(p):
+    cube = Box(p.size, p.size, p.size)
+    return {"placeholder": fillet(cube.edges(), p.rounding)}

@@ -31,12 +31,13 @@ import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
 import { AGENT_VIEWS, sessionSaid } from '../shared/agents'
 import type { ChatAnswer } from '../shared/chat'
-import type { AgentId, AgentView } from '../shared/bridge'
+import type { AgentId, AgentView, CreateRequest } from '../shared/bridge'
 import { adapters } from './sessions/adapter'
 import { installedAgents, readChoice, writeChoice } from './sessions/choice'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
+import { createObject } from './objects/create'
 import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
@@ -49,7 +50,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           show:cards, show:thumbnail, export:plan, export:save
+//           objects:pickPhotos, objects:create, show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer
@@ -382,7 +383,7 @@ export function queryObject<T = unknown>(id: string, name: string, args: object)
  * `marks` backs the marks of the objects; without it there are none.
  * `onBuild` is told where the build of an object stands, each time that changes.
  * `pickFolder` answers "Open folder" in place of the dialog, which tests must
- * never open; `pickFile` answers "Import scan" likewise.
+ * never open; `pickFile` answers "Import scan" likewise, and `pickPhotos` "Add photos".
  * `scans` backs the scans of the objects; without it there are none.
  * `pickSave` answers the save dialog of an export likewise: it is given the path the dialog would have
  * opened on, and answers with the path to write, or null.
@@ -408,6 +409,8 @@ export function registerIpc(
     scans?: ScanStore
     /** Stands in for the file dialog: the file to import, or null for none. */
     pickFile?: () => Promise<string | null>
+    /** Stands in for the photo dialog of a new object: the files to add, or [] for none. */
+    pickPhotos?: () => Promise<string[]>
     /** Stands in for the save dialog of an export: given the path it would open on, the path to write, or null for none. */
     pickSave?: (defaultPath: string) => Promise<string | null>
     /** Stands in for the question asked before an export replaces a file the save dialog did not ask about: yes or no. */
@@ -690,6 +693,24 @@ export function registerIpc(
     const options: Electron.OpenDialogOptions = { title: 'Import scan', properties: ['openFile'], filters: [{ name: 'Scans', extensions: SCAN_FORMATS.map((format) => format.slice(1)) }] }
     const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
     return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
+  })
+  ipcMain.handle('objects:pickPhotos', async (event): Promise<string[]> => {
+    if (opts.pickPhotos) return opts.pickPhotos()
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = { title: 'Add photos', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] }
+    const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
+    return picked.canceled ? [] : picked.filePaths
+  })
+  // The one place torno makes a folder in a workspace (`createObject`). It answers once the listing has the object,
+  // as a change in the folder would have it listed.
+  ipcMain.handle('objects:create', async (_event, req: CreateRequest) => {
+    const ws = current
+    if (!ws) throw new Error('No workspace is open.')
+    const made = await createObject(req, { root: ws.info.root, objects: ws.info.objects.map((o) => o.id) })
+    await rescan(ws)
+    if (current !== ws) throw new Error(`${made.objectId} was made, but the workspace was left before it could be opened.`)
+    if (!ws.info.objects.some((o) => o.id === made.objectId)) throw new Error(`${made.objectId} was made, but the workspace does not list it.`)
+    return made
   })
   ipcMain.handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
   // Read again, a scan may be another mesh: what the last build makes of its alignments is asked anew.

@@ -70,6 +70,12 @@ const bridge: TornoBridge = {
     problem: (objectId) => invokePlain('marks:problem', objectId),
     dismissProblem: (objectId) => invokePlain('marks:dismissProblem', objectId)
   },
+  objects: {
+    pickPhotos: () => invokePlain('objects:pickPhotos'),
+    pickScan: () => invokePlain('scans:pick'),
+    pathOf: (file) => webUtils.getPathForFile(file),
+    create: (req) => invokePlain('objects:create', req)
+  },
   scans: {
     list: (objectId) => invokePlain('scans:list', objectId),
     pick: () => invokePlain('scans:pick'),
