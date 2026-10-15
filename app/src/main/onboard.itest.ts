@@ -8,7 +8,7 @@ import type { ObjectInfo } from '../shared/workspace'
 import { type HttpRouter, startHttp } from './http'
 import { scanCommand } from './kernel/client'
 import { createObject } from './objects/create'
-import { onboardObject, type OnboardDeps } from './onboard'
+import { onboardObject, sessionRunning, type OnboardDeps } from './onboard'
 import { ScanStore } from './scans/store'
 import { processImporter } from './scans/importer'
 import { adapters } from './sessions/adapter'
@@ -53,7 +53,7 @@ function make(command: string): Sessions {
 
 const depsOf = (s: Sessions): OnboardDeps => ({
   object: (id) => objects.get(id),
-  running: (id) => s.current(id) !== null,
+  running: (id) => sessionRunning(s, id),
   importScan: (id, path) => scans.import(id, path),
   start: (obj) => s.start(obj, {}),
   prompt: (id, blocks) => s.prompt(id, blocks),

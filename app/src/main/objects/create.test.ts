@@ -246,21 +246,27 @@ describe('sweeping what a crash left', () => {
     for (const name of ['.odd.torno-new-xyz', 'visible.torno-new-0123456789ab', '.hidden']) utimesSync(join(ws, name), new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000))
     const hourAgo = new Date(Date.now() - 3_600_000)
     utimesSync(join(ws, stale), hourAgo, hourAgo)
-    sweepStaleNew(ws, Date.now() - 1000)
+    sweepStaleNew(ws, Date.now())
     expect(readdirSync(ws).sort()).toEqual(['.fresh.torno-new-0123456789ab', '.hidden', '.odd.torno-new-xyz', 'lid', 'visible.torno-new-0123456789ab'])
   })
 
-  it('removes none that is not older than the moment given', () => {
+  it('removes none that is under 10 minutes old, whenever this run began', () => {
     mkdirSync(join(ws, stale))
-    sweepStaleNew(ws, Date.now() - 60_000)
+    const young = new Date(Date.now() - 9 * 60_000)
+    utimesSync(join(ws, stale), young, young)
+    sweepStaleNew(ws, Date.now())
     expect(readdirSync(ws)).toContain(stale)
+    const old = new Date(Date.now() - 11 * 60_000)
+    utimesSync(join(ws, stale), old, old)
+    sweepStaleNew(ws, Date.now())
+    expect(readdirSync(ws)).not.toContain(stale)
   })
 
   it('never follows a link: one named like a folder of ours is left alone, and so is what it leads to', () => {
     mkdirSync(join(base, 'precious'))
     writeFileSync(join(base, 'precious', 'keep.txt'), 'keep')
     symlinkSync(join(base, 'precious'), join(ws, stale))
-    sweepStaleNew(ws, Date.now() + 1000)
+    sweepStaleNew(ws, Date.now())
     expect(readFileSync(join(base, 'precious', 'keep.txt'), 'utf8')).toBe('keep')
     expect(readdirSync(ws)).toContain(stale)
   })

@@ -38,15 +38,16 @@ export interface CreateDeps {
 /** What a crash between the claim and the rename leaves: `.<name>.torno-new-<12 hex>`. Nothing else is ours to remove. */
 const TEMP_FOLDER = /^\.[A-Za-z0-9][A-Za-z0-9._-]*\.torno-new-[0-9a-f]{12}$/
 
-/** When this run began: a hidden folder older than that belongs to no create under way here. */
-export const RUN_STARTED = Date.now()
+/** How old a hidden folder is before it is taken for a crash's: no create takes this long, however big the photos. */
+export const STALE_AFTER_MS = 10 * 60 * 1000
 
 /**
  * Removes the hidden folders of a create that never ended (`.<name>.torno-new-<random>`) from the root of a
- * workspace, when they are real folders last changed before `before`. A link of that name is left alone, as is
+ * workspace, when they are real folders last changed more than 10 minutes before `now` (another torno may be
+ * creating in the same workspace). A link of that name is left alone, as is
  * whatever it leads to. Whatever cannot be removed is left; nothing is said.
  */
-export function sweepStaleNew(root: string, before: number): void {
+export function sweepStaleNew(root: string, now: number): void {
   let names: string[]
   try {
     names = readdirSync(root)
@@ -57,7 +58,7 @@ export function sweepStaleNew(root: string, before: number): void {
     if (!TEMP_FOLDER.test(name)) continue
     try {
       const stat = lstatSync(join(root, name))
-      if (stat.isDirectory() && stat.mtimeMs < before) rmSync(join(root, name), { recursive: true, force: true })
+      if (stat.isDirectory() && stat.mtimeMs < now - STALE_AFTER_MS) rmSync(join(root, name), { recursive: true, force: true })
     } catch {
       // Gone, or not ours to remove.
     }
@@ -188,7 +189,8 @@ export async function createObject(req: CreateRequest, deps: CreateDeps): Promis
         throw e.code === 'EEXIST' ? new Error(`A folder \`${name}\` is there already.`) : e
       })
     }
-    claimed = true
+    // Only a folder made here is removed again: an empty one that was there is the person's.
+    claimed = !reuse
     // A folder that was empty and had something put in it meanwhile is not replaced: the rename fails.
     await rename(temp, target).catch((e: NodeJS.ErrnoException) => {
       throw e.code === 'ENOTEMPTY' || e.code === 'EEXIST' ? new Error(`A folder \`${name}\` is there already.`) : e

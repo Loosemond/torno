@@ -706,8 +706,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   are compared without regard to case.
 - A folder of the name that is empty (a crash between the claim and the rename leaves one) is free: it is renamed onto,
   which fails should anything be put in it meanwhile. One that appears empty while a create works is not taken. When a
-  workspace is opened, `sweepStaleNew` removes the hidden `.<name>.torno-new-<12 hex>` folders older than this run
-  (real folders only; a link of that name is left alone).
+  workspace is opened, `sweepStaleNew` removes the hidden `.<name>.torno-new-<12 hex>` folders more than ten minutes old
+  (real folders only; a link of that name is left alone; the age, not the run, since another torno may be creating).
 - Photos come as paths, copied as `reference/photo-<n>.<ext>` (png, jpg, jpeg, webp; at most 25 MB; `lstat` and an
   `O_NOFOLLOW` open, so no link, folder or pipe; read through the open handle, never more than the size said). Doodles
   come as PNG bytes (signature checked, at most 8 MB). Scans are not copied (`objects:onboard` imports them) and other objects are named
@@ -721,7 +721,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - After `create` the window opens the object and calls `objects.onboard(objectId, draft)` (`OnboardDraft` in
   `shared/bridge.ts`: the description, the photos and doodles by their `reference/` file with the note and the
   picture, the scans by path, the objects by id). It rejects, doing nothing, for an object that is not of the open
-  workspace, one with a session (`sessions.current`), and a draft that is not what it may be (files that are not
+  workspace, one with a session or one starting (`sessionRunning`), one already being onboarded (a second call while the first imports), and a draft that is not what it may be (files that are not
   plain files of `reference/`, caps, a scan that is not a scan path, an object that is not of the workspace or is the
   object itself). Then it imports each scan through `ScanStore.import` (one that fails does not stop the rest: the text
   says it could not be imported), starts the chat session (`Sessions.start`, the agent chosen for the object, which

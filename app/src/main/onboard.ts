@@ -10,6 +10,7 @@ import type { ObjectInfo } from '../shared/workspace'
 import { FOLDER } from './own'
 import { MOST, oneLine } from './objects/create'
 import { THUMB_MAX_BYTES, THUMB_PNG } from './show/cards'
+import type { Sessions } from './sessions/manager'
 import type { PromptBlock } from './sessions/stream'
 
 // The first prompt of a new object and the call that sends it. The window made the object (`objects:create`) and
@@ -135,14 +136,15 @@ export function onboardPrompt(input: PromptInput): { text: string; blocks: Promp
   }
   for (const scan of input.scans) {
     const note = said(scan.note)
-    const named = scan.id === null ? `Scan "${scan.file}"` : `Scan ${scan.id} "${scan.file}"`
+    const file = said(scan.file)
+    const named = scan.id === null ? `Scan "${file}"` : `Scan ${scan.id} "${file}"`
     const after = scan.id === null ? `It could not be imported (${said(scan.problem ?? 'for a reason torno did not get')}); the file is the person's to give again.` : 'It is imported into this object, not aligned yet; read it with the scan tools.'
     lines.push(`- ${named}${note === '' ? '.' : `: ${note}.`} ${after}`)
   }
   for (const other of input.objects) {
     const picture = other.thumb ? (attach(other.thumb) ? '; its picture is attached below' : '; its picture is not attached') : ''
     const note = said(other.note)
-    lines.push(`- ../${other.name}/ (another object of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
+    lines.push(`- ../${said(other.name)}/ (another object of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
   }
   const text = [
     `This is a new object, ${input.name}, made in torno just now. What it is, in the person's words:`,
@@ -169,6 +171,14 @@ export interface OnboardDeps {
   scene(objectId: string): Pick<Scene, 'layouts' | 'parts'> | undefined
 }
 
+/** Whether an object has a session, or one is starting there. */
+export function sessionRunning(sessions: Pick<Sessions, 'current' | 'isStarting'> | null, objectId: string): boolean {
+  return sessions !== null && (sessions.current(objectId) !== null || sessions.isStarting(objectId))
+}
+
+/** The objects being onboarded now: one call at a time per object, from the check to the end. */
+const onboarding = new Set<string>()
+
 const firstLine = (e: unknown): string => (e instanceof Error ? e.message : String(e)).split('\n')[0].slice(0, 300)
 
 /** The draft held to what it may be; throws a plain reason. */
@@ -182,18 +192,26 @@ async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft):
   }
   for (const item of draft.items) {
     if (typeof item?.file !== 'string' || !REFERENCE_FILE.test(item.file)) throw new Error('A photo or a doodle is a file of reference/ that torno made.')
+    oneLine(item.note, 'photo or doodle')
     if (typeof item.note !== 'string') throw new Error('The note of a photo or a doodle is not text.')
     const stat = await lstat(join(obj.dir, item.file)).catch(() => null)
     if (!stat?.isFile()) throw new Error(`${item.file} is not there.`)
   }
   for (const scan of draft.scans) {
     if (typeof scan?.path !== 'string' || !isAbsolute(scan.path) || !(SCAN_FORMATS as readonly string[]).includes(extname(scan.path).toLowerCase())) throw new Error(`A scan is a ${SCAN_FORMATS.join(', ')} file given by its path.`)
+    // One line of the prompt: a control character, a line break above all, could write lines of its own.
+    if (/\p{Cc}/u.test(scan.path)) throw new Error('The path of a scan has a control character or a line break in it.')
     if (typeof scan.note !== 'string') throw new Error('The note of a scan is not text.')
+    oneLine(scan.note, 'scan')
   }
   for (const other of draft.objects) {
     if (typeof other?.id !== 'string' || deps.object(other.id) === undefined) throw new Error(`There is no object ${JSON.stringify(other?.id)} in this workspace.`)
     if (other.id === obj.id) throw new Error('An object cannot refer to itself.')
     if (typeof other.note !== 'string') throw new Error('The note of an object is not text.')
+    oneLine(other.note, 'object')
+  }
+  for (const [kind, keys] of [['file', draft.items.map((i) => i.file)], ['scan', draft.scans.map((s) => s.path)], ['object', draft.objects.map((o) => o.id)]] as const) {
+    if (new Set(keys).size !== keys.length) throw new Error(`The same ${kind} is given twice.`)
   }
 }
 
@@ -206,7 +224,17 @@ async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft):
 export async function onboardObject(deps: OnboardDeps, objectId: string, draft: OnboardDraft): Promise<Onboarded> {
   const obj = deps.object(objectId)
   if (!obj) throw new Error(`There is no object ${JSON.stringify(objectId)} in the open workspace.`)
+  if (onboarding.has(obj.id)) throw new Error(`${obj.id} is being onboarded already.`)
   if (deps.running(obj.id)) throw new Error(`${obj.id} has a session already.`)
+  onboarding.add(obj.id)
+  try {
+    return await onboarded(deps, obj, draft)
+  } finally {
+    onboarding.delete(obj.id)
+  }
+}
+
+async function onboarded(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft): Promise<Onboarded> {
   await checked(deps, obj, draft)
 
   const scans: PromptInput['scans'] = []
@@ -240,6 +268,10 @@ export async function onboardObject(deps: OnboardDeps, objectId: string, draft: 
     return { sessionId: null, prompt: text, problem: firstLine(e) }
   }
   if (started.view !== 'chat') return { sessionId: started.sessionId, prompt: text, problem: "This agent has no chat to send the first prompt to; it is held, for the person to paste." }
-  deps.prompt(started.sessionId, blocks)
+  try {
+    deps.prompt(started.sessionId, blocks)
+  } catch (e) {
+    return { sessionId: started.sessionId, prompt: text, problem: firstLine(e) }
+  }
   return { sessionId: started.sessionId, prompt: text }
 }

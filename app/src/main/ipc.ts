@@ -37,8 +37,8 @@ import { installedAgents, readChoice, writeChoice } from './sessions/choice'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
-import { onboardObject } from './onboard'
-import { createObject, RUN_STARTED, sweepStaleNew } from './objects/create'
+import { onboardObject, sessionRunning } from './onboard'
+import { createObject, sweepStaleNew } from './objects/create'
 import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
@@ -185,7 +185,7 @@ const keeping: KeepDeps = {
 /** Open a workspace: scan it and start a kernel for it. Replaces the one open. */
 export async function openWorkspace(root: string, opts: { example?: boolean } = {}): Promise<WorkspaceInfo> {
   // What a create that never ended left (a hidden folder of torno's own, from before this run) is removed first.
-  sweepStaleNew(resolve(root), RUN_STARTED)
+  sweepStaleNew(resolve(root), Date.now())
   // What it is (the example's copy) is said with it for as long as it is open, whatever is scanned anew.
   const info: WorkspaceInfo = { ...(await scanWorkspace(resolve(root))), ...(opts.example ? { example: true as const } : {}) }
   // Until none is open: another call may have opened one while this one waited.
@@ -722,7 +722,7 @@ export function registerIpc(
     return onboardObject(
       {
         object: (id) => ws.info.objects.find((o) => o.id === id),
-        running: (id) => sessions?.current(id) != null,
+        running: (id) => sessionRunning(sessions, id),
         importScan: (id, path) => requireScans().import(id, path),
         start: (obj) => requireSessions().start(obj, {}),
         prompt: (sessionId, blocks) => requireSessions().prompt(sessionId, blocks),

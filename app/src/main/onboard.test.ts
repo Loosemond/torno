@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OnboardDraft } from '../shared/bridge'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { type ImageBytes, MOST_IMAGES, checkedImage, objectSummary, onboardObject, onboardPrompt, readThumb } from './onboard'
+import { type ImageBytes, MOST_IMAGES, checkedImage, objectSummary, onboardObject, onboardPrompt, readThumb, sessionRunning } from './onboard'
 
 /** A PNG with the header of a picture w x h (and not a picture after it). */
 function png(w: number, h: number): Uint8Array {
@@ -139,6 +139,11 @@ describe('onboardPrompt', () => {
     expect(blocks).toHaveLength(1)
   })
 
+  it('folds the name of a scan file and of an object to one line', () => {
+    const { text } = onboardPrompt({ name: 'x', description: 'd', items: [], scans: [{ id: 'S1', file: 'a\n- injected.stl', note: '' }], objects: [{ name: 'o\n- injected', summary: 's', note: '' }] })
+    expect(text).not.toMatch(/^- injected/m)
+  })
+
   it('leaves out the list of what they gave when they gave nothing', () => {
     const { text } = onboardPrompt({ name: 'x', description: 'A thing.', items: [], scans: [], objects: [] })
     expect(text).toBe(
@@ -164,6 +169,16 @@ describe('readThumb', () => {
     writeFileSync(join(base, 'elsewhere.png'), png(480, 360))
     symlinkSync(join(base, 'elsewhere.png'), join(dir, '.torno', 'thumb.png'))
     expect(await readThumb(dir)).toBeUndefined()
+  })
+})
+
+describe('sessionRunning', () => {
+  it('is true for a session that runs and for one that is starting, false otherwise', () => {
+    const sessions = (running: boolean, starting: boolean) => ({ current: () => (running ? ({} as never) : null), isStarting: () => starting })
+    expect(sessionRunning(sessions(true, false), 'x')).toBe(true)
+    expect(sessionRunning(sessions(false, true), 'x')).toBe(true)
+    expect(sessionRunning(sessions(false, false), 'x')).toBe(false)
+    expect(sessionRunning(null, 'x')).toBe(false)
   })
 })
 
@@ -276,5 +291,47 @@ describe('onboardObject', () => {
     ]
     for (const [d, why] of bad) await expect(onboardObject(deps(), 'cable-clip', d as OnboardDraft), JSON.stringify(d)).rejects.toThrow(why)
     expect(calls).toEqual([])
+  })
+
+  it('lets one call at a time onboard an object: a second, while the first imports, rejects before it imports anything', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const d = deps({ importScan: async (_id, path) => { calls.push(`import ${path}`); await gate; return { id: 'S1', name: 'desk' } } })
+    const first = onboardObject(d, 'cable-clip', draft({ scans: [{ path: '/s/desk.stl', note: '' }] }))
+    await expect(onboardObject(d, 'cable-clip', draft({ scans: [{ path: '/s/desk.stl', note: '' }] }))).rejects.toThrow(/already/)
+    release()
+    expect((await first).sessionId).toBe('sess')
+    expect(calls.filter((c) => c.startsWith('import'))).toHaveLength(1)
+    expect(sent).toHaveLength(1)
+    // And once it ended, the object may be onboarded again (a rejected call frees it too).
+    await expect(onboardObject(deps({ start: async () => { throw new Error('no') } }), 'cable-clip', draft())).resolves.toMatchObject({ sessionId: null })
+    await expect(onboardObject(deps(), 'cable-clip', draft({ description: 3 as never }))).rejects.toThrow()
+    await expect(onboardObject(deps(), 'cable-clip', draft())).resolves.toMatchObject({ sessionId: 'sess' })
+  })
+
+  it('checks every note and every scan path before it imports anything', async () => {
+    const long = 'x'.repeat(2001)
+    const bad: Array<[Partial<OnboardDraft>, RegExp]> = [
+      [{ scans: [{ path: '/s/a.stl', note: '' }, { path: '/s/b.stl', note: long }] }, /note/],
+      [{ scans: [{ path: '/s/a.stl', note: '' }, { path: '/s/b\n- injected.stl', note: '' }] }, /scan/],
+      [{ scans: [{ path: '/s/a.stl', note: '' }], items: [{ file: 'reference/photo-1.jpg', note: long }] }, /note/],
+      [{ scans: [{ path: '/s/a.stl', note: '' }], objects: [{ id: 'lid', note: long }] }, /note/]
+    ]
+    for (const [over, why] of bad) await expect(onboardObject(deps(), 'cable-clip', draft(over)), JSON.stringify(over)).rejects.toThrow(why)
+    expect(calls).toEqual([])
+  })
+
+  it('refuses the same file, scan or object twice', async () => {
+    const photo = { file: 'reference/photo-1.jpg', note: '' }
+    await expect(onboardObject(deps(), 'cable-clip', draft({ items: [photo, photo] }))).rejects.toThrow(/twice/)
+    await expect(onboardObject(deps(), 'cable-clip', draft({ scans: [{ path: '/s/a.stl', note: '' }, { path: '/s/a.stl', note: '' }] }))).rejects.toThrow(/twice/)
+    await expect(onboardObject(deps(), 'cable-clip', draft({ objects: [{ id: 'lid', note: '' }, { id: 'lid', note: '' }] }))).rejects.toThrow(/twice/)
+    expect(calls).toEqual([])
+  })
+
+  it('keeps the session and the prompt, and says why, when the prompt cannot be sent', async () => {
+    const out = await onboardObject(deps({ prompt: () => { throw new Error('This session has ended') } }), 'cable-clip', draft())
+    expect(out).toMatchObject({ sessionId: 'sess', problem: 'This session has ended' })
+    expect(out.prompt).toContain('This is a new object')
   })
 })
