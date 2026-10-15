@@ -220,6 +220,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const [starting, setStarting] = useState(false)
   /** Whether "New session" is waiting for a yes: the session it would end is in the middle of something. */
   const [asking, setAsking] = useState(false)
+  /** "End" was pressed while the session is in the middle of something: asked about first. */
+  const [ending, setEnding] = useState(false)
   /** The agent the object's next session runs, as its `.torno/agent.json` has it; `note` when that file could not be followed. */
   const [choice, setChoice] = useState<{ agent: AgentId; note?: string }>({ agent: 'claude' })
   const [agents, setAgents] = useState<AgentChoice[]>(AGENTS)
@@ -335,6 +337,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   useEffect(() => {
     setProblem(null)
     setAsking(false)
+    setEnding(false)
     setChoosing(null)
     setChoice({ agent: 'claude' })
     if (!objectId) return
@@ -473,8 +476,27 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     else void start(false)
   }
 
+  /** Ends the session shown, and starts none: the way every session ends (`session.stop`). */
+  async function endSession(): Promise<void> {
+    setEnding(false)
+    if (!session || ended) return
+    setProblem(null)
+    try {
+      await window.torno.session.stop(session.sessionId)
+    } catch (e) {
+      setProblem(reason(e))
+    }
+  }
+
+  /** "End": asked about first if the session is in the middle of something. */
+  function end(): void {
+    if (busy) setEnding(true)
+    else void endSession()
+  }
+
   function keepSession(): void {
     setAsking(false)
+    setEnding(false)
     if (objectId) terminals.get(objectId)?.term.focus()
   }
 
@@ -490,6 +512,11 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         )}
         <span className="spacer" />
         {objectId && <AgentPicker value={choice.agent} agents={agents} disabled={starting || asking || choosing !== null} onOpen={askAgents} onChoose={choose} />}
+        {session && !ended && (
+          <button type="button" className="button button-quiet" aria-label="End session" title="End this session. Its conversation can be resumed" disabled={starting || asking || ending || choosing !== null} onClick={end}>
+            End
+          </button>
+        )}
         {session && (
           <>
             {ended && resumable && (
@@ -497,7 +524,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
                 Resume
               </button>
             )}
-            <button type="button" className="button button-quiet" disabled={starting || asking} onClick={startNew}>
+            <button type="button" className="button button-quiet" disabled={starting || asking || ending} onClick={startNew}>
               New session
             </button>
           </>
@@ -543,6 +570,11 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
             }}
           >
             {agentLabel} {busy ?? 'is running'}. A new session ends this one.
+          </Confirm>
+        )}
+        {ending && session && (
+          <Confirm label="End the running session?" accept="End it" cancel="Keep it" onCancel={keepSession} onAccept={() => void endSession()}>
+            {agentLabel} {busy ?? 'is running'}. Ending the session stops it there.
           </Confirm>
         )}
         {choosing !== null && session && (

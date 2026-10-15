@@ -242,6 +242,40 @@ test('a window loaded again finds the session still running', async () => {
   expect(agentsIn(join(root, 'bracket'))).toHaveLength(1)
 })
 
+// Seen on the visible screen: a session could be ended only by typing /exit, by replacing it or by choosing another agent.
+test('"End" ends the session and starts none, asking first when it is in the middle of something', async () => {
+  const end = () => dock().getByRole('button', { name: 'End session' })
+  const asked = () => dock().getByRole('alertdialog', { name: 'End the running session?' })
+  await expect(sessionStatus()).toHaveText('Idle')
+  await typeLine('hook')
+  await expect(sessionStatus()).toHaveText('Working')
+  await end().click()
+  await expect(asked()).toContainText('Claude Code is working. Ending the session stops it there.')
+  await asked().getByRole('button', { name: 'Keep it' }).click()
+  await expect(asked()).toHaveCount(0)
+  await expect(sessionStatus()).toHaveText('Working')
+  expect(agentsIn(join(root, 'bracket'))).toHaveLength(1)
+  await end().click()
+  await asked().getByRole('button', { name: 'End it' }).click()
+  await expect(sessionStatus()).toHaveText('Ended')
+  await expect.poll(() => agentsIn(join(root, 'bracket'))).toEqual([])
+  // Ended, there is nothing to end; its conversation can be resumed, as after any end.
+  await expect(end()).toHaveCount(0)
+  await expect(dock().getByRole('button', { name: 'Resume' })).toBeVisible()
+
+  // One at rest is ended at once.
+  await dock().getByRole('button', { name: 'New session' }).click()
+  await expect(sessionStatus()).toHaveText('Idle')
+  await expect.poll(() => agentsIn(join(root, 'bracket'))).toHaveLength(1)
+  await end().click()
+  await expect(asked()).toHaveCount(0)
+  await expect(sessionStatus()).toHaveText('Ended')
+  await expect.poll(() => agentsIn(join(root, 'bracket'))).toEqual([])
+  await dock().getByRole('button', { name: 'New session' }).click()
+  await expect(sessionStatus()).toHaveText('Idle')
+  await expect.poll(() => agentsIn(join(root, 'bracket'))).toHaveLength(1)
+})
+
 test('closing the app ends the sessions', async () => {
   const before = [...agentsIn(join(root, 'bracket')), ...agentsIn(join(root, 'plain'))]
   expect(before).toHaveLength(2)
