@@ -77,7 +77,16 @@ it('names the files torno writes and the variables it reads', () => {
 it('lists in one section what nobody has seen on a visible screen or with a real agent', () => {
   expect(headings.filter((line) => line.includes('Not yet verified'))).toHaveLength(1)
   const section = readme.slice(readme.indexOf('## Not yet verified on a visible screen'))
-  for (const item of ['Hyprland', 'Only one torno', 'Alt-drag', 'no menu', 'clipboard', 'dark', 'dropped on the view', 'folder dialog', 'save dialog', 'replace', 'Claude Code', 'Copilot CLI', 'Firefox', 'file://', 'thumbnail', 'Ctrl+Shift+E', '--install-desktop', 'another workspace with a session working', 'hyprctl clients']) {
-    expect([item, section.includes(item)]).toEqual([item, true])
+  // What a run on a real compositor output saw is said first, in one paragraph; what remains to try follows it.
+  const seen = section.indexOf('**Verified on a real compositor output (Hyprland, NVIDIA; the session was\nlocked, so not by eye).**')
+  const remains = section.indexOf('What remains is yours to try once.')
+  expect([seen > 0, remains > seen]).toEqual([true, true])
+  const verified = section.slice(seen, remains)
+  for (const item of ['Only one torno', 'no menu', 'Alt-drag', 'hyprctl clients', 'thumbnail', 'Ctrl+Shift+E', 'Claude Code', 'Copilot CLI', 'Firefox']) {
+    expect([item, verified.includes(item)]).toEqual([item, true])
+  }
+  const toTry = section.slice(remains)
+  for (const item of ['Hyprland', 'flicker', 'comes to the front', 'Closing', 'clipboard', 'dark', 'dropped on the view', 'folder dialog', 'save dialog', 'replace', 'Claude Code', 'Copilot CLI', 'Firefox', 'Safari', 'phone', 'file://', '--install-desktop', 'another workspace with a session working']) {
+    expect([item, toTry.includes(item)]).toEqual([item, true])
   }
 })

@@ -47,6 +47,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
+- A mark's row is one line, its note cut to the room there is; what the last build did to its mark (`moved:
+  check it`, `its part is gone`) is a line of its own under the note (`.mark-anchor`, `late.css`), and the
+  status word is never cut. The Marks list never scrolls sideways (`e2e/reanchor.spec.ts`, with a note longer
+  than the column).
 
 ## Section
 
@@ -62,7 +66,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - Taken in hand with nothing cut (`X`), the Section tool cuts at once: `newCut` (`shared/cut.ts`) puts the
   plane through the middle of the parts (to 0.01 mm), across the axis the camera looks most along, open
   towards the viewer (`towardsViewer`: the half taken away is the one on the camera's side). The bar's X, Y
-  and Z and an exported page's cut ask the same rule.
+  and Z and an exported page's cut ask the same rule. What that rounding leaves is no distance: the bar tells a
+  plane within 0.005 mm of the middle of the parts as at it, `0` (`sectionOffset`).
 - A number field gives the keys back to the view on Enter and on Escape (`giveKeysBack` in `ui/typing.ts`),
   and keeps what was typed once (`toKeep` in `ui/Field.tsx`).
 - The Section tool (`tools/sectionTool.ts`) moves the plane only by a drag
@@ -203,6 +208,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   canvas). The line is 3:1 on its casing; the casing is 3:1 on every part
   colour in dark and 2:1 in light, where no panel-coloured casing can do more
   against pastel parts.
+- What the system draws follows the theme: `color-scheme` is one scheme at a time, said outright in
+  `tokens.css` (never `light dark`, which left the native light scrollbars in the dark theme), and every
+  scroller of the window has the thin bar in `--scroll-thumb` (`late.css`). `e2e/themes.spec.ts` holds both.
 - No text is dimmed by `opacity`, and nothing animates without end
   (`styles/styles.test.ts` reads the stylesheets): the dot of a session at
   work is still, and a build's beats with the count of its seconds

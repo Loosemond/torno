@@ -65,7 +65,10 @@ TORNO_OZONE=wayland scripts/torno        # or x11: the platform Electron is told
 `scripts/torno` works from any directory, and through a symlink. It installs
 the dependencies if `node_modules` is missing, builds the app if it has not
 been built since the sources last changed, and starts it. A build that fails
-is tried again at the next start.
+is tried again at the next start. It knows a build by `app/out/.built`, which
+only it touches: after a checkout or a pull, or a `pnpm build` or a test run of
+your own, the first start from the launcher builds again (some ten seconds,
+written into `app/out`) although `app/out` may already be current.
 
 With no folder to open, the first screen says what torno is and offers "Open
 folder", the folders opened lately, and "Open the example": four small objects
@@ -99,8 +102,13 @@ already open to the front and says so on stderr; given a folder, that window
 opens it, asking first if a session there is in the middle of its work.
 
 Torno has no menu. The window is closed through the window manager, which
-ends torno and the sessions in it; `Ctrl+Q`, `Ctrl+W`, `F11` and the zoom
-shortcuts do not exist. For work on torno itself, `pnpm dev` runs the app from
+ends torno and the sessions in it. When that would cut something short, torno
+asks first ("Close torno?", with "Keep it open" in focus): a session working or
+waiting for an answer, a session of an agent that does not say what it is
+doing (Copilot CLI), a line of "Send marks" at a prompt and not sent, a region
+painted on a scan and not kept, a scan being imported or an export being
+written. With none of that it closes at once. `Ctrl+Q`, `Ctrl+W`, `F11` and
+the zoom shortcuts do not exist. For work on torno itself, `pnpm dev` runs the app from
 the Vite dev server, where `F5` and `Ctrl+R` reload the window.
 
 ## Five minutes with torno
@@ -229,7 +237,8 @@ failed) nothing is picked, and the pointer says why.
 Each object has its own session: a terminal in the object's folder running
 the agent's CLI. It keeps running while another object is shown. "New session"
 starts one, in place of the session running there, if any; torno asks first if
-that one may be in the middle of its work. "Resume" continues the last
+that one may be in the middle of its work. "End" ends the session and starts
+none, asking first in the same way. "Resume" continues the last
 conversation that agent had there. ``Ctrl+` `` moves between the session and
 the viewport, `Shift+Enter` is a new line, `Ctrl+Shift+C` and `Ctrl+Shift+V`
 copy and paste.
@@ -253,10 +262,18 @@ line, in the environment, or under `.torno/agent/`.
 | Status shown | idle, working, needs input, ended | running, ended |
 
 With Claude Code the status follows the hooks it posts: `UserPromptSubmit`,
-`PreToolUse` and `PostToolUse` mean working, `Stop` idle, `Notification` and
-`PermissionRequest` needs input. The first time Claude Code runs in a folder
+`PreToolUse` and `PostToolUse` mean working, `Stop` idle, `PermissionRequest`
+and a `Notification` that asks something needs input. A `Notification` that
+only says Claude Code has been waiting at its prompt for a while (or has
+signed in) leaves the status as it was. The first time Claude Code runs in a folder
 it asks whether you trust the folder; that question is its own, and it is
 answered in the terminal.
+
+`/model` typed in a session of torno's changes the model of that session and
+also your default for every Claude Code session from then on: Claude Code
+writes it to `~/.claude/settings.json`, torno's or not. To use another model in
+torno alone, start torno with `TORNO_AGENT_CMD="claude --model sonnet"`, which
+saves nothing.
 
 Copilot CLI posts no hooks, so torno cannot add to its prompts and cannot see
 what it is doing. Its instructions tell it to read `.torno/state.md` at the
@@ -270,8 +287,11 @@ Otherwise they stay drafts, the pane says why, and the button is offered
 again: so send torno's line alone, then your own, and not while a question of
 the agent's is up. Torno then knows that the line left with your Enter, never
 that the agent read the file, and the pane says so. Copilot CLI is not started
-in an object whose path has a comma. Nothing of this adapter has been run
-against the real CLI: see [the last section](#not-yet-verified-on-a-visible-screen).
+in an object whose path has a comma. Like Claude Code it asks whether to
+trust the folder; it may name a folder above the object, and asks again at
+every "Resume" unless you choose to remember the answer. It has been run
+against the real CLI once; what is still to try is in [the last
+section](#not-yet-verified-on-a-visible-screen).
 
 ### What the agent is told
 
@@ -949,8 +969,12 @@ build is not built again until a source changes.
   with WebGL 2; `F12` opens the developer tools, whose console says when the
   graphics card gave it no context.
 - **An exported page says it cannot draw the parts.** That browser gives the
-  page no WebGL 2: open the file in a current Chrome, Edge, Firefox or Safari
-  with hardware acceleration on.
+  page no WebGL 2, took it away, or drew a frame with nothing of the parts in
+  it (the page looks at its own view three seconds after it began to unpack
+  the parts, and says which): open the file in a current Chrome, Edge, Firefox
+  or Safari with hardware acceleration on. `firefox --headless --screenshot`
+  takes its picture before the first frame is drawn, so it shows the page
+  without its parts: that is the screenshot, not the page.
 - **Marks stay drafts with Copilot CLI.** They are sent only by an Enter with
   torno's line alone at the prompt; the pane says why they were not.
 - **`TORNO_DEBUG=1`** prints the workspace opened at start, the address of
@@ -966,7 +990,9 @@ pnpm test:e2e      # the built app in a hidden window (Playwright)
 ```
 
 No test opens a window, and none runs a real agent CLI: a stand-in
-(`app/test/fake-agent.mjs`) takes its place. The scans in the tests are made
+(`app/test/fake-agent.mjs`) takes its place. Under test Electron keeps its own
+files (cache, storage, crash dumps) in a folder of the run in the temporary
+folder, removed once it has quit, and nothing in `~/.config/torno`. The scans in the tests are made
 by the test code; none is in the repository. A test holds this file to the
 code: its table of keys, and the tools it names.
 
@@ -980,7 +1006,7 @@ code: its table of keys, and the tools it names.
 | `TORNO_OZONE=wayland` or `x11` | read by `scripts/torno` only: the platform Electron is told to draw on. Unset, Electron chooses. |
 | `TORNO_CONFIG=<path>` | the config file to use instead of `~/.config/torno/config.json` |
 | `TORNO_DEBUG=1` | print to stderr the workspace opened at start, the address of the MCP server, and the command line and hooks of every session |
-| `TORNO_TEST=1` | create the window hidden and never show it; expose the test hooks. For tests only. |
+| `TORNO_TEST=1` | create the window hidden and never show it; keep Electron's own files in a temporary folder of the run; expose the test hooks. For tests only. |
 
 The agent inherits torno's environment without these, and without the variables
 a parent Claude Code session exports (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` and
@@ -990,42 +1016,56 @@ such as `CLAUDE_CODE_USE_BEDROCK`, are passed on.
 ## Not yet verified on a visible screen
 
 Torno was built and tested in a window that is never shown, with a stand-in
-for the agent. These have not been seen by anyone on a real screen, or with a
-real agent, and are yours to try once. Each says what to try and what should
+for the agent.
+
+**Verified on a real compositor output (Hyprland, NVIDIA; the session was
+locked, so not by eye).** On 10 October 2026 torno ran as a real, mapped window
+on a Hyprland output, on Wayland and on X11, with the real agents; what it drew
+was taken from the compositor and looked at afterwards. The first start drew
+the parts on the GPU at 60 frames a second on both platforms. Only one torno:
+a second start exited and the first opened the folder it was given. There is
+no menu, also on Alt. Alt-drag with the Draw tool turned the camera and drew
+nothing (sent as events; no binding of the compositor's was in the way).
+`hyprctl clients` showed class `torno`. Light and dark were legible in both
+themes. A large object's thumbnail was on its card at once and the window did
+not stall. `Ctrl+Shift+E` with Claude Code's prompt in focus brought up the
+export sheet and nothing reached the CLI; `?` outside a field and the terminal
+brought up the sheet of keys. Left alone for five minutes with a large object
+open, torno's memory stayed flat and its processes idled near zero. With
+Claude Code a pin was told with the next prompt and turned from draft to sent,
+and `scene`, `look`, `marks`, `save_view` and `add_mark` ran without a
+permission question. With Copilot CLI `/mcp` listed torno, the instructions in
+`.torno/agent/` were read, a tool of torno's ran without a question, "Send
+marks" and Enter sent a pin, "Resume" continued the conversation, and nothing
+was left outside `.torno/`. What that run found wrong is mended: closing the
+window now asks first when something would be cut short, the Marks list no
+longer runs out of its column when a mark has moved, "Needs input" is no longer
+shown while Claude Code is only idle, a session can be ended from its header,
+and tests no longer write into `~/.config/torno`. An exported file showed no
+parts in `firefox --headless --screenshot`, which takes its picture before the
+first frame; driven in headless Firefox instead, the page drew the parts.
+
+What remains is yours to try once. Each says what to try and what should
 happen.
 
 On the screen:
 
-- **The first visible start on Hyprland with NVIDIA.** `scripts/torno ~/objects`: the window opens, draws the parts and resizes without flicker. If not, `TORNO_OZONE=x11`, then `TORNO_OZONE=wayland`, and keep the one that works.
-- **Only one torno.** Start it a second time with another folder: the first window comes to the front and offers that folder; no second window opens.
-- **Alt-drag with the Draw tool.** With `D` in hand, hold Alt and drag: the camera turns and nothing is drawn. Hyprland may take Alt-drag for moving the window: then the binding is Hyprland's to change.
-- **Losing the pointer during a drag.** Start dragging the section's arrow, switch workspace, come back: the plane is where it was before the drag, and the next drag turns the camera.
-- **There is no menu.** No menu bar appears, also on Alt; closing the window through the window manager ends torno, asking first if a session is working.
+- **Resizing.** `scripts/torno ~/objects` on Hyprland: drag the window wider and narrower, or retile it: it redraws without flicker. If the window does not come up right, `TORNO_OZONE=x11`, then `TORNO_OZONE=wayland`, and keep the one that works.
+- **Focus.** Start torno a second time with another folder: the window that is open comes to the front (on Hyprland only where `focus_on_activate` is on). Start dragging the section's arrow, switch workspace, come back: the plane is where it was before the drag, and the next drag turns the camera.
+- **Closing.** With a session working, close the window through the window manager: torno asks "Close torno?", "Keep it open" keeps everything as it was, "Close torno" ends torno and the session. With nothing under way it closes at once.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
-- **Light and dark by eye.** With the system set to dark, then light: text, marks and part edges are legible in both, and the terminal's colours too. The tests hold the contrasts by number and looked at pictures of a hidden window.
+- **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
-- **Torno left on another workspace with a session working.** Start a session, give the agent something that takes minutes, switch to another Hyprland workspace for ten minutes and watch `ps -o rss -p <pid of the window>`: its memory does not grow. (In the hidden window it does not, since nothing animates without end any more; a visible window on another workspace is the case nobody has seen.)
-- **The window's class.** `hyprctl clients` shows class `torno` for the window, and a launcher started from the desktop entry shows torno's icon for it.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
-- **`Ctrl+Shift+E` from the terminal.** With a real agent at its prompt and the terminal in focus: the export sheet comes up and nothing reaches the CLI.
-- **`?` on your keyboard.** Outside a field and the terminal the sheet of keys comes up; in a field it is a question mark.
-- **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off: parts, layouts, the explode slider, the section, a saved view and the marks work. It was opened in Electron's Chromium only.
-- **A large object's thumbnail.** Open a large object and go back to the page of objects: its card has its picture within a second of the build landing, and the window does not stall. In the hidden window a second passes after a large thumbnail, and after a picture drawn exploded, which is taken for the hidden window's own wait.
-- **Memory and the processor while a session works.** Leave a session "Working", or a long build running, for ten minutes: the window's memory stays flat and torno idles near zero. In the hidden window the pulsing dot of a working session grew the window by 3 MB a second (2.5 GB after half an hour) and kept a core and a half busy, which is taken for that window drawing frames nobody waits for.
-- **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`). Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses.
+- **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large object it did; with a session working nobody has watched it.
+- **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
+- **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. An agent whose command is only on the `PATH` of a login shell is listed as not installed there: start torno from a terminal, or put the command on the launcher's `PATH`.
 
 With a real agent:
 
-- **Claude Code, one prompt.** Start a session, leave a pin, send a prompt: the pin's line is in what Claude says it was told, and the pin turns from draft to sent.
-- **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart, to propose a view and to check a part against a scan: `section`, `look` with `explode`, `save_view`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
-- **Copilot CLI: is torno's server there?** Choose Copilot CLI for an object, start a session, type `/mcp`: `torno` is listed with its tools. If not, the keys of the JSON torno passes to `--additional-mcp-config` (`type`, `url`, `tools`) are a guess from the help text.
-- **Copilot CLI: are torno's instructions read?** `/instructions` lists `.torno/agent/AGENTS.md`. That a bare `AGENTS.md` in a folder named by `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` is read is not documented.
-- **Copilot CLI: a tool without a prompt.** Ask for the scene: a tool of torno's runs without a permission question (`--allow-tool=torno`). Note what Copilot calls the tool: the instructions say "the torno tool scene".
-- **Copilot CLI: "Send marks".** Leave a pin, press "Send marks", then Enter: the agent reads `.torno/prompt.md` and names the pin, and the pin turns to sent. If the pane says the line was not at the prompt, Copilot shows a pasted line otherwise than as text (torno looks for the head of the line it pasted, `torno: 1 new mark (M1`, in what the CLI writes after the paste), and the rule has to learn its form.
+- **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
 - **Copilot CLI: what must not send.** "Send marks" while its trust question is up, then Enter; "Send marks", then type ` see @` and Enter; "Send marks", then paste two lines: each time the mark stays a draft and the pane says why.
 - **Copilot CLI: Shift+Enter.** Torno writes Esc Enter: a new line, or a send? Torno takes it for a change of the line either way.
-- **Copilot CLI: resume.** End the session, press "Resume": the earlier conversation continues (`--session-id` with the same id). After `/clear` inside Copilot, "Resume" still resumes the conversation torno started: torno cannot see a new one.
-- **Copilot CLI: what it leaves.** After a session, `git status` in the object: nothing of Copilot's is outside `.torno/`.
-- **Either agent from a desktop launcher.** An agent whose command is only on the `PATH` of a login shell is listed as not installed: start torno from a terminal, or put the command on the launcher's `PATH`.
+- **Copilot CLI: resume after `/clear`.** After `/clear` inside Copilot, "Resume" still resumes the conversation torno started: torno cannot see a new one.

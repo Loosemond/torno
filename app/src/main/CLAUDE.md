@@ -258,7 +258,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the newest first, eight at most, beside `workspace`. Never in a workspace.
   One that is no longer a folder is shown struck and leaves the list only
   when the person removes it. A test run reads and writes no config file but
-  one it names with `TORNO_CONFIG`.
+  one it names with `TORNO_CONFIG`, and Electron keeps its own profile in a folder of the run in the temporary
+  folder (`testProfile.ts`).
 - The example is a copy of four objects of `kernel/tests/fixtures/ws`
   (`EXAMPLE_OBJECTS` in `src/main/example.ts`) made in the system's temporary
   folder when it is asked for, once in a run, with a marker file at its top
@@ -608,5 +609,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `nextCarries` in `shared/agents.ts`); for one without, the "Send marks" strip is that.
 - `stopAll` ends the sessions there are and those being started when it is called, not one started while it
   waits (`Sessions.busy` says whether any is there or on its way).
+- "End" in the session header (`ui/SessionPane.tsx`) ends the session shown through `session.stop` and starts
+  none; it asks first when the session is busy (`busyWith`), as "New session" does.
+- A `Notification` hook is a question (`needs_input`) unless its body says it is none (`reduceStatus` in
+  `sessions/status.ts`: `notification_type` `idle_prompt` or `auth_success`, or, without a type, a message that
+  it is waiting for input): Claude Code also posts one when it has only been idle at its prompt for a while.
+- **Closing the window ends torno and every session in it, so it is asked first.** Main holds the window's
+  `close` (`createWindow` in `index.ts`) and sends `window:closeAsked`; the window answers `window:closeAnswer`
+  at once (`App.tsx`, from `renderer/closing.ts` `closingWhy`): `true` when nothing would be cut short, and the
+  window closes; `false` while it asks the person in place ("Close torno?", "Keep it open" in focus), and then
+  `true` only on "Close torno". What is cut short: a session working, waiting for an answer, or of an agent
+  without hooks (`busyWith`), a "Send marks" line waiting at a prompt, a painting of a region holding what is
+  not kept (`unkept`), an import, an export being written. A window that does not answer within
+  `CLOSE_ANSWER_MS` (1.5 s), or is loading or crashed, is closed without one; a quit that does not come through
+  the window (`before-quit`, as `app.close()` of a test) is not held. Under test the question is answered by
+  clicking it (`e2e/session.spec.ts`).
 - The tools' descriptions are the same for every agent and never say that something comes "with every
   prompt" (`prompt.test.ts` scans them and the hookless instructions, and bounds the latter's length).

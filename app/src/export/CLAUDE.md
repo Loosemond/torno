@@ -57,7 +57,15 @@ is the detail of this folder, under the heading it has there. Paths are from `ap
   and is labelled only when asked. The theme is the system's, light or dark, chosen in the footer line. With
   no WebGL 2 or no `DecompressionStream` it says so in words, alone on the page; a failure to show an object
   is said once and never loops. Each object's meshes are unpacked when it is first shown.
+- **The page never shows its controls and an empty view in silence.** Whatever throws while it starts is said
+  in place of it (`BROKE`). `WATCH_MS` (3 s) after an object began to be unpacked (again while it still is), and
+  whenever the browser takes the context away or gives it back, the page looks at its own canvas
+  (`Model.undrawn`: a frame drawn for the asking without the grid, read back whole, against the ground): when
+  nothing of the parts is on it, while some part or scan is switched on and nothing cuts, it says why in place of
+  the parts (the context taken away, a program the driver refused, a frame with nothing in it). An object that
+  could not be shown keeps its own words. `firefox --headless --screenshot` pictures the page before its first
+  frame: driven in headless Firefox (WebDriver BiDi) it draws the parts.
 - `window.__tornoExport` is the page's own hook, always there: `state()`, `setObject`, `setLayout`, `setPart`,
   `setExplode`, `setSection`, `applyView`, `setMarks`, `setResolved`, `setTheme('system' | 'light' | 'dark')`, `pixel(fx, fy)` (of the parts and scans,
-  without the grid and the marks) and `ground()`. A test opens the file in a second `BrowserWindow` with
+  without the grid and the marks), `ground()` and `undrawn()`. A test opens the file in a second `BrowserWindow` with
   `show: false`, a session of its own that refuses and counts every request but the file itself.

@@ -12,6 +12,11 @@ window on it.
 
 - Every Electron launch sets `TORNO_TEST=1`. Main then creates the window with
   `show: false` and never shows it, and exposes the test hooks.
+- Under `TORNO_TEST=1` Electron's own profile (`userData`, `sessionData`, `crashDumps`: its caches, storage and
+  crash dumps) is a folder of the run, `<tmp>/torno-test-<pid>-…` (`src/main/testProfile.ts`), set
+  before `ready` and removed once the process has gone; one a killed run left is cleared away by the next. Nothing
+  of a test is written under `~/.config/torno` (`e2e/quit.spec.ts` holds it to that). A check that launches
+  Electron without that variable must give it a `--user-data-dir` of its own.
 - Never pass `--ozone-platform=headless`: Electron segfaults with it here.
   `scripts/torno` never passes a platform when `TORNO_TEST=1`, and refuses
   `headless` whoever asks (`TORNO_OZONE` is `wayland` or `x11`, or unset).
