@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from 'electron'
 import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
@@ -34,6 +34,7 @@ import { adapters } from './sessions/adapter'
 import { readChoice } from './sessions/choice'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
+import { Trust } from './trust'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
@@ -398,6 +399,8 @@ void app.whenReady().then(async () => {
   mountMcp(http, toolDeps)
   sessions = new Sessions({
     http,
+    // Whether a chat may start in a folder with Claude Code settings of its own: asked once, and kept beside the recent folders.
+    trust: new Trust(configPath ? join(dirname(configPath), 'trusted.json') : null),
     // The agent chosen for the object, as its file says now. TORNO_AGENT_CMD is run in place of whichever it is.
     adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD)[(await readChoice(obj.dir)).agent],
     // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat for Claude Code unless it says terminal).

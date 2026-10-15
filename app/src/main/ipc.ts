@@ -43,7 +43,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
-//           session:current, session:start, session:stop, session:chooseView,
+//           session:current, session:start, session:trust, session:stop, session:chooseView,
 //           chat:history, chat:send, chat:interrupt, chat:setModel,
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe,
@@ -317,7 +317,8 @@ export async function closeWorkspace(): Promise<void> {
   scans?.forget()
   onWorkspaceClosed?.()
   // Not waited for: an agent that ignores the hangup is killed two seconds later.
-  void sessions?.stopAll()
+  // And the conversations of those that have ended are let go of.
+  void sessions?.stopAll().then(() => sessions?.forgetEnded())
   for (const id of ws.opened) ws.builds.close(id)
   await ws.kernel.dispose()
 }
@@ -526,6 +527,7 @@ export function registerIpc(
     const choice: { agent: AgentId; view: AgentView; note?: string } = obj ? await readChoice(obj.dir) : { agent: 'claude', view: 'chat' }
     return {
       running: running && { sessionId: running.sessionId, status: running.status, agent: running.agent, hooks: running.hooks, view: running.view },
+      ...(!running && sessions?.endedChat(objectId) ? { ended: { sessionId: sessions.endedChat(objectId)! } } : {}),
       resumable: obj !== undefined && sessions !== null && sessions.resumable(obj, choice.agent),
       agent: choice.agent,
       view: choice.view,
@@ -538,6 +540,13 @@ export function registerIpc(
     const obj = findObject(objectId)
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
     return requireSessions().start(obj, { resume: opts?.resume === true, cols: opts?.cols, rows: opts?.rows })
+  })
+
+  // The person said to start the chat in a folder that has Claude Code settings of its own (the question `session:start` refused with).
+  ipcMain.handle('session:trust', async (_event, objectId: string) => {
+    const obj = findObject(objectId)
+    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
+    await requireSessions().trust(obj)
   })
 
   // Which agents there are, and of each whether its command is on PATH now: asked again whenever the list is opened.

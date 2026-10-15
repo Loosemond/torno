@@ -145,11 +145,13 @@ export interface TornoBridge {
      * runs (`agent`, `hooks`: the one chosen for it) and whether one of that agent's conversations can be resumed.
      * `note` says so when the object's `agent.json` could not be followed and Claude Code is used in its place.
      */
-    current(objectId: string): Promise<{ running: { sessionId: string; status: SessionStatus; agent: AgentId; hooks: boolean; view: AgentView } | null; resumable: boolean; agent: AgentId; view: AgentView; hooks: boolean; note?: string }>
+    current(objectId: string): Promise<{ running: { sessionId: string; status: SessionStatus; agent: AgentId; hooks: boolean; view: AgentView } | null; /** A chat that has ended and whose conversation main still holds: a window loaded after it ended can read it. Absent while one runs. */ ended?: { sessionId: string }; resumable: boolean; agent: AgentId; view: AgentView; hooks: boolean; note?: string }>
     /** Starts the agent chosen for the object in its folder, at the terminal's size; returns the session already running there, if any. Either way with its status as it is then, and the agent it is of. */
     start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }): Promise<{ sessionId: string; cols: number; rows: number; status: SessionStatus; agent: AgentId; hooks: boolean; view: AgentView }>
     /** The agents there are, and of each whether its command is on PATH now. */
     agents(): Promise<Array<{ id: AgentId; label: string; installed: boolean; hooks: boolean }>>
+    /** The person said to start the chat in the object's folder though it has Claude Code settings of its own (the question `start` refused with): remembered in torno's own data, for the real path of the folder. */
+    trust(objectId: string): Promise<void>
     /** Keeps the agent of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs in that object. */
     chooseAgent(objectId: string, agent: AgentId): Promise<void>
     /** Keeps the view (`chat` or `terminal`) of the agent of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs there, and for a view the agent has not. */

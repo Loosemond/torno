@@ -1,4 +1,4 @@
-import { type ChatImage, type ChatItem, type ChatMeta, TORNO_TOOL_PREFIX, isTornoTool } from '../../shared/chat'
+import { type ChatImage, type ChatItem, type ChatMeta, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
 import { sessionRules } from './permissions'
 import type { PromptBlock, StreamAsk, StreamMessage } from './stream'
 
@@ -11,7 +11,6 @@ import type { PromptBlock, StreamAsk, StreamMessage } from './stream'
 // and a malformed one never throws. Items are never changed once handed out; a change is a new object with the
 // same `id`.
 
-const MAX_ITEMS = 2000
 const MAX_IMAGES = 40
 /** Streaming text is told to the window no oftener than this for each item; the last change always goes. */
 const COALESCE_MS = 50
@@ -21,6 +20,8 @@ const MAX_STRING = 50_000
 const MAX_DETAIL = 20_000
 /** How many messages' unmatched blocks are remembered, for the `assistant` message that repeats them. */
 const REMEMBERED_MESSAGES = 20
+/** How many tool calls of a subagent are listed on its card. */
+const MAX_INSIDE = 50
 
 type Record_ = Record<string, unknown>
 const obj = (v: unknown): Record_ | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record_) : null)
@@ -75,7 +76,10 @@ export class Transcript {
   private readonly asks = new Map<string, string>()
   /** The prompts whose hook has not been answered yet, oldest first. */
   private readonly awaiting: string[] = []
-  /** The prompts the CLI has not taken up yet (it says so with an `init` for each), oldest first. */
+  /**
+   * The prompts the CLI has not taken up yet, oldest first. It takes a prompt up in one of two ways: a `UserPromptSubmit`
+   * hook that names it (`context`), or, for a command that begins with `/`, an `init` that no hook explains.
+   */
   private readonly untaken: string[] = []
   /** The pictures whose data is kept, oldest first. */
   private readonly kept: Array<{ itemId: string; imageId: string }> = []
@@ -85,6 +89,10 @@ export class Transcript {
 
   private turnStarted: number | null = null
   private interrupted = false
+  /** torno asked the CLI to interrupt, and the turn has not ended yet. */
+  private interruptWanted = false
+  /** Prompts taken up by their hook whose `init` has not come: the init that comes is theirs, and takes no other. */
+  private explained = 0
   /** A compaction note was made in this turn, so the command's own "Compacted" is not a second. */
   private compactNoted = false
   private pulled: Record<string, number> = {}
@@ -116,7 +124,7 @@ export class Transcript {
 
   // --- what torno records ---------------------------------------------------------------------------------
 
-  /** A prompt for the agent. Queued when it will wait for the one at work; it is sent once the CLI takes it up (`init`). */
+  /** A prompt for the agent. Queued when it will wait for the one at work; it is sent once the CLI takes it up (its hook, or an `init` for a command). */
   userSent(content: PromptBlock[], queued: boolean): ChatItem {
     let made!: ChatItem
     this.run(() => {
@@ -145,14 +153,44 @@ export class Transcript {
     let made: ChatItem | null = null
     this.run(() => {
       if (this.awaiting.length === 0) return
-      const named = c.prompt === undefined ? -1 : this.awaiting.findIndex((id) => (this.byId.get(id) as { text?: string } | undefined)?.text?.trim() === c.prompt!.trim())
+      const wants = c.prompt?.trim()
+      const named = wants === undefined ? -1 : this.awaiting.findIndex((id) => (this.byId.get(id) as { text?: string } | undefined)?.text?.trim() === wants)
+      // A hook that names none that waits is for the oldest that is not a command: a command has no hook.
+      const at = named >= 0 ? named : wants === undefined ? 0 : this.awaiting.findIndex((id) => !this.isCommand(id))
+      if (at < 0) return
       // A prompt that had no hook (a command the CLI ran itself) is passed over by one that names a later one.
-      const [forUser] = this.awaiting.splice(0, Math.max(named, 0) + 1).slice(-1)
+      const passed = this.awaiting.splice(0, at + 1)
+      const forUser = passed[passed.length - 1]
+      for (const id of passed) this.take(id)
+      // This hook starts a turn, and the `init` that follows it is its own.
+      this.explained += 1
       if (c.text.trim() === '' && c.sentMarkIds.length === 0) return
       made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.selection && c.selection.length > 0 ? { selection: c.selection.map((ref) => this.redact(ref)) } : {}) }
       this.put(made)
     })
     return made
+  }
+
+  private isCommand(id: string): boolean {
+    return ((this.byId.get(id) as { text?: string } | undefined)?.text ?? '').trimStart().startsWith('/')
+  }
+
+  /** The CLI has begun on a prompt: it is no longer untaken, and a prompt that was queued is sent. */
+  private take(id: string): void {
+    const at = this.untaken.indexOf(id)
+    if (at >= 0) this.untaken.splice(at, 1)
+    const item = this.byId.get(id)
+    if (item?.kind === 'user' && item.state === 'queued') this.takeUp(item)
+  }
+
+  /** How many prompts the CLI has not taken up yet: while there are some, one sent now waits behind them. */
+  untakenCount(): number {
+    return this.untaken.length
+  }
+
+  /** torno asked the CLI to interrupt: should the turn end in an error, it was stopped. */
+  interruptAsked(): void {
+    this.interruptWanted = true
   }
 
   /** The agent asks the person. Not stored once the session has ended. */
@@ -174,6 +212,14 @@ export class Transcript {
       this.asks.set(a.requestId, item.id)
     })
     return item
+  }
+
+  /** The CLI cancelled a request (the turn was stopped): nothing can be answered. Null for one that is not open. */
+  cancelled(requestId: string): ChatItem | null {
+    const id = this.asks.get(requestId)
+    const item = id ? this.byId.get(id) : undefined
+    if (!item || item.kind !== 'ask' || item.state !== 'open') return null
+    return this.run(() => this.put({ ...item, state: 'ended', why: 'the turn was stopped' }))[0] ?? null
   }
 
   /** The person answered a request, or it can be answered no more. Null for one that is not open. */
@@ -229,6 +275,11 @@ export class Transcript {
         if (item.kind === 'user' && item.state === 'queued') this.put({ ...item, state: 'not-sent' })
         else if (item.kind === 'ask' && item.state === 'open') this.put({ ...item, state: 'ended' })
       }
+      // A prompt the CLI never took up was not sent, whatever torno had told it.
+      for (const id of this.untaken) {
+        const item = this.byId.get(id)
+        if (item?.kind === 'user' && item.state === 'sent') this.put({ ...item, state: 'not-sent' })
+      }
       this.put({ kind: 'note', id: this.newId('i'), text: 'The session ended', tone: 'quiet' })
     })
     this.closed = true
@@ -276,9 +327,10 @@ export class Transcript {
         // A subagent's blocks would collide with ours by index: its whole messages are what is shown.
         return obj(m)?.parent_tool_use_id ? undefined : this.streamEvent(obj(m.event))
       case 'assistant':
-        return this.assistant(obj(m.message))
+        return obj(m)?.parent_tool_use_id ? this.subagent(m) : this.assistant(obj(m.message))
       case 'user':
-        return this.user(m)
+        // What a subagent's tools answered is its own.
+        return obj(m)?.parent_tool_use_id ? undefined : this.user(m)
       case 'result':
         return this.finished(m)
       case 'rate_limit_event':
@@ -288,10 +340,10 @@ export class Transcript {
 
   private system(m: StreamMessage): void {
     if (m.subtype === 'init') {
-      // The prompt it starts is the oldest it has not started: a queued one is sent once its own turn begins.
-      const taken = this.untaken.shift()
-      const prompt = taken ? this.byId.get(taken) : undefined
-      if (prompt?.kind === 'user' && prompt.state === 'queued') this.takeUp(prompt)
+      // A hook has said what this `init` starts, or it is a command's (which has no hook): the oldest prompt not
+      // taken up, if it begins with a slash.
+      if (this.explained > 0) this.explained -= 1
+      else if (this.untaken.length > 0 && this.isCommand(this.untaken[0])) this.take(this.untaken[0])
       this.compactNoted = false
       if (this.turnStarted === null) this.turnStarted = this.now()
       const model = str(m.model)
@@ -377,7 +429,8 @@ export class Transcript {
     const item = this.byId.get(block.id)
     if (!item) return
     if (item.kind === 'text' && item.streaming) this.put({ ...item, streaming: false })
-    else if (item.kind === 'thinking' && item.streaming) this.put({ ...item, streaming: false, seconds: seconds(this.now() - block.startedAt) })
+    // The CLI prints the whole message before the block's stop: the thought is no longer streaming by then, and still has no time.
+    else if (item.kind === 'thinking' && (item.streaming || item.seconds === undefined)) this.put({ ...item, streaming: false, seconds: seconds(this.now() - block.startedAt) })
     else if (item.kind === 'tool' && block.raw !== '' && Object.keys(obj(item.input) ?? {}).length === 0) {
       // The whole message, when it has come, is the authority; this is for the tool whose message is yet to come.
       try {
@@ -410,6 +463,21 @@ export class Transcript {
         this.toolItem(str(block.id), str(block.name), block.input)
       }
     }
+  }
+
+  /** A message of a subagent: a step on the card of the `Task` that started it, and a line for each tool it used. Its words are not the agent's. */
+  private subagent(m: StreamMessage): void {
+    const parent = str(m.parent_tool_use_id)
+    const known = parent ? this.tools.get(parent) : undefined
+    const card = known ? this.byId.get(known) : undefined
+    const content = obj(m.message)?.content
+    if (card?.kind !== 'tool' || !Array.isArray(content)) return
+    const inside = [...(card.inside ?? [])]
+    for (const raw of content) {
+      const block = obj(raw)
+      if (block?.type === 'tool_use' && typeof block.name === 'string' && inside.length < MAX_INSIDE) inside.push(this.redact(toolLabel(block.name, this.scrub(block.input))))
+    }
+    this.put({ ...card, steps: (card.steps ?? 0) + 1, inside })
   }
 
   /** The tool item of a `tool_use`, made or updated; its id. */
@@ -491,9 +559,12 @@ export class Transcript {
   }
 
   private finished(m: StreamMessage): void {
-    const stopped = this.interrupted
-    this.settleOpen('stopped')
     const ok = m.subtype === 'success' && m.is_error !== true
+    // Stopped: the CLI said so in words, or torno asked it to and the turn ended in error (it need not say so, as when it only thought).
+    const stopped = this.interrupted || (this.interruptWanted && !ok && m.subtype === 'error_during_execution')
+    this.settleOpen('stopped')
+    // A request still open when the turn ends can be answered no more.
+    for (const requestId of [...this.asks.keys()]) this.cancelled(requestId)
     const duration = num(m.duration_ms)
     const took = duration !== undefined ? duration : this.turnStarted !== null ? this.now() - this.turnStarted : 0
     let error: string | undefined
@@ -504,6 +575,8 @@ export class Transcript {
     this.put({ kind: 'turn', id: this.newId('i'), ok, stopped, seconds: seconds(took), pulled: this.pulled, ...(error !== undefined ? { error: this.redact(error) } : {}) })
     this.pulled = {}
     this.interrupted = false
+    this.interruptWanted = false
+    this.explained = 0
     this.turnStarted = null
     this.unconfirmed.clear()
     this.blocks.clear()

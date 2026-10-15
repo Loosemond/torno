@@ -38,6 +38,8 @@ interface Events {
   message: (m: StreamMessage) => void
   ask: (req: StreamAsk) => void
   note: (text: string) => void
+  /** What the CLI wrote on its stderr, as it came. */
+  stderr: (text: string) => void
   exit: (code: number | null, signal: string | null) => void
 }
 
@@ -60,7 +62,7 @@ interface Waiting {
 export class ClaudeStream {
   readonly pid: number
   private readonly child: ChildProcess
-  private readonly listeners: { [E in keyof Events]: Events[E][] } = { message: [], ask: [], note: [], exit: [] }
+  private readonly listeners: { [E in keyof Events]: Events[E][] } = { message: [], ask: [], note: [], stderr: [], exit: [] }
   private readonly waiting = new Map<string, Waiting>()
   private readonly maxLine: number
   private requests = 0
@@ -81,7 +83,11 @@ export class ClaudeStream {
       this.partial = ''
     })
     // Said by the CLI on its own account: kept for a debug log, not for the transcript.
-    this.child.stderr!.on('data', (chunk: Buffer) => this.emit('note', `stderr: ${chunk.toString('utf8').trim().slice(0, NOTE_CHARS)}`))
+    this.child.stderr!.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8')
+      this.emit('stderr', text)
+      this.emit('note', `stderr: ${text.trim().slice(0, NOTE_CHARS)}`)
+    })
     // The pipe of a process that has gone is not an error of ours.
     this.child.stdin!.on('error', () => undefined)
     this.child.on('error', (e) => this.emit('note', `cannot run the CLI: ${e.message}`))

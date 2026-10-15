@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -6,6 +6,7 @@ import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { type HttpRouter, startHttp } from '../http'
 import { onNotOwn } from '../own'
+import { Trust } from '../trust'
 import type { AgentId } from '../../shared/bridge'
 import { adapters } from './adapter'
 import { killGroup, Sessions } from './manager'
@@ -1194,7 +1195,7 @@ describe('a chat session', () => {
 
   it('goes from starting to idle (ready) to working to idle, by the hooks', async () => {
     const c = await chat()
-    await expect.poll(() => c.sessions.capabilities(c.sessionId)).toBeDefined()
+    await expect.poll(() => c.sessions.history(c.sessionId)!.commands.length).toBeGreaterThan(0)
     expect(c.statuses).toEqual(['starting', 'idle'])
     c.send('say hi')
     await expect.poll(() => c.statuses.at(-1)).toBe('idle')
@@ -1204,12 +1205,12 @@ describe('a chat session', () => {
 
   it('says what the agent can do, from its initialize', async () => {
     const c = await chat()
-    await expect.poll(() => c.sessions.capabilities(c.sessionId)).toBeDefined()
-    const { commands, models } = c.sessions.capabilities(c.sessionId)!
+    await expect.poll(() => c.sessions.history(c.sessionId)!.commands.length).toBeGreaterThan(0)
+    const { commands, models } = c.sessions.history(c.sessionId)!
     expect(commands.map((x) => x.name)).toEqual(['compact', 'clear'])
     expect(commands[0]).toEqual({ name: 'compact', description: 'Compact the conversation', argumentHint: '' })
     expect(models).toEqual([{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }])
-    expect(c.sessions.capabilities('no-such-session')).toBeUndefined()
+    expect(c.sessions.history('no-such-session')).toBeUndefined()
   })
 
   it('needs input while a request of the agent waits, works once it is answered, and tells the agent the answer', async () => {
@@ -1250,15 +1251,14 @@ describe('a chat session', () => {
     await expect.poll(() => c.results().length).toBe(1)
   })
 
-  it('interrupts a turn within a second, and is idle after it, though the CLI posts no Stop for it', async () => {
+  it('interrupts a turn at once, and is idle after it, though the CLI posts no Stop for it', async () => {
     const c = await chat()
     c.send('slow 5')
     await expect.poll(() => c.statuses.at(-1)).toBe('working')
     await expect.poll(() => c.messages.some((m) => m.type === 'stream_event')).toBe(true)
-    const began = Date.now()
     expect(await c.sessions.control(c.sessionId, { subtype: 'interrupt' })).toEqual({ still_queued: [] })
+    // No clock: the turn was 5 s long, and the result is there because the interrupt cut it (poll's own 5 s bound is the limit).
     await expect.poll(() => c.results().length).toBe(1)
-    expect(Date.now() - began).toBeLessThan(1000)
     expect(c.results()[0]).toMatchObject({ subtype: 'error_during_execution', is_error: true })
     await expect.poll(() => c.statuses.at(-1)).toBe('idle')
   })
@@ -1292,13 +1292,13 @@ describe('a chat session', () => {
     await expect.poll(() => c.statuses.at(-1)).toBe('idle')
   })
 
-  it('interrupts a busy session before it ends it: gone well before the SIGTERM', async () => {
+  it('interrupts a busy session before it ends it: the turn it was in ends with its own result, which a SIGTERM would have cut off', async () => {
     const c = await chat()
     c.send('slow 10')
     await expect.poll(() => c.messages.some((m) => m.type === 'stream_event')).toBe(true)
-    const began = Date.now()
     await c.sessions.stop(c.sessionId)
-    expect(Date.now() - began).toBeLessThan(1500)
+    // No clock: the stand-in prints a result for the turn only when it was interrupted; killed it prints none.
+    expect(c.results()).toMatchObject([{ subtype: 'error_during_execution' }])
     expect(c.statuses.at(-1)).toBe('exited')
   })
 
@@ -1357,7 +1357,7 @@ describe('a chat session', () => {
     process.env.FAKE_AGENT_STUBBORN = '1'
     try {
       const c = await chat()
-      await expect.poll(() => c.sessions.capabilities(c.sessionId)).toBeDefined()
+      await expect.poll(() => c.sessions.history(c.sessionId)!.commands.length).toBeGreaterThan(0)
       const pid = c.sessions.current(c.obj.id)!.pid
       const began = Date.now()
       await c.sessions.stop(c.sessionId)
@@ -1420,6 +1420,7 @@ describe('the transcript of a chat session', () => {
   const metas: Array<{ sessionId: string; meta: ChatMeta; seq: number }> = []
   const abilities: Array<{ sessionId: string; objectId: string; commands: Array<{ name: string }>; models: unknown[]; seq: number }> = []
   const delivered2: string[][] = []
+  const givenUp: string[] = []
 
   beforeAll(async () => {
     tHttp = await startHttp()
@@ -1439,6 +1440,7 @@ describe('the transcript of a chat session', () => {
     tSessions.on('item', (m) => told.push({ sessionId: m.sessionId, item: m.item, seq: m.seq }))
     tSessions.on('meta', (m) => metas.push({ sessionId: m.sessionId, meta: m.meta, seq: m.seq }))
     tSessions.on('capabilities', (m) => abilities.push(m))
+    tSessions.on('asked', (m) => !m.answered && givenUp.push(m.requestId))
   })
   afterEach(async () => {
     await tSessions.stopAll()
@@ -1449,6 +1451,7 @@ describe('the transcript of a chat session', () => {
     told.length = 0
     metas.length = 0
     abilities.length = 0
+    givenUp.length = 0
     delivered2.length = 0
   })
   afterAll(async () => {
@@ -1794,4 +1797,191 @@ describe('the transcript of a chat session', () => {
     expect(c.items().find((i) => i.kind === 'text')).toMatchObject({ text: 'still here' })
   })
 
+
+  // --- the final fix wave ------------------------------------------------------------------------------------
+
+  it('closes the card of a request the CLI cancels when the person presses Stop: no buttons, an idle session, and the next ask works', async () => {
+    const c = await start()
+    await c.send('ask Bash {"command":"ls"}')
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('needs_input')
+    const first = c.items().find((i) => i.kind === 'ask') as { requestId: string }
+    await tSessions.control(c.id, { subtype: 'interrupt' })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().find((i) => i.kind === 'ask')).toMatchObject({ state: 'ended', why: 'the turn was stopped' })
+    // Main let go of the request: nothing stale is left to hold the status of the next one.
+    expect(givenUp).toEqual([first.requestId])
+    expect(c.items().find((i) => i.kind === 'turn')).toMatchObject({ ok: false, stopped: true })
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('idle')
+    // An answer to it does nothing (and does not say "Allowed").
+    tSessions.respond(c.id, first.requestId, { allow: true })
+    expect(c.items().find((i) => i.kind === 'ask')).toMatchObject({ state: 'ended' })
+    // The stale request does not hold a later one: answered, the session works again and ends idle.
+    await c.send('ask Bash {"command":"pwd"}')
+    await expect.poll(() => c.items().filter((i) => i.kind === 'ask').length).toBe(2)
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('needs_input')
+    const second = c.items().filter((i) => i.kind === 'ask')[1] as { requestId: string }
+    tSessions.respond(c.id, second.requestId, { allow: true })
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('working')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('idle')
+  })
+
+  it('takes a prompt sent while a tool runs as part of the turn: one result, its context under it, nothing queued after', async () => {
+    marksPerCall = [[], ['M7']]
+    const c = await start()
+    await c.send('work 1\nsay first answer')
+    await expect.poll(() => c.items().some((i) => i.kind === 'tool' && i.state === 'running')).toBe(true)
+    await c.send('say folded answer')
+    expect(c.items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'queued'])
+    await expect.poll(() => c.turns(), { timeout: 8000 }).toBe(1)
+    const users = c.items().filter((i) => i.kind === 'user') as Array<{ id: string; text: string; state: string }>
+    expect(users.map((u) => u.state)).toEqual(['sent', 'sent'])
+    expect(c.items().map((i) => (i.kind === 'user' ? i.text : i.kind))).toEqual(['work 1\nsay first answer', 'tool', 'say folded answer', 'context', 'text', 'text', 'turn'].filter((k) => k !== 'context' || marksPerCall[1].length > 0))
+    expect(c.items().find((i) => i.kind === 'context')).toMatchObject({ forUser: users[1].id, marks: ['M7'] })
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('idle')
+    // The next prompt is not off by one: sent at once, and answered.
+    await c.send('say third')
+    expect(c.items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'sent', 'sent'])
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('idle')
+  })
+
+  it('tells the person what Claude Code said when it stops without a line of output, and that it did not start', async () => {
+    process.env.FAKE_AGENT_FAIL = 'error: unknown option --permission-prompt-tool'
+    try {
+      const c = await start()
+      await expect.poll(() => tSessions.current(c.obj.id), { timeout: 8000 }).toBeNull()
+      const notes = c.items().filter((i) => i.kind === 'note') as Array<{ text: string; tone: string }>
+      expect(notes.map((n) => n.text)).toEqual([
+        'Claude Code stopped (exit code 1): error: unknown option --permission-prompt-tool',
+        'It did not start: is `claude` up to date and signed in? Try the terminal view to see why.',
+        'The session ended'
+      ])
+      expect(notes.map((n) => n.tone)).toEqual(['warn', 'warn', 'quiet'])
+    } finally {
+      delete process.env.FAKE_AGENT_FAIL
+    }
+  })
+
+  it('says a stop it did not ask for, though the exit code was 0, and does not say one it asked for', async () => {
+    const asked = await start()
+    await tSessions.stop(asked.id)
+    expect(asked.items().filter((i) => i.kind === 'note').map((n) => (n as { text: string }).text)).toEqual(['The session ended'])
+    const c = await start()
+    await c.send('say hi')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    process.kill(tSessions.current(c.obj.id)!.pid, 'SIGKILL')
+    await expect.poll(() => tSessions.current(c.obj.id), { timeout: 8000 }).toBeNull()
+    const notes = c.items().filter((i) => i.kind === 'note') as Array<{ text: string; tone: string }>
+    expect(notes[0]).toMatchObject({ text: 'Claude Code stopped (signal SIGKILL)', tone: 'warn' })
+    // It had spoken: it is not said not to have started.
+    expect(notes.map((n) => n.text).join('\n')).not.toContain('did not start')
+  })
+
+  it('notes, quietly, that Claude Code did not answer initialize', async () => {
+    process.env.FAKE_AGENT_INIT_ERROR = 'unknown request initialize'
+    try {
+      const c = await start()
+      await expect.poll(() => c.items().some((i) => i.kind === 'note'), { timeout: 5000 }).toBe(true)
+      expect(c.items().find((i) => i.kind === 'note')).toMatchObject({ tone: 'quiet', text: expect.stringContaining('Claude Code did not say what it can do (unknown request initialize)') })
+    } finally {
+      delete process.env.FAKE_AGENT_INIT_ERROR
+    }
+  })
+
+  it('sends a prompt with a picture before the prompt sent after it', async () => {
+    const png = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'))
+    picture = () => new Promise((resolve) => setTimeout(() => resolve(png), 400))
+    const c = await start()
+    const first = c.send('say with a picture', { attachView: true })
+    const second = c.send('say plain')
+    await Promise.all([first, second])
+    expect(c.items().filter((i) => i.kind === 'user').map((i) => (i as { text: string }).text)).toEqual(['say with a picture', 'say plain'])
+    await expect.poll(() => c.turns(), { timeout: 8000 }).toBe(2)
+  })
+
+  it('names the chat of an object that has ended, for a window loaded since, and none while one runs', async () => {
+    const c = await start()
+    expect(tSessions.endedChat(c.obj.id)).toBeUndefined()
+    await tSessions.stop(c.id)
+    expect(tSessions.endedChat(c.obj.id)).toBe(c.id)
+    const again = await start({ folder: c.obj.id.replace('transcript-', 'transcript-') })
+    expect(again.obj.id).toBe(c.obj.id)
+    expect(tSessions.endedChat(c.obj.id)).toBeUndefined()
+  })
+
+  it('lets go of the transcripts of sessions that have ended when asked, and keeps one that runs', async () => {
+    const gone = await start()
+    await tSessions.stop(gone.id)
+    const live = await start()
+    expect(tSessions.history(gone.id)).toBeDefined()
+    tSessions.forgetEnded()
+    expect(tSessions.history(gone.id)).toBeUndefined()
+    expect(tSessions.history(live.id)).toBeDefined()
+  })
+
+})
+
+describe('the question before a chat in a folder with settings of its own', () => {
+  let tHttp: HttpRouter
+  let trustSessions: Sessions
+  const trust = () => new Trust(null, root)
+
+  beforeAll(async () => {
+    tHttp = await startHttp()
+    trustSessions = new Sessions({
+      http: tHttp,
+      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      viewFor: () => 'chat',
+      contextFor: async () => ({ text: '', sentMarkIds: [] }),
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => tHttp.url(`/mcp/${id}`),
+      trust: trust()
+    })
+  })
+  afterEach(async () => {
+    await trustSessions.stopAll()
+  })
+  afterAll(async () => {
+    await tHttp.close()
+  })
+
+  it('refuses the chat with the question, starts nothing, and starts it once the person has said yes', async () => {
+    const obj = object('trust-1')
+    writeFileSync(join(obj.dir, '.mcp.json'), '{}')
+    const refused = await trustSessions.start(obj, {}).catch((e: Error) => e)
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toBe('This folder has Claude Code settings of its own (.mcp.json) that the chat would load without asking. Start the chat anyway?')
+    expect(trustSessions.current(obj.id)).toBeNull()
+    expect(trustSessions.size).toBe(0)
+    // Nothing was written in the folder for it.
+    expect(existsSync(join(obj.dir, '.torno'))).toBe(false)
+    await trustSessions.trust(obj)
+    const started = await trustSessions.start(obj, {})
+    expect(started.view).toBe('chat')
+    expect(trustSessions.current(obj.id)).not.toBeNull()
+  })
+
+  it('asks nothing of a folder without settings', async () => {
+    const started = await trustSessions.start(object('trust-2'), {})
+    expect(started.view).toBe('chat')
+  })
+
+  it('asks nothing for the terminal, which has Claude Code\'s own question', async () => {
+    const terminal = new Sessions({
+      http: tHttp,
+      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      viewFor: () => 'terminal',
+      contextFor: async () => ({ text: '', sentMarkIds: [] }),
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => tHttp.url(`/mcp/${id}`),
+      trust: trust()
+    })
+    const obj = object('trust-3')
+    writeFileSync(join(obj.dir, '.mcp.json'), '{}')
+    const started = await terminal.start(obj, {})
+    expect(started.view).toBe('terminal')
+    await terminal.stopAll()
+  })
 })

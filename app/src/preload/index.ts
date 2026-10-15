@@ -106,6 +106,7 @@ const bridge: TornoBridge = {
   session: {
     current: (objectId) => ipcRenderer.invoke('session:current', objectId),
     start: (objectId, opts) => ipcRenderer.invoke('session:start', objectId, opts),
+    trust: (objectId) => ipcRenderer.invoke('session:trust', objectId),
     write: (sessionId, data) => ipcRenderer.send('session:write', sessionId, data),
     resize: (sessionId, cols, rows) => ipcRenderer.send('session:resize', sessionId, cols, rows),
     stop: (sessionId) => ipcRenderer.invoke('session:stop', sessionId),

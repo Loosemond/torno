@@ -54,7 +54,15 @@
 //       images                    says what pictures came with the prompt: `images: <n> <width>x<height> ...`, the
 //                                 size read from each PNG's header (a text, as `say` is)
 //       garbage                   a line that is no JSON, and an object of a type nobody knows
+//       work <seconds>            a tool (Bash) that takes that long
+//   - a prompt that comes while a tool runs or an ask waits is FOLDED into the turn at work, as the real CLI does
+//     (seen 2026-10-15): after the tool's result the stand-in posts that prompt's `UserPromptSubmit` and runs its script
+//     in the same turn, with no `init` of its own and ONE `result` for both. A prompt that comes while text is being
+//     said (`slow`) or while the CLI is between commands waits for the turn to end and is a turn of its own;
+//   - an `interrupt` while an ask waits sends `control_cancel_request` for it first, then answers the interrupt, as the CLI does;
 //   - when stdin ends it posts `SessionEnd` and exits 0; on SIGTERM it exits 0.
+// With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
+// (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -101,6 +109,10 @@ if (after('--input-format') === 'stream-json') {
 }
 
 async function streamMode() {
+  if (process.env.FAKE_AGENT_FAIL) {
+    process.stderr.write(`${process.env.FAKE_AGENT_FAIL}\n`)
+    process.exit(1)
+  }
   const out = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
   const stubborn = process.env.FAKE_AGENT_STUBBORN === '1'
   process.on('SIGTERM', () => {
@@ -114,6 +126,8 @@ async function streamMode() {
   let turn = null
   const queue = []
   const answers = new Map()
+  /** The requests an ask waits on, which an interrupt cancels. */
+  const pending = new Set()
 
   const base = { session_id: conversation, parent_tool_use_id: null }
   const message = (content, id = next('msg')) => ({ type: 'assistant', message: { id, type: 'message', role: 'assistant', model, content }, ...base, uuid: next('uuid') })
@@ -158,7 +172,9 @@ async function streamMode() {
     return answer?.result ?? { content: [{ type: 'text', text: JSON.stringify(answer?.error ?? answer) }], isError: true }
   }
 
-  async function tool(name, input, asked) {
+  async function tool(name, input, asked, holdMs = 0) {
+    // A prompt that comes now is folded into the turn.
+    turn.foldable = true
     const id = next('toolu')
     out(message([{ type: 'tool_use', id, name, input }]))
     let content = `ran ${name}`
@@ -166,13 +182,17 @@ async function streamMode() {
     if (asked) {
       const requestId = next('req_perm')
       const wait = new Promise((resolve) => answers.set(requestId, resolve))
+      pending.add(requestId)
       out({ type: 'control_request', request_id: requestId, request: { subtype: 'can_use_tool', tool_name: name, input, tool_use_id: id, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: name }], behavior: 'allow', destination: 'localSettings' }, { type: 'addDirectories', directories: [process.cwd()], destination: 'session' }, { type: 'setMode', mode: 'acceptEdits', destination: 'session' }], display_name: name, ...(typeof input?.description === 'string' ? { description: input.description } : {}), ...(typeof input?.blocked_path === 'string' ? { blocked_path: input.blocked_path } : {}) } })
       const response = await Promise.race([wait, turn.interrupted])
+      pending.delete(requestId)
       if (turn.aborted) return
       if (response?.behavior === 'allow') content = `allowed: ${JSON.stringify(response.updatedInput)}${response.updatedPermissions ? `\npermissions: ${JSON.stringify(response.updatedPermissions)}` : ''}`
       else content = `denied: ${response?.message ?? ''}`
     }
     await post('PreToolUse', { tool_name: name })
+    if (holdMs > 0) await pause(holdMs)
+    if (turn.aborted) return
     if (!asked && name.startsWith('mcp__torno__')) {
       const result = await mcp(name, input).catch((e) => ({ content: [{ type: 'text', text: e.message }], isError: true }))
       content = result.content
@@ -180,6 +200,29 @@ async function streamMode() {
     }
     await post('PostToolUse', { tool_name: name })
     out({ type: 'user', message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content, is_error: isError }] }, ...base, uuid: next('uuid') })
+    turn.foldable = false
+    await takeFolded()
+  }
+
+  /** The prompts that came while a tool ran, taken up now: their hook, then their script, in this turn. */
+  async function takeFolded() {
+    while (turn.folded.length > 0 && !turn.aborted) {
+      const content = turn.folded.shift()
+      const text = content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')
+      turn.images.push(...content.filter((b) => b?.type === 'image' && typeof b.source?.data === 'string').map((b) => b.source.data))
+      const submitted = await post('UserPromptSubmit', { prompt: text })
+      const context = submitted?.hookSpecificOutput?.additionalContext
+      if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: context, ...base, uuid: next('uuid') })
+      await script(text)
+    }
+  }
+
+  async function script(text) {
+    for (const line of text.split('\n').map((l) => l.trim()).filter(Boolean)) {
+      if (turn.aborted) break
+      const space = line.indexOf(' ')
+      await run(space < 0 ? line : line.slice(0, space), space < 0 ? '' : line.slice(space + 1))
+    }
   }
 
   async function run(command, rest) {
@@ -187,6 +230,8 @@ async function streamMode() {
       const space = rest.indexOf(' ')
       const name = space < 0 ? rest : rest.slice(0, space)
       await tool(name, space < 0 ? {} : JSON.parse(rest.slice(space + 1)), command === 'ask')
+    } else if (command === 'work') {
+      await tool('Bash', { command: `sleep ${rest}` }, false, Number(rest) * 1000)
     } else if (command === 'slow') {
       const until = Date.now() + Number(rest) * 1000
       const event = (e) => out({ type: 'stream_event', event: e, ...base, uuid: next('uuid') })
@@ -239,7 +284,7 @@ async function streamMode() {
     }
     let release
     const images = content.filter((b) => b?.type === 'image' && typeof b.source?.data === 'string').map((b) => b.source.data)
-    turn = { aborted: false, images, interrupted: new Promise((resolve) => (release = resolve)) }
+    turn = { aborted: false, foldable: false, folded: [], images, interrupted: new Promise((resolve) => (release = resolve)) }
     turn.interrupt = () => {
       turn.aborted = true
       release()
@@ -248,11 +293,8 @@ async function streamMode() {
     out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...base, uuid: next('uuid') })
     const context = submitted?.hookSpecificOutput?.additionalContext
     if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: context, ...base, uuid: next('uuid') })
-    for (const line of text.split('\n').map((l) => l.trim()).filter(Boolean)) {
-      if (turn.aborted) break
-      const space = line.indexOf(' ')
-      await run(space < 0 ? line : line.slice(0, space), space < 0 ? '' : line.slice(space + 1))
-    }
+    await script(text)
+    await takeFolded()
     const stopped = turn.aborted
     if (stopped) out({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, ...base, uuid: next('uuid') })
     else await post('Stop')
@@ -270,7 +312,9 @@ async function streamMode() {
 
   function control(request_id, request) {
     const reply = (response) => out({ type: 'control_response', response: { subtype: 'success', request_id, response } })
-    if (request?.subtype === 'initialize') {
+    if (request?.subtype === 'initialize' && process.env.FAKE_AGENT_INIT_ERROR) {
+      out({ type: 'control_response', response: { subtype: 'error', request_id, error: process.env.FAKE_AGENT_INIT_ERROR } })
+    } else if (request?.subtype === 'initialize') {
       reply({
         commands: [{ name: 'compact', description: 'Compact the conversation', argumentHint: '' }, { name: 'clear', description: 'Clear', argumentHint: '' }],
         models: [{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }]
@@ -281,6 +325,10 @@ async function streamMode() {
     } else if (request?.subtype === 'interrupt') {
       // What was queued behind the turn is dropped, as the CLI does.
       queue.length = 0
+      if (turn) turn.folded.length = 0
+      // What the CLI had asked is given up first.
+      for (const id of pending) out({ type: 'control_cancel_request', request_id: id })
+      pending.clear()
       reply({ still_queued: [] })
       turn?.interrupt()
     } else {
@@ -299,6 +347,9 @@ async function streamMode() {
     if (m.type === 'control_request') control(m.request_id, m.request)
     else if (m.type === 'control_response') answers.get(m.response?.request_id)?.(m.response?.response)
     else if (m.type === 'user') {
+      const content = Array.isArray(m.message?.content) ? m.message.content : [{ type: 'text', text: String(m.message?.content ?? '') }]
+      // Not a command of the CLI's own, which is never folded.
+      if (turn?.foldable && !content.some((b) => b?.type === 'text' && b.text.trim().startsWith('/'))) return void turn.folded.push(content)
       queue.push(Array.isArray(m.message?.content) ? m.message.content : [{ type: 'text', text: String(m.message?.content ?? '') }])
       void drain()
     }

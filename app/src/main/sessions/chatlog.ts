@@ -1,7 +1,8 @@
 import { constants } from 'node:fs'
-import { mkdir, open, stat } from 'node:fs/promises'
+import { lstat, mkdir, open, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatImage, ChatItem } from '../../shared/chat'
+import { writeFileAtomic } from '../atomic'
 import { ensureIgnored } from '../ignored'
 import { ownTorno } from '../own'
 
@@ -14,6 +15,10 @@ const FOLDER = 'chat'
 const CONVERSATION = /^[A-Za-z0-9_-]{1,100}$/
 /** Of a file larger than this only the end is read: the last items are all that is shown. */
 const READ_TAIL_BYTES = 16 * 1024 * 1024
+
+/** A log larger than this is cut when a session starts on it (`trimLog`), to its last `KEEP_LINES` lines. */
+const TRIM_OVER_BYTES = 5 * 1024 * 1024
+const KEEP_LINES = 2000
 
 /** One change at a time per file, so that lines of one call are not mixed with those of another. */
 const turns = new Map<string, Promise<void>>()
@@ -99,4 +104,32 @@ async function readTail(path: string): Promise<string> {
   } finally {
     await handle.close()
   }
+}
+
+/**
+ * At the start of a session on a conversation: a log over 5 MB is cut to its last 2,000 lines, whole, written
+ * through a temp file beside it and renamed over it (so a reader or a crash sees the old log or the new one). It does
+ * nothing for a log that is small, one that is not there, or one that is a link. Resolves true when it cut.
+ */
+export async function trimLog(dir: string, conversationId: string, overBytes = TRIM_OVER_BYTES, keep = KEEP_LINES): Promise<boolean> {
+  if (!CONVERSATION.test(conversationId)) return false
+  const path = join(dir, '.torno', FOLDER, nameOf(conversationId))
+  const turn = (turns.get(path) ?? Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      const folder = await ownTorno(dir, FOLDER)
+      const file = join(folder, nameOf(conversationId))
+      const info = await lstat(file)
+      if (!info.isFile() || info.size <= overBytes) return false
+      const lines = (await readTail(file)).split('\n').filter((line) => line.trim() !== '')
+      await writeFileAtomic(file, `${lines.slice(-keep).join('\n')}\n`)
+      return true
+    })
+    .catch(() => false)
+  const done = turn.then(() => undefined)
+  turns.set(path, done)
+  void done.finally(() => {
+    if (turns.get(path) === done) turns.delete(path)
+  })
+  return turn
 }

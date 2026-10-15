@@ -90,3 +90,14 @@ export function nextPromptLine(carries: { drafts: number; failing: number; unmea
   const listed = things.length === 1 ? things[0] : `${things.slice(0, -1).join(', ')} and ${things.at(-1)}`
   return `${listed} ${drafts + failing + unmeasured === 1 ? 'goes' : 'go'} with your next prompt`
 }
+
+/**
+ * What the pane asks when main refuses to start a chat in a folder that has Claude Code settings of its own: Claude Code
+ * run headless loads them without the trust question its terminal asks. Main's refusal is this very sentence.
+ */
+export function trustQuestion(files: readonly string[]): string {
+  return `This folder has Claude Code settings of its own (${files.join(', ')}) that the chat would load without asking. Start the chat anyway?`
+}
+
+/** Whether an error is the refusal that asks the trust question (`trustQuestion`). */
+export const isTrustQuestion = (message: string): boolean => /^This folder has Claude Code settings of its own \(.*\) that the chat would load without asking\. Start the chat anyway\?$/.test(message)

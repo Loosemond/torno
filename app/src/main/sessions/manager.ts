@@ -11,8 +11,10 @@ import { ensureIgnored } from '../ignored'
 import { FOLDER, ownTorno } from '../own'
 import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
+import { trustQuestion } from '../../shared/agents'
+import type { Trust } from '../trust'
 import type { AgentAdapter } from './adapter'
-import { appendItems, readLog } from './chatlog'
+import { appendItems, readLog, trimLog } from './chatlog'
 import { sessionRules } from './permissions'
 import { findCommand } from './choice'
 import { type Told, blankPrompt, Delivery, untold } from './delivery'
@@ -28,6 +30,12 @@ const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
 /** A chat session that has been told to end: SIGTERM to its group after this long, SIGKILL after twice. */
 const TERM_AFTER_MS = 2000
+/** After a `result` that leaves prompts the CLI has not taken up, it is given this long to begin on them. */
+const IDLE_GRACE_MS = 1500
+/** How many lines of the CLI's stderr are kept for the person to be told, should it stop. */
+const STDERR_LINES = 20
+/** Said when the CLI is gone without a word on stdout. */
+const DID_NOT_START = 'It did not start: is `claude` up to date and signed in? Try the terminal view to see why.'
 /** The hooks that say a conversation has a prompt in it: it exists for the agent, and can be resumed. */
 const CONVERSATION_EVENTS = new Set(['UserPromptSubmit', 'Stop'])
 /** The hooks that only say the agent is at work again. */
@@ -56,14 +64,15 @@ interface Session extends Told {
   logFailed: boolean
   /** A chat session: the requests of the CLI's that wait for the person. */
   asks: Map<string, StreamAsk>
-  /**
-   * A chat session: prompts sent that the CLI has not taken up yet (it says so with an `init` for each). A `result`
-   * with none of them waiting is the end of what it was doing: idle. Not a count of results to come, which a prompt
-   * that is no turn (a slash command) never gives, and an interrupt may drop.
-   */
-  unstarted: number
-  /** A chat session: what the CLI answered `initialize` with, once it has. */
-  capabilities?: Capabilities
+  /** A chat session: what the CLI printed or posted last (it grows with every line and hook), to tell a moment of quiet from a change. */
+  activity: number
+  /** A chat session: waits a moment after a `result` that left prompts untaken, to see whether the CLI begins on them. */
+  graceTimer?: NodeJS.Timeout
+  /** A chat session: the last lines the CLI wrote on stderr, redacted, and whether it printed anything on stdout. */
+  stderr: string[]
+  heard: boolean
+  /** A chat session: what a prompt waits for when it is sent with a picture, so that prompts reach the CLI in the order they were sent. */
+  sending: Promise<void>
   exited: Promise<void>
   /** The kill: SIGHUP's two seconds after for a terminal session, the last of two signals for a chat session. */
   killTimer?: NodeJS.Timeout
@@ -118,6 +127,8 @@ interface Events {
   status: { sessionId: string; objectId: string; status: SessionStatus }
   /** What became of the line "Send marks" put at the cursor of an agent without hooks, and how many marks its file tells of. */
   send: { sessionId: string; objectId: string; state: SendState; marks: number; why?: SendDropped }
+  // `stream`, `ask`, `asked` and `context` have no listener in the app: they are the probe the integration tests
+  // (`manager.itest.ts`) watch the CLI's stand-in through. `stream` is made only while somebody listens.
   /** A chat session: a line the CLI printed, as the stream read it. Never for a terminal session. */
   stream: { sessionId: string; objectId: string; message: StreamMessage }
   /** A chat session: the CLI asks for permission to use a tool, or a question, and waits for `answer`. */
@@ -185,6 +196,11 @@ export class Sessions {
       /** What an adapter that has a flag for it adds to its agent's system prompt. */
       systemPromptFor: (adapter: AgentAdapter) => string
       mcpUrlFor: (objectId: string) => string
+      /**
+       * Whether a chat may start in a folder: Claude Code run headless does not ask whether to trust a folder that has
+       * settings of its own. Absent: no question is asked.
+       */
+      trust?: Pick<Trust, 'pending' | 'accept'>
       /** A PNG of the viewport of an object as the person sees it now, for a prompt that attaches the view. Absent: none can be attached. */
       picture?: (obj: ObjectInfo) => Promise<Uint8Array>
       /** Print the command line of every session started, and every hook it posts. */
@@ -228,6 +244,11 @@ export class Sessions {
     const adapter = await this.deps.adapterFor(obj)
     const wanted = (await this.deps.viewFor?.(obj)) ?? 'terminal'
     const view = adapter.views.includes(wanted) ? wanted : adapter.views[0]
+    // Before anything is written or started: the chat loads what the folder's settings name without asking.
+    if (view === 'chat' && this.deps.trust) {
+      const files = await this.deps.trust.pending(obj.dir)
+      if (files.length > 0) throw new Error(trustQuestion(files))
+    }
     const id = randomUUID()
     // Only a conversation of this agent's own: another agent's id means nothing to it.
     const stored = opts.resume ? storedConversation(obj.dir, adapter.id) : null
@@ -272,6 +293,7 @@ export class Sessions {
     }
 
     // What a chat shows of the conversation it resumes is read before the session exists: it is the log's as it was.
+    if (view === 'chat' && stored !== null) await trimLog(obj.dir, stored)
     const earlier = view === 'chat' && stored !== null ? await earlierOf(obj.dir, stored) : []
 
     const cols = size(opts.cols, 80)
@@ -316,7 +338,10 @@ export class Sessions {
       logging: Promise.resolve(),
       logFailed: false,
       asks: new Map(),
-      unstarted: 0,
+      activity: 0,
+      stderr: [],
+      heard: false,
+      sending: Promise.resolve(),
       exited: new Promise<void>((resolve) => (ended = resolve)),
       adapter,
       // A conversation that is resumed has seen the marks only if a line of torno's was sent in it.
@@ -346,6 +371,11 @@ export class Sessions {
     })
     if (stream) this.follow(session, stream, ended)
     return started(session)
+  }
+
+  /** The person said to start the chat in an object's folder, whatever Claude Code settings it has. */
+  trust(obj: ObjectInfo): Promise<void> {
+    return this.deps.trust?.accept(obj.dir) ?? Promise.resolve()
   }
 
   /** How many agents have not gone yet, counting those hung up on. */
@@ -454,9 +484,8 @@ export class Sessions {
     const s = this.chat(sessionId, 'prompt')
     if (!s?.stream || !s.chat) return
     // It waits when the agent is at work, or has been sent a prompt it has not taken up yet (its hook has not moved the status).
-    const queued = s.status === 'working' || s.status === 'needs_input' || s.unstarted > 0
+    const queued = s.status === 'working' || s.status === 'needs_input' || s.chat.transcript.untakenCount() > 0
     s.chat.transcript.userSent(content, queued)
-    s.unstarted += 1
     s.stream.prompt(content, s.conversationId)
   }
 
@@ -467,6 +496,17 @@ export class Sessions {
   async send(sessionId: string, prompt: { text: string; attachView?: boolean }): Promise<void> {
     const s = this.chat(sessionId, 'send')
     if (!s?.stream) throw new Error('This session has ended')
+    // One after another: a prompt that waits for its picture is not overtaken by the one sent after it.
+    const before = s.sending
+    const mine = before.then(() => this.sendOne(sessionId, s, prompt))
+    s.sending = mine.then(
+      () => undefined,
+      () => undefined
+    )
+    return mine
+  }
+
+  private async sendOne(sessionId: string, s: Session, prompt: { text: string; attachView?: boolean }): Promise<void> {
     const content: PromptBlock[] = []
     if (prompt.text !== '') content.push({ type: 'text', text: prompt.text })
     if (prompt.attachView === true) {
@@ -475,7 +515,7 @@ export class Sessions {
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(png).toString('base64') } })
     }
     if (content.length === 0) return
-    // The picture took a moment: the session may have gone meanwhile.
+    // The picture took a moment, and the prompts before this one: the session may have gone meanwhile.
     if (!this.chat(sessionId, 'send')) throw new Error('This session has ended')
     this.prompt(sessionId, content)
   }
@@ -515,19 +555,15 @@ export class Sessions {
     const answer = s.stream.control(request)
     // What the CLI says is still queued after an interrupt is all that will be taken up; the rest was dropped.
     if (request.subtype === 'interrupt') {
+      // A turn at work that ends in error after this was Stopped, whether or not the CLI said so in words.
+      if (s.status === 'working' || s.status === 'needs_input') s.chat?.transcript.interruptAsked()
       void answer.then((a) => {
         const queued = (a as { still_queued?: unknown } | undefined)?.still_queued
         const kept = Array.isArray(queued) ? queued.length : 0
-        s.unstarted = Math.min(s.unstarted, kept)
         s.chat?.transcript.dropQueued(kept)
       }, () => undefined)
     }
     return answer
-  }
-
-  /** A chat session: the slash commands and models its agent said it has, once it has said. */
-  capabilities(sessionId: string): Capabilities | undefined {
-    return this.sessions.get(sessionId)?.capabilities
   }
 
   /**
@@ -541,6 +577,17 @@ export class Sessions {
     if (!r) return undefined
     const { commands, models } = r.capabilities ?? { commands: [], models: [] }
     return { items: r.transcript.items(), meta: r.transcript.meta(), earlier: r.earlier, commands, models: modelsOf(models), seq: r.seq }
+  }
+
+  /** The chat of an object that has ended and whose transcript is still held, for a window loaded since to show. */
+  endedChat(objectId: string): string | undefined {
+    for (const [id, record] of this.records) if (record.objectId === objectId && !this.sessions.has(id)) return id
+    return undefined
+  }
+
+  /** Lets go of the transcript of every chat session that has ended: the workspace they were of is closed. */
+  forgetEnded(): void {
+    for (const id of [...this.records.keys()]) if (!this.sessions.has(id)) this.records.delete(id)
   }
 
   /** The object a chat session is of, also after the session has ended and while its transcript is still readable. */
@@ -559,32 +606,49 @@ export class Sessions {
 
   /** The stream of a chat session: what it says moves the status, and goes to whoever listens. */
   private follow(session: Session, stream: ClaudeStream, ended: () => void): void {
+    const redact = this.deps.http.redact
     stream.on('message', (message) => {
+      session.activity += 1
+      session.heard = true
       this.advance(session, 'output')
-      // The hooks say when a turn is over; but not one that was interrupted, which posts no `Stop`.
-      if (message.type === 'system' && message.subtype === 'init') session.unstarted = Math.max(0, session.unstarted - 1)
-      // After the microtasks of this read, so that the answer to an interrupt that came in the same chunk has been
-      // taken into account (`control`).
-      if (message.type === 'result') queueMicrotask(() => session.unstarted === 0 && this.advance(session, 'Stop'))
+      // The CLI gave up a request of its own (the turn was stopped while a card was open): it is not to be answered.
+      if (message.type === 'control_cancel_request' && typeof message.request_id === 'string') this.cancelAsk(session, message.request_id)
+      if (message.type === 'result') {
+        // Whatever is still asked when a turn is over is asked no more.
+        for (const requestId of [...session.asks.keys()]) this.cancelAsk(session, requestId)
+        // After the microtasks of this read, so that the answer to an interrupt that came in the same chunk has been
+        // taken into account (`control`).
+        queueMicrotask(() => this.afterResult(session))
+      }
       session.chat?.transcript.message(message)
-      this.emit('stream', { sessionId: session.id, objectId: session.object.id, message })
+      if (this.listeners.stream.length > 0) this.emit('stream', { sessionId: session.id, objectId: session.object.id, message })
     })
     stream.on('ask', (request) => {
+      session.activity += 1
       session.asks.set(request.requestId, request)
       session.chat?.transcript.asked(request)
       this.advance(session, 'ask')
       this.emit('ask', { sessionId: session.id, objectId: session.object.id, ...request })
     })
-    stream.on('note', (text) => {
-      if (this.deps.debug) console.error(this.deps.http.redact(`[torno] session ${session.id} stream: ${text}`))
+    stream.on('stderr', (text) => {
+      // What the CLI says about itself, for the person should it stop: the last lines, with no address in them.
+      session.stderr.push(...text.split('\n').map((line) => redact(line.trim()).slice(0, 500)).filter((line) => line !== ''))
+      if (session.stderr.length > STDERR_LINES) session.stderr.splice(0, session.stderr.length - STDERR_LINES)
     })
-    stream.on('exit', () => {
+    stream.on('note', (text) => {
+      if (this.deps.debug) console.error(redact(`[torno] session ${session.id} stream: ${text}`))
+    })
+    stream.on('exit', (code, signal) => {
+      // Asked for by torno (`stop`), or not: told before the transcript closes, so that it reads before "The session ended".
+      const asked = session.killTimer !== undefined
       clearTimeout(session.killTimer)
       clearTimeout(session.termTimer)
+      clearTimeout(session.graceTimer)
       this.sessions.delete(session.id)
       // Nobody can answer what the agent was waiting for any more.
       for (const requestId of session.asks.keys()) this.emit('asked', { sessionId: session.id, requestId, answered: false })
       session.asks.clear()
+      if (!asked || (code !== null && code !== 0)) this.stoppedNote(session, code, signal)
       // What was open ends in a stated state, and the log has all of it before the session counts as gone.
       session.chat?.transcript.ended()
       this.advance(session, 'exit')
@@ -594,18 +658,57 @@ export class Sessions {
     stream
       .control({ subtype: 'initialize' })
       .then((answer) => {
-        session.capabilities = capabilitiesOf(answer)
+        const capabilities = capabilitiesOf(answer)
         if (session.chat) {
           const chat = session.chat
-          chat.capabilities = session.capabilities
+          chat.capabilities = capabilities
           chat.seq += 1
-          this.emit('capabilities', { sessionId: session.id, objectId: chat.objectId, commands: session.capabilities.commands, models: modelsOf(session.capabilities.models), seq: chat.seq })
+          this.emit('capabilities', { sessionId: session.id, objectId: chat.objectId, commands: capabilities.commands, models: modelsOf(capabilities.models), seq: chat.seq })
         }
         this.advance(session, 'output')
       })
       .catch((e: Error) => {
         if (this.deps.debug) console.error(`[torno] session ${session.id} initialize: ${e.message}`)
+        // A CLI that left has its own note; one that stayed and did not answer is told of, quietly.
+        if (this.sessions.get(session.id) === session && !session.killTimer) session.chat?.transcript.note(`Claude Code did not say what it can do (${redact(e.message)}). The commands and the model menu may be missing.`, 'quiet')
       })
+  }
+
+  /** The CLI left when torno did not ask it to, or with an error: the person is told what it said last, and when it never began. */
+  private stoppedNote(session: Session, code: number | null, signal: string | null): void {
+    const transcript = session.chat?.transcript
+    if (!transcript) return
+    const last = session.stderr.at(-1)
+    const how = code !== null ? `exit code ${code}` : signal ? `signal ${signal}` : 'no exit code'
+    transcript.note(`Claude Code stopped (${how})${last ? `: ${last}` : ''}`, 'warn')
+    if (!session.heard) transcript.note(DID_NOT_START, 'warn')
+  }
+
+  /** A request of the CLI's that waits for the person is given up: the card ends, and the status goes on from there. */
+  private cancelAsk(session: Session, requestId: string): void {
+    if (!session.asks.delete(requestId)) return
+    session.chat?.transcript.cancelled(requestId)
+    this.emit('asked', { sessionId: session.id, requestId, answered: false })
+    if (session.asks.size === 0) this.advance(session, 'answered')
+  }
+
+  /**
+   * A `result` is the end of what the CLI was doing. Idle, unless it has prompts it has not begun on: those may be
+   * about to (their hook, or their `init`, is on its way), and a moment is given them. Should nothing come in that
+   * moment, the CLI is idle and they were taken up without a sign torno could read: they are no longer waiting.
+   */
+  private afterResult(session: Session): void {
+    const transcript = session.chat?.transcript
+    if (!transcript || this.sessions.get(session.id) !== session) return
+    clearTimeout(session.graceTimer)
+    if (transcript.untakenCount() === 0) return this.advance(session, 'Stop')
+    const seen = session.activity
+    session.graceTimer = setTimeout(() => {
+      if (session.activity !== seen || this.sessions.get(session.id) !== session) return
+      transcript.idle()
+      this.advance(session, 'Stop')
+    }, IDLE_GRACE_MS)
+    session.graceTimer.unref?.()
   }
 
   /**
@@ -681,8 +784,6 @@ export class Sessions {
     const next = reduceStatus(session.status, event, body)
     if (next === session.status) return
     session.status = next
-    // Idle with no prompt outstanding: whatever was still queued has been taken up.
-    if (next === 'idle' && session.unstarted === 0) session.chat?.transcript.idle()
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })
   }
 
@@ -694,6 +795,7 @@ export class Sessions {
     if (!session || !session.adapter.hooks) return sendJson(res, 404, { error: 'no such session' })
     // Only what the agent posts: `exit` and `output` are the PTY's to say, and would end a live session.
     if (!HOOK_EVENTS.includes(event)) return sendJson(res, 404, { error: 'no such hook' })
+    session.activity += 1
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' })
 
     // A tool hook says only that the agent is at work. Its body is the tool's input or result, which may

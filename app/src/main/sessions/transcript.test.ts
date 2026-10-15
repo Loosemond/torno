@@ -185,17 +185,18 @@ describe('what is sent', () => {
     const later = t.userSent([...text('second'), { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_1X1 } }], true)
     expect(now).toMatchObject({ kind: 'user', text: 'first', state: 'sent', at: 7 })
     expect(later).toMatchObject({ text: 'second', state: 'queued', images: [{ mediaType: 'image/png', data: PNG_1X1, width: 1, height: 1 }] })
-    // The first init is of the first prompt, which was never queued.
+    // The hook of the first prompt, and the init it explains, do not take up the second.
+    t.context({ text: '', sentMarkIds: [], prompt: 'first' })
     t.message(init())
     expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'queued'])
-    t.message(init())
+    t.context({ text: '', sentMarkIds: [], prompt: 'second' })
     expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'sent'])
   })
 
-  it('stays queued through an init until its own: one queued prompt becomes sent for each init', () => {
+  it('stays queued through an init until its own: one queued command becomes sent for each init no hook explains', () => {
     const t = new Transcript()
-    t.userSent(text('a'), true)
-    t.userSent(text('b'), true)
+    t.userSent(text('/a'), true)
+    t.userSent(text('/b'), true)
     t.message(init())
     expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'queued'])
     t.message(init())
@@ -384,6 +385,7 @@ describe('the end of the session', () => {
   it('closes everything that was open in a stated state, and says the session ended', () => {
     const t = new Transcript()
     t.userSent(text('sent'), false)
+    t.context({ text: '', sentMarkIds: [], prompt: 'sent' })
     t.userSent(text('queued'), true)
     t.message(start(0, { type: 'thinking', thinking: '' }))
     t.message(start(1, { type: 'text', text: '' }))
@@ -471,7 +473,7 @@ describe('the log', () => {
     const t = new Transcript()
     t.userSent(text('queued'), true)
     expect(t.toLog()).toEqual([])
-    t.message(init())
+    t.context({ text: '', sentMarkIds: [], prompt: 'queued' })
     expect(t.toLog().map((i) => i.kind)).toEqual(['user'])
   })
 
@@ -566,12 +568,14 @@ describe('fix round 1', () => {
     const t = new Transcript()
     t.userSent(text('first'), false)
     t.userSent(text('second'), true)
+    t.context({ text: '', sentMarkIds: [], prompt: 'first' })
     t.message(init())
     t.message(assistant([{ type: 'text', text: 'reply one' }], 'm1'))
     t.userSent(text('third'), true)
     expect(t.items().map((i) => (i.kind === 'user' ? i.text : i.kind))).toEqual(['first', 'text', 'second', 'third'])
     expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'queued', 'queued'])
     t.message(result())
+    t.context({ text: '', sentMarkIds: [], prompt: 'second' })
     t.message(init())
     t.message(assistant([{ type: 'text', text: 'reply two' }], 'm2'))
     expect(t.items().map((i) => (i.kind === 'user' ? i.text : i.kind))).toEqual(['first', 'text', 'turn', 'second', 'text', 'third'])
@@ -673,5 +677,168 @@ describe('what the CLI printed for a permission and for /compact', () => {
     const modes = t.asked({ requestId: 'r2', toolName: 'Edit', input: {}, suggestions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] })
     expect(modes).toMatchObject({ suggestions: false })
     expect('description' in modes).toBe(false)
+  })
+})
+
+// The final fix wave: what the real CLI (2.1.300) was seen to do, measured by hand on 2026-10-15.
+describe('an ask the CLI cancels (I1)', () => {
+  const ask = (t: Transcript, id = 'req_1') => t.asked({ requestId: id, toolName: 'Bash', input: { command: 'ls' } })
+
+  it('ends when the CLI cancels its request, and reads that the turn was stopped', () => {
+    const t = new Transcript()
+    ask(t)
+    expect(t.cancelled('req_1')).toMatchObject({ kind: 'ask', state: 'ended', why: 'the turn was stopped' })
+    // Nothing more to answer.
+    expect(t.answered('req_1', 'allowed')).toBeNull()
+    expect(t.cancelled('req_1')).toBeNull()
+  })
+
+  it('ends, still open at a result, with the turn: the card does not wait for good', () => {
+    const t = new Transcript()
+    t.message(init())
+    t.message(toolUse('a', 'Bash', { command: 'ls' }))
+    ask(t)
+    t.message({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } })
+    t.message(result({ subtype: 'error_during_execution', is_error: true }))
+    expect(of(t, 'ask')[0]).toMatchObject({ state: 'ended', why: 'the turn was stopped' })
+    expect(of(t, 'tool')[0].state).toBe('stopped')
+  })
+})
+
+describe('taking prompts up (I4)', () => {
+  const states = (t: Transcript) => of(t, 'user').map((u) => u.state)
+
+  it('takes a prompt up by the hook that names it, and moves it to the end', () => {
+    const t = new Transcript()
+    t.userSent(text('first'), false)
+    t.userSent(text('second'), true)
+    t.context({ text: '', sentMarkIds: [], prompt: 'first' })
+    expect(t.untakenCount()).toBe(1)
+    t.message(init())
+    // The init of the first turn is explained by its hook: it does not take the second.
+    expect(states(t)).toEqual(['sent', 'queued'])
+    t.message(assistant([{ type: 'text', text: 'reply' }]))
+    t.message(result())
+    t.context({ text: '', sentMarkIds: [], prompt: 'second' })
+    expect(states(t)).toEqual(['sent', 'sent'])
+    expect(t.items().map((i) => (i.kind === 'user' ? i.text : i.kind))).toEqual(['first', 'text', 'turn', 'second'])
+    expect(t.untakenCount()).toBe(0)
+  })
+
+  it('folds a prompt sent while a tool ran into the turn: its hook takes it up, and no init comes for it', () => {
+    const t = new Transcript()
+    t.userSent(text('A'), false)
+    t.context({ text: '', sentMarkIds: [], prompt: 'A' })
+    t.message(init())
+    t.message(toolUse('a', 'Bash', { command: 'sleep 1' }))
+    t.userSent(text('B'), true)
+    expect(states(t)).toEqual(['sent', 'queued'])
+    t.message(toolResult('a', 'done'))
+    t.context({ text: 'ctx', sentMarkIds: ['M1'], prompt: 'B' })
+    expect(states(t)).toEqual(['sent', 'sent'])
+    t.message(assistant([{ type: 'text', text: 'answer to B' }], 'm2'))
+    t.message(result())
+    expect(t.untakenCount()).toBe(0)
+    // A prompt after it is not off by one.
+    t.userSent(text('C'), false)
+    t.context({ text: '', sentMarkIds: [], prompt: 'C' })
+    t.message(init())
+    t.userSent(text('D'), true)
+    expect(states(t)).toEqual(['sent', 'sent', 'sent', 'queued'])
+    const contexts = of(t, 'context')
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0].forUser).toBe(of(t, 'user')[1].id)
+  })
+
+  it('takes a prompt that begins with a slash up at the init no hook explains', () => {
+    const t = new Transcript()
+    t.userSent(text('A'), false)
+    t.context({ text: '', sentMarkIds: [], prompt: 'A' })
+    t.message(init())
+    t.userSent(text('/compact'), true)
+    t.message(result())
+    expect(states(t)).toEqual(['sent', 'queued'])
+    t.message(init())
+    expect(states(t)).toEqual(['sent', 'sent'])
+    expect(t.untakenCount()).toBe(0)
+  })
+
+  it('does not wedge: a prompt the CLI took up with neither an init nor a hook is taken at idle, and the ones after it are not off by one', () => {
+    const t = new Transcript()
+    t.userSent(text('p1'), false)
+    t.userSent(text('p2'), true)
+    t.message(init())
+    t.message(result())
+    expect(t.untakenCount()).toBe(2)
+    t.idle()
+    expect(states(t)).toEqual(['sent', 'sent'])
+    expect(t.untakenCount()).toBe(0)
+    t.userSent(text('p3'), false)
+    expect(states(t)).toEqual(['sent', 'sent', 'sent'])
+  })
+
+  it('does not take a prompt in the hook of another: a hook that names none falls back to the oldest that is not a command', () => {
+    const t = new Transcript()
+    t.userSent(text('/noop'), false)
+    const b = t.userSent(text('real'), true)
+    expect(t.context({ text: 'ctx', sentMarkIds: ['M1'], prompt: 'something else' })).toMatchObject({ forUser: b.id })
+  })
+})
+
+describe('the end of a session and of a turn (M8, M9)', () => {
+  it('marks a prompt the CLI never took up as not sent when the session ends', () => {
+    const t = new Transcript()
+    t.userSent(text('never started'), false)
+    t.ended()
+    expect(of(t, 'user')[0].state).toBe('not-sent')
+  })
+
+  it('reads Stopped for a turn that ended in error after torno asked for an interrupt, though no text said so', () => {
+    const t = new Transcript()
+    t.message(init())
+    t.interruptAsked()
+    t.message(result({ subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic] result_type=user'] }))
+    expect(of(t, 'turn')[0]).toMatchObject({ ok: false, stopped: true })
+    expect(of(t, 'turn')[0].error).toBeUndefined()
+    // Only once: the next turn that fails is a failure.
+    t.message(result({ subtype: 'error_during_execution', is_error: true, errors: ['boom'] }))
+    expect(of(t, 'turn')[1]).toMatchObject({ stopped: false, error: 'boom' })
+  })
+
+  it('does not call a turn that succeeded stopped because an interrupt was asked', () => {
+    const t = new Transcript()
+    t.interruptAsked()
+    t.message(result())
+    expect(of(t, 'turn')[0]).toMatchObject({ ok: true, stopped: false })
+  })
+})
+
+describe('thinking time (M1)', () => {
+  it('is measured from the start of the thought\'s block to its stop, though the whole message comes between', () => {
+    let now = 0
+    const t = new Transcript({ now: () => now })
+    const lines = FIXTURE.slice(3, 12)
+    for (const line of lines) {
+      if (line.type === 'stream_event' && (line.event as { type: string }).type === 'content_block_start') now = 1000
+      if (line.type === 'stream_event' && (line.event as { type: string }).type === 'content_block_stop') now = 3200
+      t.message(line)
+    }
+    expect(of(t, 'thinking')).toMatchObject([{ streaming: false, seconds: 2.2 }])
+  })
+})
+
+describe('a subagent (M4)', () => {
+  it('is not the main agent: its text is not drawn, its steps are counted on the Task card and its tool calls listed there', () => {
+    const t = new Transcript()
+    t.message(toolUse('task1', 'Task', { description: 'explore', prompt: 'look' }))
+    const inner = (content: object[], id: string): StreamMessage => ({ ...assistant(content, id), parent_tool_use_id: 'task1' })
+    t.message(inner([{ type: 'text', text: 'inner thought' }], 'i1'))
+    t.message(inner([{ type: 'tool_use', id: 'in1', name: 'Read', input: { file_path: '/a/b.py' } }], 'i2'))
+    t.message({ ...toolResult('in1', 'x'), parent_tool_use_id: 'task1' })
+    t.message(inner([{ type: 'tool_use', id: 'in2', name: 'Bash', input: { command: 'ls' } }], 'i3'))
+    expect(t.items().map((i) => i.kind)).toEqual(['tool'])
+    expect(of(t, 'tool')[0]).toMatchObject({ name: 'Task', steps: 3, inside: ['Read /a/b.py', 'Bash: ls'] })
+    t.message(toolResult('task1', 'report'))
+    expect(of(t, 'tool')[0]).toMatchObject({ state: 'done', steps: 3 })
   })
 })

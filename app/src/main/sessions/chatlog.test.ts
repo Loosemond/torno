@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ChatItem } from '../../shared/chat'
 import { onNotOwn } from '../own'
-import { appendItems, readLog } from './chatlog'
+import { appendItems, readLog, trimLog } from './chatlog'
 
 const CONVERSATION = '6c9664ef-90c4-4c7f-b6d5-180948ac85ee'
 let dir: string
@@ -98,3 +98,28 @@ describe('the log of a conversation', () => {
     }
   })
 })
+
+describe('a log that grew (M13)', () => {
+  it('is cut at the start of a session to its last lines when it is over the size, atomically', async () => {
+    await appendItems(dir, CONVERSATION, Array.from({ length: 50 }, (_, n) => note(n)))
+    expect(await trimLog(dir, CONVERSATION, 1_000_000, 10)).toBe(false)
+    expect(readFileSync(file(), 'utf8').trim().split('\n')).toHaveLength(50)
+    expect(await trimLog(dir, CONVERSATION, 100, 10)).toBe(true)
+    expect(readFileSync(file(), 'utf8').trim().split('\n').map((l) => JSON.parse(l).id)).toEqual(Array.from({ length: 10 }, (_, n) => `n${n + 40}`))
+    // No temp file is left, and the log goes on from there.
+    expect(readdirSync(join(dir, '.torno', 'chat'))).toEqual([`${CONVERSATION}.jsonl`])
+    await appendItems(dir, CONVERSATION, [note(99)])
+    expect((await readLog(dir, CONVERSATION)).at(-1)).toMatchObject({ id: 'n99' })
+  })
+
+  it('does nothing for a log that is not there, and none through a link', async () => {
+    expect(await trimLog(dir, CONVERSATION, 0, 1)).toBe(false)
+    mkdirSync(join(dir, '.torno', 'chat'), { recursive: true })
+    const elsewhere = join(dir, 'elsewhere.jsonl')
+    writeFileSync(elsewhere, 'x\n'.repeat(50))
+    symlinkSync(elsewhere, file())
+    expect(await trimLog(dir, CONVERSATION, 0, 1)).toBe(false)
+    expect(readFileSync(elsewhere, 'utf8')).toBe('x\n'.repeat(50))
+  })
+})
+
