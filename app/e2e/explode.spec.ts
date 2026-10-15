@@ -105,10 +105,11 @@ test('the parts are drawn apart, what is picked is where the part is, and nothin
   await expect(toggle()).toHaveText('Explode 100 %')
   await expect(toggle()).toHaveAttribute('aria-pressed', 'true')
   await settled(true)
-  // Drawn somewhere else now: as a point of the lid it has moved on screen, and as a point of space it has not.
+  // Drawn somewhere else now: as a point of the lid it is drawn away from where it is as a point of space. (The
+  // slider let go far apart may have framed the parts anew: the camera is not where it was.)
   const moved = await project(lidTop, 'lid')
-  expect(Math.hypot(moved[0] - before[0], moved[1] - before[1])).toBeGreaterThan(0.05)
-  expect(await project(lidTop)).toEqual(before)
+  const space = await project(lidTop)
+  expect(Math.hypot(moved[0] - space[0], moved[1] - space[1])).toBeGreaterThan(0.05)
   // Fit frames the parts where they are drawn: the lid, which went up and out of the middle, is in view, clear of the bars.
   await page.keyboard.press('f')
   const after = await project(lidTop, 'lid')
@@ -402,4 +403,103 @@ test('the view bar is one row for an object with two layouts, apart or together;
   if (moving) expect((await state()).marks.filter((mark) => mark.kind === 'stroke')).toHaveLength(0)
   expect(moving).toBe(true)
   await page.keyboard.press('v')
+})
+
+test('drawn apart by any way, every part stays in sight and clear of the bars; together, the camera goes back to where it was', async () => {
+  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await expect.poll(async () => (await state()).objectId).toBe('hollow')
+  await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
+  if ((await amount()) > 0) await page.keyboard.press('e')
+  await settled(false)
+  const camera = () => page.evaluate(() => window.__tornoTest!.camera())
+  /** The camera once it is at rest: two looks a moment apart see it in one place. */
+  const rest = async () => {
+    let was = await camera()
+    await expect
+      .poll(async () => {
+        await page.waitForTimeout(120)
+        const now = await camera()
+        const still = now.zoom === was.zoom && now.position.every((c, i) => Math.abs(c - was.position[i]) < 1e-6)
+        was = now
+        return still
+      })
+      .toBe(true)
+    return was
+  }
+  /** Whether every corner of every part of the layout, where it is drawn, is on the canvas and below the bars over its top. */
+  const inClearView = async (): Promise<string[]> => {
+    const box = await canvas()
+    const bars = (await page.locator('.viewbars').boundingBox())!
+    const s = await state()
+    const out: string[] = []
+    for (const part of s.scene!.parts.filter((p) => p.layout === s.layout)) {
+      for (let c = 0; c < 8; c++) {
+        const corner = [0, 1, 2].map((i) => ((c >> i) & 1 ? part.bbox.max[i] : part.bbox.min[i])) as Vec3
+        const [fx, fy] = await project(corner, part.name)
+        const y = box.y + fy * box.height
+        if (fx < 0 || fx > 1 || y > box.y + box.height || y < bars.y + bars.height) out.push(`${part.name} ${corner.join(',')}`)
+      }
+    }
+    return out
+  }
+  const sameAs = (a: { position: number[]; zoom: number }, b: { position: number[]; zoom: number }): void => {
+    for (let i = 0; i < 3; i++) expect(a.position[i]).toBeCloseTo(b.position[i], 4)
+    expect(a.zoom).toBeCloseTo(b.zoom, 6)
+  }
+  await page.keyboard.press('1')
+  const home = await rest()
+  // A standard view frames the parts below the bars.
+  expect(await inClearView()).toEqual([])
+
+  // E, along z four times as far: the lid goes up, and the parts are framed anew below the bars, the explode bar among them.
+  await page.keyboard.press('e')
+  await page.getByRole('group', { name: 'Direction' }).getByRole('button', { name: 'Z', exact: true }).click()
+  await page.getByRole('group', { name: 'Distance' }).getByRole('button', { name: '×4' }).click()
+  await settled(true)
+  await rest()
+  await expect(bar()).toBeVisible()
+  expect(await inClearView()).toEqual([])
+  // E again: together, and the camera is where it was.
+  await page.keyboard.press('e')
+  await settled(false)
+  sameAs(await rest(), home)
+
+  // The slider let go far apart: the same rule.
+  await toggle().click()
+  await slider().evaluate((input: HTMLInputElement) => {
+    input.value = '100'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await expect.poll(amount).toBe(1)
+  await settled(true)
+  await rest()
+  expect(await inClearView()).toEqual([])
+  // Slid back to nothing: together, and back.
+  await slider().evaluate((input: HTMLInputElement) => {
+    input.value = '0'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await expect.poll(amount).toBe(0)
+  await settled(false)
+  sameAs(await rest(), home)
+
+  // The agent's show: the same rule, and the same way back.
+  expect((await call('show', { explode: { amount: 1, axis: 'z', scale: 4 } })).isError).toBe(false)
+  await settled(true)
+  await rest()
+  expect(await inClearView()).toEqual([])
+  expect((await call('show', { explode: null })).isError).toBe(false)
+  await settled(false)
+  sameAs(await rest(), home)
+
+  // Moved by the person meanwhile, the camera is theirs: together, it stays where they put it.
+  await page.keyboard.press('e')
+  await settled(true)
+  await page.keyboard.press('2')
+  const theirs = await rest()
+  await page.keyboard.press('e')
+  await settled(false)
+  sameAs(await rest(), theirs)
 })

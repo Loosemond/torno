@@ -83,10 +83,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 ## Explode
 
 - `E` on a layout of one part opens no bar: the button says why for a moment.
-  Drawn apart in one go (a key, an axis or scale button), the camera is fitted
-  only when a part would leave the view, and so is a saved view that draws them apart when it is applied,
-  in the window and in an exported page (`leavesView` in `shared/explode.ts`; `Viewport.keepApartInView`). While the parts are apart no shape is in hand
-  (`connectShapeEdit`).
+  One rule for the camera when the parts are drawn apart, by whatever path (`E`, an axis or scale button, the
+  slider let go, a layout, the agent's `show`, a saved view applied), in the window and in an exported page:
+  the camera stays, and is framed anew only when a part would leave the view (`leavesView` in
+  `shared/explode.ts`; `Viewport.keepApartInView`, asked by `ViewBar` once the explode bar is laid out, and by
+  `ViewsStrip` after a view's camera); together again, it goes back to where it was before that, if nobody
+  moved it meanwhile (`cameraBack`; a view key, Fit, Ortho or Frame make the camera the person's). In the
+  window the view is what the bars over its top leave (`Viewport.setCoveredTop`, measured by `ViewBar`): a
+  view key, Fit, a scan's Frame and that rule frame the parts below them (`fitBelow` in `viewport/views.ts`);
+  a picture for the agent has no bars. Fit, Ortho and Frame act on where the camera is going when it is on its
+  way (`cameraGoal`): a view key and then `F` at once is that view, fitted. While the parts are apart no shape
+  is in hand (`connectShapeEdit`).
 - **Exploded is display only.** `Part.loc`, `Part.bbox`, every anchor, every
   `points` of a dimension and everything the kernel is asked are of the parts
   as built. `Viewport.setExplode` moves each part's group (`placePart`, the

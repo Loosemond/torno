@@ -228,7 +228,13 @@ test('a drag turns the camera and selects nothing', async () => {
   await expect.poll(async () => (await camera()).position).not.toEqual(before.position)
   expect((await state()).selection).toEqual([])
   await page.getByRole('button', { name: 'Top', exact: true }).click()
-  await expect.poll(async () => Math.abs((await camera()).position[0]) + Math.abs((await camera()).position[1])).toBeLessThan(0.05)
+  // Straight down again (framed below the bars over the view, so not over the origin itself).
+  await expect
+    .poll(async () => {
+      const now = await camera()
+      return Math.abs(now.position[0] - now.target[0]) + Math.abs(now.position[1] - now.target[1])
+    })
+    .toBeLessThan(0.05)
 })
 
 test('Insert puts the selected refs in the prompt of the running session, and does not send them', async () => {

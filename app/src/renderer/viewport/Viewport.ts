@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { type ExplodeState, isExploded, sameExplode } from '../../shared/explode'
+import { type ExplodeState, cameraBack, isExploded, sameExplode } from '../../shared/explode'
 import type { Mark, Quat } from '../../shared/marks'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanTransform, ScanView } from '../../shared/scans'
@@ -27,7 +27,7 @@ import { ScanLayer, rayOf, reaching, type ScanHit, type ScanLayerState } from '.
 import { SectionCut, nearSegmentOnScreen, segmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { type Theme, LIGHT_THEME, markColours, themeOf, toHex } from './theme'
-import { DEFAULT_FOV, fitCamera, lockedViewOf, viewDirection } from './views'
+import { DEFAULT_FOV, fitBelow, fitCamera, lockedViewOf, viewDirection } from './views'
 
 export interface LayerState {
   visible?: boolean
@@ -90,6 +90,10 @@ export class Viewport {
   private readonly settledListeners: ((c: Camera) => void)[] = []
   private readonly drawnListeners = new Set<() => void>()
   private readonly sectionListeners = new Set<(plane: SectionPlane | null) => void>()
+  /** How many pixels at the top of the canvas the bars floating over it cover: what is framed on screen is framed below them. */
+  private coveredTop = 0
+  /** The camera before the parts drawn apart were framed anew (`keepApartInView`), and the one they were framed by: gone back to when they come together, if the camera is still that one. */
+  private framedApart: { before: Camera; after: Camera } | null = null
   private readonly move = new CameraMove()
   private disposed = false
 
@@ -453,23 +457,53 @@ export class Viewport {
     this.apart.set(to, this.partsOf(this.layout), animate && !still ? performance.now() : undefined)
     this.placeParts()
     this.invalidate()
+    if (to === null) this.backFromApart()
   }
 
   /**
-   * Frames the parts again when one of them, drawn apart, would leave the view where it is going (`leavesView`);
-   * leaves the camera alone otherwise. Asked when the person draws the parts apart in one go (a key, a button):
-   * the camera is theirs, and is moved only so that no part goes out of sight. True when it was moved.
+   * The parts are together again: the camera goes back to where it was before drawing them apart framed them
+   * anew, when nobody has moved it since. One rule both ways: framed on the way out only to keep every part in
+   * sight, and put back on the way in.
+   */
+  private backFromApart(): void {
+    const back = cameraBack(this.framedApart, this.cameraGoal())
+    this.framedApart = null
+    if (back) this.setView(back, true)
+  }
+
+  /**
+   * Frames the parts again when one of them, drawn apart, would leave the view where it is going, or go under
+   * the bars over its top (`leavesView`, `setCoveredTop`); leaves the camera alone otherwise. Asked whenever the
+   * parts are drawn apart otherwise, by whatever path (the view bar, once it is laid out), and when a saved view is
+   * applied: the camera is theirs, and is moved only so that no part goes out of sight. What it was before is
+   * gone back to when the parts come together (`backFromApart`). True when it was moved.
    */
   keepApartInView(): boolean {
     if (!this.apart.any) return false
     this.syncMatrices()
+    // Where the camera is going, when it is on its way; and the view is what the bars over its top leave of it.
+    const goal = this.move.goal
+    const camera = goal ? this.cameraFor(goal, this.aspect, this.extent) : this.camera
+    const height = this.canvas.clientHeight
+    const clear = height > 0 ? Math.max(height - Math.min(this.coveredTop, height / 2), 1) / height : 1
     const seen = (point: Vec3): [number, number] => {
-      const v = new THREE.Vector3().fromArray(point).project(this.camera)
-      return [v.x, v.y]
+      const v = new THREE.Vector3().fromArray(point).project(camera)
+      return [v.x, (v.y + 1) / clear - 1]
     }
     if (!leavesView(this.shownParts(), this.apart.target(), seen)) return false
-    this.fit()
+    // Framed anew a second time, the camera goes back to where it was before the first.
+    const before = cameraBack(this.framedApart, this.cameraGoal()) ?? this.cameraGoal()
+    this.fitVisible()
+    this.framedApart = { before, after: this.getCamera() }
     return true
+  }
+
+  /**
+   * How many pixels at the top of the canvas the bars floating over it cover. A view key, Fit, a scan's Frame
+   * and `keepApartInView` frame the parts in what the bars leave; a picture for the agent has no bars.
+   */
+  setCoveredTop(px: number): void {
+    this.coveredTop = Number.isFinite(px) ? Math.max(px, 0) : 0
   }
 
   /** Whether the parts are drawn apart, or are on their way there or back: what is on screen is then not where they are. */
@@ -547,7 +581,9 @@ export class Viewport {
 
   /** Goes to a standard view, fitted to the visible parts in the current projection, or to a given camera. */
   setView(v: ViewName | Camera, animate = false): void {
-    const to = typeof v === 'string' ? this.namedCamera(v, this.visibleBox(), this.aspect, this.camera === this.orthographic) : v
+    // Sent somewhere: the camera is no longer the one drawing the parts apart framed.
+    this.framedApart = null
+    const to = typeof v === 'string' ? this.onScreen(this.visibleBox(), viewDirection(v), this.camera === this.orthographic) : v
     const from = this.getCamera()
     if (animate && from.ortho === to.ortho) {
       this.move.begin(from, to, performance.now())
@@ -562,6 +598,7 @@ export class Viewport {
   setOrtho(ortho: boolean): void {
     const c = this.cameraGoal()
     if (c.ortho === ortho) return
+    this.framedApart = null
     this.move.drop()
     if (ortho) {
       this.applyCamera({ ...c, ortho: true })
@@ -577,10 +614,16 @@ export class Viewport {
    * (a view key pressed just before): the turn is not left halfway.
    */
   fit(): void {
+    // Framed by the person's own asking: theirs from now, also when the parts come together.
+    this.framedApart = null
+    this.fitVisible()
+  }
+
+  private fitVisible(): void {
     const c = this.cameraGoal()
     const dir = c.target.map((t, i) => t - c.position[i])
     this.move.drop()
-    this.applyCamera(fitCamera(this.visibleBox(), dir, c.up, this.aspect, this.fov, c.ortho))
+    this.applyCamera(this.onScreen(this.visibleBox(), { dir, up: c.up }, c.ortho))
   }
 
   /**
@@ -591,10 +634,11 @@ export class Viewport {
   frameScan(id: string): boolean {
     const box = this.scans.state().find((scan) => scan.id === id)?.visible ? this.scans.boxIn([id], this.layout) : null
     if (!box) return false
+    this.framedApart = null
     const c = this.cameraGoal()
     const dir = c.target.map((t, i) => t - c.position[i])
     this.move.drop()
-    this.applyCamera(fitCamera(withBox(this.visibleBox(), box)!, dir, c.up, this.aspect, this.fov, c.ortho))
+    this.applyCamera(this.onScreen(withBox(this.visibleBox(), box)!, { dir, up: c.up }, c.ortho))
     return true
   }
 
@@ -1038,6 +1082,13 @@ export class Viewport {
 
   // ---- camera ----
 
+  /** A camera on screen that looks along `dir` and frames `box` in what the bars over the canvas leave of it. */
+  private onScreen(box: { min: number[]; max: number[] }, { dir, up }: { dir: number[]; up: number[] }, ortho: boolean): Camera {
+    const [width, height] = [this.canvas.clientWidth, this.canvas.clientHeight]
+    if (width === 0 || height === 0) return fitCamera(box, dir, up, this.aspect, this.fov, ortho)
+    return fitBelow(box, dir, up, width, height, this.coveredTop, this.fov, ortho)
+  }
+
   private namedCamera(name: ViewName, box: { min: number[]; max: number[] }, aspect: number, ortho: boolean): Camera {
     const { dir, up } = viewDirection(name)
     return fitCamera(box, dir, up, aspect, this.fov, ortho)
@@ -1079,6 +1130,13 @@ export class Viewport {
 
   /** A camera of its own for a picture of a view, with its frustum around `extent`; the key light is aimed along it. */
   private pictureCamera(view: Camera, aspect: number, extent: THREE.Sphere): AnyCamera {
+    const camera = this.cameraFor(view, aspect, extent)
+    this.aimKeyLight(camera, new THREE.Vector3().fromArray(view.target))
+    return camera
+  }
+
+  /** A three.js camera of a view, with its frustum around `extent` and its matrices current. */
+  private cameraFor(view: Camera, aspect: number, extent: THREE.Sphere): AnyCamera {
     const camera: AnyCamera = view.ortho ? new THREE.OrthographicCamera() : new THREE.PerspectiveCamera()
     camera.up.fromArray(view.up)
     camera.position.fromArray(view.position)
@@ -1086,7 +1144,7 @@ export class Viewport {
     const target = new THREE.Vector3().fromArray(view.target)
     camera.lookAt(target)
     setProjection(camera, target, view.fov, aspect, extent)
-    this.aimKeyLight(camera, target)
+    camera.updateMatrixWorld()
     return camera
   }
 

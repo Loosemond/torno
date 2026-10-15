@@ -49,13 +49,12 @@ function whyNot(s: TornoState): string | null {
  * them together when they are apart. Where it cannot (one part, a section, a shared centre) the bar opens and
  * says why for a moment.
  */
-export function toggleExplode(viewport?: Pick<Viewport, 'keepApartInView'>): void {
+export function toggleExplode(): void {
   const s = store.getState()
   const apart = explodeNow(s)
   const refused = apart ? null : (whyNot(s) ?? actions.setExplode({ amount: lastAmounts.get(keyOf(s)) ?? FIRST_AMOUNT }))
+  // The camera stays as it is, unless a part would go out of sight: the view bar's rule, for every way of drawing them apart.
   if (apart) actions.setExplode({ amount: 0 })
-  // Drawn apart in one go: the camera stays as it is, unless a part would go out of sight.
-  else if (refused === null) viewport?.keepApartInView()
   say(refused)
 }
 
@@ -208,9 +207,7 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
             aria-pressed={kept.axis === axis}
             title={title}
             disabled={nothing}
-            onClick={() => {
-              if (actions.setExplode({ axis }) === null) viewport.keepApartInView()
-            }}
+            onClick={() => actions.setExplode({ axis })}
           >
             {label}
           </button>
@@ -219,9 +216,7 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
       <span className="viewbar-rule" aria-hidden="true" />
       <div className="viewbar-group" role="group" aria-label="Distance">
         {SCALES.map((scale) => (
-          <button key={scale} type="button" className="bar-button num" aria-pressed={kept.scale === scale} title={`${number(scale)} times the reach of the layout at 100 %`} disabled={nothing} onClick={() => {
-            if (actions.setExplode({ scale }) === null) viewport.keepApartInView()
-          }}>
+          <button key={scale} type="button" className="bar-button num" aria-pressed={kept.scale === scale} title={`${number(scale)} times the reach of the layout at 100 %`} disabled={nothing} onClick={() => actions.setExplode({ scale })}>
             ×{number(scale)}
           </button>
         ))}

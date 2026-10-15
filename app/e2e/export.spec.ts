@@ -194,9 +194,12 @@ test('an object is exported to the path that was chosen, and the file opens by i
     expect(await file.ask<string | null>('window.__tornoExport.undrawn()')).toBe('a frame was drawn, and nothing of the parts is in it')
     await file.ask('window.__tornoExport.setPart("tub", true); window.__tornoExport.setPart("lid", true)')
     // Exploded, the lid is drawn somewhere else; a section puts the parts together again.
+    const home = (await file.pageState()).camera
     await file.ask('window.__tornoExport.setExplode(1, "z")')
     const apart = await file.pageState()
     expect(apart.parts.find((p) => p.name === 'lid')!.offset[2]).toBeGreaterThan(1)
+    // The lid would be out of sight above: the parts are framed anew, as in torno.
+    expect(apart.camera.position).not.toEqual(home.position)
     expect(await file.ask<string>('document.getElementById("said").textContent')).toBe('Parts drawn apart for display')
     await file.ask('window.__tornoExport.setSection("z", 0.5)')
     const cut = await file.pageState()
@@ -204,7 +207,10 @@ test('an object is exported to the path that was chosen, and the file opens by i
     expect(cut.section).toEqual({ origin: [0, 0, 20], normal: [0, 0, 1] })
     expect(cut.parts.every((p) => p.offset.every((c) => c === 0))).toBe(true)
     expect(await file.ask<string>('document.getElementById("said").textContent')).toBe('Cut open for display')
-    // The page framed the parts anew when the lid went out of sight above; "Fit" frames them as they are together.
+    // Together again, the camera is back where it was before the parts were framed apart: nobody moved it since.
+    for (let i = 0; i < 3; i++) expect(cut.camera.position[i]).toBeCloseTo(home.position[i], 6)
+    expect(cut.camera.zoom).toBeCloseTo(home.zoom, 9)
+    // "Fit" frames them as they are together.
     await file.ask('[...document.querySelectorAll("#panel button")].find((b) => b.textContent === "Fit").click()')
     // Cut at half its height, the lid is in the half taken away, and the tub is open: its inside is drawn, in another tone than its outside.
     const inside = await file.ask<number[]>('window.__tornoExport.pixel(0.4, 0.5)')

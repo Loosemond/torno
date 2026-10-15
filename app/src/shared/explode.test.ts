@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { EXPLODED_NOTE, NO_EXPLODE, explodeArg, explodeOf, explodeOffsets, explodeShown, explodeText, isExploded, nothingApart, nothingApartText } from './explode'
+import { EXPLODED_NOTE, NO_EXPLODE, cameraBack, explodeArg, explodeOf, explodeOffsets, explodeShown, explodeText, isExploded, nothingApart, nothingApartText } from './explode'
+import type { Camera } from './view'
 
 const tray = { name: 'tray', bbox: { min: [-20, -15, 0] as [number, number, number], max: [20, 15, 10] as [number, number, number] } }
 const lid = { name: 'lid', bbox: { min: [-20, -15, 10] as [number, number, number], max: [20, 15, 12] as [number, number, number] } }
@@ -175,5 +176,23 @@ describe('explodeOffsets of parts named like what every object has', () => {
     // Nor when nothing is apart: there is then no part it answers for, whatever the part is called.
     expect(explodeOffsets([{ name: 'constructor', bbox: box(0) }, { name: 'lid', bbox: box(10) }], null).constructor).toBeUndefined()
     expect(explodeOffsets([{ name: 'constructor', bbox: box(0) }, { name: 'toString', bbox: box(0) }], { amount: 1, scale: 1, axis: 'centre' }).toString).toBeUndefined()
+  })
+})
+
+describe('cameraBack', () => {
+  const ISO: Camera = { position: [100, -100, 80], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
+  const OUT: Camera = { ...ISO, position: [150, -150, 120] }
+
+  it('is where the camera was before the parts drawn apart were framed anew, while it is still where that framing put it', () => {
+    expect(cameraBack({ before: ISO, after: OUT }, OUT)).toEqual(ISO)
+    // A float's worth off is the same camera: one read back from three.js.
+    expect(cameraBack({ before: ISO, after: OUT }, { ...OUT, position: [150 + 1e-9, -150, 120] })).toEqual(ISO)
+  })
+
+  it('is nowhere once the camera was moved since, or when nothing was framed', () => {
+    expect(cameraBack({ before: ISO, after: OUT }, { ...OUT, position: [151, -150, 120] })).toBeNull()
+    expect(cameraBack({ before: ISO, after: OUT }, { ...OUT, zoom: 1.5 })).toBeNull()
+    expect(cameraBack({ before: ISO, after: OUT }, { ...OUT, ortho: true })).toBeNull()
+    expect(cameraBack(null, OUT)).toBeNull()
   })
 })

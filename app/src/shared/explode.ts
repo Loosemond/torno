@@ -1,5 +1,6 @@
 import { number } from './format'
 import type { Vec3 } from './marks'
+import type { Camera } from './view'
 
 // Explode: the parts of one layout drawn apart, for display only. Nothing here is geometry: a part is where the
 // build placed it, and what is worked out below is only how far from there the viewport draws it. No position,
@@ -179,4 +180,21 @@ export function leavesView(parts: readonly ExplodePart[], offsets: Readonly<Reco
     }
   }
   return false
+}
+
+/**
+ * Where the camera goes back to when the parts come together: where it was before drawing them apart framed
+ * them anew (`framed.before`, kept by whoever framed them for `leavesView`), if it is still where that framing
+ * put it (`framed.after`); null once anybody has moved it since, or when nothing was framed. One rule both ways,
+ * in the window and in an exported page: framed on the way out only to keep every part in sight, and put back
+ * on the way in.
+ */
+export function cameraBack(framed: { before: Camera; after: Camera } | null, now: Camera): Camera | null {
+  return framed && sameCamera(now, framed.after) ? framed.before : null
+}
+
+/** Whether two cameras are one, to a millionth: one read back as it was set. */
+function sameCamera(a: Camera, b: Camera): boolean {
+  const near = (x: readonly number[], y: readonly number[]): boolean => x.length === y.length && x.every((c, i) => Math.abs(c - y[i]) <= 1e-6 * Math.max(1, Math.abs(c)))
+  return a.ortho === b.ortho && near(a.position, b.position) && near(a.target, b.target) && near(a.up, b.up) && near([a.zoom, a.fov], [b.zoom, b.fov])
 }

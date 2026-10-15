@@ -1,6 +1,6 @@
 import { themeOf } from '../../renderer/viewport/theme'
 import { towardsViewer } from '../../shared/cut'
-import { type ExplodeState, NO_EXPLODE, explodeOf, explodeOffsets, explodeShown, leavesView, neverBoth, nothingApart } from '../../shared/explode'
+import { type ExplodeState, NO_EXPLODE, cameraBack, explodeOf, explodeOffsets, explodeShown, leavesView, neverBoth, nothingApart } from '../../shared/explode'
 import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type MeshArrays, apartParts, record, unpackMesh, unpackScan } from '../../shared/exportdata'
 import type { Vec3 } from '../../shared/marks'
 import { type Camera, type SectionPlane, type ViewName, axisForm, planeOf } from '../../shared/view'
@@ -185,9 +185,25 @@ function start(): void {
     }
     return leavesView(parts().filter((part) => state().visible[part.name] !== false), moved, seen)
   }
-  /** After the parts were drawn apart otherwise, or a view applied: the camera stays, unless a part would be out of sight. */
+  /** The camera before the parts drawn apart were framed anew, and the one they were framed by (`cameraBack`). */
+  let framedApart: { before: Camera; after: Camera } | null = null
+  /**
+   * After the parts were drawn apart otherwise, put together, or a view applied: the camera stays, unless a part
+   * would be out of sight, and is then framed anew; together again, it goes back to where it was before that,
+   * if nobody moved it meanwhile. The app's rule, both ways.
+   */
   const keepInView = (): void => {
-    if (leaves()) model.fit()
+    const now = model.getCamera()
+    if (Object.keys(offsets()).length === 0) {
+      const back = cameraBack(framedApart, now)
+      framedApart = null
+      if (back) model.setCamera(back)
+      return
+    }
+    if (!leaves()) return
+    const before = cameraBack(framedApart, now) ?? now
+    model.fit()
+    framedApart = { before, after: model.getCamera() }
   }
 
   const said = document.createElement('p')
@@ -380,6 +396,8 @@ function start(): void {
       }
       changed()
       refresh()
+      // Put together by the cut: the camera goes back as it would by hand.
+      keepInView()
     },
     flip() {
       const st = state()

@@ -1,7 +1,7 @@
 import { VIEW_KEYS, hint, pressed, which } from '../../shared/keys'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ViewName } from '../../shared/view'
-import { actions, store, useStore } from '../state/store'
+import { actions, explodeNow, store, useStore } from '../state/store'
 import type { Viewport } from '../viewport/Viewport'
 import { ExplodeBar, ExplodeToggle, toggleExplode } from './ExplodeControl'
 import { TYPING } from './typing'
@@ -28,6 +28,33 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
   const locked = useStore((s) => s.lockedView)
   const [moreOpen, setMoreOpen] = useState(false)
   const more = useRef<HTMLDivElement>(null)
+  const bars = useRef<HTMLDivElement>(null)
+  // How the parts of the layout shown are drawn apart, as kept: each change of it, by whatever path, is judged once
+  // it is laid out, below.
+  const apart = useStore((s) => explodeNow(s))
+
+  // What the bars cover of the top of the view: what is framed on screen is framed below them.
+  const covered = (): void => {
+    const el = bars.current
+    if (el) viewport.setCoveredTop(el.getBoundingClientRect().bottom - viewport.canvas.getBoundingClientRect().top)
+  }
+  useLayoutEffect(() => {
+    covered()
+    const sized = new ResizeObserver(covered)
+    if (bars.current) sized.observe(bars.current)
+    return () => sized.disconnect()
+  }, [viewport])
+
+  // The one rule for the camera when the parts are drawn apart, whatever drew them apart (`E`, the bar's
+  // buttons, its slider let go, a layout, the agent's `show`): it stays, unless a part would go out of sight
+  // or behind the bars, and is then framed anew (`keepApartInView`); back together, it goes back to where it
+  // was if nobody moved it meanwhile (`Viewport.setExplode`). After the layout, so that the explode bar, which
+  // comes with the parts apart, is among what covers the view.
+  useLayoutEffect(() => {
+    if (!apart) return
+    covered()
+    viewport.keepApartInView()
+  }, [apart, viewport])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -38,7 +65,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       else if (pressed(e, 'fit')) viewport.fit()
       else if (pressed(e, 'ortho')) setOrtho(viewport, !store.getState().ortho)
       // After the tool in hand, which was offered the key first (the viewport pane listens before this bar does).
-      else if (pressed(e, 'explode')) toggleExplode(viewport)
+      else if (pressed(e, 'explode')) toggleExplode()
       else return
       e.preventDefault()
     }
@@ -68,7 +95,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
   const lockedMore = MORE_VIEWS.find((v) => v.view === locked)
 
   return (
-    <div className="viewbars">
+    <div className="viewbars" ref={bars}>
       <div className="viewbar" role="toolbar" aria-label="View">
       {layouts.length > 1 && (
         <>
