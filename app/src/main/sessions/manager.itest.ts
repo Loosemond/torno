@@ -1262,6 +1262,45 @@ describe('a chat session', () => {
     await expect.poll(() => c.statuses.at(-1)).toBe('idle')
   })
 
+  it('is idle after an interrupt though prompts were queued behind the turn: the CLI drops them', async () => {
+    const c = await chat()
+    c.send('slow 5')
+    c.send('say never run')
+    c.send('say nor this')
+    await expect.poll(() => c.statuses.at(-1)).toBe('working')
+    await expect.poll(() => c.messages.some((m) => m.type === 'stream_event')).toBe(true)
+    await c.sessions.control(c.sessionId, { subtype: 'interrupt' })
+    await expect.poll(() => c.results().length).toBe(1)
+    await expect.poll(() => c.statuses.at(-1)).toBe('idle')
+    // Nothing ran after it.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(c.results()).toHaveLength(1)
+    expect(c.statuses.at(-1)).toBe('idle')
+  })
+
+  it('is idle after a prompt that is no turn, followed by one that is: no result is waited for', async () => {
+    const c = await chat()
+    c.send('/noop')
+    await expect.poll(() => c.messages.filter((m) => m.type === 'system').length).toBe(1)
+    c.send('say real')
+    await expect.poll(() => c.results().length).toBe(1)
+    await expect.poll(() => c.statuses.at(-1)).toBe('idle')
+    // And a third turn still ends in idle.
+    c.send('say again')
+    await expect.poll(() => c.results().length).toBe(2)
+    await expect.poll(() => c.statuses.at(-1)).toBe('idle')
+  })
+
+  it('interrupts a busy session before it ends it: gone well before the SIGTERM', async () => {
+    const c = await chat()
+    c.send('slow 10')
+    await expect.poll(() => c.messages.some((m) => m.type === 'stream_event')).toBe(true)
+    const began = Date.now()
+    await c.sessions.stop(c.sessionId)
+    expect(Date.now() - began).toBeLessThan(1500)
+    expect(c.statuses.at(-1)).toBe('exited')
+  })
+
   it('sets the model of the session through a control request', async () => {
     const c = await chat()
     expect(await c.sessions.control(c.sessionId, { subtype: 'set_model', model: 'haiku' })).toEqual({})

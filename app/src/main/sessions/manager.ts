@@ -47,8 +47,12 @@ interface Session extends Told {
   stream: ClaudeStream | null
   /** A chat session: the ids of the requests of the CLI's that wait for the person. */
   asks: Set<string>
-  /** A chat session: prompts sent that have not had their `result` yet. */
-  outstanding: number
+  /**
+   * A chat session: prompts sent that the CLI has not taken up yet (it says so with an `init` for each). A `result`
+   * with none of them waiting is the end of what it was doing: idle. Not a count of results to come, which a prompt
+   * that is no turn (a slash command) never gives, and an interrupt may drop.
+   */
+  unstarted: number
   /** A chat session: what the CLI answered `initialize` with, once it has. */
   capabilities?: Capabilities
   exited: Promise<void>
@@ -253,7 +257,7 @@ export class Sessions {
       pty: child,
       stream,
       asks: new Set(),
-      outstanding: 0,
+      unstarted: 0,
       exited: new Promise<void>((resolve) => (ended = resolve)),
       adapter,
       // A conversation that is resumed has seen the marks only if a line of torno's was sent in it.
@@ -385,7 +389,7 @@ export class Sessions {
   prompt(sessionId: string, content: PromptBlock[]): void {
     const s = this.chat(sessionId, 'prompt')
     if (!s?.stream) return
-    s.outstanding += 1
+    s.unstarted += 1
     s.stream.prompt(content, s.conversationId)
   }
 
@@ -403,7 +407,16 @@ export class Sessions {
   /** A chat session: a request of ours to its agent (`interrupt`, `set_model`, `initialize`), resolved with its answer. */
   control(sessionId: string, request: { subtype: string; [key: string]: unknown }): Promise<unknown> {
     const s = this.chat(sessionId, 'control')
-    return s?.stream ? s.stream.control(request) : Promise.reject(new Error('This is not a chat session, or it has ended'))
+    if (!s?.stream) return Promise.reject(new Error('This is not a chat session, or it has ended'))
+    const answer = s.stream.control(request)
+    // What the CLI says is still queued after an interrupt is all that will be taken up; the rest was dropped.
+    if (request.subtype === 'interrupt') {
+      void answer.then((a) => {
+        const queued = (a as { still_queued?: unknown } | undefined)?.still_queued
+        s.unstarted = Math.min(s.unstarted, Array.isArray(queued) ? queued.length : 0)
+      }, () => undefined)
+    }
+    return answer
   }
 
   /** A chat session: the slash commands and models its agent said it has, once it has said. */
@@ -424,10 +437,10 @@ export class Sessions {
     stream.on('message', (message) => {
       this.advance(session, 'output')
       // The hooks say when a turn is over; but not one that was interrupted, which posts no `Stop`.
-      if (message.type === 'result') {
-        session.outstanding = Math.max(0, session.outstanding - 1)
-        if (session.outstanding === 0) this.advance(session, 'Stop')
-      }
+      if (message.type === 'system' && message.subtype === 'init') session.unstarted = Math.max(0, session.unstarted - 1)
+      // After the microtasks of this read, so that the answer to an interrupt that came in the same chunk has been
+      // taken into account (`control`).
+      if (message.type === 'result') queueMicrotask(() => session.unstarted === 0 && this.advance(session, 'Stop'))
       this.emit('stream', { sessionId: session.id, objectId: session.object.id, message })
     })
     stream.on('ask', (request) => {
@@ -471,6 +484,8 @@ export class Sessions {
     } else if (!s.killTimer && s.stream) {
       // Its stdin ends and it leaves by itself; one that does not is asked to, then killed, with what it started.
       const { pid } = s.stream
+      // One at work is interrupted first, so that it does not run its turn out (or its tools) before it goes.
+      if (s.status === 'working' || s.status === 'needs_input') s.stream.control({ subtype: 'interrupt' }, 1000).catch(() => undefined)
       s.stream.end()
       s.termTimer = setTimeout(() => signalGroup(pid, 'SIGTERM'), TERM_AFTER_MS)
       s.killTimer = setTimeout(() => killGroup(pid), 2 * TERM_AFTER_MS)
@@ -500,7 +515,14 @@ export class Sessions {
   }
 
   private emit<E extends keyof Events>(event: E, message: Events[E]): void {
-    for (const cb of this.listeners[event]) cb(message)
+    // A listener that throws is logged and does not keep the others, or the stream that feeds it, from going on.
+    for (const cb of this.listeners[event]) {
+      try {
+        cb(message)
+      } catch (e) {
+        console.error(`a listener of ${event} threw: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
   }
 
   private advance(session: Session, event: string, body?: unknown): void {

@@ -29,12 +29,14 @@
 // it speaks that protocol on stdout and stdin, one JSON object per line, and prints nothing else. It follows
 // app/test/fixtures/claude-stream.jsonl:
 //   - `control_request` `initialize` is answered with two commands and two models, `set_model` with `{}` (the
-//     model is then the `model` of the next `init`), `interrupt` with `{ still_queued: [] }`, and ends the turn in
+//     model is then the `model` of the next `init`), `interrupt` with `{ still_queued: [] }` (the prompts waiting are
+//     dropped), and ends the turn in
 //     progress: a `user` message `[Request interrupted by user]` and a `result` of `error_during_execution`;
 //   - each `user` message is a prompt, run in turn (prompts that come while one runs wait): it posts
 //     `UserPromptSubmit` (`session_id`, `prompt`) to the hook URL of its --settings, if there is one, emits
 //     `system`/`init` (with `fake_argv`, its arguments) and, for what the hook answered, a `system`/`hook_response`,
 //     runs the script that is the prompt's text, posts `Stop` and emits `result`;
+//   - a prompt `/noop` is no turn: an `init` and nothing else;
 //   - the script is one command per line (a line that is none is `say <line>`):
 //       say <text>                a streamed text, then the whole assistant message
 //       tool <name> <json input>  a tool_use, PreToolUse/PostToolUse, a tool_result `ran <name>`; for a name that
@@ -198,6 +200,11 @@ async function streamMode() {
   async function prompt(content) {
     const text = content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')
     const started = Date.now()
+    // A prompt that is no turn (a slash command that only does something): an init, no hooks, no result.
+    if (text.trim() === '/noop') {
+      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [], fake_argv: argv, ...base, uuid: next('uuid') })
+      return
+    }
     let release
     turn = { aborted: false, interrupted: new Promise((resolve) => (release = resolve)) }
     turn.interrupt = () => {
@@ -239,6 +246,8 @@ async function streamMode() {
       model = request.model
       reply({})
     } else if (request?.subtype === 'interrupt') {
+      // What was queued behind the turn is dropped, as the CLI does.
+      queue.length = 0
       reply({ still_queued: [] })
       turn?.interrupt()
     } else {

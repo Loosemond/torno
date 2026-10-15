@@ -95,6 +95,20 @@ describe('the framing of what the CLI prints', () => {
     expect((cli.messages[0].pad as string).length).toBe(3_000_000)
   })
 
+  it('goes on reading when a listener throws: the throw is a note', async () => {
+    const cli = open(`
+      const w = (s) => process.stdout.write(s)
+      w('{"type":"a"}\\n')
+      setTimeout(() => { w('{"type":"b"}\\n{"type":"c"}\\n'); process.exit(0) }, 50)
+    `)
+    cli.stream.on('message', (m) => {
+      if (m.type === 'a') throw new Error('boom')
+    })
+    await new Promise<void>((resolve) => cli.stream.on('exit', () => resolve()))
+    expect(cli.types()).toEqual(['a', 'b', 'c'])
+    expect(cli.notes.some((n) => n.includes('boom'))).toBe(true)
+  })
+
   it('reads the last line though it has no line break', async () => {
     const cli = open(`process.stdout.write('{"type":"one"}\\n{"type":"last"}'); process.exit(0)`)
     await new Promise<void>((resolve) => cli.stream.on('exit', () => resolve()))

@@ -137,7 +137,14 @@ export class ClaudeStream {
   }
 
   private emit<E extends keyof Events>(event: E, ...args: Parameters<Events[E]>): void {
-    for (const cb of this.listeners[event]) (cb as (...a: Parameters<Events[E]>) => void)(...args)
+    // A listener that throws must not stop the reading: it is a note (and a note's own listener is let be).
+    for (const cb of this.listeners[event]) {
+      try {
+        ;(cb as (...a: Parameters<Events[E]>) => void)(...args)
+      } catch (e) {
+        if (event !== 'note') this.emit('note', `a listener of ${event} threw: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
   }
 
   /** Text as it comes: whole lines are handled, the rest waits for its end. */
