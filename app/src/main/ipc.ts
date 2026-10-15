@@ -29,7 +29,8 @@ import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToM
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
-import { sessionSaid } from '../shared/agents'
+import { AGENT_VIEWS, sessionSaid } from '../shared/agents'
+import type { ChatAnswer } from '../shared/chat'
 import type { AgentId, AgentView } from '../shared/bridge'
 import { adapters } from './sessions/adapter'
 import { installedAgents, readChoice, writeChoice } from './sessions/choice'
@@ -42,18 +43,25 @@ import { scanOrder, scanWorkspace } from './workspace'
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
-//           session:current, session:start, session:stop,
+//           session:current, session:start, session:stop, session:chooseView,
+//           chat:history, chat:send, chat:interrupt, chat:setModel,
 //           marks:list, marks:add, marks:update, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
 //           show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
-//           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert
+//           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
+//           chat:answer
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
-//           session:data, session:status, workspace:requested and window:closeAsked (sent by src/main/index.ts,
+//           session:data, session:status, chat:item, chat:meta, workspace:requested and window:closeAsked (sent by src/main/index.ts,
 //           which hears the answer, window:closeAnswer),
 //           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
+
+/** The longest prompt the window may send. */
+const MAX_PROMPT_CHARS = 200_000
+/** A model as the CLI names one: an alias (`sonnet`) or an id, possibly with a context suffix (`claude-opus-4-5[1m]`). */
+const MODEL_NAME = /^[A-Za-z0-9._:[\]-]{1,100}$/
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the newest scan that has ended
@@ -409,6 +417,8 @@ export function registerIpc(
   sessions?.on('data', (m) => broadcast('session:data', m))
   sessions?.on('status', (m) => broadcast('session:status', m))
   sessions?.on('status', () => cardsChanged())
+  sessions?.on('item', (m) => broadcast('chat:item', { sessionId: m.sessionId, item: m.item, seq: m.seq }))
+  sessions?.on('meta', (m) => broadcast('chat:meta', { sessionId: m.sessionId, meta: m.meta, seq: m.seq }))
   sessions?.on('send', (m) => broadcast('session:send', { sessionId: m.sessionId, state: m.state, marks: m.marks, ...(m.why ? { why: m.why } : {}) }))
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')
@@ -540,6 +550,17 @@ export function registerIpc(
     await writeChoice(obj.dir, { agent })
   })
 
+  // The view is of the sessions to come, as the agent is: the one that runs is ended first.
+  ipcMain.handle('session:chooseView', async (_event, objectId: string, view: AgentView) => {
+    const obj = findObject(String(objectId))
+    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
+    if (view !== 'chat' && view !== 'terminal') throw new Error(`no view named ${String(view).slice(0, 40)}`)
+    if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Error('End the session first')
+    const { agent } = await readChoice(obj.dir)
+    if (!AGENT_VIEWS[agent].includes(view)) throw new Error(`${adapters()[agent].label} has no ${view} view`)
+    await writeChoice(obj.dir, { agent, view })
+  })
+
   ipcMain.handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
 
   // What a window types or inserts goes only to a session the manager has in a folder of the open
@@ -562,6 +583,36 @@ export function registerIpc(
 
   ipcMain.on('session:resize', (_event, sessionId: string, cols: number, rows: number) => {
     sessions?.resize(String(sessionId), cols, rows)
+  })
+
+  // The conversation of a chat session. The window names a session and is not taken at its word: it must be one of
+  // the open workspace. A transcript is readable after its session has ended; nothing else is allowed then.
+  ipcMain.handle('chat:history', (_event, sessionId: string) => {
+    const history = sessions && sessionOfWorkspace(sessions.chatOf(String(sessionId)), current?.info.root) ? sessions.history(String(sessionId)) : undefined
+    if (!history) throw new Error('There is no such conversation')
+    return history
+  })
+
+  ipcMain.handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown }) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
+    if (typeof prompt?.text !== 'string' || prompt.text.length > MAX_PROMPT_CHARS) throw new Error('Nothing to send')
+    await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true })
+  })
+
+  ipcMain.on('chat:answer', (_event, sessionId: string, requestId: string, answer: ChatAnswer) => {
+    if (typeof requestId === 'string' && ofThisWorkspace(String(sessionId))) sessions?.respond(String(sessionId), requestId, answer)
+  })
+
+  ipcMain.handle('chat:interrupt', async (_event, sessionId: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
+    await requireSessions().control(String(sessionId), { subtype: 'interrupt' })
+  })
+
+  // For the session alone: the CLI is told, and the person's own settings are not touched.
+  ipcMain.handle('chat:setModel', async (_event, sessionId: string, model: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
+    if (typeof model !== 'string' || !MODEL_NAME.test(model)) throw new Error('Not a model name')
+    await requireSessions().control(String(sessionId), { subtype: 'set_model', model })
   })
 
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.

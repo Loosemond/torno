@@ -1,4 +1,5 @@
 import type { BuildState } from './build'
+import type { ChatAnswer, ChatHistory, ChatItem, ChatMeta } from './chat'
 import type { ExportPlan, ExportRequest } from './exportdata'
 import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
@@ -151,6 +152,8 @@ export interface TornoBridge {
     agents(): Promise<Array<{ id: AgentId; label: string; installed: boolean; hooks: boolean }>>
     /** Keeps the agent of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs in that object. */
     chooseAgent(objectId: string, agent: AgentId): Promise<void>
+    /** Keeps the view (`chat` or `terminal`) of the agent of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs there, and for a view the agent has not. */
+    chooseView(objectId: string, view: AgentView): Promise<void>
     /** For an agent without hooks: writes `.torno/prompt.md` and pastes one line at its cursor, not sent. Answers with the marks the file tells of for the first time. */
     sendMarks(sessionId: string): Promise<{ marks: string[]; line: string }>
     /** What became of that line, and how many marks its file tells of: they are sent only by `sent`. */
@@ -161,6 +164,24 @@ export interface TornoBridge {
     onData(cb: (m: { sessionId: string; data: string }) => void): () => void
     onStatus(cb: (m: { sessionId: string; status: SessionStatus }) => void): () => void
     insert(sessionId: string, text: string): void     // bracketed paste at the cursor, never submitted
+  }
+  /**
+   * The conversation of a chat session (`AgentView` `chat`): main keeps it, the window draws it. Calls for a session
+   * that is not of the open workspace are refused, and so are all but `history` for one that has ended. Calls reject with a plain message.
+   */
+  chat: {
+    /** Everything the window needs to draw a session, whenever it asks; readable also after the session has ended, until another starts in that object. */
+    history(sessionId: string): Promise<ChatHistory>
+    /** An item of the transcript was added or changed. One whose `seq` is not above the `seq` of the history asked for before holds nothing the history does not. */
+    onItem(cb: (m: { sessionId: string; item: ChatItem; seq: number }) => void): () => void
+    onMeta(cb: (m: { sessionId: string; meta: ChatMeta; seq: number }) => void): () => void
+    /** Sends a prompt; with `attachView`, main adds a picture of the viewport as the person sees it now. Rejects, sending nothing, when that picture cannot be made. */
+    send(sessionId: string, prompt: { text: string; attachView?: boolean }): Promise<void>
+    /** Answers a request of the agent's. The tool runs with the input it asked with; only the answers of `AskUserQuestion` are taken from the window. */
+    answer(sessionId: string, requestId: string, answer: ChatAnswer): void
+    interrupt(sessionId: string): Promise<void>
+    /** For this session only: the person's settings are not written. */
+    setModel(sessionId: string, model: string): Promise<void>
   }
 }
 /** An agent CLI torno can start (`main/sessions/adapter.ts`). */

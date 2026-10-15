@@ -9,6 +9,7 @@ import { onNotOwn } from '../own'
 import type { AgentId } from '../../shared/bridge'
 import { adapters } from './adapter'
 import { killGroup, Sessions } from './manager'
+import type { ChatItem, ChatMeta } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
 
 // The session manager with a real PTY and a real HTTP server; only the agent is
@@ -1401,4 +1402,323 @@ describe('a chat session', () => {
     // Copilot CLI has no chat: whatever is asked, a terminal.
     expect((await sessions.start(object('copilot-chat'), {})).view).toBe('terminal')
   })
+})
+
+// A 4 x 4 PNG, red: what the window is stubbed to answer the picture of the viewport with.
+const PNG_4X4 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwHxkzkC4AADxAH+HggXe0AAAAAElFTkSuQmCC', 'base64')
+
+describe('the transcript of a chat session', () => {
+  let count = 0
+  let tHttp: HttpRouter
+  let tSessions: Sessions
+  let marks: string[] = []
+  /** The marks the hook is answered with for the 1st, 2nd, … prompt; `marks` for any after them. */
+  let marksPerCall: string[][] = []
+  let hooks = 0
+  let picture: ((obj: ObjectInfo) => Promise<Uint8Array>) | undefined
+  const told: Array<{ sessionId: string; item: ChatItem; seq: number }> = []
+  const metas: Array<{ sessionId: string; meta: ChatMeta; seq: number }> = []
+  const delivered2: string[][] = []
+
+  beforeAll(async () => {
+    tHttp = await startHttp()
+    tSessions = new Sessions({
+      http: tHttp,
+      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      viewFor: () => 'chat',
+      contextFor: async () => {
+        const ids = marksPerCall[hooks++] ?? marks
+        return { text: ids.length > 0 ? `Marks: ${ids.join(' ')}` : '', sentMarkIds: ids }
+      },
+      onDelivered: (_id, ids) => delivered2.push(ids),
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => tHttp.url(`/mcp/${id}`),
+      picture: (obj) => (picture ? picture(obj) : Promise.reject(new Error('no window')))
+    })
+    tSessions.on('item', (m) => told.push({ sessionId: m.sessionId, item: m.item, seq: m.seq }))
+    tSessions.on('meta', (m) => metas.push({ sessionId: m.sessionId, meta: m.meta, seq: m.seq }))
+  })
+  afterEach(async () => {
+    await tSessions.stopAll()
+    marks = []
+    marksPerCall = []
+    hooks = 0
+    picture = undefined
+    told.length = 0
+    metas.length = 0
+    delivered2.length = 0
+  })
+  afterAll(async () => {
+    await tHttp.close()
+  })
+
+  async function start(opts: { folder?: string; resume?: boolean } = {}) {
+    count += 1
+    const obj = object(opts.folder ?? `transcript-${count}`)
+    const started = await tSessions.start(obj, { resume: opts.resume })
+    const id = started.sessionId
+    const items = (): ChatItem[] => tSessions.history(id)!.items
+    return {
+      obj,
+      id,
+      items,
+      kinds: () => items().map((i) => i.kind),
+      send: (text: string, extra: { attachView?: boolean } = {}) => tSessions.send(id, { text, ...extra }),
+      turns: () => items().filter((i) => i.kind === 'turn').length,
+      logFile: () => {
+        const folder = join(obj.dir, '.torno', 'chat')
+        return existsSync(folder) ? readdirSync(folder).map((f) => join(folder, f)) : []
+      }
+    }
+  }
+  const lines = (file: string): ChatItem[] => readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as ChatItem)
+
+  it('is the prompt, what torno added to it, the tool, the reply and the end of the turn', async () => {
+    marks = ['M4', 'M5']
+    const c = await start()
+    await c.send('tool Bash {"command":"ls"}\nsay all done')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.kinds()).toEqual(['user', 'context', 'tool', 'text', 'turn'])
+    const [user, context, tool, text, turn] = c.items()
+    expect(user).toMatchObject({ kind: 'user', text: 'tool Bash {"command":"ls"}\nsay all done', state: 'sent' })
+    // The marks the hook was answered with, under the prompt they went with, and the marks `onDelivered` was given.
+    expect(context).toMatchObject({ kind: 'context', forUser: user.id, text: 'Marks: M4 M5', marks: ['M4', 'M5'] })
+    expect(delivered2).toEqual([['M4', 'M5']])
+    expect(tool).toMatchObject({ kind: 'tool', name: 'Bash', state: 'done', result: 'ran Bash', input: { command: 'ls' } })
+    expect(text).toMatchObject({ kind: 'text', text: 'all done', streaming: false })
+    expect(turn).toMatchObject({ kind: 'turn', ok: true, stopped: false })
+    expect(tSessions.history(c.id)!.meta).toMatchObject({ model: 'fake-model', tornoConnected: true })
+    expect(tSessions.history(c.id)!.earlier).toEqual([])
+  })
+
+  it('shows no context under a prompt that nothing was added to', async () => {
+    const c = await start()
+    await c.send('say plain')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.kinds()).toEqual(['user', 'text', 'turn'])
+  })
+
+  it('puts the context of two prompts sent at once under their own, and the second is queued until the CLI takes it up', async () => {
+    const c = await start()
+    marksPerCall = [['M1'], ['M2']]
+    await c.send('slow 1')
+    await c.send('say second')
+    expect(c.items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'queued'])
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    const users = c.items().filter((i) => i.kind === 'user')
+    expect(users.map((i) => (i as { state: string }).state)).toEqual(['sent', 'sent'])
+    expect(c.items().filter((i) => i.kind === 'context')).toMatchObject([
+      { forUser: users[0].id, marks: ['M1'] },
+      { forUser: users[1].id, marks: ['M2'] }
+    ])
+  })
+
+  it('shows every item once if it is asked for mid-stream, and what is told after it carries on from there', async () => {
+    const c = await start()
+    await c.send('slow 1.5\nsay the end')
+    await expect.poll(() => c.items().some((i) => i.kind === 'text' && i.streaming)).toBe(true)
+    const history = tSessions.history(c.id)!
+    const shown = new Map(history.items.map((i) => [i.id, i]))
+    expect(shown.size).toBe(history.items.length)
+    // The window keeps what came after the snapshot, and only that.
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    const after = told.filter((m) => m.sessionId === c.id && m.seq > history.seq)
+    expect(after.length).toBeGreaterThan(0)
+    for (const m of after) shown.set(m.item.id, m.item)
+    const final = c.items()
+    expect([...shown.keys()]).toEqual(final.map((i) => i.id))
+    expect([...shown.values()]).toEqual(final)
+    // Sequence numbers only grow.
+    const seqs = told.filter((m) => m.sessionId === c.id).map((m) => m.seq)
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b))
+  })
+
+  it('writes each item to the conversation\'s file when it is final, with no picture data and no address', async () => {
+    const c = await start()
+    const secret = new URL(tHttp.url('/x')).pathname.split('/')[2]
+    await c.send(`tool Bash {"command":"echo ${tHttp.url('/mcp/obj')}"}\nsay logged`)
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    await tSessions.stop(c.id)
+    const [file] = c.logFile()
+    expect(file).toMatch(new RegExp(`${UUID.source.slice(1, -1)}\\.jsonl$`))
+    const logged = lines(file)
+    expect(logged.map((i) => i.kind)).toEqual(['user', 'tool', 'text', 'turn', 'note'])
+    expect(logged.every((i) => i.kind !== 'thinking')).toBe(true)
+    expect(readFileSync(file, 'utf8')).not.toContain(secret)
+    expect(JSON.stringify(tSessions.history(c.id)!.items)).not.toContain(secret)
+    expect(readFileSync(join(c.obj.dir, '.torno', '.gitignore'), 'utf8')).toContain('chat/')
+  })
+
+  it('does not write the item that is still going on', async () => {
+    const c = await start()
+    await c.send('slow 2')
+    await expect.poll(() => c.items().some((i) => i.kind === 'text' && i.streaming)).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const [file] = c.logFile()
+    expect(lines(file).map((i) => i.kind)).toEqual(['user'])
+  })
+
+  it('gives a resumed conversation what was logged of it as the earlier part, and a fresh one nothing', async () => {
+    const first = await start({ folder: 'transcript-resume' })
+    await first.send('say before')
+    await expect.poll(() => first.turns(), { timeout: 5000 }).toBe(1)
+    await tSessions.stop(first.id)
+
+    const second = await start({ folder: 'transcript-resume', resume: true })
+    const { earlier, items } = tSessions.history(second.id)!
+    expect(items).toEqual([])
+    expect(earlier.map((i) => i.kind)).toEqual(['user', 'text', 'turn', 'note', 'note'])
+    expect(earlier[0]).toMatchObject({ text: 'say before' })
+    expect(earlier.at(-1)).toMatchObject({ kind: 'note', tone: 'quiet' })
+    expect((earlier.at(-1) as { text: string }).text).toMatch(/terminal/)
+    // What this session says is logged in the same file, and read as earlier by the next.
+    await second.send('say after')
+    await expect.poll(() => second.turns(), { timeout: 5000 }).toBe(1)
+    await tSessions.stop(second.id)
+    expect(second.logFile()).toHaveLength(1)
+    const third = await start({ folder: 'transcript-resume', resume: true })
+    expect(tSessions.history(third.id)!.earlier.filter((i) => i.kind === 'user').map((i) => (i as { text: string }).text)).toEqual(['say before', 'say after'])
+  })
+
+  it('stays readable when the session has ended, until another starts in that object', async () => {
+    const c = await start({ folder: 'transcript-ended' })
+    await c.send('say hi')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    await tSessions.stop(c.id)
+    const ended = tSessions.history(c.id)!
+    expect(ended.items.at(-1)).toMatchObject({ kind: 'note', text: 'The session ended' })
+    expect(tSessions.chatOf(c.id)).toMatchObject({ id: 'transcript-ended' })
+    const next = await start({ folder: 'transcript-ended' })
+    expect(tSessions.history(c.id)).toBeUndefined()
+    expect(tSessions.chatOf(c.id)).toBeUndefined()
+    expect(tSessions.history(next.id)!.items).toEqual([])
+  })
+
+  it('adds a picture of the viewport to the prompt when asked, and shows it with the prompt', async () => {
+    const c = await start()
+    const seen: string[] = []
+    picture = async (obj) => {
+      seen.push(obj.id)
+      return PNG_4X4
+    }
+    await c.send('say with a view', { attachView: true })
+    expect(seen).toEqual([c.obj.id])
+    const user = c.items()[0]
+    expect(user).toMatchObject({ kind: 'user', text: 'say with a view' })
+    const image = (user as { images: Array<{ mediaType: string; data?: string; width?: number; height?: number }> }).images[0]
+    expect(image).toMatchObject({ mediaType: 'image/png', width: 4, height: 4 })
+    expect(Buffer.from(image.data!, 'base64').equals(PNG_4X4)).toBe(true)
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+  })
+
+  it('sends nothing, and says why, when the picture cannot be made', async () => {
+    const c = await start()
+    picture = () => Promise.reject(new Error('the window shows another object'))
+    await expect(c.send('say nothing', { attachView: true })).rejects.toThrow('the window shows another object')
+    expect(c.items()).toEqual([])
+    await expect(tSessions.send('nope', { text: 'x' })).rejects.toThrow()
+  })
+
+  it('keeps the data of the newest pictures only, and never writes it', async () => {
+    const c = await start()
+    picture = async () => PNG_4X4
+    await c.send('say one', { attachView: true })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    await tSessions.stop(c.id)
+    const [file] = c.logFile()
+    expect(readFileSync(file, 'utf8')).not.toContain('iVBOR')
+    expect((lines(file)[0] as { images: unknown[] }).images).toEqual([expect.objectContaining({ mediaType: 'image/png', width: 4, height: 4 })])
+  })
+
+  it('shows a request of the agent\'s as open until it is answered, and as allowed with the answer it was given', async () => {
+    const c = await start()
+    await c.send('ask Bash {"command":"ls"}')
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    const open = c.items().find((i) => i.kind === 'ask')!
+    expect(open).toMatchObject({ toolName: 'Bash', input: { command: 'ls' }, suggestions: true, state: 'open' })
+    // The window may not change what a tool is run with: the request's own input goes back.
+    tSessions.respond(c.id, (open as { requestId: string }).requestId, { allow: true, updatedInput: { command: 'rm -rf /' } })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().find((i) => i.kind === 'ask')).toMatchObject({ state: 'allowed' })
+    expect(c.items().find((i) => i.kind === 'tool')).toMatchObject({ result: 'allowed: {"command":"ls"}' })
+  })
+
+  it('takes the answers of a question from the window and nothing else of its input', async () => {
+    const c = await start()
+    const input = { questions: [{ question: 'Which wall?', header: 'Wall', multiSelect: false, options: [{ label: '2 mm', description: 'thin' }] }] }
+    await c.send(`ask AskUserQuestion ${JSON.stringify(input)}`)
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    const ask = c.items().find((i) => i.kind === 'ask') as { requestId: string }
+    tSessions.respond(c.id, ask.requestId, { allow: true, updatedInput: { answers: { 'Which wall?': '3 mm' }, questions: [], sneaky: true } })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().find((i) => i.kind === 'tool')).toMatchObject({ result: `allowed: ${JSON.stringify({ ...input, answers: { 'Which wall?': '3 mm' } })}` })
+    expect(c.items().find((i) => i.kind === 'ask')).toMatchObject({ state: 'allowed', answer: 'Which wall?: 3 mm' })
+  })
+
+  it('denies with the reason, and answers a request that is not open with nothing', async () => {
+    const c = await start()
+    await c.send('ask Write {"file_path":"x"}')
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    const ask = c.items().find((i) => i.kind === 'ask') as { requestId: string }
+    tSessions.respond(c.id, ask.requestId, { allow: false, message: 'not there' })
+    tSessions.respond(c.id, ask.requestId, { allow: false, message: 'again' })
+    tSessions.respond(c.id, 'req_unknown', { allow: true })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().find((i) => i.kind === 'ask')).toMatchObject({ state: 'denied', answer: 'not there' })
+    expect(c.items().find((i) => i.kind === 'tool')).toMatchObject({ result: 'denied: not there' })
+  })
+
+  it('closes what is open when the session ends: the request is not answered, the queued prompt not sent', async () => {
+    const c = await start()
+    await c.send('ask Bash {"command":"ls"}')
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    await c.send('say never')
+    await tSessions.stop(c.id)
+    const items = c.items()
+    expect(items.find((i) => i.kind === 'ask')).toMatchObject({ state: 'ended' })
+    expect(items.filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'not-sent'])
+    expect(items.find((i) => i.kind === 'tool')).toMatchObject({ state: 'stopped' })
+    expect(items.at(-1)).toMatchObject({ kind: 'note', text: 'The session ended' })
+  })
+
+  it('stops the tool and the text an interrupt cut short, and does not send the prompts the CLI dropped', async () => {
+    const c = await start()
+    await c.send('slow 5')
+    await c.send('say dropped')
+    await expect.poll(() => c.items().some((i) => i.kind === 'text' && i.streaming)).toBe(true)
+    await tSessions.control(c.id, { subtype: 'interrupt' })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().find((i) => i.kind === 'turn')).toMatchObject({ ok: false, stopped: true })
+    expect(c.items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'not-sent'])
+    expect(c.items().some((i) => i.kind === 'text' && i.streaming)).toBe(false)
+  })
+
+  it('tells the model and the connection of torno\'s tools as meta', async () => {
+    const c = await start()
+    await c.send('say hi')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(metas.filter((m) => m.sessionId === c.id).at(-1)?.meta).toMatchObject({ model: 'fake-model', tornoConnected: true })
+    await tSessions.control(c.id, { subtype: 'set_model', model: 'haiku' })
+    await c.send('say again')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    expect(tSessions.history(c.id)!.meta.model).toBe('haiku')
+    expect(c.items().some((i) => i.kind === 'note' && i.text === 'Model: haiku')).toBe(true)
+  })
+
+  it('has the commands and models of the agent in its history, and the rate limit in its meta', async () => {
+    const c = await start()
+    await expect.poll(() => tSessions.history(c.id)!.commands.length).toBe(2)
+    expect(tSessions.history(c.id)!.models).toEqual([{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }])
+    await c.send('rate 72')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(tSessions.history(c.id)!.meta.rate).toMatchObject({ window: 'five_hour', used: 72 })
+  })
+
+  it('goes on past a line that is not JSON and a message from the future', async () => {
+    const c = await start()
+    await c.send('garbage\nsay still here')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().find((i) => i.kind === 'text')).toMatchObject({ text: 'still here' })
+  })
+
 })

@@ -19,6 +19,7 @@ import type { NearestAnchor } from './marks/reanchor'
 import { maskReadsOf, maskStampOf, meshesOf } from './marks/regions'
 import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
+import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
 import { kernelDir } from './paths'
 import type { ToolDeps } from './mcp/tools'
@@ -399,8 +400,15 @@ void app.whenReady().then(async () => {
     http,
     // The agent chosen for the object, as its file says now. TORNO_AGENT_CMD is run in place of whichever it is.
     adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD)[(await readChoice(obj.dir)).agent],
-    // Every session is still shown as a terminal: the window draws no chat yet. `readChoice(obj.dir).view` is the choice.
-    viewFor: () => 'terminal',
+    // Every session is still shown as a terminal: the window draws no chat yet. `readChoice(obj.dir).view` is the choice,
+    // which only a test of the chat's bridge (`e2e/chatbridge.spec.ts`) follows, until the window has a pane for it.
+    viewFor: async (obj) => (isTest && process.env.TORNO_CHAT_VIEW === '1' ? (await readChoice(obj.dir)).view : 'terminal'),
+    // The viewport as the person has it, for a prompt that attaches the view: of the object the session is of.
+    picture: async (obj) => {
+      const look = await requestLook(await theWindow(), { view: 'current', size: DEFAULT_SIZE })
+      if (look.objectId !== obj.id) throw new Error(`The window shows ${look.objectId}, not ${obj.id}`)
+      return look.png
+    },
     // The marks of an object that cannot be read are not a reason to tell the agent nothing of its build.
     // Nor are scans that cannot be read: they are then not known, which is not the same as there being none.
     contextFor: async (id, opts) => {

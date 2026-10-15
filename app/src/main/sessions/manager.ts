@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import * as pty from 'node-pty'
 import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
+import type { ChatAnswer, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
 import type { ObjectInfo } from '../../shared/workspace'
 import { writeFileAtomic } from '../atomic'
 import { ensureIgnored } from '../ignored'
@@ -11,12 +12,14 @@ import { FOLDER, ownTorno } from '../own'
 import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import type { AgentAdapter } from './adapter'
+import { appendItems, readLog } from './chatlog'
 import { findCommand } from './choice'
 import { type Told, blankPrompt, Delivery, untold } from './delivery'
 import { PROMPT_FILE } from './sendMarks'
 import { conversationTold, SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
 import { type AskAnswer, ClaudeStream, type PromptBlock, type StreamAsk, type StreamMessage } from './stream'
+import { Transcript } from './transcript'
 
 /** `<object>/.torno/agent`: where an adapter's own files are written, for its agent to be pointed at. */
 const AGENT_FOLDER = 'agent'
@@ -45,8 +48,13 @@ interface Session extends Told {
   view: AgentView
   pty: pty.IPty | null
   stream: ClaudeStream | null
-  /** A chat session: the ids of the requests of the CLI's that wait for the person. */
-  asks: Set<string>
+  /** A chat session: what it said and did, as the window draws it; kept after the session ends (`Sessions.history`). */
+  chat: ChatRecord | null
+  /** A chat session: what was written to the log, one write after another; and whether a write failed, after which none is tried. */
+  logging: Promise<void>
+  logFailed: boolean
+  /** A chat session: the requests of the CLI's that wait for the person. */
+  asks: Map<string, StreamAsk>
   /**
    * A chat session: prompts sent that the CLI has not taken up yet (it says so with an `init` for each). A `result`
    * with none of them waiting is the end of what it was doing: idle. Not a count of results to come, which a prompt
@@ -60,6 +68,18 @@ interface Session extends Told {
   killTimer?: NodeJS.Timeout
   termTimer?: NodeJS.Timeout
   adapter: AgentAdapter
+}
+
+/** The transcript of a chat session, and what the window needs to draw it again. */
+interface ChatRecord {
+  objectId: string
+  dir: string
+  transcript: Transcript
+  /** The log of the conversation this session resumed, read once when it started. */
+  earlier: ChatItem[]
+  capabilities?: Capabilities
+  /** Counts every item and meta told, so that a window that asked for the history knows which of them it holds. */
+  seq: number
 }
 
 /** What a chat session's CLI says it can do: its slash commands and the models it offers. */
@@ -103,6 +123,10 @@ interface Events {
   ask: { sessionId: string; objectId: string } & StreamAsk
   /** A chat session: a request of the CLI's was answered (`answered`), or is given up because the session ended. */
   asked: { sessionId: string; requestId: string; answered: boolean }
+  /** A chat session: an item of its transcript was added or changed. `seq` grows with every item and meta told of the session. */
+  item: { sessionId: string; objectId: string; item: ChatItem; seq: number }
+  /** A chat session: what is known of it as a whole changed (the model, the rate limit). */
+  meta: { sessionId: string; objectId: string; meta: ChatMeta; seq: number }
   /** What a `UserPromptSubmit` was answered with, in a session of any view: the text and the marks it told of. */
   context: { sessionId: string; objectId: string; text: string; sentMarkIds: string[]; prompt?: string }
 }
@@ -122,11 +146,13 @@ interface Events {
  */
 export class Sessions {
   private readonly sessions = new Map<string, Session>()
+  /** The transcript of each chat session there is, and of the last one of each object that has ended. */
+  private readonly records = new Map<string, ChatRecord>()
   /** By object: a session that is being started there. */
   private readonly starting = new Map<string, Promise<Started>>()
   /** How an agent without hooks is told, and when what it was told counts as sent. */
   private readonly delivery: Delivery<Session>
-  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [], stream: [], ask: [], asked: [], context: [] }
+  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [], stream: [], ask: [], asked: [], context: [], item: [], meta: [] }
 
   constructor(
     private readonly deps: {
@@ -156,6 +182,8 @@ export class Sessions {
       /** What an adapter that has a flag for it adds to its agent's system prompt. */
       systemPromptFor: (adapter: AgentAdapter) => string
       mcpUrlFor: (objectId: string) => string
+      /** A PNG of the viewport of an object as the person sees it now, for a prompt that attaches the view. Absent: none can be attached. */
+      picture?: (obj: ObjectInfo) => Promise<Uint8Array>
       /** Print the command line of every session started, and every hook it posts. */
       debug?: boolean
     }
@@ -240,11 +268,36 @@ export class Sessions {
       await blankPrompt(obj.dir)
     }
 
+    // What a chat shows of the conversation it resumes is read before the session exists: it is the log's as it was.
+    const earlier = view === 'chat' && stored !== null ? await earlierOf(obj.dir, stored) : []
+
     const cols = size(opts.cols, 80)
     const rows = size(opts.rows, 24)
     const child = view === 'terminal' ? pty.spawn(launch.command, launch.args, { name: 'xterm-256color', cols, rows, cwd: obj.dir, env }) : null
     const stream = view === 'chat' ? new ClaudeStream({ command: launch.command, args: launch.args, cwd: obj.dir, env }) : null
     let ended!: () => void
+    const chat: ChatRecord | null =
+      view === 'chat'
+        ? {
+            objectId: obj.id,
+            dir: obj.dir,
+            earlier,
+            seq: 0,
+            transcript: new Transcript({
+              prefix: `${id.slice(0, 6)}-`,
+              redact: http.redact,
+              emit: (item) => {
+                chat!.seq += 1
+                this.emit('item', { sessionId: id, objectId: obj.id, item, seq: chat!.seq })
+                this.log(session)
+              },
+              emitMeta: (meta) => {
+                chat!.seq += 1
+                this.emit('meta', { sessionId: id, objectId: obj.id, meta, seq: chat!.seq })
+              }
+            })
+          }
+        : null
     const session: Session = {
       id,
       object: obj,
@@ -256,12 +309,20 @@ export class Sessions {
       view,
       pty: child,
       stream,
-      asks: new Set(),
+      chat,
+      logging: Promise.resolve(),
+      logFailed: false,
+      asks: new Map(),
       unstarted: 0,
       exited: new Promise<void>((resolve) => (ended = resolve)),
       adapter,
       // A conversation that is resumed has seen the marks only if a line of torno's was sent in it.
       ...untold(stored === null || !conversationTold(obj.dir, adapter.id, stored), stored !== null)
+    }
+    // Only the newest session of an object keeps its transcript: the one before it was readable until now.
+    if (chat) {
+      for (const [before, record] of this.records) if (record.objectId === obj.id) this.records.delete(before)
+      this.records.set(id, chat)
     }
     this.sessions.set(id, session)
     this.emit('status', { sessionId: id, objectId: obj.id, status: 'starting' })
@@ -388,9 +449,47 @@ export class Sessions {
    */
   prompt(sessionId: string, content: PromptBlock[]): void {
     const s = this.chat(sessionId, 'prompt')
-    if (!s?.stream) return
+    if (!s?.stream || !s.chat) return
+    // It waits when the agent is at work, or has been sent a prompt it has not taken up yet (its hook has not moved the status).
+    const queued = s.status === 'working' || s.status === 'needs_input' || s.unstarted > 0
+    s.chat.transcript.userSent(content, queued)
     s.unstarted += 1
     s.stream.prompt(content, s.conversationId)
+  }
+
+  /**
+   * A chat session: what the person typed, with a picture of the viewport as it is now when `attachView` (made
+   * through the window: `deps.picture`). Rejects, sending nothing, when the picture cannot be made or the session has ended.
+   */
+  async send(sessionId: string, prompt: { text: string; attachView?: boolean }): Promise<void> {
+    const s = this.chat(sessionId, 'send')
+    if (!s?.stream) throw new Error('This session has ended')
+    const content: PromptBlock[] = []
+    if (prompt.text !== '') content.push({ type: 'text', text: prompt.text })
+    if (prompt.attachView === true) {
+      if (!this.deps.picture) throw new Error('No view can be attached here')
+      const png = await this.deps.picture(s.object)
+      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(png).toString('base64') } })
+    }
+    if (content.length === 0) return
+    // The picture took a moment: the session may have gone meanwhile.
+    if (!this.chat(sessionId, 'send')) throw new Error('This session has ended')
+    this.prompt(sessionId, content)
+  }
+
+  /**
+   * A chat session: the person's answer to a request of the agent's. The tool is run with the input it asked
+   * with: the window may not change it, except for the answers to the questions of `AskUserQuestion`.
+   */
+  respond(sessionId: string, requestId: string, answer: ChatAnswer): void {
+    const s = this.chat(sessionId, 'respond')
+    const ask = s?.asks.get(requestId)
+    if (!s || !ask || typeof answer !== 'object' || answer === null) return
+    if (answer.allow !== true) return this.answer(sessionId, requestId, { behavior: 'deny', message: typeof answer.message === 'string' ? answer.message : '' })
+    const answers = ask.toolName === 'AskUserQuestion' ? answersOf(answer.updatedInput) : undefined
+    const input = answers ? { ...(typeof ask.input === 'object' && ask.input !== null ? ask.input : {}), answers } : ask.input
+    const always = answer.always === true && (ask.suggestions?.length ?? 0) > 0
+    this.answer(sessionId, requestId, { behavior: 'allow', updatedInput: input, ...(always ? { updatedPermissions: ask.suggestions } : {}) })
   }
 
   /** A chat session: the answer to a request of the agent's that waits for the person (an `ask`). */
@@ -400,6 +499,7 @@ export class Sessions {
     // Only a request that is open: one that was answered, or never made, writes nothing.
     if (!s.asks.delete(requestId)) return console.error(`session ${sessionId} has no open request ${requestId}`)
     s.stream.answer(requestId, response)
+    s.chat?.transcript.answered(requestId, response.behavior === 'allow' ? 'allowed' : 'denied', response.behavior === 'allow' ? answersText(response.updatedInput) : response.message)
     this.emit('asked', { sessionId, requestId, answered: true })
     if (s.asks.size === 0) this.advance(s, 'answered')
   }
@@ -413,7 +513,9 @@ export class Sessions {
     if (request.subtype === 'interrupt') {
       void answer.then((a) => {
         const queued = (a as { still_queued?: unknown } | undefined)?.still_queued
-        s.unstarted = Math.min(s.unstarted, Array.isArray(queued) ? queued.length : 0)
+        const kept = Array.isArray(queued) ? queued.length : 0
+        s.unstarted = Math.min(s.unstarted, kept)
+        s.chat?.transcript.dropQueued(kept)
       }, () => undefined)
     }
     return answer
@@ -422,6 +524,25 @@ export class Sessions {
   /** A chat session: the slash commands and models its agent said it has, once it has said. */
   capabilities(sessionId: string): Capabilities | undefined {
     return this.sessions.get(sessionId)?.capabilities
+  }
+
+  /**
+   * A chat session's transcript so far, with the log of the conversation it resumed: all that a window needs to
+   * draw it, whenever it asks (it was reloaded, or showed another object). What is told after this (`item`,
+   * `meta`) has a `seq` above this one's. Readable after the session has ended, until another starts in that
+   * object. None for a session that is not a chat, or whose transcript has been let go.
+   */
+  history(sessionId: string): ChatHistory | undefined {
+    const r = this.records.get(sessionId)
+    if (!r) return undefined
+    const { commands, models } = r.capabilities ?? { commands: [], models: [] }
+    return { items: r.transcript.items(), meta: r.transcript.meta(), earlier: r.earlier, commands, models: modelsOf(models), seq: r.seq }
+  }
+
+  /** The object a chat session is of, also after the session has ended and while its transcript is still readable. */
+  chatOf(sessionId: string): { id: string; dir: string } | undefined {
+    const r = this.records.get(sessionId)
+    return r ? { id: r.objectId, dir: r.dir } : undefined
   }
 
   /** A chat session that is live, or none: said to the log when a call meant for one found another. */
@@ -441,10 +562,12 @@ export class Sessions {
       // After the microtasks of this read, so that the answer to an interrupt that came in the same chunk has been
       // taken into account (`control`).
       if (message.type === 'result') queueMicrotask(() => session.unstarted === 0 && this.advance(session, 'Stop'))
+      session.chat?.transcript.message(message)
       this.emit('stream', { sessionId: session.id, objectId: session.object.id, message })
     })
     stream.on('ask', (request) => {
-      session.asks.add(request.requestId)
+      session.asks.set(request.requestId, request)
+      session.chat?.transcript.asked(request)
       this.advance(session, 'ask')
       this.emit('ask', { sessionId: session.id, objectId: session.object.id, ...request })
     })
@@ -456,20 +579,40 @@ export class Sessions {
       clearTimeout(session.termTimer)
       this.sessions.delete(session.id)
       // Nobody can answer what the agent was waiting for any more.
-      for (const requestId of session.asks) this.emit('asked', { sessionId: session.id, requestId, answered: false })
+      for (const requestId of session.asks.keys()) this.emit('asked', { sessionId: session.id, requestId, answered: false })
       session.asks.clear()
+      // What was open ends in a stated state, and the log has all of it before the session counts as gone.
+      session.chat?.transcript.ended()
       this.advance(session, 'exit')
-      ended()
+      void session.logging.then(ended)
     })
     // Ready for a prompt once it has said what it can do; an agent that cannot say is still one that works.
     stream
       .control({ subtype: 'initialize' })
       .then((answer) => {
         session.capabilities = capabilitiesOf(answer)
+        if (session.chat) session.chat.capabilities = session.capabilities
         this.advance(session, 'output')
       })
       .catch((e: Error) => {
         if (this.deps.debug) console.error(`[torno] session ${session.id} initialize: ${e.message}`)
+      })
+  }
+
+  /**
+   * The items of a chat session that became final go to the log of the conversation they were said in, one write
+   * after another. A log that cannot be written is said once and not tried again for this session: the chat goes on.
+   */
+  private log(session: Session): void {
+    if (!session.chat || session.logFailed) return
+    const items = session.chat.transcript.toLog()
+    if (items.length === 0) return
+    const conversation = session.conversationId
+    session.logging = session.logging
+      .then(() => appendItems(session.object.dir, conversation, items, this.deps.http.redact))
+      .catch((e: Error) => {
+        session.logFailed = true
+        console.error(`cannot write the chat log of ${session.object.id}: ${e.message}`)
       })
   }
 
@@ -595,6 +738,7 @@ export class Sessions {
       context = { text: '', sentMarkIds: [] }
     }
     const { text, sentMarkIds } = context
+    session.chat?.transcript.context({ text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     this.emit('context', { sessionId: session.id, objectId, text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${text ? `, answered with: ${text}` : ''}`)
     // Marks are sent once the answer that names them has been handed over whole: not when the agent hung
@@ -618,6 +762,37 @@ function capabilitiesOf(answer: unknown): Capabilities {
       .map((c) => ({ name: text(c.name), description: text(c.description), argumentHint: text(c.argumentHint) })),
     models: Array.isArray(models) ? models : []
   }
+}
+
+/** The models a CLI offered, for the window: those that have a name to be chosen by. */
+function modelsOf(models: unknown[]): ChatModel[] {
+  const out: ChatModel[] = []
+  for (const m of models) {
+    const one = typeof m === 'object' && m !== null ? (m as { value?: unknown; displayName?: unknown }) : null
+    if (typeof one?.value === 'string' && one.value !== '') out.push({ value: one.value, displayName: typeof one.displayName === 'string' && one.displayName !== '' ? one.displayName : one.value })
+  }
+  return out
+}
+
+/** The answers to the questions of an `AskUserQuestion`, a text for each question, from what the window sent. */
+function answersOf(input: unknown): Record<string, string> | undefined {
+  const answers = typeof input === 'object' && input !== null ? (input as { answers?: unknown }).answers : undefined
+  if (typeof answers !== 'object' || answers === null || Array.isArray(answers)) return undefined
+  const entries = Object.entries(answers)
+  return entries.every(([, v]) => typeof v === 'string') ? Object.fromEntries(entries as Array<[string, string]>) : undefined
+}
+
+/** What the person answered, in a line for each question; nothing for a tool that has no questions. */
+function answersText(input: unknown): string | undefined {
+  const answers = answersOf(input)
+  return answers ? Object.entries(answers).map(([question, answer]) => `${question}: ${answer}`).join('\n') : undefined
+}
+
+/** What the log holds of a conversation torno resumes, and a note that what was said in a terminal is not in it. */
+async function earlierOf(dir: string, conversationId: string): Promise<ChatItem[]> {
+  const logged = await readLog(dir, conversationId)
+  const text = logged.length > 0 ? 'Turns made in the terminal are not shown here.' : 'This conversation was begun in a terminal: its earlier turns are not shown here.'
+  return [...logged, { kind: 'note', id: 'earlier-note', text, tone: 'quiet' }]
 }
 
 function size(value: unknown, fallback: number): number {
@@ -656,7 +831,7 @@ function signalGroup(pid: number, name: string, kill: (target: number, signal: s
 }
 
 /** torno's own switches (src/main/index.ts, e2e/): they mean nothing to the agent, or mislead what it starts. */
-const OWN_VARIABLES = new Set(['TORNO_TEST', 'TORNO_AGENT_CMD', 'TORNO_CONFIG', 'TORNO_WORKSPACE', 'TORNO_DEBUG', 'TORNO_SHOTS', 'TORNO_BUILD_TIMEOUT', 'TORNO_KEEP_BUILDS'])
+const OWN_VARIABLES = new Set(['TORNO_TEST', 'TORNO_AGENT_CMD', 'TORNO_CHAT_VIEW', 'TORNO_CONFIG', 'TORNO_WORKSPACE', 'TORNO_DEBUG', 'TORNO_SHOTS', 'TORNO_BUILD_TIMEOUT', 'TORNO_KEEP_BUILDS'])
 
 /**
  * What a Claude Code session exports to the processes it starts. Only these:

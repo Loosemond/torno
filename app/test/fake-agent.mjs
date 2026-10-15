@@ -182,10 +182,22 @@ async function streamMode() {
       await tool(name, space < 0 ? {} : JSON.parse(rest.slice(space + 1)), command === 'ask')
     } else if (command === 'slow') {
       const until = Date.now() + Number(rest) * 1000
+      const event = (e) => out({ type: 'stream_event', event: e, ...base, uuid: next('uuid') })
       let i = 0
+      let words = ''
+      event({ type: 'message_start', message: { id: 'msg_slow', type: 'message', role: 'assistant', model, content: [] } })
+      event({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
       while (Date.now() < until && !turn.aborted) {
-        out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: `word${(i += 1)} ` } }, ...base, uuid: next('uuid') })
+        const word = `word${(i += 1)} `
+        words += word
+        event({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: word } })
         await pause(100)
+      }
+      // An interrupt leaves the block open, as the CLI does: nothing says it ended.
+      if (!turn.aborted) {
+        event({ type: 'content_block_stop', index: 0 })
+        event({ type: 'message_stop' })
+        out(message([{ type: 'text', text: words }], 'msg_slow'))
       }
     } else if (command === 'rate') {
       out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: Math.floor(Date.now() / 1000) + 3600, rateLimitType: 'five_hour', unifiedWindows: { five_hour: { utilization: Number(rest) / 100, resetsAt: Math.floor(Date.now() / 1000) + 3600 } } }, ...base, uuid: next('uuid') })

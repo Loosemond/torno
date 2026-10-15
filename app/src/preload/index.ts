@@ -114,8 +114,18 @@ const bridge: TornoBridge = {
     insert: (sessionId, text) => ipcRenderer.send('session:insert', sessionId, text),
     agents: () => ipcRenderer.invoke('session:agents'),
     chooseAgent: (objectId, agent) => ipcRenderer.invoke('session:chooseAgent', objectId, agent),
+    chooseView: (objectId, view) => invokePlain('session:chooseView', objectId, view),
     sendMarks: (sessionId) => ipcRenderer.invoke('session:sendMarks', sessionId),
     onSend: (cb) => subscribe('session:send', cb)
+  },
+  chat: {
+    history: (sessionId) => invokePlain('chat:history', sessionId),
+    onItem: (cb) => subscribe('chat:item', cb),
+    onMeta: (cb) => subscribe('chat:meta', cb),
+    send: (sessionId, prompt) => invokePlain('chat:send', sessionId, prompt),
+    answer: (sessionId, requestId, answer) => ipcRenderer.send('chat:answer', sessionId, requestId, answer),
+    interrupt: (sessionId) => invokePlain('chat:interrupt', sessionId),
+    setModel: (sessionId, model) => invokePlain('chat:setModel', sessionId, model)
   }
 }
 
