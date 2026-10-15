@@ -1,5 +1,6 @@
 // What a card that asks the person shows of a request, and how the questions of `AskUserQuestion` are answered.
 // The pure part of `AskCard.tsx`.
+import { type ChatWhere, shownPath } from '../../../shared/chat'
 
 /** How many lines of what a file will hold a card shows. */
 const FILE_LINES = 6
@@ -17,15 +18,16 @@ const record = (value: unknown): Record<string, unknown> | undefined => (typeof 
  * (`lead`) and the first lines of what goes in it (`more` is how many are left out, none with `all`); anything else as
  * compact JSON.
  */
-export function describeInput(tool: string, input: unknown, all = false): { lead: string | undefined; body: string; more: number } {
+export function describeInput(tool: string, input: unknown, all = false, where?: ChatWhere): { lead: string | undefined; body: string; more: number; full?: string } {
   const fields = record(input)
   if (tool === 'Bash' && fields) return { lead: undefined, body: text(fields.command) ?? '', more: 0 }
   if (FILE_TOOLS.has(tool) && fields) {
-    const lead = text(fields.file_path) ?? text(fields.notebook_path)
+    const full = text(fields.file_path) ?? text(fields.notebook_path)
+    const lead = full === undefined ? undefined : shownPath(full, where)
     const held = text(fields.content) ?? text(fields.new_string) ?? text(fields.new_source) ?? ''
     const lines = held === '' ? [] : held.split('\n')
     const shown = all ? lines : lines.slice(0, FILE_LINES)
-    return { lead, body: shown.join('\n'), more: lines.length - shown.length }
+    return { lead, ...(full !== lead ? { full } : {}), body: shown.join('\n'), more: lines.length - shown.length }
   }
   if (input === undefined || input === null) return { lead: undefined, body: '', more: 0 }
   let json: string

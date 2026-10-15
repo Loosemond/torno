@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { chatActions, useChat } from '../../state/chat'
 import { ChatItems } from './Items'
 import { AskSession } from './AskCard'
 import { Composer } from './Composer'
+import { ChatPlace } from './place'
 
 /** Within this many pixels of its end, a transcript is at its end. */
 const AT_END_PX = 24
@@ -26,8 +27,9 @@ function useBeat(active: boolean): boolean {
  * What the agent asks is a card in the transcript (`AskCard`, which answers to this session); "Attach view", the
  * commands offered while a `/` is typed and the rate line are in the foot, with the box (`Composer`).
  */
-export function ChatPane({ sessionId, live, working }: { sessionId: string; live: boolean; working: boolean }) {
+export function ChatPane({ sessionId, live, working, dir }: { sessionId: string; live: boolean; working: boolean; dir?: string }) {
   const chat = useChat(sessionId)
+  const place = useMemo(() => ({ dir, home: window.torno.home || undefined }), [dir])
   useEffect(() => {
     void chatActions.load(sessionId)
     // Once no pane shows it, a session lets go of its pictures: they are asked for again when it is shown.
@@ -70,6 +72,7 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
 
   return (
     <AskSession.Provider value={sessionId}>
+    <ChatPlace.Provider value={place}>
     <div className="chat" data-session={sessionId}>
       <div className="chat-scroll">
         <div
@@ -111,6 +114,7 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
       </div>
       <Composer sessionId={sessionId} live={live} working={working} onSent={toEnd} />
     </div>
+    </ChatPlace.Provider>
     </AskSession.Provider>
   )
 }

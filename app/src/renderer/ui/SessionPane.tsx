@@ -248,6 +248,7 @@ function reason(e: unknown): string {
 export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const root = useStore((s) => s.workspace?.root)
   const objectId = useStore((s) => s.objectId)
+  const objectDir = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.dir)
   const objectName = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const session = useStore((s) => (s.objectId ? s.sessions[s.objectId] : undefined))
   const marks = useStore((s) => s.marks)
@@ -806,7 +807,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
         <div className="session-term" ref={host} data-shown={session && !chatting ? '' : undefined} />
-        {session && chatting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} />}
+        {session && chatting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} dir={objectDir} />}
         {!objectId ? (
           <p className="panel-note">Open an object to work on it with the agent.</p>
         ) : (

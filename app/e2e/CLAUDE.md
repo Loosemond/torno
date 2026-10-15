@@ -80,8 +80,7 @@ when a spec checks that nothing is written to the person's settings.
 
 Two fixtures were recorded from the real CLI and scrubbed: `app/test/fixtures/claude-stream.jsonl` (Claude Code
 2.1.300: a turn, tool use, hooks) and `claude-stream-asks.jsonl` (2.1.301: a permission, a question and
-`/compact`). One line of the second is cut by the scrubbing and is no JSON; the framing passes it over and so do
-the tests. Never run the real `claude` to record or check; that is done by hand (README, last section).
+`/compact`). Every line of both parses as JSON. Never run the real `claude` to record or check; that is done by hand (README, last section).
 
 ## Light and dark
 

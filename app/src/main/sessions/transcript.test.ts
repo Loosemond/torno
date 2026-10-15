@@ -624,16 +624,10 @@ describe('fix round 1', () => {
 })
 
 // What Claude Code 2.1.301 printed for a permission, a question and a /compact (app/test/fixtures/claude-stream-asks.jsonl).
-// One line of it is cut by the scrubbing and is no JSON: the framing of the stream passes such a line over, and so does this.
 const ASKS: StreamMessage[] = readFileSync(join(__dirname, '../../../test/fixtures/claude-stream-asks.jsonl'), 'utf8')
   .split('\n')
-  .flatMap((line) => {
-    try {
-      return [JSON.parse(line) as StreamMessage]
-    } catch {
-      return []
-    }
-  })
+  .filter((line) => line !== '')
+  .map((line) => JSON.parse(line) as StreamMessage)
 
 describe('what the CLI printed for a permission and for /compact', () => {
   it('makes of /compact its prompt sent at the init, a quiet note with the tokens, and a turn that is ok', () => {

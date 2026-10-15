@@ -22,6 +22,7 @@ async function invokePlain<T>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 const bridge: TornoBridge = {
+  home: process.env.HOME ?? process.env.USERPROFILE ?? '',
   workspace: {
     current: () => ipcRenderer.invoke('workspace:current'),
     pick: () => ipcRenderer.invoke('workspace:pick'),

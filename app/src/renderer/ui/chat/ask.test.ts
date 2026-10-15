@@ -44,3 +44,9 @@ it('answers a question with what was typed in its Other line, else the labels ch
   expect(answerFor(q, [], '   ')).toBeUndefined()
   expect(answerFor({ ...q, multi: false }, ['Gloss'], '')).toBe('Gloss')
 })
+
+it('shows a file path on a card relative to the object folder, with the full path kept', () => {
+  const shown = describeInput('Write', { file_path: '/w/obj/parts/lid.py', content: 'x' }, false, { dir: '/w/obj' })
+  expect(shown.lead).toBe('parts/lid.py')
+  expect(shown.full).toBe('/w/obj/parts/lid.py')
+})

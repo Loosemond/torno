@@ -7,13 +7,8 @@ import { sessionRules } from './permissions'
 // a rule for the settings of the folder, a directory, and a mode. Only the first is allowed, and only for the session.
 const ASK = readFileSync(join(__dirname, '../../../test/fixtures/claude-stream-asks.jsonl'), 'utf8')
   .split('\n')
-  .flatMap((line) => {
-    try {
-      return [JSON.parse(line) as { type?: string; request?: { subtype?: string; tool_name?: string; permission_suggestions?: unknown[] } }]
-    } catch {
-      return []
-    }
-  })
+  .filter((line) => line !== '')
+  .map((line) => JSON.parse(line) as { type?: string; request?: { subtype?: string; tool_name?: string; permission_suggestions?: unknown[] } })
   .find((m) => m.type === 'control_request' && m.request?.tool_name === 'Bash')!.request!
 
 it('keeps the rules of the real suggestions, for the session, and drops every other kind', () => {

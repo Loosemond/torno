@@ -5,6 +5,7 @@ import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
 import { type Question, answerFor, describeInput, questionsOf } from './ask'
 import { Markdown } from './markdown'
+import { useChatPlace } from './place'
 
 type Ask = Extract<ChatItem, { kind: 'ask' }>
 
@@ -84,7 +85,8 @@ function Permission({ item }: { item: Ask }) {
   const [reason, setReason] = useState('')
   const open = item.state === 'open'
   const [all, setAll] = useState(false)
-  const shown = describeInput(item.toolName, item.input, all)
+  const where = useChatPlace()
+  const shown = describeInput(item.toolName, item.input, all, where)
   const deny = (): void => answer({ allow: false, message: reason.trim() })
   return (
     <>
@@ -94,7 +96,7 @@ function Permission({ item }: { item: Ask }) {
       {item.description !== undefined && <p className="chat-ask-why selectable">{numbered(item.description)}</p>}
       {(shown.lead !== undefined || shown.body !== '') && (
         <div className="chat-ask-input selectable">
-          {shown.lead !== undefined && <p className="chat-ask-lead">{shown.lead}</p>}
+          {shown.lead !== undefined && <p className="chat-ask-lead" title={shown.full}>{shown.lead}</p>}
           {shown.body !== '' && <pre>{shown.body}</pre>}
           {shown.more > 0 && (
             <button type="button" className="chat-more" onClick={() => setAll(true)}>

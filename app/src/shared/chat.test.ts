@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pulledFromTorno, refsIn, toolLabel } from './chat'
+import { pulledFromTorno, refsIn, shownPath, toolLabel } from './chat'
 
 const refs = (text: string): string[] => refsIn(text).flatMap((piece) => (piece.ref ? [piece.ref] : []))
 
@@ -67,5 +67,28 @@ describe('pulledFromTorno', () => {
   it('lists tools in the order they were pulled, counted past one, and the pictures', () => {
     expect(pulledFromTorno({ look: 1, pictures: 1 })).toBe('Pulled from torno: look, 1 picture')
     expect(pulledFromTorno({ scene: 1, pictures: 2, measure: 3 })).toBe('Pulled from torno: scene, 2 pictures, measure ×3')
+  })
+})
+
+describe('a path in the chat', () => {
+  const where = { dir: '/work/micra-intake', home: '/home/luis' }
+  it('is relative to the object folder inside it, with ~ for the home folder elsewhere, as given otherwise', () => {
+    expect(shownPath('/work/micra-intake/probe-note.txt', where)).toBe('probe-note.txt')
+    expect(shownPath('/work/micra-intake/parts/lid.py', where)).toBe('parts/lid.py')
+    expect(shownPath('/work/micra-intake', where)).toBe('.')
+    expect(shownPath('/work/micra-intake-2/a.py', where)).toBe('/work/micra-intake-2/a.py')
+    expect(shownPath('/home/luis/notes/a.md', where)).toBe('~/notes/a.md')
+    expect(shownPath('/home/luis', where)).toBe('~')
+    expect(shownPath('/home/luisa/a.md', where)).toBe('/home/luisa/a.md')
+    expect(shownPath('/tmp/x', where)).toBe('/tmp/x')
+    expect(shownPath('lid.py', where)).toBe('lid.py')
+    expect(shownPath('/tmp/x')).toBe('/tmp/x')
+  })
+  it('is shortened in the label of a file tool and of Grep and Glob, not when nothing is known', () => {
+    expect(toolLabel('Write', { file_path: '/work/micra-intake/probe-note.txt' }, where)).toBe('Write probe-note.txt')
+    expect(toolLabel('NotebookEdit', { notebook_path: '/home/luis/n.ipynb' }, where)).toBe('NotebookEdit ~/n.ipynb')
+    expect(toolLabel('Grep', { pattern: 'TODO', path: '/work/micra-intake/parts' }, where)).toBe('Grep: TODO in parts')
+    expect(toolLabel('Glob', { pattern: '*.py', path: '/work/micra-intake' }, where)).toBe('Glob: *.py in .')
+    expect(toolLabel('Write', { file_path: '/work/micra-intake/a.txt' })).toBe('Write /work/micra-intake/a.txt')
   })
 })

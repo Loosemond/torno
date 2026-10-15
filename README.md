@@ -1121,6 +1121,8 @@ and tests no longer write into `~/.config/torno`. An exported file showed no
 parts in `firefox --headless --screenshot`, which takes its picture before the
 first frame; driven in headless Firefox instead, the page drew the parts.
 
+The chat was driven once with the real Claude Code (Haiku, 15 October 2026) in a hidden window on a temporary copy of `micra-intake`: a pin was sent with the prompt and shown under it, a torno `look` came back with its picture and the "Pulled from torno" line, a ref in the reply was a chip, a Write was allowed by the CLI without asking under the person's permission mode (so there was no card), and no `.claude/` folder was written in the object. It was not looked at on a visible screen, so the items listed below stay to check.
+
 What remains is yours to try once. Each says what to try and what should
 happen.
 

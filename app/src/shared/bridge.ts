@@ -11,6 +11,8 @@ import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveVi
 import type { RecentFolder, WorkspaceInfo } from './workspace'
 
 export interface TornoBridge {
+  /** The person's home folder, to write `~` for in paths the chat shows; empty when unknown. */
+  home: string
   workspace: {
     current(): Promise<WorkspaceInfo | null>
     pick(): Promise<WorkspaceInfo | null>            // folder dialog

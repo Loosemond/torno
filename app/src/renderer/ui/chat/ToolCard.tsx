@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react'
 import { type ChatItem, toolLabel } from '../../../shared/chat'
 import { numbered } from '../numbered'
 import { Pictures } from './Pictures'
+import { useChatPlace } from './place'
 import { RefText } from './RefText'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
@@ -50,12 +51,14 @@ function Lines({ label, text }: { label: string; text: string }) {
  */
 export const ToolCard = memo(function ToolCard({ item, beat }: { item: Tool; beat: boolean }) {
   const [open, setOpen] = useState(false)
-  const label = useMemo(() => toolLabel(item.name, item.input), [item.name, item.input])
+  const where = useChatPlace()
+  const label = useMemo(() => toolLabel(item.name, item.input, where), [item.name, item.input, where])
+  const full = useMemo(() => toolLabel(item.name, item.input), [item.name, item.input])
   // Only an open card needs its input as text.
   const input = useMemo(() => (open ? inputText(item.input) : ''), [open, item.input])
   return (
     <div className="chat-item chat-tool" data-kind="tool" data-torno={item.torno ? '' : undefined} data-state={item.state}>
-      <button type="button" className="chat-tool-line" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className="chat-tool-line" title={full} aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="chat-tool-label">{numbered(label)}</span>
         {item.steps !== undefined && <span className="chat-tool-steps">{numbered(`${item.steps} ${item.steps === 1 ? 'step' : 'steps'}`)}</span>}
         <span className="chat-tool-state">

@@ -105,8 +105,29 @@ const cut = (text: string): string => {
   return line.length > LABEL_CHARS ? line.slice(0, LABEL_CHARS) : line
 }
 
+/** Where the chat is: the folder of the object it works in, and the person's home folder; either may be unknown. */
+export interface ChatWhere { dir?: string; home?: string }
+
+/**
+ * A file path as the chat shows it: relative to the object's folder when inside it, `~` for the home folder when
+ * elsewhere under it, as given otherwise. The full path stays in the opened detail and in the tooltip.
+ */
+export function shownPath(path: string, where: ChatWhere = {}): string {
+  const under = (base: string | undefined): string | undefined => {
+    if (!base) return undefined
+    const root = base.length > 1 ? base.replace(/\/+$/, '') : base
+    if (path === root) return ''
+    return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : undefined
+  }
+  const inside = under(where.dir)
+  if (inside !== undefined) return inside === '' ? '.' : inside
+  const home = under(where.home)
+  if (home !== undefined) return home === '' ? '~' : `~/${home}`
+  return path
+}
+
 /** One line for a tool the agent used: what a person would read to know what it did. */
-export function toolLabel(name: string, input: unknown): string {
+export function toolLabel(name: string, input: unknown, where?: ChatWhere): string {
   if (isTornoTool(name)) {
     const tool = name.slice(TORNO_TOOL_PREFIX.length)
     const refs = typeof input === 'object' && input !== null && Array.isArray((input as { refs?: unknown }).refs) ? (input as { refs: unknown[] }).refs.filter((r): r is string => typeof r === 'string') : []
@@ -116,11 +137,14 @@ export function toolLabel(name: string, input: unknown): string {
   let detail: string | undefined
   if (name === 'Read' || name === 'Edit' || name === 'Write' || name === 'MultiEdit' || name === 'NotebookEdit') {
     const file = field(input, 'file_path') ?? field(input, 'notebook_path') ?? field(input, 'path')
-    return file ? `${name} ${file}` : name
+    return file ? `${name} ${shownPath(file, where)}` : name
   }
   if (name === 'Bash') detail = field(input, 'command')
-  else if (name === 'Grep' || name === 'Glob') detail = field(input, 'pattern')
-  else if (name === 'Task') detail = field(input, 'description')
+  else if (name === 'Grep' || name === 'Glob') {
+    detail = field(input, 'pattern')
+    const at = field(input, 'path')
+    if (detail && at) return `${name}: ${cut(detail)} in ${shownPath(at, where)}`
+  } else if (name === 'Task') detail = field(input, 'description')
   return detail ? `${name}: ${cut(detail)}` : name
 }
 
