@@ -3,7 +3,8 @@
    only loud thing on screen, so nothing here competes with it. */
 
 :root {
-  color-scheme: light dark;
+  /* One scheme at a time, said outright: what the system draws (a scrollbar, a field's own parts) follows the theme. */
+  color-scheme: light;
 
   /* Colour */
   --surface: #F1EFEA;      /* viewport ground; main/index.ts paints the window with the same value */
@@ -97,6 +98,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --surface: #1A1C1F;
     --panel: #222529;
     --ink: #E9E7E2;

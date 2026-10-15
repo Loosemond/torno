@@ -11,9 +11,10 @@
 }
 
 /* The lists of the left column scrolled with the system's own bars, arrows and all: the loudest thing in the
-   column. Thin, and in a grey that shows where the list is (3:1 on the panel), as on the page of objects and in the sheets. */
-.left,
-.left * {
+   column. Thin, and in a grey that shows where the list is (3:1 on the panel), as on the page of objects and in the sheets.
+   So is every scroller of the window: on a visible screen the list of objects and the page of objects still
+   showed the light native one in the dark theme. */
+* {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) transparent;
 }

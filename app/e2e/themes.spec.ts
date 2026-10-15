@@ -84,7 +84,7 @@ async function capture(app: ElectronApplication, page: Page, name: string, dir =
   writeFileSync(join(dir, `${name}.png`), Buffer.from(png, 'base64'))
 }
 
-const TOKENS = ['--surface', '--panel', '--ink', '--muted', '--accent', '--hairline', '--user-mark', '--agent-mark', '--ok', '--warn', '--fail'] as const
+const TOKENS = ['--surface', '--panel', '--ink', '--muted', '--accent', '--hairline', '--user-mark', '--agent-mark', '--ok', '--warn', '--fail', '--scroll-thumb'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   test(`${theme}: the window has the theme's tokens at their contrasts, and the pictures of the parts are made`, async () => {
@@ -123,6 +123,14 @@ for (const theme of ['light', 'dark'] as const) {
       const drawn = await page.evaluate(() => ({ muted: getComputedStyle(document.querySelector('.section-title')!).color, ground: getComputedStyle(document.body).backgroundColor }))
       const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)).join(', ')})`
       expect(drawn).toEqual({ muted: rgb(tokens['--muted']), ground: rgb(tokens['--surface']) })
+      // What the system draws follows the theme too: on a visible screen the list of objects scrolled with the light
+      // native bar in the dark theme. One scheme, said outright, and every scroller the thin one in the theme's grey.
+      const scrolling = await page.evaluate(() => {
+        const of = (el: Element) => ({ width: getComputedStyle(el).scrollbarWidth, colour: getComputedStyle(el).scrollbarColor })
+        return { scheme: getComputedStyle(document.documentElement).colorScheme, objects: of(document.querySelector('nav.objects .rows')!), body: of(document.body) }
+      })
+      const thin = { width: 'thin', colour: `${rgb(tokens['--scroll-thumb'])} rgba(0, 0, 0, 0)` }
+      expect(scrolling).toEqual({ scheme: theme, objects: thin, body: thin })
 
       // The parts as the agent gets them: as on screen, cut, and apart.
       mkdirSync(out, { recursive: true })
