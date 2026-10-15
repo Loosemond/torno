@@ -14,6 +14,13 @@ const reason = (e: unknown): string => (e instanceof Error ? e.message : String(
 /** A prompt not yet sent, kept for a session while its pane is not shown (another object's, say). */
 const drafts = new Map<string, string>()
 
+/** How many of these sessions have a prompt written in their box and not sent: closing the window would lose it. */
+export function unsentPrompts(sessionIds: Iterable<string>): number {
+  let n = 0
+  for (const id of sessionIds) if ((drafts.get(id) ?? '').trim() !== '') n += 1
+  return n
+}
+
 /** The drafts of the prompts not sent are let go when the workspace they were written in is closed. */
 export function clearDrafts(): void {
   drafts.clear()
@@ -85,7 +92,7 @@ function Commands({ offered, at, onChoose }: { offered: ReturnType<typeof comman
 
 /**
  * The foot of the chat: what goes with the next prompt, and the box to write it in. Enter sends and Shift+Enter
- * breaks the line; Escape gives the keys back to the view, as a field does. While the agent works, the prompt is
+ * breaks the line; Escape closes the list of commands while one is offered, and else gives the keys back to the view, as a field does. While the agent works, the prompt is
  * queued by the CLI, and "Stop" interrupts it. "Attach view" adds a picture of the viewport to the next prompt only.
  * While a `/command` is typed the commands of the CLI are offered; and when a window of the rate limit is half
  * used, one quiet line says so.
@@ -96,7 +103,9 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const [attach, setAttach] = useState(false)
   const [choice, setChoice] = useState(0)
   const chat = useChat(sessionId)
-  const offered = commandsFor(text, chat?.commands ?? [])
+  /** The text for which Escape closed the list of commands: the list stays shut until the text changes. */
+  const [shut, setShut] = useState<string | null>(null)
+  const offered = shut === text ? [] : commandsFor(text, chat?.commands ?? [])
   const at = Math.min(choice, Math.max(0, offered.length - 1))
   const rate = rateLine(chat?.meta.rate)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -131,7 +140,8 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     field.current?.setSelectionRange(cursor.current, cursor.current)
     cursor.current = null
   }, [text])
-  useEffect(() => () => void drafts.set(sessionId, latest.current), [sessionId])
+  // Kept as it is written, so that what closing the window would lose can be asked of it, and kept when the pane goes.
+  useEffect(() => void drafts.set(sessionId, text), [sessionId, text])
 
   async function send(): Promise<void> {
     const prompt = text.trim()
@@ -198,7 +208,9 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
               void send()
             } else if (pressed(e, 'field.leave')) {
               e.preventDefault()
-              giveKeysBack(e.currentTarget)
+              // With the list of commands open, Escape closes it; the keys go back to the view with the next one.
+              if (offered.length > 0) setShut(text)
+              else giveKeysBack(e.currentTarget)
             }
           }}
         />

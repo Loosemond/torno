@@ -333,6 +333,12 @@ button.ref-chip {
   white-space: nowrap;
 }
 
+.chat-tool-steps {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+}
+
 .chat-tool-state {
   display: inline-flex;
   flex: none;

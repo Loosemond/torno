@@ -5,7 +5,7 @@ import { RefChip } from './RefChip'
 export function RefText({ text }: { text: string }) {
   return (
     <>
-      {refsIn(text).map((piece, n) => (piece.ref !== undefined ? <RefChip key={n} value={piece.ref} /> : piece.text))}
+      {refsIn(text).map((piece, n) => (piece.ref !== undefined ? <RefChip key={n} value={piece.ref} prose /> : piece.text))}
     </>
   )
 }

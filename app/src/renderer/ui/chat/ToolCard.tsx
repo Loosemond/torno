@@ -57,6 +57,7 @@ export const ToolCard = memo(function ToolCard({ item, beat }: { item: Tool; bea
     <div className="chat-item chat-tool" data-kind="tool" data-torno={item.torno ? '' : undefined} data-state={item.state}>
       <button type="button" className="chat-tool-line" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="chat-tool-label">{numbered(label)}</span>
+        {item.steps !== undefined && <span className="chat-tool-steps">{numbered(`${item.steps} ${item.steps === 1 ? 'step' : 'steps'}`)}</span>}
         <span className="chat-tool-state">
           {item.state === 'running' && <span className="chat-dot" data-beat={beat ? undefined : 'off'} aria-hidden="true" />}
           {STATE_WORD[item.state]}
@@ -66,6 +67,7 @@ export const ToolCard = memo(function ToolCard({ item, beat }: { item: Tool; bea
       {open && (
         <div className="chat-tool-body">
           <Lines label="Input" text={input} />
+          {item.inside !== undefined && item.inside.length > 0 && <Lines label="Inside" text={item.inside.join('\n')} />}
           <Lines label="Result" text={item.result ?? ''} />
           {item.result === undefined && item.state !== 'running' && <p className="chat-lines-label">No result</p>}
         </div>

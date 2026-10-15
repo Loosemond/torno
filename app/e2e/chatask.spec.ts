@@ -247,7 +247,7 @@ test('/compact is a prompt that is sent, a quiet note with the tokens, and a tur
   await expect(status()).toHaveText('Idle')
 })
 
-test('a request still open when the session ends says it was not answered', async () => {
+test('a request still open when the session is ended is closed: ending interrupts, and the CLI gives the request up', async () => {
   await say('ask Bash {"command":"sleep 100"}')
   const card = asks().last()
   await expect(card).toHaveAttribute('data-state', 'open')
@@ -256,7 +256,8 @@ test('a request still open when the session ends says it was not answered', asyn
   await page.getByRole('button', { name: 'End it', exact: true }).click()
   await expect(status()).toHaveText('Ended')
   await expect(card).toHaveAttribute('data-state', 'ended')
-  await expect(card).toContainText('Not answered: the session ended')
+  // The interrupt that goes before the end is what the CLI answers by cancelling the request; a request it left open says the session ended.
+  await expect(card).toContainText(/Cancelled: the turn was stopped|Not answered: the session ended/)
   await expect(card.getByRole('button')).toHaveCount(0)
 })
 
@@ -345,4 +346,27 @@ test('the foot says, quietly, when a window of the rate limit is half used or mo
   await expect(turns().last()).toContainText('Done in')
   await say('rate 30')
   await expect(line).toHaveCount(0)
+})
+
+test('Stop with a request open: the card reads cancelled, has no buttons, and the session is idle', async () => {
+  await newSession()
+  await say('ask Bash {"command":"ls"}')
+  const card = asks().last()
+  await expect(card).toHaveAttribute('data-state', 'open')
+  await expect(status()).toHaveText('Needs input')
+  await dock().getByRole('button', { name: 'Stop' }).click()
+  // The CLI gives the request up (control_cancel_request) and ends the turn.
+  await expect(card).toHaveAttribute('data-state', 'ended')
+  await expect(card.locator('.chat-ask-outcome')).toHaveText('Cancelled: the turn was stopped')
+  await expect(card.getByRole('button')).toHaveCount(0)
+  await finished()
+  await expect(turns().last()).toContainText('Stopped')
+  await expect(status()).toHaveText('Idle')
+  // The next request works as before: answered, it is allowed, and the session goes idle again.
+  await say('ask Bash {"command":"pwd"}')
+  const next = asks().last()
+  await expect(next).toHaveAttribute('data-state', 'open')
+  await next.getByRole('button', { name: 'Allow', exact: true }).click()
+  await finished()
+  await expect(status()).toHaveText('Idle')
 })

@@ -171,7 +171,7 @@ export function parseMarkdown(text: string): Block[] {
 
 /** Plain text: refs are chips and numbers are in the monospace face. */
 function plain(text: string, key: string): ReactNode[] {
-  return refsIn(text).map((piece, n) => (piece.ref !== undefined ? <RefChip key={`${key}${n}`} value={piece.ref} /> : <Fragment key={`${key}${n}`}>{numbered(piece.text)}</Fragment>))
+  return refsIn(text).map((piece, n) => (piece.ref !== undefined ? <RefChip key={`${key}${n}`} value={piece.ref} prose /> : <Fragment key={`${key}${n}`}>{numbered(piece.text)}</Fragment>))
 }
 
 function drawInlines(of: Inline[], key: string): ReactNode[] {

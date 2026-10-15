@@ -90,6 +90,7 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
               {chat.failed}
             </p>
           )}
+          {chat?.trimmed && <p className="chat-note chat-quiet">Earlier items are not shown</p>}
           {earlier && earlier.length > 0 && (
             <section className="chat-earlier" aria-label="Earlier in this conversation">
               <h3 className="chat-earlier-head">Earlier in this conversation</h3>

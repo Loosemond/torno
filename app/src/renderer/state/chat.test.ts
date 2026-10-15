@@ -205,3 +205,35 @@ describe('the pictures of a session that is no longer shown', () => {
     expect(dataOf('s')).toEqual(['AAAA'])
   })
 })
+
+describe('the window holds what main holds (M2, M10)', () => {
+  it('keeps at most 2,000 items, drops the oldest, and tells once that earlier ones are not shown', async () => {
+    await loaded([user(1)], 1)
+    expect(chatStore.getState().sessions.s.trimmed).toBeUndefined()
+    for (let n = 2; n <= 2100; n++) onItem({ sessionId: 's', item: text(n), seq: n })
+    const session = chatStore.getState().sessions.s
+    expect(session.items).toHaveLength(2000)
+    expect(session.items[0].id).toBe('s-i101')
+    expect(session.items.at(-1)!.id).toBe('s-i2100')
+    expect(session.trimmed).toBe(true)
+  })
+
+  it('caps a history that arrives with what was told meanwhile', async () => {
+    const loading = chatActions.load('s')
+    for (let n = 1500; n <= 2600; n++) onItem({ sessionId: 's', item: text(n), seq: n })
+    asked.at(-1)!.answer(history(Array.from({ length: 1000 }, (_, n) => text(n + 1)), 1499))
+    await loading
+    const session = chatStore.getState().sessions.s
+    expect(session.items).toHaveLength(2000)
+    expect(session.trimmed).toBe(true)
+  })
+
+  it('strips the pictures of a history that arrives for a session no pane shows any more', async () => {
+    const withPicture: ChatItem = { kind: 'user', id: 's-i1', text: 'look', images: [{ id: 'p1', mediaType: 'image/png', data: 'AAAA' }], state: 'sent', at: 1 }
+    const loading = chatActions.load('s')
+    chatActions.release('s')
+    asked.at(-1)!.answer(history([withPicture], 1))
+    await loading
+    expect((chatStore.getState().sessions.s.items[0] as User).images[0].data).toBeUndefined()
+  })
+})

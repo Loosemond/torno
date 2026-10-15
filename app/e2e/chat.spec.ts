@@ -133,11 +133,25 @@ test('a ref in the chat lights the viewport while the pointer is on it, and a cl
   await chip.click()
   await expect.poll(async () => (await state()).markFocus).toBeGreaterThan(before)
   expect((await state()).activeMark).toBe('M1')
-  // A ref of a part that is not in the build says so and does nothing.
-  await say('say look at gizmo/F3 and cap/E1')
-  const gone = chat().locator('.chat-text .ref-chip[data-ref="cap/E1"]')
+  // What the chip did, it did to the view: the next letter is the view's, not the chat's.
+  await page.keyboard.press('p')
+  await expect(page.locator('.tool-button[data-tool="pin"]')).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.tool-button[data-tool="pin"]')).toHaveAttribute('aria-pressed', 'false')
+  // M3 is a screw, not a mark of this object: text, not a chip. A mark the object has is a chip.
+  await say('say an M3 clearance hole near M1')
+  const screw = chat().locator('.chat-text').last()
+  await expect(screw).toContainText('M3 clearance hole')
+  await expect(screw.locator('.ref-chip[data-ref="M3"]')).toHaveCount(0)
+  await expect(screw.locator('.ref-chip[data-ref="M1"]')).toHaveCount(1)
+  // A ref of a part the build does not have is only text; a face the part does not have says so and does nothing.
+  await say('say look at gizmo/F3 and base/F99')
+  const text = chat().locator('.chat-text').last()
+  await expect(text).toContainText('gizmo/F3')
+  await expect(text.locator('.ref-chip[data-ref="gizmo/F3"]')).toHaveCount(0)
+  const gone = text.locator('.ref-chip[data-ref="base/F99"]')
   await expect(gone).toBeVisible()
-  await expect(gone).toHaveAttribute('title', 'cap/E1 is not in the layout shown (assembly)')
+  await expect(gone).toHaveAttribute('title', 'base has no F99')
   await expect(gone).not.toHaveAttribute('data-live', '')
   expect(await gone.evaluate((el) => el.tagName)).toBe('SPAN')
 })
@@ -271,6 +285,14 @@ test('an ended session can still be read, and nothing more can be written to it'
   // The conversation that ended can still be read, and nothing more can be written to it.
   await expect(composer()).toBeDisabled()
   await expect(chat().locator('.chat-note').last()).toContainText('The session ended')
+  // And after the window is loaded again: main still holds what it said.
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => window.location.reload())])
+  await page.waitForSelector('[data-region="left"]')
+  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await expect(chat()).toBeVisible({ timeout: 15_000 })
+  await expect(chat().locator('.chat-note').last()).toContainText('The session ended')
+  await expect(chat().locator('.chat-user', { hasText: 'say hello there' })).toHaveCount(1)
+  await expect(composer()).toBeDisabled()
 })
 
 test('the window reloaded in the middle of a stream shows every item once and goes on streaming', async () => {

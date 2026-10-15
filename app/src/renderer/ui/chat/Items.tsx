@@ -61,7 +61,7 @@ const Added = memo(function Added({ item }: { item: Of<'context'> }) {
 const User = memo(function User({ item }: { item: Of<'user'> }) {
   return (
     <div className="chat-item chat-user" data-kind="user" data-state={item.state}>
-      {item.text !== '' && <p className="chat-user-text selectable">{item.text}</p>}
+      {item.text !== '' && <p className="chat-user-text selectable">{numbered(item.text)}</p>}
       <Pictures images={item.images} what="Your message" />
       {item.state === 'queued' && <p className="chat-user-state">Queued</p>}
       {item.state === 'not-sent' && <p className="chat-user-state">Not sent</p>}

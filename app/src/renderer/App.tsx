@@ -6,6 +6,7 @@ import { connectLook } from './state/agent'
 import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
 import { closingWhy, isExporting, unkept } from './closing'
+import { unsentPrompts } from './ui/chat/Composer'
 import { paintings } from './tools/regionPainting'
 import { Confirm } from './ui/Confirm'
 import { Layers } from './ui/Layers'
@@ -285,7 +286,7 @@ export function App() {
     () =>
       window.torno.workspace.onCloseAsked(() => {
         const s = store.getState()
-        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting() })
+        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting(), unsent: unsentPrompts(Object.values(s.sessions).filter((x) => x.view === 'chat' && x.status !== 'exited').map((x) => x.sessionId)) })
         window.torno.workspace.answerClose(why === null)
         setClosing(why)
       }),

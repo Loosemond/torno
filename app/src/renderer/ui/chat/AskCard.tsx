@@ -68,12 +68,13 @@ function Reason({ value, onChange, onKeep }: { value: string; onChange: (v: stri
 /** What the card says once it is done: how it was answered. */
 function Outcome({ item, said }: { item: Ask; said: Record<'allowed' | 'denied', string> }) {
   if (item.state === 'open') return null
-  const word = item.state === 'ended' ? 'Not answered: the session ended' : said[item.state]
+  // The CLI gave it up when the turn was stopped (`why`), or the session ended with it open.
+  const word = item.state === 'ended' ? (item.why !== undefined ? `Cancelled: ${item.why}` : 'Not answered: the session ended') : said[item.state]
   const reason = item.state === 'denied' && item.answer && item.answer !== DENIED ? item.answer : undefined
   return (
     <p className="chat-ask-outcome">
       {word}
-      {reason && <>: {reason}</>}
+      {reason && <>: {numbered(reason)}</>}
     </p>
   )
 }
@@ -90,7 +91,7 @@ function Permission({ item }: { item: Ask }) {
       <h4 className="chat-ask-title">
         Claude Code {open ? 'asks' : 'asked'} to use <span className="num">{toolName(item.toolName)}</span>
       </h4>
-      {item.description !== undefined && <p className="chat-ask-why selectable">{item.description}</p>}
+      {item.description !== undefined && <p className="chat-ask-why selectable">{numbered(item.description)}</p>}
       {(shown.lead !== undefined || shown.body !== '') && (
         <div className="chat-ask-input selectable">
           {shown.lead !== undefined && <p className="chat-ask-lead">{shown.lead}</p>}
@@ -165,14 +166,14 @@ function QuestionView({ question, picked, other, onPick, onOther, disabled }: { 
   return (
     <fieldset className="chat-ask-question" disabled={disabled}>
       <legend>
-        {question.header !== '' && <span className="chat-ask-header">{question.header}</span>}
-        <span className="chat-ask-text">{question.question}</span>
+        {question.header !== '' && <span className="chat-ask-header">{numbered(question.header)}</span>}
+        <span className="chat-ask-text">{numbered(question.question)}</span>
       </legend>
       <div className="chat-ask-options" role="group" aria-label={question.question}>
         {question.options.map((option) => (
           <button key={option.label} type="button" className="chat-ask-option" aria-pressed={picked.includes(option.label)} onClick={() => onPick(option.label)}>
-            <span className="chat-ask-label">{option.label}</span>
-            {option.description !== '' && <span className="chat-ask-desc">{option.description}</span>}
+            <span className="chat-ask-label">{numbered(option.label)}</span>
+            {option.description !== '' && <span className="chat-ask-desc">{numbered(option.description)}</span>}
           </button>
         ))}
       </div>
@@ -241,7 +242,7 @@ function Questions({ item }: { item: Ask }) {
         </>
       ) : (
         <>
-          {item.answer && <pre className="chat-ask-answers selectable">{item.answer}</pre>}
+          {item.answer && <pre className="chat-ask-answers selectable">{numbered(item.answer)}</pre>}
           <Outcome item={item} said={{ allowed: 'Answered', denied: 'Declined' }} />
         </>
       )}

@@ -18,6 +18,8 @@ describe('what closing the window would end', () => {
   it('is a line of marks waiting at the prompt, a painting not kept, an import and an export under way', () => {
     expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true, send: { state: 'waiting' } }] })).toBe('A line of marks is at an agent\'s prompt, not sent yet.')
     expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true, send: { state: 'sent' } }] })).toBeNull()
+    expect(closingWhy({ ...NOTHING, unsent: 1 })).toBe('A prompt written in the chat is not sent yet.')
+    expect(closingWhy({ ...NOTHING, unsent: 0 })).toBeNull()
     expect(closingWhy({ ...NOTHING, paintings: 1 })).toBe('A region painted on a scan is not kept yet.')
     expect(closingWhy({ ...NOTHING, importing: true })).toBe('A scan is being imported.')
     expect(closingWhy({ ...NOTHING, exporting: true })).toBe('An export is being written.')

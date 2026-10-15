@@ -54,3 +54,27 @@ describe('what a ref in the chat can do', () => {
     expect(refInfo(store.getState(), 'lid')).toMatchObject({ kind: 'none', live: false })
   })
 })
+
+describe('what in prose is a ref at all (M5)', () => {
+  it('is plain for a mark the object does not have: an M3 screw is a screw', () => {
+    expect(refInfo(store.getState(), 'M3').plain).toBe(true)
+    store.setState({ marks: [pin('M3', 'user', undefined)] })
+    expect(refInfo(store.getState(), 'M3').plain).toBe(false)
+  })
+
+  it('is plain for a build above the current one, and for r0', () => {
+    expect(refInfo(store.getState(), 'r3').plain).toBe(false)
+    expect(refInfo(store.getState(), 'r1').plain).toBe(false)
+    expect(refInfo(store.getState(), 'r4').plain).toBe(true)
+    expect(refInfo(store.getState(), 'r0').plain).toBe(true)
+  })
+
+  it('is plain for a part the build does not have in any layout, and a ref for one that is in another layout', () => {
+    expect(refInfo(store.getState(), 'cap/F1').plain).toBe(true)
+    expect(refInfo(store.getState(), 'lid/F1').plain).toBe(false)
+    store.setState({ layout: 'print' })
+    // tub is not in the layout shown, but the build has it in another: said so, not hidden.
+    expect(refInfo(store.getState(), 'tub/F1')).toMatchObject({ plain: false, live: false, title: 'tub/F1 is not in the layout shown (print)' })
+  })
+})
+

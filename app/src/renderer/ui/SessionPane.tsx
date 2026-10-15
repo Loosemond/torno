@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { type SessionSaid, AGENT_LABEL, AGENT_VIEWS, busyWith, nextCarries, nextPromptLine, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
+import { type SessionSaid, AGENT_LABEL, AGENT_VIEWS, busyWith, isTrustQuestion, nextCarries, nextPromptLine, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
 import type { AgentId, AgentView } from '../../shared/bridge'
 import { chatActions, connectChat, useChat } from '../state/chat'
 import { actions, store, useStore } from '../state/store'
@@ -269,6 +269,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const [sending, setSending] = useState(false)
   /** The view chosen while a busy session runs, waiting for a yes: choosing it ends that session and resumes it in the other view. */
   const [switching, setSwitching] = useState<AgentView | null>(null)
+  /** The chat was refused for this folder's own Claude Code settings: main's question, and whether the start was to resume. */
+  const [trusting, setTrusting] = useState<{ question: string; resume: boolean } | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const reveal = useRef(onReveal)
   reveal.current = onReveal
@@ -400,6 +402,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     setEnding(false)
     setChoosing(null)
     setSwitching(null)
+    setTrusting(null)
     setChoice({ agent: 'claude', view: 'chat' })
     if (!objectId) return
     const mine = terminals.get(objectId)
@@ -422,6 +425,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         if (!live) return
         setResumable(info.resumable)
         setChoice({ agent: info.agent, view: info.view, ...(info.note ? { note: info.note } : {}) })
+        // A chat that ended before this window was loaded: main still holds what it said, and it is shown as ended.
+        if (!info.running && info.ended && !store.getState().sessions[objectId]) actions.setSession(objectId, { sessionId: info.ended.sessionId, status: 'exited', agent: 'claude', hooks: true, view: 'chat' })
         if (!info.running || store.getState().sessions[objectId]) return
         actions.setSession(objectId, info.running)
         // A chat has no terminal: its transcript is asked of main by its pane.
@@ -494,9 +499,41 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       setChoice((was) => ({ ...was, view: started.view }))
       focusWanted.current = true
     } catch (e) {
-      setProblem(reason(e))
+      const said = reason(e)
+      // Main asks, rather than start a chat that loads the folder's own settings without the question the terminal asks.
+      if (isTrustQuestion(said)) setTrusting({ question: said, resume })
+      else setProblem(said)
     } finally {
       setStarting(false)
+    }
+  }
+
+  /** "Start the chat": the folder is remembered as one the person let the chat start in, and the start is made again. */
+  async function trustAndStart(): Promise<void> {
+    const asked = trusting
+    setTrusting(null)
+    if (!asked || !objectId) return
+    try {
+      await window.torno.session.trust(objectId)
+    } catch (e) {
+      return setProblem(reason(e))
+    }
+    await start(asked.resume)
+  }
+
+  /** "Use the terminal": the object's next sessions are in Claude Code's own terminal, which asks its own question. */
+  async function useTerminal(): Promise<void> {
+    const asked = trusting
+    setTrusting(null)
+    if (!asked || !objectId) return
+    try {
+      await window.torno.session.chooseView(objectId, 'terminal')
+      if (store.getState().objectId === objectId) setChoice((was) => ({ ...was, view: 'terminal' }))
+      await start(asked.resume)
+    } catch (e) {
+      setProblem(reason(e))
+    } finally {
+      setChosen((n) => n + 1)
     }
   }
 
@@ -722,6 +759,11 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
             }}
           >
             {agentLabel} {busy ?? 'is running'}. A new session ends this one.
+          </Confirm>
+        )}
+        {trusting !== null && objectId && (
+          <Confirm label="Start the chat in this folder?" accept="Start the chat" cancel="Use the terminal" onCancel={() => void useTerminal()} onAccept={() => void trustAndStart()}>
+            {trusting.question}
           </Confirm>
         )}
         {ending && session && (

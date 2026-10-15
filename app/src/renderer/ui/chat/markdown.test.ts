@@ -1,7 +1,11 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Markdown, parseMarkdown } from './markdown'
+
+// What the object has is the window's store, which a static render does not see: these are the refs it has.
+const HAS = new Set(['M4', 'lid/F12', 'r3'])
+vi.mock('./refs', () => ({ refInfo: (_state: unknown, value: string) => ({ kind: 'mark', live: false, lights: [], plain: !HAS.has(value), title: value }) }))
 
 const html = (text: string): string => renderToStaticMarkup(createElement(Markdown, { text }))
 
@@ -78,6 +82,13 @@ describe('the markdown of the agent\'s text', () => {
     expect(out.match(/data-ref="[^"]+"/g)).toEqual(['data-ref="M4"', 'data-ref="lid/F12"', 'data-ref="r3"'])
     expect(html('```\nM4\n```')).not.toContain('data-ref')
     expect(html('**M4 in bold**')).toContain('data-ref="M4"')
+  })
+
+  it('leaves what is no ref of this object as text: an M3 screw, a build not made, a part it does not have', () => {
+    const out = html('an M3 clearance hole, M4 and r9 and cap/F1')
+    expect(out.match(/data-ref="[^"]+"/g)).toEqual(['data-ref="M4"'])
+    expect(out).toContain('<span class="num">M3</span>')
+    expect(out).toContain('<span class="num">r9</span>')
   })
 
   it('sets numbers in the monospace face', () => {

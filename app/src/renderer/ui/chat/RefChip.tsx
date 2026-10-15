@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { peek } from '../../state/agent'
 import { actions, useStore } from '../../state/store'
+import { giveKeysBack } from '../typing'
 import { type RefInfo, refInfo } from './refs'
 
 /**
  * A ref the chat shows (`M4`, `lid/F12`, `r12`) as a chip that is live: the pointer on it lights what it names in
  * the viewport, a click on a mark goes to it and a click on a face or an edge selects it. One that names nothing
  * in the window now (another layout, a part not drawn, a mark that is gone) says so in its tooltip and does
- * nothing else. `value` is the ref (`ref` is React's own word).
+ * nothing else. `value` is the ref (`ref` is React's own word). `prose`: the ref was found in running text, where one
+ * the object has no such thing as (`M3` the screw, a build not made yet) is only text.
  */
-export function RefChip({ value }: { value: string }) {
+export function RefChip({ value, prose = false }: { value: string; prose?: boolean }) {
   // Only what a ref depends on is followed (not the selection or the camera), and what it says is worked out again
   // only when one of those changes.
   const marks = useStore((s) => s.marks)
@@ -31,6 +33,7 @@ export function RefChip({ value }: { value: string }) {
     if (lit.current) peek(info.lights)
   }, [info.lights.join(' ')])
 
+  if (prose && info.plain) return <span className="num">{value}</span>
   const props = { className: 'ref-chip num', 'data-ref': value, 'data-kind': info.kind, 'data-author': info.author, 'data-live': info.live ? '' : undefined, title: info.title }
   if (!info.live || info.act === undefined) return <span {...props}>{value}</span>
   return (
@@ -41,9 +44,11 @@ export function RefChip({ value }: { value: string }) {
       onPointerLeave={() => light(false)}
       onFocus={() => light(true)}
       onBlur={() => light(false)}
-      onClick={() => {
+      onClick={(e) => {
         if (info.act === 'focus') actions.focusMark(value)
         else actions.setSelection([value])
+        // Made with the pointer, the next letter is the view's: what the chip did, it did to the view. (Enter on it keeps the focus.)
+        if (e.detail > 0) giveKeysBack(e.currentTarget)
       }}
     >
       {value}

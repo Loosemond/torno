@@ -1,6 +1,6 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
+import { type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, MAX_ITEMS } from '../../shared/chat'
 
 // The transcripts of the chat sessions, in a store of their own: they are updated by what main tells, an item at
 // a time, and nothing here is per frame. Main keeps the conversation; this is only what the window has drawn from
@@ -25,6 +25,8 @@ export interface ChatSession {
   failed?: string
   /** No pane shows it: its pictures have been let go (the data of each), and the history is asked for again when it is shown. */
   released?: boolean
+  /** The oldest items were let go, as main lets go of them: the pane says so once, at the top. */
+  trimmed?: boolean
 }
 
 export const chatStore = createStore<{ sessions: Record<string, ChatSession> }>(() => ({ sessions: {} }))
@@ -71,11 +73,16 @@ function withoutData(item: ChatItem): ChatItem {
   return { ...item, images: item.images.map(({ data: _data, ...rest }) => rest) }
 }
 
+/** A session with these items, no more than main keeps: the oldest go, and the pane is to say so. */
+function holding(session: ChatSession, items: ChatItem[]): ChatSession {
+  return items.length > MAX_ITEMS ? { ...session, items: items.slice(items.length - MAX_ITEMS), trimmed: true } : { ...session, items }
+}
+
 function apply(session: ChatSession, told: Told): ChatSession {
   if (told.seq <= session.seq) return session
   if ('meta' in told) return { ...session, meta: told.meta, seq: told.seq }
   if ('commands' in told) return { ...session, commands: told.commands, models: told.models, seq: told.seq }
-  return { ...session, items: placed(session.items, session.released ? withoutData(told.item) : told.item), seq: told.seq }
+  return { ...holding(session, placed(session.items, session.released ? withoutData(told.item) : told.item)), seq: told.seq }
 }
 
 const set = (sessionId: string, change: (session: ChatSession) => ChatSession): void => {
@@ -98,7 +105,9 @@ export const chatActions = {
     try {
       const h: ChatHistory = await window.torno.chat.history(sessionId)
       set(sessionId, (session) => {
-        const base: ChatSession = { ...session, items: h.items, earlier: h.earlier, meta: h.meta, commands: h.commands, models: h.models, seq: h.seq, loading: false, told: [] }
+        // A session no pane shows by now (released while it loaded) takes no picture data in.
+        const gone = session.released === true
+        const base: ChatSession = holding({ ...session, earlier: gone ? h.earlier.map(withoutData) : h.earlier, meta: h.meta, commands: h.commands, models: h.models, seq: h.seq, loading: false, told: [] }, gone ? h.items.map(withoutData) : h.items)
         return session.told.reduce(apply, base)
       })
     } catch (e) {
