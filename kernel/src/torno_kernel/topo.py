@@ -8,39 +8,39 @@ sphere's pole; they are kept here so the indices stay aligned with the mesh.
 
 from typing import Any
 
+from .ocp import (
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_SOLID,
+    TopAbs_WIRE,
+    TopExp,
+    TopTools_IndexedMapOfShape,
+    downcast,
+)
+
 
 def faces(shape: Any) -> list[Any]:
     """The shape's distinct faces as ``TopoDS_Face``, in canonical order."""
-    from ocp_tessellate.ocp_utils import TopAbs_FACE
-
     return _subshapes(shape, TopAbs_FACE)
 
 
 def edges(shape: Any) -> list[Any]:
     """The shape's distinct edges as ``TopoDS_Edge``, in canonical order."""
-    from ocp_tessellate.ocp_utils import TopAbs_EDGE
-
     return _subshapes(shape, TopAbs_EDGE)
 
 
 def solids(shape: Any) -> list[Any]:
     """The shape's distinct solids as ``TopoDS_Solid``: none of a shell or a lone face."""
-    from ocp_tessellate.ocp_utils import TopAbs_SOLID
-
     return _subshapes(shape, TopAbs_SOLID)
 
 
 def wires(shape: Any) -> list[Any]:
     """The shape's distinct wires as ``TopoDS_Wire``: of a face, its outer one and its holes."""
-    from ocp_tessellate.ocp_utils import TopAbs_WIRE
-
     return _subshapes(shape, TopAbs_WIRE)
 
 
 def loose_faces(shape: Any) -> int:
     """How many of the shape's faces are of none of its solids."""
-    from ocp_tessellate.ocp_utils import TopAbs_FACE, TopExp, TopTools_IndexedMapOfShape
-
     of_solids = TopTools_IndexedMapOfShape()
     for solid in solids(shape):
         TopExp.MapShapes_s(solid, TopAbs_FACE, of_solids)
@@ -56,10 +56,6 @@ def what(shape: Any) -> str:
 
 
 def _subshapes(shape: Any, kind: Any) -> list[Any]:
-    # OCP comes from the user's workspace, so it is imported only when used.
-    # ocp_tessellate's shims paper over the names OCP 8 changed.
-    from ocp_tessellate.ocp_utils import TopExp, TopTools_IndexedMapOfShape, downcast
-
     wrapped = getattr(shape, "wrapped", shape)
     found = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(wrapped, kind, found)

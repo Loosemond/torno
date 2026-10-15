@@ -231,7 +231,9 @@ def _cross_section(
 def _sheet(solid: Any, frame: _Frame, plane: Any) -> Any:
     """A face of the plane that reaches past the solid on every side, or None when the
     plane passes the solid by."""
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib, BRepBuilderAPI_MakeFace
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+    from OCP.Bnd import Bnd_Box
 
     box = Bnd_Box()
     # Of the geometry, which the box may exceed but never falls short of.
@@ -360,7 +362,9 @@ def _outline(shape: Any, frame: _Frame, key: str) -> tuple[list[dict[str, Any]],
 
 def _polyline(wire: Any, deflection: float) -> np.ndarray:
     """The points a wire is drawn through, in its order, no further than ``deflection`` from it."""
-    from ocp_tessellate.ocp_utils import BRep_Tool, BRepAdaptor_Curve, TopAbs_Orientation
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.TopAbs import TopAbs_Orientation
     from OCP.BRepTools import BRepTools_WireExplorer
     from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 
@@ -387,7 +391,7 @@ def _polyline(wire: Any, deflection: float) -> np.ndarray:
 def _wire_area(plane: Any, wire: Any, outline: np.ndarray) -> tuple[float, bool]:
     """The area a closed wire of the plane bounds, and whether it is of the wire itself
     or only of the polygon drawn of it."""
-    from ocp_tessellate.ocp_utils import BRepBuilderAPI_MakeFace
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
 
     area = None
     try:
