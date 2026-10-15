@@ -256,6 +256,12 @@
   height: 30px;
 }
 
+/* A dimension opened out says its value and its verdict in its fields, right under the first line: there the
+   first line leaves the value to them, and has the room for the way to a note beside what can be done. */
+.mark-row:has(> .dimension-fields) > .mark-value {
+  display: none;
+}
+
 .shape-fields {
   flex: none;
   display: grid;

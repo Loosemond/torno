@@ -50,7 +50,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - A mark's row is one line, its note cut to the room there is; what the last build did to its mark (`moved:
   check it`, `its part is gone`) is a line of its own under the note (`.mark-anchor`, `late.css`), and the
   status word is never cut. The Marks list never scrolls sideways (`e2e/reanchor.spec.ts`, with a note longer
-  than the column).
+  than the column). A dimension opened out leaves its value and verdict to its fields under the first line, so
+  that `Add a note` is whole beside the buttons of the row (`marks.css`, `e2e/measure.spec.ts`).
 
 ## Section
 

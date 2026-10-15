@@ -250,6 +250,20 @@ test('with an expected value the hole fails: the row says so, and the chip in th
   expect(dimension(root, 'M2')).toMatchObject({ expected: 8.5, value: 8 })
   await expect(row('M2', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'fail')
   await expect(fields.locator('.dimension-verdict')).toHaveText('Fails: 0.5 under')
+  // The row, open and with the pointer on it: its value, its verdict and the way to a note, none of them cut.
+  await row('M2', page).hover()
+  const note = row('M2', page).locator('.mark-note')
+  await expect(note).toHaveAttribute('data-empty', '')
+  const [wide, room] = await note.evaluate((el) => [el.scrollWidth, el.clientWidth])
+  expect(wide).toBeLessThanOrEqual(room)
+  const covered = await row('M2', page).evaluate((li) => {
+    const text = li.querySelector('.mark-note')!.getBoundingClientRect()
+    const actions = li.querySelector('.mark-actions')!.getBoundingClientRect()
+    const ink = document.createRange()
+    ink.selectNodeContents(li.querySelector('.mark-note')!)
+    return ink.getBoundingClientRect().right > actions.left && text.top < actions.bottom && getComputedStyle(li.querySelector('.mark-actions')!).opacity !== '0'
+  })
+  expect(covered).toBe(false)
 
   // The picture: the same but for the chip of M2, whose value is now ringed.
   await atRest(page)
