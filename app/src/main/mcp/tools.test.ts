@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import type { BuildState } from '../../shared/build'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanAlignment, ScanInfo } from '../../shared/scans'
@@ -189,6 +190,24 @@ describe('the tool descriptions', () => {
       expect(sentences).toBeGreaterThanOrEqual(2)
       expect(sentences).toBeLessThanOrEqual(3)
     }
+  })
+
+  it('add_mark shows a whole call for a pin, which its schema takes as it is', () => {
+    expect(TOOLS.add_mark.description).toMatch(/\{"kind": "pin", /)
+  })
+
+  it('every example call a description gives is JSON its tool takes as it is: no key it would refuse, no value its schema would', () => {
+    let examples = 0
+    for (const [name, tool] of Object.entries(TOOLS) as Array<[keyof typeof TOOLS, (typeof TOOLS)[keyof typeof TOOLS]]>) {
+      for (const [example] of tool.description.matchAll(/\{"[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)) {
+        const args = JSON.parse(example) as Record<string, unknown>
+        examples += 1
+        expect([name, refusedKeys(name, args)]).toEqual([name, null])
+        const schema = z.object('inputSchema' in tool ? tool.inputSchema : {}).strict()
+        expect([name, example, schema.safeParse(args).success]).toEqual([name, example, true])
+      }
+    }
+    expect(examples).toBeGreaterThan(0)
   })
 
   it('marks says which marks have not been checked against the build as the code does: no checkedRevision, or any other than the revision', () => {

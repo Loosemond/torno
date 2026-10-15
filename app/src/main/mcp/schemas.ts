@@ -339,7 +339,7 @@ export const TOOLS = {
   },
   add_mark: {
     description:
-      "Returns the number and a one-line description of a mark you placed on the object, which the user sees in the viewport and in their list of marks in your colour, and the revision of the build it was placed on. Use it to show where you made a change, or to point at the place a question is about; refs come from marks, scene and describe. A dimension is measured at once, in mm or degrees, and again on every build, and one you give an expected value becomes a pinned check the user sees: it is told to you again for as long as it fails (with a prompt, or in .torno/prompt.md).",
+      `Returns the number and a one-line description of a mark you placed on the object, which the user sees in the viewport and in their list of marks in your colour, and the revision of the build it was placed on. Use it to show where you made a change, or to point at the place a question is about, as {"kind": "pin", "ref": "lid/F12", "point": [10, 0, 22], "note": "thinned this wall to 2 mm"} does; refs come from marks, scene and describe. A dimension is measured at once, in mm or degrees, and again on every build, and one you give an expected value becomes a pinned check the user sees: it is told to you again for as long as it fails (with a prompt, or in .torno/prompt.md).`,
     inputSchema: addMarkInput
   },
   resolve_mark: {
