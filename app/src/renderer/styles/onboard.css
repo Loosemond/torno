@@ -1,0 +1,453 @@
+/* ---- The page of a new object (ui/onboard/NewObject.tsx) and the doodle board (ui/onboard/Doodle.tsx) ---- */
+
+.new-object-button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  margin: var(--space-1) var(--space-3) var(--space-2);
+}
+
+.new-object-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.new-object-button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.show-new {
+  flex: none;
+  height: 30px;
+  margin-left: auto;
+}
+
+.show-new + .show-export {
+  margin-left: 0;
+}
+
+.show-empty-new {
+  margin-top: var(--space-3);
+}
+
+/* The page: the page of objects' ground, with one calm column. */
+.new-object {
+  scroll-padding-bottom: 96px;
+}
+
+.new-object:focus {
+  outline: none;
+}
+
+.new-object[data-dragging] {
+  outline: 2px dashed var(--accent);
+  outline-offset: -10px;
+}
+
+.new-column {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding-bottom: var(--space-4);
+}
+
+.shell[data-dock='collapsed'] .new-head {
+  padding-right: 36px;
+}
+
+.new-head h2 {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.new-lead {
+  margin-top: var(--space-1);
+  color: var(--muted);
+}
+
+.new-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.new-field > label,
+.new-label {
+  font-size: var(--text-size);
+  font-weight: 500;
+}
+
+.new-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+}
+
+.new-what {
+  padding: var(--space-2) var(--space-3);
+  line-height: var(--text-leading);
+  resize: vertical;
+}
+
+.new-input::placeholder,
+.ref-note::placeholder {
+  color: var(--muted);
+}
+
+.new-input:focus-visible,
+.ref-note:focus-visible {
+  border-color: var(--accent);
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.new-input[aria-invalid='true'] {
+  border-color: var(--fail);
+}
+
+.new-input:disabled {
+  opacity: 0.6;
+}
+
+.new-help {
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-wrap: pretty;
+}
+
+.new-help[data-tone='fail'],
+.new-problem {
+  color: var(--fail);
+}
+
+.new-help[data-tone='warn'] {
+  color: var(--warn);
+}
+
+.new-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* What has been given: a card for each, in a list. */
+.ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ref-list:empty {
+  display: none;
+}
+
+.ref-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+}
+
+.ref-thumb {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 72px;
+  overflow: hidden;
+  border: var(--divider);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.ref-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ref-card[data-kind='doodles'] .ref-thumb img {
+  object-fit: contain;
+}
+
+.ref-thumb svg {
+  width: 32px;
+  height: 32px;
+}
+
+.ref-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ref-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.ref-kind {
+  font-weight: 500;
+}
+
+.ref-file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref-detail {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.ref-note {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.ref-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+/* The workspace's objects to refer to: a small list under its button. */
+.ref-menu {
+  position: relative;
+}
+
+.ref-menu-list {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  width: 300px;
+  max-height: 320px;
+  margin: 0;
+  padding: var(--space-1);
+  overflow-y: auto;
+  list-style: none;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.ref-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  text-align: left;
+}
+
+.ref-menu-item:hover,
+.ref-menu-item:focus-visible {
+  background: var(--accent-wash);
+  outline: none;
+}
+
+.ref-menu-thumb {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 56px;
+  height: 42px;
+  overflow: hidden;
+  border: var(--divider);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.ref-menu-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ref-menu-thumb svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ref-menu-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The foot: what Create will write, in a line, and the two buttons. It stays in view while the page is scrolled. */
+.new-foot {
+  position: sticky;
+  bottom: -20px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3) 0 var(--space-3);
+  border-top: var(--divider);
+  background: var(--surface);
+}
+
+.new-will {
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.new-will .num {
+  color: var(--ink);
+}
+
+.new-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.new-confirm {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  width: min(720px, 100%);
+  margin: var(--space-3) auto 0;
+  overflow: hidden;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+}
+
+/* A first prompt that was not sent, in the session pane. */
+.session-held {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--divider);
+  color: var(--warn);
+  font-size: var(--text-small);
+}
+
+.session-held p {
+  flex: 1;
+  min-width: 0;
+  text-wrap: pretty;
+}
+
+/* ---- The doodle board: a sheet over the page ---- */
+
+.board-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: start center;
+  padding: var(--space-3) calc(var(--dock-space) + var(--space-4)) calc(var(--status-h) + var(--space-4)) calc(var(--left-w) + var(--space-4));
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.board-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(960px, 100%);
+  max-height: 100%;
+  padding: var(--space-3) var(--space-4) var(--space-3);
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.board-sheet:focus {
+  outline: none;
+}
+
+.board-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.board-head h2 {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.board-hint {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.board-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.board-stage {
+  display: grid;
+  min-height: 0;
+  place-items: center;
+}
+
+/* The ground is the panel's own colour: light in the light theme, the panel's dark in the dark one. The ink is --ink. */
+.board-canvas {
+  display: block;
+  width: min(100%, calc((100vh - 230px) * 1.5));
+  height: auto;
+  aspect-ratio: 3 / 2;
+  border: var(--divider);
+  border-radius: 4px;
+  background: var(--panel);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.board-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.board-size {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: var(--text-small);
+}

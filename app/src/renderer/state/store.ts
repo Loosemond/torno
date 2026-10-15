@@ -139,10 +139,11 @@ export interface TornoState {
   /** By object id: the session started there, running or ended. It outlives the object being shown. */
   sessions: Record<string, SessionView>
   /**
-   * What the middle of the window shows: the open object, or the page of the workspace's objects over it. The
-   * open object stays as it is under the page: its selection, its camera, the note being written.
+   * What the middle of the window shows: the open object, or the page of the workspace's objects or the page of a
+   * new object (`state/onboard.ts`) over it. The open object stays as it is under the page: its selection, its
+   * camera, the note being written.
    */
-  page: 'object' | 'objects'
+  page: 'object' | 'objects' | 'new'
   /** The export sheet, while it is up: the objects it opens with ticked, or `all` for every one that can be exported. Null when it is away. */
   exportOf: string[] | 'all' | null
 }
@@ -188,9 +189,9 @@ export const actions = {
   },
 
   /** Show the page of objects, or go back from it to the object that is open: with none open there is nothing to go back to. */
-  showPage(page: 'object' | 'objects'): void {
+  showPage(page: 'object' | 'objects' | 'new'): void {
     const s = store.getState()
-    if (page === s.page || (page === 'object' && s.objectId === null) || (page === 'objects' && s.workspace === null)) return
+    if (page === s.page || (page === 'object' && s.objectId === null) || (page !== 'object' && s.workspace === null)) return
     store.setState({ page })
   },
 

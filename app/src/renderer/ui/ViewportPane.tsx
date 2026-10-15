@@ -485,8 +485,8 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
   const name = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const hasScene = useStore((s) => s.scene !== null)
   const build = useStore((s) => s.build)
-  // Under the page of objects the view stays as it is, and takes neither the pointer nor the keys.
-  const covered = useStore((s) => s.page === 'objects')
+  // Under the page of objects or of a new object the view stays as it is, and takes neither the pointer nor the keys.
+  const covered = useStore((s) => s.page !== 'object')
 
   useEffect(() => {
     // A canvas of its own for each viewport: a WebGL context is not handed on.

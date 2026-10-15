@@ -122,6 +122,8 @@ export interface TornoBridge {
     pickScan(): Promise<string | null>
     /** Where a file dropped on the window is on the disk (`webUtils.getPathForFile`); '' for one that is nowhere. */
     pathOf(file: File): string
+    /** The bytes of an image file the dialog or a drop gave (a plain PNG, JPEG or WebP file of at most 25 MB), to draw it and scale a copy for the prompt. */
+    readPhoto(path: string): Promise<Uint8Array>
     /** Makes the folder of a new object, whole or not at all, and answers with its id once the workspace lists it. */
     create(req: CreateRequest): Promise<{ objectId: string }>
     /**

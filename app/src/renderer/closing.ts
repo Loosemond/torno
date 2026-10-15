@@ -13,6 +13,8 @@ export interface ClosingState {
   exporting: boolean
   /** How many chats of sessions that are not over hold a prompt that was written and not sent. */
   unsent?: number
+  /** Whether the page of a new object holds something that is not made yet. */
+  draft?: boolean
 }
 
 /** What closing the window now would end, as sentences; null when nothing is under way. */
@@ -24,6 +26,7 @@ export function closingWhy(state: ClosingState): string | null {
   // Of a session that is still there: one that has ended has no prompt for a line to wait at.
   if (state.sessions.some((s) => s.status !== 'exited' && s.send?.state === 'waiting')) said.push("A line of marks is at an agent's prompt, not sent yet.")
   if ((state.unsent ?? 0) > 0) said.push('A prompt written in the chat is not sent yet.')
+  if (state.draft === true) said.push('A new object is set up and not made yet.')
   if (state.paintings > 0) said.push('A region painted on a scan is not kept yet.')
   if (state.importing) said.push('A scan is being imported.')
   if (state.exporting) said.push('An export is being written.')

@@ -6,7 +6,7 @@ export const NOT_A_SCAN = 'torno reads .glb, .gltf, .obj, .ply and .stl scans'
 /** Said of a dropped file the system gives no path for. */
 export const NO_PATH = 'That file has no place on the disk'
 
-function isScan(name: string): boolean {
+export function isScan(name: string): boolean {
   const lower = name.toLowerCase()
   return SCAN_FORMATS.some((ending) => lower.endsWith(ending))
 }

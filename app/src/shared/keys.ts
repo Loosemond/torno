@@ -8,7 +8,7 @@
  */
 
 /** Where the sheet lists a row. */
-export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'With a shape in hand' | 'Page of objects' | 'Session' | 'In a field, a menu or a sheet' | 'For working on torno'
+export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'With a shape in hand' | 'Page of objects' | 'New object' | 'Session' | 'In a field, a menu or a sheet' | 'For working on torno'
 
 /**
  * Where a key is listened to. Two rows of one scope would answer the same press.
@@ -17,13 +17,13 @@ export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'Wi
  * - `viewport`: outside a field and the terminal, with an object on show.
  * - `measure`, `section`, `align`, `region`: with that tool in hand, which then has the key before the viewport.
  * - `shape`: while a shape of the person's is the active mark.
- * - `page`: on the page of objects; `filter`: in its field.
+ * - `page`: on the page of objects; `filter`: in its field. `newobject`: on the page of a new object and its doodle board.
  * - `session`: in the terminal. `composer`: in the box a chat prompt is written in. `picture`: while a picture of the
  *   chat is shown large. `separator`: on the edge of the session pane.
  * - `field`, `menu`, `sheet`: in a field, an open menu, a sheet or a question.
  * - `dev`: under the dev server only.
  */
-export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'session' | 'composer' | 'picture' | 'separator' | 'field' | 'menu' | 'sheet' | 'dev'
+export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'newobject' | 'session' | 'composer' | 'picture' | 'separator' | 'field' | 'menu' | 'sheet' | 'dev'
 
 export const TOOL_KEYS = [
   { name: 'select', label: 'Select', key: 'V', does: 'Select: click a face, an edge or a part' },
@@ -115,6 +115,9 @@ const ROWS = [
   row('filter.first', ['Enter'], 'In the filter: open the first card', 'Page of objects', 'filter'),
   row('filter.down', ['Down'], 'In the filter: down to the cards', 'Page of objects', 'filter'),
 
+  row('new.back', ['Esc'], 'Leave the page, asking first when something is in it; on the doodle board, put the board away', 'New object', 'newobject'),
+  row('board.undo', ['Ctrl+Z'], 'Doodle board: undo the last stroke', 'New object', 'newobject'),
+
   row('session.newline', ['Shift+Enter'], 'A new line in the prompt, not a send', 'Session', 'session'),
   row('session.copy', ['Ctrl+Shift+C'], 'Copy what is selected in the terminal', 'Session', 'session'),
   row('session.paste', ['Ctrl+Shift+V'], 'Paste into the terminal', 'Session', 'session'),
@@ -151,6 +154,7 @@ export const CONTEXTS: ReadonlyArray<{ name: KeyContext; when: string }> = [
   { name: 'With a tool in hand', when: 'The tool has the key before the viewport' },
   { name: 'With a shape in hand', when: 'While a shape of yours is the active mark, after the tool in hand' },
   { name: 'Page of objects', when: 'While the cards are up' },
+  { name: 'New object', when: 'While the page of a new object is up' },
   { name: 'Session', when: 'With the terminal in focus' },
   { name: 'In a field, a menu or a sheet', when: 'Where something is typed, chosen or asked' },
   { name: 'For working on torno', when: 'Where torno runs from its repository' }

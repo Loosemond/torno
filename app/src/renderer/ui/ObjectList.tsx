@@ -1,4 +1,5 @@
 import { actions, useStore } from '../state/store'
+import { openNewObject } from './onboard/NewObject'
 import { PAGE_KEY } from './ShowPage'
 
 /** The objects of the workspace. One that cannot be built is muted, with the reason as its tooltip. */
@@ -6,6 +7,7 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
   const objects = useStore((s) => s.workspace?.objects ?? NONE)
   const openId = useStore((s) => s.objectId)
   const paged = useStore((s) => s.page === 'objects')
+  const creating = useStore((s) => s.page === 'new')
 
   return (
     <nav className="section objects" aria-label="Objects">
@@ -44,6 +46,13 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
           ))}
         </ul>
       )}
+      {/* The way to a new object: a page for what it is and what there is to give, then Claude Code starts with it. */}
+      <button type="button" className="button button-quiet new-object-button" aria-pressed={creating} onClick={openNewObject}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
+          <path d="M8 3.5v9M3.5 8h9" />
+        </svg>
+        New object
+      </button>
     </nav>
   )
 }

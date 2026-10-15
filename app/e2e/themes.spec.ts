@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import { contrast } from '../src/shared/contrast'
+import { png } from '../src/test/pngFixtures'
 import { grid, stl } from '../src/test/scanFixtures'
 
 // Light and dark. In each theme the window is held to the contrasts its tokens promise, as it computes them,
@@ -182,7 +183,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat'] as const
+const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'onboard', 'onboard-board'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -293,6 +294,46 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
           await expect(page.locator('.chat-rate')).toBeVisible()
           await page.keyboard.type('thicker than that, please')
+        } else if (shot === 'onboard' || shot === 'onboard-board') {
+          // The page of a new object with something of every kind given, and, for the second, the doodle board open on a drawing.
+          const new_ = page.getByRole('region', { name: 'New object' })
+          await page.getByRole('navigation', { name: 'Objects' }).getByRole('button', { name: 'New object' }).click()
+          await page.getByLabel('Name', { exact: true }).fill('cable-clip')
+          await page.getByLabel('What is it?').fill('A clip that holds a 6 mm cable to the edge of a desk, printed in PETG. The desk is 18 mm thick; the cable must come out downwards.')
+          const photos = [join(root, 'desk.png'), join(root, 'cable.png')]
+          writeFileSync(photos[0], png(1600, 1000, 90))
+          writeFileSync(photos[1], png(900, 1200, 200))
+          await app.evaluate((_electron, picked) => void ((globalThis as unknown as { __tornoMain: Main & { pickPhotos: string[] } }).__tornoMain.pickPhotos = picked), photos)
+          await new_.getByRole('button', { name: 'Add photos…' }).click()
+          await expect(new_.locator('.ref-card[data-kind="photos"]')).toHaveCount(2)
+          await new_.locator('.ref-card[data-kind="photos"]').first().getByLabel('Note for Claude').fill('the desk edge, seen from the front')
+          const sketch = async (): Promise<void> => {
+            await new_.getByRole('button', { name: 'Draw…' }).click()
+            const board = page.getByRole('dialog', { name: 'Doodle board' })
+            const box = (await board.locator('canvas').boundingBox())!
+            const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
+            await board.getByRole('button', { name: 'Thick pen' }).click()
+            for (const points of [[[0.2, 0.3], [0.2, 0.7], [0.45, 0.7], [0.45, 0.55]], [[0.55, 0.4], [0.8, 0.4], [0.8, 0.7]]]) {
+              await page.mouse.move(...at(points[0][0], points[0][1]))
+              await page.mouse.down()
+              for (const [fx, fy] of points.slice(1)) await page.mouse.move(...at(fx, fy), { steps: 6 })
+              await page.mouse.up()
+            }
+          }
+          await sketch()
+          await page.getByRole('dialog', { name: 'Doodle board' }).getByRole('button', { name: 'Done' }).click()
+          await new_.locator('.ref-card[data-kind="doodles"]').first().getByLabel('Note for Claude').fill('the jaw, about 30 mm deep')
+          const sheet = join(root, 'desk-scan.stl')
+          writeFileSync(sheet, stl(grid(30, 1, (x, y) => 41 + 0.4 * Math.sin(x / 3) * Math.cos(y / 4))))
+          await app.evaluate((_electron, path) => void ((globalThis as unknown as { __tornoMain: Main }).__tornoMain.pickFile = path), sheet)
+          await new_.getByRole('button', { name: 'Add a scan…' }).click()
+          await new_.getByRole('button', { name: 'Refer to an object…' }).click()
+          await page.getByRole('menuitem', { name: 'plain' }).click()
+          await new_.locator('.ref-card[data-kind="objects"]').first().getByLabel('Note for Claude').fill('mounts on this')
+          if (shot === 'onboard-board') {
+            await new_.getByRole('button', { name: 'Change doodle 1' }).click()
+            await expect(page.getByRole('dialog', { name: 'Doodle board' })).toBeVisible()
+          } else await new_.getByLabel('Name', { exact: true }).focus()
         } else if (shot === 'error') {
           await open(page, 'bracket')
           appendFileSync(join(root, 'bracket', 'bracket.py'), '\nraise ValueError("the post is taller than the base is wide")\n')

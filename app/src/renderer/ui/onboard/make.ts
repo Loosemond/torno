@@ -1,0 +1,93 @@
+import type { CreateRequest, OnboardDraft, Onboarded } from '../../../shared/bridge'
+import type { Draft, Held } from '../../state/onboard'
+import { extensionOf } from './images'
+
+/** What an IPC call failed with, without Electron's wrapping. */
+export const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
+
+/** What "Create" leans on: main's two calls, the workspace, the window's page and the place a prompt is held. */
+export interface MakeDeps {
+  create(req: CreateRequest): Promise<{ objectId: string }>
+  onboard(objectId: string, draft: OnboardDraft): Promise<Onboarded>
+  /** The ids of the workspace's objects, as main lists them now; the window's list is refreshed by this. */
+  listed(): Promise<string[]>
+  /** Shows the object as a click in the list does. */
+  open(objectId: string): Promise<void>
+  /** The draft is spent. */
+  discard(): void
+  hold(objectId: string, held: Held): void
+}
+
+export type Outcome =
+  /** Another "Create" is under way: this one did nothing. */
+  | { kind: 'busy' }
+  /** Nothing was made: the reason, and the page and its draft stay. */
+  | { kind: 'refused'; message: string }
+  /** The object was made but something after failed (the listing): it is not to be made again. `opened` says whether it could be opened. */
+  | { kind: 'made'; objectId: string; message: string; opened: boolean }
+  /** Made and open; `problem` is why the first prompt was not sent, and then it is held for the composer. */
+  | { kind: 'done'; objectId: string; problem?: string }
+
+let running = false
+
+/** The message of `objects:create` for an object that is on the disk whatever else went wrong. */
+const WAS_MADE = /^\S+ was made, but /
+
+/**
+ * "Create": makes the folder, shows the object, then hands the first prompt over, once. A second call while one
+ * runs does nothing. The draft is spent as soon as the folder exists, never before: a refusal leaves the page as it was.
+ */
+export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome> {
+  if (running) return { kind: 'busy' }
+  running = true
+  try {
+    const description = draft.description.trim()
+    const request: CreateRequest = {
+      name: draft.name,
+      description,
+      photos: draft.photos.map((p) => ({ path: p.path, note: p.note })),
+      doodles: draft.doodles.map((d) => ({ png: d.png, note: d.note })),
+      scans: draft.scans.map((s) => ({ path: s.path, note: s.note })),
+      objects: draft.objects.map((o) => ({ id: o.id, note: o.note }))
+    }
+    // What `onboard` names is what `create` wrote: photo-<n> with the extension of the file, doodle-<n>.png.
+    const items: OnboardDraft['items'] = [
+      ...draft.photos.map((p, n) => ({ file: `reference/photo-${n + 1}${extensionOf(p.path)}`, note: p.note, image: p.image })),
+      ...draft.doodles.map((d, n) => ({ file: `reference/doodle-${n + 1}.png`, note: d.note, image: d.png }))
+    ]
+    let objectId: string
+    try {
+      objectId = (await deps.create(request)).objectId
+    } catch (e) {
+      const message = reason(e)
+      if (!WAS_MADE.test(message)) return { kind: 'refused', message }
+      // On the disk, whatever the listing says: not made again. Opened if the workspace lists it now.
+      objectId = message.split(' ')[0]
+      const ids = await deps.listed().catch(() => [] as string[])
+      deps.discard()
+      const opened = ids.includes(objectId)
+      if (opened) await deps.open(objectId).catch(() => {})
+      return { kind: 'made', objectId, message, opened }
+    }
+    await deps.listed().catch(() => [])
+    deps.discard()
+    await deps.open(objectId).catch(() => {})
+    let told: Onboarded
+    try {
+      told = await deps.onboard(objectId, { description, items, scans: request.scans, objects: request.objects })
+    } catch (e) {
+      // Nothing is known of the text: the object is made and open, and the reason is said where the chat would be.
+      const message = reason(e)
+      deps.hold(objectId, { text: '', reason: message })
+      return { kind: 'done', objectId, problem: message }
+    }
+    if (told.sessionId === null || told.problem !== undefined) {
+      const why = told.problem ?? 'A chat session could not be started.'
+      deps.hold(objectId, { text: told.prompt, reason: why })
+      return { kind: 'done', objectId, problem: why }
+    }
+    return { kind: 'done', objectId }
+  } finally {
+    running = false
+  }
+}

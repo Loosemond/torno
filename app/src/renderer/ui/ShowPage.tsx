@@ -4,6 +4,7 @@ import type { ObjectCard } from '../../shared/show'
 import { actions, store, useStore } from '../state/store'
 import { BEHIND, buildLine, cardChips, matching, pictureLine, stepCard } from './cards'
 import { numbered } from './numbered'
+import { openNewObject } from './onboard/NewObject'
 import { TYPING } from './typing'
 import { DatumMark } from './ViewportPane'
 
@@ -200,6 +201,11 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
           )}
         </div>
         {cards && cards.length > 0 && (
+          <button type="button" className="button show-new" title="Make a new object: say what it is and give what you have" onClick={openNewObject}>
+            New object
+          </button>
+        )}
+        {cards && cards.length > 0 && (
           <button type="button" className="button show-export" title="Export objects to one HTML file that opens by itself" onClick={() => actions.exportSheet('all')}>
             Export…
           </button>
@@ -218,6 +224,9 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
           <p>
             Make a folder with a Python model in it, for example <span className="num">part/part.py</span>, and it appears here.
           </p>
+          <button type="button" className="button button-primary show-empty-new" onClick={openNewObject}>
+            New object
+          </button>
           {!hasProject && (
             <p>
               This folder has no <span className="num">pyproject.toml</span>: models are built with torno's own build123d. For your own packages, make it a uv project (<span className="num">uv init</span>, <span className="num">uv add build123d</span>, <span className="num">uv sync</span>) and open it again.

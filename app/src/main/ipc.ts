@@ -38,7 +38,7 @@ import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
 import { onboardObject, sessionRunning } from './onboard'
-import { createObject, sweepStaleNew } from './objects/create'
+import { createObject, readPhoto, sweepStaleNew } from './objects/create'
 import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
@@ -51,7 +51,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:create, objects:onboard, show:cards, show:thumbnail, export:plan, export:save
+//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer
@@ -704,6 +704,7 @@ export function registerIpc(
     const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
     return picked.canceled ? [] : picked.filePaths
   })
+  ipcMain.handle('objects:readPhoto', (_event, path: string) => readPhoto(path))
   // The one place torno makes a folder in a workspace (`createObject`). It answers once the listing has the object,
   // as a change in the folder would have it listed.
   ipcMain.handle('objects:create', async (_event, req: CreateRequest) => {

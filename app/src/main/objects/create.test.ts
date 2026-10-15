@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { CreateRequest } from '../../shared/bridge'
-import { createObject, sweepStaleNew } from './create'
+import { createObject, readPhoto, sweepStaleNew } from './create'
 import template from './template.py.txt?raw'
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
@@ -162,6 +162,22 @@ describe('creating an object', () => {
     await expect(make(request({ scans: [{ path: join(files, 'x.exe'), note: '' }] }))).rejects.toThrow(/scan/)
     await expect(make(request({ scans: [{ path: 'relative.stl', note: '' }] }))).rejects.toThrow(/scan/)
     expect(readdirSync(ws)).toEqual(['lid'])
+  })
+
+  describe('reading a photo for the window (its thumbnail, its scaled copy)', () => {
+    it('gives the bytes of a plain image file', async () => {
+      writeFileSync(join(files, 'a.PNG'), PNG)
+      expect(new Uint8Array(await readPhoto(join(files, 'a.PNG')))).toEqual(PNG)
+    })
+    it('refuses a link, a folder, a file that is no image by its name, a relative path, one over 25 MB', async () => {
+      writeFileSync(join(files, 'real.png'), PNG)
+      symlinkSync(join(files, 'real.png'), join(files, 'link.png'))
+      mkdirSync(join(files, 'dir.png'))
+      writeFileSync(join(files, 'notes.txt'), 'x')
+      writeFileSync(join(files, 'big.png'), PNG)
+      truncateSync(join(files, 'big.png'), 25 * 1024 * 1024 + 1)
+      for (const path of [join(files, 'link.png'), join(files, 'dir.png'), join(files, 'notes.txt'), 'real.png', join(files, 'big.png'), join(files, 'none.png')]) await expect(readPhoto(path)).rejects.toThrow()
+    })
   })
 
   describe('a photo that cannot be taken', () => {

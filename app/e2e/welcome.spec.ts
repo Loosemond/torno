@@ -163,7 +163,7 @@ test('? shows every key of the one table; what is typed searches it, and no tool
   await expect(sheet().locator('kbd', { hasText: /^P$/ })).toHaveCount(1)
   // Every row that is shown is there, under where it is listened to, its keys in the monospace face.
   await expect(sheet().locator('li')).toHaveCount(KEYS.filter((row) => !row.hidden).length)
-  await expect(sheet().locator('h3')).toHaveText(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
+  await expect(sheet().locator('h3')).toHaveText(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'New object', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
   expect(await sheet().locator('kbd').first().evaluate((el) => getComputedStyle(el).fontFamily)).toContain('IBM Plex Mono')
   // The focus is in its field: a letter searches, and is no tool's key.
   await expect(sheet().getByRole('textbox', { name: 'Search the keys' })).toBeFocused()

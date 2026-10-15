@@ -17,6 +17,8 @@ import { SessionPane } from './ui/SessionPane'
 import { ExportSheet } from './ui/ExportSheet'
 import { FolderMenu } from './ui/FolderMenu'
 import { ShowPage, usePageKey } from './ui/ShowPage'
+import { NewObject } from './ui/onboard/NewObject'
+import { draftHas, onboard } from './state/onboard'
 import { ViewportPane } from './ui/ViewportPane'
 import { KeySheet, useKeysKey } from './ui/KeySheet'
 import { Welcome } from './ui/Welcome'
@@ -79,6 +81,11 @@ function sessionsBusy(): string | null {
   const busy = Object.values(store.getState().sessions).filter((s) => busyWith(s.status, s.hooks) !== undefined)
   if (busy.length === 0) return null
   return busy.some((s) => s.hooks) ? 'A session here is in the middle of its work.' : 'A session here may be in the middle of its work: its agent does not say.'
+}
+
+/** What leaving the workspace would throw away besides the sessions: a new object set up on its page and not made. */
+function draftLeft(): string | null {
+  return draftHas(onboard.getState().draft) ? 'A new object is set up here and not made yet.' : null
 }
 
 let opening = 0
@@ -269,10 +276,13 @@ export function App() {
   // being asked about: a folder, or 'pick' for the one still to be chosen.
   const [leaving, setLeaving] = useState<string | null>(null)
   const [leavingWhat, setLeavingWhat] = useState('')
+  const [leavingLabel, setLeavingLabel] = useState('')
   const leave = useCallback((to: string) => {
     const busy = sessionsBusy()
-    if (busy === null) return void goTo(to)
-    setLeavingWhat(busy)
+    const draft = draftLeft()
+    if (busy === null && draft === null) return void goTo(to)
+    setLeavingWhat([busy === null ? null : `${busy} Opening another folder ends it.`, draft === null ? null : `${draft} Opening another folder throws it away.`].filter((x) => x !== null).join(' '))
+    setLeavingLabel(busy === null ? 'Leave this folder?' : 'End the sessions of this folder?')
     setLeaving(to)
   }, [])
   // Another launch of torno was given a folder: it is opened here.
@@ -286,7 +296,7 @@ export function App() {
     () =>
       window.torno.workspace.onCloseAsked(() => {
         const s = store.getState()
-        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting(), unsent: unsentPrompts(Object.values(s.sessions).filter((x) => x.view === 'chat' && x.status !== 'exited').map((x) => x.sessionId)) })
+        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting(), draft: draftHas(onboard.getState().draft), unsent: unsentPrompts(Object.values(s.sessions).filter((x) => x.view === 'chat' && x.status !== 'exited').map((x) => x.sessionId)) })
         window.torno.workspace.answerClose(why === null)
         setClosing(why)
       }),
@@ -319,6 +329,7 @@ export function App() {
       <main className="viewport" data-region="viewport">
         <ViewportPane onShowError={() => setErrorOpen(true)} />
         {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} />}
+        {page === 'new' && <NewObject onOpen={openObject} />}
         {/* Over either: what goes into an export, asked before anything is written. */}
         <ExportSheet />
       </main>
@@ -353,7 +364,7 @@ export function App() {
         )}
         {leaving !== null && (
           <Confirm
-            label="End the sessions of this folder?"
+            label={leavingLabel}
             accept="Open another folder"
             cancel="Stay here"
             onCancel={() => setLeaving(null)}
@@ -362,13 +373,13 @@ export function App() {
               void goTo(leaving)
             }}
           >
-            {leavingWhat} Opening another folder ends it.
+            {leavingWhat}
           </Confirm>
         )}
         <ObjectList onOpen={(id) => void openObject(id)} />
         {/* While the page of objects is up, the layers and the scans act on a view that is not on screen: they give way. The marks stay: they say why a card has a failing chip. */}
-        {page !== 'objects' && <Layers />}
-        {page !== 'objects' && <ScansPanel />}
+        {page === 'object' && <Layers />}
+        {page === 'object' && <ScansPanel />}
         <MarksPanel />
       </aside>
 

@@ -1,0 +1,107 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { CreateRequest, OnboardDraft, Onboarded } from '../../../shared/bridge'
+import type { Draft } from '../../state/onboard'
+import { makeObject, type MakeDeps } from './make'
+
+const draft = (): Draft => ({
+  name: 'cable-clip',
+  description: '  A clip for a 6 mm cable.  ',
+  photos: [
+    { uid: 'a', path: '/home/me/IMG_1.JPG', file: 'IMG_1.JPG', note: 'desk edge', image: new Uint8Array([1]), url: 'blob:a' },
+    { uid: 'b', path: '/home/me/two.webp', file: 'two.webp', note: '', image: new Uint8Array([2]), url: 'blob:b' }
+  ],
+  doodles: [{ uid: 'c', strokes: [], png: new Uint8Array([3]), note: 'the shape', url: 'blob:c' }],
+  scans: [{ uid: 'd', path: '/s/clip.stl', file: 'clip.stl', note: 'old one' }],
+  objects: [{ uid: 'e', id: 'plain', note: 'same style' }]
+})
+
+function deps(over: Partial<MakeDeps> = {}) {
+  const calls: string[] = []
+  const made: MakeDeps = {
+    create: vi.fn(async (_req: CreateRequest) => (calls.push('create'), { objectId: 'cable-clip' })),
+    onboard: vi.fn(async (_id: string, _d: OnboardDraft): Promise<Onboarded> => (calls.push('onboard'), { sessionId: 's1', prompt: 'the prompt' })),
+    listed: vi.fn(async () => (calls.push('listed'), ['plain', 'cable-clip'])),
+    open: vi.fn(async () => void calls.push('open')),
+    discard: vi.fn(() => void calls.push('discard')),
+    hold: vi.fn(),
+    ...over
+  }
+  return { made, calls }
+}
+
+describe('making the object', () => {
+  it('creates, lists, opens, discards the draft, then onboards once, with the pictures named as create names them', async () => {
+    const { made, calls } = deps()
+    const outcome = await makeObject(draft(), made)
+    expect(outcome).toEqual({ kind: 'done', objectId: 'cable-clip' })
+    expect(calls).toEqual(['create', 'listed', 'discard', 'open', 'onboard'])
+    const req = (made.create as ReturnType<typeof vi.fn>).mock.calls[0][0] as CreateRequest
+    expect(req).toMatchObject({ name: 'cable-clip', description: 'A clip for a 6 mm cable.', photos: [{ path: '/home/me/IMG_1.JPG', note: 'desk edge' }, { path: '/home/me/two.webp', note: '' }], scans: [{ path: '/s/clip.stl', note: 'old one' }], objects: [{ id: 'plain', note: 'same style' }] })
+    expect(req.doodles).toEqual([{ png: new Uint8Array([3]), note: 'the shape' }])
+    expect(made.onboard).toHaveBeenCalledTimes(1)
+    expect((made.onboard as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([
+      'cable-clip',
+      {
+        description: 'A clip for a 6 mm cable.',
+        items: [
+          { file: 'reference/photo-1.jpg', note: 'desk edge', image: new Uint8Array([1]) },
+          { file: 'reference/photo-2.webp', note: '', image: new Uint8Array([2]) },
+          { file: 'reference/doodle-1.png', note: 'the shape', image: new Uint8Array([3]) }
+        ],
+        scans: [{ path: '/s/clip.stl', note: 'old one' }],
+        objects: [{ id: 'plain', note: 'same style' }]
+      }
+    ])
+    expect(made.hold).not.toHaveBeenCalled()
+  })
+
+  it('stays on the page, with the reason and the draft, when create refuses', async () => {
+    const { made, calls } = deps({ create: vi.fn(async () => Promise.reject(new Error("Error invoking remote method 'objects:create': Error: A folder `cable-clip` is there already."))) })
+    expect(await makeObject(draft(), made)).toEqual({ kind: 'refused', message: 'A folder `cable-clip` is there already.' })
+    expect(calls).toEqual([])
+    expect(made.onboard).not.toHaveBeenCalled()
+    expect(made.discard).not.toHaveBeenCalled()
+  })
+
+  it('does not offer to create again when the object was made and the rescan failed after: it opens the object if it is listed', async () => {
+    const { made, calls } = deps({ create: vi.fn(async () => Promise.reject(new Error('cable-clip was made, but the workspace does not list it.'))), listed: vi.fn(async () => ['cable-clip']) })
+    const outcome = await makeObject(draft(), made)
+    expect(outcome).toEqual({ kind: 'made', objectId: 'cable-clip', message: 'cable-clip was made, but the workspace does not list it.', opened: true })
+    expect(calls).toEqual(['discard', 'open'])
+    expect(made.onboard).not.toHaveBeenCalled()
+  })
+
+  it('says so, and opens nothing, when the object was made and is not listed', async () => {
+    const { made } = deps({ create: vi.fn(async () => Promise.reject(new Error('cable-clip was made, but the workspace was left before it could be opened.'))), listed: vi.fn(async () => ['plain']) })
+    expect(await makeObject(draft(), made)).toMatchObject({ kind: 'made', opened: false })
+    expect(made.open).not.toHaveBeenCalled()
+  })
+
+  it('holds the prompt for the composer, with the reason, when no session was started', async () => {
+    const { made } = deps({ onboard: vi.fn(async () => ({ sessionId: null, prompt: 'the prompt', problem: 'claude is not installed' })) })
+    expect(await makeObject(draft(), made)).toEqual({ kind: 'done', objectId: 'cable-clip', problem: 'claude is not installed' })
+    expect(made.hold).toHaveBeenCalledWith('cable-clip', { text: 'the prompt', reason: 'claude is not installed' })
+  })
+
+  it('holds it too when a session started and was sent nothing, and when onboard itself rejects (its text is then not known)', async () => {
+    const a = deps({ onboard: vi.fn(async () => ({ sessionId: 's1', prompt: 'the prompt', problem: 'This agent has no chat' })) })
+    await makeObject(draft(), a.made)
+    expect(a.made.hold).toHaveBeenCalledWith('cable-clip', { text: 'the prompt', reason: 'This agent has no chat' })
+    const b = deps({ onboard: vi.fn(async () => Promise.reject(new Error('cable-clip has a session already.'))) })
+    expect(await makeObject(draft(), b.made)).toEqual({ kind: 'done', objectId: 'cable-clip', problem: 'cable-clip has a session already.' })
+    expect(b.made.hold).toHaveBeenCalledWith('cable-clip', { text: '', reason: 'cable-clip has a session already.' })
+  })
+
+  it('holds a second call while one runs: a click on Create while it works does nothing', async () => {
+    let release!: () => void
+    const { made } = deps({ create: vi.fn(() => new Promise<{ objectId: string }>((resolve) => (release = () => resolve({ objectId: 'cable-clip' })))) })
+    const first = makeObject(draft(), made)
+    expect(await makeObject(draft(), made)).toEqual({ kind: 'busy' })
+    release()
+    await first
+    expect(made.create).toHaveBeenCalledTimes(1)
+    expect(made.onboard).toHaveBeenCalledTimes(1)
+    // And it is free again afterwards.
+    expect((await makeObject(draft(), deps().made)).kind).toBe('done')
+  })
+})

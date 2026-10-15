@@ -856,6 +856,8 @@ name without `.html` gets it.
 | Page of objects | `Esc` | Clear the filter, then back to the open object |
 | Page of objects | `Enter` | In the filter: open the first card |
 | Page of objects | `Down` | In the filter: down to the cards |
+| New object | `Esc` | Leave the page, asking first when something is in it; on the doodle board, put the board away |
+| New object | `Ctrl+Z` | Doodle board: undo the last stroke |
 | Session | `Shift+Enter` | A new line in the prompt, not a send |
 | Session | `Ctrl+Shift+C` | Copy what is selected in the terminal |
 | Session | `Ctrl+Shift+V` | Paste into the terminal |

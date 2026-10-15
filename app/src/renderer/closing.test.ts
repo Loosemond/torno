@@ -20,6 +20,8 @@ describe('what closing the window would end', () => {
     expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true, send: { state: 'sent' } }] })).toBeNull()
     expect(closingWhy({ ...NOTHING, unsent: 1 })).toBe('A prompt written in the chat is not sent yet.')
     expect(closingWhy({ ...NOTHING, unsent: 0 })).toBeNull()
+    expect(closingWhy({ ...NOTHING, draft: true })).toBe('A new object is set up and not made yet.')
+    expect(closingWhy({ ...NOTHING, draft: false })).toBeNull()
     expect(closingWhy({ ...NOTHING, paintings: 1 })).toBe('A region painted on a scan is not kept yet.')
     expect(closingWhy({ ...NOTHING, importing: true })).toBe('A scan is being imported.')
     expect(closingWhy({ ...NOTHING, exporting: true })).toBe('An export is being written.')

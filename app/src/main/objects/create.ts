@@ -4,7 +4,7 @@ import { lstatSync, readdirSync, rmSync } from 'node:fs'
 import { lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises'
 import { extname, isAbsolute, join } from 'node:path'
 import type { CreateRequest } from '../../shared/bridge'
-import { moduleName, objectNameProblem } from '../../shared/objectName'
+import { moduleName, MOST_REFERENCES, objectNameProblem } from '../../shared/objectName'
 import { SCAN_FORMATS } from '../../shared/scans'
 import { writeFileAtomic } from '../atomic'
 import template from './template.py.txt?raw'
@@ -16,7 +16,7 @@ import template from './template.py.txt?raw'
 // written into or replaced; whatever the window sent is checked here again.
 
 /** The most of each kind of reference. */
-export const MOST = { photos: 12, doodles: 6, scans: 4, objects: 8 }
+export const MOST = MOST_REFERENCES
 /** The biggest photo, and the biggest doodle, in bytes. */
 export const MAX_PHOTO = 25 * 1024 * 1024
 export const MAX_DOODLE = 8 * 1024 * 1024
@@ -113,6 +113,15 @@ async function readRegular(path: unknown, cap: number, what: string): Promise<{ 
   } finally {
     await handle.close()
   }
+}
+
+/**
+ * The bytes of an image file the window was given by a dialog or a drop, for it to draw a thumbnail and scale a
+ * copy for the first prompt (it cannot read a file itself). The same file rules as a photo copied into `reference/`.
+ */
+export async function readPhoto(path: unknown): Promise<Uint8Array> {
+  const { bytes } = await readRegular(path, MAX_PHOTO, 'photo')
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length)
 }
 
 /** The request, held to what it may be; throws a plain reason. Returns what `brief.md` needs. */

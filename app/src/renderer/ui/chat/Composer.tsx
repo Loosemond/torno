@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { hint, pressed, which } from '../../../shared/keys'
 import { unmetDimensions } from '../../../shared/dimension'
 import { useChat } from '../../state/chat'
-import { useStore } from '../../state/store'
+import { onboarding } from '../../state/onboard'
+import { store, useStore } from '../../state/store'
 import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
 import { commandsFor, rateLine } from './foot'
@@ -98,7 +99,8 @@ function Commands({ offered, at, onChoose }: { offered: ReturnType<typeof comman
  * used, one quiet line says so.
  */
 export function Composer({ sessionId, live, working, onSent }: { sessionId: string; live: boolean; working: boolean; onSent: () => void }) {
-  const [text, setText] = useState(() => drafts.get(sessionId) ?? '')
+  // A first prompt of a new object that could not be sent (`state/onboard.ts`) is in the box of its first chat.
+  const [text, setText] = useState(() => drafts.get(sessionId) ?? onboarding.take(store.getState().objectId))
   const [problem, setProblem] = useState<string | null>(null)
   const [attach, setAttach] = useState(false)
   const [choice, setChoice] = useState(0)

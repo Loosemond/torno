@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css'
 import { type SessionSaid, AGENT_LABEL, AGENT_VIEWS, busyWith, isTrustQuestion, nextCarries, nextPromptLine, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
 import type { AgentId, AgentView } from '../../shared/bridge'
 import { chatActions, connectChat, useChat } from '../state/chat'
+import { onboarding, useOnboard } from '../state/onboard'
 import { actions, store, useStore } from '../state/store'
 import { type AgentChoice, AgentPicker } from './AgentPicker'
 import { ChatPane } from './chat/ChatPane'
@@ -251,6 +252,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const objectDir = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.dir)
   const objectName = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const session = useStore((s) => (s.objectId ? s.sessions[s.objectId] : undefined))
+  /** The first prompt of a new object that was not sent, and why. */
+  const held = useOnboard((s) => (objectId ? s.held[objectId] : undefined))
   const marks = useStore((s) => s.marks)
   const revision = useStore((s) => s.revision)
   const [resumable, setResumable] = useState(false)
@@ -743,6 +746,18 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
           {/* Claude Code is already what the list shows: choosing it there changes nothing, so it is chosen here. */}
           <button type="button" className="button session-send" disabled={starting || choosing !== null} onClick={() => choose('claude')}>
             Use {AGENT_LABEL.claude}
+          </button>
+        </div>
+      )}
+
+      {/* The first prompt of a new object that was not sent: the reason, above the pane that holds it. */}
+      {held !== undefined && objectId && (
+        <div className="session-held" role="status">
+          <p>
+            The first prompt of this object was not sent: {held.reason.replace(/\.$/, '')}. {held.taken ? 'It is in the box below.' : held.text !== '' ? 'It is kept, and is in the box of the next chat.' : 'What was given is in brief.md and reference/.'}
+          </p>
+          <button type="button" className="button button-quiet" onClick={() => onboarding.dismiss(objectId)}>
+            Dismiss
           </button>
         </div>
       )}
