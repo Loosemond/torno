@@ -44,8 +44,13 @@ export function sectionExtent(box: Box, normal: Vec3): { min: number; max: numbe
 /** The offset of a plane: its distance from the centre of a box, along its normal and signed, in millimetres. */
 export function sectionOffset(plane: SectionPlane, box: Box): number {
   const centre = centreOf(box)
-  return plane.normal.reduce((sum, c, i) => sum + c * (plane.origin[i] - centre[i]), 0) + 0
+  const offset = plane.normal.reduce((sum, c, i) => sum + c * (plane.origin[i] - centre[i]), 0) + 0
+  // A new cut is put at the middle of the parts to 0.01 mm (`newCut`): what that rounding leaves is at the middle.
+  return Math.abs(offset) <= AT_THE_MIDDLE_MM ? 0 : offset
 }
+
+/** Half of what a new cut is rounded to, and the noise of adding it up: a plane this near the middle of the parts is at it. */
+const AT_THE_MIDDLE_MM = 0.005 + 1e-9
 
 /**
  * The offset a typed text asks for, in millimetres (a comma is a point), or

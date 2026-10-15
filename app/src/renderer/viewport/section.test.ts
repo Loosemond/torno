@@ -76,6 +76,10 @@ describe('the offset the bar shows', () => {
     expect(typedOffset('4', 4)).toBeNull()
     for (const text of ['', 'six', '1e999', 'NaN']) expect(typedOffset(text, 4)).toBeNull()
     expect(sectionOffset({ origin: [7, 7, 12.5], normal: [0, 0, 1] }, BOX)).toBe(2.5)
+    // A new cut is put at the middle to 0.01 mm: what is left of that rounding is no distance from the middle.
+    expect(sectionOffset({ origin: [7, 7, 10.004795], normal: [0, 0, 1] }, BOX)).toBe(0)
+    expect(sectionOffset({ origin: [7, 7, 9.9951], normal: [0, 0, 1] }, BOX)).toBe(0)
+    expect(sectionOffset({ origin: [7, 7, 10.006], normal: [0, 0, 1] }, BOX)).toBeCloseTo(0.006, 9)
     expect(sectionOffset({ origin: [7, 7, 12.5], normal: [0, 0, -1] }, BOX)).toBe(-2.5)
   })
 
