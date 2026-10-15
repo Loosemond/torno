@@ -49,7 +49,9 @@ is the detail of this folder, under the heading it has there. Paths are from `ap
   text (`textContent`), never as markup. It shares its rules with the app: `explodeShown` and `explodeOffsets`
   (never a section and an explode at once: `neverBoth` in `shared/explode.ts` is the one rule for what setting
   one makes of the other, asked by the window's store and by the page), `keepsNothing`, the palette,
-  `number`, and the viewport's lights, ground and standard views. It draws on demand, picks nothing and
+  `number`, the viewport's lights, ground and standard views, and the window's rule for the camera when the parts
+  go apart and come together (`leavesView`, `cameraBack`: framed anew only to keep a part in sight, and back
+  where it was once they are together, if nobody moved it; `keepInView` in `main.ts`). It draws on demand, picks nothing and
   measures nothing: a dimension shows the text torno made of it on the build exported (`shownDimension`: no
   value and no verdict that is not of that build), and the page says so. A cut is by clipping alone, the inside
   in a darker tone, and the page says it draws no cut faces; a mark is a label with a dot at its point (a

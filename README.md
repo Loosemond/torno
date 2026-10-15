@@ -669,6 +669,10 @@ of the parts as assembled.
 - A section is never drawn exploded. Making a cut puts the parts together;
   while there is a section the slider says `Take the section away to draw the
   parts apart`.
+- The camera stays where it is, unless a part drawn apart would leave the
+  view or go under the bars at its top: then the parts are framed anew, and
+  put together again they are seen from where they were before, if you have
+  not moved the camera meanwhile.
 - An object of one part has nothing to draw apart, and the bar says so; parts
   that share a centre need an axis.
 - The agent's `look` and `show` take `explode`; a picture drawn apart says so
