@@ -120,6 +120,8 @@ const ROWS = [
   row('session.paste', ['Ctrl+Shift+V'], 'Paste into the terminal', 'Session', 'session'),
   row('chat.send', ['Enter'], 'Chat: send the prompt', 'Session', 'composer'),
   row('chat.newline', ['Shift+Enter'], 'Chat: a new line in the prompt, not a send', 'Session', 'composer'),
+  row('chat.command', ['Up', 'Down'], 'Chat: choose among the / commands offered while one is typed', 'Session', 'composer'),
+  row('chat.complete', ['Tab'], 'Chat: complete the / command chosen', 'Session', 'composer'),
   row('chat.close', ['Esc'], 'Chat: put away a picture shown large', 'Session', 'picture'),
   row('dock.resize', ['Left', 'Right'], 'On the edge of the session pane: wider or narrower', 'Session', 'separator'),
 

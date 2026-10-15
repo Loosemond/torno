@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react'
 import { type ChatItem, pulledFromTorno } from '../../../shared/chat'
 import { drawn } from '../../state/chat'
 import { numbered } from '../numbered'
+import { AskCard } from './AskCard'
 import { Markdown } from './markdown'
 import { Pictures } from './Pictures'
 import { RefChip } from './RefChip'
@@ -79,16 +80,6 @@ function Turn({ item }: { item: Of<'turn'> }) {
   )
 }
 
-/** Where a card that asks the person will stand (Task 4's `AskCard`): until then, a line that says it is asked. */
-function Ask({ item }: { item: Of<'ask'> }) {
-  const said = item.state === 'ended' ? 'Not answered: the session ended' : item.state === 'allowed' ? 'Allowed' : item.state === 'denied' ? 'Denied' : 'Waiting for your answer'
-  return (
-    <p className="chat-item chat-note" data-kind="ask" data-state={item.state}>
-      Claude Code asks to use <span className="num">{item.toolName.replace(/^mcp__torno__/, 'torno · ')}</span> · {said}
-    </p>
-  )
-}
-
 /**
  * One item of the transcript. Memoized: an item that did not change (the pane keeps its object) is not drawn again
  * for what else changes; `beat` is passed only to the items that show a dot, a constant to the rest.
@@ -124,7 +115,7 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
     case 'tool':
       return <ToolCard item={item} beat={beat} />
     case 'ask':
-      return <Ask item={item} />
+      return <AskCard item={item} />
     case 'turn':
       return <Turn item={item} />
     case 'note':

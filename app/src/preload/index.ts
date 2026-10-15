@@ -122,6 +122,7 @@ const bridge: TornoBridge = {
     history: (sessionId) => invokePlain('chat:history', sessionId),
     onItem: (cb) => subscribe('chat:item', cb),
     onMeta: (cb) => subscribe('chat:meta', cb),
+    onCapabilities: (cb) => subscribe('chat:capabilities', cb),
     send: (sessionId, prompt) => invokePlain('chat:send', sessionId, prompt),
     answer: (sessionId, requestId, answer) => ipcRenderer.send('chat:answer', sessionId, requestId, answer),
     interrupt: (sessionId) => invokePlain('chat:interrupt', sessionId),

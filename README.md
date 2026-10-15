@@ -797,6 +797,8 @@ name without `.html` gets it.
 | Session | `Ctrl+Shift+V` | Paste into the terminal |
 | Session | `Enter` | Chat: send the prompt |
 | Session | `Shift+Enter` | Chat: a new line in the prompt, not a send |
+| Session | `Up` `Down` | Chat: choose among the / commands offered while one is typed |
+| Session | `Tab` | Chat: complete the / command chosen |
 | Session | `Esc` | Chat: put away a picture shown large |
 | Session | `Left` `Right` | On the edge of the session pane: wider or narrower |
 | In a field, a menu or a sheet | `Enter` | Field: keep what was typed |

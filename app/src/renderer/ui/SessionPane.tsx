@@ -11,6 +11,7 @@ import { actions, store, useStore } from '../state/store'
 import { type AgentChoice, AgentPicker } from './AgentPicker'
 import { ChatPane } from './chat/ChatPane'
 import { clearDrafts } from './chat/Composer'
+import { ModelMenu } from './chat/ModelMenu'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
 import { edgeGround } from './termGround'
@@ -512,7 +513,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const live = session !== undefined && !ended
   const withHooks = live ? session.hooks : (agents.find((one) => one.id === choice.agent)?.hooks ?? false)
   const chatting = session?.view === 'chat'
-  const model = useChat(chatting ? session.sessionId : undefined)?.meta.model
+  const chatOf = useChat(chatting ? session.sessionId : undefined)
+  const model = chatOf?.meta.model
   /** The view of the session that runs, or, with none running, the one the next session starts in. */
   const view: AgentView = live ? session.view : choice.view
   const next = useMemo(() => (objectId && withHooks && !(chatting && live) ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, withHooks, marks, revision, live, chatting])
@@ -669,10 +671,14 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
             ))}
           </span>
           <span className="spacer" />
-          {model && (
-            <span className="session-model num" title="The model of this session">
-              {model}
-            </span>
+          {chatting && chatOf && chatOf.models.length > 0 ? (
+            <ModelMenu sessionId={session.sessionId} model={model} models={chatOf.models} live={!ended} />
+          ) : (
+            model && (
+              <span className="session-model num" title="The model of this session">
+                {model}
+              </span>
+            )
           )}
         </div>
       )}

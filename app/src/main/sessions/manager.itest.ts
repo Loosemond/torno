@@ -1418,6 +1418,7 @@ describe('the transcript of a chat session', () => {
   let picture: ((obj: ObjectInfo) => Promise<Uint8Array>) | undefined
   const told: Array<{ sessionId: string; item: ChatItem; seq: number }> = []
   const metas: Array<{ sessionId: string; meta: ChatMeta; seq: number }> = []
+  const abilities: Array<{ sessionId: string; objectId: string; commands: Array<{ name: string }>; models: unknown[]; seq: number }> = []
   const delivered2: string[][] = []
 
   beforeAll(async () => {
@@ -1437,6 +1438,7 @@ describe('the transcript of a chat session', () => {
     })
     tSessions.on('item', (m) => told.push({ sessionId: m.sessionId, item: m.item, seq: m.seq }))
     tSessions.on('meta', (m) => metas.push({ sessionId: m.sessionId, meta: m.meta, seq: m.seq }))
+    tSessions.on('capabilities', (m) => abilities.push(m))
   })
   afterEach(async () => {
     await tSessions.stopAll()
@@ -1446,6 +1448,7 @@ describe('the transcript of a chat session', () => {
     picture = undefined
     told.length = 0
     metas.length = 0
+    abilities.length = 0
     delivered2.length = 0
   })
   afterAll(async () => {
@@ -1679,6 +1682,21 @@ describe('the transcript of a chat session', () => {
     expect(c.items().find((i) => i.kind === 'tool')).toMatchObject({ result: 'denied: not there' })
   })
 
+  it('denies with a sentence of its own when no reason was typed, and passes the suggestions back only for "always"', async () => {
+    const c = await start()
+    await c.send('ask Write {"file_path":"x"}\nask Bash {"command":"ls"}')
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    const first = c.items().find((i) => i.kind === 'ask') as { requestId: string }
+    tSessions.respond(c.id, first.requestId, { allow: false, message: '' })
+    await expect.poll(() => c.items().filter((i) => i.kind === 'ask').length).toBe(2)
+    const second = c.items().filter((i) => i.kind === 'ask')[1] as { requestId: string }
+    tSessions.respond(c.id, second.requestId, { allow: true, always: true })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    const tools = c.items().filter((i) => i.kind === 'tool') as Array<{ result?: string }>
+    expect(tools[0].result).toBe('denied: The person denied this.')
+    expect(tools[1].result).toContain('permissions: [{"type":"addRules"')
+  })
+
   it('closes what is open when the session ends: the request is not answered, the queued prompt not sent', async () => {
     const c = await start()
     await c.send('ask Bash {"command":"ls"}')
@@ -1714,6 +1732,17 @@ describe('the transcript of a chat session', () => {
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
     expect(tSessions.history(c.id)!.meta.model).toBe('haiku')
     expect(c.items().some((i) => i.kind === 'note' && i.text === 'Model: haiku')).toBe(true)
+  })
+
+  it('tells the window the commands and models when the agent has said them, after the history may have been had without', async () => {
+    const c = await start()
+    await expect.poll(() => abilities.length).toBe(1)
+    const [told1] = abilities
+    expect(told1).toMatchObject({ sessionId: c.id, objectId: c.obj.id })
+    expect(told1.commands.map((x) => x.name)).toEqual(['compact', 'clear'])
+    expect(told1.models).toEqual([{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }])
+    // It counts among the things told, so that a history asked for before it can be told from one after it.
+    expect(told1.seq).toBe(tSessions.history(c.id)!.seq)
   })
 
   it('has the commands and models of the agent in its history, and the rate limit in its meta', async () => {

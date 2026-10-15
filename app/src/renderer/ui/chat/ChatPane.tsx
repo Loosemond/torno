@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { chatActions, useChat } from '../../state/chat'
 import { ChatItems } from './Items'
+import { AskSession } from './AskCard'
 import { Composer } from './Composer'
 
 /** Within this many pixels of its end, a transcript is at its end. */
@@ -22,8 +23,8 @@ function useBeat(active: boolean): boolean {
  * box a prompt is written in. It follows the end of the transcript while it is at its end; a person who has
  * scrolled up is left where they are, and a button brings them down.
  *
- * Later (Task 4): the cards of what the agent asks, "Attach view", the commands offered while a `/` is typed, the
- * model menu, the rate line. They go in `chat-foot` (above and in the row of the box) and in `Items`' `Ask`.
+ * What the agent asks is a card in the transcript (`AskCard`, which answers to this session); "Attach view", the
+ * commands offered while a `/` is typed and the rate line are in the foot, with the box (`Composer`).
  */
 export function ChatPane({ sessionId, live, working }: { sessionId: string; live: boolean; working: boolean }) {
   const chat = useChat(sessionId)
@@ -68,6 +69,7 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
   }
 
   return (
+    <AskSession.Provider value={sessionId}>
     <div className="chat" data-session={sessionId}>
       <div className="chat-scroll">
         <div
@@ -108,5 +110,6 @@ export function ChatPane({ sessionId, live, working }: { sessionId: string; live
       </div>
       <Composer sessionId={sessionId} live={live} working={working} onSent={toEnd} />
     </div>
+    </AskSession.Provider>
   )
 }

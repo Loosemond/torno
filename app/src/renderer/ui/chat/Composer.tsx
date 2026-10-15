@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { hint, pressed } from '../../../shared/keys'
+import { hint, pressed, which } from '../../../shared/keys'
 import { unmetDimensions } from '../../../shared/dimension'
+import { useChat } from '../../state/chat'
 import { useStore } from '../../state/store'
 import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
+import { commandsFor, rateLine } from './foot'
 import { RefChip } from './RefChip'
 
 /** What an IPC call failed with, without Electron's wrapping. */
@@ -58,14 +60,45 @@ function Next() {
   )
 }
 
+/** The `/` commands the CLI named, offered while a single `/word` is typed: the arrows choose, Tab or a click completes. */
+function Commands({ offered, at, onChoose }: { offered: ReturnType<typeof commandsFor>; at: number; onChoose: (name: string) => void }) {
+  return (
+    <ul className="chat-commands" id="chat-commands" role="listbox" aria-label="Commands">
+      {offered.map((c, n) => (
+        <li
+          key={c.name}
+          id={`chat-command-${c.name}`}
+          role="option"
+          aria-selected={n === at}
+          // The box keeps the focus: a click chooses without taking it.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onChoose(c.name)}
+        >
+          <span className="chat-command-name num">/{c.name}</span>
+          {c.argumentHint !== '' && <span className="chat-command-hint num">{c.argumentHint}</span>}
+          {c.description !== '' && <span className="chat-command-desc">{c.description}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /**
  * The foot of the chat: what goes with the next prompt, and the box to write it in. Enter sends and Shift+Enter
  * breaks the line; Escape gives the keys back to the view, as a field does. While the agent works, the prompt is
- * queued by the CLI, and "Stop" interrupts it.
+ * queued by the CLI, and "Stop" interrupts it. "Attach view" adds a picture of the viewport to the next prompt only.
+ * While a `/command` is typed the commands of the CLI are offered; and when a window of the rate limit is half
+ * used, one quiet line says so.
  */
 export function Composer({ sessionId, live, working, onSent }: { sessionId: string; live: boolean; working: boolean; onSent: () => void }) {
   const [text, setText] = useState(() => drafts.get(sessionId) ?? '')
   const [problem, setProblem] = useState<string | null>(null)
+  const [attach, setAttach] = useState(false)
+  const [choice, setChoice] = useState(0)
+  const chat = useChat(sessionId)
+  const offered = commandsFor(text, chat?.commands ?? [])
+  const at = Math.min(choice, Math.max(0, offered.length - 1))
+  const rate = rateLine(chat?.meta.rate)
   const field = useRef<HTMLTextAreaElement>(null)
   const cursor = useRef<number | null>(null)
   const latest = useRef(text)
@@ -103,21 +136,33 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   async function send(): Promise<void> {
     const prompt = text.trim()
     if (prompt === '' || !live) return
+    const withView = attach
     setText('')
+    setAttach(false)
     setProblem(null)
     onSent()
     try {
-      await window.torno.chat.send(sessionId, { text: prompt })
+      await window.torno.chat.send(sessionId, { text: prompt, attachView: withView })
     } catch (e) {
       // Nothing was sent: what was written is given back, unless more has been written since.
       setText((now) => (now === '' ? prompt : now))
+      setAttach(withView)
       setProblem(reason(e))
     }
+  }
+
+  /** The command chosen, written in the box with a space after it, for its argument. */
+  function complete(name: string): void {
+    const done = `/${name} `
+    cursor.current = done.length
+    setText(done)
+    field.current?.focus()
   }
 
   return (
     <div className="chat-foot">
       <Next />
+      {offered.length > 0 && <Commands offered={offered} at={at} onChoose={complete} />}
       <div className="chat-composer">
         <textarea
           ref={field}
@@ -128,11 +173,26 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
           disabled={!live}
           aria-label="Message to Claude Code"
           placeholder={live ? (working ? 'Claude Code is working: this goes next' : 'Message Claude Code') : 'The session has ended'}
-          onChange={(e) => setText(e.target.value)}
+          aria-controls={offered.length > 0 ? 'chat-commands' : undefined}
+          aria-activedescendant={offered.length > 0 ? `chat-command-${offered[at].name}` : undefined}
+          onChange={(e) => {
+            setText(e.target.value)
+            setChoice(0)
+          }}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return
             // A new line is the browser's own.
             if (pressed(e, 'chat.newline')) return
+            if (offered.length > 0 && which(e, 'chat.command') >= 0) {
+              e.preventDefault()
+              setChoice((at + (which(e, 'chat.command') === 0 ? offered.length - 1 : 1)) % offered.length)
+              return
+            }
+            if (offered.length > 0 && pressed(e, 'chat.complete')) {
+              e.preventDefault()
+              complete(offered[at].name)
+              return
+            }
             if (pressed(e, 'chat.send')) {
               e.preventDefault()
               void send()
@@ -155,11 +215,26 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
               Stop
             </button>
           )}
+          <button
+            type="button"
+            className="button"
+            aria-pressed={attach}
+            disabled={!live}
+            title="Add a picture of the view as it is now to the next prompt"
+            onClick={() => setAttach(!attach)}
+          >
+            Attach view
+          </button>
           <button type="button" className="button button-primary" disabled={!live || text.trim() === ''} title={`Send (${hint('chat.send')})`} onClick={() => void send()}>
             {working ? 'Queue' : 'Send'}
           </button>
         </div>
       </div>
+      {rate !== null && (
+        <p className="chat-rate" role="status">
+          {numbered(rate)}
+        </p>
+      )}
       {problem !== null && (
         <p className="chat-problem selectable" role="alert">
           {problem}

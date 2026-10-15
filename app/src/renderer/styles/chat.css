@@ -567,3 +567,236 @@ button.ref-chip {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The model of the session: a quiet list in the row under the header. */
+select.session-model {
+  height: 24px;
+  padding: 0 2px 0 var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+}
+
+select.session-model:hover:not(:disabled) {
+  background: var(--accent-wash);
+}
+
+select.session-model:disabled {
+  opacity: 0.5;
+}
+
+/* What the agent asks the person: a calm card, ruled by a thin line, the request in plain words and its input in the monospace face. */
+.chat-ask {
+  padding: var(--space-2) var(--space-3);
+  border: var(--divider);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.chat-ask:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.chat-ask[data-state='open'] {
+  border-color: var(--accent);
+}
+
+.chat-ask-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-size);
+  font-weight: 500;
+}
+
+.chat-ask-input {
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.chat-ask-input pre,
+.chat-ask-answers {
+  max-height: 160px;
+  margin: 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-ask-lead {
+  margin: 0 0 var(--space-1);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.chat-ask-input pre + .chat-ask-lead {
+  margin: var(--space-1) 0 0;
+}
+
+.chat-ask-plan {
+  max-height: 260px;
+  margin-bottom: var(--space-2);
+  overflow: auto;
+}
+
+.chat-ask-outcome {
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.chat-ask-reason,
+.chat-ask-other {
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+}
+
+.chat-ask-reason {
+  flex: 1 1 12ch;
+}
+
+.chat-ask-reason:focus-visible,
+.chat-ask-other:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.chat-ask-question {
+  min-width: 0;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  border: 0;
+}
+
+.chat-ask-question legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+}
+
+.chat-ask-header {
+  margin-right: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-ask-text {
+  font-weight: 500;
+}
+
+.chat-ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.chat-ask-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  padding: 4px var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+}
+
+.chat-ask-option:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.chat-ask-option[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.chat-ask-desc {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-ask-other {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* The commands the CLI named, above the box, while a / word is typed. */
+.chat-commands {
+  max-height: 168px;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1);
+  overflow-y: auto;
+  list-style: none;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.chat-commands li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.chat-commands li[aria-selected='true'],
+.chat-commands li:hover {
+  background: var(--accent-wash);
+}
+
+.chat-command-hint,
+.chat-command-desc {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-command-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-actions .button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+/* A window of the rate limit that is half used: one quiet line under the box. */
+.chat-rate {
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}

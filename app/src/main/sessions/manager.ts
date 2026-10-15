@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import * as pty from 'node-pty'
 import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
-import type { ChatAnswer, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
+import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
 import type { ObjectInfo } from '../../shared/workspace'
 import { writeFileAtomic } from '../atomic'
 import { ensureIgnored } from '../ignored'
@@ -127,6 +127,8 @@ interface Events {
   item: { sessionId: string; objectId: string; item: ChatItem; seq: number }
   /** A chat session: what is known of it as a whole changed (the model, the rate limit). */
   meta: { sessionId: string; objectId: string; meta: ChatMeta; seq: number }
+  /** A chat session's CLI has said which slash commands and models it has (a history had before this has none of them). */
+  capabilities: { sessionId: string; objectId: string; commands: ChatCommand[]; models: ChatModel[]; seq: number }
   /** What a `UserPromptSubmit` was answered with, in a session of any view: the text and the marks it told of. */
   context: { sessionId: string; objectId: string; text: string; sentMarkIds: string[]; prompt?: string }
 }
@@ -152,7 +154,7 @@ export class Sessions {
   private readonly starting = new Map<string, Promise<Started>>()
   /** How an agent without hooks is told, and when what it was told counts as sent. */
   private readonly delivery: Delivery<Session>
-  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [], stream: [], ask: [], asked: [], context: [], item: [], meta: [] }
+  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [], stream: [], ask: [], asked: [], context: [], item: [], meta: [], capabilities: [] }
 
   constructor(
     private readonly deps: {
@@ -485,7 +487,7 @@ export class Sessions {
     const s = this.chat(sessionId, 'respond')
     const ask = s?.asks.get(requestId)
     if (!s || !ask || typeof answer !== 'object' || answer === null) return
-    if (answer.allow !== true) return this.answer(sessionId, requestId, { behavior: 'deny', message: typeof answer.message === 'string' ? answer.message : '' })
+    if (answer.allow !== true) return this.answer(sessionId, requestId, { behavior: 'deny', message: typeof answer.message === 'string' && answer.message.trim() !== '' ? answer.message : DENIED })
     const answers = ask.toolName === 'AskUserQuestion' ? answersOf(answer.updatedInput) : undefined
     const input = answers ? { ...(typeof ask.input === 'object' && ask.input !== null ? ask.input : {}), answers } : ask.input
     const always = answer.always === true && (ask.suggestions?.length ?? 0) > 0
@@ -591,7 +593,12 @@ export class Sessions {
       .control({ subtype: 'initialize' })
       .then((answer) => {
         session.capabilities = capabilitiesOf(answer)
-        if (session.chat) session.chat.capabilities = session.capabilities
+        if (session.chat) {
+          const chat = session.chat
+          chat.capabilities = session.capabilities
+          chat.seq += 1
+          this.emit('capabilities', { sessionId: session.id, objectId: chat.objectId, commands: session.capabilities.commands, models: modelsOf(session.capabilities.models), seq: chat.seq })
+        }
         this.advance(session, 'output')
       })
       .catch((e: Error) => {
@@ -777,6 +784,9 @@ function modelsOf(models: unknown[]): ChatModel[] {
 }
 
 /** The answers to the questions of an `AskUserQuestion`, a text for each question, from what the window sent. */
+/** What the agent is told when the person denied a request and said nothing more. */
+const DENIED = 'The person denied this.'
+
 function answersOf(input: unknown): Record<string, string> | undefined {
   const answers = typeof input === 'object' && input !== null ? (input as { answers?: unknown }).answers : undefined
   if (typeof answers !== 'object' || answers === null || Array.isArray(answers)) return undefined

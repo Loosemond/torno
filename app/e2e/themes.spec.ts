@@ -285,6 +285,13 @@ for (const theme of ['light', 'dark'] as const) {
           }
           await page.keyboard.press('Enter')
           await expect(page.locator('.chat-turn')).toContainText('Pulled from torno: look, 1 picture', { timeout: 30_000 })
+          // Then a request to use a tool, waiting for the person, and a window of the rate limit half used.
+          await page.keyboard.type('rate 72')
+          await page.keyboard.press('Shift+Enter')
+          await page.keyboard.type('ask Write {"file_path":"hollow.py","content":"WALL = 3\\nLID = 2\\n"}')
+          await page.keyboard.press('Enter')
+          await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
+          await expect(page.locator('.chat-rate')).toBeVisible()
           await page.keyboard.type('thicker than that, please')
         } else if (shot === 'error') {
           await open(page, 'bracket')

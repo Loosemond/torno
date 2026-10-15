@@ -43,9 +43,12 @@
 //                                 begins `mcp__torno__` torno's MCP server is called for real and the tool_result
 //                                 holds its `content` as it came
 //       ask <name> <json input>   a `can_use_tool` control_request, waits for its answer, a tool_result
-//                                 `allowed: <json updatedInput>` or `denied: <message>`
+//                                 `allowed: <json updatedInput>` (and, when the answer carried them, a second line
+//                                 `permissions: <json updatedPermissions>`) or `denied: <message>`
 //       slow <seconds>            a word every 100 ms for that long
 //       rate <percent>            a `rate_limit_event` at that utilization
+//       images                    says what pictures came with the prompt: `images: <n> <width>x<height> ...`, the
+//                                 size read from each PNG's header (a text, as `say` is)
 //       garbage                   a line that is no JSON, and an object of a type nobody knows
 //   - when stdin ends it posts `SessionEnd` and exits 0; on SIGTERM it exits 0.
 import { spawn } from 'node:child_process'
@@ -162,7 +165,7 @@ async function streamMode() {
       out({ type: 'control_request', request_id: requestId, request: { subtype: 'can_use_tool', tool_name: name, input, tool_use_id: id, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: name }], behavior: 'allow', destination: 'session' }] } })
       const response = await Promise.race([wait, turn.interrupted])
       if (turn.aborted) return
-      if (response?.behavior === 'allow') content = `allowed: ${JSON.stringify(response.updatedInput)}`
+      if (response?.behavior === 'allow') content = `allowed: ${JSON.stringify(response.updatedInput)}${response.updatedPermissions ? `\npermissions: ${JSON.stringify(response.updatedPermissions)}` : ''}`
       else content = `denied: ${response?.message ?? ''}`
     }
     await post('PreToolUse', { tool_name: name })
@@ -199,6 +202,12 @@ async function streamMode() {
         event({ type: 'message_stop' })
         out(message([{ type: 'text', text: words }], 'msg_slow'))
       }
+    } else if (command === 'images') {
+      const sizes = turn.images.map((data) => {
+        const png = Buffer.from(data, 'base64')
+        return `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`
+      })
+      await say(`images: ${sizes.length} ${sizes.join(' ')}`.trim())
     } else if (command === 'rate') {
       out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: Math.floor(Date.now() / 1000) + 3600, rateLimitType: 'five_hour', unifiedWindows: { five_hour: { utilization: Number(rest) / 100, resetsAt: Math.floor(Date.now() / 1000) + 3600 } } }, ...base, uuid: next('uuid') })
     } else if (command === 'garbage') {
@@ -218,7 +227,8 @@ async function streamMode() {
       return
     }
     let release
-    turn = { aborted: false, interrupted: new Promise((resolve) => (release = resolve)) }
+    const images = content.filter((b) => b?.type === 'image' && typeof b.source?.data === 'string').map((b) => b.source.data)
+    turn = { aborted: false, images, interrupted: new Promise((resolve) => (release = resolve)) }
     turn.interrupt = () => {
       turn.aborted = true
       release()

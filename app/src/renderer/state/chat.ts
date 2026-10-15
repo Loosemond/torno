@@ -7,7 +7,7 @@ import type { ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '..
 // it so far. `history` replaces, and what was told meanwhile is merged by `seq`.
 
 /** A thing main told of a session before its history had come. */
-type Told = { seq: number } & ({ item: ChatItem } | { meta: ChatMeta })
+type Told = { seq: number } & ({ item: ChatItem } | { meta: ChatMeta } | { commands: ChatCommand[]; models: ChatModel[] })
 
 export interface ChatSession {
   items: ChatItem[]
@@ -73,7 +73,8 @@ function withoutData(item: ChatItem): ChatItem {
 
 function apply(session: ChatSession, told: Told): ChatSession {
   if (told.seq <= session.seq) return session
-  if (!('item' in told)) return { ...session, meta: told.meta, seq: told.seq }
+  if ('meta' in told) return { ...session, meta: told.meta, seq: told.seq }
+  if ('commands' in told) return { ...session, commands: told.commands, models: told.models, seq: told.seq }
   return { ...session, items: placed(session.items, session.released ? withoutData(told.item) : told.item), seq: told.seq }
 }
 
@@ -126,8 +127,10 @@ export const chatActions = {
 export function connectChat(): () => void {
   const offItem = window.torno.chat.onItem((m) => tell(m.sessionId, { item: m.item, seq: m.seq }))
   const offMeta = window.torno.chat.onMeta((m) => tell(m.sessionId, { meta: m.meta, seq: m.seq }))
+  const offCapabilities = window.torno.chat.onCapabilities((m) => tell(m.sessionId, { commands: m.commands, models: m.models, seq: m.seq }))
   return () => {
     offItem()
     offMeta()
+    offCapabilities()
   }
 }

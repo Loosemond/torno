@@ -54,7 +54,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
-//           session:data, session:status, chat:item, chat:meta, workspace:requested and window:closeAsked (sent by src/main/index.ts,
+//           session:data, session:status, chat:item, chat:meta, chat:capabilities, workspace:requested and window:closeAsked (sent by src/main/index.ts,
 //           which hears the answer, window:closeAnswer),
 //           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
 
@@ -419,6 +419,7 @@ export function registerIpc(
   sessions?.on('status', () => cardsChanged())
   sessions?.on('item', (m) => broadcast('chat:item', { sessionId: m.sessionId, item: m.item, seq: m.seq }))
   sessions?.on('meta', (m) => broadcast('chat:meta', { sessionId: m.sessionId, meta: m.meta, seq: m.seq }))
+  sessions?.on('capabilities', (m) => broadcast('chat:capabilities', { sessionId: m.sessionId, commands: m.commands, models: m.models, seq: m.seq }))
   sessions?.on('send', (m) => broadcast('session:send', { sessionId: m.sessionId, state: m.state, marks: m.marks, ...(m.why ? { why: m.why } : {}) }))
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')

@@ -101,7 +101,7 @@ test('a new session is a chat, with no terminal; a prompt is answered, and what 
   await expect(chat().locator('.chat-text').first()).toContainText('hello there')
   await expect(turns().first()).toContainText('Done in')
   // The model, once the agent has said it with its first answer.
-  await expect(dock().locator('.session-model')).toHaveText('fake-model')
+  await expect(dock().locator('.session-model')).toHaveValue('fake-model')
   // Enter sent it and the box is empty again.
   await expect(composer()).toHaveValue('')
 

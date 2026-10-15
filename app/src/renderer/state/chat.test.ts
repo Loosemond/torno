@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatHistory, ChatItem, ChatMeta } from '../../shared/chat'
+import type { ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
 import { chatActions, chatStore, connectChat, drawn } from './chat'
 
 type User = Extract<ChatItem, { kind: 'user' }>
@@ -13,6 +13,7 @@ let onItem: (m: { sessionId: string; item: ChatItem; seq: number }) => void
 let onMeta: (m: { sessionId: string; meta: ChatMeta; seq: number }) => void
 /** The history calls waiting for an answer, by session. */
 let asked: Array<{ sessionId: string; answer: (h: ChatHistory) => void; fail: (e: Error) => void }>
+let onCapabilities: (m: { sessionId: string; commands: ChatCommand[]; models: ChatModel[]; seq: number }) => void
 let disconnect: () => void
 
 beforeEach(() => {
@@ -23,7 +24,8 @@ beforeEach(() => {
       chat: {
         history: (sessionId: string) => new Promise<ChatHistory>((answer, fail) => asked.push({ sessionId, answer, fail })),
         onItem: (cb: typeof onItem) => ((onItem = cb), off),
-        onMeta: (cb: typeof onMeta) => ((onMeta = cb), off)
+        onMeta: (cb: typeof onMeta) => ((onMeta = cb), off),
+        onCapabilities: (cb: typeof onCapabilities) => ((onCapabilities = cb), off)
       }
     }
   })
@@ -42,6 +44,34 @@ async function loaded(items: ChatItem[], seq: number, sessionId = 's'): Promise<
   asked.at(-1)!.answer(history(items, seq))
   await loading
 }
+
+describe('what the CLI of a session can do', () => {
+  const compact: ChatCommand = { name: 'compact', description: 'Compact', argumentHint: '' }
+  const haiku: ChatModel = { value: 'haiku', displayName: 'Haiku' }
+
+  it('arrives after the history, which was had before the CLI had said it', async () => {
+    await loaded([user(1)], 1)
+    expect(chatStore.getState().sessions.s.commands).toEqual([])
+    onCapabilities({ sessionId: 's', commands: [compact], models: [haiku], seq: 2 })
+    expect(chatStore.getState().sessions.s.commands).toEqual([compact])
+    expect(chatStore.getState().sessions.s.models).toEqual([haiku])
+  })
+
+  it('arrives before the history, and the history that is older does not take it away', async () => {
+    const loading = chatActions.load('s')
+    onCapabilities({ sessionId: 's', commands: [compact], models: [haiku], seq: 2 })
+    asked.at(-1)!.answer(history([user(1)], 1))
+    await loading
+    expect(chatStore.getState().sessions.s.commands).toEqual([compact])
+    expect(chatStore.getState().sessions.s.models).toEqual([haiku])
+  })
+
+  it('is not taken twice from a history that held it already', async () => {
+    await loaded([user(1)], 3)
+    onCapabilities({ sessionId: 's', commands: [], models: [], seq: 2 })
+    expect(chatStore.getState().sessions.s.seq).toBe(3)
+  })
+})
 
 describe('the items of a chat session in the window', () => {
   it('are what history says, and an item after it is added, or replaces the one of its id in its place', async () => {

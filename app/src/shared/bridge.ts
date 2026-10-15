@@ -1,5 +1,5 @@
 import type { BuildState } from './build'
-import type { ChatAnswer, ChatHistory, ChatItem, ChatMeta } from './chat'
+import type { ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel } from './chat'
 import type { ExportPlan, ExportRequest } from './exportdata'
 import type { Described } from './geometry'
 import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
@@ -175,6 +175,8 @@ export interface TornoBridge {
     /** An item of the transcript was added or changed. One whose `seq` is not above the `seq` of the history asked for before holds nothing the history does not. */
     onItem(cb: (m: { sessionId: string; item: ChatItem; seq: number }) => void): () => void
     onMeta(cb: (m: { sessionId: string; meta: ChatMeta; seq: number }) => void): () => void
+    /** The slash commands and models the session's CLI has, told when it has said them (a history had earlier may lack them). */
+    onCapabilities(cb: (m: { sessionId: string; commands: ChatCommand[]; models: ChatModel[]; seq: number }) => void): () => void
     /** Sends a prompt; with `attachView`, main adds a picture of the viewport as the person sees it now. Rejects, sending nothing, when that picture cannot be made. */
     send(sessionId: string, prompt: { text: string; attachView?: boolean }): Promise<void>
     /** Answers a request of the agent's. The tool runs with the input it asked with; only the answers of `AskUserQuestion` are taken from the window. */
