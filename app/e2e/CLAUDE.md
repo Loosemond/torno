@@ -63,6 +63,23 @@ window on it.
 - `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
   side by side.
 
+## The chat and the stand-in agent
+
+A chat session is tested with `app/test/fake-agent.mjs` in its stream mode, which it enters when started with
+`--input-format stream-json`: it speaks Claude Code's protocol on its pipes and prints nothing else. Its header
+lists everything it does; in short, a prompt's text is a script of one command per line: `say`, `tool <name>
+<json>` (a name beginning `mcp__torno__` calls torno's MCP server for real), `ask <name> <json>` (a permission
+request, answered by the window), `slow <s>`, `rate <percent>`, `images` and `garbage`; `/noop` and `/compact`
+are what the CLI does for them. Its permission suggestions are the three kinds the real CLI sends, so a test
+proves that only the session rule is passed on. Specs that drive a terminal call `inTerminal` (`e2e/terminal.ts`),
+which writes `view: 'terminal'` into their temporary copy's `.torno/agent.json`. Give the run a HOME of its own
+when a spec checks that nothing is written to the person's settings.
+
+Two fixtures were recorded from the real CLI and scrubbed: `app/test/fixtures/claude-stream.jsonl` (Claude Code
+2.1.300: a turn, tool use, hooks) and `claude-stream-asks.jsonl` (2.1.301: a permission, a question and
+`/compact`). One line of the second is cut by the scrubbing and is no JSON; the framing passes it over and so do
+the tests. Never run the real `claude` to record or check; that is done by hand (README, last section).
+
 ## Light and dark
 
 - `e2e/themes.spec.ts` starts torno once in each theme, holds the tokens the

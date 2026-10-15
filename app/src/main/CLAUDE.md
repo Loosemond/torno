@@ -626,3 +626,32 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   clicking it (`e2e/session.spec.ts`).
 - The tools' descriptions are the same for every agent and never say that something comes "with every
   prompt" (`prompt.test.ts` scans them and the hookless instructions, and bounds the latter's length).
+- **The chat session** (Claude Code with `view` `chat`; `sessions/stream.ts`, `transcript.ts`, `chatlog.ts`,
+  `permissions.ts`, `Sessions` in `manager.ts`). The adapter adds `HEADLESS` to the same arguments as a terminal
+  session (`claude.ts`); the CLI is spawned on pipes, detached, in the object's folder, with the terminal
+  session's environment. There is no PTY. The stream is framed by line and a line that is no JSON, or a message
+  of a type nobody knows, is passed over: what the CLI prints changes between versions, and nothing here throws
+  at it. Torno answers `initialize` (the commands and models, told to the window as a `capabilities` event),
+  `interrupt` and `set_model`, which changes this session's model and nothing of the person's.
+- The transcript (`Transcript`) knows what the stream means and nothing of processes or files: it reduces
+  messages and torno's own records (a prompt sent, a hook answered, an ask, the end) to the items of
+  `shared/chat.ts`, at most 2,000, and the 40 newest pictures keep their data. Items are never changed once
+  handed out. A prompt sent while the agent works is `queued`: it is drawn last, and is sent, moving to the end,
+  at the `init` the CLI prints when it takes it up; the transcript is the one source of that order, for live and
+  for reload. The context of a `UserPromptSubmit` (`text`, `sentMarkIds`, and as data the build and selection) is
+  put under the oldest prompt that has none; the window never parses text for it. A `user` message that is the
+  compaction summary (`isSynthetic`) is not drawn; one that is `<local-command-stdout>` (what `/cost` or
+  `/context` print) is a quiet note, and the "Compacted" of `/compact` is not a second one.
+- Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and
+  show the status `needs_input` while open; a session that ends settles them as `ended`. The tool runs with the
+  input it asked with; only the answers of `AskUserQuestion`, filtered to the question texts it asked, are taken
+  from the window. **Session-only rule:** "Allow for this session" sends `updatedPermissions` made by
+  `sessionRules` alone, the `addRules` suggestions with `destination: "session"`; `localSettings`,
+  `projectSettings`, `userSettings`, `setMode` and `addDirectories` are never passed on, because the first three
+  would write `.claude/` in the object's folder or the person's settings. A deny with no reason says "The person
+  denied this."
+- The log (`chatlog.ts`) appends each item as it becomes final to `.torno/chat/<conversation>.jsonl`: text only,
+  the data of a picture never, `redact` applied to every line, one write at a time per file, the folder checked
+  with `ownTorno(dir, 'chat')` and ignored (`ensureIgnored`); after one write fails none is tried. A resumed chat
+  reads the tail of the file as "Earlier in this conversation". Switching `view` ends the session and resumes the
+  conversation in the other kind (`session.json` is the same).

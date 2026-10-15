@@ -236,14 +236,61 @@ failed) nothing is picked, and the pointer says why.
 
 ## The agent
 
-Each object has its own session: a terminal in the object's folder running
-the agent's CLI. It keeps running while another object is shown. "New session"
+Each object has its own session: the agent's CLI running in the object's
+folder. Claude Code opens in a chat, a pane of torno's own; Copilot CLI, and
+Claude Code when you switch to it, in a terminal. It keeps running while
+another object is shown. "New session"
 starts one, in place of the session running there, if any; torno asks first if
 that one may be in the middle of its work. "End" ends the session and starts
 none, asking first in the same way. "Resume" continues the last
 conversation that agent had there. ``Ctrl+` `` moves between the session and
-the viewport, `Shift+Enter` is a new line, `Ctrl+Shift+C` and `Ctrl+Shift+V`
-copy and paste.
+the viewport. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
+`Ctrl+Shift+V` copy and paste.
+
+### The chat
+
+The chat is your own `claude`, under your own login, started in its headless
+mode (JSON on pipes instead of a screen). Torno draws what it says and does;
+nothing of Claude Code's settings is read or changed. `Enter` sends, `Shift+Enter`
+is a new line, and a prompt sent while the agent is at work waits its turn
+("Queued"; "Stop" interrupts the turn).
+
+- **What torno added.** Under each prompt, a "torno added" line shows what went
+  with it: the marks sent, as chips in their colours, the build (`r12 ok`), and
+  the selection; "Show text" opens the exact text the agent was given. Above the
+  box, "Goes with your next prompt" says what will go.
+- **What the agent pulled from torno.** Every tool of torno's it calls is a card
+  of its own, with its input, its result and its pictures as thumbnails that
+  open large; the turn ends with a line such as "Pulled from torno: scene, 2
+  pictures, measure ×3". Other tools are one line each, opened for their input
+  and result.
+- **Refs are live.** `M4`, `lid/F12` and `lid/E3` in the agent's text and in
+  the cards are chips: hovering one lights it in the view, clicking a mark
+  focuses it, clicking a face or an edge selects it. A ref that names nothing
+  now (a mark that is gone, a part not shown) says why and does nothing.
+- **When it asks.** A permission is a card in the conversation: "Allow",
+  "Allow for this session" (offered when Claude Code suggests a rule; the rule
+  holds for this session only and is never written to any settings file) and
+  "Deny", with a reason if you give one. A question of the agent's is a card with
+  its options and an "Other" line; a plan is shown to be approved or kept
+  planning. The session reads "Needs input" while a card is open.
+- **"Attach view"** adds a picture of the viewport as you see it to the next
+  prompt only.
+- **`/` commands.** Typing `/` offers the commands Claude Code has; `Up` and
+  `Down` choose, `Tab` completes. `/compact` leaves one note with the tokens
+  before and after.
+- **The model** is chosen in the menu under the header. It changes the model of
+  this session only; `/model` typed in a terminal session changes your default
+  (see below). A line under the box shows the rate limit once more than half of
+  it is used.
+
+"Chat · Terminal" under the header switches the same conversation between the
+two: the session is ended (torno asks first if it is busy) and started again,
+resuming it. With no session it sets what the next one will be; the choice is
+kept in `.torno/agent.json`. What the chat showed is kept as text in
+`.torno/chat/`, and a resumed conversation shows it under "Earlier in this
+conversation"; pictures are never written, and say "Picture not kept" after the
+session.
 
 ### Choosing an agent
 
@@ -271,11 +318,11 @@ signed in) leaves the status as it was. The first time Claude Code runs in a fol
 it asks whether you trust the folder; that question is its own, and it is
 answered in the terminal.
 
-`/model` typed in a session of torno's changes the model of that session and
-also your default for every Claude Code session from then on: Claude Code
-writes it to `~/.claude/settings.json`, torno's or not. To use another model in
-torno alone, start torno with `TORNO_AGENT_CMD="claude --model sonnet"`, which
-saves nothing.
+`/model` typed in a terminal session of torno's changes the model of that
+session and also your default for every Claude Code session from then on:
+Claude Code writes it to `~/.claude/settings.json`, torno's or not. The model
+menu of the chat does not; nor does starting torno with
+`TORNO_AGENT_CMD="claude --model sonnet"`, which saves nothing.
 
 Copilot CLI posts no hooks, so torno cannot add to its prompts and cannot see
 what it is doing. Its instructions tell it to read `.torno/state.md` at the
@@ -830,7 +877,8 @@ place.
 | `marks.json` | the marks of the object: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
 | `scans.json` | the scans of the object: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
-| `agent.json` | the agent the object's sessions run; without it, Claude Code | travels |
+| `agent.json` | the agent the object's sessions run, and whether Claude Code is shown as a chat or a terminal; without it, Claude Code in a chat | travels |
+| `chat/<conversation>.jsonl` | what a chat session said and did, as text; no picture data, no address | ignored |
 | `session.json` | the conversation to resume, and the agent it is of | ignored |
 | `agent/` | what torno tells an agent that takes no system prompt on its command line (`AGENTS.md` for Copilot CLI) | ignored |
 | `prompt.md` | what "Send marks" last wrote for an agent without hooks; one line saying there is nothing new when a session of such an agent starts or ends | ignored |
@@ -844,7 +892,7 @@ adds lines to and never rewrites; a line you negate there (`!state.md`) is
 yours, and is not added against. What travels with the object in git is what
 is the object's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
 What changes with every build, session or send, or is of this machine, is
-ignored: `state.md`, `session.json`, `prompt.md`, `agent/`, the thumbnail,
+ignored: `state.md`, `session.json`, `chat/`, `prompt.md`, `agent/`, the thumbnail,
 `views/` and `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
 want none of it in git.
 
@@ -1076,6 +1124,7 @@ On the screen:
 
 With a real agent:
 
+- **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
 - **Copilot CLI: what must not send.** "Send marks" while its trust question is up, then Enter; "Send marks", then type ` see @` and Enter; "Send marks", then paste two lines: each time the mark stays a draft and the pane says why.
 - **Copilot CLI: Shift+Enter.** Torno writes Esc Enter: a new line, or a send? Torno takes it for a change of the line either way.

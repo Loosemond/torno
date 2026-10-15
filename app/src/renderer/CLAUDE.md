@@ -317,6 +317,23 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   after every write parsed); the terminal's own ground and the inset then take it, so that the agent's screen
   fills the pane (`window.__tornoTerm.ground()`; the stand-in's `ground r g b`).
 
+- **The chat pane** (`ui/chat/`, `state/chat.ts`; a Claude Code session whose `view` is chat has no `.xterm`). The
+  window draws what main's transcript says: `placed` and `drawn` in `state/chat.ts` reproduce main's order
+  (an item keeps its place; a queued prompt is drawn after all the others; sent, it goes to the end), and items
+  and metas are merged by `seq` with the history, so none is drawn twice or lost. Each `context` item is drawn
+  under its prompt, as chips from its fields (marks, build, selection), never from its text. Nothing is per frame
+  in React, and there is no endless animation in it: a working indication is still, toggled once a second by
+  `useBeat`, and only while something streams or runs (`styles.test.ts` fails for an endless one).
+- Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
+  is not an agent highlight (no agent line, no locked tools); click focuses a mark or selects a face or edge. A
+  ref that names nothing now is an inert span with the reason as its title. Code is never searched for refs.
+- Keys of the chat are rows of `shared/keys.ts` in the scopes `composer` and `picture`: `chat.send` Enter,
+  `chat.newline` Shift+Enter, `chat.command` Up/Down and `chat.complete` Tab (while `/` commands are offered),
+  `chat.close` Esc (a picture shown large; the focus returns to its thumbnail). Escape in the box gives the keys
+  back. A card takes focus once per request, and only when the composer is empty and not focused.
+- The agent's text is drawn by torno's own `markdown.tsx`: React text nodes, never raw HTML, a link shows its URL
+  and is not an `<a>`. A picture without its data says "Picture not kept".
+
 ## Export
 
 - "Export…" is a button in the status line for the open object, in the head of the page of objects for every

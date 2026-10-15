@@ -85,6 +85,8 @@ export class Transcript {
 
   private turnStarted: number | null = null
   private interrupted = false
+  /** A compaction note was made in this turn, so the command's own "Compacted" is not a second. */
+  private compactNoted = false
   private pulled: Record<string, number> = {}
 
   private readonly lastTold = new Map<string, number>()
@@ -290,6 +292,7 @@ export class Transcript {
       const taken = this.untaken.shift()
       const prompt = taken ? this.byId.get(taken) : undefined
       if (prompt?.kind === 'user' && prompt.state === 'queued') this.takeUp(prompt)
+      this.compactNoted = false
       if (this.turnStarted === null) this.turnStarted = this.now()
       const model = str(m.model)
       const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers.map(obj).filter((s): s is Record_ => s !== null) : null
@@ -307,6 +310,7 @@ export class Transcript {
       const tokens = new Intl.NumberFormat('en-US')
       const text = before !== undefined && after !== undefined ? `Conversation compacted: ${tokens.format(before)} → ${tokens.format(after)} tokens` : 'Conversation compacted'
       this.put({ kind: 'note', id: this.newId('i'), text, tone: 'quiet' })
+      this.compactNoted = true
     }
   }
 
@@ -428,7 +432,18 @@ export class Transcript {
   private user(m: StreamMessage): void {
     const message = obj(m.message)
     const content = message?.content
-    if (typeof content === 'string') return content.startsWith(INTERRUPTED) ? this.interrupt() : undefined
+    // The compaction summary is the CLI talking to the model, not to the person.
+    if (m.isSynthetic === true) return
+    if (typeof content === 'string') {
+      if (content.startsWith(INTERRUPTED)) return this.interrupt()
+      const printed = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>$/.exec(content.trim())
+      if (!printed) return
+      const text = printed[1].trim()
+      // /compact has its note already, from the boundary; its stdout only says "Compacted".
+      if (text === '' || (this.compactNoted && text === 'Compacted')) return
+      this.put({ kind: 'note', id: this.newId('i'), text: this.redact(text), tone: 'quiet' })
+      return
+    }
     if (!Array.isArray(content)) return
     const results = content.map(obj).filter((b): b is Record_ => b?.type === 'tool_result')
     for (const block of content) {

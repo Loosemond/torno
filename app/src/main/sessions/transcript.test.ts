@@ -644,6 +644,21 @@ describe('what the CLI printed for a permission and for /compact', () => {
     expect(items[2]).toMatchObject({ ok: true, stopped: false })
   })
 
+  it('draws no note for the compaction summary, and shows what a local command printed as a quiet note', () => {
+    const t = new Transcript({ now: () => 1000 })
+    const local = (content: string): StreamMessage => ({ type: 'user', message: { role: 'user', content } })
+    t.message(local('<local-command-stdout>Total cost: $0.01\n</local-command-stdout>'))
+    t.message(local('<local-command-stdout>  </local-command-stdout>'))
+    t.message({ type: 'user', isSynthetic: true, message: { role: 'user', content: 'This session is being continued from a previous conversation' } })
+    expect(of(t, 'note')).toMatchObject([{ text: 'Total cost: $0.01', tone: 'quiet' }])
+  })
+
+  it('shows /compact as one note: the stdout "Compacted" after the boundary is not a second', () => {
+    const t = new Transcript({ now: () => 1000 })
+    for (const m of ASKS.slice(ASKS.findIndex((m) => m.subtype === 'status' && m.status === 'compacting'))) t.message(m)
+    expect(of(t, 'note').map((n) => n.text)).toEqual(['Conversation compacted: 29,569 → 3,637 tokens'])
+  })
+
   it('tells a boundary that has no numbers without them', () => {
     const t = new Transcript({ now: () => 1000 })
     t.message({ type: 'system', subtype: 'compact_boundary' })

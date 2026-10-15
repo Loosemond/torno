@@ -103,6 +103,13 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   pending (`≈`), which the kernel's value replaces. What is taken from a scan
   is the other, and is never said to be exact (see Scans).
 
+- Claude Code is shown as a chat by default (`view` in `.torno/agent.json`; Copilot CLI is always a terminal). The
+  chat is the CLI's own headless mode (`-p --input-format stream-json --output-format stream-json`) on pipes,
+  under the person's own login, never run by a test. Hooks stay the one source of status and of the marks sent;
+  the stream adds only that a request waiting for the person is `needs_input`. `.torno/chat/` holds text only:
+  no address, no secret, no picture data. A permission answer never writes the person's settings: "Allow for
+  this session" sends only `addRules` suggestions, rewritten to `destination: "session"`.
+
 ## Where the detail is
 
 Each area has a `CLAUDE.md` of its own, with the rules of that folder under the headings they have always had
