@@ -216,6 +216,17 @@ test('view buttons and keys move the camera; keys are left alone in the session 
   await page.keyboard.press('f')
   const again = await camera()
   for (let i = 0; i < 3; i++) expect(again.position[i]).toBeCloseTo(fitted.position[i], 3)
+
+  // A view, then Fit at once, while the camera is still on its way: Fit is of where it is going, not of where
+  // the turn has got to, and the turn is not left halfway.
+  await page.keyboard.press('4')
+  await page.waitForTimeout(400)
+  await page.keyboard.press('1')
+  await page.keyboard.press('f')
+  await page.waitForTimeout(400)
+  const quick = await camera()
+  for (let i = 0; i < 3; i++) expect(quick.position[i]).toBeCloseTo(fitted.position[i], 3)
+  for (let i = 0; i < 3; i++) expect(quick.target[i]).toBeCloseTo(fitted.target[i], 3)
 })
 
 test('dragging orbits the camera, and main is told where it came to rest', async () => {

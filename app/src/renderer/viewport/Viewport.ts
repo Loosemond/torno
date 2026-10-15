@@ -558,9 +558,9 @@ export class Viewport {
     }
   }
 
-  /** Switches projection, keeping the part the same size at the camera's target. */
+  /** Switches projection, keeping the part the same size at the camera's target: of where the camera is going, when it is on its way. */
   setOrtho(ortho: boolean): void {
-    const c = this.getCamera()
+    const c = this.cameraGoal()
     if (c.ortho === ortho) return
     this.move.drop()
     if (ortho) {
@@ -572,9 +572,12 @@ export class Viewport {
     }
   }
 
-  /** Frames the visible parts without turning the camera. */
+  /**
+   * Frames the visible parts without turning the camera. Of where the camera is going when it is on its way
+   * (a view key pressed just before): the turn is not left halfway.
+   */
   fit(): void {
-    const c = this.getCamera()
+    const c = this.cameraGoal()
     const dir = c.target.map((t, i) => t - c.position[i])
     this.move.drop()
     this.applyCamera(fitCamera(this.visibleBox(), dir, c.up, this.aspect, this.fov, c.ortho))
@@ -588,7 +591,7 @@ export class Viewport {
   frameScan(id: string): boolean {
     const box = this.scans.state().find((scan) => scan.id === id)?.visible ? this.scans.boxIn([id], this.layout) : null
     if (!box) return false
-    const c = this.getCamera()
+    const c = this.cameraGoal()
     const dir = c.target.map((t, i) => t - c.position[i])
     this.move.drop()
     this.applyCamera(fitCamera(withBox(this.visibleBox(), box)!, dir, c.up, this.aspect, this.fov, c.ortho))
