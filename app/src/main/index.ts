@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from 'electron'
 import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
@@ -140,6 +140,9 @@ async function exampleFolder(): Promise<string | null> {
 // Keep equal to --surface in src/renderer/styles/tokens.css.
 const SURFACE = { light: '#F1EFEA', dark: '#1A1C1F' }
 
+/** How long a window asked whether it may close has to answer, before it is closed without one. */
+const CLOSE_ANSWER_MS = 1500
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
@@ -156,6 +159,39 @@ function createWindow(): BrowserWindow {
   })
 
   if (!isTest) win.once('ready-to-show', () => win.show())
+
+  // Closing the window ends torno and every session in it, so the window is asked first (`renderer/closing.ts`):
+  // with nothing under way it answers at once and the window closes; otherwise it asks the person in place, and
+  // the window stays until they say. A window that does not answer (it never loaded, it crashed) is closed
+  // after `CLOSE_ANSWER_MS`. A quit that did not come through the window (`before-quit`) is not held.
+  let mayClose = false
+  let unanswered: ReturnType<typeof setTimeout> | null = null
+  const closeNow = (): void => {
+    mayClose = true
+    if (unanswered) clearTimeout(unanswered)
+    if (!win.isDestroyed()) win.close()
+  }
+  const onAnswer = (event: Electron.IpcMainEvent, close: unknown): void => {
+    if (win.isDestroyed() || event.sender !== win.webContents) return
+    if (unanswered) clearTimeout(unanswered)
+    unanswered = null
+    if (close === true) closeNow()
+  }
+  const onQuit = (): void => void (mayClose = true)
+  ipcMain.on('window:closeAnswer', onAnswer)
+  app.on('before-quit', onQuit)
+  win.on('close', (event) => {
+    if (mayClose || win.webContents.isDestroyed() || win.webContents.isCrashed() || win.webContents.isLoading()) return
+    event.preventDefault()
+    if (unanswered) return // asked already, and not answered yet
+    unanswered = setTimeout(closeNow, CLOSE_ANSWER_MS)
+    win.webContents.send('window:closeAsked')
+  })
+  win.on('closed', () => {
+    if (unanswered) clearTimeout(unanswered)
+    ipcMain.off('window:closeAnswer', onAnswer)
+    app.off('before-quit', onQuit)
+  })
 
   // The renderer is a single local page: it opens no windows and goes nowhere
   // else. It may reload itself, which is how the dev server applies a change it

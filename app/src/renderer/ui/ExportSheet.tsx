@@ -2,6 +2,7 @@ import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import { type ExportPlan, type ExportRequest, SCAN_WARNING, megabytes } from '../../shared/exportdata'
 import { count } from '../../shared/format'
+import { setExporting } from '../closing'
 import { actions, sceneFileOf, store, useStore } from '../state/store'
 
 /** `2 parts`, the number in the face of numbers. */
@@ -42,6 +43,11 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   const asked = useRef(0)
   const saving = useRef(false)
   saving.current = busy === 'saving'
+  // Closing the window while the file is written would leave none: the window asks first (`closing.ts`).
+  useEffect(() => {
+    setExporting(busy === 'saving')
+    return () => setExporting(false)
+  }, [busy])
 
   // The export is of what is on screen: what the open object's scene file should hold is given to main now, not when the next save is due.
   useEffect(() => {

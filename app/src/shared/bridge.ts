@@ -24,6 +24,10 @@ export interface TornoBridge {
     /** Opens a copy of the example, made in a temporary folder. It is not remembered. */
     openExample(): Promise<WorkspaceInfo>
     onRequested(cb: (root: string) => void): () => void  // a second launch of torno was given this folder to open
+    /** The window was asked to close (the window manager's close): it is held until the window answers. */
+    onCloseAsked(cb: () => void): () => void
+    /** The answer: `true` closes the window, and torno with it; `false` says the person is being asked, and it stays. */
+    answerClose(close: boolean): void
   }
   object: {
     open(id: string): Promise<BuildState>            // starts watching and building

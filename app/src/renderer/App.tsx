@@ -5,6 +5,8 @@ import { EXAMPLE_NOTE, type WorkspaceInfo } from '../shared/workspace'
 import { connectLook } from './state/agent'
 import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
+import { closingWhy, isExporting, unkept } from './closing'
+import { paintings } from './tools/regionPainting'
 import { Confirm } from './ui/Confirm'
 import { Layers } from './ui/Layers'
 import { MarksPanel } from './ui/MarksPanel'
@@ -273,6 +275,21 @@ export function App() {
   useEffect(() => window.torno.workspace.onRequested((root) => leave(root)), [leave])
   useEffect(() => setLeaving(null), [workspace?.root])
 
+  // Closing the window ends torno: asked first when that would cut something short, and at once otherwise.
+  // Heard on every screen, the first one too: the window is held until this answers.
+  const [closing, setClosing] = useState<string | null>(null)
+  useEffect(
+    () =>
+      window.torno.workspace.onCloseAsked(() => {
+        const s = store.getState()
+        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting() })
+        window.torno.workspace.answerClose(why === null)
+        setClosing(why)
+      }),
+    []
+  )
+  useEffect(() => setClosing(null), [workspace?.root])
+
   const errorOpened = useCallback((open: boolean) => setErrorOpen(open), [])
   const revealDock = useCallback(() => setDockOpen(true), [])
 
@@ -315,6 +332,20 @@ export function App() {
           <p className="workspace-example" role="note">
             {EXAMPLE_NOTE}
           </p>
+        )}
+        {closing !== null && (
+          <Confirm
+            label="Close torno?"
+            accept="Close torno"
+            cancel="Keep it open"
+            onCancel={() => setClosing(null)}
+            onAccept={() => {
+              setClosing(null)
+              window.torno.workspace.answerClose(true)
+            }}
+          >
+            {closing} Closing torno ends it.
+          </Confirm>
         )}
         {leaving !== null && (
           <Confirm

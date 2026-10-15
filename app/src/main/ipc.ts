@@ -51,7 +51,8 @@ import { scanOrder, scanWorkspace } from './workspace'
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
-//           session:data, session:status, workspace:requested (sent by src/main/index.ts),
+//           session:data, session:status, workspace:requested and window:closeAsked (sent by src/main/index.ts,
+//           which hears the answer, window:closeAnswer),
 //           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
 
 interface OpenWorkspace {

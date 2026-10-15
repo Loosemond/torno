@@ -276,6 +276,61 @@ test('"End" ends the session and starts none, asking first when it is in the mid
   await expect.poll(() => agentsIn(join(root, 'bracket'))).toHaveLength(1)
 })
 
+// Seen on the visible screen: the window manager's close ended torno and an agent in the middle of its work, with no question.
+test('closing the window asks first while a session is in the middle of something, and closes at once when none is', async () => {
+  const folder = copyFixtures()
+  const closeWindow = (of: ElectronApplication) => of.evaluate(({ BrowserWindow }) => void setTimeout(() => BrowserWindow.getAllWindows()[0]?.close(), 0))
+  const windows = (of: ElectronApplication) => of.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed()).length)
+  const busy = await launch({ TORNO_WORKSPACE: folder })
+  try {
+    const window = await busy.firstWindow()
+    await window.waitForSelector('[data-region="left"]')
+    await openObject('bracket', window)
+    await dock(window).getByRole('button', { name: 'New session' }).click()
+    await expect(sessionStatus(window)).toHaveText('Idle')
+    await typeLine('hook', window)
+    await expect(sessionStatus(window)).toHaveText('Working')
+
+    const asked = window.getByRole('alertdialog', { name: 'Close torno?' })
+    await closeWindow(busy)
+    await expect(asked).toContainText('A session is in the middle of its work. Closing torno ends it.')
+    // The button that changes nothing has the focus: a stray Enter keeps torno open.
+    await expect(asked.getByRole('button', { name: 'Keep it open' })).toBeFocused()
+    await asked.getByRole('button', { name: 'Keep it open' }).click()
+    await expect(asked).toHaveCount(0)
+    // Longer than a window that does not answer is waited for: it was answered, and stays.
+    await window.waitForTimeout(1800)
+    expect(await windows(busy)).toBe(1)
+    await expect(sessionStatus(window)).toHaveText('Working')
+    expect(agentsIn(join(folder, 'bracket'))).toHaveLength(1)
+
+    const closed = busy.waitForEvent('close')
+    await closeWindow(busy)
+    await asked.getByRole('button', { name: 'Close torno' }).click()
+    await closed
+    await expect.poll(() => agentsIn(join(folder, 'bracket')), { timeout: 10_000 }).toEqual([])
+  } finally {
+    await busy.close().catch(() => {})
+  }
+
+  // With a session at rest, and with none, nothing is asked.
+  const quiet = await launch({ TORNO_WORKSPACE: folder })
+  try {
+    const window = await quiet.firstWindow()
+    await window.waitForSelector('[data-region="left"]')
+    await openObject('bracket', window)
+    await dock(window).getByRole('button', { name: 'New session' }).click()
+    await expect(sessionStatus(window)).toHaveText('Idle')
+    const closed = quiet.waitForEvent('close')
+    await closeWindow(quiet)
+    await closed
+    await expect.poll(() => agentsIn(join(folder, 'bracket')), { timeout: 10_000 }).toEqual([])
+  } finally {
+    await quiet.close().catch(() => {})
+    rmSync(folder, { recursive: true, force: true })
+  }
+})
+
 test('closing the app ends the sessions', async () => {
   const before = [...agentsIn(join(root, 'bracket')), ...agentsIn(join(root, 'plain'))]
   expect(before).toHaveLength(2)

@@ -1,0 +1,45 @@
+import { describe, expect, it } from 'vitest'
+import { closingWhy, unkept } from './closing'
+
+const NOTHING = { sessions: [], paintings: 0, importing: false, exporting: false }
+
+describe('what closing the window would end', () => {
+  it('is nothing with no session, with one at rest and with one that has ended: the window closes at once', () => {
+    expect(closingWhy(NOTHING)).toBeNull()
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true }, { status: 'exited', hooks: true }, { status: 'exited', hooks: false }] })).toBeNull()
+  })
+
+  it('is a session at work, one waiting for an answer, and one of an agent that does not say', () => {
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'working', hooks: true }] })).toBe('A session is in the middle of its work.')
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'needs_input', hooks: true }] })).toBe('A session is in the middle of its work.')
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: false }] })).toBe('A session may be in the middle of its work: its agent does not say.')
+  })
+
+  it('is a line of marks waiting at the prompt, a painting not kept, an import and an export under way', () => {
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true, send: { state: 'waiting' } }] })).toBe('A line of marks is at an agent\'s prompt, not sent yet.')
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true, send: { state: 'sent' } }] })).toBeNull()
+    expect(closingWhy({ ...NOTHING, paintings: 1 })).toBe('A region painted on a scan is not kept yet.')
+    expect(closingWhy({ ...NOTHING, importing: true })).toBe('A scan is being imported.')
+    expect(closingWhy({ ...NOTHING, exporting: true })).toBe('An export is being written.')
+  })
+
+  it('counts a painting that holds what is not kept: something painted, or a kept region painted again', () => {
+    const painted = (count: number, steps: number, editing?: string) => ({ set: { count } as never, steps: Array.from({ length: steps }, () => ({ added: [], removed: [] })), editing })
+    expect(unkept([])).toBe(0)
+    expect(unkept([painted(0, 0), painted(0, 2)])).toBe(0)
+    expect(unkept([painted(12, 1)])).toBe(1)
+    // "Edit" on a kept region takes its mask in hand: as it was kept, nothing would be lost.
+    expect(unkept([painted(40, 0, 'M3')])).toBe(0)
+    expect(unkept([painted(40, 1, 'M3'), painted(3, 1)])).toBe(2)
+  })
+
+  it('says how many sessions are at work, without a number', () => {
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'working', hooks: true }, { status: 'idle', hooks: false }] })).toBe('Sessions are in the middle of their work.')
+  })
+
+  it('says all there is, in one line', () => {
+    expect(closingWhy({ sessions: [{ status: 'working', hooks: true }], paintings: 2, importing: true, exporting: false })).toBe(
+      'A session is in the middle of its work. A region painted on a scan is not kept yet. A scan is being imported.'
+    )
+  })
+})
