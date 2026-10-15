@@ -2,6 +2,7 @@ import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
 import { EXAMPLE_NOTE } from '../src/shared/workspace'
 
@@ -23,6 +24,7 @@ test.beforeAll(async () => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-finalfix-'))
   home = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-finalfix-home-'))
   cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  inTerminal(root)
   // TORNO_TEST=1 makes main create the window with show: false. Never launch without it. The config is the test's own.
   app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: root, TORNO_CONFIG: join(home, 'config.json'), TORNO_AGENT_CMD: `node ${fakeAgent}` } })
   page = await app.firstWindow()

@@ -245,6 +245,18 @@ describe('what is sent', () => {
 })
 
 describe('the tools of torno', () => {
+  it('have a picture in the flat form an MCP server answers with, as well as in the CLI\'s own', () => {
+    const t = new Transcript()
+    t.message(init())
+    t.message(toolUse('toolu_look', 'mcp__torno__look', { view: 'iso' }))
+    t.message(toolResult('toolu_look', [{ type: 'text', text: 'iso view of r3' }, { type: 'image', data: PNG_1X1, mimeType: 'image/png' }]))
+    t.message(result())
+    const [look] = of(t, 'tool')
+    expect(look.images).toHaveLength(1)
+    expect(look.images[0]).toMatchObject({ mediaType: 'image/png', data: PNG_1X1, width: 1, height: 1 })
+    expect(of(t, 'turn')[0].pulled).toEqual({ look: 1, pictures: 1 })
+  })
+
   it('are torno\'s, with their pictures and what the turn pulled', () => {
     const t = new Transcript()
     t.message(init())

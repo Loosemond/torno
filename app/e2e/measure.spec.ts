@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { DimensionMark, MarksFile } from '../src/shared/marks'
@@ -27,6 +28,7 @@ let page: Page
 function copyFixtures(): string {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-measure-'))
   cpSync(fixtures, dir, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  inTerminal(dir)
   return dir
 }
 

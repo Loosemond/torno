@@ -400,9 +400,8 @@ void app.whenReady().then(async () => {
     http,
     // The agent chosen for the object, as its file says now. TORNO_AGENT_CMD is run in place of whichever it is.
     adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD)[(await readChoice(obj.dir)).agent],
-    // Every session is still shown as a terminal: the window draws no chat yet. `readChoice(obj.dir).view` is the choice,
-    // which only a test of the chat's bridge (`e2e/chatbridge.spec.ts`) follows, until the window has a pane for it.
-    viewFor: async (obj) => (isTest && process.env.TORNO_CHAT_VIEW === '1' ? (await readChoice(obj.dir)).view : 'terminal'),
+    // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat for Claude Code unless it says terminal).
+    viewFor: async (obj) => (await readChoice(obj.dir)).view,
     // The viewport as the person has it, for a prompt that attaches the view: of the object the session is of.
     picture: async (obj) => {
       const look = await requestLook(await theWindow(), { view: 'current', size: DEFAULT_SIZE })

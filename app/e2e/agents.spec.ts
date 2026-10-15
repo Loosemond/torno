@@ -297,7 +297,8 @@ test('choosing another agent while a session runs asks, ends that session, and s
   // Its conversation was Copilot's: Claude Code is not offered it to resume.
   await expect(dock().getByRole('button', { name: 'Resume' })).toHaveCount(0)
   await expect(told()).toHaveCount(0)
-  // A session of Claude Code is as it ever was: its hooks, its status, no strip.
+  // A session of Claude Code is as it ever was: its hooks, its status, no strip. Its terminal is chosen, as the person can.
+  await dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Terminal' }).click()
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect.poll(term).toContain('--settings')
   await expect(status()).toHaveText('Idle')

@@ -440,8 +440,9 @@ export class Transcript {
         const part = obj(raw)
         if (part?.type === 'text' && typeof part.text === 'string') texts.push(part.text)
         else if (part?.type === 'image') {
-          const source = obj(part.source)
-          if (typeof source?.data === 'string') images.push(this.image(str(source.media_type) ?? 'image/png', source.data))
+          // The CLI's own form has a `source`; an MCP server's answer, passed on as it came, has the data and its type in the block.
+          const source = obj(part.source) ?? part
+          if (typeof source.data === 'string') images.push(this.image(str(source.media_type) ?? str(source.mimeType) ?? 'image/png', source.data))
         }
       }
     }

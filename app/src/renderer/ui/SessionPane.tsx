@@ -4,10 +4,12 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { type SessionSaid, AGENT_LABEL, busyWith, nextCarries, nextPromptLine, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
-import type { AgentId } from '../../shared/bridge'
+import { type SessionSaid, AGENT_LABEL, AGENT_VIEWS, busyWith, nextCarries, nextPromptLine, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
+import type { AgentId, AgentView } from '../../shared/bridge'
+import { chatActions, connectChat, useChat } from '../state/chat'
 import { actions, store, useStore } from '../state/store'
 import { type AgentChoice, AgentPicker } from './AgentPicker'
+import { ChatPane } from './chat/ChatPane'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
 import { edgeGround } from './termGround'
@@ -256,13 +258,15 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   /** "End" was pressed while the session is in the middle of something: asked about first. */
   const [ending, setEnding] = useState(false)
   /** The agent the object's next session runs, as its `.torno/agent.json` has it; `note` when that file could not be followed. */
-  const [choice, setChoice] = useState<{ agent: AgentId; note?: string }>({ agent: 'claude' })
+  const [choice, setChoice] = useState<{ agent: AgentId; view: AgentView; note?: string }>({ agent: 'claude', view: 'chat' })
   const [agents, setAgents] = useState<AgentChoice[]>(AGENTS)
   /** The agent chosen while a session runs, waiting for a yes: choosing it ends that session. */
   const [choosing, setChoosing] = useState<AgentId | null>(null)
   /** Counted up when the choice was written, so that what main has for the object is asked again. */
   const [chosen, setChosen] = useState(0)
   const [sending, setSending] = useState(false)
+  /** The view chosen while a busy session runs, waiting for a yes: choosing it ends that session and resumes it in the other view. */
+  const [switching, setSwitching] = useState<AgentView | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const reveal = useRef(onReveal)
   reveal.current = onReveal
@@ -273,6 +277,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       for (const t of terminals.values()) if (t.sessionId === sessionId) t.term.write(data)
     })
     const offSend = window.torno.session.onSend((m) => actions.applySend(m))
+    // What main tells of the chat sessions, for the transcripts kept apart from the store of the window.
+    const offChat = connectChat()
     const offStatus = window.torno.session.onStatus((m) => {
       actions.applySessionStatus(m)
       if (m.status !== 'exited') return
@@ -308,7 +314,10 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       // Once the dock is laid out again.
       requestAnimationFrame(() => {
         const t = shown()
-        if (t) t.term.focus()
+        const composer = dock?.querySelector<HTMLElement>('[data-chat-composer]:not([disabled])')
+        // A chat has its box in place of the terminal.
+        if (composer) composer.focus()
+        else if (t) t.term.focus()
         else dock?.querySelector<HTMLElement>('button:not([disabled])')?.focus()
       })
     }
@@ -362,6 +371,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     return () => {
       offData()
       offSend()
+      offChat()
       offStatus()
       scheme.removeEventListener('change', onScheme)
       window.removeEventListener('keydown', onKey, true)
@@ -371,8 +381,14 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     }
   }, [])
 
-  // Main ends the sessions of a workspace when it is closed; their terminals go with it.
-  useEffect(() => disposeTerminals, [root])
+  // Main ends the sessions of a workspace when it is closed; their terminals and their transcripts go with it.
+  useEffect(
+    () => () => {
+      disposeTerminals()
+      chatActions.dropAll()
+    },
+    [root]
+  )
 
   // The terminal of the object shown is the one in the pane.
   useEffect(() => {
@@ -380,7 +396,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     setAsking(false)
     setEnding(false)
     setChoosing(null)
-    setChoice({ agent: 'claude' })
+    setSwitching(null)
+    setChoice({ agent: 'claude', view: 'chat' })
     if (!objectId) return
     const mine = terminals.get(objectId)
     if (mine) mount(mine, host.current!)
@@ -401,11 +418,13 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       ([info]) => {
         if (!live) return
         setResumable(info.resumable)
-        setChoice({ agent: info.agent, ...(info.note ? { note: info.note } : {}) })
+        setChoice({ agent: info.agent, view: info.view, ...(info.note ? { note: info.note } : {}) })
         if (!info.running || store.getState().sessions[objectId]) return
+        actions.setSession(objectId, info.running)
+        // A chat has no terminal: its transcript is asked of main by its pane.
+        if (info.running.view !== 'terminal') return
         const t = terminalFor(objectId)
         t.sessionId = info.running.sessionId
-        actions.setSession(objectId, info.running)
         mount(t, host.current!)
         window.torno.session.resize(info.running.sessionId, t.term.cols, t.term.rows)
       },
@@ -428,6 +447,11 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   useEffect(() => {
     if (!focusWanted.current || !objectId || !sessionId) return
     focusWanted.current = false
+    if (store.getState().sessions[objectId]?.view === 'chat') {
+      // Once its pane has drawn its box.
+      requestAnimationFrame(() => host.current?.closest('[data-region="session"]')?.querySelector<HTMLElement>('[data-chat-composer]')?.focus())
+      return
+    }
     terminals.get(objectId)?.term.focus()
   }, [objectId, sessionId])
 
@@ -440,17 +464,31 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       // A new session takes the place of the one running.
       const previous = store.getState().sessions[objectId]
       if (previous && previous.status !== 'exited') void window.torno.session.stop(previous.sessionId).catch(() => {})
-      const t = terminalFor(objectId)
-      t.sessionId = null
-      t.term.reset()
-      t.term.options.disableStdin = false
+      if (previous) chatActions.drop(previous.sessionId)
+      // How it will be shown: a chat has no terminal, which is made only for a session that is typed into.
+      const upcoming = (await window.torno.session.current(objectId)).view
       const shown = store.getState().objectId === objectId && host.current
-      // Fitted first, so the agent starts at the size it will be shown at.
-      if (shown) mount(t, shown)
-      const started = await window.torno.session.start(objectId, { resume, cols: t.term.cols, rows: t.term.rows })
-      t.sessionId = started.sessionId
+      const old = terminals.get(objectId)
+      if (old) old.sessionId = null
+      let size: { cols: number; rows: number } | undefined
+      if (upcoming === 'terminal') {
+        const t = terminalFor(objectId)
+        t.term.reset()
+        t.term.options.disableStdin = false
+        // Fitted first, so the agent starts at the size it will be shown at.
+        if (shown) mount(t, shown)
+        size = { cols: t.term.cols, rows: t.term.rows }
+      }
+      const started = await window.torno.session.start(objectId, { resume, ...size })
+      // A chat is not typed into a terminal; a terminal session found running where a chat was expected still is.
+      if (started.view === 'terminal') {
+        const t = terminalFor(objectId)
+        if (shown) mount(t, shown)
+        t.sessionId = started.sessionId
+      }
       // As main has it: a session that was already running here is not starting, and may say nothing more for a while.
-      actions.setSession(objectId, { sessionId: started.sessionId, status: started.status, agent: started.agent, hooks: started.hooks })
+      actions.setSession(objectId, { sessionId: started.sessionId, status: started.status, agent: started.agent, hooks: started.hooks, view: started.view })
+      setChoice((was) => ({ ...was, view: started.view }))
       focusWanted.current = true
     } catch (e) {
       setProblem(reason(e))
@@ -471,7 +509,11 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   // session there is; with none, of the agent a new one would run.
   const live = session !== undefined && !ended
   const withHooks = live ? session.hooks : (agents.find((one) => one.id === choice.agent)?.hooks ?? false)
-  const next = useMemo(() => (objectId && withHooks ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, withHooks, marks, revision, live])
+  const chatting = session?.view === 'chat'
+  const model = useChat(chatting ? session.sessionId : undefined)?.meta.model
+  /** The view of the session that runs, or, with none running, the one the next session starts in. */
+  const view: AgentView = live ? session.view : choice.view
+  const next = useMemo(() => (objectId && withHooks && !(chatting && live) ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, withHooks, marks, revision, live, chatting])
 
   /** Write the file and put the line that names it at the agent's cursor, where the person's Enter sends it. */
   async function sendMarks(): Promise<void> {
@@ -496,7 +538,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       const live = store.getState().sessions[objectId]
       if (live && live.status !== 'exited') await window.torno.session.stop(live.sessionId)
       await window.torno.session.chooseAgent(objectId, agent)
-      if (store.getState().objectId === objectId) setChoice({ agent })
+      if (store.getState().objectId === objectId) setChoice((was) => ({ agent, view: AGENT_VIEWS[agent].includes(was.view) ? was.view : AGENT_VIEWS[agent][0] }))
     } catch (e) {
       setProblem(reason(e))
     } finally {
@@ -529,6 +571,38 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     }
   }
 
+  /**
+   * Another view for the object's sessions, Claude Code's chat or its terminal. With no session it changes what the next
+   * one runs; with one, that session is ended and the same conversation is resumed in the other view.
+   */
+  async function applyView(next: AgentView): Promise<void> {
+    if (!objectId) return
+    setProblem(null)
+    try {
+      const live = store.getState().sessions[objectId]
+      const running = live !== undefined && live.status !== 'exited'
+      if (running) await window.torno.session.stop(live.sessionId)
+      await window.torno.session.chooseView(objectId, next)
+      if (store.getState().objectId === objectId) setChoice((was) => ({ ...was, view: next }))
+      if (running) {
+        // Whether there is a conversation to resume is asked of main now, once the one that ran has put itself on file.
+        const info = await window.torno.session.current(objectId)
+        await start(info.resumable)
+      }
+    } catch (e) {
+      setProblem(reason(e))
+    } finally {
+      setChosen((n) => n + 1)
+    }
+  }
+
+  /** A view was picked: asked about first while a session runs and is busy, since it ends that session. */
+  function chooseView(next: AgentView): void {
+    if (next === view) return
+    if (session && !ended && busy) setSwitching(next)
+    else void applyView(next)
+  }
+
   /** "End": asked about first if the session is in the middle of something. */
   function end(): void {
     if (busy) setEnding(true)
@@ -538,7 +612,9 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   function keepSession(): void {
     setAsking(false)
     setEnding(false)
-    if (objectId) terminals.get(objectId)?.term.focus()
+    setSwitching(null)
+    if (chatting) host.current?.closest('[data-region="session"]')?.querySelector<HTMLElement>('[data-chat-composer]')?.focus()
+    else if (objectId) terminals.get(objectId)?.term.focus()
   }
 
   return (
@@ -571,6 +647,33 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
           </>
         )}
       </header>
+
+      {/* How Claude Code is shown, and the model of its session: a quiet row of its own under the header. */}
+      {objectId && AGENT_VIEWS[choice.agent].length > 1 && (
+        <div className="session-views">
+          <span className="view-switch" role="group" aria-label="View">
+            {AGENT_VIEWS[choice.agent].map((one) => (
+              <button
+                key={one}
+                type="button"
+                className="button button-quiet"
+                aria-pressed={view === one}
+                disabled={starting || asking || ending || choosing !== null || switching !== null}
+                title={one === 'chat' ? 'Talk with Claude Code here' : "Claude Code's own terminal. The same conversation goes on"}
+                onClick={() => chooseView(one)}
+              >
+                {one === 'chat' ? 'Chat' : 'Terminal'}
+              </button>
+            ))}
+          </span>
+          <span className="spacer" />
+          {model && (
+            <span className="session-model num" title="The model of this session">
+              {model}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* An agent that posts no hooks is told nothing with a prompt: said here, with the button that tells it. */}
       {told && (
@@ -618,6 +721,21 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
             {agentLabel} {busy ?? 'is running'}. Ending the session stops it there.
           </Confirm>
         )}
+        {switching !== null && session && (
+          <Confirm
+            label="End the running session?"
+            accept={`End it and go on in the ${switching}`}
+            cancel="Keep it"
+            onCancel={keepSession}
+            onAccept={() => {
+              const next = switching
+              setSwitching(null)
+              void applyView(next)
+            }}
+          >
+            {agentLabel} {busy ?? 'is running'}. Changing the view ends this session and goes on with the same conversation in the {switching}.
+          </Confirm>
+        )}
         {choosing !== null && session && (
           <Confirm
             label="End the running session?"
@@ -637,7 +755,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
           </Confirm>
         )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
-        <div className="session-term" ref={host} data-shown={session ? '' : undefined} />
+        <div className="session-term" ref={host} data-shown={session && !chatting ? '' : undefined} />
+        {session && chatting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} />}
         {!objectId ? (
           <p className="panel-note">Open an object to work on it with the agent.</p>
         ) : (
@@ -654,7 +773,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
                 )}
               </div>
               <p>
-                {agentLabel} runs here, in the folder of {objectName}, and works on it with you.
+                {agentLabel} runs here, in the folder of {objectName}, and works on it with you{choice.agent === 'claude' && view === 'chat' ? ', in a chat' : ''}.
               </p>
             </div>
           )

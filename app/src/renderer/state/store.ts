@@ -1,7 +1,7 @@
 import { own } from '../../shared/exportdata'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { AgentId, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
+import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, explodeShown, isExploded, neverBoth, sameExplode } from '../../shared/explode'
 import type { Mark, Vec3 } from '../../shared/marks'
@@ -20,6 +20,8 @@ export interface SessionView {
   /** The agent it runs, and whether that one posts hooks: without, its status says only that it runs. */
   agent: AgentId
   hooks: boolean
+  /** How it is shown: the CLI's own terminal, or the chat of torno's own. */
+  view: AgentView
   /** Of an agent without hooks: what became of the line "Send marks" last put at its cursor, and why it was dropped when it was. */
   send?: { state: SendState; why?: SendDropped }
 }

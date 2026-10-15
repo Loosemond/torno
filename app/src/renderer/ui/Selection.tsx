@@ -7,12 +7,18 @@ import { useTool } from '../state/tools'
 import { noteSelection } from '../tools/pickMarks'
 import { staleMessage } from '../tools/Tool'
 import type { Viewport } from '../viewport/Viewport'
+import { insertIntoComposer } from './chat/Composer'
 import { TYPING } from './typing'
 
 /** Put the selected refs at the cursor of the open object's session, for the person to write around. */
 function insert(refs: string[]): void {
   const session = runningSession(store.getState())
   if (!session) return
+  // A chat has a box of its own to write in, not a terminal.
+  if (session.view === 'chat') {
+    insertIntoComposer(refs.join(' '))
+    return
+  }
   window.torno.session.insert(session.sessionId, refs.join(' '))
   // The next thing typed belongs with them.
   document.querySelector<HTMLElement>('[data-region="session"] .session-term textarea')?.focus()

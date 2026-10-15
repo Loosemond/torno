@@ -3,6 +3,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSyn
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
 import type { ObjectCard } from '../src/shared/show'
 
@@ -29,6 +30,8 @@ const launch = (workspace: string): Promise<ElectronApplication> => electron.lau
 
 test.beforeAll(async () => {
   root = copyFixtures('torno-e2e-show-')
+  // One test here drives the agent's terminal, in plain.
+  inTerminal(root, ['plain'])
   // bracket was last looked at with its post switched off and cut across: its picture is of that.
   mkdirSync(join(root, 'bracket', '.torno'), { recursive: true })
   writeFileSync(join(root, 'bracket', '.torno', 'scene.json'), JSON.stringify({ layout: 'assembly', layers: { post: { visible: false } }, section: { origin: [0, 0, 0], normal: [0, 1, 0] } }))

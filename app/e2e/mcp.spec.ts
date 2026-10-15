@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { inTerminal } from './terminal'
 import { describeMark } from '../src/main/marks/describe'
 import type { TornoState } from '../src/renderer/state/store'
 import type { PinMark } from '../src/shared/marks'
@@ -29,6 +30,7 @@ type Content = Array<{ type: string; text?: string; data?: string; mimeType?: st
 test.beforeAll(async () => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-mcp-'))
   cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  inTerminal(root)
   // A plate with a blind pocket in the middle of its top: the centre of that face is over the pocket, not on the face.
   mkdirSync(join(root, 'pocket'))
   writeFileSync(join(root, 'pocket', 'pocket.py'), 'from build123d import Box, Pos\n\nplate = Box(40, 30, 5) - Pos(0, 0, 1.5) * Box(10, 10, 2)\n')

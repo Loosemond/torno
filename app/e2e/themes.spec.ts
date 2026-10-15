@@ -182,7 +182,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders'] as const
+const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -273,6 +273,19 @@ for (const theme of ['light', 'dark'] as const) {
         } else if (shot === 'folders') {
           await page.getByRole('button', { name: 'Folders' }).click()
           await expect(page.getByRole('menu', { name: 'Folders' }).getByRole('menuitem').first()).toBeVisible()
+        } else if (shot === 'chat') {
+          // A conversation: a prompt with a mark, what torno added, a torno tool with its picture, another tool, and the reply.
+          await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+          const box = page.locator('[data-chat-composer]')
+          await expect(box).toBeFocused()
+          const script = ['say The tub wall at **M1** is 2 mm, thinner than the 3 mm in `hollow.py`. Looking at tub/F3 and tub/E1:', 'tool mcp__torno__look {"view":"iso"}', 'tool Read {"file_path":"hollow.py"}', 'say I will `widen` the wall to 3 mm and rebuild: r2 should pass the check.']
+          for (const [n, line] of script.entries()) {
+            if (n > 0) await page.keyboard.press('Shift+Enter')
+            await page.keyboard.type(line)
+          }
+          await page.keyboard.press('Enter')
+          await expect(page.locator('.chat-turn')).toContainText('Pulled from torno: look, 1 picture', { timeout: 30_000 })
+          await page.keyboard.type('thicker than that, please')
         } else if (shot === 'error') {
           await open(page, 'bracket')
           appendFileSync(join(root, 'bracket', 'bracket.py'), '\nraise ValueError("the post is taller than the base is wide")\n')

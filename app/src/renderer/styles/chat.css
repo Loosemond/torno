@@ -1,0 +1,553 @@
+/* ---- Chat: the conversation with Claude Code, in the session pane ---- */
+
+/* The pane is a column: the transcript, which scrolls, and the foot, which does not. */
+.chat {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Positioned, so that a picture shown large and the button that brings the reader down lie over the transcript only. */
+.chat-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-transcript {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  user-select: text;
+}
+
+/* A document: one thing under another, a little air between the parts of a turn. */
+.chat-group + .chat-group {
+  margin-top: var(--space-3);
+}
+
+.chat-group > .chat-item + .chat-item {
+  margin-top: var(--space-1);
+}
+
+.chat-quiet,
+.chat-empty {
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-wrap: pretty;
+}
+
+.chat-empty {
+  max-width: 38ch;
+  margin-top: var(--space-4);
+}
+
+.chat-earlier {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--divider);
+}
+
+.chat-earlier-head {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+/* What the person said: a block on the wash, the text in ink. */
+.chat-user {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.chat-user-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.chat-user-state {
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* What torno added to it: a line under the prompt, ruled in the accent as torno's own tools are. */
+.chat-added {
+  padding: 0 0 0 var(--space-3);
+  border-left: 2px solid var(--accent);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-added-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.chat-added-label {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.chat-added-build,
+.chat-added-selection {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-1);
+}
+
+.chat-added-build [data-verdict='ok'] {
+  color: var(--ok);
+}
+
+.chat-added-build [data-verdict='failed'] {
+  color: var(--fail);
+}
+
+.chat-more {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-more:hover {
+  color: var(--accent);
+}
+
+/* The exact text, or a tool's input and result: the monospace face, selectable, scrolling rather than wrapping the page. */
+.chat-pre {
+  max-height: 260px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The agent's words: plain on the panel. */
+.chat-text {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.md > * + * {
+  margin-top: var(--space-2);
+}
+
+.md p {
+  text-wrap: pretty;
+}
+
+.md-heading {
+  margin-top: var(--space-3);
+}
+
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+
+.md li + li {
+  margin-top: 2px;
+}
+
+.md-inline,
+.md-code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.md-inline {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.md-code {
+  max-height: 320px;
+  padding: var(--space-2);
+  overflow: auto;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.md-url {
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.md-quote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--hairline);
+  color: var(--muted);
+}
+
+.md-rule {
+  border: 0;
+  border-top: var(--divider);
+}
+
+.md-table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--text-small);
+}
+
+.md-table th,
+.md-table td {
+  padding: 2px var(--space-2);
+  border: var(--divider);
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-table th {
+  font-weight: 500;
+}
+
+/* A ref in the chat: a chip you can point at. Marks are in their author's colour; faces and edges in the accent. */
+.ref-chip {
+  display: inline-block;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 11.5px;
+  line-height: 16px;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+}
+
+button.ref-chip {
+  cursor: pointer;
+}
+
+.ref-chip[data-kind='geometry'][data-live] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.ref-chip[data-kind='geometry'][data-live]:hover,
+.ref-chip[data-kind='geometry'][data-live]:focus-visible {
+  border-color: var(--accent);
+}
+
+.ref-chip[data-kind='mark'] {
+  border-color: var(--user-mark);
+  background: var(--user-mark);
+  color: var(--panel);
+  font-weight: 600;
+}
+
+.ref-chip[data-kind='mark'][data-author='agent'] {
+  border-color: var(--agent-mark);
+  background: var(--panel);
+  color: var(--agent-mark);
+}
+
+/* A mark that is not here any more, or that cannot be shown: its colour is not claimed. */
+.ref-chip[data-kind='mark']:not([data-live]) {
+  border-color: var(--hairline);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.ref-chip[data-kind='geometry']:not([data-live]) {
+  color: var(--muted);
+}
+
+/* A tool on one line; it opens to its input and result. One of torno's has a thin rule in the accent. */
+.chat-tool {
+  font-size: var(--text-small);
+}
+
+.chat-tool[data-torno] {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--accent);
+}
+
+.chat-tool-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 2px var(--space-1);
+  margin-left: calc(-1 * var(--space-1));
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.chat-tool[data-torno] .chat-tool-line {
+  color: var(--ink);
+}
+
+.chat-tool-line:hover {
+  background: var(--accent-wash);
+}
+
+.chat-tool-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-tool-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.chat-tool[data-state='error'] .chat-tool-state {
+  color: var(--fail);
+}
+
+.chat-tool-body {
+  padding: var(--space-1) 0 var(--space-2);
+}
+
+.chat-lines-label {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+}
+
+/* A dot that is on while something is under way, and off for a second in two: set by the pane's beat, not by an animation. */
+.chat-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.chat-dot[data-beat='off'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Pictures of a message or of a tool's result: thumbnails in a row, large over the pane when asked. */
+.chat-pictures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.chat-thumb {
+  height: 96px;
+  padding: 0;
+  overflow: hidden;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: zoom-in;
+}
+
+.chat-thumb:hover {
+  border-color: var(--accent);
+}
+
+.chat-thumb img {
+  display: block;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.chat-thumb-gone {
+  display: grid;
+  place-items: center;
+  height: 96px;
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-picture {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--panel);
+  cursor: zoom-out;
+}
+
+.chat-picture img {
+  max-width: 100%;
+  max-height: calc(100% - 28px);
+  object-fit: contain;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.chat-picture-size {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* The end of a turn: quiet. */
+.chat-turn,
+.chat-note {
+  color: var(--muted);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.chat-turn {
+  margin-top: var(--space-2);
+}
+
+.chat-turn:not([data-ok]) {
+  color: var(--ink);
+}
+
+.chat-note[data-tone='warn'] {
+  color: var(--warn);
+}
+
+.chat-behind {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-3);
+  z-index: 2;
+  transform: translateX(-50%);
+  box-shadow: var(--palette-shadow);
+}
+
+/* The foot: what goes with the next prompt, then the box. */
+.chat-foot {
+  flex: none;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: var(--divider);
+}
+
+.chat-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.6em;
+  max-height: 10em;
+  field-sizing: content;
+  resize: none;
+  padding: 6px var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-size);
+  line-height: var(--text-leading);
+}
+
+.chat-input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.chat-input:disabled {
+  background: var(--surface);
+}
+
+.chat-actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+.chat-problem {
+  margin-top: var(--space-2);
+  color: var(--fail);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+/* Under the header: the two views of Claude Code, a pair of quiet buttons with the one shown pressed, and the model. */
+.session-views {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-2);
+}
+
+.view-switch {
+  display: inline-flex;
+  flex: none;
+  gap: 1px;
+}
+
+.view-switch .button-quiet[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.session-model {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

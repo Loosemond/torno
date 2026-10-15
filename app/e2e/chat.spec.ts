@@ -1,0 +1,263 @@
+import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import type { TornoState } from '../src/renderer/state/store'
+import type { Mark } from '../src/shared/marks'
+
+// The chat pane of Claude Code, through the window: what is said and shown, what torno added to a prompt, every torno
+// tool the agent used (through the real MCP server), refs that point into the viewport, stopping, the switch to the
+// terminal and back, and the window reloaded mid-stream. The agent is the stand-in in its stream mode
+// (test/fake-agent.mjs). The window is hidden: everything is read from the DOM and the store, never from pixels.
+const appDir = resolve(__dirname, '..')
+const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
+const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
+
+test.describe.configure({ mode: 'serial' })
+
+let root: string
+let app: ElectronApplication
+let page: Page
+
+test.beforeAll(async () => {
+  root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-chat-'))
+  cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
+  app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root } })
+  page = await app.firstWindow()
+  await page.waitForSelector('[data-region="left"]')
+})
+
+test.afterAll(async () => {
+  await app?.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+type Vec3 = [number, number, number]
+const ON_BASE: Vec3 = [14, 9, 2.5] // on the top of the base, clear of the post
+
+const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
+const dock = () => page.locator('[data-region="session"]')
+const chat = () => dock().locator('.chat')
+const composer = () => dock().locator('[data-chat-composer]')
+const canvas = () => page.locator('.viewport-canvas canvas').first()
+const turns = () => chat().locator('.chat-turn')
+const peeked = (): Promise<string[]> => page.evaluate(() => window.__tornoTest!.peeked())
+const terminalText = (): Promise<string> => page.evaluate(() => window.__tornoTerm!.text())
+
+async function clickOver(point: Vec3): Promise<void> {
+  const [fx, fy] = await page.evaluate((at) => window.__tornoTest!.project(at), point)
+  const box = (await canvas().boundingBox())!
+  await page.mouse.move(box.x + fx * box.width, box.y + fy * box.height)
+  await page.mouse.down()
+  await page.mouse.up()
+}
+
+/** Write a prompt in the box and send it, as a person does. */
+async function say(prompt: string): Promise<void> {
+  await composer().focus()
+  await page.keyboard.type(prompt)
+  await page.keyboard.press('Enter')
+}
+
+test('a new session is a chat, with no terminal; a prompt is answered, and what torno added to it is shown with the mark it sent', async () => {
+  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
+
+  // A mark the person has left, not yet sent.
+  await page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name: 'Pin', exact: true }).click()
+  await clickOver(ON_BASE)
+  await expect(page.locator('.note-card textarea')).toBeFocused()
+  await page.keyboard.type('thicker here')
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await state()).marks[0]?.status).toBe('draft')
+
+  await dock().getByRole('button', { name: 'New session' }).click()
+  await expect(chat()).toBeVisible()
+  await expect(dock().locator('.xterm')).toHaveCount(0)
+  await expect(dock().getByRole('status').first()).toHaveText('Idle')
+  await expect(composer()).toBeFocused()
+  // The header says which view this is.
+  await expect(dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true')
+  // What goes with the next prompt, as chips of the marks.
+  await expect(chat().locator('.chat-next .ref-chip[data-ref="M1"]')).toBeVisible()
+
+  await say('say hello there')
+  const user = chat().locator('.chat-user').first()
+  await expect(user).toContainText('say hello there')
+  await expect(chat().locator('.chat-text').first()).toContainText('hello there')
+  await expect(turns().first()).toContainText('Done in')
+  // The model, once the agent has said it with its first answer.
+  await expect(dock().locator('.session-model')).toHaveText('fake-model')
+  // Enter sent it and the box is empty again.
+  await expect(composer()).toHaveValue('')
+
+  // Under the prompt: what torno added, with the mark it sent and the build; the mark is sent now.
+  const added = chat().locator('.chat-added').first()
+  await expect(added).toContainText('torno added')
+  await expect(added.locator('.ref-chip[data-ref="M1"]')).toBeVisible()
+  await expect(added.locator('.ref-chip[data-ref="r1"]')).toBeVisible()
+  await expect(added.locator('.chat-added-build')).toContainText('ok')
+  await expect.poll(async () => (await state()).marks[0].status).toBe('sent')
+  await expect(chat().locator('.chat-next')).toHaveCount(0)
+  // The exact text the agent was given opens out.
+  await added.getByRole('button', { name: 'Show text' }).click()
+  await expect(added.locator('.chat-added-text')).toContainText('[torno] bracket')
+  await expect(added.locator('.chat-added-text')).toContainText('M1')
+})
+
+test('a ref in the chat lights the viewport while the pointer is on it, and a click goes to the mark', async () => {
+  const chip = chat().locator('.chat-added .ref-chip[data-ref="M1"]').first()
+  const ref = ((await state()).marks[0] as Extract<Mark, { kind: 'pin' }>).anchor.ref!
+  expect(ref).toMatch(/^base\/F\d+$/)
+  expect(await peeked()).toEqual([])
+  await chip.hover()
+  await expect.poll(peeked).toEqual([ref])
+  await page.mouse.move(5, 5)
+  await expect.poll(peeked).toEqual([])
+  // Clicking it makes the mark the one gone to.
+  const before = (await state()).markFocus
+  await chip.click()
+  await expect.poll(async () => (await state()).markFocus).toBeGreaterThan(before)
+  expect((await state()).activeMark).toBe('M1')
+  // A ref of a part that is not in the build says so and does nothing.
+  await say('say look at gizmo/F3 and cap/E1')
+  const gone = chat().locator('.chat-text .ref-chip[data-ref="cap/E1"]')
+  await expect(gone).toBeVisible()
+  await expect(gone).toHaveAttribute('title', 'cap/E1 is not in the layout shown (assembly)')
+  await expect(gone).not.toHaveAttribute('data-live', '')
+  expect(await gone.evaluate((el) => el.tagName)).toBe('SPAN')
+})
+
+test('a tool of torno is shown as torno\'s: its line, its picture, what was pulled; other tools are one line each', async () => {
+  await say('tool mcp__torno__look {"view":"iso"}')
+  const look = chat().locator('.chat-tool[data-torno]').last()
+  await expect(look).toContainText('torno · look (iso)')
+  await expect(look.locator('.chat-tool-state')).toHaveText('done', { timeout: 20_000 })
+  await expect(look.locator('.chat-thumb')).toHaveCount(1)
+  await expect(turns().last()).toContainText('Pulled from torno: look, 1 picture')
+  // The picture opens large over the transcript, and Escape puts it away.
+  await look.locator('.chat-thumb').click()
+  const large = chat().locator('.chat-picture')
+  await expect(large).toBeVisible()
+  await expect(large).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(large).toHaveCount(0)
+  await expect(look.locator('.chat-thumb')).toBeFocused()
+  // The line opens to its input and its result.
+  await look.locator('.chat-tool-line').click()
+  await expect(look.locator('.chat-pre').first()).toContainText('"view": "iso"')
+
+  await say('tool Bash {"command":"ls -la"}')
+  const bash = chat().locator('.chat-tool').last()
+  await expect(bash).toContainText('Bash: ls -la')
+  await expect(bash).not.toHaveAttribute('data-torno', '')
+  await expect(bash.locator('.chat-tool-state')).toHaveText('done')
+  await expect(bash.locator('.chat-thumb')).toHaveCount(0)
+})
+
+test('Insert puts the refs of the selection in the box at the cursor and sends nothing; Escape gives the keys back to the view', async () => {
+  await page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name: 'Select', exact: true }).click()
+  await clickOver(ON_BASE)
+  await expect.poll(async () => (await state()).selection).toHaveLength(1)
+  const ref = (await state()).selection[0]
+  const users = await chat().locator('.chat-user').count()
+  await composer().focus()
+  await page.keyboard.type('check')
+  await page.getByRole('button', { name: 'Insert', exact: true }).click()
+  await expect(composer()).toHaveValue(`check ${ref} `)
+  await expect(composer()).toBeFocused()
+  await page.keyboard.type('is thin')
+  await expect(composer()).toHaveValue(`check ${ref} is thin`)
+  await expect(chat().locator('.chat-user')).toHaveCount(users)
+  // Escape is done with the box, as it is with a field: the keys of the view are the view's again.
+  await page.keyboard.press('Escape')
+  await expect(composer()).not.toBeFocused()
+  await expect(composer()).toHaveValue(`check ${ref} is thin`)
+  // Ctrl+` goes to the box in place of the terminal, and from it back to the view.
+  await page.keyboard.press('Control+Backquote')
+  await expect(composer()).toBeFocused()
+  await page.keyboard.press('Control+Backquote')
+  await expect(composer()).not.toBeFocused()
+  await composer().focus()
+  await page.keyboard.press('Control+A')
+  await page.keyboard.press('Backspace')
+  await expect(composer()).toHaveValue('')
+})
+
+test('Shift+Enter breaks the line and Enter sends it, queued while the agent works; Stop ends the turn within moments', async () => {
+  const first = await turns().count()
+  await composer().focus()
+  await page.keyboard.type('say one')
+  await page.keyboard.press('Shift+Enter')
+  await page.keyboard.type('say two')
+  await expect(composer()).toHaveValue('say one\nsay two')
+  await page.keyboard.press('Enter')
+  await expect(chat().locator('.chat-user').last()).toContainText('say two')
+  await expect(turns()).toHaveCount(first + 1)
+  await expect(turns().last()).toContainText('Done in')
+
+  const before = first + 1
+  await say('slow 5')
+  const streaming = chat().locator('.chat-text').last().locator('.chat-dot')
+  await expect(streaming).toBeVisible()
+  await expect(dock().getByRole('status').first()).toHaveText('Working')
+  await expect(chat().locator('.chat-user', { hasText: 'slow 5' })).toHaveAttribute('data-state', 'sent')
+  // Another prompt while it works waits behind it, and says so.
+  await say('say after')
+  await expect(chat().locator('.chat-user[data-state="queued"]')).toHaveCount(1)
+  await expect(chat().locator('.chat-user[data-state="queued"]')).toContainText('say after')
+  await dock().getByRole('button', { name: 'Stop' }).click()
+  await expect(turns().nth(before)).toContainText('Stopped', { timeout: 2000 })
+  // What was waiting behind it was dropped, and says it was not sent.
+  await expect(chat().locator('.chat-user[data-state="not-sent"]')).toContainText('say after')
+  await expect(dock().getByRole('status').first()).toHaveText('Idle')
+})
+
+test('the view is switched to the terminal, which resumes the same conversation, and back to the chat, which shows what was said', async () => {
+  await dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Terminal' }).click()
+  await expect.poll(terminalText, { timeout: 15_000 }).toContain('READY')
+  expect(await terminalText()).toContain('--resume')
+  await expect(chat()).toHaveCount(0)
+  await expect(dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Terminal' })).toHaveAttribute('aria-pressed', 'true')
+  // The terminal is typed into as before.
+  await page.keyboard.type('hi')
+  await page.keyboard.press('Enter')
+  await expect.poll(terminalText).toContain('> hi')
+
+  await dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Chat' }).click()
+  await expect(chat()).toBeVisible({ timeout: 15_000 })
+  const earlier = chat().getByRole('region', { name: 'Earlier in this conversation' })
+  await expect(earlier).toBeVisible()
+  await expect(earlier).toContainText('say hello there')
+  await expect(earlier).toContainText('Turns made in the terminal are not shown here.')
+  // A fresh transcript below it, ready for the next prompt.
+  await expect(composer()).toBeEnabled()
+})
+
+test('an ended session can still be read, and nothing more can be written to it', async () => {
+  await dock().getByRole('button', { name: 'End session' }).click()
+  await expect(dock().getByRole('status').first()).toHaveText('Ended')
+  // The conversation that ended can still be read, and nothing more can be written to it.
+  await expect(composer()).toBeDisabled()
+  await expect(chat().locator('.chat-note').last()).toContainText('The session ended')
+})
+
+test('the window reloaded in the middle of a stream shows every item once and goes on streaming', async () => {
+  await dock().getByRole('button', { name: 'New session' }).click()
+  await expect(composer()).toBeEnabled()
+  await say('say before')
+  await expect(turns().first()).toContainText('Done in')
+  await say('slow 3')
+  await expect(chat().locator('.chat-text').last().locator('.chat-dot')).toBeVisible()
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => window.location.reload())])
+  await page.waitForSelector('[data-region="left"]')
+  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await expect(chat()).toBeVisible({ timeout: 15_000 })
+  await expect(chat().locator('.chat-user', { hasText: 'slow 3' })).toHaveCount(1)
+  // It finishes: the turn is told, and nothing is drawn twice.
+  await expect(turns()).toHaveCount(2, { timeout: 15_000 })
+  const ids = await chat().locator('.chat-group').evaluateAll((groups) => groups.map((g) => g.getAttribute('data-id')))
+  expect(new Set(ids).size).toBe(ids.length)
+  await expect(chat().locator('.chat-text .chat-dot')).toHaveCount(0)
+})

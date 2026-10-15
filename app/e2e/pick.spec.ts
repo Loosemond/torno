@@ -2,6 +2,7 @@ import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathS
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
 import { TOOLS } from '../src/renderer/state/tools'
 import type { Hit } from '../src/renderer/viewport/picking'
@@ -28,6 +29,7 @@ let page: Page
 function copyFixtures(): string {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-pick-'))
   cpSync(fixtures, dir, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  inTerminal(dir)
   return dir
 }
 

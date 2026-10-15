@@ -6,9 +6,9 @@ import type { ChatHistory, ChatItem } from '../src/shared/chat'
 import type { TornoState } from '../src/renderer/state/store'
 
 // What the window may ask of main about a chat session (`window.torno.chat`), through the real preload and IPC, with
-// the stand-in agent (test/fake-agent.mjs) in the stream mode of Claude Code's headless CLI. The window has no pane
-// for the chat yet: these calls are made from the page, and the session is started in the chat view by
-// TORNO_CHAT_VIEW=1 (main follows the object's choice, which the terminal-only window otherwise would not).
+// the stand-in agent (test/fake-agent.mjs) in the stream mode of Claude Code's headless CLI. The pane of the chat
+// (e2e/chat.spec.ts) is not what is tested here: these calls are made from the page, with the session started and the
+// object's view chosen by the bridge itself.
 const appDir = resolve(__dirname, '..')
 const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
 const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
@@ -20,7 +20,7 @@ let page: Page
 test.beforeAll(async () => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-chatbridge-'))
   cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
-  app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_CHAT_VIEW: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root } })
+  app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root } })
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
   await page.getByRole('button', { name: 'measures', exact: true }).click()

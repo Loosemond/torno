@@ -6,7 +6,7 @@ import { EXPLODED_TOOLS, explodeOf } from '../../shared/explode'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
-import { connectAgent, picture, setPictures } from '../state/agent'
+import { agentStore, connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { newCut } from '../../shared/cut'
 import { actions, layerOf, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
@@ -362,6 +362,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       state: () => store.getState(),
       look: (req) => picture(req),
       camera: () => viewport.getCamera(),
+      peeked: () => agentStore.getState().peek,
       pickAt: (fx, fy, opts) => {
         const box = canvasBox(viewport)
         return viewport.pick(box.left + fx * box.width, box.top + fy * box.height, opts)

@@ -14,6 +14,8 @@ declare global {
       state(): TornoState
       look(req: LookRequest): Promise<LookResult>
       camera(): Camera
+      /** What the pointer is on in the chat and the viewport lights for it (a ref chip's refs); none when it is on nothing. */
+      peeked(): string[]
       /** What a point of the canvas is on; `fx` and `fy` are fractions of its width and height, from the top left. */
       pickAt(fx: number, fy: number, opts?: { edges?: boolean; partsOnly?: boolean }): Hit | null
       /** How long `count` picks spread over the canvas take, as a pointer move makes them: the mean and the worst, in milliseconds, and how many were on a part. */
