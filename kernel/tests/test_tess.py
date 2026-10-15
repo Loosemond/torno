@@ -439,7 +439,8 @@ def test_a_box_that_takes_too_long_is_left_to_the_first_query_and_the_scene_has_
 
 def test_a_box_taken_face_by_face_is_the_one_occ_takes_of_the_whole(bracket):
     from build123d import Box, Compound, Edge, Sphere, Vertex
-    from ocp_tessellate.ocp_utils import Bnd_Box, BRepBndLib
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
 
     from torno_kernel import extent
 
