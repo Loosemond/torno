@@ -85,4 +85,16 @@ describe('the log of a conversation', () => {
     expect(readFileSync(file(), 'utf8')).not.toContain('SECRET')
     expect(readFileSync(file(), 'utf8')).toContain('<secret>')
   })
+
+  it('refuses a link in the place of the conversation\'s file, and writes nothing where it leads', async () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), 'torno-chatlog-target-'))
+    try {
+      await appendItems(dir, 'other', [note(0)])
+      symlinkSync(join(elsewhere, 'victim.txt'), file())
+      await expect(appendItems(dir, CONVERSATION, [note(1)])).rejects.toThrow()
+      expect(readdirSync(elsewhere)).toEqual([])
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true })
+    }
+  })
 })

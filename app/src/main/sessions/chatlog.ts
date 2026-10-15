@@ -1,4 +1,5 @@
-import { appendFile, mkdir, open, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { mkdir, open, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatImage, ChatItem } from '../../shared/chat'
 import { ensureIgnored } from '../ignored'
@@ -47,7 +48,13 @@ export async function appendItems(dir: string, conversationId: string, items: re
       await mkdir(folder, { recursive: true })
       // `ensureIgnored` made `.torno`; whoever made `chat` just now made a real folder.
       await ownTorno(dir, FOLDER)
-      await appendFile(join(folder, name), lines)
+      // Not through a link in the place of the file: `ownTorno` held the folder, not the file.
+      const handle = await open(join(folder, name), constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o644)
+      try {
+        await handle.write(lines)
+      } finally {
+        await handle.close()
+      }
     })
     .finally(() => {
       if (turns.get(path) === turn) turns.delete(path)

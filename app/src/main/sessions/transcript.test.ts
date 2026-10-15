@@ -205,11 +205,12 @@ describe('what is sent', () => {
   it('drops the prompts the CLI dropped, all but as many as it says are still queued', () => {
     const t = new Transcript()
     t.userSent(text('a'), true)
-    t.userSent(text('b'), true)
-    t.userSent(text('c'), true)
+    const b = t.userSent(text('b'), true)
+    const c = t.userSent(text('c'), true)
     const changed = t.dropQueued(1)
-    expect(changed.map((i) => i.id)).toEqual([of(t, 'user')[1].id, of(t, 'user')[2].id])
-    expect(of(t, 'user').map((u) => u.state)).toEqual(['queued', 'not-sent', 'not-sent'])
+    expect(changed.map((i) => i.id)).toEqual([b.id, c.id])
+    // Those that will not be sent are no longer queued, so they no longer come last.
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['not-sent', 'not-sent', 'queued'])
   })
 
   it('puts the context of each hook under its own prompt, however quickly the prompts were sent', () => {
@@ -534,5 +535,63 @@ describe('an address the agent was given', () => {
     t.note('SECRET', 'quiet')
     expect(JSON.stringify(t.items())).not.toContain('SECRET')
     expect(JSON.stringify(t.items())).toContain('<secret>')
+  })
+})
+
+describe('fix round 1', () => {
+  it('lists queued prompts last, and a prompt that is taken up moves to the end, before the items of its own turn', () => {
+    const t = new Transcript()
+    t.userSent(text('first'), false)
+    t.userSent(text('second'), true)
+    t.message(init())
+    t.message(assistant([{ type: 'text', text: 'reply one' }], 'm1'))
+    t.userSent(text('third'), true)
+    expect(t.items().map((i) => (i.kind === 'user' ? i.text : i.kind))).toEqual(['first', 'text', 'second', 'third'])
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'queued', 'queued'])
+    t.message(result())
+    t.message(init())
+    t.message(assistant([{ type: 'text', text: 'reply two' }], 'm2'))
+    expect(t.items().map((i) => (i.kind === 'user' ? i.text : i.kind))).toEqual(['first', 'text', 'turn', 'second', 'text', 'third'])
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'sent', 'queued'])
+  })
+
+  it('keeps no image data in the structured result, nor any when the result had pictures', () => {
+    const t = new Transcript()
+    t.message(toolUse('a', 'Read', { file_path: 'x.png' }))
+    t.message({ ...toolResult('a', [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_1X1 } }]), tool_use_result: { type: 'image', file: { base64: PNG_1X1, type: 'image/png' } } })
+    t.message(toolUse('b', 'Read', { file_path: 'y' }))
+    t.message({ ...toolResult('b', 'text'), tool_use_result: { file: { base64: PNG_1X1, name: 'y' }, nested: [{ data: PNG_1X1, keep: 'me' }] } })
+    const [a, b] = of(t, 'tool')
+    expect(a.detail).toBeUndefined()
+    expect(b.detail).toEqual({ file: { name: 'y' }, nested: [{ keep: 'me' }] })
+  })
+
+  it('does not wait for a prompt the CLI dropped when a hook comes', () => {
+    const t = new Transcript()
+    t.userSent(text('first'), false)
+    const b = t.userSent(text('kept'), true)
+    t.userSent(text('dropped'), true)
+    t.dropQueued(1)
+    t.context({ text: 'x', sentMarkIds: [] })
+    expect(t.context({ text: 'ctx', sentMarkIds: ['M1'], prompt: 'unrelated' })).toMatchObject({ forUser: b.id })
+    expect(t.context({ text: 'late', sentMarkIds: [] })).toBeNull()
+  })
+
+  it('hands the log only what changed, however many items there are', () => {
+    const t = new Transcript()
+    for (let n = 0; n < 500; n++) t.message(assistant([{ type: 'text', text: `t${n}` }], `m${n}`))
+    expect(t.toLog()).toHaveLength(500)
+    t.message(assistant([{ type: 'text', text: 'one more' }], 'mx'))
+    expect(t.toLog().map((i) => (i as { text: string }).text)).toEqual(['one more'])
+    expect(t.toLog()).toEqual([])
+  })
+
+  it('sends a prompt still queued when the session goes idle', () => {
+    const t = new Transcript()
+    t.userSent(text('a'), true)
+    expect(t.idle().map((i) => (i as { state: string }).state)).toEqual(['sent'])
+    t.message(init())
+    expect(of(t, 'user')[0].state).toBe('sent')
+    expect(t.idle()).toEqual([])
   })
 })

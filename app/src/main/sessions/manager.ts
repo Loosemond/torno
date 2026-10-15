@@ -672,6 +672,8 @@ export class Sessions {
     const next = reduceStatus(session.status, event, body)
     if (next === session.status) return
     session.status = next
+    // Idle with no prompt outstanding: whatever was still queued has been taken up.
+    if (next === 'idle' && session.unstarted === 0) session.chat?.transcript.idle()
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })
   }
 

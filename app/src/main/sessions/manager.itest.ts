@@ -1491,6 +1491,17 @@ describe('the transcript of a chat session', () => {
     expect(tSessions.history(c.id)!.earlier).toEqual([])
   })
 
+  it('does not leave a queued command that is no turn queued, and puts a prompt that begins after the one at work', async () => {
+    const c = await start()
+    await c.send('slow 0.5')
+    await c.send('/noop')
+    await c.send('say after')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    await expect.poll(() => tSessions.history(c.id)!.items.filter((i) => i.kind === 'user').every((i) => (i as { state: string }).state === 'sent')).toBe(true)
+    const kinds = c.items().map((i) => (i.kind === 'user' ? (i as { text: string }).text : i.kind))
+    expect(kinds.indexOf('say after')).toBeGreaterThan(kinds.indexOf('turn'))
+  })
+
   it('shows no context under a prompt that nothing was added to', async () => {
     const c = await start()
     await c.send('say plain')

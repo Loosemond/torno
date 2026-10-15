@@ -79,6 +79,8 @@ export class Transcript {
   /** The pictures whose data is kept, oldest first. */
   private readonly kept: Array<{ itemId: string; imageId: string }> = []
   private readonly logged = new Set<string>()
+  /** The items changed since the log was last given theirs, in the order they first changed. */
+  private readonly dirty = new Set<string>()
 
   private turnStarted: number | null = null
   private interrupted = false
@@ -98,8 +100,11 @@ export class Transcript {
     this.emitMeta = opts.emitMeta ?? (() => {})
   }
 
+  /** In order, except that the prompts still queued come last: they have not begun, whatever the turn at work is saying. */
   items(): ChatItem[] {
-    return this.order.map((id) => this.byId.get(id)!)
+    const all = this.order.map((id) => this.byId.get(id)!)
+    const queued = (item: ChatItem): boolean => item.kind === 'user' && item.state === 'queued'
+    return [...all.filter((item) => !queued(item)), ...all.filter(queued)]
   }
 
   meta(): ChatMeta {
@@ -175,6 +180,8 @@ export class Transcript {
         if (seen++ < keep) continue
         this.put({ ...item, state: 'not-sent' })
         this.untaken.splice(this.untaken.indexOf(item.id), 1)
+        const waiting = this.awaiting.indexOf(item.id)
+        if (waiting >= 0) this.awaiting.splice(waiting, 1)
       }
     })
   }
@@ -182,6 +189,22 @@ export class Transcript {
   /** Something torno says about the conversation. */
   note(text: string, tone: 'quiet' | 'warn'): ChatItem {
     return this.run(() => this.put({ kind: 'note', id: this.newId('i'), text: this.redact(text), tone }))[0]!
+  }
+
+  /** The agent is idle: a prompt still queued was taken up without an `init` we saw (or none will come), and is no longer waiting. */
+  idle(): ChatItem[] {
+    return this.run(() => {
+      for (const item of this.items()) if (item.kind === 'user' && item.state === 'queued') this.takeUp(item)
+      this.untaken.length = 0
+    })
+  }
+
+  /** A queued prompt begins: it is sent, and moves to the end, where its own turn's items will follow it. */
+  private takeUp(item: Extract<ChatItem, { kind: 'user' }>): void {
+    const at = this.order.indexOf(item.id)
+    if (at >= 0) this.order.splice(at, 1)
+    this.order.push(item.id)
+    this.put({ ...item, state: 'sent' })
   }
 
   /** The session is over: everything open ends in a stated state, and nothing more is taken in. */
@@ -204,9 +227,14 @@ export class Transcript {
   /** The items that became final since this was last asked, in order: what the log is given. Thoughts have no text and are not logged. */
   toLog(): ChatItem[] {
     const out: ChatItem[] = []
-    for (const id of this.order) {
-      const item = this.byId.get(id)!
+    for (const id of this.dirty) {
+      const item = this.byId.get(id)
+      if (!item) {
+        this.dirty.delete(id)
+        continue
+      }
       if (this.logged.has(id) || !isFinal(item)) continue
+      this.dirty.delete(id)
       this.logged.add(id)
       if (item.kind !== 'thinking') out.push(item)
     }
@@ -250,7 +278,7 @@ export class Transcript {
       // The prompt it starts is the oldest it has not started: a queued one is sent once its own turn begins.
       const taken = this.untaken.shift()
       const prompt = taken ? this.byId.get(taken) : undefined
-      if (prompt?.kind === 'user' && prompt.state === 'queued') this.put({ ...prompt, state: 'sent' })
+      if (prompt?.kind === 'user' && prompt.state === 'queued') this.takeUp(prompt)
       if (this.turnStarted === null) this.turnStarted = this.now()
       const model = str(m.model)
       const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers.map(obj).filter((s): s is Record_ => s !== null) : null
@@ -418,7 +446,8 @@ export class Transcript {
       }
     }
     const text = texts.join('\n')
-    const structured = detail !== undefined && jsonSize(detail) <= MAX_DETAIL ? { detail: this.scrub(detail) } : {}
+    // A picture is kept once, as an image, which the cap counts and the log leaves out: never also in the structured result.
+    const structured = detail !== undefined && images.length === 0 && jsonSize(detail) <= MAX_DETAIL ? { detail: this.scrub(withoutPictures(detail)) } : {}
     const next: ChatItem = { ...item, state: block.is_error === true ? 'error' : 'done', images: [...item.images, ...images], ...(text !== '' ? { result: this.scrub(text) as string } : {}), ...structured }
     this.put(next)
     this.keepImages(item.id, images)
@@ -540,11 +569,13 @@ export class Transcript {
     if (!this.byId.has(item.id)) this.order.push(item.id)
     this.byId.set(item.id, item)
     this.changes.set(item.id, item)
+    if (!this.logged.has(item.id)) this.dirty.add(item.id)
     while (this.order.length > this.maxItems) {
       const dropped = this.order.shift()!
       this.byId.delete(dropped)
       this.changes.delete(dropped)
       this.logged.delete(dropped)
+      this.dirty.delete(dropped)
       this.clearTimer(dropped)
       this.lastTold.delete(dropped)
     }
@@ -598,6 +629,13 @@ function isFinal(item: ChatItem): boolean {
     default:
       return true
   }
+}
+
+/** A value without any field named `data` or `base64` that holds a string, at any depth. */
+function withoutPictures(value: unknown, depth = 0): unknown {
+  if (depth > 20 || typeof value !== 'object' || value === null) return value
+  if (Array.isArray(value)) return value.map((v) => withoutPictures(v, depth + 1))
+  return Object.fromEntries(Object.entries(value).filter(([k, v]) => !((k === 'data' || k === 'base64') && typeof v === 'string')).map(([k, v]) => [k, withoutPictures(v, depth + 1)]))
 }
 
 const withoutData = ({ data: _data, ...rest }: ChatImage): ChatImage => rest
