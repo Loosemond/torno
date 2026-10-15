@@ -52,6 +52,8 @@ export interface TornoExport {
   pixel(fx: number, fy: number): [number, number, number, number]
   /** The colour of the ground. */
   ground(): [number, number, number]
+  /** Why nothing of the parts is on the canvas, as the page would say it; null when something is. A frame is drawn for the asking. */
+  undrawn(): string | null
 }
 
 /** The page in the system's theme, or in one chosen by hand. */
@@ -62,7 +64,12 @@ declare global {
 }
 
 const UNPACK = 'This browser cannot unpack the parts: open the file in a current Chrome, Edge, Firefox or Safari'
-const NO_WEBGL = 'This browser cannot draw the parts here: it gives the page no WebGL 2. Open the file in a current Chrome, Edge, Firefox or Safari, with hardware acceleration switched on.'
+const BROKE = 'This page could not start in this browser, so the parts are not shown. Open the file in a current Chrome, Edge, Firefox or Safari'
+/** How long after the parts began to be unpacked the page looks whether anything of them is on the canvas. */
+const WATCH_MS = 3000
+/** Where to open the file instead, said after why the parts cannot be drawn here. */
+const ELSEWHERE = 'Open the file in a current Chrome, Edge, Firefox or Safari, with hardware acceleration switched on.'
+const NO_WEBGL = `This browser cannot draw the parts here: it gives the page no WebGL 2. ${ELSEWHERE}`
 
 function bytesOf(base64: string): Uint8Array<ArrayBuffer> {
   const text = atob(base64)
@@ -188,6 +195,41 @@ function start(): void {
   said.setAttribute('role', 'status')
   root.append(said)
 
+  /** What the page says in place of the parts when they are not on the canvas (`watch`); null while they are, or nobody looked. */
+  let notDrawn: string | null = null
+  let watching: ReturnType<typeof setTimeout> | undefined
+
+  /**
+   * A page that shows its controls and no parts, and says nothing, is the one thing this file must never be:
+   * `WATCH_MS` after the parts began to be unpacked (and again while they still are), the canvas is looked at, and
+   * if nothing of them is on it the page says so, and why as far as it can tell. Not while nothing is switched on,
+   * nor under a cut, which may leave nothing by the person's own hand; not after an object that could not be shown,
+   * which says so itself (`show`); and looked at again whenever an object is shown anew.
+   */
+  function watch(): void {
+    clearTimeout(watching)
+    watching = setTimeout(look, WATCH_MS)
+  }
+
+  // A context the browser takes away later (a driver that was reset) is looked at the same way, and so is one it
+  // gives back: the page says what it is then.
+  canvas.addEventListener('webglcontextlost', watch)
+  canvas.addEventListener('webglcontextrestored', watch)
+
+  function look(): void {
+    if (busy) return watch()
+    try {
+      const st = state()
+      const on = parts().some((part) => st.visible[part.name] !== false) || (object.scans ?? []).some((scan) => st.scans[scan.id]?.visible !== false)
+      const why = on && !st.section ? model.undrawn() : null
+      notDrawn = why === null ? null : `The parts cannot be drawn here: ${why}. ${ELSEWHERE}`
+      refresh()
+    } catch (e) {
+      said.textContent = `The parts cannot be drawn here: ${e instanceof Error ? e.message : String(e)}. ${ELSEWHERE}`
+      said.hidden = false
+    }
+  }
+
   function refresh(): void {
     const st = state()
     if (meshes) {
@@ -200,7 +242,7 @@ function start(): void {
       overlay.place((point, by) => model.project(point, by))
     }
     const now = apart()
-    said.textContent = busy ? 'Unpacking the parts…' : now ? 'Parts drawn apart for display' : st.section ? 'Cut open for display' : ''
+    said.textContent = busy ? 'Unpacking the parts…' : (notDrawn ?? (now ? 'Parts drawn apart for display' : st.section ? 'Cut open for display' : ''))
     said.hidden = said.textContent === ''
     panel.sync()
   }
@@ -238,6 +280,8 @@ function start(): void {
     panel.sync()
     said.textContent = 'Unpacking the parts…'
     said.hidden = false
+    notDrawn = null
+    watch()
     try {
       const got = await load(one)
       object = one
@@ -250,6 +294,7 @@ function start(): void {
     } catch (e) {
       // Said first, and for good: whatever else fails after this, the page does not go on saying it is unpacking.
       busy = false
+      clearTimeout(watching)
       loaded.delete(one.id)
       const why = `The parts of ${one.name} could not be shown: ${e instanceof Error ? e.message : String(e)}`
       said.textContent = why
@@ -557,9 +602,16 @@ function start(): void {
       setResolved: host.setResolved,
       setTheme,
       pixel: (fx, fy) => model.pixel(fx, fy),
-      ground: () => model.ground()
+      ground: () => model.ground(),
+      undrawn: () => model.undrawn()
     }
   })
 }
 
-start()
+// Whatever goes wrong while the page starts, it says so in place of the parts: never controls and an empty view.
+try {
+  start()
+} catch (e) {
+  const root = document.getElementById('torno')
+  if (root) say(root, `${BROKE} (${e instanceof Error ? e.message : String(e)}).`)
+}

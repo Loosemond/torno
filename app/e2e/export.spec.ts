@@ -168,6 +168,8 @@ test('an object is exported to the path that was chosen, and the file opens by i
   expect(readdirSync(dirname(out))).toEqual(['hollow.html'])
   expect(readdirSync(join(root, 'hollow')).sort()).toEqual(['.torno', 'hollow.py'])
   const html = readFileSync(out, 'utf8')
+  // For a look at the file in another browser, by hand: TORNO_KEEP_EXPORT=<dir> keeps a copy there.
+  if (process.env.TORNO_KEEP_EXPORT) cpSync(out, join(process.env.TORNO_KEEP_EXPORT, 'hollow.html'))
   expect(html.length).toBeLessThan(2_000_000)
   expectNothingOfHere(html)
   // Neither a note (marks were not ticked) nor the view the agent proposed and nobody kept.
@@ -183,9 +185,13 @@ test('an object is exported to the path that was chosen, and the file opens by i
     const ground = await file.ask<number[]>('window.__tornoExport.ground()')
     const centre = await file.ask<number[]>('window.__tornoExport.pixel(0.4, 0.5)')
     expect(centre.slice(0, 3)).not.toEqual(ground)
+    // The page looks at its own canvas: the parts are on it, and it says nothing of them.
+    expect(await file.ask<string | null>('window.__tornoExport.undrawn()')).toBeNull()
     // Switched off, nothing is drawn there.
     await file.ask('window.__tornoExport.setPart("tub", false); window.__tornoExport.setPart("lid", false)')
     expect((await file.ask<number[]>('window.__tornoExport.pixel(0.4, 0.5)')).slice(0, 3)).toEqual(ground)
+    // Which is what the page would say of a view with nothing in it, had it not been the person's own doing.
+    expect(await file.ask<string | null>('window.__tornoExport.undrawn()')).toBe('a frame was drawn, and nothing of the parts is in it')
     await file.ask('window.__tornoExport.setPart("tub", true); window.__tornoExport.setPart("lid", true)')
     // Exploded, the lid is drawn somewhere else; a section puts the parts together again.
     await file.ask('window.__tornoExport.setExplode(1, "z")')
@@ -537,6 +543,10 @@ test('parts named like what every object has are parts like any other, and a fil
   try {
     await expect.poll(() => bad.ask<string>('document.getElementById("said")?.textContent ?? ""')).toMatch(/^The parts of hollow could not be shown: \d+ bytes were expected, \d+ came$/)
     expect(await bad.ask<boolean>('document.getElementById("said").hidden')).toBe(false)
+    // What it said stays said: the look at the canvas that would have followed the unpacking says nothing over it.
+    const why = await bad.ask<string>('document.getElementById("said").textContent')
+    await new Promise((r) => setTimeout(r, 3400))
+    expect(await bad.ask<string>('document.getElementById("said").textContent')).toBe(why)
   } finally {
     await bad.close()
   }
@@ -554,6 +564,27 @@ test('one object is exported from its card on the page of objects', async () => 
   await page.keyboard.press('Escape')
   await expect(sheet()).toHaveCount(0)
   expect((await state()).page).toBe('objects')
+})
+
+// Seen in headless Firefox: the controls and the labels, no parts, and not a word. The page looks at its canvas
+// three seconds after it began to unpack an object, and says so when nothing of the parts is on it.
+test('a page whose parts cannot be drawn says so in place of them, and says nothing while they can', async () => {
+  const file = await openExport(join(outDir, 'both.html'))
+  try {
+    await file.ready()
+    // Looked at, and found drawn: nothing is said.
+    await new Promise((r) => setTimeout(r, 3400))
+    expect(await file.ask<boolean>('document.getElementById("said").hidden')).toBe(true)
+    // The browser takes the page's 3D drawing away, as a driver that fails does; then another object is asked for.
+    await file.ask('document.getElementById("view").getContext("webgl2").getExtension("WEBGL_lose_context").loseContext()')
+    await file.ask('window.__tornoExport.setObject("hollow")')
+    await expect
+      .poll(() => file.ask<string>('document.getElementById("said").textContent'), { timeout: 8000 })
+      .toBe('The parts cannot be drawn here: the browser took its 3D drawing away from this page. Open the file in a current Chrome, Edge, Firefox or Safari, with hardware acceleration switched on.')
+    expect(await file.ask<boolean>('document.getElementById("said").hidden')).toBe(false)
+  } finally {
+    await file.close()
+  }
 })
 
 test('a browser that gives the page no WebGL is told so in words, and nothing breaks', async () => {

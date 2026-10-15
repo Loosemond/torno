@@ -73,6 +73,13 @@ export class Model {
   ) {
     this.theme = theme
     this.renderer = new WebGLRenderer({ canvas, antialias: true })
+    // What three.js would only write to a console nobody reads: the page says it (`undrawn`).
+    this.renderer.debug.onShaderError = () => void (this.refused = true)
+    canvas.addEventListener('webglcontextlost', () => void (this.lost = true))
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.lost = false
+      this.request()
+    })
     this.renderer.localClippingEnabled = true
     this.perspective.up.set(0, 0, 1)
     this.orthographic.up.set(0, 0, 1)
@@ -362,6 +369,36 @@ export class Model {
     this.frame()
     this.renderer.render(this.scene, this.camera)
     this.onDraw()
+  }
+
+  /** The browser took the context away, and has not given it back. */
+  private lost = false
+  /** A program of the parts' materials did not compile or link. */
+  private refused = false
+
+  /**
+   * Why nothing of the parts or the scans is on the canvas, in words for the person; null when something is.
+   * It draws a frame for the asking, without the grid, and looks at it: whatever the browser's own timing, and
+   * whatever it did with the frames before. Asked only while something is switched on and nothing cuts it away.
+   */
+  undrawn(): string | null {
+    const gl = this.renderer.getContext()
+    if (this.lost || gl.isContextLost()) return 'the browser took its 3D drawing away from this page'
+    this.renderer.clear()
+    const [r, g, b] = this.read(0.5, 0.5)
+    this.grid.visible = false
+    this.frame()
+    this.renderer.render(this.scene, this.camera)
+    const [w, h] = [gl.drawingBufferWidth, gl.drawingBufferHeight]
+    const pixels = new Uint8Array(w * h * 4)
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+    this.grid.visible = true
+    this.draw()
+    if (w === 0 || h === 0) return 'the page gave the 3D view no room'
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (Math.abs(pixels[i] - r) + Math.abs(pixels[i + 1] - g) + Math.abs(pixels[i + 2] - b) > 6) return null
+    }
+    return this.refused ? 'its graphics driver would not take what draws them' : 'a frame was drawn, and nothing of the parts is in it'
   }
 
   /** Where a point of the object frame is drawn, in CSS pixels from the canvas's top left, and whether it is in front of the camera. */
