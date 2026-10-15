@@ -75,6 +75,13 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   expect(lines[0]).toBeLessThanOrEqual(lines[1])
   // One that cannot be built says why, as the list does.
   await expect(card('two')).toContainText('more than one model file')
+  // With no object open the column holds the list alone, and the list takes the room there is: every object
+  // in sight, no scroller with empty room under it.
+  const list = page.locator('.objects .rows')
+  // A row each, under the row of the page itself.
+  await expect(list.locator('li')).toHaveCount((await state()).workspace!.objects.length + 1)
+  const [all, shown] = await list.evaluate((el) => [el.scrollHeight, el.clientHeight])
+  expect(all).toBeLessThanOrEqual(shown)
   // Looking at the page built nothing, and wrote nothing.
   expect(await opened()).toEqual([])
   expect(existsSync(join(root, 'hollow', '.torno'))).toBe(false)
@@ -109,6 +116,9 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   // The 3D view is under the page as it was, and takes nothing meanwhile.
   await expect(page.locator('.viewport-pane')).toHaveAttribute('inert', '')
   expect((await state()).objectId).toBe('hollow')
+  // On the page the layers and the scans give way: the list has their room, beside the marks.
+  const [listed, height] = await list.evaluate((el) => [el.scrollHeight, el.clientHeight])
+  expect(listed).toBeLessThanOrEqual(height)
 })
 
 test('a card says when its picture is older than the model, and a second object gets its picture while the first is shown', async () => {

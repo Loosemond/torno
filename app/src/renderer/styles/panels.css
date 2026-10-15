@@ -13,6 +13,12 @@
   padding-bottom: var(--space-2);
 }
 
+/* With no layers or scans under it (no object open, or the page of objects up) the list has their room: every
+   object in sight, beside the marks when there are any, not a short scroller over an empty column. */
+.left:not(:has(> .layers, > .scans)) > .objects {
+  max-height: none;
+}
+
 .layers {
   /* Never cut mid-row: an object has a handful of parts, and they are all shown. */
   flex: 0 0 auto;

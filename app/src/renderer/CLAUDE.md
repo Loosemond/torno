@@ -241,6 +241,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   objects, or of none, starts on it; one object alone is shown itself. `W` outside a field or the first row of
   the object list brings it up (not while a button of the pointer is held: a drag in the view is not over); a
   card, or Escape, leaves it, and what had the focus has it again.
+- The list of objects in the left column gives way to the layers and the scans under it (a share of the
+  column at most); with neither there (no object open, or the page up) it has their room, every object in
+  sight (`panels.css`, `e2e/show.spec.ts`).
 - **The keys on the page** are one capture-phase listener. Left alone: what is typed in a field or the
   terminal (`TYPING`), any `input` outside the page (a slider of the left column keeps its arrows), and
   whatever is inside a `[role="dialog"]` or `[role="alertdialog"]`. Everything else is the page's and goes no
