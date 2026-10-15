@@ -161,6 +161,31 @@ test('rebuilt thicker and without its post: the first pin has drifted onto the f
   await expect(row('M1').locator('.mark-anchor')).toHaveText('moved: check it')
   await expect(row('M2').locator('.mark-chip')).toHaveText('M2?')
   await expect(row('M2').locator('.mark-anchor')).toHaveText('its part is gone')
+  // Seen on a visible screen: what the build did to a mark took the note's room, cut the status word and had the
+  // column scroll sideways. It has a line of its own under the note, also beside a note longer than the column.
+  await row('M1').locator('.mark-note').click({ position: { x: 4, y: 8 } })
+  await page.keyboard.type('the wall is too thin here and wants two more millimetres at least')
+  await page.keyboard.press('Enter')
+  await expect(row('M1').locator('.mark-note')).toContainText('the wall is too thin')
+  for (const id of ['M1', 'M2']) {
+    const boxes = await row(id).evaluate((el) => {
+      const box = (selector: string) => el.querySelector(selector)!.getBoundingClientRect()
+      const status = el.querySelector<HTMLElement>('.mark-status')!
+      return { row: el.getBoundingClientRect(), note: box('.mark-note'), anchor: box('.mark-anchor'), status: status.getBoundingClientRect(), cut: status.scrollWidth > status.clientWidth, word: status.textContent }
+    })
+    expect([id, boxes.anchor.top >= boxes.note.bottom - 6]).toEqual([id, true])
+    expect([id, boxes.anchor.right <= boxes.row.right + 0.5, boxes.status.right <= boxes.row.right + 0.5]).toEqual([id, true, true])
+    expect([id, boxes.word, boxes.cut]).toEqual([id, 'draft', false])
+    expect([id, boxes.note.width > 60]).toEqual([id, true])
+  }
+  for (const selector of ['.marks-body', '[data-region="left"]']) {
+    const [scroll, client] = await page.locator(selector).evaluate((el) => [el.scrollWidth, el.clientWidth])
+    expect([selector, scroll <= client]).toEqual([selector, true])
+  }
+  await row('M1').locator('.mark-note').click({ position: { x: 4, y: 8 } })
+  await page.keyboard.type('too thin here')
+  await page.keyboard.press('Enter')
+  await expect(row('M1').locator('.mark-note')).toHaveText('too thin here')
   const moved = await colours('.mark-row[data-mark="M1"] .mark-anchor', '--warn')
   expect(moved.drawn).toBe(moved.token)
   const gone = await colours('.mark-row[data-mark="M2"] .mark-anchor', '--fail')

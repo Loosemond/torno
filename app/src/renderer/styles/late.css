@@ -132,3 +132,50 @@
   color: var(--muted);
   font-size: var(--text-small);
 }
+
+/* ---- Found on a visible screen ---- */
+
+/* What the last build did to a mark ("moved: check it") has a line of its own under the note: beside it, it took
+   the note's room and pushed the status word out of the row, and the column scrolled sideways. The status word
+   is never cut, and the list never scrolls sideways. */
+.marks-body {
+  overflow-x: hidden;
+}
+
+.mark-row {
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: auto;
+  min-height: 30px;
+}
+
+/* The first line is as tall as a row was: a strut of no width at its end, which takes no room and never wraps alone. */
+.mark-row::after {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 30px;
+  margin-left: -7px;
+}
+
+.mark-row > .mark-anchor {
+  order: 1;
+  flex: 0 0 100%;
+  margin-top: -5px;
+  padding: 0 0 6px 33px;
+  overflow-wrap: anywhere;
+}
+
+/* What a row is opened out with comes after that line. */
+.mark-row > .mark-actions ~ * {
+  order: 2;
+}
+
+.mark-row > .mark-actions {
+  bottom: auto;
+  height: 30px;
+}
+
+.mark-row > .mark-status {
+  white-space: nowrap;
+}
