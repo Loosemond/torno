@@ -267,18 +267,27 @@ is a new line, and a prompt sent while the agent is at work waits its turn
 - **Refs are live.** `M4`, `lid/F12` and `lid/E3` in the agent's text and in
   the cards are chips: hovering one lights it in the view, clicking a mark
   focuses it, clicking a face or an edge selects it. A ref that names nothing
-  now (a mark that is gone, a part not shown) says why and does nothing.
+  now (a mark that is gone, a part not shown) says why and does nothing. What is
+no ref of this object is only text: an `M3` clearance hole when the object has
+no mark `M3`, a build `r9` that has not been made, a part the build does not have.
 - **When it asks.** A permission is a card in the conversation: "Allow",
   "Allow for this session" (offered when Claude Code suggests a rule; the rule
   holds for this session only and is never written to any settings file) and
   "Deny", with a reason if you give one. A question of the agent's is a card with
   its options and an "Other" line; a plan is shown to be approved or kept
-  planning. The session reads "Needs input" while a card is open.
+  planning. The session reads "Needs input" while a card is open. "Stop" with a
+  card open ends the turn and the card reads "Cancelled: the turn was stopped";
+  nothing is run.
+- **Subagents.** What a subagent (`Task`) says is not drawn as the agent's own
+  words: its card counts the steps it took ("12 steps") and, opened, lists the
+  tools it used.
 - **"Attach view"** adds a picture of the viewport as you see it to the next
   prompt only.
 - **`/` commands.** Typing `/` offers the commands Claude Code has; `Up` and
-  `Down` choose, `Tab` completes. `/compact` leaves one note with the tokens
-  before and after.
+  `Down` choose, `Tab` completes, `Esc` closes the list. `/compact` leaves one
+  note with the tokens before and after. What you type is sent to Claude Code as
+  typed; `/model` is not one of the commands torno has checked in the chat, so
+  use the model menu for the model of the session.
 - **The model** is chosen in the menu under the header. It changes the model of
   this session only; `/model` typed in a terminal session changes your default
   (see below). A line under the box shows the rate limit once more than half of
@@ -314,9 +323,17 @@ With Claude Code the status follows the hooks it posts: `UserPromptSubmit`,
 `PreToolUse` and `PostToolUse` mean working, `Stop` idle, `PermissionRequest`
 and a `Notification` that asks something needs input. A `Notification` that
 only says Claude Code has been waiting at its prompt for a while (or has
-signed in) leaves the status as it was. The first time Claude Code runs in a folder
-it asks whether you trust the folder; that question is its own, and it is
-answered in the terminal.
+signed in) leaves the status as it was. In a terminal, the first time Claude
+Code runs in a folder it asks whether you trust the folder; that question is its
+own, and it is answered there. Run headless, as the chat runs it, Claude Code
+skips that question, so torno asks instead: before the first chat in an object
+whose folder, or a folder above it up to your home, has settings Claude Code
+would load (`.mcp.json`, `.claude/settings.json`, `.claude/settings.local.json`),
+the pane names those files and asks "Start the chat anyway?". "Start the chat"
+remembers the folder (its real path, in torno's own data beside the recent folders,
+never in the workspace) and does not ask again, whatever those files later say;
+"Use the terminal" starts Claude Code in the terminal view, which asks its own
+question. Your own `~/.claude` is never one of the files looked at.
 
 `/model` typed in a terminal session of torno's changes the model of that
 session and also your default for every Claude Code session from then on:
@@ -1124,6 +1141,9 @@ On the screen:
 
 With a real agent:
 
+- **Claude Code and the trust question.** In a folder never opened before, with a `.claude/settings.json` that holds a hook (or a `.mcp.json`), either in the object or in a folder above it: "New session" asks "Start the chat anyway?" and starts nothing; "Start the chat" starts it (and the hook runs, as Claude Code's documentation says it does without a question when run non-interactively), and the next session there is not asked; "Use the terminal" shows Claude Code's own trust question. The measuring on 2026-10-15 (Claude Code 2.1.300) only read the documentation for this.
+- **A failed or old Claude Code in the chat.** A `claude` that does not know one of the chat's flags, or is signed out: the pane says "Claude Code stopped (exit code 1)" with the last line it wrote, and "It did not start: is `claude` up to date and signed in?". Not yet seen with a real old CLI; the stand-in prints to stderr and exits 1.
+- **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.
 - **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
 - **Copilot CLI: what must not send.** "Send marks" while its trust question is up, then Enter; "Send marks", then type ` see @` and Enter; "Send marks", then paste two lines: each time the mark stays a draft and the pane says why.

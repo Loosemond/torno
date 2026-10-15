@@ -69,8 +69,11 @@ A chat session is tested with `app/test/fake-agent.mjs` in its stream mode, whic
 `--input-format stream-json`: it speaks Claude Code's protocol on its pipes and prints nothing else. Its header
 lists everything it does; in short, a prompt's text is a script of one command per line: `say`, `tool <name>
 <json>` (a name beginning `mcp__torno__` calls torno's MCP server for real), `ask <name> <json>` (a permission
-request, answered by the window), `slow <s>`, `rate <percent>`, `images` and `garbage`; `/noop` and `/compact`
-are what the CLI does for them. Its permission suggestions are the three kinds the real CLI sends, so a test
+request, answered by the window), `slow <s>`, `work <s>` (a tool that takes that long), `rate <percent>`, `images` and
+`garbage`; `/noop` and `/compact` are what the CLI does for them. As the real CLI does (seen 2026-10-15), a prompt that
+comes while a tool runs is folded into the running turn (its hook, no `init`, one result), and an interrupt while a
+request waits sends `control_cancel_request` first. `FAKE_AGENT_FAIL=<text>` makes it write that to stderr and exit 1
+at once; `FAKE_AGENT_INIT_ERROR=<text>` makes it answer `initialize` with that error. Its permission suggestions are the three kinds the real CLI sends, so a test
 proves that only the session rule is passed on. Specs that drive a terminal call `inTerminal` (`e2e/terminal.ts`),
 which writes `view: 'terminal'` into their temporary copy's `.torno/agent.json`. Give the run a HOME of its own
 when a spec checks that nothing is written to the person's settings.

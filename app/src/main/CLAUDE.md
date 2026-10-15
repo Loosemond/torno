@@ -637,21 +637,46 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   messages and torno's own records (a prompt sent, a hook answered, an ask, the end) to the items of
   `shared/chat.ts`, at most 2,000, and the 40 newest pictures keep their data. Items are never changed once
   handed out. A prompt sent while the agent works is `queued`: it is drawn last, and is sent, moving to the end,
-  at the `init` the CLI prints when it takes it up; the transcript is the one source of that order, for live and
-  for reload. The context of a `UserPromptSubmit` (`text`, `sentMarkIds`, and as data the build and selection) is
-  put under the oldest prompt that has none; the window never parses text for it. A `user` message that is the
+  when the CLI takes it up; the transcript is the one source of that order, for live and for reload, and of
+  whether any prompt is still untaken (`untakenCount`, which `Sessions` asks: there is no counter of its own). The
+  CLI takes a prompt up in one of two ways, as measured on the real one: a `UserPromptSubmit` hook that names it
+  (matched by text; else the oldest untaken that is not a command), which also folds a prompt sent while a tool
+  ran into the running turn with no `init` and no result of its own; or, for a prompt beginning with `/`, an
+  `init` that no hook explains (`explained`). After a `result`, prompts still untaken are given 1.5 s
+  (`IDLE_GRACE_MS`) for their hook or `init` to come; if nothing came, the CLI is idle and they are taken
+  (`idle()`), so nothing waits for good. The context of a `UserPromptSubmit` (`text`, `sentMarkIds`, and as data
+  the build and selection) is put under the prompt that hook names; the window never parses text for it. A
+  prompt the CLI never took up is `not-sent` when the session ends. The messages of a subagent
+  (`parent_tool_use_id`) are not the agent's words: they are counted on the `Task` card (`steps`) and its tool
+  calls listed in `inside`. A thought's `seconds` run from its block's start to its stop. A `user` message that is the
   compaction summary (`isSynthetic`) is not drawn; one that is `<local-command-stdout>` (what `/cost` or
   `/context` print) is a quiet note, and the "Compacted" of `/compact` is not a second one.
 - Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and
-  show the status `needs_input` while open; a session that ends settles them as `ended`. The tool runs with the
+  show the status `needs_input` while open. They end when the CLI cancels the request (`control_cancel_request`,
+  which it sends right after an `interrupt`; the card reads "Cancelled: the turn was stopped", `why`), at any
+  `result`, and with the session (`ended`, no `why`); a late answer to one does nothing. The tool runs with the
   input it asked with; only the answers of `AskUserQuestion`, filtered to the question texts it asked, are taken
   from the window. **Session-only rule:** "Allow for this session" sends `updatedPermissions` made by
   `sessionRules` alone, the `addRules` suggestions with `destination: "session"`; `localSettings`,
   `projectSettings`, `userSettings`, `setMode` and `addDirectories` are never passed on, because the first three
   would write `.claude/` in the object's folder or the person's settings. A deny with no reason says "The person
   denied this."
+- When the CLI stops without being asked to (not through `stop`), or with a non-zero code, the pane gets a `warn`
+  note "Claude Code stopped (exit code N): <its last stderr line>" (the last 20 lines of stderr are kept, redacted)
+  and, when it never printed a line, "It did not start: is `claude` up to date and signed in? …". An `initialize`
+  that fails is a quiet note. `send` runs one prompt after another (a picture is awaited before the next). Closing
+  the workspace lets go of the transcripts of sessions that have ended (`forgetEnded`); `endedChat` names the one an
+  object still has, for a window loaded since. `Sessions` events `stream`, `ask`, `asked` and `context` have no
+  listener in the app: they are the probe the integration tests watch the stand-in through.
+- **Trust (`src/main/trust.ts`).** Headless (`-p`) Claude Code skips its workspace-trust question. Before a chat
+  starts, `Trust.pending` looks for `.mcp.json`, `.claude/settings.json` and `.claude/settings.local.json` in the
+  object folder and each parent up to, not including, the person's home (a link is reported by its own path, not
+  followed); with any there and the folder's real path not in `trusted.json` (beside the config file, written
+  atomically, never in a workspace; in memory only when there is no config file) the start is refused with
+  `trustQuestion`. `session:trust` records it. The terminal view is never asked: it has the CLI's own question.
 - The log (`chatlog.ts`) appends each item as it becomes final to `.torno/chat/<conversation>.jsonl`: text only,
   the data of a picture never, `redact` applied to every line, one write at a time per file, the folder checked
   with `ownTorno(dir, 'chat')` and ignored (`ensureIgnored`); after one write fails none is tried. A resumed chat
-  reads the tail of the file as "Earlier in this conversation". Switching `view` ends the session and resumes the
+  reads the tail of the file as "Earlier in this conversation". A log over 5 MB is cut to its last 2,000 lines, whole
+  and atomically, when a session starts on it (`trimLog`). Switching `view` ends the session and resumes the
   conversation in the other kind (`session.json` is the same).
