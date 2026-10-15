@@ -65,10 +65,12 @@ TORNO_OZONE=wayland scripts/torno        # or x11: the platform Electron is told
 `scripts/torno` works from any directory, and through a symlink. It installs
 the dependencies if `node_modules` is missing, builds the app if it has not
 been built since the sources last changed, and starts it. A build that fails
-is tried again at the next start. It knows a build by `app/out/.built`, which
-only it touches: after a checkout or a pull, or a `pnpm build` or a test run of
-your own, the first start from the launcher builds again (some ten seconds,
-written into `app/out`) although `app/out` may already be current.
+is tried again at the next start. It knows a build by `app/out/.built`, a hash of
+what the sources held when its last build that succeeded began: a checkout or a
+touch that leaves every source as it was builds nothing, and any change does.
+Only the launcher writes it: after a `pnpm build` or a test run of your own on
+changed sources, the first start from the launcher builds again (some ten
+seconds, written into `app/out`).
 
 With no folder to open, the first screen says what torno is and offers "Open
 folder", the folders opened lately, and "Open the example": four small objects

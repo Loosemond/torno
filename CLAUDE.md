@@ -15,9 +15,11 @@ says what it does and how to run it; the design is
 - `kernel/`: the Python package `torno_kernel` (uv). It loads build123d models
   and tessellates them, in forked workers, and imports scans, in a process of
   its own (`python -m torno_kernel.scans`).
-- `scripts/torno`: the launcher. It rebuilds the app when a source (or
-  `app/scripts`) is newer than `app/out/.built`, which it touches only after a
-  build that succeeded, or when `out/viewer/viewer.js` is missing.
+- `scripts/torno`: the launcher. It rebuilds the app when what a source (or
+  `app/scripts`, the build's configuration, the lock) holds is other than the
+  hash in `app/out/.built`, which it writes only after a build that succeeded,
+  of the sources as they were when it began; or when `out/viewer/viewer.js` is
+  missing. Times are not looked at.
   `--print-command` and `--print-desktop` print and start nothing;
   `--install-desktop` and `--uninstall-desktop` write and remove one file,
   `torno.desktop` under the person's data folder, the only thing the script

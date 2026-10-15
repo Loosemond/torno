@@ -208,22 +208,28 @@ if [ ! -d "$root/node_modules" ] || [ ! -d "$app/node_modules" ]; then
   }
 fi
 
-# Built once, and again whenever a source, the build's own configuration or one
-# of its scripts (the viewer of exported pages is bundled by app/scripts) is
-# newer than the last build that succeeded. That is what the stamp records: the
-# build's own files will not do, since the main bundle is written before the
-# renderer is compiled, and a build that then fails would leave it looking fresh.
+# Built once, and again whenever what a source, the build's own configuration or one of its scripts (the viewer
+# of exported pages is bundled by app/scripts) holds is other than at the last build that succeeded. The stamp
+# is a hash of those files, their paths and their contents, not a time: a checkout or a touch that leaves every
+# one as it was builds nothing, and any change of one, a file added, removed or renamed among them, builds
+# again. The build's own files will not do as a stamp, since the main bundle is written before the renderer is
+# compiled, and a build that then fails would leave it looking fresh. Tests and notes are not built.
+sources() {
+  (cd "$root" && find app/src app/scripts app/package.json app/electron.vite.config.ts app/tsconfig.json pnpm-lock.yaml \
+    -type f ! -name '*.test.ts' ! -name '*.test.tsx' ! -name '*.itest.ts' ! -name 'CLAUDE.md' -print0 |
+    LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1)
+}
 stamp=$app/out/.built
+held=$(sources)
 if [ ! -f "$stamp" ] || [ ! -f "$app/out/main/index.js" ] || [ ! -f "$app/out/preload/index.js" ] || [ ! -f "$app/out/renderer/index.html" ] || [ ! -f "$app/out/viewer/viewer.js" ] ||
-  [ -n "$(find "$app/src" "$app/scripts" "$app/package.json" "$app/electron.vite.config.ts" "$app/tsconfig.json" "$root/pnpm-lock.yaml" -newer "$stamp" -print | head -n 1)" ]; then
+  [ "$(cat "$stamp")" != "$held" ]; then
   echo "torno: building the app" >&2
-  # The stamp carries the time the build began: a source saved while it ran is newer.
-  began=$(date +%Y%m%d%H%M.%S)
+  # The stamp is of what the sources held when the build began: one saved while it ran is a change.
   (cd "$root" && pnpm build) >&2 || {
     complain "building the app failed: run scripts/torno in a terminal to see why"
     exit 1
   }
-  touch -t "$began" "$stamp"
+  printf '%s\n' "$held" >"$stamp.tmp" && mv -f -- "$stamp.tmp" "$stamp"
 fi
 
 exec "$@"
