@@ -137,7 +137,7 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
   const why = useStore(whyNot)
   // A scan is never moved: beside parts drawn apart it is no longer where they are drawn.
   const scans = useStore((s) => s.scans.some((scan) => scan.meshState === 'ok' && s.scanViews[scan.id]?.visible !== false))
-  const { open, said } = useZustand(ui)
+  const { open } = useZustand(ui)
   const slider = useRef<HTMLInputElement>(null)
   const amount = useRef<HTMLSpanElement>(null)
   const shown = apart ? Math.round(kept.amount * 100) : 0
@@ -175,7 +175,9 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
   if (!visible) return null
   // One part has no direction to go in either; a section or a shared centre leaves how it would be drawn apart to choose.
   const nothing = why === ONE_PART
-  const line = said ?? why ?? `For display only${scans ? ': the scans stay where they are' : ''}${apart ? ` · ${hint('explode')} puts them together` : ''}`
+  // Why nothing can be drawn apart is said while it is so, and only then: what `E` was answered (a section, a shared
+  // centre) is `why` itself, so with the section taken away the line says at once what explode is.
+  const line = why ?? `For display only${scans ? ': the scans stay where they are' : ''}${apart ? ` · ${hint('explode')} puts them together` : ''}`
 
   return (
     <div id="explodebar" className="explodebar" role="group" aria-label="Explode" data-apart={apart ? '' : undefined}>
@@ -224,7 +226,7 @@ export function ExplodeBar({ viewport }: { viewport: Viewport }) {
           </button>
         ))}
       </div>
-      <span className="explodebar-note" role="status" data-refused={said !== null || why !== null ? '' : undefined}>
+      <span className="explodebar-note" role="status" data-refused={why !== null ? '' : undefined}>
         {line}
       </span>
     </div>

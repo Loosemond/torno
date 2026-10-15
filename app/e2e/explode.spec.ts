@@ -250,6 +250,9 @@ test('a section puts the parts together, and they are not drawn apart while it i
   expect(await page.evaluate(() => window.__tornoTest!.exploded())).toBe(false)
   await page.getByRole('toolbar', { name: 'Section' }).getByRole('button', { name: 'Off' }).click()
   await expect.poll(async () => (await state()).section).toBeNull()
+  // Seen on a visible screen: the bar went on saying to take the section away after it was gone. It says at once
+  // what explode is, with the pointer nowhere near the view.
+  await expect(barNote()).toHaveText(/^For display only/, { timeout: 1000 })
   // Only how far apart they were is forgotten.
   expect((await state()).explode.assembly).toEqual({ amount: 0, scale: 2, axis: 'z' })
   await expect(slider()).toBeEnabled()
