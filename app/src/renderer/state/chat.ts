@@ -1,0 +1,119 @@
+import { useStore as useZustand } from 'zustand'
+import { createStore } from 'zustand/vanilla'
+import type { ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
+
+// The transcripts of the chat sessions, in a store of their own: they are updated by what main tells, an item at
+// a time, and nothing here is per frame. Main keeps the conversation; this is only what the window has drawn from
+// it so far. `history` replaces, and what was told meanwhile is merged by `seq`.
+
+/** A thing main told of a session before its history had come. */
+type Told = { seq: number } & ({ item: ChatItem } | { meta: ChatMeta })
+
+export interface ChatSession {
+  items: ChatItem[]
+  /** The turns of the conversation this session resumed, and a note on what they leave out. */
+  earlier: ChatItem[]
+  meta: ChatMeta
+  commands: ChatCommand[]
+  models: ChatModel[]
+  /** The `seq` of the last thing applied: what is told with a `seq` up to it holds nothing new. */
+  seq: number
+  /** The history is on its way; what is told meanwhile waits in `told`. */
+  loading: boolean
+  told: Told[]
+  /** Why the history could not be had. */
+  failed?: string
+}
+
+export const chatStore = createStore<{ sessions: Record<string, ChatSession> }>(() => ({ sessions: {} }))
+
+export function useChat(sessionId: string | undefined): ChatSession | undefined {
+  return useZustand(chatStore, (s) => (sessionId ? s.sessions[sessionId] : undefined))
+}
+
+const FRESH: ChatSession = { items: [], earlier: [], meta: {}, commands: [], models: [], seq: 0, loading: true, told: [] }
+
+/** The number an id was made with: ids are `<session>-i<n>`, and `n` counts in the order the items were made. */
+const madeAt = (item: ChatItem): number => Number(/(\d+)$/.exec(item.id)?.[1] ?? Number.MAX_SAFE_INTEGER)
+
+const queued = (item: ChatItem): boolean => item.kind === 'user' && item.state === 'queued'
+
+/**
+ * The items with one more, or one changed: as main orders them. An item whose id is known keeps its place, but for
+ * a prompt that was queued and is taken up (it goes to the end, just before its own turn), and one that was not
+ * sent (it goes back to where it was made).
+ */
+export function placed(items: ChatItem[], item: ChatItem): ChatItem[] {
+  const at = items.findIndex((one) => one.id === item.id)
+  if (at < 0) return [...items, item]
+  const before = items[at]
+  if (before.kind === 'user' && item.kind === 'user' && before.state === 'queued') {
+    const rest = [...items.slice(0, at), ...items.slice(at + 1)]
+    if (item.state === 'sent') return [...rest, item]
+    if (item.state === 'not-sent') {
+      const place = rest.findIndex((one) => !queued(one) && madeAt(one) > madeAt(item))
+      return place < 0 ? [...rest, item] : [...rest.slice(0, place), item, ...rest.slice(place)]
+    }
+  }
+  return [...items.slice(0, at), item, ...items.slice(at + 1)]
+}
+
+/** The items as they are drawn: every prompt still queued after all the others, in the order they were made. */
+export function drawn(items: ChatItem[]): ChatItem[] {
+  return [...items.filter((item) => !queued(item)), ...items.filter(queued)]
+}
+
+function apply(session: ChatSession, told: Told): ChatSession {
+  if (told.seq <= session.seq) return session
+  return 'item' in told ? { ...session, items: placed(session.items, told.item), seq: told.seq } : { ...session, meta: told.meta, seq: told.seq }
+}
+
+const set = (sessionId: string, change: (session: ChatSession) => ChatSession): void => {
+  const { sessions } = chatStore.getState()
+  const session = sessions[sessionId]
+  if (!session) return
+  const next = change(session)
+  if (next !== session) chatStore.setState({ sessions: { ...sessions, [sessionId]: next } })
+}
+
+const tell = (sessionId: string, told: Told): void =>
+  set(sessionId, (session) => (session.loading ? { ...session, told: [...session.told, told] } : apply(session, told)))
+
+export const chatActions = {
+  /** Asks main for the whole transcript of a session, unless it is on its way or already here; what is told meanwhile is kept and merged. */
+  async load(sessionId: string): Promise<void> {
+    const there = chatStore.getState().sessions[sessionId]
+    if (there && (there.loading || there.failed === undefined)) return
+    chatStore.setState({ sessions: { ...chatStore.getState().sessions, [sessionId]: { ...FRESH } } })
+    try {
+      const h: ChatHistory = await window.torno.chat.history(sessionId)
+      set(sessionId, (session) => {
+        const base: ChatSession = { ...session, items: h.items, earlier: h.earlier, meta: h.meta, commands: h.commands, models: h.models, seq: h.seq, loading: false, told: [] }
+        return session.told.reduce(apply, base)
+      })
+    } catch (e) {
+      const message = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
+      set(sessionId, (session) => ({ ...session, loading: false, told: [], failed: message }))
+    }
+  },
+
+  /** A session is no more of this window's concern: a session ended and another started in its place, or a workspace closed. */
+  drop(sessionId: string): void {
+    const { [sessionId]: _gone, ...sessions } = chatStore.getState().sessions
+    chatStore.setState({ sessions })
+  },
+
+  dropAll(): void {
+    chatStore.setState({ sessions: {} })
+  }
+}
+
+/** Follow what main tells of chat sessions. Returns what stops it. */
+export function connectChat(): () => void {
+  const offItem = window.torno.chat.onItem((m) => tell(m.sessionId, { item: m.item, seq: m.seq }))
+  const offMeta = window.torno.chat.onMeta((m) => tell(m.sessionId, { meta: m.meta, seq: m.seq }))
+  return () => {
+    offItem()
+    offMeta()
+  }
+}

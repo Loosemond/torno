@@ -1,0 +1,99 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+import { Markdown, parseMarkdown } from './markdown'
+
+const html = (text: string): string => renderToStaticMarkup(createElement(Markdown, { text }))
+
+describe('the markdown of the agent\'s text', () => {
+  it('reads paragraphs, a blank line apart; a line broken inside one stays in it', () => {
+    expect(html('one\ntwo\n\nthree')).toBe('<div class="md"><p>one two</p><p>three</p></div>')
+  })
+
+  it('reads headings as bold lines of the same size, at every depth', () => {
+    const out = html('# Title\n### Deeper')
+    expect(out).toContain('<p class="md-heading"><strong>Title</strong></p>')
+    expect(out).toContain('<p class="md-heading"><strong>Deeper</strong></p>')
+    expect(out).not.toMatch(/<h\d/)
+  })
+
+  it('reads unordered and ordered lists, nested by indent', () => {
+    expect(html('- a\n- b\n  - c\n  - d\n- e')).toBe('<div class="md"><ul><li>a</li><li>b<ul><li>c</li><li>d</li></ul></li><li>e</li></ul></div>')
+    expect(html('1. one\n2. two\n   - x')).toBe('<div class="md"><ol><li>one</li><li>two<ul><li>x</li></ul></li></ol></div>')
+  })
+
+  it('reads a fenced code block as monospace text, and keeps what is in it as it is', () => {
+    const out = html('before\n```python\nx = **2**\n  y = M4\n```\nafter')
+    expect(out).toContain('<pre class="md-code"><code>x = **2**\n  y = M4</code></pre>')
+    expect(out).not.toContain('<strong>')
+    expect(out).not.toContain('data-ref')
+    expect(out).toContain('<p>after</p>')
+  })
+
+  it('keeps a fence that is never closed (a text still streaming) as code to the end', () => {
+    expect(html('```\nsolid = 1')).toContain('<pre class="md-code"><code>solid = 1</code></pre>')
+  })
+
+  it('reads inline code, bold and italic, and leaves a snake_case name alone', () => {
+    const out = html('a `b_c` and **bold** and *it* and snake_case_name and _under_')
+    expect(out).toContain('<code class="md-inline">b_c</code>')
+    expect(out).toContain('<strong>bold</strong>')
+    expect(out).toContain('<em>it</em>')
+    expect(out).toContain('snake_case_name')
+    expect(out).toContain('<em>under</em>')
+  })
+
+  it('shows a link as its text with the address in the monospace face, never as something to click', () => {
+    const out = html('see [the docs](https://example.com/a) now')
+    expect(out).toContain('the docs')
+    expect(out).toContain('<span class="md-url num">https://example.com/a</span>')
+    expect(out).not.toContain('<a')
+    expect(out).not.toContain('href')
+  })
+
+  it('reads a table of pipes', () => {
+    const out = html('| Part | Mass |\n| --- | ---: |\n| lid | 12 g |\n| tub | 40 g |')
+    expect(out).toContain('<table class="md-table">')
+    expect(out).toMatch(/<th>Part<\/th><th>Mass<\/th>/)
+    expect(out).toContain('<td>lid</td>')
+    expect(out.match(/<tr>/g)).toHaveLength(3)
+  })
+
+  it('reads a quote and a rule', () => {
+    expect(html('> said so')).toContain('<blockquote class="md-quote">said so</blockquote>')
+    expect(html('a\n\n---\n\nb')).toContain('<hr class="md-rule"/>')
+  })
+
+  it('never draws html: a script in the text is text', () => {
+    const out = html('<script>alert(1)</script> and <img src=x onerror=boom()>')
+    expect(out).not.toContain('<script')
+    expect(out).not.toContain('<img')
+    expect(out).toContain('&lt;script&gt;alert(<span class="num">1</span>)&lt;/script&gt;')
+    expect(html('```\n<script>x</script>\n```')).toContain('&lt;script&gt;x&lt;/script&gt;')
+    expect(html('[x](javascript:alert(1))')).not.toContain('href')
+  })
+
+  it('draws a ref in the text as a chip, but not inside code', () => {
+    const out = html('M4 sits on lid/F12, see `M4` and r3.')
+    expect(out.match(/data-ref="[^"]+"/g)).toEqual(['data-ref="M4"', 'data-ref="lid/F12"', 'data-ref="r3"'])
+    expect(html('```\nM4\n```')).not.toContain('data-ref')
+    expect(html('**M4 in bold**')).toContain('data-ref="M4"')
+  })
+
+  it('sets numbers in the monospace face', () => {
+    expect(html('wall of 2.5 mm')).toContain('<span class="num">2.5</span>')
+  })
+
+  it('holds a code block of 2,000 lines in one element', () => {
+    const body = Array.from({ length: 2000 }, (_, n) => `line ${n}`).join('\n')
+    const out = html(`\`\`\`\n${body}\n\`\`\``)
+    expect(out.match(/<pre/g)).toHaveLength(1)
+    expect(out).toContain('line 1999')
+    expect(parseMarkdown(`\`\`\`\n${body}\n\`\`\``)).toHaveLength(1)
+  })
+
+  it('survives a long list nested deeper than it makes sense to', () => {
+    const deep = Array.from({ length: 40 }, (_, n) => `${' '.repeat(n * 2)}- item ${n}`).join('\n')
+    expect(html(deep)).toContain('<span class="num">39</span>')
+  })
+})

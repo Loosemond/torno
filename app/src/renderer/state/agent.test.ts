@@ -3,7 +3,7 @@ import type { Part, Scene } from '../../shared/scene'
 import type { SceneFile } from '../../shared/scenefile'
 import type { Camera, HighlightRequest, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, ShowRequest } from '../../shared/view'
 import { MAX_PROPOSALS } from '../../shared/views'
-import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, setPictures } from './agent'
+import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, peek, setPictures } from './agent'
 import { actions, explodeNow, sceneFileOf, store } from './store'
 
 const part = (layout: string, name: string): Part => ({ key: `${layout}:${name}`, name, layout, faceCount: 6, edgeCount: 12, bbox: name === 'post' ? { min: [-4, -4, 2.5], max: [4, 4, 22.5] } : { min: [-20, -15, -2.5], max: [20, 15, 2.5] } }) as Part
@@ -77,6 +77,39 @@ afterEach(() => {
 })
 
 const highlight = (request: Partial<HighlightRequest> = {}) => onHighlight({ id: 7, request: { objectId: 'bracket', layout: 'assembly', refs: ['base/F5', 'post'], note: 'this one?', ...request } })
+
+describe('peek: what the pointer is on in the chat', () => {
+  it('lights the refs while it is there, and puts out what it lit when it leaves', () => {
+    peek(['base/F5'])
+    expect(tinted).toEqual([['base/F5']])
+    expect(agentStore.getState().peek).toEqual(['base/F5'])
+    // The same again changes nothing.
+    peek(['base/F5'])
+    expect(tinted).toHaveLength(1)
+    peek([])
+    expect(tinted.at(-1)).toEqual([])
+    expect(agentStore.getState()).toMatchObject({ peek: [], highlight: null })
+  })
+
+  it('is no highlight of the agent\'s: nothing for the line under the view to say', () => {
+    peek(['post'])
+    expect(agentStore.getState().highlight).toBeNull()
+  })
+
+  it('gives back what the agent points at when it leaves, and leaves it lit when the agent points while it is on', () => {
+    highlight()
+    peek(['post/F1'])
+    expect(tinted.at(-1)).toEqual(['post/F1'])
+    peek([])
+    expect(tinted.at(-1)).toEqual(['base/F5', 'post'])
+    expect(agentStore.getState().highlight).not.toBeNull()
+    peek(['post/F2'])
+    highlight({ refs: ['base'] })
+    expect(tinted.at(-1)).toEqual(['post/F2'])
+    peek([])
+    expect(tinted.at(-1)).toEqual(['base'])
+  })
+})
 
 describe('highlight', () => {
   it('tints the refs, keeps the note for the line, and answers with what it did', () => {

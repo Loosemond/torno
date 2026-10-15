@@ -18,11 +18,12 @@ export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'Wi
  * - `measure`, `section`, `align`, `region`: with that tool in hand, which then has the key before the viewport.
  * - `shape`: while a shape of the person's is the active mark.
  * - `page`: on the page of objects; `filter`: in its field.
- * - `session`: in the terminal. `separator`: on the edge of the session pane.
+ * - `session`: in the terminal. `composer`: in the box a chat prompt is written in. `picture`: while a picture of the
+ *   chat is shown large. `separator`: on the edge of the session pane.
  * - `field`, `menu`, `sheet`: in a field, an open menu, a sheet or a question.
  * - `dev`: under the dev server only.
  */
-export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'session' | 'separator' | 'field' | 'menu' | 'sheet' | 'dev'
+export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'session' | 'composer' | 'picture' | 'separator' | 'field' | 'menu' | 'sheet' | 'dev'
 
 export const TOOL_KEYS = [
   { name: 'select', label: 'Select', key: 'V', does: 'Select: click a face, an edge or a part' },
@@ -117,6 +118,9 @@ const ROWS = [
   row('session.newline', ['Shift+Enter'], 'A new line in the prompt, not a send', 'Session', 'session'),
   row('session.copy', ['Ctrl+Shift+C'], 'Copy what is selected in the terminal', 'Session', 'session'),
   row('session.paste', ['Ctrl+Shift+V'], 'Paste into the terminal', 'Session', 'session'),
+  row('chat.send', ['Enter'], 'Chat: send the prompt', 'Session', 'composer'),
+  row('chat.newline', ['Shift+Enter'], 'Chat: a new line in the prompt, not a send', 'Session', 'composer'),
+  row('chat.close', ['Esc'], 'Chat: put away a picture shown large', 'Session', 'picture'),
   row('dock.resize', ['Left', 'Right'], 'On the edge of the session pane: wider or narrower', 'Session', 'separator'),
 
   row('field.keep', ['Enter'], 'Field: keep what was typed', 'In a field, a menu or a sheet', 'field'),
