@@ -11,6 +11,7 @@ import { NudgeBody } from './align/NudgeBody'
 import { PairsBody } from './align/PairsBody'
 import { Confirm } from './Confirm'
 import { capital, numbered } from './numbered'
+import { chosen, pointerChoice } from './typing'
 
 const MODES: { mode: AlignMode; label: string; title: string }[] = [
   { mode: 'floor', label: 'Floor', title: 'Lay a flat patch of the scan on the ground, or on a face of the model' },
@@ -64,7 +65,16 @@ export function AlignBar() {
     <div className="alignbar" role="toolbar" aria-label="Align" data-raised={raised || undefined}>
       <div className="alignbar-head">
         {scans.length > 1 ? (
-          <select className="alignbar-scan num" aria-label="Scan to align" value={scan?.id ?? ''} onChange={(e) => setAlignScan(e.target.value || null)}>
+          <select
+            className="alignbar-scan num"
+            aria-label="Scan to align"
+            value={scan?.id ?? ''}
+            {...pointerChoice}
+            onChange={(e) => {
+              setAlignScan(e.target.value || null)
+              chosen(e.currentTarget)
+            }}
+          >
             {!scan && <option value="">Choose a scan</option>}
             {scans.map((one) => (
               <option key={one.id} value={one.id}>

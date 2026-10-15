@@ -1,4 +1,5 @@
 import type { AgentId } from '../../shared/bridge'
+import { chosen, pointerChoice } from './typing'
 
 /** An agent there is to choose, and whether its command is on PATH. */
 export interface AgentChoice {
@@ -23,8 +24,15 @@ export function AgentPicker(props: { value: AgentId; agents: readonly AgentChoic
       value={props.value}
       disabled={props.disabled}
       onFocus={props.onOpen}
-      onPointerDown={props.onOpen}
-      onChange={(e) => props.onChoose(e.target.value as AgentId)}
+      onPointerDown={(e) => {
+        pointerChoice.onPointerDown(e)
+        props.onOpen()
+      }}
+      onKeyDown={pointerChoice.onKeyDown}
+      onChange={(e) => {
+        props.onChoose(e.target.value as AgentId)
+        chosen(e.currentTarget)
+      }}
     >
       {props.agents.map((agent) => (
         <option key={agent.id} value={agent.id} disabled={!agent.installed}>

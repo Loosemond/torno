@@ -8,6 +8,7 @@ import { Confirm } from './Confirm'
 import { EyeIcon } from './Layers'
 import { capital, numbered } from './numbered'
 import { importScan, reimportScan } from './scanDrop'
+import { chosen, pointerChoice } from './typing'
 
 /** What the import process says it is doing, in the panel's words; a stage with no entry is said as it is. */
 const STAGE: Record<string, string> = { hashing: 'checking the file' }
@@ -308,14 +309,34 @@ function ScanRow({ objectId, scan }: { objectId: string; scan: ScanInfo }) {
         <div className="scan-fields" id={fields}>
           <div className="scan-field">
             <span className="scan-label">Read as</span>
-            <select className="scan-select num" aria-label={`Unit of ${id}`} value={unit} disabled={busy} onChange={(e) => setUnit(e.target.value as ScanUnit)}>
+            <select
+              className="scan-select num"
+              aria-label={`Unit of ${id}`}
+              value={unit}
+              disabled={busy}
+              {...pointerChoice}
+              onChange={(e) => {
+                setUnit(e.target.value as ScanUnit)
+                chosen(e.currentTarget)
+              }}
+            >
               {UNITS.map((u) => (
                 <option key={u} value={u}>
                   {u}
                 </option>
               ))}
             </select>
-            <select className="scan-select" aria-label={`Up axis of ${id}`} value={up} disabled={busy} onChange={(e) => setUp(e.target.value as ScanUp)}>
+            <select
+              className="scan-select"
+              aria-label={`Up axis of ${id}`}
+              value={up}
+              disabled={busy}
+              {...pointerChoice}
+              onChange={(e) => {
+                setUp(e.target.value as ScanUp)
+                chosen(e.currentTarget)
+              }}
+            >
               <option value="y">Y up</option>
               <option value="z">Z up</option>
             </select>

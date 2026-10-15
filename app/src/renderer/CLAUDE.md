@@ -39,7 +39,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   Region tool's `E` stays its own and explode's is the viewport's. Shift with
   a key is that key unless Shift with it has a row of its own in that scope.
   A slider is no field to type in (`ui/typing.ts`): the keys work with one in
-  focus. The exported page's own keys (`src/export/viewer`) are not in the
+  focus. After a click or an action the next letter is the view's (`e2e/focus.spec.ts` walks a session of
+  work pressing `P` after each step): only a field, a list being chosen in with the keys, and the session's
+  terminal itself keep the keys (`TYPING`), not the session pane's buttons, its edge or its agent picker; a
+  choice made in a list with the pointer gives them back (`pointerChoice`, `chosen`), as Enter and Escape do
+  in a field (`giveKeysBack`). The exported page's own keys (`src/export/viewer`) are not in the
   table: it is another program. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
