@@ -37,6 +37,7 @@
 //     `system`/`init` (with `fake_argv`, its arguments) and, for what the hook answered, a `system`/`hook_response`,
 //     runs the script that is the prompt's text, posts `Stop` and emits `result`;
 //   - a prompt `/noop` is no turn: an `init` and nothing else;
+//   - a prompt `/silent` is taken up with no `init`, no hook and no result: only a `rate_limit_event`;
 //   - a prompt `/compact` is what the CLI does for it (claude-stream-asks.jsonl): an `init`, a `compact_boundary`
 //     (29,569 -> 3,637 tokens), the replay of its output and a `result` of no turns; no hooks;
 //   - a request's `permission_suggestions` are the three kinds the CLI sends (a rule for the settings of the folder,
@@ -273,6 +274,11 @@ async function streamMode() {
     // A prompt that is no turn (a slash command that only does something): an init, no hooks, no result.
     if (text.trim() === '/noop') {
       out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [], fake_argv: argv, ...base, uuid: next('uuid') })
+      return
+    }
+    // A command the CLI takes up with no `init`, no hook and no result: it only says something else (a rate limit).
+    if (text.trim() === '/silent') {
+      out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.1 } } }, ...base, uuid: next('uuid') })
       return
     }
     if (text.trim() === '/compact') {

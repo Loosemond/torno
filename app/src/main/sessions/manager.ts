@@ -702,13 +702,17 @@ export class Sessions {
     if (!transcript || this.sessions.get(session.id) !== session) return
     clearTimeout(session.graceTimer)
     if (transcript.untakenCount() === 0) return this.advance(session, 'Stop')
-    const seen = session.activity
-    session.graceTimer = setTimeout(() => {
-      if (session.activity !== seen || this.sessions.get(session.id) !== session) return
-      transcript.idle()
-      this.advance(session, 'Stop')
-    }, IDLE_GRACE_MS)
-    session.graceTimer.unref?.()
+    const arm = (seen: number): void => {
+      session.graceTimer = setTimeout(() => {
+        if (this.sessions.get(session.id) !== session) return
+        // Something else happened inside the moment: look again after another, for as long as prompts are untaken.
+        if (session.activity !== seen) return transcript.untakenCount() > 0 ? arm(session.activity) : undefined
+        transcript.idle()
+        this.advance(session, 'Stop')
+      }, IDLE_GRACE_MS)
+      session.graceTimer.unref?.()
+    }
+    arm(session.activity)
   }
 
   /**

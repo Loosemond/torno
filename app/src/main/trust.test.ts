@@ -55,6 +55,21 @@ describe('the project settings Claude Code would load', () => {
   })
 })
 
+describe('a home that is a link', () => {
+  it('is the home all the same: its own settings are not reported, though the object is found by its real path', async () => {
+    const real = join(home, 'real-home')
+    const link = join(home, 'link-home')
+    const obj = join(real, 'ws', 'box')
+    mkdirSync(obj, { recursive: true })
+    symlinkSync(real, link)
+    put(join(real, '.claude', 'settings.json'))
+    put(join(real, 'ws', '.mcp.json'))
+    expect(await projectSettings(obj, link)).toEqual([join('..', '.mcp.json')])
+    // And the other way round: the object by the link, the home by its real path.
+    expect(await projectSettings(join(link, 'ws', 'box'), real)).toEqual([join('..', '.mcp.json')])
+  })
+})
+
 describe('the folders the person let the chat start in', () => {
   it('asks for a folder with settings until it is accepted, and for one without never', async () => {
     const trust = new Trust(join(home, 'cfg', 'trusted.json'), home)

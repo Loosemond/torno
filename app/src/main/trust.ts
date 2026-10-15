@@ -27,7 +27,10 @@ const exists = (path: string): Promise<boolean> =>
  */
 export async function projectSettings(dir: string, home: string = homedir()): Promise<string[]> {
   const found: string[] = []
-  for (let at = dir; at !== home; at = dirname(at)) {
+  // By real path: a home that is a link (`/home` to `/var/home`) is still the home of an object found by its real one.
+  const real = (path: string): Promise<string> => realpath(path).catch(() => path)
+  const realHome = await real(home)
+  for (let at = dir; (await real(at)) !== realHome; at = dirname(at)) {
     const claude = join(at, '.claude')
     const info = await lstat(claude).catch(() => null)
     for (const name of PROJECT_FILES) {

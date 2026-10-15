@@ -1901,6 +1901,16 @@ describe('the transcript of a chat session', () => {
     await expect.poll(() => c.turns(), { timeout: 8000 }).toBe(2)
   })
 
+  it('still takes a prompt up that had no hook and no init, when other lines came inside the moment it was waited for', async () => {
+    const c = await start()
+    await c.send('slow 0.3')
+    await c.send('/silent')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    // The silent command's own line came just after the result: the wait begins again, and ends.
+    await expect.poll(() => c.items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state), { timeout: 6000 }).toEqual(['sent', 'sent'])
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('idle')
+  })
+
   it('names the chat of an object that has ended, for a window loaded since, and none while one runs', async () => {
     const c = await start()
     expect(tSessions.endedChat(c.obj.id)).toBeUndefined()
