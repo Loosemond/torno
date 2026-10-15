@@ -20,6 +20,9 @@ export interface StreamAsk {
   input: unknown
   toolUseId?: string
   suggestions?: unknown[]
+  /** What the CLI says in words of what it asks (`description`), and the path it is blocked on (`blocked_path`). */
+  description?: string
+  blockedPath?: string
 }
 
 export type PromptBlock =
@@ -209,7 +212,7 @@ export class ClaudeStream {
   /** A request of the CLI's: a `can_use_tool` is an ask, anything else is refused. Whether it was one of those. */
   private asked(message: StreamMessage): boolean {
     const id = message.request_id
-    const request = message.request as { subtype?: unknown; tool_name?: unknown; input?: unknown; tool_use_id?: unknown; permission_suggestions?: unknown } | undefined
+    const request = message.request as { subtype?: unknown; tool_name?: unknown; input?: unknown; tool_use_id?: unknown; permission_suggestions?: unknown; description?: unknown; blocked_path?: unknown } | undefined
     if (typeof id !== 'string') return false
     if (request?.subtype !== 'can_use_tool' || typeof request.tool_name !== 'string') {
       this.send({ type: 'control_response', response: { subtype: 'error', request_id: id, error: 'not supported' } })
@@ -220,7 +223,9 @@ export class ClaudeStream {
       toolName: request.tool_name,
       input: request.input,
       ...(typeof request.tool_use_id === 'string' ? { toolUseId: request.tool_use_id } : {}),
-      ...(Array.isArray(request.permission_suggestions) ? { suggestions: request.permission_suggestions } : {})
+      ...(Array.isArray(request.permission_suggestions) ? { suggestions: request.permission_suggestions } : {}),
+      ...(typeof request.description === 'string' && request.description !== '' ? { description: request.description } : {}),
+      ...(typeof request.blocked_path === 'string' && request.blocked_path !== '' ? { blockedPath: request.blocked_path } : {})
     })
     return true
   }

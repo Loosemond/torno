@@ -14,16 +14,18 @@ const record = (value: unknown): Record<string, unknown> | undefined => (typeof 
 
 /**
  * The input of a request in plain words, to set in the monospace face: a command as it is; a file by its path
- * (`lead`) and the first lines of what goes in it (`more` is how many are left out); anything else as compact JSON.
+ * (`lead`) and the first lines of what goes in it (`more` is how many are left out, none with `all`); anything else as
+ * compact JSON.
  */
-export function describeInput(tool: string, input: unknown): { lead: string | undefined; body: string; more: number } {
+export function describeInput(tool: string, input: unknown, all = false): { lead: string | undefined; body: string; more: number } {
   const fields = record(input)
   if (tool === 'Bash' && fields) return { lead: undefined, body: text(fields.command) ?? '', more: 0 }
   if (FILE_TOOLS.has(tool) && fields) {
     const lead = text(fields.file_path) ?? text(fields.notebook_path)
     const held = text(fields.content) ?? text(fields.new_string) ?? text(fields.new_source) ?? ''
     const lines = held === '' ? [] : held.split('\n')
-    return { lead, body: lines.slice(0, FILE_LINES).join('\n'), more: Math.max(0, lines.length - FILE_LINES) }
+    const shown = all ? lines : lines.slice(0, FILE_LINES)
+    return { lead, body: shown.join('\n'), more: lines.length - shown.length }
   }
   if (input === undefined || input === null) return { lead: undefined, body: '', more: 0 }
   let json: string

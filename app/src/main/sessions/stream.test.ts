@@ -205,14 +205,14 @@ describe('requests', () => {
     const cli = open(`
       import { createInterface } from 'node:readline'
       const out = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
-      out({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'ls' }, tool_use_id: 'toolu_1', permission_suggestions: [{ type: 'addRules' }] } })
+      out({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'ls' }, tool_use_id: 'toolu_1', permission_suggestions: [{ type: 'addRules' }], description: 'List it', blocked_path: '/work/x' } })
       out({ type: 'control_request', request_id: 'r2', request: { subtype: 'hook_callback' } })
       out({ type: 'control_request', request_id: 'r3', request: { subtype: 'can_use_tool', tool_name: 'Read', input: {} } })
       createInterface({ input: process.stdin }).on('line', (line) => out({ type: 'echo', line }))
     `)
     await expect.poll(() => cli.asks.length).toBe(2)
     expect(cli.asks).toEqual([
-      { requestId: 'r1', toolName: 'Bash', input: { command: 'ls' }, toolUseId: 'toolu_1', suggestions: [{ type: 'addRules' }] },
+      { requestId: 'r1', toolName: 'Bash', input: { command: 'ls' }, toolUseId: 'toolu_1', suggestions: [{ type: 'addRules' }], description: 'List it', blockedPath: '/work/x' },
       { requestId: 'r3', toolName: 'Read', input: {} }
     ])
     await expect.poll(() => cli.messages.length).toBe(1)

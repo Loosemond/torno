@@ -1217,7 +1217,7 @@ describe('a chat session', () => {
     c.send('ask Bash {"command":"ls"}')
     await expect.poll(() => c.asks.length).toBe(1)
     expect(c.asks[0]).toMatchObject({ toolName: 'Bash', input: { command: 'ls' } })
-    expect(c.asks[0].suggestions).toHaveLength(1)
+    expect(c.asks[0].suggestions).toHaveLength(3)
     await expect.poll(() => c.statuses.at(-1)).toBe('needs_input')
     c.sessions.answer(c.sessionId, c.asks[0].requestId, { behavior: 'allow', updatedInput: { command: 'ls -la' } })
     expect(c.asked).toMatchObject([{ requestId: c.asks[0].requestId, answered: true }])
@@ -1694,7 +1694,40 @@ describe('the transcript of a chat session', () => {
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
     const tools = c.items().filter((i) => i.kind === 'tool') as Array<{ result?: string }>
     expect(tools[0].result).toBe('denied: The person denied this.')
-    expect(tools[1].result).toContain('permissions: [{"type":"addRules"')
+    // Of the three kinds the CLI suggests, only the rule goes back, and as a rule of the session.
+    expect(tools[1].result).toContain('permissions: [{"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"session"}]')
+  })
+
+  it('keeps of the answers to a question only those of the questions that were asked', async () => {
+    const c = await start()
+    const input = { questions: [{ question: 'Which wall?', header: 'Wall', multiSelect: false, options: [{ label: '2 mm', description: 'thin' }] }] }
+    await c.send(`ask AskUserQuestion ${JSON.stringify(input)}`)
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    const ask = c.items().find((i) => i.kind === 'ask') as { requestId: string }
+    tSessions.respond(c.id, ask.requestId, { allow: true, updatedInput: { answers: { 'Which wall?': '3 mm', 'Anything else?': 'rm' } } })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().find((i) => i.kind === 'tool')).toMatchObject({ result: `allowed: ${JSON.stringify({ ...input, answers: { 'Which wall?': '3 mm' } })}` })
+  })
+
+  it('shows what the request says in words and the path it is blocked on, and offers "for this session" only when there is a rule', async () => {
+    const c = await start()
+    await c.send('ask Bash {"command":"touch made.txt","description":"Create made.txt","blocked_path":"/work/obj/made.txt"}')
+    await expect.poll(() => c.items().some((i) => i.kind === 'ask')).toBe(true)
+    expect(c.items().find((i) => i.kind === 'ask')).toMatchObject({ description: 'Create made.txt', blockedPath: '/work/obj/made.txt', suggestions: true })
+  })
+
+  it('takes a /compact for a turn of no turns: the boundary is told, the prompt is sent, and the session is idle after it', async () => {
+    const c = await start()
+    await c.send('/compact')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().map((i) => i.kind)).toEqual(['user', 'note', 'turn'])
+    expect(c.items()[0]).toMatchObject({ state: 'sent', text: '/compact' })
+    expect(c.items()[1]).toMatchObject({ text: 'Conversation compacted: 29,569 → 3,637 tokens', tone: 'quiet' })
+    expect(c.items()[2]).toMatchObject({ ok: true, stopped: false })
+    await expect.poll(() => tSessions.current(c.obj.id)?.status).toBe('idle')
+    // Nothing waits behind it: the next prompt is not queued.
+    await c.send('say after')
+    expect(c.items().find((i) => i.kind === 'user' && i.text === 'say after')).toMatchObject({ state: 'sent' })
   })
 
   it('closes what is open when the session ends: the request is not answered, the queued prompt not sent', async () => {

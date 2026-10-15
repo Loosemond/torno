@@ -800,3 +800,23 @@ select.session-model:disabled {
   color: var(--muted);
   font-size: var(--text-small);
 }
+
+/* What the request says in words, and the path it is blocked on (the path in the monospace face). */
+.chat-ask-why {
+  margin: 0 0 var(--space-2);
+  color: var(--ink);
+  text-wrap: pretty;
+}
+
+.chat-ask-path {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.chat-ask-path .chat-ask-lead {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}

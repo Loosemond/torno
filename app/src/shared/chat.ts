@@ -23,8 +23,8 @@ export type ChatItem =
   | { kind: 'thinking'; id: string; seconds?: number; streaming: boolean }
   /** A tool the agent used; `torno` when it is one of torno's own (`mcp__torno__<tool>`). */
   | { kind: 'tool'; id: string; toolUseId: string; name: string; torno: boolean; input: unknown; state: 'running' | 'done' | 'error' | 'stopped'; result?: string; images: ChatImage[]; detail?: unknown }
-  /** The agent asks the person: to use a tool, or a question. */
-  | { kind: 'ask'; id: string; requestId: string; toolName: string; input: unknown; suggestions: boolean; state: 'open' | 'allowed' | 'denied' | 'ended'; answer?: string }
+  /** The agent asks the person: to use a tool, or a question. `suggestions`: whether there is a rule to allow for the session. */
+  | { kind: 'ask'; id: string; requestId: string; toolName: string; input: unknown; suggestions: boolean; description?: string; blockedPath?: string; state: 'open' | 'allowed' | 'denied' | 'ended'; answer?: string }
   /** The end of a turn, with what was pulled from torno in it (`pulledFromTorno`). */
   | { kind: 'turn'; id: string; ok: boolean; stopped: boolean; seconds: number; pulled: Record<string, number>; error?: string }
   /** Something torno says about the conversation: the model changed, torno's tools are not connected, the session ended. */

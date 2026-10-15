@@ -1,4 +1,5 @@
 import { type ChatImage, type ChatItem, type ChatMeta, TORNO_TOOL_PREFIX, isTornoTool } from '../../shared/chat'
+import { sessionRules } from './permissions'
 import type { PromptBlock, StreamAsk, StreamMessage } from './stream'
 
 // The transcript of one chat session: the CLI's stream (`stream.ts`) and torno's own records (a prompt sent, a hook
@@ -153,8 +154,18 @@ export class Transcript {
   }
 
   /** The agent asks the person. Not stored once the session has ended. */
-  asked(a: Pick<StreamAsk, 'requestId' | 'toolName' | 'input'> & { suggestions?: unknown[] }): ChatItem {
-    const item: ChatItem = { kind: 'ask', id: this.newId('i'), requestId: a.requestId, toolName: a.toolName, input: this.scrub(a.input), suggestions: (a.suggestions?.length ?? 0) > 0, state: 'open' }
+  asked(a: Pick<StreamAsk, 'requestId' | 'toolName' | 'input' | 'suggestions' | 'description' | 'blockedPath'>): ChatItem {
+    const item: ChatItem = {
+      kind: 'ask',
+      id: this.newId('i'),
+      requestId: a.requestId,
+      toolName: a.toolName,
+      input: this.scrub(a.input),
+      suggestions: sessionRules(a.suggestions).length > 0,
+      ...(a.description !== undefined ? { description: this.redact(a.description) } : {}),
+      ...(a.blockedPath !== undefined ? { blockedPath: this.redact(a.blockedPath) } : {}),
+      state: 'open'
+    }
     if (this.closed) return { ...item, state: 'ended' }
     this.run(() => {
       this.put(item)
@@ -290,7 +301,12 @@ export class Transcript {
       }
       this.setMeta(next)
     } else if (m.subtype === 'compact_boundary') {
-      this.put({ kind: 'note', id: this.newId('i'), text: 'The conversation was compacted', tone: 'quiet' })
+      const meta = obj(m.compact_metadata)
+      const before = num(meta?.pre_tokens)
+      const after = num(meta?.post_tokens)
+      const tokens = new Intl.NumberFormat('en-US')
+      const text = before !== undefined && after !== undefined ? `Conversation compacted: ${tokens.format(before)} → ${tokens.format(after)} tokens` : 'Conversation compacted'
+      this.put({ kind: 'note', id: this.newId('i'), text, tone: 'quiet' })
     }
   }
 

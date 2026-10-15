@@ -371,7 +371,7 @@ describe('the end of a turn', () => {
 describe('asking the person', () => {
   it('is an item that is open until it is answered', () => {
     const t = new Transcript()
-    const open = t.asked({ requestId: 'req_1', toolName: 'Bash', input: { command: 'ls' }, suggestions: [{ type: 'addRules' }] })
+    const open = t.asked({ requestId: 'req_1', toolName: 'Bash', input: { command: 'ls' }, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'allow', destination: 'localSettings' }] })
     expect(open).toMatchObject({ kind: 'ask', requestId: 'req_1', toolName: 'Bash', input: { command: 'ls' }, suggestions: true, state: 'open' })
     expect(t.answered('req_1', 'allowed', 'ls')).toMatchObject({ id: open.id, state: 'allowed', answer: 'ls' })
     expect(t.answered('req_1', 'denied')).toBeNull()
@@ -616,5 +616,47 @@ describe('fix round 1', () => {
     t.message(init())
     expect(of(t, 'user')[0].state).toBe('sent')
     expect(t.idle()).toEqual([])
+  })
+})
+
+// What Claude Code 2.1.301 printed for a permission, a question and a /compact (app/test/fixtures/claude-stream-asks.jsonl).
+// One line of it is cut by the scrubbing and is no JSON: the framing of the stream passes such a line over, and so does this.
+const ASKS: StreamMessage[] = readFileSync(join(__dirname, '../../../test/fixtures/claude-stream-asks.jsonl'), 'utf8')
+  .split('\n')
+  .flatMap((line) => {
+    try {
+      return [JSON.parse(line) as StreamMessage]
+    } catch {
+      return []
+    }
+  })
+
+describe('what the CLI printed for a permission and for /compact', () => {
+  it('makes of /compact its prompt sent at the init, a quiet note with the tokens, and a turn that is ok', () => {
+    const t = new Transcript({ now: () => 1000 })
+    const at = ASKS.map((m, n) => (m.type === 'system' && m.subtype === 'init' ? n : -1)).filter((n) => n >= 0).at(-1)!
+    t.userSent(text('/compact'), false)
+    for (const m of ASKS.slice(at - 2)) t.message(m)
+    const items = t.items()
+    expect(items.map((i) => i.kind)).toEqual(['user', 'note', 'turn'])
+    expect(items[0]).toMatchObject({ state: 'sent', text: '/compact' })
+    expect(items[1]).toMatchObject({ text: 'Conversation compacted: 29,569 → 3,637 tokens', tone: 'quiet' })
+    expect(items[2]).toMatchObject({ ok: true, stopped: false })
+  })
+
+  it('tells a boundary that has no numbers without them', () => {
+    const t = new Transcript({ now: () => 1000 })
+    t.message({ type: 'system', subtype: 'compact_boundary' })
+    expect(of(t, 'note')[0].text).toBe('Conversation compacted')
+  })
+
+  it('shows a request with what it says in words, its blocked path, and a rule to allow for the session only when there is one', () => {
+    const t = new Transcript({ now: () => 1000 })
+    const request = ASKS.find((m) => m.type === 'control_request')!.request as { tool_name: string; input: unknown; description: string; blocked_path: string; permission_suggestions: unknown[] }
+    const item = t.asked({ requestId: 'r1', toolName: request.tool_name, input: request.input, suggestions: request.permission_suggestions, description: request.description, blockedPath: request.blocked_path })
+    expect(item).toMatchObject({ kind: 'ask', toolName: 'Bash', description: 'Create made.txt and list directory', blockedPath: '/work/obj/made.txt', suggestions: true })
+    const modes = t.asked({ requestId: 'r2', toolName: 'Edit', input: {}, suggestions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] })
+    expect(modes).toMatchObject({ suggestions: false })
+    expect('description' in modes).toBe(false)
   })
 })

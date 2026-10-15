@@ -37,6 +37,10 @@
 //     `system`/`init` (with `fake_argv`, its arguments) and, for what the hook answered, a `system`/`hook_response`,
 //     runs the script that is the prompt's text, posts `Stop` and emits `result`;
 //   - a prompt `/noop` is no turn: an `init` and nothing else;
+//   - a prompt `/compact` is what the CLI does for it (claude-stream-asks.jsonl): an `init`, a `compact_boundary`
+//     (29,569 -> 3,637 tokens), the replay of its output and a `result` of no turns; no hooks;
+//   - a request's `permission_suggestions` are the three kinds the CLI sends (a rule for the settings of the folder,
+//     a directory, a mode); its `description` and `blocked_path` are those of the input when it has them;
 //   - the script is one command per line (a line that is none is `say <line>`):
 //       say <text>                a streamed text, then the whole assistant message
 //       tool <name> <json input>  a tool_use, PreToolUse/PostToolUse, a tool_result `ran <name>`; for a name that
@@ -162,7 +166,7 @@ async function streamMode() {
     if (asked) {
       const requestId = next('req_perm')
       const wait = new Promise((resolve) => answers.set(requestId, resolve))
-      out({ type: 'control_request', request_id: requestId, request: { subtype: 'can_use_tool', tool_name: name, input, tool_use_id: id, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: name }], behavior: 'allow', destination: 'session' }] } })
+      out({ type: 'control_request', request_id: requestId, request: { subtype: 'can_use_tool', tool_name: name, input, tool_use_id: id, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: name }], behavior: 'allow', destination: 'localSettings' }, { type: 'addDirectories', directories: [process.cwd()], destination: 'session' }, { type: 'setMode', mode: 'acceptEdits', destination: 'session' }], display_name: name, ...(typeof input?.description === 'string' ? { description: input.description } : {}), ...(typeof input?.blocked_path === 'string' ? { blocked_path: input.blocked_path } : {}) } })
       const response = await Promise.race([wait, turn.interrupted])
       if (turn.aborted) return
       if (response?.behavior === 'allow') content = `allowed: ${JSON.stringify(response.updatedInput)}${response.updatedPermissions ? `\npermissions: ${JSON.stringify(response.updatedPermissions)}` : ''}`
@@ -224,6 +228,13 @@ async function streamMode() {
     // A prompt that is no turn (a slash command that only does something): an init, no hooks, no result.
     if (text.trim() === '/noop') {
       out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [], fake_argv: argv, ...base, uuid: next('uuid') })
+      return
+    }
+    if (text.trim() === '/compact') {
+      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...base, uuid: next('uuid') })
+      out({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 29569, post_tokens: 3637 }, ...base, uuid: next('uuid') })
+      out({ type: 'user', message: { role: 'user', content: '<local-command-stdout>Compacted </local-command-stdout>' }, isReplay: true, ...base, uuid: next('uuid') })
+      out({ type: 'result', subtype: 'success', is_error: false, duration_ms: 0, num_turns: 0, stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 }, ...base, uuid: next('uuid') })
       return
     }
     let release

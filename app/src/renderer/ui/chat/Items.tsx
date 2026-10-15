@@ -121,7 +121,7 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
     case 'note':
       return (
         <p className="chat-item chat-note" data-kind="note" data-tone={item.tone}>
-          {item.text}
+          {numbered(item.text)}
         </p>
       )
   }

@@ -70,7 +70,7 @@ async function newSession(): Promise<void> {
   await expect(composer()).toBeEnabled()
 }
 
-test('a request to use a tool is a card with the input, answered with Allow, Always allow or Deny and a reason', async () => {
+test('a request to use a tool is a card with the input, answered with Allow, Allow for this session or Deny and a reason', async () => {
   await page.getByRole('button', { name: 'bracket', exact: true }).click()
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
   await dock().getByRole('button', { name: 'New session' }).click()
@@ -102,6 +102,10 @@ test('a request to use a tool is a card with the input, answered with Allow, Alw
   await expect(write.locator('.chat-ask-input')).toContainText('notes/a.txt')
   await expect(write.locator('.chat-ask-input')).toContainText('three')
   await expect(write.locator('.chat-ask-input')).not.toContainText('eight')
+  // The rest of it can be seen before it is allowed.
+  await write.getByRole('button', { name: /^Show all/ }).click()
+  await expect(write.locator('.chat-ask-input')).toContainText('eight')
+  await expect(write.getByRole('button', { name: /^Show all/ })).toHaveCount(0)
   await write.getByLabel('Reason (optional)').fill('not there, please')
   await write.getByRole('button', { name: 'Deny', exact: true }).click()
   await expect(write).toHaveAttribute('data-state', 'denied')
@@ -115,10 +119,14 @@ test('a request to use a tool is a card with the input, answered with Allow, Alw
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: The person denied this.')
 
-  // Always allow passes on the suggestions the CLI sent, as they came.
-  await say('ask Bash {"command":"pwd"}')
+  // Allow for this session passes on the rule the CLI suggested, as a rule of the session. Of the three kinds it suggests
+  // (a rule for the settings of the folder, a directory, a mode) the others are not passed on.
+  await say('ask Bash {"command":"pwd","description":"Show the folder","blocked_path":"/work/obj/pwd"}')
   const always = asks().last()
-  await always.getByRole('button', { name: 'Always allow', exact: true }).click()
+  // The request's words, and its path in the monospace face.
+  await expect(always.locator('.chat-ask-why')).toHaveText('Show the folder')
+  await expect(always.locator('.chat-ask-path .chat-ask-lead')).toHaveText('/work/obj/pwd')
+  await always.getByRole('button', { name: 'Allow for this session', exact: true }).click()
   await expect(always).toContainText('Allowed')
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('permissions: [{"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"session"}]')
@@ -200,6 +208,16 @@ test('the questions of AskUserQuestion are one card: radio-like buttons, toggles
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('"answers":{"Which wall?":"2.5 mm"}')
 })
 
+test('a question the window cannot draw says so and can be refused', async () => {
+  await say('ask AskUserQuestion {"questions":[{"header":"no text"}]}')
+  const card = asks().last()
+  await expect(card).toContainText('The question could not be shown')
+  await expect(card.getByRole('button', { name: 'Submit' })).toHaveCount(0)
+  await card.getByRole('button', { name: 'Deny', exact: true }).click()
+  await finished()
+  expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: The person could not be shown the question.')
+})
+
 test('a plan is drawn as markdown, approved or kept for more planning with a reason', async () => {
   await say('ask ExitPlanMode {"plan":"# The plan\\n- widen the wall\\n- rebuild"}')
   const plan = asks().last()
@@ -219,6 +237,14 @@ test('a plan is drawn as markdown, approved or kept for more planning with a rea
   await expect(again).toContainText('Approved')
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('allowed: {"plan":"- just do it"}')
+})
+
+test('/compact is a prompt that is sent, a quiet note with the tokens, and a turn; the session is idle after it', async () => {
+  await say('/compact')
+  await expect(chat().locator('.chat-note', { hasText: 'Conversation compacted: 29,569 → 3,637 tokens' })).toHaveCount(1)
+  await expect(chat().locator('.chat-note', { hasText: 'Conversation compacted' }).locator('.num')).toHaveText(['29,569', '3,637'])
+  await finished()
+  await expect(status()).toHaveText('Idle')
 })
 
 test('a request still open when the session ends says it was not answered', async () => {

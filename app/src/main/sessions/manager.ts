@@ -13,6 +13,7 @@ import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import type { AgentAdapter } from './adapter'
 import { appendItems, readLog } from './chatlog'
+import { sessionRules } from './permissions'
 import { findCommand } from './choice'
 import { type Told, blankPrompt, Delivery, untold } from './delivery'
 import { PROMPT_FILE } from './sendMarks'
@@ -488,10 +489,11 @@ export class Sessions {
     const ask = s?.asks.get(requestId)
     if (!s || !ask || typeof answer !== 'object' || answer === null) return
     if (answer.allow !== true) return this.answer(sessionId, requestId, { behavior: 'deny', message: typeof answer.message === 'string' && answer.message.trim() !== '' ? answer.message : DENIED })
-    const answers = ask.toolName === 'AskUserQuestion' ? answersOf(answer.updatedInput) : undefined
+    const answers = ask.toolName === 'AskUserQuestion' ? answersOf(answer.updatedInput, questionTexts(ask.input)) : undefined
     const input = answers ? { ...(typeof ask.input === 'object' && ask.input !== null ? ask.input : {}), answers } : ask.input
-    const always = answer.always === true && (ask.suggestions?.length ?? 0) > 0
-    this.answer(sessionId, requestId, { behavior: 'allow', updatedInput: input, ...(always ? { updatedPermissions: ask.suggestions } : {}) })
+    // "Allow for this session": the rules the CLI suggested, as rules of this session and nothing else of what it suggested.
+    const rules = answer.always === true ? sessionRules(ask.suggestions) : []
+    this.answer(sessionId, requestId, { behavior: 'allow', updatedInput: input, ...(rules.length > 0 ? { updatedPermissions: rules } : {}) })
   }
 
   /** A chat session: the answer to a request of the agent's that waits for the person (an `ask`). */
@@ -783,20 +785,28 @@ function modelsOf(models: unknown[]): ChatModel[] {
   return out
 }
 
-/** The answers to the questions of an `AskUserQuestion`, a text for each question, from what the window sent. */
 /** What the agent is told when the person denied a request and said nothing more. */
 const DENIED = 'The person denied this.'
 
-function answersOf(input: unknown): Record<string, string> | undefined {
+/** The answers to the questions of an `AskUserQuestion`, a text for each question, from what the window sent. */
+function answersOf(input: unknown, questions: readonly string[]): Record<string, string> | undefined {
   const answers = typeof input === 'object' && input !== null ? (input as { answers?: unknown }).answers : undefined
   if (typeof answers !== 'object' || answers === null || Array.isArray(answers)) return undefined
   const entries = Object.entries(answers)
-  return entries.every(([, v]) => typeof v === 'string') ? Object.fromEntries(entries as Array<[string, string]>) : undefined
+  if (!entries.every(([, v]) => typeof v === 'string')) return undefined
+  // Only what answers a question that was asked.
+  return Object.fromEntries((entries as Array<[string, string]>).filter(([question]) => questions.includes(question)))
+}
+
+/** The texts of the questions of an `AskUserQuestion` input. */
+function questionTexts(input: unknown): string[] {
+  const list = typeof input === 'object' && input !== null ? (input as { questions?: unknown }).questions : undefined
+  return (Array.isArray(list) ? list : []).flatMap((q) => (typeof (q as { question?: unknown } | null)?.question === 'string' ? [(q as { question: string }).question] : []))
 }
 
 /** What the person answered, in a line for each question; nothing for a tool that has no questions. */
 function answersText(input: unknown): string | undefined {
-  const answers = answersOf(input)
+  const answers = answersOf(input, questionTexts(input))
   return answers ? Object.entries(answers).map(([question, answer]) => `${question}: ${answer}`).join('\n') : undefined
 }
 

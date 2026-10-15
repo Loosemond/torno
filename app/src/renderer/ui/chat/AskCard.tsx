@@ -1,6 +1,7 @@
 import { createContext, memo, useContext, useEffect, useRef, useState } from 'react'
 import { type ChatAnswer, type ChatItem, TORNO_TOOL_PREFIX } from '../../../shared/chat'
 import { pressed } from '../../../shared/keys'
+import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
 import { type Question, answerFor, describeInput, questionsOf } from './ask'
 import { Markdown } from './markdown'
@@ -15,9 +16,18 @@ const DENIED = 'The person denied this.'
 
 const toolName = (name: string): string => (name.startsWith(TORNO_TOOL_PREFIX) ? `torno · ${name.slice(TORNO_TOOL_PREFIX.length)}` : name)
 
+/** How long a card waits for main to take its answer before it lets the person answer again. */
+const ANSWER_WAIT_MS = 10_000
+
 function useAnswer(item: Ask): { answering: boolean; answer: (a: ChatAnswer) => void } {
   const session = useContext(AskSession)
   const [answering, setAnswering] = useState(false)
+  // Main ends the ask with the answer; should nothing change within moments, the buttons are the person's again.
+  useEffect(() => {
+    if (!answering) return
+    const timer = setTimeout(() => setAnswering(false), ANSWER_WAIT_MS)
+    return () => clearTimeout(timer)
+  }, [answering])
   return {
     answering: answering && item.state === 'open',
     answer(a) {
@@ -27,6 +37,9 @@ function useAnswer(item: Ask): { answering: boolean; answer: (a: ChatAnswer) => 
     }
   }
 }
+
+/** The requests that have had the focus once: a pane drawn again (another object shown and back) does not take it again. */
+const focused = new Set<string>()
 
 /** The reason for a refusal, typed on the card; Enter refuses with it, Escape gives the keys back. */
 function Reason({ value, onChange, onKeep }: { value: string; onChange: (v: string) => void; onKeep: () => void }) {
@@ -69,19 +82,30 @@ function Permission({ item }: { item: Ask }) {
   const { answering, answer } = useAnswer(item)
   const [reason, setReason] = useState('')
   const open = item.state === 'open'
-  const shown = describeInput(item.toolName, item.input)
+  const [all, setAll] = useState(false)
+  const shown = describeInput(item.toolName, item.input, all)
   const deny = (): void => answer({ allow: false, message: reason.trim() })
   return (
     <>
       <h4 className="chat-ask-title">
         Claude Code {open ? 'asks' : 'asked'} to use <span className="num">{toolName(item.toolName)}</span>
       </h4>
+      {item.description !== undefined && <p className="chat-ask-why selectable">{item.description}</p>}
       {(shown.lead !== undefined || shown.body !== '') && (
         <div className="chat-ask-input selectable">
           {shown.lead !== undefined && <p className="chat-ask-lead">{shown.lead}</p>}
           {shown.body !== '' && <pre>{shown.body}</pre>}
-          {shown.more > 0 && <p className="chat-ask-lead">…and {shown.more} more lines</p>}
+          {shown.more > 0 && (
+            <button type="button" className="chat-more" onClick={() => setAll(true)}>
+              Show all {numbered(`${shown.more} more lines`)}
+            </button>
+          )}
         </div>
+      )}
+      {item.blockedPath !== undefined && (
+        <p className="chat-ask-path selectable">
+          Path <span className="chat-ask-lead">{item.blockedPath}</span>
+        </p>
       )}
       {open ? (
         <div className="chat-ask-actions">
@@ -90,8 +114,8 @@ function Permission({ item }: { item: Ask }) {
             Deny
           </button>
           {item.suggestions && (
-            <button type="button" className="button" disabled={answering} title="Allow this, and what Claude Code suggests to allow without asking again" onClick={() => answer({ allow: true, always: true })}>
-              Always allow
+            <button type="button" className="button" disabled={answering} title="Allow this, and the rule Claude Code suggests, until this session ends" onClick={() => answer({ allow: true, always: true })}>
+              Allow for this session
             </button>
           )}
           <button type="button" className="button button-primary" disabled={answering} onClick={() => answer({ allow: true })}>
@@ -180,13 +204,34 @@ function Questions({ item }: { item: Ask }) {
     if (!complete) return
     answer({ allow: true, updatedInput: { answers: Object.fromEntries(questions.map((q, n) => [q.question, answers[n] as string])) } })
   }
+  const [reason, setReason] = useState('')
+  if (questions.length === 0) {
+    // Nothing to choose among that this window can draw: it says so, and the request can be refused.
+    const deny = (): void => answer({ allow: false, message: reason.trim() || 'The person could not be shown the question.' })
+    return (
+      <>
+        <h4 className="chat-ask-title">Claude Code {open ? 'asks' : 'asked'} a question</h4>
+        <p className="chat-ask-why">The question could not be shown.</p>
+        {open ? (
+          <div className="chat-ask-actions">
+            <Reason value={reason} onChange={setReason} onKeep={deny} />
+            <button type="button" className="button" disabled={answering} onClick={deny}>
+              Deny
+            </button>
+          </div>
+        ) : (
+          <Outcome item={item} said={{ allowed: 'Answered', denied: 'Declined' }} />
+        )}
+      </>
+    )
+  }
   return (
     <>
       <h4 className="chat-ask-title">Claude Code {open ? 'asks' : 'asked'} {questions.length === 1 ? 'a question' : 'some questions'}</h4>
       {open ? (
         <>
           {questions.map((q, n) => (
-            <QuestionView key={q.question} question={q} picked={picks[n] ?? []} other={others[n] ?? ''} onPick={(label) => pick(n, label)} onOther={(t) => write(n, t)} disabled={answering} />
+            <QuestionView key={n} question={q} picked={picks[n] ?? []} other={others[n] ?? ''} onPick={(label) => pick(n, label)} onOther={(t) => write(n, t)} disabled={answering} />
           ))}
           <div className="chat-ask-actions">
             <button type="button" className="button button-primary" disabled={!complete || answering} onClick={submit}>
@@ -205,7 +250,7 @@ function Questions({ item }: { item: Ask }) {
 }
 
 /**
- * A request of the agent's to the person, a card in the transcript: to use a tool (Allow, Always allow when the CLI
+ * A request of the agent's to the person, a card in the transcript: to use a tool (Allow, Allow for this session when the CLI
  * suggested a rule, Deny with a reason), a plan to leave plan mode with, or the questions of `AskUserQuestion`.
  * Open, it takes the focus once, unless the person is writing or has their cursor in the box: it is not stolen from
  * typing. Its buttons are ordinary buttons.
@@ -213,7 +258,8 @@ function Questions({ item }: { item: Ask }) {
 export const AskCard = memo(function AskCard({ item }: { item: Ask }) {
   const card = useRef<HTMLElement>(null)
   useEffect(() => {
-    if (item.state !== 'open') return
+    if (item.state !== 'open' || focused.has(item.requestId)) return
+    focused.add(item.requestId)
     const box = document.querySelector<HTMLTextAreaElement>('[data-chat-composer]')
     if (box && (box.value !== '' || document.activeElement === box)) return
     card.current?.focus({ preventScroll: true })

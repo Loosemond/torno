@@ -5,6 +5,8 @@ it('shows a command as the command, and a file as its path and a few lines of wh
   expect(describeInput('Bash', { command: 'ls -la\ncat x' })).toEqual({ lead: undefined, body: 'ls -la\ncat x', more: 0 })
   const content = Array.from({ length: 10 }, (_, n) => `line ${n + 1}`).join('\n')
   expect(describeInput('Write', { file_path: 'a/b.py', content })).toEqual({ lead: 'a/b.py', body: 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6', more: 4 })
+  // Every line, when asked for.
+  expect(describeInput('Write', { file_path: 'a/b.py', content }, true)).toEqual({ lead: 'a/b.py', body: content, more: 0 })
   expect(describeInput('Edit', { file_path: 'a.py', old_string: 'x', new_string: 'y\nz' })).toEqual({ lead: 'a.py', body: 'y\nz', more: 0 })
   expect(describeInput('Write', { file_path: 'empty.txt', content: '' })).toEqual({ lead: 'empty.txt', body: '', more: 0 })
 })
