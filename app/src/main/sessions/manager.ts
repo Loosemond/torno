@@ -368,8 +368,8 @@ export class Sessions {
     for (const cb of this.listeners[event]) cb(message)
   }
 
-  private advance(session: Session, event: string): void {
-    const next = reduceStatus(session.status, event)
+  private advance(session: Session, event: string, body?: unknown): void {
+    const next = reduceStatus(session.status, event, body)
     if (next === session.status) return
     session.status = next
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })
@@ -418,7 +418,7 @@ export class Sessions {
     // A SessionEnd is not the end of the session: on /clear the agent carries on
     // in another conversation, and when it does leave, the exit of its process
     // says so. Until then the session is still the one of its object.
-    if (event !== 'SessionEnd') this.advance(session, event)
+    if (event !== 'SessionEnd') this.advance(session, event, fields)
 
     if (event !== 'UserPromptSubmit') {
       if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}`)

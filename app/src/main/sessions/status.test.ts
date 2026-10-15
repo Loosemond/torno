@@ -9,6 +9,16 @@ describe('reduceStatus', () => {
     expect(reduceStatus('idle', 'UserPromptSubmit')).toBe('working')
     expect(reduceStatus('working', 'Stop')).toBe('idle')
     expect(reduceStatus('working', 'Notification')).toBe('needs_input')
+    // Seen with the real CLI: a Notification is also posted when it has only been idle for a while, which is no question.
+    expect(reduceStatus('idle', 'Notification', { notification_type: 'idle_prompt', message: 'Claude is waiting for your input' })).toBe('idle')
+    expect(reduceStatus('idle', 'Notification', { message: 'Claude is waiting for your input' })).toBe('idle')
+    expect(reduceStatus('idle', 'Notification', { notification_type: 'auth_success', message: 'Signed in' })).toBe('idle')
+    expect(reduceStatus('working', 'Notification', { notification_type: 'idle_prompt' })).toBe('working')
+    // One that is a question, or says nothing of its kind, still is.
+    expect(reduceStatus('working', 'Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' })).toBe('needs_input')
+    expect(reduceStatus('working', 'Notification', { notification_type: 'elicitation_dialog' })).toBe('needs_input')
+    expect(reduceStatus('working', 'Notification', { message: 'Claude needs your permission to use Bash' })).toBe('needs_input')
+    expect(reduceStatus('working', 'Notification', 'not an object')).toBe('needs_input')
     expect(reduceStatus('working', 'PermissionRequest')).toBe('needs_input')
     expect(reduceStatus('needs_input', 'UserPromptSubmit')).toBe('working')
     expect(reduceStatus('needs_input', 'Stop')).toBe('idle')

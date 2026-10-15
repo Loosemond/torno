@@ -912,6 +912,17 @@ describe('the hook endpoint', () => {
     }
   })
 
+  it('reads what a Notification says: one that the agent has only been idle a while is no question', async () => {
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    const notify = (body: object) => fetch(http.url(`/hooks/${sessionId}/Notification`), { method: 'POST', body: JSON.stringify(body) })
+    // Seen on a visible screen: the header said "Needs input" with Claude Code at its empty prompt.
+    expect((await notify({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' })).status).toBe(200)
+    expect(sessions.current('bracket')?.status).toBe('idle')
+    expect((await notify({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' })).status).toBe(200)
+    await expect.poll(() => sessions.current('bracket')?.status).toBe('needs_input')
+  })
+
   it('does not read what a tool hook carries: a tool result of megabytes moves the status and is answered', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
     await expect.poll(() => said(sessionId)).toContain('READY')
