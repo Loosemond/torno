@@ -140,6 +140,16 @@ test('the terminal is drawn in the colours of the tokens, in both schemes', asyn
   expect(await page.evaluate(() => window.__tornoTerm!.renderer())).not.toBeNull()
 })
 
+test('an agent that paints a ground of its own has it to the edges of the pane, the inset with it; one that paints none has the panel', async () => {
+  const ground = () => page.evaluate(() => window.__tornoTerm!.ground())
+  const panel = await page.evaluate(() => getComputedStyle(document.querySelector('.session-term')!).backgroundColor)
+  await typeLine('ground 20 20 30')
+  await expect.poll(text).toContain('ground: painted')
+  await expect.poll(ground).toEqual({ inset: 'rgb(20, 20, 30)', theme: '#14141e' })
+  await typeLine('ground')
+  await expect.poll(ground).toEqual({ inset: panel, theme: '#FAF9F6' })
+})
+
 test('the status follows the hooks the agent posts', async () => {
   await typeLine('hook')
   // The prompt is answered with where the object's build stands.

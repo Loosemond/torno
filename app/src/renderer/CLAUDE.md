@@ -301,6 +301,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`--scan-plain`, `--deviation-*`); a region is a mark and is tinted in its
   author's mark colour.
 
+## Agents
+
+- The agent's terminal (`ui/SessionPane.tsx`) has the same inset in the pane for every agent, in the
+  terminal's ground: the panel's, or the one the agent paints the edges of its screen in, when it paints one
+  (Copilot CLI does). Most of the left column and the bottom row decides (`ui/termGround.ts` `edgeGround`,
+  after every write parsed); the terminal's own ground and the inset then take it, so that the agent's screen
+  fills the pane (`window.__tornoTerm.ground()`; the stand-in's `ground r g b`).
+
 ## Export
 
 - "Export…" is a button in the status line for the open object, in the head of the page of objects for every

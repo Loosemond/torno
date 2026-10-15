@@ -44,6 +44,8 @@ declare global {
       text(): string
       size(): { cols: number; rows: number } | null
       theme(): { background?: string; foreground?: string }
+      /** The colour of the terminal's inset in the pane, and the terminal's own ground: both the agent's, when it paints one. */
+      ground(): { inset: string | null; theme?: string }
       renderer(): 'webgl' | 'dom' | null
     }
   }

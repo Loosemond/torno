@@ -44,7 +44,7 @@ window on it.
   them (`loaded`, `ready`, where each stands), `.pickScanAt(fx, fy)`,
   `.projectScan(id, local)` and `.timeScanPicks(count)` as the same for
   scans, `.regions()` for what is tinted,
-  `window.__tornoTerm.text()` for what the terminal shows, and
+  `window.__tornoTerm.text()` for what the terminal shows (`.ground()` for the colour of its inset), and
   `globalThis.__tornoMain` in main (`app.evaluate`) for the MCP address, the
   mark store (to leave the marks an agent would), the scan store (`scans`),
   `marksChecks(objectId)`

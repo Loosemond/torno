@@ -15,6 +15,8 @@
 //     as a CLI does while a question of its own is up in place of its prompt,
 //     and answers that line with `dialog: answered` and nothing else;
 //   - on the line `palette`, prints the sixteen ANSI colours;
+//   - on the line `ground <r> <g> <b>`, goes to the other screen and paints the whole of it in that colour, as a
+//     CLI with a ground of its own does (Copilot CLI's); `ground` alone goes back to the main screen;
 //   - on the line `child`, starts a process of its own that ignores SIGHUP, as
 //     a tool the agent runs might, and prints `child: <pid>`;
 //   - on the line `exit`, exits.
@@ -82,6 +84,16 @@ lines.on('line', (line) => {
     console.log('dialog: up')
   } else if (word === 'args') console.log(`READY ${JSON.stringify(argv)}`)
   else if (word === 'palette') palette()
+  else if (word === 'ground') {
+    const [r, g, b] = line.trim().split(/\s+/).slice(1).map(Number)
+    // On the other screen, as a full-screen CLI draws, erased in the colour that is set: the whole of it takes the
+    // colour. Without one, back to the main screen, as it was.
+    if (r === undefined) process.stdout.write('\x1b[0m\x1b[?1049l')
+    else {
+      process.stdout.write(`\x1b[?1049h\x1b[48;2;${r};${g};${b}m\x1b[2J\x1b[H`)
+      console.log('ground: painted')
+    }
+  }
   else if (word === 'child') {
     const child = spawn(process.execPath, ['-e', "process.on('SIGHUP', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' })
     console.log(`child: ${child.pid}`)

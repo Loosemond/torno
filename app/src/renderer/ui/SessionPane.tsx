@@ -10,6 +10,7 @@ import { actions, store, useStore } from '../state/store'
 import { type AgentChoice, AgentPicker } from './AgentPicker'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
+import { edgeGround } from './termGround'
 
 const FONT_SIZE = 13
 
@@ -47,11 +48,16 @@ interface ObjectTerminal {
   sessionId: string | null
   /** The GPU renderer, only while the terminal is in the pane. */
   webgl: WebglAddon | null
+  /** The ground the agent paints its screen in (`edgeGround`), or null for the panel's. */
+  ground: string | null
 }
 
 const terminals = new Map<string, ObjectTerminal>() // by object id
 
 const ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'] as const
+
+/** The theme's key of the bright one of an ANSI colour: `brightBlack` of `black`. */
+const bright = (name: (typeof ANSI)[number]): 'brightBlack' => `bright${name[0].toUpperCase()}${name.slice(1)}` as 'brightBlack'
 
 /** The terminal's colours, from the tokens as the colour scheme has them now. */
 function readTheme(): ITheme {
@@ -72,9 +78,33 @@ function readTheme(): ITheme {
   }
   for (const name of ANSI) {
     theme[name] = token(`--ansi-${name}`)
-    theme[`bright${name[0].toUpperCase()}${name.slice(1)}` as 'brightBlack'] = token(`--ansi-bright-${name}`)
+    theme[bright(name)] = token(`--ansi-bright-${name}`)
   }
   return theme
+}
+
+/** The tokens' theme, read once a colour scheme: what is read of it for every write is this. */
+let schemeTheme: ITheme | null = null
+const themeNow = (): ITheme => (schemeTheme ??= readTheme())
+
+/**
+ * The terminal's ground follows the one the agent paints the edges of its screen in, if it paints one (Copilot
+ * CLI does): the inset round the terminal and what is left beyond its last whole cell are drawn in it, so that
+ * the agent's screen fills the pane as another agent's does. Asked after every write the terminal has parsed.
+ */
+function paintGround(t: ObjectTerminal): void {
+  const theme = themeNow()
+  // The sixteen as the theme has them: black to white, then bright black to bright white.
+  const palette = [...ANSI.map((name) => theme[name] ?? ''), ...ANSI.map((name) => theme[bright(name)] ?? '')]
+  const buffer = t.term.buffer.active
+  const top = buffer.viewportY
+  const ground = edgeGround({ cols: t.term.cols, rows: t.term.rows, cell: (x, y) => buffer.getLine(top + y)?.getCell(x) }, palette)
+  if (ground !== t.ground) {
+    t.ground = ground
+    t.term.options.theme = ground ? { ...theme, background: ground } : theme
+  }
+  const host = t.element.parentElement
+  if (host) host.style.backgroundColor = ground ?? ''
 }
 
 let monoLoaded: Promise<unknown> | null = null
@@ -102,13 +132,14 @@ function terminalFor(objectId: string): ObjectTerminal {
     cursorInactiveStyle: 'outline',
     // The agent chooses its own colours without knowing the ground they land on.
     minimumContrastRatio: 4.5,
-    theme: readTheme()
+    theme: themeNow()
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
   const element = document.createElement('div')
   element.className = 'session-term-mount'
-  const t: ObjectTerminal = { term, fit, element, sessionId: null, webgl: null }
+  const t: ObjectTerminal = { term, fit, element, sessionId: null, webgl: null, ground: null }
+  term.onWriteParsed(() => paintGround(t))
 
   term.onData((data) => {
     if (t.sessionId) window.torno.session.write(t.sessionId, data)
@@ -116,6 +147,7 @@ function terminalFor(objectId: string): ObjectTerminal {
   // Fires only when the size really changes.
   term.onResize(({ cols, rows }) => {
     if (t.sessionId) window.torno.session.resize(t.sessionId, cols, rows)
+    paintGround(t)
   })
   term.attachCustomKeyEventHandler((e) => {
     if (pressed(e, 'session.newline')) {
@@ -179,6 +211,7 @@ function mount(t: ObjectTerminal, host: HTMLElement): void {
     }
   }
   fitTerminal(t)
+  paintGround(t)
 }
 
 function unmount(t: ObjectTerminal): void {
@@ -249,8 +282,12 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
 
     const scheme = window.matchMedia('(prefers-color-scheme: dark)')
     const onScheme = () => {
-      const theme = readTheme()
-      for (const t of terminals.values()) t.term.options.theme = theme
+      schemeTheme = readTheme()
+      for (const t of terminals.values()) {
+        t.ground = null
+        t.term.options.theme = schemeTheme
+        paintGround(t)
+      }
     }
     scheme.addEventListener('change', onScheme)
 
@@ -310,6 +347,10 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         theme() {
           const theme = shown()?.term.options.theme
           return { background: theme?.background, foreground: theme?.foreground }
+        },
+        ground() {
+          const inset = host.current ? getComputedStyle(host.current).backgroundColor : null
+          return { inset, theme: shown()?.term.options.theme?.background }
         },
         renderer() {
           const t = shown()
