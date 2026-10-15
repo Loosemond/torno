@@ -29,9 +29,13 @@
 // it speaks that protocol on stdout and stdin, one JSON object per line, and prints nothing else. It follows
 // app/test/fixtures/claude-stream.jsonl:
 //   - `control_request` `initialize` is answered with two commands and two models, `set_model` with `{}` (the
-//     model is then the `model` of the next `init`), `interrupt` with `{ still_queued: [] }` (the prompts waiting are
-//     dropped), and ends the turn in
-//     progress: a `user` message `[Request interrupted by user]` and a `result` of `error_during_execution`;
+//     model is then the `model` of the next `init`), `interrupt` with `{ still_queued: [<uuids of the prompts waiting>] }`
+//     (they are KEPT, as the real CLI does, seen 2026-10-15) and ends the turn in progress: a `user` message
+//     `[Request interrupted by user]` and a `result` of `error_during_execution`; the prompts kept then run together,
+//     in one turn with one `init` and a hook for each;
+//   - a `user` line may carry a `uuid`; for each prompt that has one it emits `command_lifecycle` (`command_uuid`,
+//     `state`): `queued` when the prompt comes while a turn is at work, `started` when it begins, `completed` after
+//     its turn's `result`;
 //   - each `user` message is a prompt, run in turn (prompts that come while one runs wait): it posts
 //     `UserPromptSubmit` (`session_id`, `prompt`) to the hook URL of its --settings, if there is one, emits
 //     `system`/`init` (with `fake_argv`, its arguments) and, for what the hook answered, a `system`/`hook_response`,
@@ -125,7 +129,13 @@ async function streamMode() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   /** The turn in progress: aborted by an interrupt, which wakes whatever it waits for. */
   let turn = null
+  /** Prompts waiting for the turn at work: `{ content, uuid }`. */
   const queue = []
+  /** After an interrupt the prompts that were queued run together, in one turn with one `init`, as the CLI does. */
+  let together = false
+  const life = (uuid, state) => {
+    if (uuid) out({ type: 'command_lifecycle', command_uuid: uuid, state, uuid: next('uuid'), session_id: conversation })
+  }
   const answers = new Map()
   /** The requests an ask waits on, which an interrupt cancels. */
   const pending = new Set()
@@ -208,7 +218,9 @@ async function streamMode() {
   /** The prompts that came while a tool ran, taken up now: their hook, then their script, in this turn. */
   async function takeFolded() {
     while (turn.folded.length > 0 && !turn.aborted) {
-      const content = turn.folded.shift()
+      const { content, uuid } = turn.folded.shift()
+      life(uuid, 'started')
+      turn.taken.push(uuid)
       const text = content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')
       turn.images.push(...content.filter((b) => b?.type === 'image' && typeof b.source?.data === 'string').map((b) => b.source.data))
       const submitted = await post('UserPromptSubmit', { prompt: text })
@@ -268,43 +280,50 @@ async function streamMode() {
     }
   }
 
-  async function prompt(content) {
-    const text = content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')
+  async function prompt(entries) {
+    const content = entries.flatMap((e) => e.content)
+    const text = entries.map((e) => e.content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')).join('\n')
     const started = Date.now()
+    const done = () => entries.forEach((e) => life(e.uuid, 'completed'))
     // A prompt that is no turn (a slash command that only does something): an init, no hooks, no result.
     if (text.trim() === '/noop') {
       out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [], fake_argv: argv, ...base, uuid: next('uuid') })
-      return
+      return done()
     }
     // A command the CLI takes up with no `init`, no hook and no result: it only says something else (a rate limit).
     if (text.trim() === '/silent') {
       out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.1 } } }, ...base, uuid: next('uuid') })
-      return
+      return done()
     }
     if (text.trim() === '/compact') {
       out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...base, uuid: next('uuid') })
       out({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 29569, post_tokens: 3637 }, ...base, uuid: next('uuid') })
       out({ type: 'user', message: { role: 'user', content: '<local-command-stdout>Compacted </local-command-stdout>' }, isReplay: true, ...base, uuid: next('uuid') })
       out({ type: 'result', subtype: 'success', is_error: false, duration_ms: 0, num_turns: 0, stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 }, ...base, uuid: next('uuid') })
-      return
+      return done()
     }
     let release
     const images = content.filter((b) => b?.type === 'image' && typeof b.source?.data === 'string').map((b) => b.source.data)
-    turn = { aborted: false, foldable: false, folded: [], images, interrupted: new Promise((resolve) => (release = resolve)) }
+    turn = { aborted: false, foldable: false, folded: [], taken: entries.map((e) => e.uuid), images, interrupted: new Promise((resolve) => (release = resolve)) }
     turn.interrupt = () => {
       turn.aborted = true
       release()
     }
-    const submitted = await post('UserPromptSubmit', { prompt: text })
+    // Each prompt has its hook; the turn has one `init`.
+    const contexts = []
+    for (const entry of entries) {
+      const submitted = await post('UserPromptSubmit', { prompt: entry.content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') })
+      contexts.push(submitted?.hookSpecificOutput?.additionalContext)
+    }
     out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...base, uuid: next('uuid') })
-    const context = submitted?.hookSpecificOutput?.additionalContext
-    if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: context, ...base, uuid: next('uuid') })
+    for (const context of contexts) if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: context, ...base, uuid: next('uuid') })
     await script(text)
     await takeFolded()
     const stopped = turn.aborted
     if (stopped) out({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, ...base, uuid: next('uuid') })
     else await post('Stop')
     out({ type: 'result', subtype: stopped ? 'error_during_execution' : 'success', is_error: stopped, duration_ms: Date.now() - started, duration_api_ms: 1, num_turns: 1, stop_reason: stopped ? 'tool_use' : 'end_turn', total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, ...base, uuid: next('uuid') })
+    for (const uuid of turn.taken) life(uuid, 'completed')
     turn = null
   }
 
@@ -312,7 +331,12 @@ async function streamMode() {
   async function drain() {
     if (draining) return
     draining = true
-    while (queue.length > 0) await prompt(queue.shift())
+    while (queue.length > 0) {
+      const entries = together ? queue.splice(0) : [queue.shift()]
+      together = false
+      for (const entry of entries) life(entry.uuid, 'started')
+      await prompt(entries)
+    }
     draining = false
   }
 
@@ -329,13 +353,13 @@ async function streamMode() {
       model = request.model
       reply({})
     } else if (request?.subtype === 'interrupt') {
-      // What was queued behind the turn is dropped, as the CLI does.
-      queue.length = 0
-      if (turn) turn.folded.length = 0
+      // What was queued behind the turn is not dropped, as the CLI does: it runs after the interrupted turn, together.
+      if (turn) queue.push(...turn.folded.splice(0))
+      together = queue.length > 0
       // What the CLI had asked is given up first.
       for (const id of pending) out({ type: 'control_cancel_request', request_id: id })
       pending.clear()
-      reply({ still_queued: [] })
+      reply({ still_queued: queue.map((e) => e.uuid).filter(Boolean) })
       turn?.interrupt()
     } else {
       out({ type: 'control_response', response: { subtype: 'error', request_id, error: `unknown request ${request?.subtype}` } })
@@ -354,9 +378,12 @@ async function streamMode() {
     else if (m.type === 'control_response') answers.get(m.response?.request_id)?.(m.response?.response)
     else if (m.type === 'user') {
       const content = Array.isArray(m.message?.content) ? m.message.content : [{ type: 'text', text: String(m.message?.content ?? '') }]
+      const uuid = typeof m.uuid === 'string' ? m.uuid : undefined
+      // One that comes while a turn is at work is queued, and the CLI says so.
+      if (draining || turn) life(uuid, 'queued')
       // Not a command of the CLI's own, which is never folded.
-      if (turn?.foldable && !content.some((b) => b?.type === 'text' && b.text.trim().startsWith('/'))) return void turn.folded.push(content)
-      queue.push(Array.isArray(m.message?.content) ? m.message.content : [{ type: 'text', text: String(m.message?.content ?? '') }])
+      if (turn?.foldable && !content.some((b) => b?.type === 'text' && b.text.trim().startsWith('/'))) return void turn.folded.push({ content, uuid })
+      queue.push({ content, uuid })
       void drain()
     }
   })

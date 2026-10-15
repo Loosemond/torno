@@ -485,8 +485,10 @@ export class Sessions {
     if (!s?.stream || !s.chat) return
     // It waits when the agent is at work, or has been sent a prompt it has not taken up yet (its hook has not moved the status).
     const queued = s.status === 'working' || s.status === 'needs_input' || s.chat.transcript.untakenCount() > 0
-    s.chat.transcript.userSent(content, queued)
-    s.stream.prompt(content, s.conversationId)
+    // Its own id: the CLI says in `command_lifecycle` when it queues, begins and ends the prompt it names.
+    const uuid = randomUUID()
+    s.chat.transcript.userSent(content, queued, uuid)
+    s.stream.prompt(content, s.conversationId, uuid)
   }
 
   /**
@@ -553,15 +555,11 @@ export class Sessions {
     const s = this.chat(sessionId, 'control')
     if (!s?.stream) return Promise.reject(new Error('This is not a chat session, or it has ended'))
     const answer = s.stream.control(request)
-    // What the CLI says is still queued after an interrupt is all that will be taken up; the rest was dropped.
+    // An interrupt does not drop the prompts queued behind the turn (`still_queued`): the CLI runs them after it, and
+    // says so (`command_lifecycle`). They end "not sent" only with the session.
     if (request.subtype === 'interrupt') {
       // A turn at work that ends in error after this was Stopped, whether or not the CLI said so in words.
       if (s.status === 'working' || s.status === 'needs_input') s.chat?.transcript.interruptAsked()
-      void answer.then((a) => {
-        const queued = (a as { still_queued?: unknown } | undefined)?.still_queued
-        const kept = Array.isArray(queued) ? queued.length : 0
-        s.chat?.transcript.dropQueued(kept)
-      }, () => undefined)
     }
     return answer
   }

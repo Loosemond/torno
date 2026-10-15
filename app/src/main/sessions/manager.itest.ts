@@ -1263,20 +1263,25 @@ describe('a chat session', () => {
     await expect.poll(() => c.statuses.at(-1)).toBe('idle')
   })
 
-  it('is idle after an interrupt though prompts were queued behind the turn: the CLI drops them', async () => {
+  it('keeps the prompts queued behind a turn through an interrupt: the CLI runs them after it, together, and torno says so', async () => {
     const c = await chat()
     c.send('slow 5')
-    c.send('say never run')
-    c.send('say nor this')
+    c.send('say banana')
+    c.send('say cherry')
     await expect.poll(() => c.statuses.at(-1)).toBe('working')
     await expect.poll(() => c.messages.some((m) => m.type === 'stream_event')).toBe(true)
-    await c.sessions.control(c.sessionId, { subtype: 'interrupt' })
-    await expect.poll(() => c.results().length).toBe(1)
+    await expect.poll(() => c.messages.filter((m) => m.type === 'command_lifecycle' && m.state === 'queued').length).toBe(2)
+    const answer = (await c.sessions.control(c.sessionId, { subtype: 'interrupt' })) as { still_queued: string[] }
+    expect(answer.still_queued).toHaveLength(2)
+    await expect.poll(() => c.results().length, { timeout: 5000 }).toBe(2)
+    const items = () => c.sessions.history(c.sessionId)!.items
+    // One init for both, and both answered in the one turn.
+    expect(c.messages.filter((m) => m.type === 'system' && m.subtype === 'init')).toHaveLength(2)
+    expect(items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'sent', 'sent'])
+    expect(items().filter((i) => i.kind === 'text').map((i) => (i as { text: string }).text)).toContain('banana')
+    expect(items().filter((i) => i.kind === 'text').map((i) => (i as { text: string }).text)).toContain('cherry')
     await expect.poll(() => c.statuses.at(-1)).toBe('idle')
-    // Nothing ran after it.
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(c.results()).toHaveLength(1)
-    expect(c.statuses.at(-1)).toBe('idle')
+    expect(c.messages.filter((m) => m.type === 'command_lifecycle' && m.state === 'completed')).toHaveLength(3)
   })
 
   it('is idle after a prompt that is no turn, followed by one that is: no result is waited for', async () => {
@@ -1741,20 +1746,23 @@ describe('the transcript of a chat session', () => {
     await tSessions.stop(c.id)
     const items = c.items()
     expect(items.find((i) => i.kind === 'ask')).toMatchObject({ state: 'ended' })
-    expect(items.filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'not-sent'])
-    expect(items.find((i) => i.kind === 'tool')).toMatchObject({ state: 'stopped' })
+    // The interrupt that stopping sends leaves the queued prompt to run, as the CLI does: sent if it began before the
+    // process went, not sent if not (the transcript's own tests hold the second).
+    expect(['sent', 'not-sent']).toContain((items.filter((i) => i.kind === 'user')[1] as { state: string }).state)
+    expect(items.find((i) => i.kind === 'tool')).toMatchObject({ state: 'cancelled' })
     expect(items.at(-1)).toMatchObject({ kind: 'note', text: 'The session ended' })
   })
 
-  it('stops the tool and the text an interrupt cut short, and does not send the prompts the CLI dropped', async () => {
+  it('stops the tool and the text an interrupt cut short; the prompt queued behind it is then run', async () => {
     const c = await start()
     await c.send('slow 5')
-    await c.send('say dropped')
+    await c.send('say kept')
     await expect.poll(() => c.items().some((i) => i.kind === 'text' && i.streaming)).toBe(true)
     await tSessions.control(c.id, { subtype: 'interrupt' })
-    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
     expect(c.items().find((i) => i.kind === 'turn')).toMatchObject({ ok: false, stopped: true })
-    expect(c.items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'not-sent'])
+    expect(c.items().filter((i) => i.kind === 'user').map((i) => (i as { state: string }).state)).toEqual(['sent', 'sent'])
+    expect(c.items().filter((i) => i.kind === 'text').map((i) => (i as { text: string }).text)).toContain('kept')
     expect(c.items().some((i) => i.kind === 'text' && i.streaming)).toBe(false)
   })
 

@@ -203,15 +203,59 @@ describe('what is sent', () => {
     expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'sent'])
   })
 
-  it('drops the prompts the CLI dropped, all but as many as it says are still queued', () => {
+  it('keeps the prompts queued through an interrupt: the CLI runs them afterwards, together, and says so', () => {
+    const U1 = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const U2 = 'aaaaaaaa-0000-4000-8000-000000000002'
+    const life = (command_uuid: string, state: string): StreamMessage => ({ type: 'command_lifecycle', command_uuid, state, uuid: `ev-${command_uuid}-${state}`, session_id: 's' })
     const t = new Transcript()
-    t.userSent(text('a'), true)
-    const b = t.userSent(text('b'), true)
-    const c = t.userSent(text('c'), true)
-    const changed = t.dropQueued(1)
-    expect(changed.map((i) => i.id)).toEqual([b.id, c.id])
-    // Those that will not be sent are no longer queued, so they no longer come last.
-    expect(of(t, 'user').map((u) => u.state)).toEqual(['not-sent', 'not-sent', 'queued'])
+    t.userSent(text('A'), false, 'a0')
+    t.message(life('a0', 'started'))
+    t.message(toolUse('q', 'AskUserQuestion'))
+    t.userSent(text('B'), true, U1)
+    t.message(life(U1, 'queued'))
+    t.userSent(text('C'), true, U2)
+    t.message(life(U2, 'queued'))
+    // The interrupt: its answer lists both as still queued, and nothing is dropped.
+    t.interruptAsked()
+    t.message(toolResult('q', "The user doesn't want to proceed", { is_error: true }))
+    t.message({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] }, parent_tool_use_id: null })
+    t.message(result({ subtype: 'error_during_execution', is_error: true }))
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'queued', 'queued'])
+    expect(t.untakenCount()).toBe(2)
+    t.message(life(U1, 'started'))
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'sent', 'queued'])
+    t.message(life(U2, 'started'))
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'sent', 'sent'])
+    expect(t.untakenCount()).toBe(0)
+    // The one init for both is explained by them: it takes up nothing, and the command that follows is not taken by it.
+    t.userSent(text('/later'), true, 'l1')
+    t.message(init())
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'sent', 'sent', 'queued'])
+    t.message(life(U1, 'completed'))
+    t.message(life(U2, 'completed'))
+    expect(of(t, 'user')).toHaveLength(4)
+    // Those lines are never drawn.
+    expect(t.items().filter((i) => i.kind === 'note')).toEqual([])
+  })
+
+  it('takes a prompt up once: its hook after its lifecycle moves nothing again, and an unstarted one ends not-sent', () => {
+    const t = new Transcript()
+    t.userSent(text('a'), false, 'u-a')
+    t.userSent(text('b'), true, 'u-b')
+    t.message({ type: 'command_lifecycle', command_uuid: 'u-b', state: 'started' })
+    const order = t.items().map((i) => i.id)
+    // Its hook comes: the context goes under it, and the oldest untaken is still a.
+    expect(t.context({ text: 'ctx', sentMarkIds: ['M1'], prompt: 'b' })).toMatchObject({ kind: 'context' })
+    expect(t.items().filter((i) => i.kind === 'user').map((i) => i.id)).toEqual(order.filter((id) => t.items().find((i) => i.id === id)?.kind === 'user'))
+    expect(t.untakenCount()).toBe(1)
+    t.ended()
+    expect(of(t, 'user').map((u) => u.state)).toEqual(['not-sent', 'sent'])
+  })
+
+  it('knows a lifecycle it has no prompt for: nothing happens', () => {
+    const t = new Transcript()
+    t.message({ type: 'command_lifecycle', command_uuid: 'nobody', state: 'started' })
+    expect(t.items()).toEqual([])
   })
 
   it('puts the context of each hook under its own prompt, however quickly the prompts were sent', () => {
@@ -593,17 +637,6 @@ describe('fix round 1', () => {
     expect(b.detail).toEqual({ file: { name: 'y' }, nested: [{ keep: 'me' }] })
   })
 
-  it('does not wait for a prompt the CLI dropped when a hook comes', () => {
-    const t = new Transcript()
-    t.userSent(text('first'), false)
-    const b = t.userSent(text('kept'), true)
-    t.userSent(text('dropped'), true)
-    t.dropQueued(1)
-    t.context({ text: 'x', sentMarkIds: [] })
-    expect(t.context({ text: 'ctx', sentMarkIds: ['M1'], prompt: 'unrelated' })).toMatchObject({ forUser: b.id })
-    expect(t.context({ text: 'late', sentMarkIds: [] })).toBeNull()
-  })
-
   it('hands the log only what changed, however many items there are', () => {
     const t = new Transcript()
     for (let n = 0; n < 500; n++) t.message(assistant([{ type: 'text', text: `t${n}` }], `m${n}`))
@@ -834,5 +867,48 @@ describe('a subagent (M4)', () => {
     expect(of(t, 'tool')[0]).toMatchObject({ name: 'Task', steps: 3, inside: ['Read /a/b.py', 'Bash: ls'] })
     t.message(toolResult('task1', 'report'))
     expect(of(t, 'tool')[0]).toMatchObject({ state: 'done', steps: 3 })
+  })
+})
+
+describe('a tool that was denied or cancelled', () => {
+  const ask = (t: Transcript, requestId: string, toolUseId: string, toolName: string) => t.asked({ requestId, toolName, input: {}, toolUseId, suggestions: [] })
+  const denial = "The user doesn't want to proceed with this tool use. The tool use was rejected."
+
+  it('is denied when the person refused it, and stays denied when the error result comes', () => {
+    const t = new Transcript()
+    t.message(toolUse('p', 'ExitPlanMode'))
+    ask(t, 'r1', 'p', 'ExitPlanMode')
+    t.answered('r1', 'denied', 'Keep planning')
+    t.message(toolResult('p', denial, { is_error: true }))
+    expect(of(t, 'tool')[0]).toMatchObject({ state: 'denied', result: denial })
+  })
+
+  it('is cancelled when its ask ended with the turn stopped', () => {
+    const t = new Transcript()
+    t.message(toolUse('q', 'AskUserQuestion'))
+    ask(t, 'r2', 'q', 'AskUserQuestion')
+    t.cancelled('r2')
+    t.message(toolResult('q', denial, { is_error: true }))
+    t.message({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] }, parent_tool_use_id: null })
+    expect(of(t, 'tool')[0]).toMatchObject({ state: 'cancelled' })
+  })
+
+  it('is cancelled when the result ends the turn with its ask open', () => {
+    const t = new Transcript()
+    t.message(toolUse('q', 'AskUserQuestion'))
+    ask(t, 'r3', 'q', 'AskUserQuestion')
+    t.message(result({ subtype: 'error_during_execution', is_error: true }))
+    expect(of(t, 'tool')[0]).toMatchObject({ state: 'cancelled' })
+  })
+
+  it('is failed only for an error the person did not cause, and done when allowed', () => {
+    const t = new Transcript()
+    t.message(toolUse('a', 'Bash'))
+    ask(t, 'r4', 'a', 'Bash')
+    t.answered('r4', 'allowed')
+    t.message(toolResult('a', 'ok'))
+    t.message(toolUse('b', 'Bash'))
+    t.message(toolResult('b', 'exit 1', { is_error: true }))
+    expect(of(t, 'tool').map((x) => x.state)).toEqual(['done', 'error'])
   })
 })

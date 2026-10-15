@@ -106,9 +106,10 @@ export class ClaudeStream {
     this.listeners[event].push(cb)
   }
 
-  /** A prompt for the conversation, as the CLI takes it: text, and pictures. The CLI queues it if it is at work. */
-  prompt(content: PromptBlock[], conversationId: string): void {
-    this.send({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: conversationId })
+  /** A prompt for the conversation, as the CLI takes it: text, and pictures, with an id of its own. The CLI queues it if it is at work. */
+  prompt(content: PromptBlock[], conversationId: string, uuid?: string): void {
+    // The `uuid` is what the CLI's `command_lifecycle` names the prompt by.
+    this.send({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: conversationId, ...(uuid !== undefined ? { uuid } : {}) })
   }
 
   /**

@@ -24,8 +24,8 @@ export type ChatItem =
   | { kind: 'text'; id: string; text: string; streaming: boolean }
   /** The agent thought. This CLI leaves the text of a thought empty. */
   | { kind: 'thinking'; id: string; seconds?: number; streaming: boolean }
-  /** A tool the agent used; `torno` when it is one of torno's own (`mcp__torno__<tool>`). A `Task` (a subagent) has the `steps` it took and a line for each tool it used `inside`. */
-  | { kind: 'tool'; id: string; toolUseId: string; name: string; torno: boolean; input: unknown; state: 'running' | 'done' | 'error' | 'stopped'; result?: string; images: ChatImage[]; detail?: unknown; steps?: number; inside?: string[] }
+  /** A tool the agent used (`denied`: the person refused its ask; `cancelled`: its ask ended with the turn stopped; `error`: a failure the person did not cause); `torno` when it is one of torno's own (`mcp__torno__<tool>`). A `Task` (a subagent) has the `steps` it took and a line for each tool it used `inside`. */
+  | { kind: 'tool'; id: string; toolUseId: string; name: string; torno: boolean; input: unknown; state: 'running' | 'done' | 'error' | 'stopped' | 'denied' | 'cancelled'; result?: string; images: ChatImage[]; detail?: unknown; steps?: number; inside?: string[] }
   /** The agent asks the person: to use a tool, or a question. `suggestions`: whether there is a rule to allow for the session. `why` of one that ended by the CLI's cancelling it (the turn was stopped); one that ended with the session has none. */
   | { kind: 'ask'; id: string; requestId: string; toolName: string; input: unknown; suggestions: boolean; description?: string; blockedPath?: string; state: 'open' | 'allowed' | 'denied' | 'ended'; answer?: string; why?: string }
   /** The end of a turn, with what was pulled from torno in it (`pulledFromTorno`). */

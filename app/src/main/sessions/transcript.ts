@@ -74,6 +74,8 @@ export class Transcript {
   private readonly unconfirmed = new Map<string, Array<{ kind: 'text' | 'thinking'; id: string }>>()
   private readonly tools = new Map<string, string>()
   private readonly asks = new Map<string, string>()
+  /** The tool call (`tool_use` id) each open ask is about, by request id. */
+  private readonly askTool = new Map<string, string>()
   /** The prompts whose hook has not been answered yet, oldest first. */
   private readonly awaiting: string[] = []
   /**
@@ -81,6 +83,12 @@ export class Transcript {
    * hook that names it (`context`), or, for a command that begins with `/`, an `init` that no hook explains.
    */
   private readonly untaken: string[] = []
+  /** The uuid torno gave each prompt (it is in the `user` line, and the CLI's `command_lifecycle` names it), by the prompt's item id. Main's: not on the item. */
+  private readonly uuids = new Map<string, string>()
+  /** The prompts whose `init` is already explained (by their lifecycle or their hook), once each. */
+  private readonly explainedIds = new Set<string>()
+  /** The prompts taken up by a `command_lifecycle` that said they started. */
+  private readonly lifecycled = new Set<string>()
   /** The pictures whose data is kept, oldest first. */
   private readonly kept: Array<{ itemId: string; imageId: string }> = []
   private readonly logged = new Set<string>()
@@ -125,7 +133,7 @@ export class Transcript {
   // --- what torno records ---------------------------------------------------------------------------------
 
   /** A prompt for the agent. Queued when it will wait for the one at work; it is sent once the CLI takes it up (its hook, or an `init` for a command). */
-  userSent(content: PromptBlock[], queued: boolean): ChatItem {
+  userSent(content: PromptBlock[], queued: boolean, uuid?: string): ChatItem {
     let made!: ChatItem
     this.run(() => {
       const texts: string[] = []
@@ -138,6 +146,7 @@ export class Transcript {
       this.put(made)
       this.keepImages(made.id, images)
       if (!this.closed) {
+        if (uuid !== undefined) this.uuids.set(made.id, uuid)
         this.awaiting.push(made.id)
         this.untaken.push(made.id)
       }
@@ -158,17 +167,43 @@ export class Transcript {
       // A hook that names none that waits is for the oldest that is not a command: a command has no hook.
       const at = named >= 0 ? named : wants === undefined ? 0 : this.awaiting.findIndex((id) => !this.isCommand(id))
       if (at < 0) return
-      // A prompt that had no hook (a command the CLI ran itself) is passed over by one that names a later one.
-      const passed = this.awaiting.splice(0, at + 1)
+      // A prompt that had no hook (a command the CLI ran itself) is passed over by one that names a later one;
+      // one the CLI said it started (its lifecycle) passes over nothing: the others have their own say.
+      const passed = named >= 0 && this.lifecycled.has(this.awaiting[named]) ? this.awaiting.splice(named, 1) : this.awaiting.splice(0, at + 1)
       const forUser = passed[passed.length - 1]
       for (const id of passed) this.take(id)
-      // This hook starts a turn, and the `init` that follows it is its own.
-      this.explained += 1
+      // This hook starts a turn, and the `init` that follows it is its own (unless its lifecycle said so already).
+      this.explain(forUser)
       if (c.text.trim() === '' && c.sentMarkIds.length === 0) return
       made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.selection && c.selection.length > 0 ? { selection: c.selection.map((ref) => this.redact(ref)) } : {}) }
       this.put(made)
     })
     return made
+  }
+
+  /** The next `init` is explained by this prompt, once. */
+  private explain(id: string): void {
+    if (this.explainedIds.has(id)) return
+    this.explainedIds.add(id)
+    this.explained += 1
+  }
+
+  /**
+   * The CLI says a prompt of ours began (`command_lifecycle`, `started`, naming the uuid torno gave it): it is taken up
+   * whatever else has or has not happened, and the `init` that follows is its own. A prompt already taken up (by its hook, or an `init`) is not taken twice.
+   */
+  private lifecycle(m: StreamMessage): void {
+    if (m.state !== 'started') return
+    const uuid = str(m.command_uuid)
+    if (uuid === undefined) return
+    for (const [id, given] of this.uuids) {
+      if (given !== uuid) continue
+      if (!this.untaken.includes(id)) return
+      this.lifecycled.add(id)
+      this.take(id)
+      this.explain(id)
+      return
+    }
   }
 
   private isCommand(id: string): boolean {
@@ -194,7 +229,7 @@ export class Transcript {
   }
 
   /** The agent asks the person. Not stored once the session has ended. */
-  asked(a: Pick<StreamAsk, 'requestId' | 'toolName' | 'input' | 'suggestions' | 'description' | 'blockedPath'>): ChatItem {
+  asked(a: Pick<StreamAsk, 'requestId' | 'toolName' | 'input' | 'suggestions' | 'description' | 'blockedPath'> & { toolUseId?: string }): ChatItem {
     const item: ChatItem = {
       kind: 'ask',
       id: this.newId('i'),
@@ -210,6 +245,7 @@ export class Transcript {
     this.run(() => {
       this.put(item)
       this.asks.set(a.requestId, item.id)
+      if (a.toolUseId !== undefined) this.askTool.set(a.requestId, a.toolUseId)
     })
     return item
   }
@@ -219,7 +255,10 @@ export class Transcript {
     const id = this.asks.get(requestId)
     const item = id ? this.byId.get(id) : undefined
     if (!item || item.kind !== 'ask' || item.state !== 'open') return null
-    return this.run(() => this.put({ ...item, state: 'ended', why: 'the turn was stopped' }))[0] ?? null
+    return this.run(() => {
+      this.put({ ...item, state: 'ended', why: 'the turn was stopped' })
+      this.toolEnded(requestId, 'cancelled')
+    })[0] ?? null
   }
 
   /** The person answered a request, or it can be answered no more. Null for one that is not open. */
@@ -227,22 +266,19 @@ export class Transcript {
     const id = this.asks.get(requestId)
     const item = id ? this.byId.get(id) : undefined
     if (!item || item.kind !== 'ask' || item.state !== 'open') return null
-    return this.run(() => this.put({ ...item, state, ...(answer !== undefined ? { answer: this.redact(answer) } : {}) }))[0] ?? null
+    return this.run(() => {
+      this.put({ ...item, state, ...(answer !== undefined ? { answer: this.redact(answer) } : {}) })
+      if (state === 'denied') this.toolEnded(requestId, 'denied')
+    })[0] ?? null
   }
 
-  /** The CLI dropped the prompts it had queued but this many: the rest are not sent. */
-  dropQueued(keep: number): ChatItem[] {
-    return this.run(() => {
-      let seen = 0
-      for (const item of this.items()) {
-        if (item.kind !== 'user' || item.state !== 'queued') continue
-        if (seen++ < keep) continue
-        this.put({ ...item, state: 'not-sent' })
-        this.untaken.splice(this.untaken.indexOf(item.id), 1)
-        const waiting = this.awaiting.indexOf(item.id)
-        if (waiting >= 0) this.awaiting.splice(waiting, 1)
-      }
-    })
+  /** The tool an ask was about was refused or cancelled: that is its state, and the error result that follows does not make it "failed". */
+  private toolEnded(requestId: string, state: 'denied' | 'cancelled'): void {
+    const toolUseId = this.askTool.get(requestId)
+    this.askTool.delete(requestId)
+    const itemId = toolUseId ? this.tools.get(toolUseId) : undefined
+    const tool = itemId ? this.byId.get(itemId) : undefined
+    if (tool?.kind === 'tool' && tool.state === 'running') this.put({ ...tool, state })
   }
 
   /** Something torno says about the conversation. */
@@ -335,6 +371,8 @@ export class Transcript {
         return this.finished(m)
       case 'rate_limit_event':
         return this.rate(obj(m.rate_limit_info))
+      case 'command_lifecycle':
+        return this.lifecycle(m)
     }
   }
 
@@ -548,7 +586,7 @@ export class Transcript {
     const text = texts.join('\n')
     // A picture is kept once, as an image, which the cap counts and the log leaves out: never also in the structured result.
     const structured = detail !== undefined && images.length === 0 && jsonSize(detail) <= MAX_DETAIL ? { detail: this.scrub(withoutPictures(detail)) } : {}
-    const next: ChatItem = { ...item, state: block.is_error === true ? 'error' : 'done', images: [...item.images, ...images], ...(text !== '' ? { result: this.scrub(text) as string } : {}), ...structured }
+    const next: ChatItem = { ...item, state: item.state === 'denied' || item.state === 'cancelled' ? item.state : block.is_error === true ? 'error' : 'done', images: [...item.images, ...images], ...(text !== '' ? { result: this.scrub(text) as string } : {}), ...structured }
     this.put(next)
     this.keepImages(item.id, images)
     if (item.torno) {
@@ -562,9 +600,9 @@ export class Transcript {
     const ok = m.subtype === 'success' && m.is_error !== true
     // Stopped: the CLI said so in words, or torno asked it to and the turn ended in error (it need not say so, as when it only thought).
     const stopped = this.interrupted || (this.interruptWanted && !ok && m.subtype === 'error_during_execution')
-    this.settleOpen('stopped')
-    // A request still open when the turn ends can be answered no more.
+    // A request still open when the turn ends can be answered no more (and its tool was cancelled, not stopped).
     for (const requestId of [...this.asks.keys()]) this.cancelled(requestId)
+    this.settleOpen('stopped')
     const duration = num(m.duration_ms)
     const took = duration !== undefined ? duration : this.turnStarted !== null ? this.now() - this.turnStarted : 0
     let error: string | undefined
@@ -577,6 +615,7 @@ export class Transcript {
     this.interrupted = false
     this.interruptWanted = false
     this.explained = 0
+    this.explainedIds.clear()
     this.turnStarted = null
     this.unconfirmed.clear()
     this.blocks.clear()

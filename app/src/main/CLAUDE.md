@@ -645,8 +645,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `init` that no hook explains (`explained`). After a `result`, prompts still untaken are given 1.5 s
   (`IDLE_GRACE_MS`) for their hook or `init` to come; if nothing came, the CLI is idle and they are taken
   (`idle()`), so nothing waits for good. The context of a `UserPromptSubmit` (`text`, `sentMarkIds`, and as data
-  the build and selection) is put under the prompt that hook names; the window never parses text for it. A
-  prompt the CLI never took up is `not-sent` when the session ends. The messages of a subagent
+  the build and selection) is put under the prompt that hook names; the window never parses text for it. Every
+  prompt torno writes carries a `uuid` (kept by the transcript, not on the item), and the CLI's `command_lifecycle`
+  with `state: "started"` for it takes it up first and whatever else has or has not happened (the other rules are
+  fallbacks for a CLI without those events); a prompt taken up that way is not taken twice, and the `init` it
+  explains takes no other. An `interrupt` drops nothing: the prompts in its `still_queued` stay queued and the CLI runs
+  them afterwards, together, in one turn with one `init`. A prompt the CLI never took up is `not-sent` when the session
+  ends, and only then. A tool whose ask the person refused is `denied`, one whose ask ended with the turn stopped
+  `cancelled` (the later error result does not make either "failed"); `error` is for a failure the person did not cause. The messages of a subagent
   (`parent_tool_use_id`) are not the agent's words: they are counted on the `Task` card (`steps`) and its tool
   calls listed in `inside`. A thought's `seconds` run from its block's start to its stop. A `user` message that is the
   compaction summary (`isSynthetic`) is not drawn; one that is `<local-command-stdout>` (what `/cost` or

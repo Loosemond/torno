@@ -236,8 +236,11 @@ test('Shift+Enter breaks the line and Enter sends it, queued while the agent wor
   await expect(chat().locator('.chat-user[data-state="queued"]')).toContainText('say after')
   await dock().getByRole('button', { name: 'Stop' }).click()
   await expect(turns().nth(before)).toContainText('Stopped', { timeout: 2000 })
-  // What was waiting behind it was dropped, and says it was not sent.
-  await expect(chat().locator('.chat-user[data-state="not-sent"]')).toContainText('say after')
+  // What was waiting behind it is not dropped: the CLI runs it after the stop, so it moves under "Stopped" as sent, and is answered.
+  await expect(chat().locator('.chat-user', { hasText: 'say after' })).toHaveAttribute('data-state', 'sent')
+  await expect(chat().locator('.chat-user[data-state="not-sent"]')).toHaveCount(0)
+  await expect(turns().nth(before + 1)).toContainText('Done in')
+  await expect(chat().locator('.chat-text').last()).toContainText('after')
   await expect(dock().getByRole('status').first()).toHaveText('Idle')
 })
 

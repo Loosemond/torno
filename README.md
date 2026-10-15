@@ -253,7 +253,7 @@ The chat is your own `claude`, under your own login, started in its headless
 mode (JSON on pipes instead of a screen). Torno draws what it says and does;
 nothing of Claude Code's settings is read or changed. `Enter` sends, `Shift+Enter`
 is a new line, and a prompt sent while the agent is at work waits its turn
-("Queued"; "Stop" interrupts the turn).
+("Queued"; "Stop" interrupts the turn, and what was queued still runs after it).
 
 - **What torno added.** Under each prompt, a "torno added" line shows what went
   with it: the marks sent, as chips in their colours, the build (`r12 ok`), and

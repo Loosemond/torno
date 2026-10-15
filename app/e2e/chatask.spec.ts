@@ -230,6 +230,8 @@ test('a plan is drawn as markdown, approved or kept for more planning with a rea
   await expect(plan).toHaveAttribute('data-state', 'denied')
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: make it 3 mm')
+  // Refused by the person: "denied", not "failed".
+  await expect(chat().locator('.chat-tool').last().locator('.chat-tool-state')).toHaveText('denied')
 
   await say('ask ExitPlanMode {"plan":"- just do it"}')
   const again = asks().last()
@@ -360,6 +362,8 @@ test('Stop with a request open: the card reads cancelled, has no buttons, and th
   await expect(card.locator('.chat-ask-outcome')).toHaveText('Cancelled: the turn was stopped')
   await expect(card.getByRole('button')).toHaveCount(0)
   await finished()
+  // Its tool reads "cancelled", not "failed".
+  await expect(chat().locator('.chat-tool').last().locator('.chat-tool-state')).toHaveText('cancelled')
   await expect(turns().last()).toContainText('Stopped')
   await expect(status()).toHaveText('Idle')
   // The next request works as before: answered, it is allowed, and the session goes idle again.

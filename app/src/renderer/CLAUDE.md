@@ -321,7 +321,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   window draws what main's transcript says: `placed` and `drawn` in `state/chat.ts` reproduce main's order
   (an item keeps its place; a queued prompt is drawn after all the others; sent, it goes to the end), and items
   and metas are merged by `seq` with the history, so none is drawn twice or lost. Each `context` item is drawn
-  under its prompt, as chips from its fields (marks, build, selection), never from its text. Nothing is per frame
+  under its prompt, as chips from its fields (marks, build, selection), never from its text. A tool card reads "denied" (the person refused its ask) or "cancelled" (its ask ended with the turn stopped) in the muted colour; "failed", in the fail colour, only for an error the person did not cause. Nothing is per frame
   in React, and there is no endless animation in it: a working indication is still, toggled once a second by
   `useBeat`, and only while something streams or runs (`styles.test.ts` fails for an endless one). The window holds
   at most `MAX_ITEMS` (2,000) as main does, dropping the oldest, and says once, at the top, "Earlier items are not

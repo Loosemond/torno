@@ -7,7 +7,7 @@ import { RefText } from './RefText'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 
-const STATE_WORD: Record<Tool['state'], string> = { running: 'running', done: 'done', error: 'failed', stopped: 'stopped' }
+const STATE_WORD: Record<Tool['state'], string> = { running: 'running', done: 'done', error: 'failed', stopped: 'stopped', denied: 'denied', cancelled: 'cancelled' }
 /** How much of an input or a result is shown before "Show all". */
 const SHOWN_LINES = 12
 /** Past this, even "Show all" shows no more: the item holds no more than 50,000 characters, and a page of them is slow to lay out. */
