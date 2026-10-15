@@ -1,9 +1,12 @@
-import type { AgentId, SendDropped, SendState, SessionStatus } from './bridge'
+import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from './bridge'
 import { unmetDimensions } from './dimension'
 import type { Mark } from './marks'
 
 /** The agents as the person reads them. */
 export const AGENT_LABEL: Record<AgentId, string> = { claude: 'Claude Code', copilot: 'Copilot CLI' }
+
+/** The views each agent can be in, the one it starts in first: only Claude Code has a chat. */
+export const AGENT_VIEWS: Record<AgentId, readonly AgentView[]> = { claude: ['chat', 'terminal'], copilot: ['terminal'] }
 
 /**
  * What can be said of a session. An agent that posts no hooks says nothing of

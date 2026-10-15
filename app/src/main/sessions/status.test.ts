@@ -32,6 +32,16 @@ describe('reduceStatus', () => {
     expect(reduceStatus('idle', 'PostToolUse')).toBe('working')
   })
 
+  it('waits for the person while a chat session has a request of the CLI open, and works again once it is answered', () => {
+    expect(reduceStatus('working', 'ask')).toBe('needs_input')
+    expect(reduceStatus('idle', 'ask')).toBe('needs_input')
+    expect(reduceStatus('needs_input', 'answered')).toBe('working')
+    // An answer says the agent goes on only to one that was waiting: a late one changes nothing.
+    expect(reduceStatus('idle', 'answered')).toBe('idle')
+    expect(reduceStatus('exited', 'ask')).toBe('exited')
+    expect(reduceStatus('exited', 'answered')).toBe('exited')
+  })
+
   it('is idle from the first output, and only from the first', () => {
     expect(reduceStatus('starting', 'output')).toBe('idle')
     for (const status of ALL.filter((s) => s !== 'starting')) expect(reduceStatus(status, 'output')).toBe(status)
@@ -42,7 +52,7 @@ describe('reduceStatus', () => {
   })
 
   it('stays exited', () => {
-    for (const event of ['output', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']) {
+    for (const event of ['output', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd', 'ask', 'answered']) {
       expect(reduceStatus('exited', event)).toBe('exited')
     }
   })

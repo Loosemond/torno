@@ -30,7 +30,7 @@ import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
 import { proposing, sceneFileNow, sceneFilesSettled } from './scenefile'
 import { adapters } from './sessions/adapter'
-import { loadAgentChoice } from './sessions/choice'
+import { readChoice } from './sessions/choice'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
 
@@ -398,7 +398,9 @@ void app.whenReady().then(async () => {
   sessions = new Sessions({
     http,
     // The agent chosen for the object, as its file says now. TORNO_AGENT_CMD is run in place of whichever it is.
-    adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD)[await loadAgentChoice(obj.dir)],
+    adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD)[(await readChoice(obj.dir)).agent],
+    // Every session is still shown as a terminal: the window draws no chat yet. `readChoice(obj.dir).view` is the choice.
+    viewFor: () => 'terminal',
     // The marks of an object that cannot be read are not a reason to tell the agent nothing of its build.
     // Nor are scans that cannot be read: they are then not known, which is not the same as there being none.
     contextFor: async (id, opts) => {

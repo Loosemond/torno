@@ -1,4 +1,4 @@
-import { AGENT_LABEL } from '../../shared/agents'
+import { AGENT_LABEL, AGENT_VIEWS } from '../../shared/agents'
 import { NO_HOOKS_PROMPT, systemPrompt } from '../prompt'
 import type { AgentAdapter } from './adapter'
 
@@ -24,6 +24,7 @@ export function copilotAdapter(agentCmd?: string): AgentAdapter {
     label: AGENT_LABEL.copilot,
     command: 'copilot',
     hooks: false,
+    views: AGENT_VIEWS.copilot,
     toolName,
     launch(ctx) {
       // The variable is a list separated by commas: a path with one would be two folders, neither of them

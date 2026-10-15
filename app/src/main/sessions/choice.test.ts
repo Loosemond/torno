@@ -4,39 +4,68 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { adapters } from './adapter'
-import { installedAgents, loadAgentChoice, readAgentChoice, saveAgentChoice } from './choice'
+import { installedAgents, readChoice, writeChoice } from './choice'
 
 it('keeps the agent of an object in .torno/agent.json, and is Claude Code for anything else', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'torno-choice-'))
-  expect(await loadAgentChoice(dir)).toBe('claude')
-  await saveAgentChoice(dir, 'copilot')
-  expect(JSON.parse(await readFile(join(dir, '.torno', 'agent.json'), 'utf8'))).toEqual({ agent: 'copilot' })
-  expect(await loadAgentChoice(dir)).toBe('copilot')
+  expect((await readChoice(dir)).agent).toBe('claude')
+  await writeChoice(dir, { agent: 'copilot', view: 'terminal' })
+  expect(JSON.parse(await readFile(join(dir, '.torno', 'agent.json'), 'utf8'))).toEqual({ agent: 'copilot', view: 'terminal' })
+  expect((await readChoice(dir)).agent).toBe('copilot')
   for (const text of ['{ not json', '{"agent":"gemini"}', '[]', '{"agent":7}']) {
     await mkdir(join(dir, '.torno'), { recursive: true })
     await writeFile(join(dir, '.torno', 'agent.json'), text)
-    expect(await loadAgentChoice(dir)).toBe('claude')
+    expect((await readChoice(dir)).agent).toBe('claude')
   }
 })
 
 it('says so when the file names an agent it does not know, and writes nothing but the file, whole', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'torno-choice-'))
-  expect(await readAgentChoice(dir)).toEqual({ agent: 'claude' })
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat' })
   await mkdir(join(dir, '.torno'), { recursive: true })
   await writeFile(join(dir, '.torno', 'agent.json'), '{"agent":"gemini"}')
-  expect(await readAgentChoice(dir)).toEqual({ agent: 'claude', note: 'agent.json names "gemini", which torno does not know: Claude Code is used.' })
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat', note: 'agent.json names "gemini", which torno does not know: Claude Code is used.' })
   // What is named is the person's file's word: told short, and with no control character in it.
   await writeFile(join(dir, '.torno', 'agent.json'), JSON.stringify({ agent: `a\u001b[31m${'x'.repeat(200)}` }))
-  const told = (await readAgentChoice(dir)).note!
+  const told = (await readChoice(dir)).note!
   expect(told).not.toMatch(/[\u0000-\u001f]/)
   expect(told.length).toBeLessThan(120)
   await writeFile(join(dir, '.torno', 'agent.json'), '{ not json')
-  expect(await readAgentChoice(dir)).toEqual({ agent: 'claude', note: 'agent.json could not be read: Claude Code is used.' })
-  await saveAgentChoice(dir, 'claude')
-  expect(await readAgentChoice(dir)).toEqual({ agent: 'claude' })
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat', note: 'agent.json could not be read: Claude Code is used.' })
+  await writeChoice(dir, { agent: 'claude', view: 'chat' })
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat' })
   expect(await readdir(join(dir, '.torno'))).toEqual(['agent.json'])
   // Never an agent that is not one, whatever asks.
-  await expect(saveAgentChoice(dir, 'gemini' as never)).rejects.toThrow('no agent named gemini')
+  await expect(writeChoice(dir, { agent: 'gemini' as never, view: 'chat' })).rejects.toThrow('no agent named gemini')
+})
+
+it('chooses a view: Claude Code is in chat unless the file says terminal, Copilot CLI is always in a terminal', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'torno-choice-'))
+  await mkdir(join(dir, '.torno'), { recursive: true })
+  const file = join(dir, '.torno', 'agent.json')
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat' })
+  await writeFile(file, '{"agent":"claude"}')
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat' })
+  await writeFile(file, '{"agent":"claude","view":"terminal"}')
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'terminal' })
+  await writeFile(file, '{"agent":"copilot","view":"chat"}')
+  expect(await readChoice(dir)).toEqual({ agent: 'copilot', view: 'terminal' })
+  await writeFile(file, '{"agent":"claude","view":"split"}')
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat', note: 'agent.json names the view "split", which torno does not know: chat is used.' })
+})
+
+it('writes the choice whole, keeps the view when only the agent is chosen, and refuses a view that is none', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'torno-choice-'))
+  await writeChoice(dir, { agent: 'claude', view: 'terminal' })
+  // Only the agent chosen: the view the file holds stays, also through an agent that has no chat.
+  await writeChoice(dir, { agent: 'copilot' })
+  expect(JSON.parse(await readFile(join(dir, '.torno', 'agent.json'), 'utf8'))).toEqual({ agent: 'copilot', view: 'terminal' })
+  await writeChoice(dir, { agent: 'claude', view: 'chat' })
+  await writeChoice(dir, { agent: 'copilot' })
+  await writeChoice(dir, { agent: 'claude' })
+  expect(await readChoice(dir)).toEqual({ agent: 'claude', view: 'chat' })
+  await expect(writeChoice(dir, { agent: 'claude', view: 'split' as never })).rejects.toThrow('no view named split')
+  expect(await readdir(join(dir, '.torno'))).toEqual(['agent.json'])
 })
 
 it('finds which agents are installed: the command of each on PATH, or the one that stands in for all', () => {

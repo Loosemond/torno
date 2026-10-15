@@ -11,7 +11,7 @@ export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'Notification', 'Permiss
 
 /**
  * The status of a session after an event: the name of a hook the agent posted,
- * or what the PTY did (`output`, `exit`). An event that says nothing about the
+ * or what the PTY did (`output`, `exit`), or what a chat session's stream did (`ask`, `answered`). An event that says nothing about the
  * status leaves it as it is, and nothing follows `exited`.
  */
 export function reduceStatus(prev: SessionStatus, event: string, body?: unknown): SessionStatus {
@@ -30,6 +30,11 @@ export function reduceStatus(prev: SessionStatus, event: string, body?: unknown)
       return noQuestion(body) ? prev : 'needs_input'
     case 'PermissionRequest':
       return 'needs_input'
+    case 'ask':
+      // A chat session: the CLI sent a request (a permission, a question) that the person is to answer.
+      return 'needs_input'
+    case 'answered':
+      return prev === 'needs_input' ? 'working' : prev
     case 'SessionEnd':
     case 'exit':
       return 'exited'

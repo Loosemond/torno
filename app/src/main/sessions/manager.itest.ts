@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { SessionStatus } from '../../shared/bridge'
+import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { type HttpRouter, startHttp } from '../http'
 import { onNotOwn } from '../own'
 import type { AgentId } from '../../shared/bridge'
 import { adapters } from './adapter'
 import { killGroup, Sessions } from './manager'
+import type { PromptBlock, StreamMessage } from './stream'
 
 // The session manager with a real PTY and a real HTTP server; only the agent is
 // a stand-in (test/fake-agent.mjs), launched with Claude Code's arguments.
@@ -38,11 +39,14 @@ function object(id: string): ObjectInfo {
 
 /** The agent each object is started with: Claude Code's arguments unless a test names another. */
 let chosen = new Map<string, AgentId>()
+/** The view each object is started in: the terminal unless a test names the chat. */
+let views = new Map<string, AgentView>()
 
 function make(command = `node ${FAKE}`): Sessions {
   const made = new Sessions({
     http,
     adapterFor: (obj) => adapters(command)[chosen.get(obj.id) ?? 'claude'],
+    viewFor: (obj) => views.get(obj.id) ?? 'terminal',
     contextFor: async (id, opts) => {
       asking?.()
       asked.push({ objectId: id, fresh: opts.fresh })
@@ -73,6 +77,7 @@ async function started(agent: AgentId, opts: { context?: { text: string; sentMar
   const made = new Sessions({
     http,
     adapterFor: () => adapters(`node ${FAKE}`)[agent],
+    viewFor: () => 'terminal',
     contextFor: () => opts.context ?? { text: 'Build ok.', sentMarkIds: [] },
     onDelivered: opts.onDelivered,
     systemPromptFor: () => '',
@@ -131,6 +136,7 @@ afterEach(async () => {
   context = (id) => `context for ${id}`
   drafts = new Map()
   chosen = new Map()
+  views = new Map()
   delivered = []
   gate = Promise.resolve()
   asking = null
@@ -1036,5 +1042,324 @@ describe('killGroup', () => {
     const killed: number[] = []
     for (const pid of [0, 1, -1, -4242, NaN, 1.5, Infinity]) killGroup(pid, (target) => void killed.push(target))
     expect(killed).toEqual([])
+  })
+})
+
+// Claude Code started headless (view `chat`): the stand-in speaks the stream protocol (test/fake-agent.mjs), the
+// hooks are posted to the real router as they are for a terminal.
+describe('a chat session', () => {
+  let count = 0
+  // The hook endpoint answers for the first manager that mounts it on a router: this one has its own router and
+  // manager, and each test says through `contextOf` what the prompts are answered with.
+  let chatHttp: HttpRouter
+  let chatSessions: Sessions
+  let contextOf: (id: string, call: number) => { text: string; sentMarkIds: string[] }
+  let calls = 0
+  type Seen = {
+    messages: StreamMessage[]
+    data: string[]
+    asks: Array<{ requestId: string; toolName: string; input: unknown; suggestions?: unknown[] }>
+    asked: Array<{ requestId: string; answered: boolean }>
+    contexts: Array<{ text: string; sentMarkIds: string[]; prompt?: string }>
+    statuses: SessionStatus[]
+  }
+  const records = new Map<string, Seen>()
+  const record = (sessionId: string): Seen => {
+    let r = records.get(sessionId)
+    if (!r) records.set(sessionId, (r = { messages: [], data: [], asks: [], asked: [], contexts: [], statuses: [] }))
+    return r
+  }
+  const chatDelivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
+
+  beforeAll(async () => {
+    chatHttp = await startHttp()
+    chatSessions = new Sessions({
+      http: chatHttp,
+      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      viewFor: () => 'chat',
+      contextFor: async (id) => contextOf(id, (calls += 1)),
+      onDelivered: (objectId, sentMarkIds) => chatDelivered.push({ objectId, sentMarkIds }),
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => chatHttp.url(`/mcp/${id}`)
+    })
+    chatSessions.on('data', (m) => record(m.sessionId).data.push(m.data))
+    chatSessions.on('stream', (m) => record(m.sessionId).messages.push(m.message))
+    chatSessions.on('ask', (m) => record(m.sessionId).asks.push(m))
+    chatSessions.on('asked', (m) => record(m.sessionId).asked.push(m))
+    chatSessions.on('context', (m) => record(m.sessionId).contexts.push(m))
+    chatSessions.on('status', (m) => record(m.sessionId).statuses.push(m.status))
+  })
+
+  afterEach(async () => {
+    await chatSessions.stopAll()
+    contextOf = (id, call) => ({ text: `context ${call} for ${id}`, sentMarkIds: [] })
+    calls = 0
+    chatDelivered.length = 0
+  })
+
+  afterAll(async () => {
+    await chatHttp.close()
+  })
+
+  /** A chat session of the stand-in, in a folder of its own, with everything it says and is asked recorded. */
+  async function chat(opts: { resume?: boolean; folder?: string; context?: typeof contextOf } = {}) {
+    count += 1
+    contextOf = opts.context ?? ((id, call) => ({ text: `context ${call} for ${id}`, sentMarkIds: [] }))
+    const obj = object(opts.folder ?? `chat-${count}`)
+    const started = await chatSessions.start(obj, { resume: opts.resume })
+    const r = record(started.sessionId)
+    return {
+      ...r,
+      sessions: chatSessions,
+      obj,
+      started,
+      sessionId: started.sessionId,
+      send: (content: string) => chatSessions.prompt(started.sessionId, [{ type: 'text', text: content } satisfies PromptBlock]),
+      types: () => r.messages.map((m) => m.type),
+      results: () => r.messages.filter((m) => m.type === 'result'),
+      /** The text of the tool results the agent was given. */
+      toolResults: () =>
+        r.messages
+          .filter((m) => m.type === 'user')
+          .flatMap((m) => ((m.message as { content: Array<{ type: string; content?: unknown }> }).content ?? []).filter((b) => b.type === 'tool_result').map((b) => b.content))
+    }
+  }
+
+  it('starts headless: the stream, not a terminal, with the chat flags and the arguments of the terminal', async () => {
+    const c = await chat()
+    expect(c.started.view).toBe('chat')
+    expect(c.sessions.current(c.obj.id)).toMatchObject({ view: 'chat', agent: 'claude', hooks: true })
+    c.send('say hello')
+    await expect.poll(() => c.results().length).toBe(1)
+    const init = c.messages.find((m) => m.type === 'system' && m.subtype === 'init')!
+    const args = init.fake_argv as string[]
+    expect(args.slice(args.indexOf('-p'), args.indexOf('-p') + 9)).toEqual(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio'])
+    expect(args).toContain('--session-id')
+    expect(args).toContain('--mcp-config')
+    // What the CLI prints is the stream's, never the terminal's.
+    expect(c.data).toEqual([])
+    expect(c.sessions.current(c.obj.id)!.pid).toBeGreaterThan(1)
+  })
+
+  it('streams what the agent says, and ends a turn with a result', async () => {
+    const c = await chat()
+    c.send('say one two three')
+    await expect.poll(() => c.results().length).toBe(1)
+    const deltas = c.messages.filter((m) => m.type === 'stream_event').map((m) => (m.event as { delta?: { text?: string } }).delta?.text).filter(Boolean)
+    expect(deltas).toEqual(['one ', 'two ', 'three'])
+    const assistant = c.messages.find((m) => m.type === 'assistant')!
+    expect((assistant.message as { content: unknown[] }).content).toEqual([{ type: 'text', text: 'one two three' }])
+    expect(c.results()[0]).toMatchObject({ subtype: 'success', is_error: false })
+  })
+
+  it('keeps going past what it does not know: a line that is no JSON, an object of a type from the future', async () => {
+    const c = await chat()
+    c.send('garbage\nsay still here')
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.types()).toContain('from_the_future')
+    expect(c.messages.some((m) => m.type === 'assistant')).toBe(true)
+  })
+
+  it('answers the prompt\'s hook with its context, says so with the prompt, and delivers the marks as for a terminal', async () => {
+    const c = await chat({ context: () => ({ text: 'Marks: M4 at lid/F2.', sentMarkIds: ['M4'] }) })
+    c.send('what is M4?')
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.contexts).toMatchObject([{ text: 'Marks: M4 at lid/F2.', sentMarkIds: ['M4'], prompt: 'what is M4?' }])
+    // The context reached the agent: the stand-in says what its hook was answered with.
+    expect(c.messages.find((m) => m.type === 'system' && m.subtype === 'hook_response')).toMatchObject({ output: 'Marks: M4 at lid/F2.' })
+    expect(chatDelivered).toEqual([{ objectId: c.obj.id, sentMarkIds: ['M4'] }])
+  })
+
+  it('tells of the context of a terminal session too', async () => {
+    const heard: Array<{ text: string; prompt?: string }> = []
+    sessions.on('context', (m) => heard.push(m))
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    sessions.write(sessionId, 'hook\r')
+    await expect.poll(() => said(sessionId)).toContain('context: context for bracket')
+    expect(heard).toMatchObject([{ objectId: 'bracket', text: 'context for bracket', sentMarkIds: [], prompt: 'hello' }])
+  })
+
+  it('gives each of two prompts sent at once its own context, in order', async () => {
+    const c = await chat({ context: (_id, call) => ({ text: `context ${call}`, sentMarkIds: [`M${call}`] }) })
+    c.send('say first')
+    c.send('say second')
+    await expect.poll(() => c.results().length).toBe(2)
+    expect(c.contexts.map((x) => [x.prompt, x.text, x.sentMarkIds])).toEqual([
+      ['say first', 'context 1', ['M1']],
+      ['say second', 'context 2', ['M2']]
+    ])
+  })
+
+  it('goes from starting to idle (ready) to working to idle, by the hooks', async () => {
+    const c = await chat()
+    await expect.poll(() => c.sessions.capabilities(c.sessionId)).toBeDefined()
+    expect(c.statuses).toEqual(['starting', 'idle'])
+    c.send('say hi')
+    await expect.poll(() => c.statuses.at(-1)).toBe('idle')
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.statuses).toEqual(['starting', 'idle', 'working', 'idle'])
+  })
+
+  it('says what the agent can do, from its initialize', async () => {
+    const c = await chat()
+    await expect.poll(() => c.sessions.capabilities(c.sessionId)).toBeDefined()
+    const { commands, models } = c.sessions.capabilities(c.sessionId)!
+    expect(commands.map((x) => x.name)).toEqual(['compact', 'clear'])
+    expect(commands[0]).toEqual({ name: 'compact', description: 'Compact the conversation', argumentHint: '' })
+    expect(models).toEqual([{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }])
+    expect(c.sessions.capabilities('no-such-session')).toBeUndefined()
+  })
+
+  it('needs input while a request of the agent waits, works once it is answered, and tells the agent the answer', async () => {
+    const c = await chat()
+    c.send('ask Bash {"command":"ls"}')
+    await expect.poll(() => c.asks.length).toBe(1)
+    expect(c.asks[0]).toMatchObject({ toolName: 'Bash', input: { command: 'ls' } })
+    expect(c.asks[0].suggestions).toHaveLength(1)
+    await expect.poll(() => c.statuses.at(-1)).toBe('needs_input')
+    c.sessions.answer(c.sessionId, c.asks[0].requestId, { behavior: 'allow', updatedInput: { command: 'ls -la' } })
+    expect(c.asked).toMatchObject([{ requestId: c.asks[0].requestId, answered: true }])
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.toolResults()).toEqual(['allowed: {"command":"ls -la"}'])
+    expect(c.statuses).toContain('working')
+    expect(c.statuses.at(-1)).toBe('idle')
+    // Answered once: the same request again writes nothing and moves nothing.
+    c.sessions.answer(c.sessionId, c.asks[0].requestId, { behavior: 'deny', message: 'late' })
+    expect(c.asked).toHaveLength(1)
+  })
+
+  it('denies with the reason it is given', async () => {
+    const c = await chat()
+    c.send('ask Write {"file_path":"x"}')
+    await expect.poll(() => c.asks.length).toBe(1)
+    c.sessions.answer(c.sessionId, c.asks[0].requestId, { behavior: 'deny', message: 'not there' })
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.toolResults()).toEqual(['denied: not there'])
+  })
+
+  it('stays waiting until every open request is answered', async () => {
+    const c = await chat()
+    c.send('ask Bash {"a":1}\nask Read {"b":2}')
+    await expect.poll(() => c.asks.length).toBe(1)
+    c.sessions.answer(c.sessionId, c.asks[0].requestId, { behavior: 'allow', updatedInput: {} })
+    await expect.poll(() => c.asks.length).toBe(2)
+    await expect.poll(() => c.statuses.at(-1)).toBe('needs_input')
+    c.sessions.answer(c.sessionId, c.asks[1].requestId, { behavior: 'allow', updatedInput: {} })
+    await expect.poll(() => c.results().length).toBe(1)
+  })
+
+  it('interrupts a turn within a second, and is idle after it, though the CLI posts no Stop for it', async () => {
+    const c = await chat()
+    c.send('slow 5')
+    await expect.poll(() => c.statuses.at(-1)).toBe('working')
+    await expect.poll(() => c.messages.some((m) => m.type === 'stream_event')).toBe(true)
+    const began = Date.now()
+    expect(await c.sessions.control(c.sessionId, { subtype: 'interrupt' })).toEqual({ still_queued: [] })
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(Date.now() - began).toBeLessThan(1000)
+    expect(c.results()[0]).toMatchObject({ subtype: 'error_during_execution', is_error: true })
+    await expect.poll(() => c.statuses.at(-1)).toBe('idle')
+  })
+
+  it('sets the model of the session through a control request', async () => {
+    const c = await chat()
+    expect(await c.sessions.control(c.sessionId, { subtype: 'set_model', model: 'haiku' })).toEqual({})
+    c.send('say hi')
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.messages.find((m) => m.type === 'system' && m.subtype === 'init')).toMatchObject({ model: 'haiku' })
+  })
+
+  it('writes nothing to a chat session by the terminal calls, and a chat call to a terminal session does nothing', async () => {
+    const c = await chat()
+    c.sessions.write(c.sessionId, 'say typed\r')
+    c.sessions.insert(c.sessionId, 'say pasted')
+    c.sessions.resize(c.sessionId, 100, 40)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(c.messages).toEqual([])
+    expect(c.data).toEqual([])
+    // A terminal session takes none of the chat calls.
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    const before = said(sessionId)
+    sessions.prompt(sessionId, [{ type: 'text', text: 'hello' }])
+    sessions.answer(sessionId, 'r1', { behavior: 'allow', updatedInput: {} })
+    await expect(sessions.control(sessionId, { subtype: 'interrupt' })).rejects.toThrow()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(said(sessionId)).toBe(before)
+  })
+
+  it('stops: its stdin ends, it leaves, and the status is exited', async () => {
+    const c = await chat()
+    const pid = c.sessions.current(c.obj.id)!.pid
+    expect(alive(pid)).toBe(true)
+    await c.sessions.stop(c.sessionId)
+    expect(alive(pid)).toBe(false)
+    expect(c.statuses.at(-1)).toBe('exited')
+    expect(c.sessions.current(c.obj.id)).toBeNull()
+    // Nothing is sent to it any more.
+    c.send('say late')
+    expect(c.messages.filter((m) => m.type === 'result')).toEqual([])
+    await c.sessions.stop(c.sessionId)
+  })
+
+  it('gives up what was waiting when it ends: the request is not answered, and says so', async () => {
+    const c = await chat()
+    c.send('ask Bash {"command":"ls"}')
+    await expect.poll(() => c.asks.length).toBe(1)
+    await c.sessions.stop(c.sessionId)
+    // The stand-in leaves when its stdin ends, whatever it waits for.
+    expect(c.asked).toMatchObject([{ requestId: c.asks[0].requestId, answered: false }])
+    expect(c.statuses.at(-1)).toBe('exited')
+  })
+
+  it('kills an agent that will not leave: SIGTERM to its group after two seconds, SIGKILL after four', async () => {
+    process.env.FAKE_AGENT_STUBBORN = '1'
+    try {
+      const c = await chat()
+      await expect.poll(() => c.sessions.capabilities(c.sessionId)).toBeDefined()
+      const pid = c.sessions.current(c.obj.id)!.pid
+      const began = Date.now()
+      await c.sessions.stop(c.sessionId)
+      expect(Date.now() - began).toBeGreaterThanOrEqual(3900)
+      expect(alive(pid)).toBe(false)
+    } finally {
+      delete process.env.FAKE_AGENT_STUBBORN
+    }
+  }, 20_000)
+
+  it('has its conversation on file from the hooks, and resumes it with --resume', async () => {
+    const first = await chat({ folder: 'chat-resume' })
+    first.send('say hi')
+    await expect.poll(() => first.results().length).toBe(1)
+    const file = sessionFile('chat-resume')
+    expect(file.conversationId).toMatch(UUID)
+    await first.sessions.stop(first.sessionId)
+    expect(first.sessions.resumable(first.obj, 'claude')).toBe(true)
+
+    const second = await chat({ folder: 'chat-resume', resume: true })
+    second.send('say again')
+    await expect.poll(() => second.results().length).toBe(1)
+    const args = second.messages.find((m) => m.type === 'system' && m.subtype === 'init')!.fake_argv as string[]
+    expect(args[args.indexOf('--resume') + 1]).toBe(file.conversationId)
+    expect(args).not.toContain('--session-id')
+  })
+
+  it('is exited when the agent goes by itself, and stays one session of its object', async () => {
+    const c = await chat()
+    expect(await c.sessions.start(c.obj, {})).toMatchObject({ sessionId: c.sessionId, view: 'chat' })
+    await c.sessions.stop(c.sessionId)
+    expect(c.statuses.at(-1)).toBe('exited')
+  })
+
+  it('starts in the view chosen for the object, and in the first view of an agent that cannot be in it', async () => {
+    views.set('chosen-terminal', 'terminal')
+    views.set('chosen-chat', 'chat')
+    chosen.set('copilot-chat', 'copilot')
+    views.set('copilot-chat', 'chat')
+    expect((await sessions.start(object('chosen-terminal'), {})).view).toBe('terminal')
+    expect((await sessions.start(object('chosen-chat'), {})).view).toBe('chat')
+    // Copilot CLI has no chat: whatever is asked, a terminal.
+    expect((await sessions.start(object('copilot-chat'), {})).view).toBe('terminal')
   })
 })

@@ -1,4 +1,4 @@
-import type { AgentId } from '../../shared/bridge'
+import type { AgentId, AgentView } from '../../shared/bridge'
 import { claudeAdapter } from './claude'
 import { copilotAdapter } from './copilot'
 
@@ -19,6 +19,8 @@ export interface LaunchContext {
   /** The agent's own id of the conversation: started with it, or resumed by it. */
   conversationId: string
   resume: boolean
+  /** `chat`: run headless, its conversation as JSON lines on pipes; `terminal`: as the person would run it. */
+  view: AgentView
   cwd: string
   /** torno's MCP server, for this object alone. */
   mcpUrl: string
@@ -49,6 +51,8 @@ export interface AgentAdapter {
   hooks: boolean
   /** How this agent's client names a tool of torno's to the model: `mcp__torno__scene`. */
   toolName(tool: string): string
+  /** The views it can be in, the first its default: only an agent with a headless mode has `chat`. */
+  views: readonly AgentView[]
   launch(ctx: LaunchContext): AgentLaunch
 }
 

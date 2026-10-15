@@ -3,7 +3,7 @@ import { NO_HOOKS_PROMPT, SYSTEM_PROMPT, systemPrompt } from '../prompt'
 import { adapters } from './adapter'
 import { copilotAdapter } from './copilot'
 
-const ctx = { sessionId: 's1', conversationId: '0cb916db-26aa-40f2-86b5-1ba81b225fd2', resume: false, cwd: '/ws/hollow', mcpUrl: 'http://127.0.0.1:4100/mcp/hollow', hookUrl: (event: string) => `http://127.0.0.1:4100/hooks/s1/${event}`, agentDir: '/ws/hollow/.torno/agent' }
+const ctx = { sessionId: 's1', conversationId: '0cb916db-26aa-40f2-86b5-1ba81b225fd2', resume: false, view: 'terminal' as const, cwd: '/ws/hollow', mcpUrl: 'http://127.0.0.1:4100/mcp/hollow', hookUrl: (event: string) => `http://127.0.0.1:4100/hooks/s1/${event}`, agentDir: '/ws/hollow/.torno/agent' }
 
 describe('copilotAdapter', () => {
   it('starts Copilot CLI with torno\'s server for this session only, allowed, and its instructions in a folder of torno\'s', () => {

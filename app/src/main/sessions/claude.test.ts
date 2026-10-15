@@ -5,6 +5,7 @@ const ctx = {
   sessionId: 's1',
   conversationId: '0b1e5a52-6d0c-4f6e-9a55-2f4a3c1d9e10',
   resume: false,
+  view: 'terminal' as const,
   cwd: '/ws/bracket',
   mcpUrl: 'http://127.0.0.1:4100/mcp/bracket',
   hookUrl: (event: string) => `http://127.0.0.1:4100/hooks/s1/${event}`,
@@ -84,6 +85,23 @@ describe('the Claude Code adapter', () => {
     // It adds nothing to the environment and is given no file: everything is on its command line.
     expect(launch.env).toEqual({})
     expect(launch.files).toBeUndefined()
+  })
+
+  it('is the terminal one plus the flags of the headless mode in chat, `-p` first after what the command brings', () => {
+    const terminal = claudeAdapter().launch(ctx).args
+    const chat = claudeAdapter().launch({ ...ctx, view: 'chat' }).args
+    const flags = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
+    expect(chat).toEqual([...flags, ...terminal])
+    expect(chat.indexOf('-p')).toBe(0)
+    // The same with a command that brings arguments of its own: they stay in front.
+    const fake = claudeAdapter('node /abs/fake-agent.mjs').launch({ ...ctx, view: 'chat' }).args
+    expect(fake.slice(0, 3)).toEqual(['/abs/fake-agent.mjs', '-p', '--input-format'])
+    // Resumed, it is the same conversation by the same flag.
+    expect(after(claudeAdapter().launch({ ...ctx, view: 'chat', resume: true }).args, '--resume')).toBe(ctx.conversationId)
+  })
+
+  it('says which views it can be in', () => {
+    expect(claudeAdapter().views).toEqual(['chat', 'terminal'])
   })
 
   it('says of itself that it posts hooks, and how it names a tool', () => {

@@ -9,7 +9,7 @@ import { saveView } from './mcp/views'
 import { FOLDER, onNotOwn, ownTorno, writeOwn } from './own'
 import { saveScansFile } from './scans/file'
 import { saveSceneFile } from './scenefile'
-import { saveAgentChoice } from './sessions/choice'
+import { writeChoice } from './sessions/choice'
 import { blankPrompt } from './sessions/delivery'
 import { storeConversation } from './sessions/resume'
 import { saveThumbnail } from './show/cards'
@@ -36,7 +36,7 @@ const WRITERS: Record<string, (dir: string) => Promise<unknown>> = {
   'marks.json': (dir) => saveMarksFile(dir, { next: 1, marks: [] }),
   'scans.json': (dir) => saveScansFile(dir, { next: 1, scans: [] }),
   'scene.json': (dir) => saveSceneFile(dir, { layers: {} }),
-  'agent.json': (dir) => saveAgentChoice(dir, 'copilot'),
+  'agent.json': (dir) => writeChoice(dir, { agent: 'copilot', view: 'terminal' }),
   'prompt.md': (dir) => blankPrompt(dir),
   'session.json': (dir) => storeConversation(dir, 'claude', '11111111-1111-4111-8111-111111111111'),
   'thumb.png': (dir) => saveThumbnail(dir, PNG, OF, new Date()),

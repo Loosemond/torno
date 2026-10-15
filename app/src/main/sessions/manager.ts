@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import * as pty from 'node-pty'
-import type { AgentId, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
+import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { writeFileAtomic } from '../atomic'
 import { ensureIgnored } from '../ignored'
@@ -16,11 +16,14 @@ import { type Told, blankPrompt, Delivery, untold } from './delivery'
 import { PROMPT_FILE } from './sendMarks'
 import { conversationTold, SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
+import { type AskAnswer, ClaudeStream, type PromptBlock, type StreamAsk, type StreamMessage } from './stream'
 
 /** `<object>/.torno/agent`: where an adapter's own files are written, for its agent to be pointed at. */
 const AGENT_FOLDER = 'agent'
 const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
+/** A chat session that has been told to end: SIGTERM to its group after this long, SIGKILL after twice. */
+const TERM_AFTER_MS = 2000
 /** The hooks that say a conversation has a prompt in it: it exists for the agent, and can be resumed. */
 const CONVERSATION_EVENTS = new Set(['UserPromptSubmit', 'Stop'])
 /** The hooks that only say the agent is at work again. */
@@ -38,10 +41,27 @@ interface Session extends Told {
   status: SessionStatus
   cols: number
   rows: number
-  pty: pty.IPty
+  /** How it is shown: a chat session has a `stream` and no `pty`, a terminal session the other way round. */
+  view: AgentView
+  pty: pty.IPty | null
+  stream: ClaudeStream | null
+  /** A chat session: the ids of the requests of the CLI's that wait for the person. */
+  asks: Set<string>
+  /** A chat session: prompts sent that have not had their `result` yet. */
+  outstanding: number
+  /** A chat session: what the CLI answered `initialize` with, once it has. */
+  capabilities?: Capabilities
   exited: Promise<void>
+  /** The kill: SIGHUP's two seconds after for a terminal session, the last of two signals for a chat session. */
   killTimer?: NodeJS.Timeout
+  termTimer?: NodeJS.Timeout
   adapter: AgentAdapter
+}
+
+/** What a chat session's CLI says it can do: its slash commands and the models it offers. */
+export interface Capabilities {
+  commands: Array<{ name: string; description: string; argumentHint: string }>
+  models: unknown[]
 }
 
 export interface SessionInfo {
@@ -53,6 +73,8 @@ export interface SessionInfo {
   agent: AgentId
   /** Whether its agent posts hooks: without, its status says only that it runs. */
   hooks: boolean
+  /** `chat`: the agent runs headless and torno draws the conversation; `terminal`: its own terminal in a PTY. */
+  view: AgentView
 }
 
 /** What `start` answers with: the session, at its size, as it stands, and whose it is. */
@@ -63,6 +85,7 @@ export interface Started {
   status: SessionStatus
   agent: AgentId
   hooks: boolean
+  view: AgentView
 }
 
 interface Events {
@@ -70,6 +93,14 @@ interface Events {
   status: { sessionId: string; objectId: string; status: SessionStatus }
   /** What became of the line "Send marks" put at the cursor of an agent without hooks, and how many marks its file tells of. */
   send: { sessionId: string; objectId: string; state: SendState; marks: number; why?: SendDropped }
+  /** A chat session: a line the CLI printed, as the stream read it. Never for a terminal session. */
+  stream: { sessionId: string; objectId: string; message: StreamMessage }
+  /** A chat session: the CLI asks for permission to use a tool, or a question, and waits for `answer`. */
+  ask: { sessionId: string; objectId: string } & StreamAsk
+  /** A chat session: a request of the CLI's was answered (`answered`), or is given up because the session ended. */
+  asked: { sessionId: string; requestId: string; answered: boolean }
+  /** What a `UserPromptSubmit` was answered with, in a session of any view: the text and the marks it told of. */
+  context: { sessionId: string; objectId: string; text: string; sentMarkIds: string[]; prompt?: string }
 }
 
 /**
@@ -91,13 +122,18 @@ export class Sessions {
   private readonly starting = new Map<string, Promise<Started>>()
   /** How an agent without hooks is told, and when what it was told counts as sent. */
   private readonly delivery: Delivery<Session>
-  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [] }
+  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [], stream: [], ask: [], asked: [], context: [] }
 
   constructor(
     private readonly deps: {
       http: HttpRouter
       /** The agent to run in an object: the one chosen for it. */
       adapterFor: (obj: ObjectInfo) => AgentAdapter | Promise<AgentAdapter>
+      /**
+       * How the agent of an object is shown, as chosen for it: `chat` starts it headless, `terminal` in a PTY.
+       * None: the terminal. A view the agent cannot be in: its first view.
+       */
+      viewFor?: (obj: ObjectInfo) => AgentView | Promise<AgentView>
       /**
        * What the agent should know with the next prompt in that object ('' for
        * nothing), and the marks that text tells of for the first time. Asking
@@ -155,6 +191,8 @@ export class Sessions {
   private async begin(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number }): Promise<Started> {
     const { http } = this.deps
     const adapter = await this.deps.adapterFor(obj)
+    const wanted = (await this.deps.viewFor?.(obj)) ?? 'terminal'
+    const view = adapter.views.includes(wanted) ? wanted : adapter.views[0]
     const id = randomUUID()
     // Only a conversation of this agent's own: another agent's id means nothing to it.
     const stored = opts.resume ? storedConversation(obj.dir, adapter.id) : null
@@ -165,6 +203,7 @@ export class Sessions {
       sessionId: id,
       conversationId,
       resume: stored !== null,
+      view,
       cwd: obj.dir,
       mcpUrl: this.deps.mcpUrlFor(obj.id),
       hookUrl: (event) => http.url(`/hooks/${id}/${encodeURIComponent(event)}`),
@@ -199,7 +238,8 @@ export class Sessions {
 
     const cols = size(opts.cols, 80)
     const rows = size(opts.rows, 24)
-    const child = pty.spawn(launch.command, launch.args, { name: 'xterm-256color', cols, rows, cwd: obj.dir, env })
+    const child = view === 'terminal' ? pty.spawn(launch.command, launch.args, { name: 'xterm-256color', cols, rows, cwd: obj.dir, env }) : null
+    const stream = view === 'chat' ? new ClaudeStream({ command: launch.command, args: launch.args, cwd: obj.dir, env }) : null
     let ended!: () => void
     const session: Session = {
       id,
@@ -209,7 +249,11 @@ export class Sessions {
       status: 'starting',
       cols,
       rows,
+      view,
       pty: child,
+      stream,
+      asks: new Set(),
+      outstanding: 0,
       exited: new Promise<void>((resolve) => (ended = resolve)),
       adapter,
       // A conversation that is resumed has seen the marks only if a line of torno's was sent in it.
@@ -218,12 +262,12 @@ export class Sessions {
     this.sessions.set(id, session)
     this.emit('status', { sessionId: id, objectId: obj.id, status: 'starting' })
 
-    child.onData((data) => {
+    child?.onData((data) => {
       this.emit('data', { sessionId: id, data })
       if (!adapter.hooks) this.delivery.output(session, data)
       this.advance(session, 'output')
     })
-    child.onExit(() => {
+    child?.onExit(() => {
       clearTimeout(session.killTimer)
       this.sessions.delete(id)
       this.advance(session, 'exit')
@@ -232,6 +276,7 @@ export class Sessions {
       if (adapter.hooks) ended()
       else void this.delivery.ended(session).then(ended)
     })
+    if (stream) this.follow(session, stream, ended)
     return started(session)
   }
 
@@ -243,7 +288,7 @@ export class Sessions {
   /** The session running in an object's folder. */
   current(objectId: string): SessionInfo | null {
     const s = this.of(objectId)
-    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: s.pty.pid, agent: s.adapter.id, hooks: s.adapter.hooks } : null
+    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: (s.pty ?? s.stream)?.pid ?? 0, agent: s.adapter.id, hooks: s.adapter.hooks, view: s.view } : null
   }
 
   /** Whether a session is being started in an object's folder and is not there yet. */
@@ -273,7 +318,8 @@ export class Sessions {
 
   write(sessionId: string, data: string): void {
     const s = this.sessions.get(sessionId)
-    if (!s) return
+    // A chat session has no terminal to type into: its prompts are `prompt`.
+    if (!s?.pty) return
     s.pty.write(data)
     if (!s.adapter.hooks && !s.killTimer) this.delivery.typed(s, data)
   }
@@ -313,13 +359,13 @@ export class Sessions {
   /** The paste itself: whether anything was written. */
   private paste(s: Session, text: string): boolean {
     const plain = text.replace(CONTROL_CHARACTERS, '')
-    if (plain) s.pty.write(`\x1b[200~${plain}\x1b[201~`)
-    return plain !== ''
+    if (plain && s.pty) s.pty.write(`\x1b[200~${plain}\x1b[201~`)
+    return plain !== '' && s.pty !== null
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
     const s = this.sessions.get(sessionId)
-    if (!s) return
+    if (!s?.pty) return
     cols = size(cols, s.cols)
     rows = size(rows, s.rows)
     if (cols === s.cols && rows === s.rows) return
@@ -332,13 +378,102 @@ export class Sessions {
     }
   }
 
+  /**
+   * A chat session: a prompt for its agent, which queues it if it is at work. Nothing for a terminal session
+   * (its prompts are typed: `write`) or one that has ended or been told to.
+   */
+  prompt(sessionId: string, content: PromptBlock[]): void {
+    const s = this.chat(sessionId, 'prompt')
+    if (!s?.stream) return
+    s.outstanding += 1
+    s.stream.prompt(content, s.conversationId)
+  }
+
+  /** A chat session: the answer to a request of the agent's that waits for the person (an `ask`). */
+  answer(sessionId: string, requestId: string, response: AskAnswer): void {
+    const s = this.chat(sessionId, 'answer')
+    if (!s?.stream) return
+    // Only a request that is open: one that was answered, or never made, writes nothing.
+    if (!s.asks.delete(requestId)) return console.error(`session ${sessionId} has no open request ${requestId}`)
+    s.stream.answer(requestId, response)
+    this.emit('asked', { sessionId, requestId, answered: true })
+    if (s.asks.size === 0) this.advance(s, 'answered')
+  }
+
+  /** A chat session: a request of ours to its agent (`interrupt`, `set_model`, `initialize`), resolved with its answer. */
+  control(sessionId: string, request: { subtype: string; [key: string]: unknown }): Promise<unknown> {
+    const s = this.chat(sessionId, 'control')
+    return s?.stream ? s.stream.control(request) : Promise.reject(new Error('This is not a chat session, or it has ended'))
+  }
+
+  /** A chat session: the slash commands and models its agent said it has, once it has said. */
+  capabilities(sessionId: string): Capabilities | undefined {
+    return this.sessions.get(sessionId)?.capabilities
+  }
+
+  /** A chat session that is live, or none: said to the log when a call meant for one found another. */
+  private chat(sessionId: string, call: string): Session | undefined {
+    const s = this.sessions.get(sessionId)
+    if (s?.stream && !s.killTimer) return s
+    console.error(`${call}: session ${sessionId} is not a chat session that is running`)
+    return undefined
+  }
+
+  /** The stream of a chat session: what it says moves the status, and goes to whoever listens. */
+  private follow(session: Session, stream: ClaudeStream, ended: () => void): void {
+    stream.on('message', (message) => {
+      this.advance(session, 'output')
+      // The hooks say when a turn is over; but not one that was interrupted, which posts no `Stop`.
+      if (message.type === 'result') {
+        session.outstanding = Math.max(0, session.outstanding - 1)
+        if (session.outstanding === 0) this.advance(session, 'Stop')
+      }
+      this.emit('stream', { sessionId: session.id, objectId: session.object.id, message })
+    })
+    stream.on('ask', (request) => {
+      session.asks.add(request.requestId)
+      this.advance(session, 'ask')
+      this.emit('ask', { sessionId: session.id, objectId: session.object.id, ...request })
+    })
+    stream.on('note', (text) => {
+      if (this.deps.debug) console.error(this.deps.http.redact(`[torno] session ${session.id} stream: ${text}`))
+    })
+    stream.on('exit', () => {
+      clearTimeout(session.killTimer)
+      clearTimeout(session.termTimer)
+      this.sessions.delete(session.id)
+      // Nobody can answer what the agent was waiting for any more.
+      for (const requestId of session.asks) this.emit('asked', { sessionId: session.id, requestId, answered: false })
+      session.asks.clear()
+      this.advance(session, 'exit')
+      ended()
+    })
+    // Ready for a prompt once it has said what it can do; an agent that cannot say is still one that works.
+    stream
+      .control({ subtype: 'initialize' })
+      .then((answer) => {
+        session.capabilities = capabilitiesOf(answer)
+        this.advance(session, 'output')
+      })
+      .catch((e: Error) => {
+        if (this.deps.debug) console.error(`[torno] session ${session.id} initialize: ${e.message}`)
+      })
+  }
+
   /** Hang up on the agent, and kill it if it is still there two seconds later. Resolves once it has gone. */
   stop(sessionId: string): Promise<void> {
     const s = this.sessions.get(sessionId)
     if (!s) return Promise.resolve()
-    if (!s.killTimer) {
-      signal(s.pty, 'SIGHUP')
-      s.killTimer = setTimeout(() => killGroup(s.pty.pid), KILL_AFTER_MS)
+    if (!s.killTimer && s.pty) {
+      const child = s.pty
+      signal(child, 'SIGHUP')
+      s.killTimer = setTimeout(() => killGroup(child.pid), KILL_AFTER_MS)
+    } else if (!s.killTimer && s.stream) {
+      // Its stdin ends and it leaves by itself; one that does not is asked to, then killed, with what it started.
+      const { pid } = s.stream
+      s.stream.end()
+      s.termTimer = setTimeout(() => signalGroup(pid, 'SIGTERM'), TERM_AFTER_MS)
+      s.killTimer = setTimeout(() => killGroup(pid), 2 * TERM_AFTER_MS)
     }
     return s.exited
   }
@@ -438,6 +573,7 @@ export class Sessions {
       context = { text: '', sentMarkIds: [] }
     }
     const { text, sentMarkIds } = context
+    this.emit('context', { sessionId: session.id, objectId, text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${text ? `, answered with: ${text}` : ''}`)
     // Marks are sent once the answer that names them has been handed over whole: not when the agent hung
     // up first, and not to a session that has been hung up on, whose prompt nobody will answer.
@@ -447,7 +583,19 @@ export class Sessions {
 }
 
 function started(s: Session): Started {
-  return { sessionId: s.id, cols: s.cols, rows: s.rows, status: s.status, agent: s.adapter.id, hooks: s.adapter.hooks }
+  return { sessionId: s.id, cols: s.cols, rows: s.rows, status: s.status, agent: s.adapter.id, hooks: s.adapter.hooks, view: s.view }
+}
+
+/** What `initialize` answered, read for the commands and models it names, and nothing else. */
+function capabilitiesOf(answer: unknown): Capabilities {
+  const { commands, models } = (typeof answer === 'object' && answer !== null ? answer : {}) as { commands?: unknown; models?: unknown }
+  const text = (value: unknown): string => (typeof value === 'string' ? value : '')
+  return {
+    commands: (Array.isArray(commands) ? commands : [])
+      .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null && typeof (c as { name?: unknown }).name === 'string')
+      .map((c) => ({ name: text(c.name), description: text(c.description), argumentHint: text(c.argumentHint) })),
+    models: Array.isArray(models) ? models : []
+  }
 }
 
 function size(value: unknown, fallback: number): number {
@@ -468,11 +616,16 @@ function signal(child: pty.IPty, name: string): void {
  * group is no longer there. Nothing for a pid that is not above 1.
  */
 export function killGroup(pid: number, kill: (target: number, signal: string) => void = process.kill): void {
+  signalGroup(pid, 'SIGKILL', kill)
+}
+
+/** A signal to the group an agent leads, and to the process alone if the group is no longer there. */
+function signalGroup(pid: number, name: string, kill: (target: number, signal: string) => void = process.kill): void {
   // Never 0 or 1 negated: -0 is this process's own group, and -1 every process it may signal.
   if (!Number.isInteger(pid) || pid <= 1) return
   for (const target of [-pid, pid]) {
     try {
-      kill(target, 'SIGKILL')
+      kill(target, name)
       return
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ESRCH') return

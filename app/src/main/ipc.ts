@@ -30,9 +30,9 @@ import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
 import { sessionSaid } from '../shared/agents'
-import type { AgentId } from '../shared/bridge'
+import type { AgentId, AgentView } from '../shared/bridge'
 import { adapters } from './sessions/adapter'
-import { installedAgents, readAgentChoice, saveAgentChoice } from './sessions/choice'
+import { installedAgents, readChoice, writeChoice } from './sessions/choice'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
@@ -512,11 +512,12 @@ export function registerIpc(
     const obj = findObject(objectId)
     const running = sessions?.current(objectId) ?? null
     // The agent its next session runs: the one chosen for it, whatever the session there now is of.
-    const choice = obj ? await readAgentChoice(obj.dir) : { agent: 'claude' as const }
+    const choice: { agent: AgentId; view: AgentView; note?: string } = obj ? await readChoice(obj.dir) : { agent: 'claude', view: 'chat' }
     return {
-      running: running && { sessionId: running.sessionId, status: running.status, agent: running.agent, hooks: running.hooks },
+      running: running && { sessionId: running.sessionId, status: running.status, agent: running.agent, hooks: running.hooks, view: running.view },
       resumable: obj !== undefined && sessions !== null && sessions.resumable(obj, choice.agent),
       agent: choice.agent,
+      view: choice.view,
       hooks: adapters()[choice.agent].hooks,
       ...(choice.note ? { note: choice.note } : {})
     }
@@ -536,7 +537,7 @@ export function registerIpc(
     const obj = findObject(String(objectId))
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
     if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Error('End the session first')
-    await saveAgentChoice(obj.dir, agent)
+    await writeChoice(obj.dir, { agent })
   })
 
   ipcMain.handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))

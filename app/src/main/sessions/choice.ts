@@ -1,7 +1,8 @@
 import { accessSync, constants, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
-import type { AgentId } from '../../shared/bridge'
+import { AGENT_VIEWS } from '../../shared/agents'
+import type { AgentId, AgentView } from '../../shared/bridge'
 import { FOLDER, writeOwn } from '../own'
 import type { AgentAdapter } from './adapter'
 
@@ -14,44 +15,76 @@ const NAMED_LIMIT = 40
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
 
 const isAgent = (value: unknown): value is AgentId => AGENTS.includes(value as AgentId)
+const isView = (value: unknown): value is AgentView => value === 'chat' || value === 'terminal'
 
-/**
- * The agent an object's sessions run, from `<object>/.torno/agent.json`
- * (`{ "agent": "copilot" }`). Claude Code for no file. Also for a file that
- * is not one or names an agent torno does not know, and then with a `note`
- * for the person: their choice is not being followed, and they are told.
- */
-export async function readAgentChoice(dir: string): Promise<{ agent: AgentId; note?: string }> {
+/** What the file says, as it says it: the agent, and the view it names (kept for the agent that has none). */
+interface Raw {
+  agent: AgentId
+  view?: AgentView
+  /** The agent or view the file names that torno does not know, or why it could not be read. */
+  note?: string
+}
+
+async function readRaw(dir: string): Promise<Raw> {
   let text: string
   try {
     text = await readFile(join(dir, FOLDER, FILE), 'utf8')
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { agent: DEFAULT }
-    return { agent: DEFAULT, note: 'agent.json could not be read: Claude Code is used.' }
+    return { agent: DEFAULT, note: UNREADABLE }
   }
-  let named: unknown
+  let file: { agent?: unknown; view?: unknown } | null
   try {
-    named = (JSON.parse(text) as { agent?: unknown } | null)?.agent
+    file = JSON.parse(text) as { agent?: unknown; view?: unknown } | null
   } catch {
-    return { agent: DEFAULT, note: 'agent.json could not be read: Claude Code is used.' }
+    return { agent: DEFAULT, note: UNREADABLE }
   }
-  if (isAgent(named)) return { agent: named }
-  if (typeof named !== 'string' || named === '') return { agent: DEFAULT, note: 'agent.json could not be read: Claude Code is used.' }
+  const named = file?.agent
+  if (!isAgent(named)) {
+    if (typeof named !== 'string' || named === '') return { agent: DEFAULT, note: UNREADABLE }
+    return { agent: DEFAULT, note: `agent.json names "${short(named)}", which torno does not know: Claude Code is used.` }
+  }
+  const view = file?.view
+  if (view === undefined) return { agent: named }
+  if (isView(view)) return { agent: named, view }
+  return { agent: named, note: `agent.json names the view "${short(typeof view === 'string' ? view : JSON.stringify(view) ?? '')}", which torno does not know: chat is used.` }
+}
+
+const UNREADABLE = 'agent.json could not be read: Claude Code is used.'
+
+function short(named: string): string {
   const plain = named.replace(CONTROL_CHARACTERS, '')
-  const said = plain.length > NAMED_LIMIT ? `${plain.slice(0, NAMED_LIMIT - 1)}…` : plain
-  return { agent: DEFAULT, note: `agent.json names "${said}", which torno does not know: Claude Code is used.` }
+  return plain.length > NAMED_LIMIT ? `${plain.slice(0, NAMED_LIMIT - 1)}…` : plain
 }
 
-/** The agent an object's sessions run: 'claude' for no file, a file that is not one, or an agent that is not known. */
-export async function loadAgentChoice(dir: string): Promise<AgentId> {
-  return (await readAgentChoice(dir)).agent
+/**
+ * The agent an object's sessions run and the view they are in, from `<object>/.torno/agent.json`
+ * (`{ "agent": "claude", "view": "terminal" }`). Claude Code for no file. Also for a file that
+ * is not one or names an agent torno does not know, and then with a `note`
+ * for the person: their choice is not being followed, and they are told. The view is `chat` unless
+ * the file says `terminal` (an unknown one is `chat`, with a `note` too); an agent without a chat
+ * (Copilot CLI) is always in its terminal, whatever the file says.
+ */
+export async function readChoice(dir: string): Promise<{ agent: AgentId; view: AgentView; note?: string }> {
+  const raw = await readRaw(dir)
+  const view: AgentView = raw.view !== undefined && viewsOf(raw.agent).includes(raw.view) ? raw.view : viewsOf(raw.agent)[0]
+  return { agent: raw.agent, view, ...(raw.note ? { note: raw.note } : {}) }
 }
 
-/** Keeps the choice, whole or not at all. Only main writes this file. */
-export async function saveAgentChoice(dir: string, agent: AgentId): Promise<void> {
+/**
+ * Keeps the choice, whole or not at all. Only main writes this file. Without a `view` the file's own stays (or
+ * `chat` if it has none): choosing an agent that has no chat does not forget the view of the one before it.
+ */
+export async function writeChoice(dir: string, choice: { agent: AgentId; view?: AgentView }): Promise<void> {
+  const { agent } = choice
   if (!isAgent(agent)) throw new Error(`no agent named ${String(agent)}`)
-  await writeOwn(dir, FILE, `${JSON.stringify({ agent }, null, 2)}\n`)
+  if (choice.view !== undefined && !isView(choice.view)) throw new Error(`no view named ${String(choice.view)}`)
+  const view = choice.view ?? (await readRaw(dir)).view ?? 'chat'
+  await writeOwn(dir, FILE, `${JSON.stringify({ agent, view }, null, 2)}\n`)
 }
+
+/** The views an agent can be in, the one it starts in first. */
+const viewsOf = (agent: AgentId): readonly AgentView[] => AGENT_VIEWS[agent]
 
 /** The file a command names: itself when it is a path, else the first match on PATH. */
 export function findCommand(command: string, path = ''): string | null {

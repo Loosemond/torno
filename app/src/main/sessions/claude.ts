@@ -1,10 +1,16 @@
-import { AGENT_LABEL } from '../../shared/agents'
+import { AGENT_LABEL, AGENT_VIEWS } from '../../shared/agents'
 import type { AgentAdapter } from './adapter'
 import { HOOK_EVENTS } from './status'
 
 export { HOOK_EVENTS }
 
 const HOOK_TIMEOUT_S = 5
+/**
+ * What makes Claude Code speak JSON lines on its pipes instead of drawing a terminal: a prompt is a line of
+ * stdin, everything it does a line of stdout, and what it would ask the person (a permission, a question) a
+ * request on stdout that is answered on stdin.
+ */
+const HEADLESS = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
 
 /**
  * Claude Code. Everything torno adds is passed on the command line, so the
@@ -21,6 +27,7 @@ export function claudeAdapter(agentCmd?: string): AgentAdapter {
     label: AGENT_LABEL.claude,
     command: 'claude',
     hooks: true,
+    views: AGENT_VIEWS.claude,
     toolName: (tool) => `mcp__torno__${tool}`,
     launch(ctx) {
       const hook = (event: string) => [{ hooks: [{ type: 'http', url: ctx.hookUrl(event), timeout: HOOK_TIMEOUT_S }] }]
@@ -28,6 +35,7 @@ export function claudeAdapter(agentCmd?: string): AgentAdapter {
       const mcp = { mcpServers: { torno: { type: 'http', url: ctx.mcpUrl } } }
       const args = [
         ...before,
+        ...(ctx.view === 'chat' ? HEADLESS : []),
         ctx.resume ? '--resume' : '--session-id',
         ctx.conversationId,
         '--mcp-config',
