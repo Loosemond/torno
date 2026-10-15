@@ -1,5 +1,5 @@
-import { cpSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
 
@@ -45,6 +45,30 @@ function kernelProcesses(root: string): Map<number, string> {
 function commandOf(pid: number): string {
   return readOr(() => readFileSync(`/proc/${pid}/cmdline`, 'utf8'), '').replaceAll('\0', ' ').trim()
 }
+
+// Seen on the visible screen: a test's Electron ran with --user-data-dir=~/.config/torno, and wrote its cache there.
+test('under test Electron keeps its own files in a temporary folder, never under the home, and takes it away at quit', async () => {
+  const app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1' } })
+  let paths: Record<string, string> = {}
+  try {
+    await app.firstWindow()
+    paths = await app.evaluate(({ app }) => Object.fromEntries((['userData', 'sessionData', 'crashDumps'] as const).map((name) => [name, app.getPath(name)])))
+    const temp = realpathSync(tmpdir())
+    for (const [name, path] of Object.entries(paths)) {
+      expect([name, path.startsWith(paths.userData)]).toEqual([name, true])
+      expect([name, path.startsWith(homedir())]).toEqual([name, false])
+    }
+    expect(realpathSync(paths.userData).startsWith(join(temp, 'torno-test-'))).toBe(true)
+    expect(paths.sessionData).toBe(paths.userData)
+    // Its command line names that folder, and not the person's.
+    const args = await app.evaluate(() => process.argv.join(' '))
+    expect(args).not.toContain(join(homedir(), '.config'))
+    expect(existsSync(paths.userData)).toBe(true)
+  } finally {
+    await app.close()
+  }
+  await expect.poll(() => existsSync(paths.userData), { timeout: 10_000 }).toBe(false)
+})
 
 test('quitting during a build leaves no kernel or worker process behind', async () => {
   test.skip(process.platform !== 'linux', 'reads /proc')

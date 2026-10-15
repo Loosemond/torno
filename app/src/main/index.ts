@@ -25,6 +25,7 @@ import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { systemPrompt } from './prompt'
 import { quitGate } from './quit'
+import { makeTestProfile, removeTestProfileAfterExit } from './testProfile'
 import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
 import { proposing, sceneFileNow, sceneFilesSettled } from './scenefile'
@@ -48,6 +49,17 @@ app.setName('torno')
 
 const isTest = process.env.TORNO_TEST === '1'
 const isDebug = process.env.TORNO_DEBUG === '1'
+
+// Under test Electron keeps nothing of its own under the person's home: its profile (cache, storage, crash
+// dumps) is a folder of this run in the temporary folder (`testProfile.ts`), set before the app is ready and
+// removed once the process has gone. Without this every test launch wrote into ~/.config/torno.
+if (isTest) {
+  const profile = makeTestProfile()
+  app.setPath('userData', profile)
+  app.setPath('sessionData', profile)
+  app.setPath('crashDumps', join(profile, 'crashes'))
+  app.on('quit', () => removeTestProfileAfterExit(profile))
+}
 
 // A hidden window stops getting frame callbacks from the compositor. Once a
 // repaint coincides with input, Chromium then waits a second for each frame, so
