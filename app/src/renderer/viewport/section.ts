@@ -161,18 +161,28 @@ export function leavesNothing(box: Box, plane: SectionPlane): boolean {
  * the view.
  */
 export function nearSegmentOnScreen(camera: THREE.Camera, a: THREE.Vector3, b: THREE.Vector3, pointer: [number, number], size: { width: number; height: number }, reach: number): boolean {
-  const ends: Array<[number, number]> = []
-  const clip = new THREE.Vector4()
-  for (const end of [a, b]) {
-    clip.set(end.x, end.y, end.z, 1).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix)
-    if (!(clip.w > 0) || Math.abs(clip.x) > clip.w || Math.abs(clip.y) > clip.w || Math.abs(clip.z) > clip.w) return false
-    ends.push([((clip.x / clip.w + 1) / 2) * size.width, ((1 - clip.y / clip.w) / 2) * size.height])
-  }
+  const ends = segmentOnScreen(camera, a, b, size)
+  if (!ends) return false
   const [[ax, ay], [bx, by]] = ends
   const [dx, dy] = [bx - ax, by - ay]
   const length = dx * dx + dy * dy
   const t = length > 0 ? Math.min(Math.max(((pointer[0] - ax) * dx + (pointer[1] - ay) * dy) / length, 0), 1) : 0
   return Math.hypot(ax + dx * t - pointer[0], ay + dy * t - pointer[1]) <= reach
+}
+
+/**
+ * Where the camera draws the ends of a segment, in pixels of the view from its top left; null when either end
+ * is behind the camera or outside what it shows. The camera's matrices are current.
+ */
+export function segmentOnScreen(camera: THREE.Camera, a: THREE.Vector3, b: THREE.Vector3, size: { width: number; height: number }): [[number, number], [number, number]] | null {
+  const ends: Array<[number, number]> = []
+  const clip = new THREE.Vector4()
+  for (const end of [a, b]) {
+    clip.set(end.x, end.y, end.z, 1).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix)
+    if (!(clip.w > 0) || Math.abs(clip.x) > clip.w || Math.abs(clip.y) > clip.w || Math.abs(clip.z) > clip.w) return null
+    ends.push([((clip.x / clip.w + 1) / 2) * size.width, ((1 - clip.y / clip.w) / 2) * size.height])
+  }
+  return [ends[0], ends[1]]
 }
 
 /** How much of black the cut face of a part has over the part's own colour: a step darker, like sawn stock beside a finished face. */

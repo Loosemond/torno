@@ -264,6 +264,10 @@ test('a drag from the handle moves the plane along its normal; a drag from anywh
   // Nothing is kept while the plane moves.
   expect(await section()).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, 1] })
   await expect(readout()).toHaveText(/mm$/)
+  // The bar's number follows the drag, as the readout at the pointer does: the plane as it is drawn, not as kept.
+  const midway = (await readout().textContent())!.replace(/ mm$/, '')
+  expect(Number(midway)).toBeGreaterThan(1)
+  await expect(offset()).toHaveValue(midway)
   await page.mouse.move(x, toY - 10)
   await page.mouse.up()
   const dragged = (await section())!
@@ -274,13 +278,18 @@ test('a drag from the handle moves the plane along its normal; a drag from anywh
   expect(Math.abs(dragged.origin[2] * 1e6 - Math.round(dragged.origin[2] * 1e6))).toBeLessThan(1e-6)
 
   // Escape in the middle of a drag puts the plane back.
+  const kept = await offset().inputValue()
   const [hx, hy] = await pageXY(dragged.origin)
   await page.mouse.move(hx, hy - 10)
   await page.mouse.down()
   await page.mouse.move(hx, hy - 60)
+  await expect(offset()).toHaveValue((await readout().textContent())!.replace(/ mm$/, ''))
+  expect(await offset().inputValue()).not.toBe(kept)
   await page.keyboard.press('Escape')
   await page.mouse.up()
   expect(await section()).toEqual(dragged)
+  // Put back, the number is the plane's again.
+  await expect(offset()).toHaveValue(kept)
   await expect(page.locator('.tool-button[data-tool="section"]')).toHaveAttribute('aria-pressed', 'true')
 
   // Away from the handle the pointer turns the camera, as with any tool: the plane stays.
@@ -307,6 +316,16 @@ test('a drag from the handle moves the plane along its normal; a drag from anywh
   await page.keyboard.press('Shift+ArrowDown')
   await page.keyboard.press('Shift+ArrowUp')
   expect((await section())!.origin[2]).toBe(13.4)
+
+  // Across X, seen from the corner, the arrow points aslant on screen, and so does the cursor over it: the drag
+  // goes that way, not up and down.
+  await bar().getByRole('button', { name: 'Cut across X' }).click()
+  const across = (await section())!
+  const [fx, fy] = await pageXY(across.origin)
+  const [tx, ty] = await pageXY([across.origin[0] + across.normal[0] * 5, across.origin[1], across.origin[2]])
+  expect(Math.abs(tx - fx)).toBeGreaterThan(Math.abs(ty - fy) / 3)
+  await page.mouse.move(fx + (tx - fx) * 0.3, fy + (ty - fy) * 0.3)
+  await expect.poll(() => canvas.evaluate((el: HTMLElement) => el.style.cursor)).toMatch(/^(nwse|nesw|ew)-resize$/)
 })
 
 test('a handle drag let go over the bar, off the canvas, is kept all the same, and the camera is the pointer\'s again', async () => {

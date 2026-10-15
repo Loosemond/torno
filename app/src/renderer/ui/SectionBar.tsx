@@ -39,6 +39,7 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
   const fromFace = useFromFace()
   const slider = useRef<HTMLInputElement>(null)
   const field = useRef<HTMLInputElement>(null)
+  const previewing = useRef(false)
 
   // The box the plane is laid across is the viewport's, which has the scene and the layout by the time this is drawn.
   const box = useMemo(() => viewport.sectionBox(), [viewport, scene, layout])
@@ -51,14 +52,31 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
     if (field.current && document.activeElement !== field.current) field.current.value = section ? number(offset) : ''
   }, [offset, section, extent.min, extent.max])
 
+  // The plane as the screen draws it, also while its handle is dragged in the viewport: the number and the slider
+  // follow it there, and are the kept plane's again when the drag is let go or put back. The slider is left alone
+  // while it is the one moving it, and the field while it is typed in.
+  useEffect(
+    () =>
+      viewport.onSectionMoved((plane) => {
+        if (!plane) return
+        const now = sectionOffset(plane, box)
+        if (slider.current && !previewing.current) slider.current.value = String(now)
+        if (field.current && document.activeElement !== field.current) field.current.value = number(now)
+      }),
+    [viewport, box]
+  )
+
   useEffect(() => {
     const range = slider.current
     if (!range || !section) return
     const at = (): typeof section => atOffset(section, box, Number(range.value))
     const preview = (): void => {
-      const plane = at()
-      viewport.setSection(plane)
-      if (field.current) field.current.value = number(sectionOffset(plane, box))
+      previewing.current = true
+      try {
+        viewport.setSection(at())
+      } finally {
+        previewing.current = false
+      }
     }
     const keep = (): void => actions.setSection(at())
     // The browser's own step for a key is a share of the range: a millimetre is what an arrow is everywhere else.

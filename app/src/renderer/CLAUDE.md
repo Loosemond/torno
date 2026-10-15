@@ -73,7 +73,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - The Section tool (`tools/sectionTool.ts`) moves the plane only by a drag
   that starts on its handle; any other drag turns the camera. The bar is
   `ui/SectionBar.tsx`. The plane moves in the viewport during a drag and is
-  kept in the store once, on release, to the millionth of a millimetre.
+  kept in the store once, on release, to the millionth of a millimetre. The
+  bar's number and slider follow the plane as it is drawn, through
+  `Viewport.onSectionMoved`, never through React. The cursor over the handle
+  is the resize cursor nearest to the way its arrow points on screen
+  (`handleCursor`), and `ns-resize` where the view looks along the normal and
+  the drag goes by the pointer's height.
 
 ## Explode
 

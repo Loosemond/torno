@@ -56,6 +56,19 @@ export function alongNormal(ray: { origin: Vec3; direction: Vec3 }, at: Vec3, no
   return (b * dot(ray.direction, w) - dot(normal, w)) / (1 - b * b)
 }
 
+/** The resize cursors, by the way they point on screen from across (0°) round to the other diagonal (135°), y down. */
+const RESIZE = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'] as const
+
+/**
+ * The cursor over the handle: the resize cursor nearest to the way its arrow points on screen (`arrow`, in
+ * pixels, y down), whichever end it points to. Up and down where the arrow points nowhere on screen.
+ */
+export function handleCursor(arrow: [number, number] | null): string {
+  if (!arrow || Math.hypot(arrow[0], arrow[1]) === 0) return 'ns-resize'
+  const degrees = (((Math.atan2(arrow[1], arrow[0]) * 180) / Math.PI) % 180 + 180) % 180
+  return RESIZE[Math.round(degrees / 45) % 4]
+}
+
 interface Drag {
   /** The plane when the button went down, and how far along its normal the pointer was then (null when the view looks along it). */
   from: SectionPlane
@@ -166,11 +179,16 @@ export function sectionTool(): Tool {
 
       if (!drag) {
         const onHandle = e.type !== 'cancel' && ctx.viewport.onSectionHandle?.(e.client[0], e.client[1]) === true
-        // The cursor says where the plane can be taken hold of; while a button is held elsewhere, the camera is being turned.
-        if (e.buttons === 0 || e.type === 'down') setCursor(ctx, onHandle ? 'ns-resize' : '')
         const plane = ctx.viewport.getSection?.() ?? null
-        if (e.type !== 'down' || !(e.buttons & 1) || !onHandle || !plane) return
-        const at = planeRect(plane, boxOf(ctx)).centre
+        const at = plane ? planeRect(plane, boxOf(ctx)).centre : null
+        // The cursor says where the plane can be taken hold of, and which way the drag takes it: along the arrow as
+        // it is drawn, or up and down where the view looks along it and the drag goes by the pointer's height.
+        // While a button is held elsewhere, the camera is being turned.
+        if (e.buttons === 0 || e.type === 'down') {
+          const byHeight = !plane || !at || alongNormal(e.ray, at, plane.normal) === null
+          setCursor(ctx, onHandle ? handleCursor(byHeight ? null : (ctx.viewport.sectionHandleOnScreen?.() ?? null)) : '')
+        }
+        if (e.type !== 'down' || !(e.buttons & 1) || !onHandle || !plane || !at) return
         drag = { from: plane, at, start: alongNormal(e.ray, at, plane.normal), client: e.client, to: null, kept: store.getState().section }
         ctx.viewport.setNavigation(false, { wheel: true })
         return

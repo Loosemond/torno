@@ -24,7 +24,7 @@ import { ThumbnailMaker, type ThumbnailView } from './thumbnail'
 import { PointerRouter, type ViewportPointer } from './pointer'
 import { ScanEdit } from './scanEdit'
 import { ScanLayer, rayOf, reaching, type ScanHit, type ScanLayerState } from './scans'
-import { SectionCut, nearSegmentOnScreen } from './section'
+import { SectionCut, nearSegmentOnScreen, segmentOnScreen } from './section'
 import { ShapeGizmo, type GizmoMode, type ShapeTransform } from './ShapeGizmo'
 import { type Theme, LIGHT_THEME, markColours, themeOf, toHex } from './theme'
 import { DEFAULT_FOV, fitCamera, lockedViewOf, viewDirection } from './views'
@@ -89,6 +89,7 @@ export class Viewport {
   private settleTimer: ReturnType<typeof setTimeout> | undefined
   private readonly settledListeners: ((c: Camera) => void)[] = []
   private readonly drawnListeners = new Set<() => void>()
+  private readonly sectionListeners = new Set<(plane: SectionPlane | null) => void>()
   private readonly move = new CameraMove()
   private disposed = false
 
@@ -686,6 +687,17 @@ export class Viewport {
     this.cutBy(plane, this.layout, true)
     this.extent = this.measured()
     this.invalidate()
+    for (const cb of this.sectionListeners) cb(plane)
+  }
+
+  /**
+   * Calls back with the plane each time the screen's section is set: by a drag of its handle as it moves, by the
+   * bar's slider, and as the store's is drawn. What reads it out follows the plane as it is drawn, with no render.
+   * Returns what stops it.
+   */
+  onSectionMoved(cb: (plane: SectionPlane | null) => void): () => void {
+    this.sectionListeners.add(cb)
+    return () => this.sectionListeners.delete(cb)
   }
 
   getSection(): SectionPlane | null {
@@ -706,6 +718,16 @@ export class Viewport {
     const span = this.section.handleSpan((at) => mmPerPx(this.camera, at, rect.height))
     // Not where it would fall if it is behind the camera or out of view: there is no handle drawn there.
     return span !== null && nearSegmentOnScreen(this.camera, span[0], span[1], [clientX - rect.left, clientY - rect.top], rect, SECTION_HANDLE_REACH_PX)
+  }
+
+  /** Which way the handle's arrow points as it is drawn, from its foot to its tip in pixels, y down; null while there is no handle in view. */
+  sectionHandleOnScreen(): [number, number] | null {
+    const rect = this.canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+    this.syncMatrices()
+    const span = this.section.handleSpan((at) => mmPerPx(this.camera, at, rect.height))
+    const ends = span && segmentOnScreen(this.camera, span[0], span[1], rect)
+    return ends ? [ends[1][0] - ends[0][0], ends[1][1] - ends[0][1]] : null
   }
 
   /**
@@ -857,6 +879,7 @@ export class Viewport {
     clearTimeout(this.settleTimer)
     this.settledListeners.length = 0
     this.drawnListeners.clear()
+    this.sectionListeners.clear()
     this.pointer.dispose()
     this.scheme?.removeEventListener('change', this.onSchemeChange)
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost)

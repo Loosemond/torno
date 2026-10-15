@@ -5,7 +5,7 @@ import type { SectionPlane } from '../../shared/view'
 import { actions, store } from '../state/store'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
-import { NOT_CONFIRMED, NOT_FLAT, PICK_A_FACE, alongNormal, sectionStore, sectionTool, setFromFace } from './sectionTool'
+import { NOT_CONFIRMED, NOT_FLAT, PICK_A_FACE, alongNormal, handleCursor, sectionStore, sectionTool, setFromFace } from './sectionTool'
 import { CUT_FACE, hiddenByScan, routePointer, type ToolContext } from './Tool'
 
 const BOX = { min: [-20, -15, -2.5] as Vec3, max: [20, 15, 22.5] as Vec3 }
@@ -72,6 +72,25 @@ beforeEach(() => {
 
 afterEach(() => setFromFace(false))
 
+describe('handleCursor', () => {
+  it('is the resize cursor nearest to the way the arrow points on screen, either way along it', () => {
+    expect(handleCursor([0, -1])).toBe('ns-resize')
+    expect(handleCursor([0, 1])).toBe('ns-resize')
+    expect(handleCursor([1, 0])).toBe('ew-resize')
+    expect(handleCursor([-1, 0])).toBe('ew-resize')
+    // Down the screen to the right is from the top left to the bottom right.
+    expect(handleCursor([1, 1])).toBe('nwse-resize')
+    expect(handleCursor([-1, -1])).toBe('nwse-resize')
+    expect(handleCursor([1, -1])).toBe('nesw-resize')
+    expect(handleCursor([-1, 1])).toBe('nesw-resize')
+  })
+
+  it('is up and down where the arrow points nowhere on screen', () => {
+    expect(handleCursor(null)).toBe('ns-resize')
+    expect(handleCursor([0, 0])).toBe('ns-resize')
+  })
+})
+
 describe('alongNormal', () => {
   it('is how far along the normal the pointer is, seen from the side', () => {
     expect(alongNormal({ origin: [3, -100, 14], direction: [0, 1, 0] }, [0, 0, 10], [0, 0, 1])).toBeCloseTo(4)
@@ -120,6 +139,35 @@ describe('dragging the plane by its handle', () => {
     tool.onPointer(pointer('move', 3, 20, { buttons: 0 }), ctx)
     tool.onPointer(pointer('move', 80, 20, { buttons: 0 }), ctx)
     expect(cursors).toEqual(['', 'ns-resize', ''])
+  })
+
+  it('says by the cursor which way the handle drags: the way its arrow points on screen', () => {
+    // Seen from the front, a plane across Z has its arrow straight up the screen.
+    for (const [arrow, cursor] of [
+      [[0, -40], 'ns-resize'],
+      [[40, 0], 'ew-resize'],
+      [[-30, -28], 'nwse-resize'],
+      [[28, -30], 'nesw-resize'],
+      [[12, -40], 'ns-resize'],
+      [[40, 15], 'ew-resize']
+    ] as Array<[[number, number], string]>) {
+      const tool = sectionTool()
+      const { ctx, cursors } = fake()
+      ctx.viewport.sectionHandleOnScreen = () => arrow
+      tool.onPointer(pointer('move', 3, 20, { buttons: 0 }), ctx)
+      expect([arrow, cursors]).toEqual([arrow, [cursor]])
+    }
+  })
+
+  it('says up and down when the view looks along the normal: the drag then goes by the height of the pointer', () => {
+    actions.setSection({ origin: [0, 10, 0], normal: [0, 1, 0] })
+    const tool = sectionTool()
+    const { ctx, cursors } = fake()
+    // The arrow is a dot on screen, pointing nowhere in particular.
+    ctx.viewport.sectionHandleOnScreen = () => [3, 1]
+    ctx.viewport.onSectionHandle = () => true
+    tool.onPointer(pointer('move', 0, 0, { buttons: 0 }), ctx)
+    expect(cursors).toEqual(['ns-resize'])
   })
 
   it('stops at the ends of the parts', () => {
