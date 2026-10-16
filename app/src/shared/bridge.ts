@@ -42,8 +42,10 @@ export interface OnboardDraft {
 export interface Onboarded {
   /** The chat session started in the object; null when it could not be (then `problem` says why). */
   sessionId: string | null
-  /** The text of the first prompt, for the composer to hold when it was not sent. */
+  /** The text of the first prompt as it was (or would have been) sent, with its pictures. */
   prompt: string
+  /** The same text for the composer to hold when the prompt was not sent: it does not say that pictures are attached. */
+  held: string
   /** Why the prompt was not sent: the agent could not be started, or has no chat. */
   problem?: string
 }

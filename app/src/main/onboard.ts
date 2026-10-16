@@ -119,8 +119,14 @@ export interface PromptInput {
 
 const imageBlock = (image: ImageBytes): PromptBlock => ({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: Buffer.from(image.bytes).toString('base64') } })
 
-/** The first prompt of a new object: the text, then the pictures it says are attached, at most 6 in all. */
-export function onboardPrompt(input: PromptInput): { text: string; blocks: PromptBlock[] } {
+const CLAUDE_TOOL = (tool: string): string => `mcp__torno__${tool}`
+
+/**
+ * The first prompt of a new object: the text, then the pictures it says are attached, at most 6 in all. `held` is
+ * the same text for a prompt that is not sent with its pictures (the composer holds it): each picture is named by
+ * its file and says it is not attached, and a referred object's picture by the file it is in.
+ */
+export function onboardPrompt(input: PromptInput, toolName: (tool: string) => string = CLAUDE_TOOL): { text: string; held: string; blocks: PromptBlock[] } {
   const images: ImageBytes[] = []
   /** Whether a picture fits in the prompt; it is attached when it does. */
   const attach = (image: ImageBytes | undefined): boolean => {
@@ -129,32 +135,41 @@ export function onboardPrompt(input: PromptInput): { text: string; blocks: Promp
     return true
   }
   const said = (note: string): string => oneLine(note, 'note')
-  const lines: string[] = []
-  for (const item of input.items) {
-    const tail = attach(item.image) ? ' (attached below)' : ` (not attached: read ${item.file})`
-    lines.push(`- ${item.file}${said(item.note) === '' ? '' : `: ${said(item.note)}`}${tail}`)
+  const attached = input.items.map((item) => attach(item.image))
+  const pictured = input.objects.map((other) => (other.thumb ? attach(other.thumb) : false))
+  const compose = (held: boolean): string => {
+    const lines: string[] = []
+    input.items.forEach((item, i) => {
+      const tail = attached[i] && !held ? ' (attached below)' : ` (not attached: read ${item.file})`
+      lines.push(`- ${item.file}${said(item.note) === '' ? '' : `: ${said(item.note)}`}${tail}`)
+    })
+    for (const scan of input.scans) {
+      const note = said(scan.note)
+      const file = said(scan.file)
+      const named = scan.id === null ? `Scan "${file}"` : `Scan ${scan.id} "${file}"`
+      const after =
+        scan.id === null
+          ? `It could not be imported (${said(scan.problem ?? 'for a reason torno did not get')}); the file is the person's to give again.`
+          : `It is imported into this object and is not aligned: the person aligns it in torno, and ${toolName('scan_clash')} and ${toolName('scan_deviation')} need that. Read it with ${toolName('scans')} and ${toolName('scan_section')}.`
+      lines.push(`- ${named}${note === '' ? '.' : `: ${note}.`} ${after}`)
+    }
+    input.objects.forEach((other, i) => {
+      const name = said(other.name)
+      const picture = !other.thumb ? '' : held ? `; its picture: ../${name}/.torno/thumb.png` : pictured[i] ? '; its picture is attached below' : '; its picture is not attached'
+      const note = said(other.note)
+      lines.push(`- ../${name}/ (another object of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
+    })
+    return [
+      `This is a new object, ${input.name}, made in torno just now. What it is, in the person's words:`,
+      '',
+      input.description.trim(),
+      '',
+      ...(lines.length > 0 ? ['What they gave (all of it is also in brief.md; files are in reference/):', ...lines, ''] : []),
+      `${moduleName(input.name)}.py is torno's placeholder (a 20 mm cube). Read brief.md, look at what was given, ask what you need to know, then replace the placeholder with the real model.`
+    ].join('\n')
   }
-  for (const scan of input.scans) {
-    const note = said(scan.note)
-    const file = said(scan.file)
-    const named = scan.id === null ? `Scan "${file}"` : `Scan ${scan.id} "${file}"`
-    const after = scan.id === null ? `It could not be imported (${said(scan.problem ?? 'for a reason torno did not get')}); the file is the person's to give again.` : 'It is imported into this object, not aligned yet; read it with the scan tools.'
-    lines.push(`- ${named}${note === '' ? '.' : `: ${note}.`} ${after}`)
-  }
-  for (const other of input.objects) {
-    const picture = other.thumb ? (attach(other.thumb) ? '; its picture is attached below' : '; its picture is not attached') : ''
-    const note = said(other.note)
-    lines.push(`- ../${said(other.name)}/ (another object of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
-  }
-  const text = [
-    `This is a new object, ${input.name}, made in torno just now. What it is, in the person's words:`,
-    '',
-    input.description.trim(),
-    '',
-    ...(lines.length > 0 ? ['What they gave (all of it is also in brief.md; files are in reference/):', ...lines, ''] : []),
-    `${moduleName(input.name)}.py is torno's placeholder (a 20 mm cube). Read brief.md, look at what was given, ask what you need to know, then replace the placeholder with the real model.`
-  ].join('\n')
-  return { text, blocks: [{ type: 'text', text }, ...images.map(imageBlock)] }
+  const text = compose(false)
+  return { text, held: compose(true), blocks: [{ type: 'text', text }, ...images.map(imageBlock)] }
 }
 
 export interface OnboardDeps {
@@ -253,7 +268,7 @@ async function onboarded(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft
     const thumb = await readThumb(found.dir)
     objects.push({ name: found.id, summary: objectSummary(deps.scene(found.id)), note: other.note, ...(thumb ? { thumb } : {}) })
   }
-  const { text, blocks } = onboardPrompt({
+  const { text, held, blocks } = onboardPrompt({
     name: obj.id,
     description: draft.description,
     items: draft.items.map((item) => ({ file: item.file, note: item.note, image: checkedImage(item.image) ?? undefined })),
@@ -265,13 +280,13 @@ async function onboarded(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft
   try {
     started = await deps.start(obj)
   } catch (e) {
-    return { sessionId: null, prompt: text, problem: firstLine(e) }
+    return { sessionId: null, prompt: text, held, problem: firstLine(e) }
   }
-  if (started.view !== 'chat') return { sessionId: started.sessionId, prompt: text, problem: "This agent has no chat to send the first prompt to; it is held, for the person to paste." }
+  if (started.view !== 'chat') return { sessionId: started.sessionId, prompt: text, held, problem: "This agent has no chat to send the first prompt to; it is held, for the person to paste." }
   try {
     deps.prompt(started.sessionId, blocks)
   } catch (e) {
-    return { sessionId: started.sessionId, prompt: text, problem: firstLine(e) }
+    return { sessionId: started.sessionId, prompt: text, held, problem: firstLine(e) }
   }
-  return { sessionId: started.sessionId, prompt: text }
+  return { sessionId: started.sessionId, prompt: text, held }
 }

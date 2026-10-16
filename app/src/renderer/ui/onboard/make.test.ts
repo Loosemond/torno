@@ -19,7 +19,7 @@ function deps(over: Partial<MakeDeps> = {}) {
   const calls: string[] = []
   const made: MakeDeps = {
     create: vi.fn(async (_req: CreateRequest) => (calls.push('create'), { objectId: 'cable-clip' })),
-    onboard: vi.fn(async (_id: string, _d: OnboardDraft): Promise<Onboarded> => (calls.push('onboard'), { sessionId: 's1', prompt: 'the prompt' })),
+    onboard: vi.fn(async (_id: string, _d: OnboardDraft): Promise<Onboarded> => (calls.push('onboard'), { sessionId: 's1', prompt: 'the prompt', held: 'the held prompt' })),
     listed: vi.fn(async () => (calls.push('listed'), ['plain', 'cable-clip'])),
     open: vi.fn(async () => void calls.push('open')),
     discard: vi.fn(() => void calls.push('discard')),
@@ -81,15 +81,15 @@ describe('making the object', () => {
   })
 
   it('holds the prompt for the composer, with the reason, when no session was started', async () => {
-    const { made } = deps({ onboard: vi.fn(async () => ({ sessionId: null, prompt: 'the prompt', problem: 'claude is not installed' })) })
+    const { made } = deps({ onboard: vi.fn(async () => ({ sessionId: null, prompt: 'the prompt', held: 'the held prompt', problem: 'claude is not installed' })) })
     expect(await makeObject(draft(), made)).toEqual({ kind: 'done', objectId: 'cable-clip', problem: 'claude is not installed' })
-    expect(made.hold).toHaveBeenCalledWith('cable-clip', { text: 'the prompt', reason: 'claude is not installed' })
+    expect(made.hold).toHaveBeenCalledWith('cable-clip', { text: 'the held prompt', reason: 'claude is not installed' })
   })
 
   it('holds it too when a session started and was sent nothing, and when onboard itself rejects (its text is then not known)', async () => {
-    const a = deps({ onboard: vi.fn(async () => ({ sessionId: 's1', prompt: 'the prompt', problem: 'This agent has no chat' })) })
+    const a = deps({ onboard: vi.fn(async () => ({ sessionId: 's1', prompt: 'the prompt', held: 'the held prompt', problem: 'This agent has no chat' })) })
     await makeObject(draft(), a.made)
-    expect(a.made.hold).toHaveBeenCalledWith('cable-clip', { text: 'the prompt', reason: 'This agent has no chat' })
+    expect(a.made.hold).toHaveBeenCalledWith('cable-clip', { text: 'the held prompt', reason: 'This agent has no chat' })
     const b = deps({ onboard: vi.fn(async () => Promise.reject(new Error('cable-clip has a session already.'))) })
     expect(await makeObject(draft(), b.made)).toEqual({ kind: 'done', objectId: 'cable-clip', problem: 'cable-clip has a session already.' })
     expect(b.made.hold).toHaveBeenCalledWith('cable-clip', { text: '', reason: 'cable-clip has a session already.' })

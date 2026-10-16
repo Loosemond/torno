@@ -101,7 +101,7 @@ describe('onboardPrompt', () => {
         'What they gave (all of it is also in brief.md; files are in reference/):',
         '- reference/photo-1.jpg: the desk edge (attached below)',
         '- reference/doodle-1.png: the shape I want (attached below)',
-        '- Scan S1 "desk.stl": the edge, scanned. It is imported into this object, not aligned yet; read it with the scan tools.',
+        '- Scan S1 "desk.stl": the edge, scanned. It is imported into this object and is not aligned: the person aligns it in torno, and mcp__torno__scan_clash and mcp__torno__scan_deviation need that. Read it with mcp__torno__scans and mcp__torno__scan_section.',
         '- Scan "bad.stl": another try. It could not be imported (the file has no triangles); the file is the person\'s to give again.',
         '- ../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached below): mounts on this',
         '- ../base/ (another object of this workspace: not built in this run)',
@@ -112,6 +112,17 @@ describe('onboardPrompt', () => {
     expect(blocks).toHaveLength(4)
     expect(blocks[0]).toEqual({ type: 'text', text })
     expect(blocks.slice(1).map((b) => (b as { source: { media_type: string } }).source.media_type)).toEqual(['image/jpeg', 'image/png', 'image/png'])
+  })
+
+  it('writes a text to hold that says no picture is attached and names the files of the pictures', () => {
+    const { text, held } = onboardPrompt(full())
+    expect(text).toContain('(attached below)')
+    expect(held).not.toContain('attached below')
+    expect(held).not.toContain('is attached')
+    expect(held).toContain('- reference/photo-1.jpg: the desk edge (not attached: read reference/photo-1.jpg)')
+    expect(held).toContain('- reference/doodle-1.png: the shape I want (not attached: read reference/doodle-1.png)')
+    expect(held).toContain('; its picture: ../lid/.torno/thumb.png): mounts on this')
+    expect(held).toContain('- ../base/ (another object of this workspace: not built in this run)')
   })
 
   it('attaches the pictures in order: photos and doodles, then the pictures of the objects, and no more than 6', () => {
@@ -236,6 +247,7 @@ describe('onboardObject', () => {
     expect(sent[0].blocks.map((b) => b.type)).toEqual(['text', 'image', 'image', 'image'])
     const text = sent[0].blocks[0].text!
     expect(out.prompt).toBe(text)
+    expect(out.held).not.toContain('attached below')
     for (const note of ['desk', 'shape', 'the edge', 'mounts on this']) expect(text).toContain(note)
     expect(text).toContain('Scan S1 "desk.stl"')
     expect(text).toContain('../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached below)')
@@ -258,6 +270,7 @@ describe('onboardObject', () => {
     const out = await onboardObject(deps({ start: async () => { throw new Error("cannot start the agent: 'claude' was not found on PATH") } }), 'cable-clip', draft({ scans: [{ path: '/s/desk.stl', note: '' }] }))
     expect(out).toMatchObject({ sessionId: null, problem: "cannot start the agent: 'claude' was not found on PATH" })
     expect(out.prompt).toContain('Scan S1 "desk.stl"')
+    expect(out.held).toContain('Scan S1 "desk.stl"')
     expect(sent).toEqual([])
   })
 

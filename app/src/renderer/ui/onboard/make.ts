@@ -92,7 +92,7 @@ export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome>
     }
     if (told.sessionId === null || told.problem !== undefined) {
       const why = told.problem ?? 'A chat session could not be started.'
-      deps.hold(objectId, { text: told.prompt, reason: why })
+      deps.hold(objectId, { text: told.held, reason: why })
       return { kind: 'done', objectId, problem: why, ...(shown ? {} : { shown: false as const }) }
     }
     return { kind: 'done', objectId, ...(shown ? {} : { shown: false as const }) }
