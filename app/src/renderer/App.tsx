@@ -15,6 +15,7 @@ import { ObjectList } from './ui/ObjectList'
 import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
 import { ExportSheet } from './ui/ExportSheet'
+import { ViewBoard } from './ui/drawing/ViewBoard'
 import { FolderMenu } from './ui/FolderMenu'
 import { ShowPage, usePageKey } from './ui/ShowPage'
 import { NewObject } from './ui/onboard/NewObject'
@@ -331,6 +332,8 @@ export function App() {
         {page === 'new' && <NewObject onOpen={openObject} />}
         {/* Over either: what goes into an export, asked before anything is written. */}
         <ExportSheet />
+        {/* Over the view: a drawing on it for the chat, while its board is open. */}
+        <ViewBoard />
       </main>
 
       <aside className="left" data-region="left" aria-label="Objects, layers, scans and marks">

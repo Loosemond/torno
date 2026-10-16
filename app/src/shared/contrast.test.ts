@@ -133,6 +133,10 @@ it('has the light tokens written out where no stylesheet is read, as the stylesh
   const { AXIS_COLOURS } = await import('../renderer/viewport/overlay')
   expect([...AXIS_COLOURS]).toEqual([light['--axis-x'], light['--axis-y'], light['--axis-z']])
   expect([LIGHT_THEME.axisX, LIGHT_THEME.axisY, LIGHT_THEME.axisZ]).toEqual([...AXIS_COLOURS])
+  // The ink of a drawing on the view and its casing, where the stylesheet could not be read.
+  const make = readFileSync(resolve(__dirname, '../renderer/ui/drawing/make.ts'), 'utf8')
+  expect(make).toContain(`token('--drawing-ink', '${light['--drawing-ink']}')`)
+  expect(make).toContain(`token('--panel', '${light['--panel']}')`)
   // The terminal's plain white is the muted grey, in light.
   expect(light['--ansi-white']).toBe(light['--muted'])
 })
