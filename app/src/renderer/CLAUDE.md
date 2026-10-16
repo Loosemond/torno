@@ -275,6 +275,49 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   build that worked`. A picture is asked of main only once its card is in view or near it
   (IntersectionObserver).
 
+## A new object
+
+- `ui/onboard/NewObject.tsx` is a page in place of the viewport (`store.page`: `'new'`; the view is `covered` and
+  inert under it as under the page of objects, and the layers and scans are hidden). It is opened from "New object"
+  at the foot of the list, in the head of the page of objects and in its empty state (`openNewObject`). It takes the
+  focus (the name field) when it comes and gives it back to where it was when it goes. Leaving the workspace
+  (opening another folder) asks when the draft has something: "A new object is set up here and not made yet".
+- **The draft** (`state/onboard.ts`) lives in the window, for the workspace it was begun in, until the object is made
+  or the person throws it away; nothing of it is on disk, and it is dropped when the workspace root changes. Caps
+  are `MOST_REFERENCES` (shared with main), a photo or scan is refused as a duplicate by path and an object by id.
+  A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
+  at each discard: photos being read when the draft was thrown away are not put back. The held first prompt
+  (`hold/take/dismiss`) is in the same store.
+- **Keys** are rows of `shared/keys.ts` in the scope `newobject`: `new.back` (Esc) and `board.undo` (Ctrl+Z). The
+  page listens in the capture phase and takes every key not meant for a field, so no tool of the view is handed
+  one. In a field Esc leaves the field (the keys go back to the page) when the draft has something, and the page
+  when it has not; elsewhere it leaves the page, asking first ("Discard this new object?") when there is something in
+  it. A sheet or question asked over the page (the sheet of keys, the closing question) keeps its own keys.
+  `export` and `rebuild` keys do nothing on this page.
+- **Images are scaled in the window** (`images.ts`): the window decodes (WebP too), scales to a long edge of 1280
+  px (a PNG stays PNG, anything else becomes JPEG at 0.85; a PNG already within 1280 px and 5 MB goes as is) and
+  hands main the bytes. Main reads a chosen photo through `objects.readPhoto`, which serves only the paths its
+  dialog offered; a dropped file is read by the window (`File.arrayBuffer`, at most 25 MB, checked before it is
+  read) and its path comes from `objects.pathOf`. The copy in `reference/` is the original; the scaled picture is
+  only the prompt's.
+- **The board** (`Doodle.tsx`) is a sheet over the page: a canvas of 1200 x 800 board pixels, scaled to fit, pointer
+  events and canvas only (no React state per move). A thin and a thick pen and an eraser; Undo takes the last
+  stroke, Clear all of them; Done gives back the strokes and the PNG, Cancel and Esc leave, asking "Discard this
+  doodle?" when the strokes are other than it was opened with. Its keys (Esc is `sheet.close`, Ctrl+Z `board.undo`)
+  are heard in the capture phase before anything else, so that no tool under the board gets them. The PNG is made
+  by `strokes.ts` with a white ground and dark ink whatever the theme: what is drawn on screen follows the theme,
+  what Claude receives does not (`PNG_GROUND`).
+- **Create** is `ui/onboard/make.ts` (`makeObject`, tested with fakes, and guarded against a second call while one
+  runs). The order is `objects.create`, the list is refreshed, the draft is spent, the object is opened as a click
+  opens it, then `objects.onboard` once; the session main started is put into the store. A failure of `create`
+  stays on the page with its reason and the draft intact. An error saying the object "was made, but ..." is never
+  offered again: the draft is spent and the object opened if the workspace lists it. When `sessionId` is null or
+  there is a `problem`, the object is open and `onboarding.hold` keeps the text: the session pane says why
+  (`session-held`, with Dismiss) and the first chat's composer starts with the text, not sent. A held prompt that
+  was not sent counts among what closing the window asks about (`closingWhy`'s `heldPrompt`), as does the draft.
+- Styles are `styles/onboard.css`, on the tokens only; the page and the board are in `e2e/themes.spec.ts` as
+  `onboard` and `onboard-board` in both themes.
+
 ## Scans
 
 - In the window a scan's bounds tree is built in a worker

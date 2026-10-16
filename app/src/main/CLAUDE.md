@@ -711,10 +711,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - Photos come as paths, copied as `reference/photo-<n>.<ext>` (png, jpg, jpeg, webp; at most 25 MB; `lstat` and an
   `O_NOFOLLOW` open, so no link, folder or pipe; read through the open handle, never more than the size said). Doodles
   come as PNG bytes (signature checked, at most 8 MB). Scans are not copied (`objects:onboard` imports them) and other objects are named
-  by id; the path of a scan is refused if it holds a control character, a line break above all, as it is a line of `brief.md`. At most 12, 6, 4 and 8. `brief.md` is `# name`, the description, and `## References` with a line per item in the
+  by id; the path of a scan is refused if it holds a control character, a line break above all, as it is a line of `brief.md`. At most 12 photos, 6 doodles, 4 scans and 8 objects (`MOST_REFERENCES` in `shared/objectName.ts`, held by the window and main alike). `brief.md` is `# name`, the description, and `## References` with a line per item in the
   order photos, doodles, scans, objects.
-- `objects:create` answers after `rescan`, so the listing has the object. `objects:pickPhotos` is the photo dialog;
-  tests answer it with `__tornoMain.pickPhotos` (`photoPicks` counts).
+- `objects:create` answers after `rescan`, so the listing has the object; if the workspace was left meanwhile, or it
+  does not list the object, it rejects saying the object "was made, but ..." (the window then does not offer the
+  draft again). It validates the whole request (name, caps, every note and path, duplicates, the files named) before
+  it makes anything. A description is at most 20,000 characters, a note 2,000 (after folding to one line).
+- `objects:pickPhotos` is the photo dialog; tests answer it with `__tornoMain.pickPhotos` (`photoPicks` counts).
+  Every path it returns goes into `Offered` (`objects/offered.ts`, at most 500, cleared when a workspace is opened or
+  closed). `objects:readPhoto` (the window cannot read a file, and the picture for the prompt must be scaled there)
+  serves only a path in `Offered`: any other is refused ("That file was not chosen in this window."), however
+  plain a picture file it is. The same rules hold as for the copy: absolute, no link, no pipe, `O_NOFOLLOW`, a
+  PNG, JPEG or WebP of at most 25 MB (`MAX_PHOTO_BYTES`). A photo dropped on the page is read by the window itself
+  (`File.arrayBuffer`); its path for the copy is `objects.pathOf` (`webUtils.getPathForFile`), and `create` still
+  checks that path as a plain file. A file with no path is not taken.
 
 ### Onboarding the new object (`onboard.ts`, `objects:onboard`)
 
@@ -737,5 +747,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - A session that cannot be started (the command is not on PATH, the trust question) is not a rejection: the answer is
   `sessionId: null`, the prompt text and the reason, for the composer to hold. An agent whose view is not the chat
   gets `sessionId` and a `problem`, and nothing is sent.
+- One onboarding at a time per object: a set of objects in flight, entered before anything is imported and freed in
+  `finally`, also after a rejection. Everything that can be refused (the draft's shape, caps, notes folded and
+  length-checked, scan paths with control characters, duplicates, the object and the files) is checked before the
+  first scan is imported or the session is started. A prompt that cannot be built or sent is not a rejection either:
+  the answer holds `sessionId`, the text and a `problem`.
 - Tested: `onboard.test.ts` (the text, the pictures, the rules) and `onboard.itest.ts` (the stand-in agent, the real scan
   import: one prompt with its pictures, the scan in `scans.json`, the hook's context, a missing command).

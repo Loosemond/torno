@@ -59,7 +59,7 @@ window on it.
 - Never click "Open folder" unless main runs with `TORNO_TEST=1`: only then is
   the folder dialog replaced by `globalThis.__tornoMain.pickFolder` (the folder
   to answer with, or null), and `picks` counts the times it was asked. The
-  same holds for "Import scan…": `pickFile` and `filePicks`, and for "Add photos…" of a new object: `pickPhotos` (a list of paths) and `photoPicks`.
+  same holds for "Import scan…": `pickFile` and `filePicks`, and for "Add photos…" of a new object: `pickPhotos` (a list of paths) and `photoPicks`. Main's `objects:readPhoto` serves only paths its dialog (or this hook) gave, so a test sets `pickPhotos`, clicks the button, and the paths are offered; a test that asks for another path gets the refusal.
 - `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
   side by side.
 
@@ -84,6 +84,23 @@ when a spec checks that nothing is written to the person's settings.
 Two fixtures were recorded from the real CLI and scrubbed: `app/test/fixtures/claude-stream.jsonl` (Claude Code
 2.1.300: a turn, tool use, hooks) and `claude-stream-asks.jsonl` (2.1.301: a permission, a question and
 `/compact`). Every line of both parses as JSON. Never run the real `claude` to record or check; that is done by hand (README, last section).
+
+## Making a new object
+
+- `e2e/onboard.spec.ts` drives the page (draft, name errors, Esc and the discard questions, photos, the board, a
+  scan, a referred object, Create, and a launch whose agent is not found); `e2e/objects-create.spec.ts` drives
+  `objects:create` through the bridge (files written, the kernel builds the placeholder, refusals). The agent is
+  the stand-in: the first prompt arrives as one prompt with its pictures, and the test reads their natural widths
+  in the chat (a 3000 px photo must arrive at 1280). Never the real `claude`.
+- Photos are made by the test: `src/test/pngFixtures.ts` builds a real PNG of any size by hand (a gradient, no
+  library), written to a temporary folder and handed over by `__tornoMain.pickPhotos`. A WebP is made by the window
+  itself from a canvas. A scan is made with `src/test/scanFixtures.ts`.
+- The board is drawn with `page.mouse` (real pointer events on the hidden window); its Ctrl+Z and Esc with
+  `page.keyboard`. No screenshots: the strokes are read from the store and the PNG from the prompt's pictures.
+- A drop with a real path cannot be made in a test: a `File` made in the page has no path (`webUtils` gives
+  none), so the drop is tested only for its refusals (no path, not a picture, a picture over 25 MB, not read). The
+  code a real drop takes is the dialog's, from `takePhotos` on. Photos go through the dialog hook.
+- `themes.spec.ts` has the states `onboard` and `onboard-board` for `TORNO_SHOTS`.
 
 ## Light and dark
 

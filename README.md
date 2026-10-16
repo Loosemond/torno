@@ -234,6 +234,54 @@ of it (`lid/E3`), with a line from the kernel on what that is, such as
 parts on screen are older than the model (a build is running, or the last one
 failed) nothing is picked, and the pointer says why.
 
+### Making a new object
+
+"New object" starts one from what you have. It is at the foot of the list of objects, in the header of the page
+of objects and in its empty state. The page asks for a name and "What is it?" (what it is for, what it must fit or
+hold, sizes you know, how it will be made), and then for what you have, each with a note for Claude:
+
+- **Photos** ("Add photos…", or dropped on the page): png, jpg or webp, at most 12, 25 MB each. A phone's photos
+  are fine. Claude gets each one attached to its first prompt, scaled to 1280 px on its long edge; the original is
+  copied to `reference/photo-<n>.<ext>` in the object.
+- **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
+  whichever theme you drew it in, and `reference/` keeps it.
+- **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the object as "Import scan…" does, not
+  copied and not aligned; Claude is told where each came from and that it is not aligned.
+- **Other objects** (a menu of the objects of the workspace): up to 8. Claude is told to look in `../<name>/` and
+  gets the object's summary (its parts and box, with whether the kernel says it is exact; "not built in this run"
+  if it has not been built) and its thumbnail.
+
+At most 6 pictures go with the prompt, photos and doodles first, then the thumbnails of other objects; a picture
+beyond that, or one that fails the checks (PNG or JPEG, 2000 px at most, 5 MB), is named in the prompt as not
+attached, with the file in `reference/` to read. Notes are kept to a line each and the description to 20,000
+characters.
+
+The name is the folder's and its model's: letters, digits, `.`, `-` and `_`, starting with a letter or digit, at
+most 64 characters, and not one that is there already (compared without regard to case, and `a-b` is `a_b`). Torno
+refuses a name that would stand in for a library (`json`, `typing`, `numpy`, `build123d`, any module of Python's
+standard library), since a model's folder leads the import path and its file would be imported in the library's
+place; also Python keywords, the workspace's own `common`, `tests`, `out` and `docs`, `tools`, `reference`, and a
+name whose model file would be taken for a test (`test_*`, `*_test`). The page says why while you type.
+
+"Create" writes one new folder in the workspace and nothing else: `<name>/<module>.py` (a placeholder, a 20 mm
+cube, to be replaced), `brief.md` (your words and a line for each reference with its note) and `reference/`. The
+`.torno/` folder is made as for any object. It is made in a hidden temporary folder beside it and renamed into
+place as the last step, so it is whole or not there, and it never goes into or over a folder that exists (an
+empty one of that name is used). A temporary folder a crash left is swept away at the next opening of the
+workspace once it is ten minutes old. Then torno opens the object, imports the scans, starts Claude Code in a
+chat and sends one prompt with everything. If Claude Code cannot start (the command is not found, or the
+trust question stands), the object is made and open anyway: the pane says why and the text of the prompt waits in
+the message box for you to send.
+
+The doodle board has a thin pen, a thick pen and an eraser, "Undo" and `Ctrl+Z`, "Clear", and "Done" and "Cancel".
+`Esc` puts the board away; if strokes were drawn since it was opened it asks "Discard this doodle?" first. A
+doodle can be opened again from its card and changed.
+
+What you have entered is a draft, kept while the window lives: you can leave the page, open another object and
+come back. `Esc` on the page leaves it, asking first when something is in it; so does leaving the workspace, and so
+does closing the window ("A new object is set up here and not made yet"). Nothing of the draft is written until
+"Create".
+
 ## The agent
 
 Each object has its own session: the agent's CLI running in the object's
@@ -884,7 +932,9 @@ repository.
 
 ## Files torno writes
 
-Inside a workspace torno writes only under `<object>/.torno/`, and only when
+Inside a workspace torno writes only under `<object>/.torno/`, with one exception: "Create" on the page of a new
+object (see "Making a new object") writes the new object's folder, `<name>/<module>.py`, `brief.md` and `reference/`.
+Those are the object's own, in git like its model, and torno never writes into them again. It writes under `.torno/` only when
 that is a real folder inside the object: where a link or a file is in its
 place (a workspace copied from elsewhere may hold one) torno writes nothing
 there, and says so once in the Marks panel, until a real folder is put in its
@@ -1135,6 +1185,7 @@ On the screen:
 - **Closing.** With a session working, close the window through the window manager: torno asks "Close torno?", "Keep it open" keeps everything as it was, "Close torno" ends torno and the session. With nothing under way it closes at once.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
+- **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
@@ -1149,6 +1200,7 @@ With a real agent:
 - **A failed or old Claude Code in the chat.** A `claude` that does not know one of the chat's flags, or is signed out: the pane says "Claude Code stopped (exit code 1)" with the last line it wrote, and "It did not start: is `claude` up to date and signed in?". Not yet seen with a real old CLI; the stand-in prints to stderr and exits 1.
 - **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.
 - **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
+- **Making a new object with the real Claude Code.** "New object" with a name, a description, two photos from a phone (one large), a doodle, a scan and a reference to another object, each with a note, then "Create": the object is opened, its chat shows the one prompt with the pictures, Claude Code's reply speaks of them and of the notes, the scan is in the Scans list, `reference/` holds the original photos, and nothing else was written in the workspace. The stand-in agent has taken the prompt; the real CLI has not.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
 - **Copilot CLI: what must not send.** "Send marks" while its trust question is up, then Enter; "Send marks", then type ` see @` and Enter; "Send marks", then paste two lines: each time the mark stays a draft and the pane says why.
 - **Copilot CLI: Shift+Enter.** Torno writes Esc Enter: a new line, or a send? Torno takes it for a change of the line either way.
