@@ -479,7 +479,6 @@ export class Sessions {
     return this.delivery.send(s)
   }
 
-  /** What is told of an object changed: its marks, or its build. A file that a waiting line names follows it. */
   /** A build of an object began or ended: an edit's answer may be waiting for it. */
   built(state: BuildState): void {
     if (state.status === 'building') this.buildStarts.set(state.objectId, state.startedAt ?? Date.now())
@@ -562,6 +561,7 @@ export class Sessions {
     return null
   }
 
+  /** What is told of an object changed: its marks, or its build. A file that a waiting line names follows it. */
   changed(objectId: string): void {
     const s = this.of(objectId)
     if (s) this.delivery.changed(s)
