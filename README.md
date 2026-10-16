@@ -1103,6 +1103,11 @@ build is not built again until a source changes.
   `TORNO_OZONE=x11 scripts/torno`, then `TORNO_OZONE=wayland`. Torno draws
   with WebGL 2; `F12` opens the developer tools, whose console says when the
   graphics card gave it no context.
+- **On Wayland every start prints `'--ozone-platform=wayland' is not
+  compatible with Vulkan`.** It is harmless: WebGL goes through ANGLE on
+  OpenGL ES, and WebGL, GPU compositing and rasterization are all on with or
+  without it. `--disable-features=Vulkan` does not silence it, so torno passes
+  nothing for it.
 - **An exported page says it cannot draw the parts.** That browser gives the
   page no WebGL 2, took it away, or drew a frame with nothing of the parts in
   it (the page looks at its own view three seconds after it began to unpack
