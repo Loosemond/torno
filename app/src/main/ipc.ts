@@ -39,6 +39,7 @@ import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
 import { onboardObject, sessionRunning } from './onboard'
 import { createObject, readPhoto, sweepStaleNew } from './objects/create'
+import { Offered } from './objects/offered'
 import { scanOrder, scanWorkspace } from './workspace'
 
 // Channel names, repeated in src/preload/index.ts.
@@ -87,6 +88,8 @@ interface OpenWorkspace {
 }
 
 let current: OpenWorkspace | null = null
+/** The photos main's own dialog handed the window: the only files `objects:readPhoto` serves. Forgotten with the workspace. */
+const offered = new Offered()
 
 /** The agent sessions, once `registerIpc` has been given them. They belong to the objects of the open workspace. */
 let sessions: Sessions | null = null
@@ -286,6 +289,7 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
     }
   )
   current = ws
+  offered.clear()
   return info
 }
 
@@ -307,6 +311,7 @@ export async function closeWorkspace(): Promise<void> {
   const ws = current
   if (!ws) return
   current = null
+  offered.clear()
   forgetViews()
   forgetSceneFiles()
   forgetExportScans()
@@ -698,13 +703,21 @@ export function registerIpc(
     return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
   })
   ipcMain.handle('objects:pickPhotos', async (event): Promise<string[]> => {
-    if (opts.pickPhotos) return opts.pickPhotos()
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const options: Electron.OpenDialogOptions = { title: 'Add photos', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] }
-    const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
-    return picked.canceled ? [] : picked.filePaths
+    const paths = await (async (): Promise<string[]> => {
+      if (opts.pickPhotos) return opts.pickPhotos()
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const options: Electron.OpenDialogOptions = { title: 'Add photos', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] }
+      const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
+      return picked.canceled ? [] : picked.filePaths
+    })()
+    offered.add(paths)
+    return paths
   })
-  ipcMain.handle('objects:readPhoto', (_event, path: string) => readPhoto(path))
+  ipcMain.handle('objects:readPhoto', (_event, path: string) => {
+    // Only what the dialog gave: a file dropped on the window is read by the window itself.
+    if (!offered.has(path)) throw new Error('That file was not chosen in this window.')
+    return readPhoto(path)
+  })
   // The one place torno makes a folder in a workspace (`createObject`). It answers once the listing has the object,
   // as a change in the folder would have it listed.
   ipcMain.handle('objects:create', async (_event, req: CreateRequest) => {

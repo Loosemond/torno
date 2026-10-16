@@ -89,6 +89,7 @@ export function draftHas(draft: Draft): boolean {
 }
 
 let counter = 0
+let epoch = 0
 const newKey = (): string => `r${++counter}`
 
 const revoke = (url: string): void => {
@@ -170,8 +171,15 @@ export const onboarding = {
     change((d) => ({ ...d, [kind]: (d[kind] as Item[]).filter((x) => x.uid !== uid) }))
   },
 
+  /** Counts the times the draft was thrown away: a photo that began to be read before one is not added after it. */
+  epoch: (): number => epoch,
+
+  /** How many held prompts have not been taken by a chat: they would be lost. */
+  heldUnsent: (): number => Object.values(onboard.getState().held).filter((h) => h.text !== '' && !h.taken).length,
+
   /** Throws the draft away. */
   discard(): void {
+    epoch += 1
     const d = onboard.getState().draft
     for (const item of [...d.photos, ...d.doodles]) revoke(item.url)
     onboard.setState({ draft: empty() })

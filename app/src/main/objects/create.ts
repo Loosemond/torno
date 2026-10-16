@@ -4,7 +4,7 @@ import { lstatSync, readdirSync, rmSync } from 'node:fs'
 import { lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises'
 import { extname, isAbsolute, join } from 'node:path'
 import type { CreateRequest } from '../../shared/bridge'
-import { moduleName, MOST_REFERENCES, objectNameProblem } from '../../shared/objectName'
+import { MAX_PHOTO_BYTES, moduleName, MOST_REFERENCES, objectNameProblem } from '../../shared/objectName'
 import { SCAN_FORMATS } from '../../shared/scans'
 import { writeFileAtomic } from '../atomic'
 import template from './template.py.txt?raw'
@@ -18,7 +18,7 @@ import template from './template.py.txt?raw'
 /** The most of each kind of reference. */
 export const MOST = MOST_REFERENCES
 /** The biggest photo, and the biggest doodle, in bytes. */
-export const MAX_PHOTO = 25 * 1024 * 1024
+export const MAX_PHOTO = MAX_PHOTO_BYTES
 export const MAX_DOODLE = 8 * 1024 * 1024
 /** The longest description and the longest note, in characters. */
 const MAX_DESCRIPTION = 20_000

@@ -157,6 +157,14 @@ test.describe('a new object', () => {
     await expect(cards('photos')).toHaveCount(2)
   })
 
+  test('main serves the bytes only of the photos its own dialog offered', async () => {
+    const refused = await page.evaluate((path) => window.torno.objects.readPhoto(path).then(() => 'read', (e: Error) => e.message), join(files, 'stranger.png'))
+    expect(refused).toMatch(/not chosen in this window/)
+    writeFileSync(join(files, 'stranger.png'), png(10, 10))
+    expect(await page.evaluate((path) => window.torno.objects.readPhoto(path).then(() => 'read', (e: Error) => e.message), join(files, 'stranger.png'))).toMatch(/not chosen in this window/)
+    expect(await page.evaluate((path) => window.torno.objects.readPhoto(path).then((b) => b.length > 8, () => false), big())).toBe(true)
+  })
+
   test('a file dropped with no place on the disk, or that is neither a picture nor a scan, is said and nothing is added', async () => {
     const said = await page.evaluate(() => {
       const section = document.querySelector('section[aria-label="New object"]')!
@@ -172,6 +180,14 @@ test.describe('a new object', () => {
     await expect(newPage()).toContainText('sketch.png: That file has no place on the disk')
     await expect(newPage()).toContainText('notes.txt is neither a picture nor a scan')
     await expect(cards('photos')).toHaveCount(2)
+    // A file over 25 MB is refused before it is read.
+    await page.evaluate(() => {
+      const section = document.querySelector('section[aria-label="New object"]')!
+      const dataTransfer = new DataTransfer()
+      dataTransfer.items.add(new File([new ArrayBuffer(26 * 1024 * 1024)], 'huge.png'))
+      section.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }))
+    })
+    await expect(newPage()).toContainText('huge.png is over 25 MB.')
     // Something that is no file is none of the page's.
     const text = await page.evaluate(() => {
       const dataTransfer = new DataTransfer()
@@ -190,8 +206,15 @@ test.describe('a new object', () => {
     await expect(board().getByRole('button', { name: 'Done' })).toBeDisabled()
     await stroke([0.2, 0.3], [0.8, 0.3])
     await expect(board().locator('canvas')).toHaveAttribute('data-strokes', '1')
-    // Escape puts the board away and keeps nothing.
+    // Escape asks, since something was drawn; "Keep drawing" goes on, and Discard puts the board away and keeps nothing.
     await page.keyboard.press('Escape')
+    const ask = page.getByRole('alertdialog', { name: 'Discard this doodle?' })
+    await expect(ask).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(ask).toHaveCount(0)
+    await expect(board()).toBeVisible()
+    await page.keyboard.press('Escape')
+    await ask.getByRole('button', { name: 'Discard' }).click()
     await expect(board()).toHaveCount(0)
     await expect(cards('doodles')).toHaveCount(0)
 

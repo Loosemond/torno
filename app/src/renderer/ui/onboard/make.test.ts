@@ -24,6 +24,7 @@ function deps(over: Partial<MakeDeps> = {}) {
     open: vi.fn(async () => void calls.push('open')),
     discard: vi.fn(() => void calls.push('discard')),
     hold: vi.fn(),
+    sameWorkspace: vi.fn(() => true),
     ...over
   }
   return { made, calls }
@@ -69,6 +70,8 @@ describe('making the object', () => {
     expect(outcome).toEqual({ kind: 'made', objectId: 'cable-clip', message: 'cable-clip was made, but the workspace does not list it.', opened: true })
     expect(calls).toEqual(['discard', 'open'])
     expect(made.onboard).not.toHaveBeenCalled()
+    // The page is gone once the object opens: the reason is said where the session is.
+    expect(made.hold).toHaveBeenCalledWith('cable-clip', { text: '', reason: 'cable-clip was made, but the workspace does not list it.' })
   })
 
   it('says so, and opens nothing, when the object was made and is not listed', async () => {
@@ -103,5 +106,21 @@ describe('making the object', () => {
     expect(made.onboard).toHaveBeenCalledTimes(1)
     // And it is free again afterwards.
     expect((await makeObject(draft(), deps().made)).kind).toBe('done')
+  })
+
+  it('opens nothing and calls nothing of main when the workspace was left while it worked', async () => {
+    const { made } = deps({ sameWorkspace: vi.fn(() => false) })
+    expect(await makeObject(draft(), made)).toMatchObject({ kind: 'made', opened: false })
+    expect(made.open).not.toHaveBeenCalled()
+    expect(made.onboard).not.toHaveBeenCalled()
+    const other = deps({ create: vi.fn(async () => Promise.reject(new Error('cable-clip was made, but the workspace does not list it.'))), sameWorkspace: vi.fn(() => false) })
+    expect(await makeObject(draft(), other.made)).toMatchObject({ kind: 'made', opened: false })
+    expect(other.made.open).not.toHaveBeenCalled()
+  })
+
+  it('says the object could not be shown when opening it failed, and still hands the prompt over', async () => {
+    const { made } = deps({ open: vi.fn(async () => Promise.reject(new Error('superseded'))) })
+    expect(await makeObject(draft(), made)).toEqual({ kind: 'done', objectId: 'cable-clip', shown: false })
+    expect(made.onboard).toHaveBeenCalledTimes(1)
   })
 })

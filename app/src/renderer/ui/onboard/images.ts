@@ -61,10 +61,12 @@ export async function prepareImage(bytes: Uint8Array, name: string): Promise<Pre
   try {
     const from = { width: bitmap.width, height: bitmap.height }
     const fit = fitWithin(from.width, from.height)
-    const asIs = (type === 'image/png' || type === 'image/jpeg') && fit.width === from.width && fit.height === from.height && bytes.length <= MOST_ATTACHED
+    // A JPEG may carry a turn (EXIF) that is applied only by decoding it: it is always drawn again.
+    const asIs = type === 'image/png' && fit.width === from.width && fit.height === from.height && bytes.length <= MOST_ATTACHED
     if (asIs) return { image: bytes, type, ...fit, from }
     const canvas = new OffscreenCanvas(fit.width, fit.height)
     const ctx = canvas.getContext('2d')!
+    ctx.imageSmoothingQuality = 'high'
     // A JPEG has no transparency: what had none shows white.
     const png = type === 'image/png'
     if (!png) {

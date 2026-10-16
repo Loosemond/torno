@@ -7,6 +7,9 @@ import { SHADOWING_LIBRARIES, STDLIB_MODULES } from './pythonModules'
 /** The longest name of an object, in characters. */
 export const MAX_OBJECT_NAME = 64
 
+/** The biggest photo a new object takes, in bytes: main copies no more, and the window reads no more. */
+export const MAX_PHOTO_BYTES = 25 * 1024 * 1024
+
 /** The most of each kind of reference a new object is made with: the window holds the draft to it, main holds the request to it. */
 export const MOST_REFERENCES = { photos: 12, doodles: 6, scans: 4, objects: 8 }
 

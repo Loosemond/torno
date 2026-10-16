@@ -95,4 +95,20 @@ describe('the draft of a new object', () => {
     onboarding.dismiss('clip')
     expect(onboarding.held('clip')).toBeUndefined()
   })
+
+  it('counts a held prompt not yet taken by a chat as one that would be lost, and a taken one no more', () => {
+    expect(onboarding.heldUnsent()).toBe(0)
+    onboarding.hold('clip', { text: 'First prompt', reason: 'x' })
+    onboarding.hold('lid', { text: '', reason: 'y' })
+    expect(onboarding.heldUnsent()).toBe(1)
+    onboarding.take('clip')
+    expect(onboarding.heldUnsent()).toBe(0)
+  })
+
+  it('knows when the draft was thrown away since a photo began to be read', () => {
+    const began = onboarding.epoch()
+    expect(onboarding.epoch()).toBe(began)
+    onboarding.discard()
+    expect(onboarding.epoch()).not.toBe(began)
+  })
 })

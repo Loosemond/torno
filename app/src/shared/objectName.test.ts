@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { STDLIB_MODULES } from './pythonModules'
-import { moduleName, objectNameProblem } from './objectName'
+import { MAX_PHOTO_BYTES, moduleName, objectNameProblem } from './objectName'
 
 describe('objectNameProblem', () => {
   it('accepts letters, digits, dot, dash and underscore', () => {
@@ -68,4 +68,8 @@ describe('moduleName', () => {
     expect(moduleName('v1.2-b')).toBe('v1_2_b')
     expect(moduleName('plain')).toBe('plain')
   })
+})
+
+it('has one cap for a photo, which main and the window both hold a file to', () => {
+  expect(MAX_PHOTO_BYTES).toBe(25 * 1024 * 1024)
 })

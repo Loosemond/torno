@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { hint, pressed } from '../../../shared/keys'
-import { moduleName, MOST_REFERENCES, objectNameProblem } from '../../../shared/objectName'
+import { MAX_PHOTO_BYTES, moduleName, MOST_REFERENCES, objectNameProblem } from '../../../shared/objectName'
 import { actions, store, useStore } from '../../state/store'
 import { draftHas, onboard, onboarding, useOnboard, type Stroke } from '../../state/onboard'
 import { Confirm } from '../Confirm'
@@ -118,6 +118,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
   /** Takes pictures in: each is read, scaled for the prompt and drawn small; one that cannot be read is said, the others go in. */
   async function takePhotos(sources: Source[]): Promise<void> {
     setSaid(null)
+    const epoch = onboarding.epoch()
     setReading((n) => n + sources.length)
     const problems: string[] = []
     const ready: Parameters<typeof onboarding.addPhotos>[0] = []
@@ -133,6 +134,11 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         problems.push(reason(e))
       }
       setReading((n) => n - 1)
+    }
+    // The draft was thrown away while these were being read: they are not put back into it.
+    if (onboarding.epoch() !== epoch) {
+      for (const item of ready) URL.revokeObjectURL(item.url)
+      return
     }
     const { left, same } = onboarding.addPhotos(ready)
     if (left > 0) problems.push(`${plural(left, 'photo was', 'photos were')} left out: at most ${MOST_REFERENCES.photos}.`)
@@ -162,7 +168,9 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         if (!path) problems.push(`${file.name}: ${NO_PATH}`)
         else if (!onboarding.addScan({ path, file: file.name, size: file.size })) problems.push(scanRefused(path))
       } else if (isImage(file.name)) {
-        if (!path) problems.push(`${file.name}: ${NO_PATH}`)
+        // The size first: a file over the cap is never read, whatever else is said of it.
+        if (file.size > MAX_PHOTO_BYTES) problems.push(`${file.name} is over ${MAX_PHOTO_BYTES / (1024 * 1024)} MB.`)
+        else if (!path) problems.push(`${file.name}: ${NO_PATH}`)
         else pictures.push({ path, name: file.name, bytes: async () => new Uint8Array(await file.arrayBuffer()) })
       } else problems.push(`${file.name} is neither a picture nor a scan.`)
     }
@@ -175,6 +183,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
     if (busy || !ready) return
     setBusy(true)
     setProblem(null)
+    const root = store.getState().workspace?.root
     const outcome = await makeObject(onboard.getState().draft, {
       create: (req) => window.torno.objects.create(req),
       onboard: async (id, d) => {
@@ -191,12 +200,21 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         if (info) actions.refreshWorkspace(info)
         return info?.objects.map((o) => o.id) ?? []
       },
-      open: onOpen,
+      open: async (id) => {
+        await onOpen(id)
+        // Another object chosen meanwhile supersedes this one: it is not shown, and is said not to be.
+        if (store.getState().objectId !== id) throw new Error('not shown')
+      },
+      sameWorkspace: () => store.getState().workspace?.root === root,
       discard: () => onboarding.discard(),
       hold: (id, held) => onboarding.hold(id, held)
     })
     if (outcome.kind === 'refused') setProblem(outcome.message)
     else if (outcome.kind === 'made') setMadeAlready(outcome.message)
+    else if (outcome.kind === 'done' && outcome.shown === false) {
+      // The object is made and listed, and another is on show: back to the page of objects, where it is.
+      actions.showPage('objects')
+    }
     setBusy(false)
   }
 

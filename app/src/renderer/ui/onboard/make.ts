@@ -16,6 +16,8 @@ export interface MakeDeps {
   /** The draft is spent. */
   discard(): void
   hold(objectId: string, held: Held): void
+  /** Whether the workspace is still the one the object was made in. */
+  sameWorkspace(): boolean
 }
 
 export type Outcome =
@@ -26,7 +28,7 @@ export type Outcome =
   /** The object was made but something after failed (the listing): it is not to be made again. `opened` says whether it could be opened. */
   | { kind: 'made'; objectId: string; message: string; opened: boolean }
   /** Made and open; `problem` is why the first prompt was not sent, and then it is held for the composer. */
-  | { kind: 'done'; objectId: string; problem?: string }
+  | { kind: 'done'; objectId: string; problem?: string; /** False when the window could not show the object (another was chosen meanwhile). */ shown?: false }
 
 let running = false
 
@@ -65,13 +67,20 @@ export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome>
       objectId = message.split(' ')[0]
       const ids = await deps.listed().catch(() => [] as string[])
       deps.discard()
-      const opened = ids.includes(objectId)
-      if (opened) await deps.open(objectId).catch(() => {})
+      // Of this workspace only: one left meanwhile may have an object of the same name.
+      const opened = ids.includes(objectId) && deps.sameWorkspace()
+      if (opened) {
+        await deps.open(objectId).catch(() => {})
+        // The page is gone once the object opens: the reason is said where the session is.
+        deps.hold(objectId, { text: '', reason: message })
+      }
       return { kind: 'made', objectId, message, opened }
     }
     await deps.listed().catch(() => [])
     deps.discard()
-    await deps.open(objectId).catch(() => {})
+    if (!deps.sameWorkspace()) return { kind: 'made', objectId, message: `${objectId} was made, but the workspace was left before it could be opened.`, opened: false }
+    let shown = true
+    await deps.open(objectId).catch(() => void (shown = false))
     let told: Onboarded
     try {
       told = await deps.onboard(objectId, { description, items, scans: request.scans, objects: request.objects })
@@ -79,14 +88,14 @@ export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome>
       // Nothing is known of the text: the object is made and open, and the reason is said where the chat would be.
       const message = reason(e)
       deps.hold(objectId, { text: '', reason: message })
-      return { kind: 'done', objectId, problem: message }
+      return { kind: 'done', objectId, problem: message, ...(shown ? {} : { shown: false as const }) }
     }
     if (told.sessionId === null || told.problem !== undefined) {
       const why = told.problem ?? 'A chat session could not be started.'
       deps.hold(objectId, { text: told.prompt, reason: why })
-      return { kind: 'done', objectId, problem: why }
+      return { kind: 'done', objectId, problem: why, ...(shown ? {} : { shown: false as const }) }
     }
-    return { kind: 'done', objectId }
+    return { kind: 'done', objectId, ...(shown ? {} : { shown: false as const }) }
   } finally {
     running = false
   }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { hint, pressed } from '../../../shared/keys'
 import type { Stroke } from '../../state/onboard'
+import { Confirm } from '../Confirm'
 import { BOARD, ERASER_WIDTH, PEN_WIDTHS, addPoint, doodlePng, paintStroke, paintStrokes } from './strokes'
 
 type Tool = 'thin' | 'thick' | 'eraser'
@@ -34,6 +35,11 @@ export function Doodle({ initial, onDone, onCancel }: { initial: Stroke[]; onDon
   const [count, setCount] = useState(strokes.current.length)
   const [saving, setSaving] = useState(false)
   const saved = useRef(false)
+  /** Whether the strokes are other than the doodle was opened with: leaving then asks first. */
+  const dirty = useRef(false)
+  const [asking, setAsking] = useState(false)
+  const askingNow = useRef(false)
+  askingNow.current = asking
 
   const repaint = (): void => {
     const ctx = canvas.current?.getContext('2d')
@@ -51,12 +57,14 @@ export function Doodle({ initial, onDone, onCancel }: { initial: Stroke[]; onDon
   const undo = (): void => {
     if (drawing.current || strokes.current.length === 0) return
     strokes.current.pop()
+    dirty.current = true
     setCount(strokes.current.length)
     repaint()
   }
   const clear = (): void => {
     if (drawing.current || strokes.current.length === 0) return
     strokes.current = []
+    dirty.current = true
     setCount(0)
     repaint()
   }
@@ -74,24 +82,34 @@ export function Doodle({ initial, onDone, onCancel }: { initial: Stroke[]; onDon
   }
 
   // The keys are the board's while it is up, wherever the focus is (a click on the canvas may leave it nowhere).
-  const act = useRef({ undo, onCancel })
-  act.current = { undo, onCancel }
+  /** Esc and Cancel: a board with something drawn on it that was not kept asks first. */
+  const leave = (): void => {
+    if (saved.current) return
+    if (dirty.current && strokes.current.length > 0) setAsking(true)
+    else onCancel()
+  }
+  const act = useRef({ undo, leave })
+  act.current = { undo, leave }
   useEffect(() => {
     const before = document.activeElement
     sheet.current?.focus()
+    // Before anything else hears of the key, so that no tool of the view under the board gets Ctrl+Z. A question
+    // asked in the board has its own keys.
     const onKey = (e: KeyboardEvent): void => {
-      if (e.defaultPrevented) return
+      if (askingNow.current) return
       if (pressed(e, 'sheet.close')) {
         e.preventDefault()
-        if (!saved.current) act.current.onCancel()
+        e.stopPropagation()
+        act.current.leave()
       } else if (pressed(e, 'board.undo')) {
         e.preventDefault()
+        e.stopPropagation()
         act.current.undo()
       }
     }
-    window.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
     return () => {
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
       const now = document.activeElement
       if (before instanceof HTMLElement && before.isConnected && (now === null || now === document.body || !now.isConnected)) before.focus()
     }
@@ -134,6 +152,7 @@ export function Doodle({ initial, onDone, onCancel }: { initial: Stroke[]; onDon
     if (!d || d.pointer !== e.pointerId) return
     drawing.current = null
     strokes.current.push(d.stroke)
+    dirty.current = true
     setCount(strokes.current.length)
   }
 
@@ -149,13 +168,6 @@ export function Doodle({ initial, onDone, onCancel }: { initial: Stroke[]; onDon
         onKeyDown={(e) => {
           // No key of the page under it is handed on.
           e.stopPropagation()
-          if (pressed(e, 'sheet.close')) {
-            e.preventDefault()
-            if (!saved.current) onCancel()
-          } else if (pressed(e, 'board.undo')) {
-            e.preventDefault()
-            undo()
-          }
           if (!pressed(e, 'sheet.round')) return
           const stops = [...sheet.current!.querySelectorAll<HTMLElement>(FOCUSABLE)]
           if (stops.length === 0) return e.preventDefault()
@@ -209,11 +221,16 @@ export function Doodle({ initial, onDone, onCancel }: { initial: Stroke[]; onDon
             onPointerCancel={onUp}
           />
         </div>
+        {asking && (
+          <Confirm label="Discard this doodle?" accept="Discard" cancel="Keep drawing" onCancel={() => setAsking(false)} onAccept={onCancel}>
+            Discard this doodle? What was drawn since it was opened is not kept.
+          </Confirm>
+        )}
         <footer className="board-foot">
           <p className="board-size num">
             {BOARD.width} × {BOARD.height}
           </p>
-          <button type="button" className="button" disabled={saving} title={`Put the board away without keeping this (${hint('sheet.close')})`} onClick={onCancel}>
+          <button type="button" className="button" disabled={saving} title={`Put the board away without keeping this (${hint('sheet.close')})`} onClick={leave}>
             Cancel
           </button>
           <button type="button" className="button button-primary" disabled={saving || count === 0} onClick={() => void done()}>

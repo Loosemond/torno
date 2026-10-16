@@ -18,7 +18,7 @@ import { ExportSheet } from './ui/ExportSheet'
 import { FolderMenu } from './ui/FolderMenu'
 import { ShowPage, usePageKey } from './ui/ShowPage'
 import { NewObject } from './ui/onboard/NewObject'
-import { draftHas, onboard } from './state/onboard'
+import { draftHas, onboard, onboarding } from './state/onboard'
 import { ViewportPane } from './ui/ViewportPane'
 import { KeySheet, useKeysKey } from './ui/KeySheet'
 import { Welcome } from './ui/Welcome'
@@ -198,7 +198,8 @@ function useExportKey(): void {
       e.preventDefault()
       e.stopPropagation()
       const s = store.getState()
-      if (e.repeat || !s.workspace || s.exportOf !== null) return
+      // Not over the page of a new object: what is on show under it is not what would be exported.
+      if (e.repeat || !s.workspace || s.exportOf !== null || s.page === 'new') return
       if (s.page === 'objects') actions.exportSheet('all')
       else if (s.objectId !== null) actions.exportSheet([s.objectId])
     }
@@ -216,7 +217,7 @@ function useRebuildKey(): void {
       e.stopPropagation()
       const { objectId, workspace } = store.getState()
       // Not while a build runs: there is nothing to start over (main would start none either).
-      if (e.repeat || !workspace || objectId === null || store.getState().build?.status === 'building') return
+      if (e.repeat || !workspace || objectId === null || store.getState().page === 'new' || store.getState().build?.status === 'building') return
       void window.torno.object.rebuild(objectId).catch(() => {})
     }
     window.addEventListener('keydown', onKey, true)
@@ -296,7 +297,7 @@ export function App() {
     () =>
       window.torno.workspace.onCloseAsked(() => {
         const s = store.getState()
-        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting(), draft: draftHas(onboard.getState().draft), unsent: unsentPrompts(Object.values(s.sessions).filter((x) => x.view === 'chat' && x.status !== 'exited').map((x) => x.sessionId)) })
+        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting(), draft: draftHas(onboard.getState().draft), heldPrompt: onboarding.heldUnsent() > 0, unsent: unsentPrompts(Object.values(s.sessions).filter((x) => x.view === 'chat' && x.status !== 'exited').map((x) => x.sessionId)) })
         window.torno.workspace.answerClose(why === null)
         setClosing(why)
       }),
