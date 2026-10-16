@@ -232,6 +232,55 @@ def test_angle_of_anything_else_names_what_can_be_measured(shapes, top, holes):
     assert refused(shapes, "angle", top, point)[1].endswith("b is a point")
 
 
+def wedge(bulge: float):
+    """A right triangle of 10 mm legs extruded 5 mm, its side along X a spline through
+    (5, bulge): straight, and stored as a B-spline edge and an extrusion face, when bulge is 0."""
+    from build123d import Face, Line, Spline, Wire, extrude
+
+    side = Spline((0, 0), (5, bulge), (10, 0))
+    profile = Wire([side, Line((10, 0), (10, 10)), Line((10, 10), (0, 0))])
+    return {"assembly:wedge": extrude(Face(profile), 5)}
+
+
+def test_angle_takes_a_flat_extrusion_face_as_a_plane_within_a_tolerance():
+    made = wedge(0)
+    assert queries.describe(made, "assembly:wedge/F0")["descriptor"].startswith("extrusion")
+    result = measure(made, "angle", "assembly:wedge/F0", "assembly:wedge/F2")
+    assert (result["value"], result["how"], result["exact"]) == (
+        pytest.approx(135),
+        "between normals, flat within 1e-6 mm",
+        False,
+    )
+    top = measure(made, "angle", "assembly:wedge/F0", "assembly:wedge/F4")
+    assert top["value"] == pytest.approx(90)
+    # Its point is on it.
+    assert result["points"][0][1] == pytest.approx(0, abs=1e-6)
+
+
+def test_angle_takes_a_straight_bspline_edge_as_a_line_within_a_tolerance():
+    made = wedge(0)
+    assert queries.describe(made, "assembly:wedge/E2")["descriptor"].startswith("bspline")
+    result = measure(made, "angle", "assembly:wedge/E2", "assembly:wedge/E7")
+    assert (result["value"], result["how"], result["exact"]) == (
+        pytest.approx(45),
+        "between lines, straight within 1e-6 mm",
+        False,
+    )
+    plane = measure(made, "angle", "assembly:wedge/E2", "assembly:wedge/F1")
+    assert (plane["value"], plane["how"]) == (
+        pytest.approx(90),
+        "line to plane, straight within 1e-6 mm",
+    )
+
+
+def test_angle_refuses_a_curved_extrusion_face_saying_it_is_not_flat():
+    made = wedge(3)
+    message = refused(made, "angle", "assembly:wedge/F0", "assembly:wedge/F4")[1]
+    assert message.endswith("assembly:wedge/F0 is curved: an extrusion face that is not flat")
+    edge = refused(made, "angle", "assembly:wedge/E2", "assembly:wedge/F4")[1]
+    assert edge.endswith("assembly:wedge/E2 is curved: a bspline edge that is not straight")
+
+
 # Radius and diameter
 
 

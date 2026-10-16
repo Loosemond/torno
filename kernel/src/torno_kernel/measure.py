@@ -47,6 +47,14 @@ _OF_THE_WALL = 0.5
 # How far a ray is followed, mm.
 _REACH = 1e7
 PLA = 1.24  # g/cm³
+# A face or an edge of another type than plane or line is taken for one, for an
+# angle, when it is no further than this from one, mm.
+_FLAT = 1e-6
+_FLAT_SAID = "1e-6"
+# Points an edge is sampled at to tell whether it is straight.
+_SAMPLES = 129
+# Types that are never flat or straight.
+_CURVED = ("cylinder", "cone", "sphere", "torus", "circle", "ellipse", "hyperbola", "parabola")
 _ZERO = 1e-12
 
 
@@ -91,7 +99,10 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     - ``angle``: between the outward normals of two planar faces (0 for faces
       that look the same way, 180 for opposite ones), between two straight
       edges or between a straight edge and a planar face (both 0 to 90: a
-      line has no sense).
+      line has no sense). A face of another type than a plane that is within
+      1e-6 mm of one is taken for it, and an edge of another type than a line
+      that is within 1e-6 mm of one (B-spline, extrusion): then ``exact`` is
+      false and ``how`` says ``flat`` or ``straight within 1e-6 mm``.
     - ``radius``, ``diameter``: of a cylindrical, spherical or toroidal face
       (of a torus its tube, with ``major``) or of a circular edge.
     - ``thickness``: from a point of a face of a solid along its inward
@@ -238,8 +249,8 @@ def _vertex(point: np.ndarray) -> Any:
 
 
 def _angle(a: _Target, b: _Target) -> dict[str, Any]:
-    plane_a, plane_b = _plane(a), _plane(b)
-    line_a, line_b = _line(a), _line(b)
+    plane_a, plane_b = _flat(a), _flat(b)
+    line_a, line_b = _straight(a), _straight(b)
     if plane_a and plane_b:
         how, cosine = "between normals", float(plane_a[1] @ plane_b[1])
         degrees = math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
@@ -257,15 +268,35 @@ def _angle(a: _Target, b: _Target) -> dict[str, Any]:
         raise QueryError(
             "bad_request",
             "angle is measured between two planar faces, two straight edges, or a planar face "
-            f"and a straight edge; {odd.what}",
+            f"and a straight edge; {_not_flat(odd)}",
         )
+    ends = [(plane_a or line_a), (plane_b or line_b)]
+    # Flat or straight only within the tolerance: said, and not exact.
+    within = []
+    if any(plane is not None and not plane[2] for plane in (plane_a, plane_b)):
+        within.append("flat")
+    if any(line is not None and not line[2] for line in (line_a, line_b)):
+        within.append("straight")
+    if within:
+        how += f", {' and '.join(within)} within {_FLAT_SAID} mm"
     return {
         "value": degrees,
         "unit": "deg",
         "how": how,
-        "points": [(plane_a or line_a)[0], (plane_b or line_b)[0]],
-        "exact": True,
+        "points": [ends[0][0], ends[1][0]],
+        "exact": not within,
     }
+
+
+def _not_flat(target: _Target) -> str:
+    """What a face or an edge an angle cannot be taken of is, to end a refusal with: one
+    whose type may be flat or straight is said to be curved."""
+    if target.kind not in ("face", "edge") or _type(target) in _CURVED:
+        return target.what
+    type = _type(target)
+    article = "an" if type[:1] in "aeiou" else "a"
+    shape = "flat" if target.kind == "face" else "straight"
+    return f"{target.ref} is curved: {article} {type} {target.kind} that is not {shape}"
 
 
 # Radius and diameter
@@ -581,6 +612,59 @@ def _line(target: _Target) -> tuple[np.ndarray, np.ndarray] | None:
     middle = _centre(target)
     at = middle if target.point is None else _foot_on_line(target.point, middle, direction)
     return at, direction
+
+
+def _flat(target: _Target) -> tuple[np.ndarray, np.ndarray, bool] | None:
+    """Of a face that is flat, what ``_plane`` says of it and whether it is a plane
+    exactly; one of another type is flat when it is within ``_FLAT`` of a plane."""
+    exactly = _plane(target)
+    if exactly is not None:
+        return *exactly, True
+    if target.kind != "face" or _type(target) in _CURVED:
+        return None
+    from build123d import Face
+    from OCP.BRep import BRep_Tool
+    from OCP.GeomLib import GeomLib_IsPlanarSurface
+
+    planar = GeomLib_IsPlanarSurface(BRep_Tool.Surface_s(target.shape), _FLAT)
+    if not planar.IsPlanar():
+        return None
+    plane = planar.Plan()
+    normal = _gp(plane.Axis().Direction())
+    face = Face(target.shape)
+    centre = face.center()
+    # The plane's normal faces either way: the face's own says which is out.
+    if normal @ _vector(face.normal_at(centre)) < 0:
+        normal = -normal
+    near = _vector(centre) if target.point is None else target.point
+    at = _foot_on_plane(near, _gp(plane.Location()), normal)
+    return at, normal, False
+
+
+def _straight(target: _Target) -> tuple[np.ndarray, np.ndarray, bool] | None:
+    """Of an edge that is straight, what ``_line`` says of it and whether it is a line
+    exactly; one of another type is straight when no point of it sampled is further
+    than ``_FLAT`` from the line through its ends."""
+    exactly = _line(target)
+    if exactly is not None:
+        return *exactly, True
+    if target.kind != "edge" or _type(target) in _CURVED:
+        return None
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+    curve = BRepAdaptor_Curve(target.shape)
+    first, last = curve.FirstParameter(), curve.LastParameter()
+    points = np.array([_gp(curve.Value(t)) for t in np.linspace(first, last, _SAMPLES)])
+    start = points[0]
+    direction = _unit(points[-1] - start)
+    if direction is None:
+        return None
+    off = points - start
+    if float(np.max(np.linalg.norm(off - np.outer(off @ direction, direction), axis=1))) > _FLAT:
+        return None
+    middle = (start + points[-1]) / 2
+    at = middle if target.point is None else _foot_on_line(target.point, middle, direction)
+    return at, direction, False
 
 
 # Vectors
