@@ -6,8 +6,8 @@ import { checkedImage } from '../images'
 // A drawing on the view comes from the window with a prompt (`chat:send`): it is checked here field by field, and
 // worded for the agent. Nothing of it is written anywhere.
 
-/** A face of a part, as the window's pick names it. */
-const FACE = /^[^\s/]{1,200}\/F[1-9][0-9]{0,6}$/
+/** A face of a part, as the window's pick names it (`refOf`): a part of any name on one line (no control character), its faces counted from 0. */
+const FACE = /^[^\p{Cc}\u2028\u2029]{1,200}\/F(?:0|[1-9][0-9]{0,6})$/u
 const SCAN = /^S[1-9][0-9]{0,6}$/
 const INK = /^#[0-9a-fA-F]{6}$/
 /** The longest caption, and object id or layout, taken after folding to one line; a longer descriptor is cut. */

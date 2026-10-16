@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { hint, pressed, which } from '../../../shared/keys'
 import { unmetDimensions } from '../../../shared/dimension'
 import { useChat } from '../../state/chat'
+import { drawingActions, drawingWaits, useDrawing } from '../../state/drawing'
 import { onboarding } from '../../state/onboard'
 import { store, useStore } from '../../state/store'
 import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
+import { openDrawing } from '../drawing/make'
 import { commandsFor, rateLine } from './foot'
 import { RefChip } from './RefChip'
 
@@ -15,16 +17,17 @@ const reason = (e: unknown): string => (e instanceof Error ? e.message : String(
 /** A prompt not yet sent, kept for a session while its pane is not shown (another object's, say). */
 const drafts = new Map<string, string>()
 
-/** How many of these sessions have a prompt written in their box and not sent: closing the window would lose it. */
+/** How many of these sessions have a prompt written in their box, or a drawing on the view waiting for it, and not sent: closing the window would lose it. */
 export function unsentPrompts(sessionIds: Iterable<string>): number {
   let n = 0
-  for (const id of sessionIds) if ((drafts.get(id) ?? '').trim() !== '') n += 1
+  for (const id of sessionIds) if ((drafts.get(id) ?? '').trim() !== '' || drawingWaits(id)) n += 1
   return n
 }
 
-/** The drafts of the prompts not sent are let go when the workspace they were written in is closed. */
+/** The drafts of the prompts not sent, and the drawings waiting for them, are let go when the workspace they were made in is closed. */
 export function clearDrafts(): void {
   drafts.clear()
+  drawingActions.clear()
 }
 
 /** The composer in the pane now, for what is inserted from outside (the selection's "Insert"). */
@@ -94,7 +97,9 @@ function Commands({ offered, at, onChoose }: { offered: ReturnType<typeof comman
 /**
  * The foot of the chat: what goes with the next prompt, and the box to write it in. Enter sends and Shift+Enter
  * breaks the line; Escape closes the list of commands while one is offered, and else gives the keys back to the view, as a field does. While the agent works, the prompt is
- * queued by the CLI, and "Stop" interrupts it. "Attach view" adds a picture of the viewport to the next prompt only.
+ * queued by the CLI, and "Stop" interrupts it. "Attach view" adds a picture of the viewport to the next prompt only;
+ * "Draw on view" opens a board over a picture of the view, and the drawing waits above the box until it goes with the
+ * next prompt.
  * While a `/command` is typed the commands of the CLI are offered; and when a window of the rate limit is half
  * used, one quiet line says so.
  */
@@ -103,6 +108,8 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const [text, setText] = useState(() => drafts.get(sessionId) ?? onboarding.take(store.getState().objectId))
   const [problem, setProblem] = useState<string | null>(null)
   const [attach, setAttach] = useState(false)
+  const drawn = useDrawing((s) => s.drawn[sessionId])
+  const opening = useDrawing((s) => s.opening === sessionId)
   const [choice, setChoice] = useState(0)
   const chat = useChat(sessionId)
   /** The text for which Escape closed the list of commands: the list stays shut until the text changes. */
@@ -149,16 +156,20 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     const prompt = text.trim()
     if (prompt === '' || !live) return
     const withView = attach
+    // The drawing goes with this prompt and with no other; given back if the prompt is not sent.
+    const drawing = drawingActions.taken(sessionId)
     setText('')
     setAttach(false)
     setProblem(null)
     onSent()
     try {
-      await window.torno.chat.send(sessionId, { text: prompt, attachView: withView })
+      await window.torno.chat.send(sessionId, { text: prompt, attachView: withView, ...(drawing ? { drawing: drawing.drawing } : {}) })
+      if (drawing) drawingActions.spent(drawing)
     } catch (e) {
       // Nothing was sent: what was written is given back, unless more has been written since.
       setText((now) => (now === '' ? prompt : now))
       setAttach(withView)
+      if (drawing) drawingActions.giveBack(sessionId, drawing)
       setProblem(reason(e))
     }
   }
@@ -175,6 +186,18 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     <div className="chat-foot">
       <Next />
       {offered.length > 0 && <Commands offered={offered} at={at} onChoose={complete} />}
+      {drawn && (
+        <div className="chat-drawing" role="group" aria-label="Drawing on the view">
+          <img src={drawn.thumb} alt="" draggable={false} />
+          <span className="chat-drawing-what">Your drawing on the view goes with your next prompt</span>
+          <button type="button" className="button button-quiet" onClick={() => drawingActions.edit(sessionId)}>
+            Edit
+          </button>
+          <button type="button" className="button button-quiet" onClick={() => drawingActions.remove(sessionId)}>
+            Remove
+          </button>
+        </div>
+      )}
       <div className="chat-composer">
         <textarea
           ref={field}
@@ -238,6 +261,18 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
             onClick={() => setAttach(!attach)}
           >
             Attach view
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={!live || opening || drawn !== undefined}
+            title={drawn ? 'A drawing goes with your next prompt: edit it or remove it above' : 'Draw over a picture of the view as it is now; the picture goes with the next prompt'}
+            onClick={() => {
+              setProblem(null)
+              openDrawing(sessionId).catch((e: unknown) => setProblem(reason(e)))
+            }}
+          >
+            Draw on view
           </button>
           <button type="button" className="button button-primary" disabled={!live || text.trim() === ''} title={`Send (${hint('chat.send')})`} onClick={() => void send()}>
             {working ? 'Queue' : 'Send'}

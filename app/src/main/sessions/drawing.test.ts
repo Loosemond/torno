@@ -29,6 +29,10 @@ describe('drawingOf', () => {
     expect(d.under![0].refs[0].descriptor).toHaveLength(200)
     expect(d.under![0].refs[0].descriptor).not.toContain('\n')
   })
+  it('takes a face as the window names it: from F0, of a part of any name on one line', () => {
+    const d = ok({ under: [{ box: [0, 0, 1, 1], refs: [{ ref: 'base/F0' }, { ref: 'lid part/F7' }], scans: [], bare: false }] })
+    expect(d.under![0].refs).toEqual([{ ref: 'base/F0' }, { ref: 'lid part/F7' }])
+  })
   it('takes a drawing whose ink could not be looked under, and the count of strokes not told', () => {
     expect(ok({ under: null }).under).toBeNull()
     expect(ok({ moreStrokes: 3 }).moreStrokes).toBe(3)
@@ -49,6 +53,9 @@ describe('drawingOf', () => {
     ['a stroke outside the picture', given({ under: [{ box: [0, 0, 65, 1], refs: [], scans: [], bare: true }] })],
     ['an edge where a face is said', given({ under: [{ box: [0, 0, 1, 1], refs: [{ ref: 'base/E3' }], scans: [], bare: false }] })],
     ['a mark where a face is said', given({ under: [{ box: [0, 0, 1, 1], refs: [{ ref: 'M3' }], scans: [], bare: false }] })],
+    ['a face of a part named on two lines', given({ under: [{ box: [0, 0, 1, 1], refs: [{ ref: 'base\nlid/F1' }], scans: [], bare: false }] })],
+    ['a face of a part named across a line separator', given({ under: [{ box: [0, 0, 1, 1], refs: [{ ref: 'base\u2028lid/F1' }], scans: [], bare: false }] })],
+    ['a face numbered from a nought', given({ under: [{ box: [0, 0, 1, 1], refs: [{ ref: 'base/F01' }], scans: [], bare: false }] })],
     ['too many faces', given({ under: [{ box: [0, 0, 1, 1], refs: Array.from({ length: MOST_REFS_TOLD + 1 }, (_, i) => ({ ref: `base/F${i + 1}` })), scans: [], bare: false }] })],
     ['a scan that is no scan', given({ under: [{ box: [0, 0, 1, 1], refs: [], scans: ['scan one'], bare: false }] })],
     ['a stroke over something it does not name', given({ under: [{ box: [0, 0, 1, 1], refs: [], scans: [], bare: false }] })],

@@ -537,6 +537,28 @@ button.ref-chip {
   gap: var(--space-2);
 }
 
+/* A drawing on the view that goes with the next prompt: its picture small, what it is, Edit and Remove. */
+.chat-drawing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.chat-drawing img {
+  flex: none;
+  height: 40px;
+  border: var(--divider);
+  border-radius: 4px;
+}
+
+.chat-drawing-what {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
 .chat-problem {
   margin-top: var(--space-2);
   color: var(--fail);
