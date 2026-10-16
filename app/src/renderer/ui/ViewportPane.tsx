@@ -10,6 +10,7 @@ import { agentStore, connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { newCut } from '../../shared/cut'
 import { actions, layerOf, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
+import { setViewHost } from '../state/drawing'
 import { connectThumbs } from '../state/thumbs'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { alignTool, connectAlign } from '../tools/alignTool'
@@ -336,6 +337,29 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   // Main's requests for a picture are answered by the app (`connectLook`), with this viewport while it is there.
   setPictures((request) => look(viewport, request))
 
+  // What a drawing on the view asks of it: the camera, what the screen shows (while that holds, a point of the
+  // picture is the same point of the canvas: the picture has the canvas's camera and aspect), and what is under points.
+  setViewHost({
+    camera: () => viewport.getCamera(),
+    shows: () => {
+      const s = store.getState()
+      const box = canvasBox(viewport)
+      const scans = viewport.scanState().map(({ id, visible, opacity }) => [id, visible, opacity])
+      return JSON.stringify([s.objectId, s.revision, s.layout, viewport.getCamera(), Math.round(box.width), Math.round(box.height), s.section, explodeNow(s), viewport.exploded(), visibleKeys(s), scans])
+    },
+    under: (points) => {
+      const box = canvasBox(viewport)
+      return points.map(([fx, fy]) => {
+        const x = box.left + fx * box.width
+        const y = box.top + fy * box.height
+        const hit = viewport.pick(x, y, { edges: false })
+        if (hit) return { ref: hit.ref }
+        const scan = viewport.pickScan(x, y)
+        return scan ? { scan: scan.scan } : null
+      })
+    }
+  })
+
   if (underTest) {
     const project = (point: Vec3, part?: string): [number, number] => {
       const box = canvasBox(viewport)
@@ -432,6 +456,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     offAlign()
     offRegion()
     setPictures(null)
+    setViewHost(null)
     offAgent()
     thumbs.stop()
     delete window.__tornoTest
