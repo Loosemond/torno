@@ -120,7 +120,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -620,7 +620,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })
@@ -977,7 +977,9 @@ test("show switches the scans for now, not in the user's saved view, and the pro
   await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
   await expect.poll(terminal).toContain('READY')
   const argv: string[] = JSON.parse(/READY (\[.*\])/s.exec((await terminal()).replace(/\n/g, ''))![1])
-  for (const tool of ['scans', 'scan_clash', 'scan_deviation']) expect(argv[argv.indexOf('--append-system-prompt') + 1]).toContain(`mcp__torno__${tool}`)
+  // Claude Code is told of the scans in one line that names the skill; the skill names the scan tools (#4).
+  expect(argv[argv.indexOf('--append-system-prompt') + 1]).toContain('see the skill torno:scans')
+  expect(argv[argv.indexOf('--plugin-dir') + 1]).toMatch(/agent-plugin$/)
   await prompt()
   await expect.poll(async () => times(await said(), 'Scans: S1 sheet.stl, aligned in assembly by 3 pairs (RMS under 0.1 mm, worst under 0.1 mm) (tied to no point of the model: not checked against builds), hidden.')).toBe(1)
 })
