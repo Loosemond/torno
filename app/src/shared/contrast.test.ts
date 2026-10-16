@@ -14,6 +14,20 @@ const css = readFileSync(resolve(__dirname, '../renderer/styles/tokens.css'), 'u
 const dark = css.indexOf('@media (prefers-color-scheme: dark)')
 const tokens = (block: string): Record<string, string> => Object.fromEntries([...block.matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/g)].map((m) => [m[1], m[2]]))
 
+/** How far apart two colours are in hue, in degrees: 0 to 180. */
+function hueApart(a: string, b: string): number {
+  const hue = (hex: string): number => {
+    const [r, g, bl] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255)
+    const max = Math.max(r, g, bl)
+    const span = max - Math.min(r, g, bl)
+    if (span === 0) return 0
+    const h = max === r ? (g - bl) / span : max === g ? 2 + (bl - r) / span : 4 + (r - g) / span
+    return (h * 60 + 360) % 360
+  }
+  const d = Math.abs(hue(a) - hue(b))
+  return Math.min(d, 360 - d)
+}
+
 describe.each([['light', tokens(css.slice(0, dark))], ['dark', { ...tokens(css.slice(0, dark)), ...tokens(css.slice(dark)) }]])('%s', (_theme, t) => {
   it('reads: ink and muted text on both grounds, the accent on the panel', () => {
     for (const ground of ['--surface', '--panel']) {
@@ -64,6 +78,13 @@ describe.each([['light', tokens(css.slice(0, dark))], ['dark', { ...tokens(css.s
     const parts = Object.keys(t).filter((name) => /^--part-\d$/.test(name))
     expect(parts).toHaveLength(8)
     for (const part of parts) expect([part, contrast(t['--panel'], t[part]) >= (_theme === 'dark' ? 3 : 2)]).toEqual([part, true])
+  })
+  it('draws the person\'s ink on a picture of the view in a colour of its own, which reads on its casing and on the ground', () => {
+    // Drawn, not read: 3:1, as a mark's line is, on its casing in the panel's colour and on the ground.
+    for (const ground of ['--panel', '--surface']) expect([ground, contrast(t['--drawing-ink'], t[ground]) >= 3]).toEqual([ground, true])
+    // In the same picture as the marks: no mark's colour, nor near one in hue; and no axis's, the accent's or a scan's distance.
+    for (const mark of ['--user-mark', '--agent-mark']) expect([mark, hueApart(t['--drawing-ink'], t[mark]) >= 30]).toEqual([mark, true])
+    for (const other of ['--axis-x', '--axis-y', '--axis-z', '--accent', '--deviation-near']) expect([other, t['--drawing-ink'] === t[other]]).toEqual([other, false])
   })
   it('shows where a list is scrolled to: the thumb of a scrollbar is 3:1 on the panel and on the ground', () => {
     for (const ground of ['--panel', '--surface']) expect([ground, contrast(t['--scroll-thumb'], t[ground]) >= 3]).toEqual([ground, true])

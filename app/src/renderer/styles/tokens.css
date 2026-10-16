@@ -29,6 +29,9 @@
   --deviation-near: #8A4594;
   --deviation-far: #D3D8DF;
   --deviation-inside: #22252A;
+  /* The person's drawing on a picture of the view (the chat's "Draw on view"): drawn over a casing in --panel, as a
+     mark's line is. Neither mark colour (user marks are red in the same picture), nor an axis's, nor the accent. */
+  --drawing-ink: #B5127A;
 
   /* The three axes, on the gizmo and beside the numbers it changes: the usual
      red, green and blue, toned to sit with the part palette and kept clear of
@@ -116,6 +119,7 @@
     --deviation-near: #C58BD0;
     --deviation-far: #3A3F46;
     --deviation-inside: #E9E7E2;
+    --drawing-ink: #F25FB7;
     --axis-x: #D98AC8;
     --axis-y: #9CC56C;
     --axis-z: #82A6EA;
