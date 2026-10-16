@@ -80,6 +80,8 @@ def test_build_bracket_replies_started_then_scene_and_blob(kernel, ws):
     ]
     assert scene["seconds"] > 0
     assert scene["output"] == ""
+    # The model's Params, read by the worker that built it.
+    assert scene["params"] == [{"name": "width", "type": "float", "default": 40, "literal": True, "doc": None}]
     bufs = [buf for p in scene["parts"] for buf in p["mesh"].values()]
     assert len(bufs) == 4 * 8
     assert all(buf["offset"] % 4 == 0 for buf in bufs)
@@ -786,7 +788,7 @@ def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
     from torno_kernel import loader, tess, worker
     from torno_kernel.frames import read_frame
 
-    monkeypatch.setattr(loader, "load_scene", lambda dir, model: {"main": {}})
+    monkeypatch.setattr(loader, "load_model", lambda dir, model: ({"main": {}}, []))
     scene = {"model": "nan.py", "layouts": ["main"], "parts": [{"volume": float("nan")}]}
     monkeypatch.setattr(tess, "build_scene", lambda layouts, model, kept: (scene, b"blob", {"k": 1}))
     channel = io.BytesIO()

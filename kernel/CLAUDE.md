@@ -74,6 +74,11 @@ is the detail of this folder, under the headings it has there.
   integrals a face in `measure area` (1.5 s there, 10 s on the lid of
   `micra-intake` (2,635 faces) when it was last measured, when `describe` of the part cost the same) and one
   integral a face in `describe` of the part, at a fixed order (not timed on those parts since). A query has 30 s.
+- `check overhang`, `thin` and `bed` (`printable.py`) are of the layout asked (the app asks `print`). An
+  overhang of a plane is exact; a curved face is judged by its normals on a 9 × 9 grid of its parameters and
+  told `exact: false`. `thin` is never exact: the wall along the inward normal at 5 × 5 points of each face, in
+  10 s at most (`THIN_BUDGET`, then `sampling.complete` false). `bed` is the layout's box from the parts' boxes
+  (`tess.part_box`), exact only when every one of them is.
 - `measure`'s `moved`, on a thickness, is how far the given point was from
   the face it was laid on; it says nothing of the value's precision.
 
@@ -136,5 +141,9 @@ is the detail of this folder, under the headings it has there.
 - **stdout is the protocol.** The kernel keeps the real stdout for frames and
   points fd 1 at stderr; a worker points fd 1 and 2 at a capture buffer and
   stdin at `/dev/null`. What a model prints comes back as `output`.
+- **Params are read, never written.** The worker that loads a model reads its `Params` dataclass
+  (`loader.read_params`: name, type as written, default, whether that default is a literal in the source, the
+  field's comment) and the build's scene carries it as `params`; `scene` lists it. Nothing in torno writes the
+  model file: it is the person's, outside `.torno/`. A `Params` that cannot be read is no failure: `[]`.
 - The app starts the kernel with `PYTHONDONTWRITEBYTECODE=1`, so importing a
   model writes no `__pycache__` into the workspace.

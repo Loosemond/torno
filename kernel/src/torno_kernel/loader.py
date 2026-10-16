@@ -1,8 +1,12 @@
 """Find an object's model file, import it and collect its scene."""
 
+import ast
 import importlib.util
 import inspect
+import io
+import math
 import sys
+import tokenize
 import traceback as tb_module
 from pathlib import Path
 from types import ModuleType, TracebackType
@@ -44,6 +48,11 @@ def choose_model(dir: Path) -> Path:
 
 def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
     """Import ``dir/model`` and return its scene as layout → name → shape."""
+    return load_model(dir, model)[0]
+
+
+def load_model(dir: Path, model: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Import ``dir/model``: its scene as layout → name → shape, and its ``Params`` (``read_params``)."""
     path = (Path(dir) / model).resolve()
     try:
         module = _import_model(path)
@@ -54,7 +63,130 @@ def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
         raise LoadError("exception", str(e), _model_traceback(e, path)) from e
     if not scene:
         raise LoadError("no_scene", _no_scene(module, model))
-    return scene
+    return scene, read_params(module, path)
+
+
+def read_params(module: ModuleType, path: Path) -> list[dict[str, Any]]:
+    """The fields of the model's ``Params`` dataclass, in their order. Empty when it has none.
+
+    Each is ``name``; ``type`` as written in the source (else as Python names
+    it); ``default``, the value ``Params()`` holds, when it is a plain value
+    JSON can say (a number, a string, a bool, None, or lists and dicts of
+    them), else null; ``literal``, whether the default in the source is a
+    literal (``2.5``, ``-2``, ``"tray"``, ``None``), not an expression nor a
+    ``default_factory``; and ``doc``, the comment at the end of the field's
+    line, else the comment lines right above it, else a string right below
+    it, else null. Reading it never fails a build: what cannot be read is
+    left out.
+    """
+    try:
+        import dataclasses
+
+        params = getattr(module, "Params", None)
+        if not (isinstance(params, type) and dataclasses.is_dataclass(params)):
+            return []
+        try:
+            made = params()
+        except Exception:
+            made = None
+        written = _written_fields(path)
+        told = []
+        for field in dataclasses.fields(params):
+            if not field.init:
+                continue
+            source = written.get(field.name, {})
+            value = getattr(made, field.name, None) if made is not None else None
+            told.append(
+                {
+                    "name": field.name,
+                    "type": source.get("type") or _type_name(field.type),
+                    "default": value if _plain(value) else None,
+                    "literal": bool(source.get("literal", False)),
+                    "doc": source.get("doc"),
+                }
+            )
+        return told
+    except Exception:
+        return []
+
+
+def _type_name(type: Any) -> str:
+    return type if isinstance(type, str) else getattr(type, "__name__", None) or repr(type)
+
+
+def _plain(value: Any, depth: int = 0) -> bool:
+    """Whether JSON says ``value`` as it is: a NaN or an infinity it cannot."""
+    if depth > 8:
+        return False
+    if value is None or isinstance(value, (bool, int, str)):
+        return not isinstance(value, int) or isinstance(value, bool) or abs(value) < 2**63
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, (list, tuple)):
+        return len(value) <= 1000 and all(_plain(v, depth + 1) for v in value)
+    if isinstance(value, dict):
+        return len(value) <= 1000 and all(isinstance(k, str) and _plain(v, depth + 1) for k, v in value.items())
+    return False
+
+
+def _written_fields(path: Path) -> dict[str, dict[str, Any]]:
+    """What the source says of each field of the top-level ``class Params``: type, literal, doc."""
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text)
+    lines = text.splitlines()
+    comments: dict[int, str] = {}
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == tokenize.COMMENT:
+            comments[token.start[0]] = token.string.lstrip("#").strip()
+    found: dict[str, dict[str, Any]] = {}
+    for node in tree.body:
+        if not (isinstance(node, ast.ClassDef) and node.name == "Params"):
+            continue
+        body = node.body
+        for i, statement in enumerate(body):
+            if not (isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)):
+                continue
+            following = body[i + 1] if i + 1 < len(body) else None
+            found[statement.target.id] = {
+                "type": ast.unparse(statement.annotation),
+                "literal": _literal(statement.value),
+                "doc": _doc(statement, following, comments, lines),
+            }
+    return found
+
+
+def _literal(value: ast.expr | None) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, ast.Call) and getattr(value.func, "id", getattr(value.func, "attr", None)) == "field":
+        given = {k.arg: k.value for k in value.keywords}
+        return "default" in given and _literal(given["default"])
+    try:
+        ast.literal_eval(value)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return False
+    return True
+
+
+def _doc(statement: ast.stmt, following: ast.stmt | None, comments: dict[int, str], lines: list[str]) -> str | None:
+    end = statement.end_lineno or statement.lineno
+    if comments.get(end):
+        return comments[end]
+    above = []
+    line = statement.lineno - 1
+    while line >= 1 and lines[line - 1].strip().startswith("#"):
+        above.insert(0, comments.get(line, ""))
+        line -= 1
+    said = " ".join(part for part in above if part)
+    if said:
+        return said
+    if (
+        isinstance(following, ast.Expr)
+        and isinstance(following.value, ast.Constant)
+        and isinstance(following.value.value, str)
+    ):
+        return inspect.cleandoc(following.value.value) or None
+    return None
 
 
 def _is_candidate(name: str) -> bool:

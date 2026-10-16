@@ -215,7 +215,7 @@ def test_a_triangle_that_welding_leaves_without_area_opens_nothing():
 def test_unknown_kind_names_the_kinds():
     assert refused(boxes([0, 0, 0]), {"kind": "collide", "layout": "assembly", "a": "a"}) == (
         "bad_request",
-        "check needs args.kind, one of overlap, clearance and mesh",
+        "check needs args.kind, one of overlap, clearance, mesh, overhang, thin and bed",
     )
 
 

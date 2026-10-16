@@ -1,5 +1,5 @@
 import { valueText } from '../../shared/dimension'
-import type { CheckedClearance, CheckedMesh, CheckedOverlap, Measured, MeasuredValue, ScanSectioned, SectionLoop, Sectioned } from '../../shared/geometry'
+import type { CheckedBed, CheckedClearance, CheckedMesh, CheckedOverhang, CheckedOverlap, CheckedThin, Measured, MeasuredValue, ScanSectioned, SectionLoop, Sectioned } from '../../shared/geometry'
 import type { Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
@@ -37,11 +37,21 @@ export interface SectionToolArgs {
   scan?: string
 }
 export interface CheckToolArgs {
-  kind: 'overlap' | 'clearance' | 'mesh'
-  a: string
+  kind: 'overlap' | 'clearance' | 'mesh' | 'overhang' | 'thin' | 'bed'
+  a?: string
   b?: string
   layout?: string
+  /** overhang: degrees from vertical, default 45. */
+  angle?: number
+  /** thin: the least wall, mm. */
+  min?: number
+  /** bed: the bed, [x, y, z] mm. */
+  size?: number[]
 }
+
+/** The checks of whether it prints: asked of the print layout unless another is named. */
+const PRINTABILITY = ['overhang', 'thin', 'bed']
+const OVERHANG_ANGLE = 45
 
 /** Said of an end that is a point of a scan, asked for anything but a distance. */
 const SCAN_END_DISTANCE = 'only a distance is measured to a point of a scan'
@@ -227,15 +237,30 @@ function moved(measured: MeasuredValue): string {
 }
 
 export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToolArgs): Promise<ToolResult> {
-  const two = args.kind !== 'mesh'
+  const two = args.kind === 'overlap' || args.kind === 'clearance'
+  const whole = args.kind === 'bed'
   if (two && args.b === undefined) return failure(`${args.kind} is of two parts: give b`)
-  if (!two && args.b !== undefined) return failure('mesh is of the part a alone: leave b out')
+  if (!two && args.b !== undefined) return failure(`${args.kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
+  if (whole && args.a !== undefined) return failure('bed is of the whole layout: leave a out')
+  if (!whole && args.a === undefined) return failure(`${args.kind} is of the part a: give a`)
+  if (args.kind === 'thin' && args.min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}`)
+  if (whole && args.size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}')
+  const extra = args.kind === 'overhang' ? { angle: args.angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min: args.min } : whole ? { size: args.size } : {}
 
   const asked = await ofOneBuild(deps, objectId, async (found) => {
-    const layout = layoutFor(deps, objectId, found.scene, args.layout)
+    // Whether it prints is of the print layout, where the model has one and no other is asked for.
+    const printLayout = PRINTABILITY.includes(args.kind) && args.layout === undefined && found.scene.layouts.includes('print') ? 'print' : args.layout
+    const layout = layoutFor(deps, objectId, found.scene, printLayout)
     if (typeof layout !== 'string') return layout
+    if (whole) {
+      try {
+        return { got: { layout, part: null as Part | null, checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, ...extra }) } }
+      } catch (e) {
+        return refusal(e, layout, 'check', 'the layout')
+      }
+    }
     const parts: Part[] = []
-    for (const name of two ? [args.a, args.b!] : [args.a]) {
+    for (const name of two ? [args.a!, args.b!] : [args.a!]) {
       const checked = checkRef(found.scene, layout, name)
       if (typeof checked === 'string') return failure(checked)
       if (checked.target !== 'part') return failure(`check ${args.kind} is of whole parts, and ${name} is ${checked.target === 'face' ? 'a face' : 'an edge'}: give ${checked.part.name}`)
@@ -244,7 +269,7 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
     const apart = two ? spreadApart(found.scene, layout, parts[0].name, parts[1].name, args.kind === 'overlap' ? 'what is shared between' : 'the distance between') : null
     if (apart !== null) return failure(apart)
     try {
-      return { got: { layout, part: parts[0], checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, a: args.a, ...(two ? { b: args.b } : {}) }) } }
+      return { got: { layout, part: parts[0] as Part | null, checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, a: args.a, ...(two ? { b: args.b } : {}), ...extra }) } }
     } catch (e) {
       return refusal(e, layout, 'check')
     }
@@ -254,7 +279,7 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   const reading = checkReading(args, checked)
   if (reading === null) return failure('the kernel did not answer with a check')
   // Where the open edges of a mesh are is where its part is shown.
-  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two ? {} : movedForDisplay(part, layout, checked)), reading })
+  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), reading })
 }
 
 /** A check in a line. Null for a reply that is none. */
@@ -282,6 +307,7 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
     if (overlapping !== false) return `${base}${typeof how === 'string' && how ? ` (${how})` : ''}`
     return distance === 0 ? `${base}: the parts touch` : base
   }
+  if (args.kind === 'overhang' || args.kind === 'thin' || args.kind === 'bed') return printReading(args, checked)
   const { watertight, openEdges, where, triangles } = checked as Partial<CheckedMesh>
   if (typeof watertight !== 'boolean' || !finite(openEdges) || !finite(triangles)) return null
   const count = (n: number, one: string): string => `${n.toLocaleString('en-US')} ${one}${n === 1 ? '' : 's'}`
@@ -289,6 +315,45 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
   if (triangles === 0) return `mesh of ${args.a}: no triangles`
   const first = Array.isArray(where) && isVec(where[0]) ? `, first at ${vector(where[0])}` : ''
   return `mesh of ${args.a}: OPEN, ${count(openEdges, 'open edge')}${first}`
+}
+
+/** At most so many refs are named in a reading: the data holds them all. */
+const REFS_READ = 5
+const AXES = ['x', 'y', 'z']
+
+/** An overhang, the thin walls or the fit on a bed, in a line. Null for a reply that is none. */
+function printReading(args: Pick<CheckToolArgs, 'kind' | 'a'>, checked: object): string | null {
+  const count = (n: number, one: string): string => `${n.toLocaleString('en-US')} ${one}${n === 1 ? '' : 's'}`
+  const refs = (faces: Array<{ ref?: unknown }>, total: number): string => {
+    const named = faces.slice(0, REFS_READ).map((f) => String(f.ref)).join(', ')
+    return ` (${named}${total > REFS_READ ? `, and ${total - REFS_READ} more` : ''})`
+  }
+  if (args.kind === 'overhang') {
+    const { angle, faces, count: total, area, exact } = checked as Partial<CheckedOverhang>
+    if (!finite(angle) || !Array.isArray(faces) || !finite(area)) return null
+    const of = `of ${args.a} beyond ${number(angle)}° from vertical`
+    if (faces.length === 0) return `no overhang ${of}`
+    const n = finite(total) ? total : faces.length
+    const rough = exact === false
+    return `overhang ${of}: ${count(n, 'face')}, ${rough ? '≈ ' : ''}${number(area)} mm²${refs(faces, n)}${rough ? ', approximate: curved faces judged by sampled normals' : ''}`
+  }
+  if (args.kind === 'thin') {
+    const { min, faces, count: total, thinnest, sampling } = checked as Partial<CheckedThin>
+    if (!finite(min) || !Array.isArray(faces)) return null
+    const cut = sampling?.complete === false ? '; the time ran out before every face was' : ''
+    const approximate = `, approximate: sampled at points of each face${cut}`
+    const least = thinnest && finite(thinnest.value) ? thinnest : null
+    if (faces.length === 0) return `no wall of ${args.a} under ${number(min)} mm where sampled${least ? `, thinnest ≈ ${number(least.value)} mm` : ''}${approximate}`
+    const n = finite(total) ? total : faces.length
+    return `walls of ${args.a} under ${number(min)} mm: ${count(n, 'face')}${least ? `, thinnest ≈ ${number(least.value)} mm at ${least.ref}` : ''}${refs(faces, n)}${approximate}`
+  }
+  const { layout, bed, size, fits, over, exact } = checked as Partial<CheckedBed>
+  if (typeof fits !== 'boolean' || !isVec(bed) || !isVec(size) || !isVec(over)) return null
+  const rough = exact === false
+  const times = (v: number[]): string => v.map((x) => number(x)).join(' × ')
+  const head = `${layout ?? 'the'} layout ${fits ? 'fits' : 'does NOT fit'} a bed of ${times(bed)} mm: it is ${rough ? '≈ ' : ''}${times(size)} mm`
+  const beyond = over.map((by, i) => (by > 0 ? `${number(by)} mm along ${AXES[i]}` : null)).filter((x) => x !== null)
+  return `${head}${beyond.length > 0 ? `, over by ${beyond.join(' and ')}` : ''}${rough ? ', approximate' : ''}`
 }
 
 export async function sectionTool(deps: ToolDeps, objectId: string, args: SectionToolArgs): Promise<ToolResult> {

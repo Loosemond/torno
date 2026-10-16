@@ -29,7 +29,22 @@ export interface Part {
   /** The translation the kernel applied to set an overlapping print layout side by side; absent when it applied none. `loc`, `bbox` and the mesh include it. */
   arranged?: [number, number, number]
 }
-export interface Scene { model: string; layouts: string[]; parts: Part[]; seconds: number; output: string }
+/**
+ * A field of the model's `Params` dataclass, as the worker that loaded the model read it (`loader.read_params`).
+ * `type` is as written in the source; `default` is the value `Params()` holds when JSON can say it, else null;
+ * `literal` whether the default in the source is a literal (not an expression, not a `default_factory`); `doc` the
+ * field's comment or string, else null.
+ */
+export interface Param { name: string; type: string; default: unknown; literal: boolean; doc: string | null }
+export interface Scene {
+  model: string
+  layouts: string[]
+  parts: Part[]
+  seconds: number
+  output: string
+  /** The model's `Params`, in their order; absent from a kernel that does not read them. */
+  params?: Param[]
+}
 
 type BufArray = Float32Array<ArrayBuffer> | Uint32Array<ArrayBuffer>
 type BufArrayConstructor<T extends BufArray> = {

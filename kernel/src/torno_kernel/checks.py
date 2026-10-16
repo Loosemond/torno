@@ -10,11 +10,11 @@ from typing import Any
 
 import numpy as np
 
-from . import extent, tess, topo
+from . import extent, printable, tess, topo
 from .measure import volume_doubt
 from .queries import QueryError, need_part, need_solid
 
-KINDS = ("overlap", "clearance", "mesh")
+KINDS = ("overlap", "clearance", "mesh", "overhang", "thin", "bed")
 # Vertices of the mesh within this of each other are one, mm: the rule slicers and viewers weld by.
 WELD = 1e-4
 # No more open edges than this are located.
@@ -48,6 +48,9 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
       triangle only (``openEdges``), the middles of at most twenty of them
       (``where``, spread over all of them, in the frame of the layout) and
       how many ``triangles`` the mesh has.
+    - ``overhang``, ``thin`` and ``bed``: will it print (``printable``). The
+      first two are of the part ``a`` with ``angle`` (default 45) or ``min``;
+      ``bed`` is of the whole layout, with ``size``, and takes no part.
 
     ``kept`` is the worker's (``queries.run``): what two parts share and the
     edges a mesh leaves open are worked out once.
@@ -58,14 +61,22 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
             "bad_request", f"check needs args.kind, one of {', '.join(KINDS[:-1])} and {KINDS[-1]}"
         )
     layout, a, b = args.get("layout"), args.get("a"), args.get("b")
+    held = {} if kept is None else kept
+    if kind == "bed":
+        if not isinstance(layout, str):
+            raise QueryError("bad_request", "check bed needs args.layout, a string")
+        return printable.bed(shapes, layout, args.get("size"), held)
     if not isinstance(layout, str) or not isinstance(a, str):
         raise QueryError(
             "bad_request", "check needs args.layout and args.a, the name of a part of it, both strings"
         )
-    held = {} if kept is None else kept
     first = need_part(shapes, layout, a)
     if kind == "mesh":
         return _mesh(first, f"{layout}:{a}", held)
+    if kind == "overhang":
+        return printable.overhang(first, a, f"{layout}:{a}", args.get("angle", 45), held)
+    if kind == "thin":
+        return printable.thin(first, a, f"{layout}:{a}", args.get("min"), held)
     if not isinstance(b, str):
         raise QueryError("bad_request", f"check {kind} needs args.b, the name of the other part")
     second = need_part(shapes, layout, b)
