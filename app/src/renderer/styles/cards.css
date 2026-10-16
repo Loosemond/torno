@@ -235,8 +235,8 @@
   text-align: left;
 }
 
-/* The datum stands beside the lines, not over them: the room is low. */
-.card-nopicture .datum {
+/* The logo stands beside the lines, not over them: the room is low. */
+.card-nopicture .logo {
   grid-row: 1 / span 2;
   align-self: center;
   width: 32px;

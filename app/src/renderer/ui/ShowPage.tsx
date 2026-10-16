@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { ObjectCard } from '../../shared/show'
 import { actions, store, useStore } from '../state/store'
 import { BEHIND, buildLine, cardChips, matching, pictureLine, stepCard } from './cards'
+import { Logo } from './Logo'
 import { numbered } from './numbered'
 import { openNewObject } from './onboard/NewObject'
 import { TYPING } from './typing'
-import { DatumMark } from './ViewportPane'
 
 /** The key that brings the page of objects up from an object's view. On the page, Escape goes back. */
 export const PAGE_KEY = hint('page')
@@ -219,7 +219,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
       </header>
       {cards && cards.length === 0 && (
         <div className="show-empty">
-          <DatumMark />
+          <Logo />
           <h3>No objects in {name} yet</h3>
           <p>
             Make a folder with a Python model in it, for example <span className="num">part/part.py</span>, and it appears here.
@@ -375,7 +375,7 @@ function Picture({ card, of, dimmed, onMissing }: { card: ObjectCard; of: string
         <img src={url} alt="" width={480} height={360} draggable={false} />
       ) : card.thumb === null ? (
         <span className="card-nopicture">
-          <DatumMark />
+          <Logo plain />
           <span>No picture yet</span>
           {card.problem === undefined && <span className="card-nopicture-how">{card.opened ? 'One is made when it builds' : 'Open it, and one is made from its build'}</span>}
         </span>

@@ -18,3 +18,12 @@ export function kernelDir(): string {
 export function agentPluginDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'agent-plugin') : join(app.getAppPath(), 'resources', 'agent-plugin')
 }
+
+/**
+ * The window's icon, where the desktop takes it from the window (X11; on Wayland the desktop entry's is shown, by the
+ * app id): `app/resources/icon.png`, made from `scripts/torno.svg` by `resvg -w 512 -h 512` (`launcher.test.ts`
+ * holds it to that drawing). A packaged app carries a copy in its resources.
+ */
+export function windowIcon(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'resources', 'icon.png')
+}

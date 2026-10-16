@@ -1,3 +1,5 @@
+<img src="scripts/torno.svg" alt="" width="80" height="80">
+
 # torno
 
 Torno is a desktop workbench for making CAD parts with an AI coding agent: the
@@ -15,8 +17,9 @@ says how the last build went.
 
 Torno is not a modeller. It has no sketcher, no feature tree and no way to edit
 a solid by hand. The model is the Python file; torno shows it. It uploads
-nothing and publishes nothing. The name is Portuguese for lathe. The design is
-in [docs/superpowers/specs/2026-10-08-torno-design.md](docs/superpowers/specs/2026-10-08-torno-design.md).
+nothing and publishes nothing. The name is Portuguese for a bench vise, which the
+logo is: one holding a part. The design is in
+[docs/superpowers/specs/2026-10-08-torno-design.md](docs/superpowers/specs/2026-10-08-torno-design.md).
 
 ## Requirements
 

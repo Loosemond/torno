@@ -3,6 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterAll, expect, it } from 'vitest'
+import { readPng } from './test/pngRead'
 
 const scripts = resolve(__dirname, '../../scripts')
 const script = join(scripts, 'torno')
@@ -140,15 +141,97 @@ it('still says how it is used', () => {
   for (const word of ['usage: torno [workspace]', '--print-command', '--install-desktop', '--uninstall-desktop', '--print-desktop', 'TORNO_OZONE']) expect(help).toContain(word)
 })
 
-it('has an icon of its own: the accent on the paper grey, and nothing else', () => {
-  const svg = readFileSync(join(scripts, 'torno.svg'), 'utf8')
+/** A colour of the light theme, as `tokens.css` has it. */
+function token(name: string): string {
   const tokens = readFileSync(resolve(__dirname, 'renderer/styles/tokens.css'), 'utf8')
   const light = tokens.slice(0, tokens.indexOf('@media (prefers-color-scheme: dark)'))
-  const token = (name: string): string => new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(light)![1].toUpperCase()
-  const colours = [...new Set([...svg.matchAll(/#[0-9A-Fa-f]{6}\b/g)].map((m) => m[0].toUpperCase()))].sort()
-  expect(colours).toEqual([token('--accent'), token('--surface')].sort())
-  expect(svg).toContain('viewBox="0 0 64 64"')
-  expect(svg).not.toMatch(/<(script|image|text)|href=/)
+  return new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(light)![1].toUpperCase()
+}
+
+interface Shape {
+  /** What is drawn: `path <d>` or `rect <x> <y> <width> <height> <rx>`. */
+  shape: string
+  /** In an icon its fill; in the window, whether it is the part (`logo-part`) or the vise (`currentColor`). */
+  fill: string
+  /** An icon's ground: a rect from its corner. */
+  tile: boolean
+}
+
+/** The paths and rects of a drawing, an SVG file's or JSX's alike. */
+function shapesOf(text: string): Shape[] {
+  return [...text.matchAll(/<(path|rect)\b([^>]*?)\/?>/g)].map(([, tag, attrs]) => {
+    const attr = (name: string): string | undefined => new RegExp(`\\b${name}="([^"]*)"`).exec(attrs)?.[1]
+    const shape = tag === 'path' ? `path ${attr('d')}` : `rect ${['x', 'y', 'width', 'height', 'rx'].map((n) => attr(n) ?? '0').join(' ')}`
+    const fill = attr('className') === 'logo-part' ? 'part' : (attr('fill')?.toUpperCase() ?? 'vise')
+    return { shape, fill, tile: tag === 'rect' && attr('x') === undefined }
+  })
+}
+
+const ICONS = { 'torno.svg': 64, 'torno-16.svg': 16 }
+
+it('has icons of its own: a vise in the ink holding a part in the accent, on the paper grey, and nothing else', () => {
+  for (const [name, size] of Object.entries(ICONS)) {
+    const svg = readFileSync(join(scripts, name), 'utf8')
+    const colours = [...new Set([...svg.matchAll(/#[0-9A-Fa-f]{6}\b/g)].map((m) => m[0].toUpperCase()))].sort()
+    expect([name, colours]).toEqual([name, [token('--ink'), token('--accent'), token('--surface')].sort()])
+    expect(svg).toContain(`viewBox="0 0 ${size} ${size}"`)
+    expect(svg).not.toMatch(/<(script|image|text)|href=/)
+    const shapes = shapesOf(svg)
+    // One tile, first; one part; the rest is the vise.
+    expect(shapes.map((s) => s.tile)).toEqual(shapes.map((_, i) => i === 0))
+    expect(shapes[0]).toMatchObject({ shape: `rect 0 0 ${size} ${size} ${size === 64 ? 14 : 3.5}`, fill: token('--surface') })
+    expect(shapes.filter((s) => s.fill === token('--accent'))).toHaveLength(1)
+    expect(shapes.slice(1).filter((s) => s.fill !== token('--accent')).every((s) => s.fill === token('--ink'))).toBe(true)
+  }
+})
+
+it('draws its icons to the pixel: the small one on whole pixels at 16, the large one at 32 as at 64', () => {
+  const numbers = (shapes: Shape[]): number[] => shapes.filter((s) => !s.tile).flatMap((s) => [...s.shape.matchAll(/-?\d*\.?\d+/g)].map((m) => Number(m[0])))
+  expect(numbers(shapesOf(readFileSync(join(scripts, 'torno-16.svg'), 'utf8'))).filter((n) => !Number.isInteger(n))).toEqual([])
+  // The edges of the large one: its rects', and the lines its paths' straight runs lie on (a corner's radius is drawn soft at any size).
+  const large = shapesOf(readFileSync(join(scripts, 'torno.svg'), 'utf8')).filter((s) => !s.tile)
+  const rects = large.filter((s) => s.shape.startsWith('rect')).flatMap((s) => s.shape.split(' ').slice(1, 5).map(Number))
+  const runs = large.filter((s) => s.shape.startsWith('path')).flatMap((s) => edgesOf(s.shape.slice('path '.length)))
+  expect(runs.length).toBeGreaterThan(4)
+  expect([...rects, ...runs].filter((n) => n % 2 !== 0)).toEqual([])
+})
+
+/** Where a path's straight edges lie: the point it starts at, the y of each horizontal run and the x of each vertical one. */
+function edgesOf(d: string): number[] {
+  let [x, y] = [0, 0]
+  const edges: number[] = []
+  for (const [, command, args] of d.matchAll(/([a-zA-Z])([^a-zA-Z]*)/g)) {
+    const n = [...args.matchAll(/-?\d*\.?\d+/g)].map((m) => Number(m[0]))
+    if (command === 'M') {
+      ;[x, y] = n
+      edges.push(x, y)
+    } else if (command === 'H' || command === 'h') {
+      x = command === 'H' ? n[0] : x + n[0]
+      edges.push(y)
+    } else if (command === 'V' || command === 'v') {
+      y = command === 'V' ? n[0] : y + n[0]
+      edges.push(x)
+    } else if (command === 'a') [x, y] = [x + n[5], y + n[6]]
+    else if (command === 'A') [x, y] = [n[5], n[6]]
+    else if (command !== 'Z' && command !== 'z') throw new Error(`${command} is not read here`)
+  }
+  return edges
+}
+
+it('gives the window the icon as a picture of 512 px, of the drawing the icon is now', () => {
+  const png = readPng(resolve(__dirname, '../resources/icon.png'))
+  expect([png.width, png.height]).toEqual([512, 512])
+  const hex = ([r, g, b, a]: number[]): string => `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('').toUpperCase()}${a === 255 ? '' : `/${a}`}`
+  const at = (x: number, y: number): string => hex(png.rgba(Math.floor(x * 8), Math.floor(y * 8)))
+  // The middle of each rect of the icon is in its colour, the tile is where nothing is drawn, and beyond its corner is nothing.
+  const shapes = shapesOf(readFileSync(join(scripts, 'torno.svg'), 'utf8')).filter((s) => !s.tile && s.shape.startsWith('rect'))
+  expect(shapes.length).toBeGreaterThan(2)
+  for (const s of shapes) {
+    const [x, y, width, height] = s.shape.split(' ').slice(1, 5).map(Number)
+    expect([s.shape, at(x + width / 2, y + height / 2)]).toEqual([s.shape, s.fill])
+  }
+  expect(at(32, 4)).toBe(token('--surface'))
+  expect(png.rgba(0, 0)[3]).toBe(0)
 })
 
 it('builds again when a script of the build or the viewer of exported pages changes or is missing', () => {
@@ -216,18 +299,21 @@ it('shows what went wrong when it was started from the desktop entry, where nobo
   void hasNotify
 })
 
-it('has one identity: the mark in the window is the drawing of the icon', () => {
-  const icon = readFileSync(join(scripts, 'torno.svg'), 'utf8')
-  const profile = /<path d="(M9 27[^"]*)"/.exec(icon)![1]
-  const window = readFileSync(resolve(__dirname, 'renderer/ui/ViewportPane.tsx'), 'utf8')
-  expect(window).toContain(`d="${profile}"`)
-  // Its centre line holds at the size of a launcher: 2 wide, a plain dash.
-  expect(icon).toMatch(/<path d="M4 32H60"[^>]*stroke-width="2"[^>]*stroke-dasharray="6 4"/)
+it('has one identity: the logo in the window is the drawing of the icons, without their tile', () => {
+  const window = shapesOf(readFileSync(resolve(__dirname, 'renderer/ui/Logo.tsx'), 'utf8'))
+  const icons = Object.keys(ICONS).flatMap((name) => shapesOf(readFileSync(join(scripts, name), 'utf8')).filter((s) => !s.tile))
+  // Shape for shape; the part is the one in the accent, the vise is drawn in the colour of the text around it.
+  const drawn = (shapes: Shape[]): string[] => shapes.map((s) => `${s.shape} ${s.fill === token('--accent') || s.fill === 'part' ? 'part' : 'vise'}`).sort()
+  expect(drawn(window)).toEqual(drawn(icons))
+  expect(window.filter((s) => s.fill !== 'part').every((s) => s.fill === 'vise')).toBe(true)
   expect(readFileSync(join(scripts, 'torno.desktop.in'), 'utf8')).toContain('StartupWMClass=torno')
-  // And the window says whose it is, so that the desktop finds its entry and its icon.
+  // And the window says whose it is, so that the desktop finds its entry and its icon, and has the icon itself
+  // where the desktop takes it from the window (X11).
   const main = readFileSync(resolve(__dirname, 'main/index.ts'), 'utf8')
   expect(main).toContain("app.setName('torno')")
   expect(main).toContain("setDesktopName?.('torno.desktop')")
+  expect(main).toContain('icon: windowIcon()')
+  expect(readFileSync(resolve(__dirname, 'main/paths.ts'), 'utf8')).toContain("join(app.getAppPath(), 'resources', 'icon.png')")
 })
 
 /**

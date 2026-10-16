@@ -56,6 +56,19 @@ test('the first run says what torno is, what an object is and what to do, and a 
     await expect(says).toContainText('torno is a workbench for CAD parts: an AI coding agent writes each part as Python (build123d), and you point at the result.')
     await expect(says).toContainText('An object is a folder with one Python model in it, for example bracket/bracket.py, inside the folder that holds your objects.')
     await expect(says).toContainText('Open the folder that holds them, or the example, to begin.')
+    // Over the name, the logo as the icon has it: the vise in the ink, the part it holds in the accent.
+    await expect(first.locator('.welcome-head').getByRole('heading', { name: 'torno', level: 1 })).toBeVisible()
+    const logo = await first.evaluate(() => {
+      const probe = document.createElement('i')
+      document.body.append(probe)
+      const token = (name: string): string => ((probe.style.color = `var(${name})`), getComputedStyle(probe).color)
+      const [accent, ink] = [token('--accent'), token('--ink')]
+      probe.remove()
+      const svg = document.querySelector('.welcome-head svg.logo')
+      const part = svg?.querySelectorAll('.logo-part')
+      return { parts: part?.length, part: part?.[0] && getComputedStyle(part[0]).fill, vise: svg && getComputedStyle(svg).color, accent, ink }
+    })
+    expect(logo).toEqual({ parts: 1, part: logo.accent, vise: logo.ink, accent: logo.accent, ink: logo.ink })
     // What opening the example means is said before it is opened, not only in a tooltip.
     await expect(says).toContainText('The example opens as a temporary copy: it is removed when torno quits.')
     await expect(says.locator('.welcome-says p')).toHaveCount(3)

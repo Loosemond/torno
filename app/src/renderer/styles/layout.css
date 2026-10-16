@@ -130,11 +130,20 @@ button {
   margin-top: var(--space-3);
 }
 
-.datum {
+/* torno's logo (ui/Logo.tsx): the vise in the colour it is given, the part in the accent; plain, all of it in that colour. */
+.logo {
   width: 44px;
   height: 44px;
   margin-bottom: var(--space-3);
-  color: var(--accent);
+  color: var(--muted);
+}
+
+.logo-part {
+  fill: var(--accent);
+}
+
+.logo-plain .logo-part {
+  fill: currentColor;
 }
 
 .viewport-empty h2 {

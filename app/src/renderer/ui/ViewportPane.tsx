@@ -36,6 +36,7 @@ import { SectionBar } from './SectionBar'
 import { Selection } from './Selection'
 import { ToolPalette } from './ToolPalette'
 import { TYPING } from './typing'
+import { Logo } from './Logo'
 import { ViewBar } from './ViewBar'
 
 const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output: '' }
@@ -566,7 +567,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
       )}
       {!hasScene && (
         <div className="viewport-empty">
-          <DatumMark />
+          <Logo />
           {failure !== null ? (
             <>
               <h2>The 3D view could not start</h2>
@@ -596,16 +597,5 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
         </div>
       )}
     </div>
-  )
-}
-
-/** A scribed centre mark: where the part's origin will sit on the plate. */
-export function DatumMark() {
-  // The drawing of torno's icon (`scripts/torno.svg`, held equal by `launcher.test.ts`): a turned profile on its centre line.
-  return (
-    <svg className="datum" viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 27H16V20H24Q29 29 34 23Q38 13 42 23L55 28V36L42 41Q38 51 34 41Q29 35 24 44H16V37H9Z" fill="currentColor" fillOpacity="0.14" strokeWidth="2.5" />
-      <path d="M4 32H60" strokeWidth="2" strokeDasharray="6 4" strokeLinecap="round" />
-    </svg>
   )
 }

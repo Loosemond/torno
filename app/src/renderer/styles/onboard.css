@@ -300,9 +300,10 @@
   object-fit: cover;
 }
 
+/* The logo's drawing for 16 px, at 16 px: on whole pixels. */
 .ref-menu-thumb svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .ref-menu-name {

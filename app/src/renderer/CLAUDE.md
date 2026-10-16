@@ -197,7 +197,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - With no folder open the window is `ui/Welcome.tsx`: what torno is, what an
   object is and what to do, a sentence each; "Open folder"; the folders
   opened lately; and, where torno runs from its repository, "Open the
-  example".
+  example". Its head is the logo (`ui/Logo.tsx`) over the name: the vise in `--ink`, the part in `--accent`. The
+  same logo is in `--muted` over an empty view or page, and plain (one colour) where a picture is missing.
 - With a folder open, the folder button of the left column is a menu
   (`ui/FolderMenu.tsx`): the recent folders, "Open folder…", "Open the
   example". A folder torno is started with (`TORNO_WORKSPACE`) is added to the

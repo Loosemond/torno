@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { hint } from '../../shared/keys'
 import type { RecentFolder, WorkspaceInfo } from '../../shared/workspace'
-import { DatumMark } from './ViewportPane'
+import { Logo } from './Logo'
 
 /** A folder as its row names it: its own name, and the path to it. */
 function nameOf(root: string): string {
@@ -52,7 +52,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
   return (
     <div className="welcome-page">
       <header className="welcome-head">
-        <DatumMark />
+        <Logo />
         <h1 className="wordmark">torno</h1>
       </header>
       <div className="welcome-says">

@@ -15,6 +15,14 @@
   justify-items: center;
 }
 
+/* The logo as the icon has it: the vise in the ink. Its drawing leaves room under it already (the icon's tile). */
+.welcome-head .logo {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 0;
+  color: var(--ink);
+}
+
 .welcome-says {
   display: grid;
   gap: var(--space-2);

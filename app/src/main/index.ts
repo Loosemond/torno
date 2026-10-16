@@ -21,7 +21,7 @@ import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
 import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
-import { agentPluginDir, kernelDir } from './paths'
+import { agentPluginDir, kernelDir, windowIcon } from './paths'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { systemPrompt } from './prompt'
@@ -151,6 +151,7 @@ function createWindow(): BrowserWindow {
     height: 900,
     show: false,
     title: 'torno',
+    icon: windowIcon(),
     backgroundColor: nativeTheme.shouldUseDarkColors ? SURFACE.dark : SURFACE.light,
     webPreferences: {
       contextIsolation: true,

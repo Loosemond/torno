@@ -3,7 +3,7 @@ import { pressed, which } from '../../../shared/keys'
 import { count } from '../../../shared/format'
 import { onboarding, type Draft, type Kind } from '../../state/onboard'
 import { giveKeysBack } from '../typing'
-import { DatumMark } from '../ViewportPane'
+import { Logo } from '../Logo'
 
 /** The longest note a card takes (main folds it to one line and takes up to 2000). */
 const NOTE_MAX = 500
@@ -93,7 +93,7 @@ function ObjectCard({ id, itemKey, note }: { id: string; itemKey: string; note: 
       file={id}
       note={note}
       name={id}
-      thumb={picture ? <img src={picture} alt="" draggable={false} /> : <DatumMark />}
+      thumb={picture ? <img src={picture} alt="" draggable={false} /> : <Logo plain />}
     />
   )
 }
@@ -202,7 +202,7 @@ function MenuItem({ id, onChoose }: { id: string; onChoose: () => void }) {
   const picture = useObjectPicture(id)
   return (
     <button type="button" role="menuitem" className="ref-menu-item" onClick={onChoose}>
-      <span className="ref-menu-thumb">{picture ? <img src={picture} alt="" draggable={false} /> : <DatumMark />}</span>
+      <span className="ref-menu-thumb">{picture ? <img src={picture} alt="" draggable={false} /> : <Logo small plain />}</span>
       <span className="ref-menu-name num">{id}</span>
     </button>
   )

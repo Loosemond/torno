@@ -25,6 +25,9 @@ says what it does and how to run it; the design is
   `torno.desktop` under the person's data folder, the only thing the script
   writes outside the repository; `TORNO_OZONE` (`wayland` or `x11`) is the one
   way a platform is passed to Electron (`src/launcher.test.ts`).
+  The icon is `scripts/torno.svg` (a bench vise holding a part; `torno-16.svg` is its drawing for 16 px); the
+  window's `app/resources/icon.png` is made from it with `resvg -w 512 -h 512`, and `ui/Logo.tsx` draws both
+  in the window. `src/launcher.test.ts` holds the three to one drawing: change the SVG, render the PNG again.
 
 ## Tests
 
