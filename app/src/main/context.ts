@@ -118,7 +118,22 @@ export interface PromptContext {
  * It changes nothing: whoever delivers the text turns `sentMarkIds` into sent.
  */
 export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string } = {}): PromptContext {
-  const told = contextText(deps, objectId, marks, opts)
+  return withBuild(deps, objectId, contextText(deps, objectId, marks, opts))
+}
+
+/**
+ * What the agent is told of the build after it edited the model (the answer to a `PostToolUse`): the first lines of
+ * `contextFor` (how the build stands, the error and the end of its traceback when it failed) and its dimensions, in
+ * the same words; nothing of the selection, the scans or the other marks. No mark is told by it: `sentMarkIds` is
+ * always empty, and drafts are left for the next prompt.
+ */
+export function buildContextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { toolName?: (tool: string) => string } = {}): PromptContext {
+  const dimensions = marks.filter((m) => m.kind === 'dimension' && m.status !== 'draft' && m.status !== 'resolved')
+  const told = contextText(deps, objectId, dimensions, { ...opts, buildOnly: true })
+  return { ...withBuild(deps, objectId, told), sentMarkIds: [] }
+}
+
+function withBuild(deps: ContextDeps, objectId: string, told: PromptContext): PromptContext {
   if (told.text === '') return told
   const build = deps.build(objectId)
   const refs = selectedRefs(deps, objectId)?.refs.slice(0, MAX_SELECTION_REPORTED).map(({ ref }) => ref) ?? []
@@ -130,7 +145,7 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
   }
 }
 
-function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[], opts: { fresh?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string }): PromptContext {
+function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[], opts: { fresh?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string; buildOnly?: boolean }): PromptContext {
   const toolName = opts.toolName ?? CLAUDE_TOOL
   const moreMarks = moreMarksBy(toolName)
   const moreDimensions = moreDimensionsBy(toolName)
@@ -152,12 +167,12 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // foresaw, such as a very long name.
   const lines = [cutEnd(status(deps, objectId, limit), limit)]
   if (lines[0] === '') return { text: '', sentMarkIds: [] }
-  const selected = selection(deps, objectId)
+  const selected = opts.buildOnly ? '' : selection(deps, objectId)
   if (selected) lines.push(selected)
   // Before the marks are given their room: the line is counted in what they have left.
   const scanned = scansLine(deps, objectId, opts.scans ?? [])
   if (scanned) lines.push(scanned)
-  const openLine = open.length > 0 ? `Open marks: ${openMarks(open, revision, toolName)}` : ''
+  const openLine = open.length > 0 && !opts.buildOnly ? `Open marks: ${openMarks(open, revision, toolName)}` : ''
   const named = layoutNamed(deps, objectId)
   // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
   const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + moreDimensions(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
@@ -211,7 +226,7 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   if (passLine) lines.push(...(unmet.length > 0 ? [] : [DIMENSIONS_HEAD]), passLine)
   // What has its line above is not named again; never longer than the line room was kept for.
   const rest = open.filter((m) => !listedUnmet.includes(m))
-  if (rest.length > 0) lines.push(`Open marks: ${openMarks(rest, revision, toolName, openLine.length - 'Open marks: '.length)}`)
+  if (rest.length > 0 && !opts.buildOnly) lines.push(`Open marks: ${openMarks(rest, revision, toolName, openLine.length - 'Open marks: '.length)}`)
   const text = lines.join('\n')
   if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id) }
   // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is

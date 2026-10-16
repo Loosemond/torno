@@ -12,6 +12,8 @@ import { adapters } from './adapter'
 import { killGroup, Sessions } from './manager'
 import type { ChatItem, ChatMeta } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
+import type { BuildState } from '../../shared/build'
+import type { PromptContext } from '../context'
 
 // The session manager with a real PTY and a real HTTP server; only the agent is
 // a stand-in (test/fake-agent.mjs), launched with Claude Code's arguments.
@@ -2001,5 +2003,140 @@ describe('the question before a chat in a folder with settings of its own', () =
     const started = await terminal.start(obj, {})
     expect(started.view).toBe('terminal')
     await terminal.stopAll()
+  })
+})
+
+describe('the build, told by the hooks of a turn (Claude Code)', () => {
+  /** What the stand-in builds say of each object, and the manager they are told to. */
+  let states: Map<string, BuildState>
+  let made: Sessions
+  let n = 0
+  /** Each manager its own server: the first to route `/hooks` on one is the one that answers there. */
+  let own: HttpRouter | null = null
+  afterEach(async () => {
+    await own?.close()
+    own = null
+  })
+  const told = (id: string): PromptContext => {
+    const s = states.get(id)
+    const text = !s ? '' : s.status === 'failed' ? `BUILD FAILED\n${s.error?.message}` : `r${s.revision} ok`
+    return { text, sentMarkIds: [], ...(s ? { revision: s.revision, buildState: s.status === 'ok' ? ('ok' as const) : ('failed' as const) } : {}) }
+  }
+  function land(state: BuildState): void {
+    states.set(state.objectId, state)
+    made.built(state)
+  }
+  async function begun(opts: { wait?: number; grace?: number } = {}) {
+    states = new Map()
+    own = await startHttp()
+    const server = own
+    made = new Sessions({
+      http: server,
+      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      viewFor: () => 'terminal',
+      contextFor: () => ({ text: '', sentMarkIds: [] }),
+      build: (id) => states.get(id),
+      buildContextFor: (id) => told(id),
+      editTiming: { answerMs: opts.wait ?? 5000, graceMs: opts.grace ?? 1500 },
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => server.url(`/mcp/${id}`)
+    })
+    others.push(made)
+    n += 1
+    const obj = { ...object(`built-${n}`), model: 'part.py' }
+    let all = ''
+    made.on('data', (m) => (all += m.data))
+    const seen: SessionStatus[] = []
+    made.on('status', (m) => seen.push(m.status))
+    const { sessionId } = await made.start(obj, {})
+    await expect.poll(() => all).toContain('READY')
+    const post = async (event: string, body: unknown) => (await fetch(server.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) })).json()
+    const edit = (file = join(obj.dir, 'part.py'), tool = 'Edit') => post('PostToolUse', { tool_name: tool, tool_use_id: 'toolu_1', tool_input: { file_path: file } })
+    return { obj, sessionId, post, edit, seen }
+  }
+  const ok = (objectId: string, revision: number): BuildState => ({ objectId, status: 'ok', revision, stale: false })
+  const building = (objectId: string, revision: number): BuildState => ({ objectId, status: 'building', revision, startedAt: Date.now(), stale: true })
+  const failed = (objectId: string, revision: number): BuildState => ({ objectId, status: 'failed', revision, error: { kind: 'exception', message: 'NameError: x' }, stale: true })
+  const context = (text: string) => ({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } })
+
+  it('answers an edit of the model with the build it started, once that build has ended', async () => {
+    const { obj, edit } = await begun()
+    const answer = edit()
+    setTimeout(() => land(building(obj.id, 2)), 100)
+    setTimeout(() => land(ok(obj.id, 3)), 300)
+    expect(await answer).toEqual(context('r3 ok'))
+  })
+
+  it('answers with the error of a build that failed, of another .py of the object too, and of a Write', async () => {
+    const { obj, edit } = await begun()
+    const answer = edit(join(obj.dir, 'lib', 'holes.py'), 'Write')
+    setTimeout(() => land(building(obj.id, 2)), 50)
+    setTimeout(() => land(failed(obj.id, 2)), 150)
+    expect(await answer).toEqual(context('BUILD FAILED\nNameError: x'))
+  })
+
+  it('answers a build the save started before the hook came', async () => {
+    const { obj, post, edit } = await begun()
+    expect(await post('PreToolUse', { tool_name: 'Edit', tool_use_id: 'toolu_1', tool_input: { file_path: join(obj.dir, 'part.py') } })).toEqual({})
+    land(building(obj.id, 2))
+    const answer = edit()
+    setTimeout(() => land(ok(obj.id, 3)), 100)
+    expect(await answer).toEqual(context('r3 ok'))
+  })
+
+  it('answers {} for any other tool, a file that is not Python or not of the object, and an edit that starts no build', async () => {
+    const { obj, post, edit } = await begun({ grace: 200 })
+    expect(await post('PostToolUse', { tool_name: 'Read', tool_input: { file_path: join(obj.dir, 'part.py') } })).toEqual({})
+    expect(await edit(join(obj.dir, 'brief.md'))).toEqual({})
+    expect(await edit(join(root, 'elsewhere.py'))).toEqual({})
+    expect(await edit(join(obj.dir, '..', 'elsewhere.py'))).toEqual({})
+    expect(await post('PostToolUse', 'not json')).toEqual({})
+    // Saved as it was: nothing is built, and nothing is waited for past the grace.
+    expect(await edit()).toEqual({})
+  })
+
+  it('says a build is running rather than let the hook time out', async () => {
+    const { obj, edit } = await begun({ wait: 400 })
+    const answer = edit()
+    setTimeout(() => land(building(obj.id, 3)), 50)
+    expect(await answer).toEqual(context('A build is running (r4); call mcp__torno__scene for its result.'))
+  })
+
+  it('holds a Stop back once after a build of the turn failed, and lets it go with stop_hook_active', async () => {
+    const { obj, post, seen } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    land(building(obj.id, 8))
+    land(failed(obj.id, 8))
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The latest build (r9) failed: NameError: x. Fix it, or say it is still broken.' })
+    expect(seen.at(-1)).toBe('working')
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+    expect(seen.at(-1)).toBe('idle')
+  })
+
+  it('does not hold a Stop back for a build that failed before the turn', async () => {
+    const { obj, post } = await begun()
+    land(building(obj.id, 8))
+    land(failed(obj.id, 8))
+    await post('UserPromptSubmit', { prompt: 'what is it?' })
+    expect(await post('Stop', {})).toEqual({})
+  })
+
+  it('holds a Stop back after an edit no look has seen, and lets it go after a look', async () => {
+    const { obj, post, edit } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    let answer = edit()
+    setTimeout(() => land(building(obj.id, 8)), 50)
+    setTimeout(() => land(ok(obj.id, 9)), 100)
+    await answer
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'You edited the model and have not looked at r9. Call mcp__torno__look before finishing.' })
+
+    await post('UserPromptSubmit', { prompt: 'again' })
+    answer = edit()
+    setTimeout(() => land(building(obj.id, 9)), 50)
+    setTimeout(() => land(ok(obj.id, 10)), 100)
+    await answer
+    expect(await post('PreToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
+    expect(await post('PostToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
+    expect(await post('Stop', {})).toEqual({})
   })
 })

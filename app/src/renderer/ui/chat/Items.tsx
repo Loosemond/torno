@@ -130,7 +130,7 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
 /** Whether an item is something under way, which shows a dot that beats. */
 const underWay = (item: ChatItem): boolean => ((item.kind === 'text' || item.kind === 'thinking') && item.streaming) || (item.kind === 'tool' && item.state === 'running')
 
-/** The items in the order they are drawn, with each `context` under the prompt it was made for. */
+/** The items in the order they are drawn, with each `context` under the prompt, or the tool card, it was made for. */
 export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean }) {
   const order = useMemo(() => drawn(items), [items])
   const under = useMemo(() => {
@@ -147,7 +147,7 @@ export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean })
         return (
           <div key={item.id} className="chat-group" data-id={item.id}>
             <ItemView item={item} beat={underWay(item) ? beat : true} />
-            {item.kind === 'user' && under.get(item.id)?.map((context) => <Added key={context.id} item={context} />)}
+            {under.get(item.id)?.map((context) => <Added key={context.id} item={context} />)}
           </div>
         )
       })}

@@ -10,7 +10,7 @@ import { devShortcut } from './devkeys'
 import { copyExample, exampleSource, removeExample, sweepExamples } from './example'
 import { type Config, configOf, listed, recentWith, recentWithout } from './recent'
 import { startHttp } from './http'
-import { contextFor } from './context'
+import { buildContextFor, contextFor } from './context'
 import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart } from './kernel/client'
 import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
@@ -418,6 +418,9 @@ void app.whenReady().then(async () => {
       const scans = await listedScans(id).catch(() => undefined)
       return contextFor(toolDeps, id, await marks.list(id).catch(() => []), { ...opts, ...(scans ? { scans } : {}) })
     },
+    // An edit of the model is answered with the build it started, and a Stop held back once over a build the turn left failed or unseen.
+    build: buildState,
+    buildContextFor: async (id, toolName) => buildContextFor(toolDeps, id, await marks.list(id).catch(() => []), { toolName }),
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
     systemPromptFor: (adapter) => systemPrompt(adapter.toolName, true, adapter.skills),
@@ -434,6 +437,7 @@ void app.whenReady().then(async () => {
     marks,
     onBuild: (state) => {
       stateFiles.changed(state.objectId)
+      sessions?.built(state)
       sessions?.changed(state.objectId)
     },
     // The saved views are named in the state file.

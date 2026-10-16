@@ -183,6 +183,18 @@ export class Transcript {
     return made
   }
 
+  /**
+   * What the `PostToolUse` of an edit of the model was answered with (the build the edit started), under the card of
+   * that tool, as a prompt's context is under the prompt. Null when the tool is not one of this transcript's.
+   */
+  toolContext(c: { toolUseId?: string; text: string; revision?: number; buildState?: 'ok' | 'failed' | 'building' }): ChatItem | null {
+    const forItem = c.toolUseId === undefined ? undefined : this.tools.get(c.toolUseId)
+    if (forItem === undefined || c.text.trim() === '') return null
+    const made: ChatItem = { kind: 'context', id: this.newId('i'), forUser: forItem, text: this.redact(c.text), marks: [], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}) }
+    this.run(() => this.put(made))
+    return made
+  }
+
   /** The next `init` is explained by this prompt, once. */
   private explain(id: string): void {
     if (this.explainedIds.has(id)) return

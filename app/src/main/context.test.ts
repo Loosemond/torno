@@ -5,7 +5,7 @@ import type { ViewState } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import type { Mark } from '../shared/marks'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
-import { CONTEXT_LIMIT, contextFor, type ContextDeps } from './context'
+import { buildContextFor, CONTEXT_LIMIT, contextFor, type ContextDeps } from './context'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 
@@ -532,6 +532,14 @@ describe('contextFor', () => {
       const passing = (n: number, over: object = {}): Mark => dim(n, { expected: 8, verdict: 'pass', ...over })
       const FAIL = (n: number): string => `M${n} diameter 8 mm, base/F9 (expected 8.5 ± 0.05: FAIL, 0.5 under)`
       const text = (marks: Mark[], opts: { fresh?: boolean } = {}): string => contextFor(deps({ build: OK, scene: SCENE }), 'bracket', marks, opts).text
+
+      it('after an edit, says the build and the dimensions in the same words, and nothing of the other marks or the selection', () => {
+        const view = { camera: CAMERA, layout: 'assembly', visible: ['assembly:base', 'assembly:post'], selection: { revision: 3, total: 1, refs: [{ ref: 'base/F5' }] } } as ViewState
+        const marks = [pin(1), failing(8), passing(9), pin(11, { status: 'sent' })]
+        const told = buildContextFor(deps({ build: OK, scene: SCENE, view }), 'bracket', marks)
+        expect(told.text).toBe([STATUS, DIMS, FAIL(8), '1 pinned dimension passes'].join('\n'))
+        expect(told).toMatchObject({ sentMarkIds: [], revision: 3, buildState: 'ok' })
+      })
 
       it('lists each one that fails, after the marks, and then how many pass', () => {
         const marks = [pin(1), failing(8), passing(9), passing(10), pin(11, { status: 'sent' })]

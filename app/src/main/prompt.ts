@@ -39,7 +39,7 @@ const text = (skills: boolean): string => [
   'Its tools show you what torno shows the user.',
   'mcp__torno__scene reports the build status and error, the layouts, every part with its size and volume for orientation, and how many dimensions pass and fail.',
   'mcp__torno__look returns an image: with no arguments exactly what the user sees, or a named view (iso, front, back, left, right, top, bottom), a camera, a layout or chosen parts.',
-  'After every edit, always check the build status with scene, and look at the result before saying it is done.',
+  'The build result of an edit of the model comes back with the edit; look at the result before saying it is done.',
   'A failed build leaves the previous parts on screen, marked stale.',
   'Marks are how the user points at the part: pins, picked faces and edges, arrows, drawn strokes, placed shapes and dimensions, numbered M1, M2 and so on, each with a note.',
   'New marks arrive with the prompt, a line each; the same numbers are drawn in look pictures, and mcp__torno__marks returns all of them as data.',
@@ -78,7 +78,8 @@ const CLAUDE_TOOL = /mcp__torno__([a-z_]+)/g
  */
 const WITHOUT_HOOKS: ReadonlyArray<[string, string]> = [
   ['New marks arrive with the prompt, a line each;', 'New marks are in .torno/prompt.md when the user sends a line that begins with "torno:", a line each;'],
-  ['are listed under "Dimensions (measured on rN):" with every prompt until they pass', 'are listed under "Dimensions (measured on rN):" in .torno/prompt.md whenever it is written, until they pass']
+  ['are listed under "Dimensions (measured on rN):" with every prompt until they pass', 'are listed under "Dimensions (measured on rN):" in .torno/prompt.md whenever it is written, until they pass'],
+  ['The build result of an edit of the model comes back with the edit;', 'After every edit, check the build status with mcp__torno__scene, and']
 ]
 
 /**
