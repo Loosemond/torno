@@ -91,6 +91,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     },
     layout: view?.layout ?? null,
     layouts: scene.layouts,
+    // The model's Params as the kernel read them from the source: read only, the model file is the user's.
+    params: scene.params ?? [],
     parts: scene.parts.map((p) => ({
       name: p.name,
       layout: p.layout,

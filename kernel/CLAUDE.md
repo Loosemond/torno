@@ -136,5 +136,9 @@ is the detail of this folder, under the headings it has there.
 - **stdout is the protocol.** The kernel keeps the real stdout for frames and
   points fd 1 at stderr; a worker points fd 1 and 2 at a capture buffer and
   stdin at `/dev/null`. What a model prints comes back as `output`.
+- **Params are read, never written.** The worker that loads a model reads its `Params` dataclass
+  (`loader.read_params`: name, type as written, default, whether that default is a literal in the source, the
+  field's comment) and the build's scene carries it as `params`; `scene` lists it. Nothing in torno writes the
+  model file: it is the person's, outside `.torno/`. A `Params` that cannot be read is no failure: `[]`.
 - The app starts the kernel with `PYTHONDONTWRITEBYTECODE=1`, so importing a
   model writes no `__pycache__` into the workspace.

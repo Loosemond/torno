@@ -237,6 +237,17 @@ describe('scene', () => {
     expect(TOOLS.check.description).not.toContain('Overlap and clearance are exact')
   })
 
+  it("lists the model's Params as the kernel read them, and none from a kernel that read none", () => {
+    const params = [
+      { name: 'wall', type: 'float', default: 2.5, literal: true, doc: 'thickness of every wall, mm' },
+      { name: 'depth', type: 'float', default: 8, literal: false, doc: null }
+    ]
+    const told = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: { ...SCENE, params } }) }), 'bracket')))
+    expect(told.params).toEqual(params)
+    expect(JSON.parse(textOf(sceneTool(fake(), 'bracket'))).params).toEqual([])
+    expect(TOOLS.scene.description).toContain('under params')
+  })
+
   // Final fix wave (I11's seam): the kernel let the build go to make room, and the agent is told what to expect.
   it('says when the kernel let the last build go to make room, and when tools will answer again', () => {
     const building = JSON.parse(textOf(sceneTool(fake({ state: { ...OK, status: 'building', stale: true, letGo: 'memory' } }), 'bracket')))
@@ -258,6 +269,7 @@ describe('scene', () => {
       build: { status: 'ok', revision: 3, seconds: 0.81, stale: false },
       layout: 'assembly',
       layouts: ['assembly', 'print'],
+      params: [],
       parts: [
         { name: 'base', layout: 'assembly', visible: true, size: [40, 30, 5], sizeExact: true, bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true },
         { name: 'post', layout: 'assembly', visible: false, size: [8, 8, 20], sizeExact: true, bbox: { min: [-4, -4, 2.5], max: [4, 4, 22.5] }, volume: 1005.31, volumeExact: true, faces: 3, edges: 3, valid: false },
