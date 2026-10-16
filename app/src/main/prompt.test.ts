@@ -53,9 +53,18 @@ describe('the system prompt', () => {
     expect(SYSTEM_PROMPT).not.toContain('measure takes')
   })
 
+  // #3: the convention the kernel loads a model by (loader.py `choose_model`, `_collect_scene`).
+  it('states the model file contract: one file, Params with assembly and printables, else make_<part>, else top-level shapes', () => {
+    for (const said of [
+      'one model file (of several .py files, the one named after the folder, - and _ alike)',
+      'a class Params (made with no arguments) with assembly(p) and/or printables(p) (or printable(p)), each returning a dict of part name to build123d shape, gives the layouts assembly (the parts as put together) and print (as printed, which torno may spread along X when parts overlap)',
+      'Without those, Params with make_<part>(p) functions gives the layout main, a part per function, and failing that the solid shapes at the top level of the file are the parts of main.'
+    ]) expect(SYSTEM_PROMPT).toContain(said)
+  })
+
   it('stays short', () => {
-    // Raised from 6,250 in Milestone 5 (D12), for explode and the saved views.
-    expect(SYSTEM_PROMPT.length).toBeLessThan(6800)
+    // Raised from 6,250 in Milestone 5 (D12), for explode and the saved views; to 7,400 for the model file contract (#3).
+    expect(SYSTEM_PROMPT.length).toBeLessThan(7400)
   })
 
   it('says that explode is for display, right after what show is for', () => {
@@ -87,7 +96,7 @@ describe('what an agent without hooks is told', () => {
     expect(hookless).not.toMatch(WITH_A_PROMPT)
     expect(hookless).not.toMatch(/arrive|pushed to you with/)
     // AGENTS.md is read into every conversation of that agent: the prompt's own bound, the tool names in words, and the paragraph on the two files.
-    expect(hookless.length).toBeLessThan(7600)
+    expect(hookless.length).toBeLessThan(8200)
     expect(NO_HOOKS_PROMPT.length).toBeLessThan(500)
   })
 

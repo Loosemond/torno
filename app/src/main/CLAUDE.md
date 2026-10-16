@@ -555,7 +555,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   made for an adapter without files). Nothing of the person's configuration of an agent is read or written, and
   nothing is written in the object folder outside `.torno/`. The MCP address given is of that object alone.
 - The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName)`; `SYSTEM_PROMPT` is Claude
-  Code's, under 6,800 characters). An agent without hooks gets it with `NO_HOOKS_PROMPT` after it: read
+  Code's, under 7,400 characters). An agent without hooks gets it with `NO_HOOKS_PROMPT` after it: read
   `.torno/state.md` at the start of each task, and `.torno/prompt.md` when a line begins with `torno:`.
   `contextFor` names tools through `opts.toolName` likewise.
 - The agent of an object is chosen in the session header (`ui/AgentPicker.tsx`) and kept in
