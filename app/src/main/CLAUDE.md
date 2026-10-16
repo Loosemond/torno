@@ -566,8 +566,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `<object>/.torno/agent/` (`ctx.agentDir`, where `files` are written atomically before the start; nothing is
   made for an adapter without files). Nothing of the person's configuration of an agent is read or written, and
   nothing is written in the object folder outside `.torno/`. The MCP address given is of that object alone.
-- The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName)`; `SYSTEM_PROMPT` is Claude
-  Code's, under 6,800 characters). An agent without hooks gets it with `NO_HOOKS_PROMPT` after it: read
+- The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName, hooks, skills)`). Claude Code is
+  given torno's skills, a plugin in `app/resources/agent-plugin` (`torno-model`, `build123d`, `scans`,
+  `dimensions`) passed with `--plugin-dir` (`paths.ts` `agentPluginDir()`; nothing is installed in the person's
+  Claude Code), so its prompt (`SYSTEM_PROMPT`, `skills` true, under 6,400 characters) says of scans and
+  dimensions only what a prompt's lines need and names the skills; `SCANS_TEXT` and `DIMENSIONS_TEXT` are said
+  to the letter in the skills `scans` and `dimensions`. An agent without skills (Copilot CLI) is told the whole
+  text (`FULL_PROMPT` in Claude Code's names, under 7,400 characters). A change to what the prompt says of scans
+  or dimensions is a change to the skill too (`prompt.test.ts` holds them together); the template of
+  `torno-model` is built by the kernel's `tests/test_skill_template.py`. Claude Code is also given a subagent on
+  its command line, `--agents` with `torno-reviewer` (`claude.ts` `reviewerAgents`): tools `scene`, `look`,
+  `marks`, `measure`, `check`, `section`, `describe` and `Read`, never one that edits, resolves, adds a mark or
+  changes the view; its prompt checks the build against what was asked, every open mark and every dimension, with
+  numbers from the tools. Claude Code's prompt says to use it after a change of several steps, before saying it
+  is done. An agent without hooks gets it with `NO_HOOKS_PROMPT` after it: read
   `.torno/state.md` at the start of each task, and `.torno/prompt.md` when a line begins with `torno:`.
   `contextFor` names tools through `opts.toolName` likewise.
 - The agent of an object is chosen in the session header (`ui/AgentPicker.tsx`) and kept in

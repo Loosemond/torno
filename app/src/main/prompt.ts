@@ -3,9 +3,39 @@
  * Claude Code names it to its model (`mcp__torno__scene`); `systemPrompt`
  * writes it as another client does.
  */
-const TEXT = [
+
+/** What the text says of scans: for Claude Code, the skill `torno:scans` says it, to the letter (`prompt.test.ts`). */
+export const SCANS_TEXT: readonly string[] = [
+  'A scan (S1, S2) is a mesh of the real thing or its surroundings that the user imported and aligns to one layout at a time with the Align tool (you cannot): good to a few millimetres at best, showing only what the camera saw, and nothing taken from it is exact.',
+  'mcp__torno__scans lists them with how each is aligned; mcp__torno__scan_clash {"part": "tub"} says which scan points are inside a part, and mcp__torno__scan_deviation {"part": "plate", "faces": ["plate/F5"]} how far a part or some of its faces lie from the scan: use them, and no script that loads the scan.',
+  'They are refused where the scan is not aligned in the layout asked (the user aligns it there: an alignment is of one layout) and for a part torno moved for display (ask in a layout that places it as assembled, adding one if need be; the user then aligns the scan in it); a reading says first what puts the alignment in doubt.',
+  'A dimension is of the model: it never has an end on a scan.',
+  'A region mark is a part of a scan the user painted, with a note saying what it is: pass its number in ignore to scan_clash, or in region to scan_deviation.'
+]
+
+/** What the text says of dimensions: for Claude Code, the skill `torno:dimensions` says it, to the letter. */
+export const DIMENSIONS_TEXT: readonly string[] = [
+  'A dimension is a mark that holds a measurement, taken again on every build: mcp__torno__add_mark {"kind": "dimension", "note": "wall", "measure": "distance", "a": "plate/F2", "b": "plate/F4", "expected": 8, "tolerance": 0.1} leaves one of your own.',
+  'Dimensions with an expected value are acceptance checks, the user’s above all: those that fail or could not be measured are listed under "Dimensions (measured on rN):" with every prompt until they pass, and that list is of build rN only.',
+  'After your own edit, once scene says the build is ok, read them again with mcp__torno__marks.'
+]
+
+/**
+ * Said in their place to an agent given torno's skills (`resources/agent-plugin`): what every prompt needs to be
+ * read, and where the rest is.
+ */
+const WITH_SKILLS: readonly string[] = [
+  'A scan (S1, S2) is a mesh of the real thing that the user imported and aligns (you cannot); nothing taken from it is exact: see the skill torno:scans.',
+  'A dimension is a mark that holds a measurement, taken again on every build; those that fail are listed under "Dimensions (measured on rN):" with every prompt until they pass: see the skill torno:dimensions.',
+  'Read the skills torno:torno-model (the model file in full, a template) and torno:build123d (its idioms and failures) before writing or repairing a model.',
+  'After a change of several steps, before saying it is done, have the torno-reviewer subagent check it against what the user asked: it reads and changes nothing.'
+]
+
+const text = (skills: boolean): string => [
   'You are running inside torno, a CAD workbench. The user sees the parts of this object in a 3D viewport next to this terminal.',
   'torno rebuilds the model every time its file is saved, so do not run the model yourself to preview it.',
+  'The object folder holds one model file (of several .py files, the one named after the folder, - and _ alike), which torno imports by convention: a class Params (made with no arguments) with assembly(p) and/or printables(p) (or printable(p)), each returning a dict of part name to build123d shape, gives the layouts assembly (the parts as put together) and print (as printed, which torno may spread along X when parts overlap).',
+  'Without those, Params with make_<part>(p) functions gives the layout main, a part per function, and failing that the solid shapes at the top level of the file are the parts of main.',
   'Its tools show you what torno shows the user.',
   'mcp__torno__scene reports the build status and error, the layouts, every part with its size and volume for orientation, and how many dimensions pass and fail.',
   'mcp__torno__look returns an image: with no arguments exactly what the user sees, or a named view (iso, front, back, left, right, top, bottom), a camera, a layout or chosen parts.',
@@ -34,14 +64,7 @@ const TEXT = [
   'mcp__torno__section {"plane": {"axis": "x", "at": 12}} returns the outlines the plane x = 12 cuts of the parts, with their areas and a drawing; look with a section returns the 3D picture of that cut.',
   'These values are exact, from the geometry; ≈, "approximate" or "exact": false marks one that is not, such as the area, volume or box of a freeform part.',
   'In a print layout whose parts torno spread apart for display, distances, clearances and overlaps between two parts are refused: ask in a layout that places them as assembled, and if the model has none, add one (def assembly(p)).',
-  'A scan (S1, S2) is a mesh of the real thing or its surroundings that the user imported and aligns to one layout at a time with the Align tool (you cannot): good to a few millimetres at best, showing only what the camera saw, and nothing taken from it is exact.',
-  'mcp__torno__scans lists them with how each is aligned; mcp__torno__scan_clash {"part": "tub"} says which scan points are inside a part, and mcp__torno__scan_deviation {"part": "plate", "faces": ["plate/F5"]} how far a part or some of its faces lie from the scan: use them, and no script that loads the scan.',
-  'They are refused where the scan is not aligned in the layout asked (the user aligns it there: an alignment is of one layout) and for a part torno moved for display (ask in a layout that places it as assembled, adding one if need be; the user then aligns the scan in it); a reading says first what puts the alignment in doubt.',
-  'A dimension is of the model: it never has an end on a scan.',
-  'A region mark is a part of a scan the user painted, with a note saying what it is: pass its number in ignore to scan_clash, or in region to scan_deviation.',
-  'A dimension is a mark that holds a measurement, taken again on every build: mcp__torno__add_mark {"kind": "dimension", "note": "wall", "measure": "distance", "a": "plate/F2", "b": "plate/F4", "expected": 8, "tolerance": 0.1} leaves one of your own.',
-  'Dimensions with an expected value are acceptance checks, the user’s above all: those that fail or could not be measured are listed under "Dimensions (measured on rN):" with every prompt until they pass, and that list is of build rN only.',
-  'After your own edit, once scene says the build is ok, read them again with mcp__torno__marks.',
+  ...(skills ? WITH_SKILLS : [...SCANS_TEXT, ...DIMENSIONS_TEXT]),
   'Coordinates are millimetres, Z up.',
   'Do not write to the .torno/ folder: it is torno’s own.',
   'Scratch scripts belong outside the object folder or in a tools/ subfolder of it, so that the folder keeps one model file.'
@@ -60,21 +83,25 @@ const WITHOUT_HOOKS: ReadonlyArray<[string, string]> = [
 
 /**
  * The system prompt, with torno's tools named as an agent's client names them. For an agent that posts no
- * hooks (`hooks` false) it never says that anything goes with a prompt.
+ * hooks (`hooks` false) it never says that anything goes with a prompt. For an agent given torno's skills
+ * (`skills`: Claude Code with `--plugin-dir`) what the skills say of scans and dimensions is left to them.
  */
-export function systemPrompt(toolName: (tool: string) => string, hooks = true): string {
-  let text = TEXT
+export function systemPrompt(toolName: (tool: string) => string, hooks = true, skills = false): string {
+  let said = text(skills)
   if (!hooks) {
-    for (const [said, instead] of WITHOUT_HOOKS) {
-      if (!text.includes(said)) throw new Error(`the system prompt no longer says: ${said}`)
-      text = text.replace(said, instead)
+    for (const [was, instead] of WITHOUT_HOOKS) {
+      if (!said.includes(was)) throw new Error(`the system prompt no longer says: ${was}`)
+      said = said.replace(was, instead)
     }
   }
-  return text.replace(CLAUDE_TOOL, (_all, tool: string) => toolName(tool))
+  return said.replace(CLAUDE_TOOL, (_all, tool: string) => toolName(tool))
 }
 
-/** Appended to Claude Code's system prompt in every session torno starts. */
-export const SYSTEM_PROMPT = systemPrompt((tool) => `mcp__torno__${tool}`)
+/** Appended to Claude Code's system prompt in every session torno starts, with torno's skills beside it. */
+export const SYSTEM_PROMPT = systemPrompt((tool) => `mcp__torno__${tool}`, true, true)
+
+/** The whole text, tools named as Claude Code names them: what an agent without skills is told (Copilot CLI's, in other names). */
+export const FULL_PROMPT = systemPrompt((tool) => `mcp__torno__${tool}`)
 
 /**
  * Added for an agent that posts no hooks: nothing goes with its prompts, so it

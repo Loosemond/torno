@@ -1,39 +1,42 @@
 import { describe, expect, it } from 'vitest'
 import { TOOLS } from './mcp/schemas'
-import { NO_HOOKS_PROMPT, SYSTEM_PROMPT, systemPrompt } from './prompt'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { DIMENSIONS_TEXT, FULL_PROMPT, NO_HOOKS_PROMPT, SCANS_TEXT, SYSTEM_PROMPT, systemPrompt } from './prompt'
 
+// The whole text, as an agent without skills (Copilot CLI) is told it; Claude Code's is below.
 describe('the system prompt', () => {
   it('says what each thing means that a prompt may say of a mark, and what its other lines are', () => {
     // As `contextFor` and `describeMark` write them.
-    for (const said of ['(changed)', 'reopened by the user', '[not checked against rN]', '"Selected:"', '"Marks still open"']) expect(SYSTEM_PROMPT).toContain(said)
+    for (const said of ['(changed)', 'reopened by the user', '[not checked against rN]', '"Selected:"', '"Marks still open"']) expect(FULL_PROMPT).toContain(said)
   })
 
   it('says of a mark told as changed that it may have been moved: one put somewhere else is told so too', () => {
-    expect(SYSTEM_PROMPT).toContain('(changed) is of a mark you were given before that the user has since changed or moved')
+    expect(FULL_PROMPT).toContain('(changed) is of a mark you were given before that the user has since changed or moved')
   })
 
   it('tells it to resolve the marks it acted on, but never a dimension of the user’s with an expected value', () => {
-    expect(SYSTEM_PROMPT).toContain('When you have acted on a mark and checked the result, call mcp__torno__resolve_mark with a line on what you did, except for a dimension of the user’s that has an expected value: that is their check, it passes by itself and keeps being measured, and only they resolve it (a resolved dimension is no longer measured).')
+    expect(FULL_PROMPT).toContain('When you have acted on a mark and checked the result, call mcp__torno__resolve_mark with a line on what you did, except for a dimension of the user’s that has an expected value: that is their check, it passes by itself and keeps being measured, and only they resolve it (a resolved dimension is no longer measured).')
   })
 
   it('names dimensions among the marks, and gives one example call each of the tools that read the part, as JSON that parses', () => {
-    expect(SYSTEM_PROMPT).toContain('placed shapes and dimensions, numbered')
-    const calls = [...SYSTEM_PROMPT.matchAll(/mcp__torno__(measure|check|section|add_mark) (\{.*?\})(?= is | returns | leaves | the wall|,? and )/g)].map((m) => [m[1], JSON.parse(m[2])])
+    expect(FULL_PROMPT).toContain('placed shapes and dimensions, numbered')
+    const calls = [...FULL_PROMPT.matchAll(/mcp__torno__(measure|check|section|add_mark) (\{.*?\})(?= is | returns | leaves | the wall|,? and )/g)].map((m) => [m[1], JSON.parse(m[2])])
     expect(calls).toEqual([
       ['measure', { kind: 'distance', a: 'plate/F2', b: 'plate/F4' }],
       ['check', { kind: 'clearance', a: 'lid', b: 'tub' }],
       ['section', { plane: { axis: 'x', at: 12 } }],
       ['add_mark', { kind: 'dimension', note: 'wall', measure: 'distance', a: 'plate/F2', b: 'plate/F4', expected: 8, tolerance: 0.1 }]
     ])
-    expect(JSON.parse(SYSTEM_PROMPT.match(/and (\{"kind": "thickness".*?\}\}) the wall/)![1])).toEqual({ kind: 'thickness', a: { ref: 'plate/F2', point: [10, 5, 6] } })
+    expect(JSON.parse(FULL_PROMPT.match(/and (\{"kind": "thickness".*?\}\}) the wall/)![1])).toEqual({ kind: 'thickness', a: { ref: 'plate/F2', point: [10, 5, 6] } })
   })
 
   it('says what approximate looks like, what is refused between parts torno spread and what to do, which build the dimensions listed are of, and how to read them again', () => {
-    for (const said of ['≈, "approximate" or "exact": false marks one that is not', 'are refused: ask in a layout that places them as assembled, and if the model has none, add one (def assembly(p))', '"Dimensions (measured on rN):"', 'once scene says the build is ok, read them again with mcp__torno__marks']) expect(SYSTEM_PROMPT).toContain(said)
+    for (const said of ['≈, "approximate" or "exact": false marks one that is not', 'are refused: ask in a layout that places them as assembled, and if the model has none, add one (def assembly(p))', '"Dimensions (measured on rN):"', 'once scene says the build is ok, read them again with mcp__torno__marks']) expect(FULL_PROMPT).toContain(said)
   })
 
   it('says what a scan is and that only the user aligns one, gives one example call each of the tools that ask about one, as JSON that parses, and when they are refused', () => {
-    for (const named of ['mcp__torno__scans', 'mcp__torno__scan_clash', 'mcp__torno__scan_deviation']) expect(SYSTEM_PROMPT).toContain(named)
+    for (const named of ['mcp__torno__scans', 'mcp__torno__scan_clash', 'mcp__torno__scan_deviation']) expect(FULL_PROMPT).toContain(named)
     for (const said of [
       'a mesh of the real thing',
       'nothing taken from it is exact',
@@ -43,28 +46,37 @@ describe('the system prompt', () => {
       'a reading says first what puts the alignment in doubt',
       'no script that loads the scan',
       'pass its number in ignore to scan_clash, or in region to scan_deviation'
-    ]) expect(SYSTEM_PROMPT).toContain(said)
-    const calls = [...SYSTEM_PROMPT.matchAll(/mcp__torno__(scan_clash|scan_deviation) (\{[^}]*\})(?= says | how far )/g)].map((m) => [m[1], JSON.parse(m[2])])
+    ]) expect(FULL_PROMPT).toContain(said)
+    const calls = [...FULL_PROMPT.matchAll(/mcp__torno__(scan_clash|scan_deviation) (\{[^}]*\})(?= says | how far )/g)].map((m) => [m[1], JSON.parse(m[2])])
     expect(calls).toEqual([
       ['scan_clash', { part: 'tub' }],
       ['scan_deviation', { part: 'plate', faces: ['plate/F5'] }]
     ])
     // What the schemas say is not said twice.
-    expect(SYSTEM_PROMPT).not.toContain('measure takes')
+    expect(FULL_PROMPT).not.toContain('measure takes')
+  })
+
+  // #3: the convention the kernel loads a model by (loader.py `choose_model`, `_collect_scene`).
+  it('states the model file contract: one file, Params with assembly and printables, else make_<part>, else top-level shapes', () => {
+    for (const said of [
+      'one model file (of several .py files, the one named after the folder, - and _ alike)',
+      'a class Params (made with no arguments) with assembly(p) and/or printables(p) (or printable(p)), each returning a dict of part name to build123d shape, gives the layouts assembly (the parts as put together) and print (as printed, which torno may spread along X when parts overlap)',
+      'Without those, Params with make_<part>(p) functions gives the layout main, a part per function, and failing that the solid shapes at the top level of the file are the parts of main.'
+    ]) expect(FULL_PROMPT).toContain(said)
   })
 
   it('stays short', () => {
-    // Raised from 6,250 in Milestone 5 (D12), for explode and the saved views.
-    expect(SYSTEM_PROMPT.length).toBeLessThan(6800)
+    // Raised from 6,250 in Milestone 5 (D12), for explode and the saved views; to 7,400 for the model file contract (#3).
+    expect(FULL_PROMPT.length).toBeLessThan(7400)
   })
 
   it('says that explode is for display, right after what show is for', () => {
-    expect(SYSTEM_PROMPT).toContain('To see for yourself, use look. look and show take explode (0 to 1) to draw the parts apart for display; a picture says when it is exploded, and no position, ref or number is ever of an exploded part.')
+    expect(FULL_PROMPT).toContain('To see for yourself, use look. look and show take explode (0 to 1) to draw the parts apart for display; a picture says when it is exploded, and no position, ref or number is ever of an exploded part.')
   })
 
   it('says that scene lists the saved views, that look and show take one by its name, and how to propose one, as JSON that parses', () => {
-    expect(SYSTEM_PROMPT).toContain('ever of an exploded part. scene lists the views saved by name: look {"view": "Hinge side"} draws one and show {"view": "Hinge side"} puts it on the user\'s screen; they are the angles the user checks, so after a change look at those that show it. mcp__torno__save_view {"name": "Wall at the latch", "view": "front", "parts": ["tray"]} proposes a view of your own for them to keep. Measure before you state a size')
-    const calls = [...SYSTEM_PROMPT.matchAll(/(look|show|mcp__torno__save_view) (\{"(?:view|name)": [^}]*\})/g)].map((m) => [m[1], JSON.parse(m[2])])
+    expect(FULL_PROMPT).toContain('ever of an exploded part. scene lists the views saved by name: look {"view": "Hinge side"} draws one and show {"view": "Hinge side"} puts it on the user\'s screen; they are the angles the user checks, so after a change look at those that show it. mcp__torno__save_view {"name": "Wall at the latch", "view": "front", "parts": ["tray"]} proposes a view of your own for them to keep. Measure before you state a size')
+    const calls = [...FULL_PROMPT.matchAll(/(look|show|mcp__torno__save_view) (\{"(?:view|name)": [^}]*\})/g)].map((m) => [m[1], JSON.parse(m[2])])
     expect(calls).toEqual([
       ['look', { view: 'Hinge side' }],
       ['show', { view: 'Hinge side' }],
@@ -74,7 +86,7 @@ describe('the system prompt', () => {
 
   // Final fix wave (I8, T9, C1).
   it('says the whole way for a part torno moved, and that a dimension never has an end on a scan', () => {
-    for (const said of ['the user aligns it there: an alignment is of one layout', 'adding one if need be; the user then aligns the scan in it', 'A dimension is of the model: it never has an end on a scan.']) expect(SYSTEM_PROMPT).toContain(said)
+    for (const said of ['the user aligns it there: an alignment is of one layout', 'adding one if need be; the user then aligns the scan in it', 'A dimension is of the model: it never has an end on a scan.']) expect(FULL_PROMPT).toContain(said)
   })
 })
 
@@ -87,7 +99,7 @@ describe('what an agent without hooks is told', () => {
     expect(hookless).not.toMatch(WITH_A_PROMPT)
     expect(hookless).not.toMatch(/arrive|pushed to you with/)
     // AGENTS.md is read into every conversation of that agent: the prompt's own bound, the tool names in words, and the paragraph on the two files.
-    expect(hookless.length).toBeLessThan(7600)
+    expect(hookless.length).toBeLessThan(8200)
     expect(NO_HOOKS_PROMPT.length).toBeLessThan(500)
   })
 
@@ -110,7 +122,35 @@ describe('what an agent without hooks is told', () => {
   })
 
   it('while one with hooks is told that they do', () => {
-    expect(SYSTEM_PROMPT).toContain('New marks arrive with the prompt')
-    expect(SYSTEM_PROMPT).toContain('with every prompt until they pass')
+    expect(FULL_PROMPT).toContain('New marks arrive with the prompt')
+    expect(FULL_PROMPT).toContain('with every prompt until they pass')
+  })
+})
+
+// #4: Claude Code is given torno's skills (`resources/agent-plugin`), and its prompt leaves to them what they say.
+describe("Claude Code's prompt, with the skills", () => {
+  const skill = (name: string) => readFileSync(join(__dirname, '../../resources/agent-plugin/skills', name, 'SKILL.md'), 'utf8')
+
+  it('is the whole text without the scans and the dimensions, noticeably shorter', () => {
+    expect(systemPrompt((tool) => `mcp__torno__${tool}`, true, true)).toBe(SYSTEM_PROMPT)
+    expect(SYSTEM_PROMPT.length).toBeLessThan(6400)
+    expect(FULL_PROMPT.length - SYSTEM_PROMPT.length).toBeGreaterThan(1000)
+    for (const sentence of [...SCANS_TEXT, ...DIMENSIONS_TEXT]) {
+      expect(FULL_PROMPT).toContain(sentence)
+      expect(SYSTEM_PROMPT).not.toContain(sentence)
+    }
+  })
+
+  it('names each skill, and keeps what every prompt needs to be read: dimensions listed, scans, refs, the contract', () => {
+    for (const named of ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions']) expect(SYSTEM_PROMPT).toContain(named)
+    // #6: when to ask the reviewer subagent Claude Code is given with --agents; the agent without one is not told of it.
+    expect(SYSTEM_PROMPT).toContain('After a change of several steps, before saying it is done, have the torno-reviewer subagent check it')
+    expect(FULL_PROMPT).not.toContain('torno-reviewer')
+    for (const said of ['"Dimensions (measured on rN):" with every prompt until they pass', 'A scan (S1, S2)', 'nothing taken from it is exact', 'New marks arrive with the prompt', 'a class Params (made with no arguments)', 'mcp__torno__measure {"kind": "distance"']) expect(SYSTEM_PROMPT).toContain(said)
+  })
+
+  it('whose skills say, to the letter, what the prompt no longer does', () => {
+    for (const sentence of SCANS_TEXT) expect(skill('scans')).toContain(sentence)
+    for (const sentence of DIMENSIONS_TEXT) expect(skill('dimensions')).toContain(sentence)
   })
 })
