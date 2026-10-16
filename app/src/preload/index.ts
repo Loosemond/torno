@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { TornoBridge } from '../shared/bridge'
+import { unrefused } from '../shared/refusal'
 import type { AlignMade, NewAlignment } from '../shared/scans'
 
 // Channel names are those listed in src/main/ipc.ts.
@@ -11,10 +12,13 @@ function subscribe<T>(channel: string, cb: (message: T) => void): () => void {
   }
 }
 
+/** An invoke: what main refused (a `Refusal` there) rejects here with its message, as a thrown handler would. */
+const invoke = (channel: string, ...args: unknown[]): Promise<any> => ipcRenderer.invoke(channel, ...args).then(unrefused)
+
 /** An invoke whose rejection carries the message main gave, without what Electron puts before it. */
 async function invokePlain<T>(channel: string, ...args: unknown[]): Promise<T> {
   try {
-    return await ipcRenderer.invoke(channel, ...args)
+    return unrefused(await ipcRenderer.invoke(channel, ...args))
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     throw new Error(message.replace(/^Error invoking remote method '[^']*': (Error: )?/, ''))
@@ -24,22 +28,22 @@ async function invokePlain<T>(channel: string, ...args: unknown[]): Promise<T> {
 const bridge: TornoBridge = {
   home: process.env.HOME ?? process.env.USERPROFILE ?? '',
   workspace: {
-    current: () => ipcRenderer.invoke('workspace:current'),
-    pick: () => ipcRenderer.invoke('workspace:pick'),
-    open: (root) => ipcRenderer.invoke('workspace:open', root),
-    versions: () => ipcRenderer.invoke('workspace:versions'),
-    recent: () => ipcRenderer.invoke('workspace:recent'),
-    forget: (root) => ipcRenderer.invoke('workspace:forget', root),
-    hasExample: () => ipcRenderer.invoke('workspace:hasExample'),
-    openExample: () => ipcRenderer.invoke('workspace:openExample'),
+    current: () => invoke('workspace:current'),
+    pick: () => invoke('workspace:pick'),
+    open: (root) => invoke('workspace:open', root),
+    versions: () => invoke('workspace:versions'),
+    recent: () => invoke('workspace:recent'),
+    forget: (root) => invoke('workspace:forget', root),
+    hasExample: () => invoke('workspace:hasExample'),
+    openExample: () => invoke('workspace:openExample'),
     onRequested: (cb) => subscribe('workspace:requested', cb),
     onCloseAsked: (cb) => subscribe('window:closeAsked', cb),
     answerClose: (close) => ipcRenderer.send('window:closeAnswer', close)
   },
   object: {
-    open: (id) => ipcRenderer.invoke('object:open', id),
-    rebuild: (id) => ipcRenderer.invoke('object:rebuild', id),
-    loadSceneFile: (id) => ipcRenderer.invoke('object:sceneFile', id),
+    open: (id) => invoke('object:open', id),
+    rebuild: (id) => invoke('object:rebuild', id),
+    loadSceneFile: (id) => invoke('object:sceneFile', id),
     saveSceneFile: (id, file) => ipcRenderer.send('object:saveSceneFile', id, file),
     onBuild: (cb) => subscribe('object:build', cb),
     onScene: (cb) => subscribe('object:scene', cb)
@@ -103,8 +107,8 @@ const bridge: TornoBridge = {
     describe: (objectId, layout, ref) => invokePlain('geometry:describe', objectId, layout, ref)
   },
   show: {
-    cards: () => ipcRenderer.invoke('show:cards'),
-    thumbnail: (objectId) => ipcRenderer.invoke('show:thumbnail', objectId),
+    cards: () => invoke('show:cards'),
+    thumbnail: (objectId) => invoke('show:thumbnail', objectId),
     saveThumbnail: (objectId, revision, png, of) => ipcRenderer.send('show:saveThumbnail', objectId, revision, png, of),
     onChanged: (cb) => subscribe<void>('show:changed', () => cb())
   },
@@ -114,19 +118,19 @@ const bridge: TornoBridge = {
     done: () => ipcRenderer.send('export:done')
   },
   session: {
-    current: (objectId) => ipcRenderer.invoke('session:current', objectId),
-    start: (objectId, opts) => ipcRenderer.invoke('session:start', objectId, opts),
-    trust: (objectId) => ipcRenderer.invoke('session:trust', objectId),
+    current: (objectId) => invoke('session:current', objectId),
+    start: (objectId, opts) => invoke('session:start', objectId, opts),
+    trust: (objectId) => invoke('session:trust', objectId),
     write: (sessionId, data) => ipcRenderer.send('session:write', sessionId, data),
     resize: (sessionId, cols, rows) => ipcRenderer.send('session:resize', sessionId, cols, rows),
-    stop: (sessionId) => ipcRenderer.invoke('session:stop', sessionId),
+    stop: (sessionId) => invoke('session:stop', sessionId),
     onData: (cb) => subscribe('session:data', cb),
     onStatus: (cb) => subscribe('session:status', cb),
     insert: (sessionId, text) => ipcRenderer.send('session:insert', sessionId, text),
-    agents: () => ipcRenderer.invoke('session:agents'),
-    chooseAgent: (objectId, agent) => ipcRenderer.invoke('session:chooseAgent', objectId, agent),
+    agents: () => invoke('session:agents'),
+    chooseAgent: (objectId, agent) => invoke('session:chooseAgent', objectId, agent),
     chooseView: (objectId, view) => invokePlain('session:chooseView', objectId, view),
-    sendMarks: (sessionId) => ipcRenderer.invoke('session:sendMarks', sessionId),
+    sendMarks: (sessionId) => invoke('session:sendMarks', sessionId),
     onSend: (cb) => subscribe('session:send', cb)
   },
   chat: {

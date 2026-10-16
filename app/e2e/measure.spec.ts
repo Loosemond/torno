@@ -24,6 +24,8 @@ test.describe.configure({ mode: 'serial' })
 let root: string
 let app: ElectronApplication
 let page: Page
+/** What main printed on stderr: a refusal of what the person asked is never there (#13). */
+let stderr = ''
 
 function copyFixtures(): string {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-measure-'))
@@ -148,6 +150,7 @@ function differing(p: Page, one: string, other: string): Promise<number> {
 test.beforeAll(async () => {
   root = copyFixtures()
   app = await launch({ TORNO_WORKSPACE: root })
+  app.process().stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
   await openMeasures(page)
@@ -234,6 +237,9 @@ test('an angle between a flat face and the wall of a hole is refused by the kern
   await expect(readout(page)).not.toContainText('assembly:')
   expect(marksOnDisk(root).marks).toHaveLength(2)
   expect((await state(page)).marksProblem).toBeNull()
+  // A refusal is answered, not thrown: Electron prints nothing of it on the terminal.
+  expect(stderr).not.toContain("Error occurred in handler for 'marks:add'")
+  expect(stderr).not.toContain('angle is measured between')
   await page.getByRole('group', { name: 'What to measure' }).getByRole('button', { name: 'Distance' }).click()
 })
 

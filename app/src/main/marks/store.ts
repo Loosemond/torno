@@ -5,6 +5,7 @@ import { type RegionStats, maskStem } from '../../shared/regions'
 /** What main says of a region: what it is, which mesh of its scan it is of, and which painting of it its mask holds. */
 export type RegionSaid = RegionStats & { mesh?: string; mask?: number }
 import { loadMarksFile, sanitiseMark, saveMarksFile } from './file'
+import { Refusal } from '../refusal'
 
 /** What a check of a mark against a build found (`reanchorAll`), for `MarkStore.reanchor` to write. */
 export interface Reanchored {
@@ -222,7 +223,7 @@ export class MarkStore {
         const mainOnly: readonly string[] = [...MAIN_ONLY_KEYS, ...own.keys]
         const given = Object.fromEntries(Object.entries(Object(mark) as object).filter(([key]) => !mainOnly.includes(key)))
         const added = sanitiseMark({ ...given, ...own.says, id: `M${file.next}`, status, anchorState: 'ok', createdAt: this.now().toISOString() })
-        if (!added) throw new Error('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
+        if (!added) throw new Refusal('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
         file.next += 1
         file.marks.push(added)
         return added
@@ -290,11 +291,11 @@ export class MarkStore {
       (file) => {
         const at = indexOf(file, id)
         const mark = file.marks[at]
-        if (mark.kind !== 'region') throw new Error(`${id} is a ${mark.kind}, not a region: it has no triangles to paint again`)
-        if (mark.anchorState === 'orphaned') throw new Error(`${id} is of a scan that is gone or was read again: delete it and paint a new one`)
-        if (mark.status === 'resolved') throw new Error(`${id} is resolved: reopen it first`)
+        if (mark.kind !== 'region') throw new Refusal(`${id} is a ${mark.kind}, not a region: it has no triangles to paint again`)
+        if (mark.anchorState === 'orphaned') throw new Refusal(`${id} is of a scan that is gone or was read again: delete it and paint a new one`)
+        if (mark.status === 'resolved') throw new Refusal(`${id} is resolved: reopen it first`)
         const now = sanitiseMark({ ...mark, ...said })
-        if (!now) throw new Error(`that is not a valid change to ${id}`)
+        if (!now) throw new Refusal(`that is not a valid change to ${id}`)
         if (mark.status === 'sent') {
           now.status = 'draft'
           now.sentBefore = true
@@ -329,17 +330,17 @@ export class MarkStore {
       const asked: MarkPatch = typeof patch === 'object' && patch !== null ? patch : {}
       const given = (keys: readonly (keyof MarkPatch)[]) => keys.filter((key) => asked[key] !== undefined)
       const forShape = given(SHAPE_KEYS)
-      if (mark.kind !== 'shape' && forShape.length > 0) throw new Error(`${id} is a ${mark.kind}, not a shape: it has no ${forShape.join(', ')}`)
+      if (mark.kind !== 'shape' && forShape.length > 0) throw new Refusal(`${id} is a ${mark.kind}, not a shape: it has no ${forShape.join(', ')}`)
       const forDimension = given(DIMENSION_KEYS)
-      if (mark.kind !== 'dimension' && forDimension.length > 0) throw new Error(`${id} is a ${mark.kind}, not a dimension: it has no ${forDimension.join(', ')}`)
+      if (mark.kind !== 'dimension' && forDimension.length > 0) throw new Refusal(`${id} is a ${mark.kind}, not a dimension: it has no ${forDimension.join(', ')}`)
       const finite = (value: unknown): boolean => typeof value === 'number' && Number.isFinite(value)
-      if (asked.expected !== undefined && asked.expected !== null && !finite(asked.expected)) throw new Error('expected is a number, or null for none')
-      if (asked.tolerance !== undefined && asked.tolerance !== null && !(finite(asked.tolerance) && asked.tolerance >= 0)) throw new Error('tolerance is a number, zero or more, or null for the default')
+      if (asked.expected !== undefined && asked.expected !== null && !finite(asked.expected)) throw new Refusal('expected is a number, or null for none')
+      if (asked.tolerance !== undefined && asked.tolerance !== null && !(finite(asked.tolerance) && asked.tolerance >= 0)) throw new Refusal('tolerance is a number, zero or more, or null for the default')
       // Forward, to resolved from anywhere, or back to draft when asked: all but sending a resolved mark again.
-      if (mark.status === 'resolved' && asked.status === 'sent') throw new Error(`${id} is resolved: reopen it as a draft before it is sent again`)
+      if (mark.status === 'resolved' && asked.status === 'sent') throw new Refusal(`${id} is resolved: reopen it as a draft before it is sent again`)
       // A null takes the expectation or the tolerance away: the sanitiser keeps neither. The verdict follows from what is left.
       const changed = sanitiseMark({ ...mark, ...Object.fromEntries([...given(COMMON_KEYS), ...forShape, ...forDimension].map((key) => [key, asked[key]])) })
-      if (!changed) throw new Error(`that is not a valid change to ${id}`)
+      if (!changed) throw new Refusal(`that is not a valid change to ${id}`)
       const said = changed as unknown as Record<string, unknown>
       const before = mark as unknown as Record<string, unknown>
       // What the agent was told of it no longer holds: it is told again.
@@ -362,7 +363,7 @@ export class MarkStore {
         delete changed.acknowledged
       }
       if (asked.acknowledged !== undefined) {
-        if (asked.acknowledged !== true || changed.status !== 'resolved' || changed.resolvedBy !== 'agent') throw new Error(`${id} was not resolved by the agent: there is nothing to acknowledge`)
+        if (asked.acknowledged !== true || changed.status !== 'resolved' || changed.resolvedBy !== 'agent') throw new Refusal(`${id} was not resolved by the agent: there is nothing to acknowledge`)
         changed.acknowledged = true
       }
       file.marks[at] = changed
@@ -393,11 +394,11 @@ export class MarkStore {
       (file) => {
         const at = indexOf(file, id)
         const mark = file.marks[at]
-        if (mark.kind !== 'pin' && mark.kind !== 'pick' && mark.kind !== 'arrow') throw new Error(`${id} is a ${mark.kind}: only a pin, a pick or an arrow is put somewhere else`)
-        if (mark.author !== 'user') throw new Error(`${id} is the agent's mark: it is not put somewhere else`)
-        if (mark.status === 'resolved') throw new Error(`${id} is resolved: reopen it first`)
+        if (mark.kind !== 'pin' && mark.kind !== 'pick' && mark.kind !== 'arrow') throw new Refusal(`${id} is a ${mark.kind}: only a pin, a pick or an arrow is put somewhere else`)
+        if (mark.author !== 'user') throw new Refusal(`${id} is the agent's mark: it is not put somewhere else`)
+        if (mark.status === 'resolved') throw new Refusal(`${id} is resolved: reopen it first`)
         const anchor = (placed as Replacement | null)?.anchor
-        if (typeof anchor !== 'object' || anchor === null || typeof anchor.part !== 'string') throw new Error(`${id} was not put on a part`)
+        if (typeof anchor !== 'object' || anchor === null || typeof anchor.part !== 'string') throw new Refusal(`${id} was not put on a part`)
         // Nothing has checked it where it now is.
         const common = { anchorState: 'ok', status: 'draft', revision: placed.revision, camera: placed.camera, checkedRevision: undefined } as const
         let moved: Mark | null
@@ -413,7 +414,7 @@ export class MarkStore {
         } else {
           moved = sanitiseMark({ ...mark, ...common, anchor })
         }
-        if (!moved) throw new Error(`${id} cannot be put there: a point, a revision or a camera is missing or not a finite number`)
+        if (!moved) throw new Refusal(`${id} cannot be put there: a point, a revision or a camera is missing or not a finite number`)
         file.marks[at] = moved
         return moved
       },
@@ -614,6 +615,6 @@ const UNCHANGED = Symbol('unchanged')
 /** Where a mark is in its file; an id that is not there is an error that names the ones that are. */
 function indexOf(file: MarksFile, id: string): number {
   const at = file.marks.findIndex((m) => m.id === id)
-  if (at < 0) throw new Error(`no mark ${id}; marks: ${file.marks.map((m) => m.id).join(', ') || 'none'}`)
+  if (at < 0) throw new Refusal(`no mark ${id}; marks: ${file.marks.map((m) => m.id).join(', ') || 'none'}`)
   return at
 }

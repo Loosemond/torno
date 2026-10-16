@@ -4,6 +4,7 @@ import type { Anchor, DimensionMark, Mark, Measurement, NewMark, Vec3 } from '..
 import type { Scene } from '../../shared/scene'
 import type { Builds } from '../builds'
 import { KernelError, isBusy } from '../kernel/client'
+import { Refusal } from '../refusal'
 import { sanitiseMark } from './file'
 import { spreadApart, spreadReason } from './spread'
 import type { MarkStore, Remeasured } from './store'
@@ -233,10 +234,10 @@ export async function addDimensionTold(
   const last = deps.scene(objectId)
   if (last === undefined) throw new Error(`there is no build of ${objectId} to measure on`)
   const built = last.revision
-  if (probe.revision !== built) throw new Error(`it was placed on r${probe.revision}, and the part has been built again since (r${built}): measure it again`)
+  if (probe.revision !== built) throw new Refusal(`it was placed on r${probe.revision}, and the part has been built again since (r${built}): measure it again`)
   // Between two parts torno spread apart, a distance would be kept as a check of torno's spacing: it is not kept, whoever asks.
   const apart = probe.measure === 'distance' ? spreadApart(last.scene, probe.layout, probe.a.part, probe.b?.part, 'the distance between') : null
-  if (apart !== null) throw new Error(apart)
+  if (apart !== null) throw new Refusal(apart)
 
   /** What the kernel said; null when it could not be asked. Throws its reason when it refused. */
   const measuring: Promise<Measurement | null> = measureDimension(deps, objectId, probe, probe.revision).then(
@@ -248,7 +249,7 @@ export async function addDimensionTold(
     }
   )
   const kept = (measured: Measurement | null): Measurement | undefined => {
-    if (measured?.refused !== undefined) throw new Error(measured.refused)
+    if (measured?.refused !== undefined) throw new Refusal(measured.refused)
     return measured ?? undefined
   }
 
