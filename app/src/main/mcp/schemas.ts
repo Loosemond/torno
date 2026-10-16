@@ -199,7 +199,7 @@ const measureInput = {
   kind: z
     .enum(['distance', 'angle', 'radius', 'diameter', 'thickness', 'bbox', 'volume', 'area', 'mass'])
     .describe(
-      'distance (between parallel planes, between axes, from a point to a plane, else the minimum) and angle are between a and b. radius and diameter are of a round face or a circular edge; thickness of a wall, from a point of a face along its inward normal; bbox of a part, a face or an edge; area of a part or a face; volume and mass of a part.'
+      'distance (between parallel planes, between axes, from a point to a plane, else the minimum) and angle are between a and b. An angle is between flat faces, straight edges and the axes of cylinders, cones, tori and circles (between axes, axis to plane); a face flat or an edge straight within 1e-6 mm is taken too, as not exact. radius and diameter are of a round face or a circular edge; thickness of a wall, from a point of a face along its inward normal; bbox of a part, a face or an edge; area of a part or a face; volume and mass of a part.'
     ),
   // Not required by the schema: left out, the tool says what an end is.
   a: endInput.optional().describe(`What is measured, or its first end. ${endText} A whole part (lid) where the kind takes one. ${scanEndText}`),

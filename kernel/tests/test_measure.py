@@ -219,17 +219,111 @@ def test_angle_between_a_face_and_an_edge_is_line_to_plane(shapes, top):
     assert measure(shapes, "angle", top, lying)["value"] == pytest.approx(0, abs=1e-6)
 
 
-def test_angle_of_anything_else_names_what_can_be_measured(shapes, top, holes):
-    assert refused(shapes, "angle", top, holes[0]) == (
+def test_angle_of_anything_else_names_what_can_be_measured(shapes, top):
+    from build123d import Sphere
+
+    made = {**shapes, "assembly:ball": Sphere(7)}
+    assert refused(made, "angle", top, "assembly:ball/F0") == (
         "bad_request",
-        "angle is measured between two planar faces, two straight edges, or a planar face and "
-        f"a straight edge; {holes[0]} is a cylinder face",
+        "angle is measured between planar faces, straight edges and the axes of cylinders, "
+        "cones, tori and circles; assembly:ball/F0 is a sphere face",
     )
-    rim = refs(shapes, PLATE, "E", "circle")[0]
-    assert refused(shapes, "angle", rim, top)[1].endswith(f"{rim} is a circle edge")
     assert refused(shapes, "angle", top, PLATE)[1].endswith(f"{PLATE} is a part")
     point = {"layout": "assembly", "point": [0, 0, 0]}
     assert refused(shapes, "angle", top, point)[1].endswith("b is a point")
+
+
+def bores():
+    """A block 40 by 40 by 20 with a bore of radius 3 along Z at x = -10 and another at
+    x = 10, tilted 30 degrees from Z about X."""
+    from build123d import Box, Cylinder, Pos, Rot
+
+    block = Box(40, 40, 20) - Pos(-10, 0, 0) * Cylinder(3, 60)
+    block -= Pos(10, 0, 0) * Rot(30, 0, 0) * Cylinder(3, 60)
+    made = {"assembly:block": block}
+    holes = refs(made, "assembly:block", "F", "cylinder")
+    straight = [r for r in holes if "axis Z" in queries.describe(made, r)["descriptor"]]
+    [upright] = straight
+    [tilted] = [r for r in holes if r != upright]
+    return made, upright, tilted
+
+
+def test_angle_between_two_bores_is_between_their_axes():
+    made, upright, tilted = bores()
+    result = measure(made, "angle", upright, tilted)
+    assert (result["value"], result["how"], result["exact"]) == (
+        pytest.approx(30),
+        "between axes",
+        True,
+    )
+    # Drawn from the axes.
+    assert result["points"][0][:2] == pytest.approx([-10, 0])
+    assert result["points"][1][0] == pytest.approx(10)
+
+
+def test_angle_between_a_bore_and_its_base_face_is_axis_to_plane():
+    made, upright, tilted = bores()
+    base = ref(made, "assembly:block", "F", "plane, normal -Z")
+    result = measure(made, "angle", upright, base)
+    assert (result["value"], result["how"]) == (pytest.approx(90), "axis to plane")
+    assert measure(made, "angle", base, tilted)["value"] == pytest.approx(60)
+
+
+def test_angle_takes_a_circle_edge_by_its_axis(shapes, top):
+    rim = refs(shapes, PLATE, "E", "circle")[0]
+    assert measure(shapes, "angle", rim, top)["value"] == pytest.approx(90)
+    slanted = refs(shapes, PLATE, "E", "line, 2.828 mm")[0]
+    result = measure(shapes, "angle", rim, slanted)
+    assert (result["value"], result["how"]) == (pytest.approx(45), "between lines, one an axis")
+
+
+def wedge(bulge: float):
+    """A right triangle of 10 mm legs extruded 5 mm, its side along X a spline through
+    (5, bulge): straight, and stored as a B-spline edge and an extrusion face, when bulge is 0."""
+    from build123d import Face, Line, Spline, Wire, extrude
+
+    side = Spline((0, 0), (5, bulge), (10, 0))
+    profile = Wire([side, Line((10, 0), (10, 10)), Line((10, 10), (0, 0))])
+    return {"assembly:wedge": extrude(Face(profile), 5)}
+
+
+def test_angle_takes_a_flat_extrusion_face_as_a_plane_within_a_tolerance():
+    made = wedge(0)
+    assert queries.describe(made, "assembly:wedge/F0")["descriptor"].startswith("extrusion")
+    result = measure(made, "angle", "assembly:wedge/F0", "assembly:wedge/F2")
+    assert (result["value"], result["how"], result["exact"]) == (
+        pytest.approx(135),
+        "between normals, flat within 1e-6 mm",
+        False,
+    )
+    top = measure(made, "angle", "assembly:wedge/F0", "assembly:wedge/F4")
+    assert top["value"] == pytest.approx(90)
+    # Its point is on it.
+    assert result["points"][0][1] == pytest.approx(0, abs=1e-6)
+
+
+def test_angle_takes_a_straight_bspline_edge_as_a_line_within_a_tolerance():
+    made = wedge(0)
+    assert queries.describe(made, "assembly:wedge/E2")["descriptor"].startswith("bspline")
+    result = measure(made, "angle", "assembly:wedge/E2", "assembly:wedge/E7")
+    assert (result["value"], result["how"], result["exact"]) == (
+        pytest.approx(45),
+        "between lines, straight within 1e-6 mm",
+        False,
+    )
+    plane = measure(made, "angle", "assembly:wedge/E2", "assembly:wedge/F1")
+    assert (plane["value"], plane["how"]) == (
+        pytest.approx(90),
+        "line to plane, straight within 1e-6 mm",
+    )
+
+
+def test_angle_refuses_a_curved_extrusion_face_saying_it_is_not_flat():
+    made = wedge(3)
+    message = refused(made, "angle", "assembly:wedge/F0", "assembly:wedge/F4")[1]
+    assert message.endswith("assembly:wedge/F0 is curved: an extrusion face that is not flat")
+    edge = refused(made, "angle", "assembly:wedge/E2", "assembly:wedge/F4")[1]
+    assert edge.endswith("assembly:wedge/E2 is curved: a bspline edge that is not straight")
 
 
 # Radius and diameter

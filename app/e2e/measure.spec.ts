@@ -228,13 +228,18 @@ test('a double click on the wall of a hole leaves its diameter: ⌀ 8', async ()
   expect(await page.evaluate(() => [window.__tornoTest!.markScreen('M1'), window.__tornoTest!.markScreen('M2')].map((l) => l !== null))).toEqual([true, true])
 })
 
-test('an angle between a flat face and the wall of a hole is refused by the kernel: no dimension, and its reason at the pointer', async () => {
+test('an angle to the wall of a hole: before the click the pointer says it is taken by its axis, with no estimate', async () => {
   await page.getByRole('group', { name: 'What to measure' }).getByRole('button', { name: 'Angle' }).click()
   await clickOver(ON_TOP, page)
-  await clickOver(IN_OTHER_HOLE, page)
-  await expect(readout(page)).toContainText('angle is measured between two planar faces, two straight edges, or a planar face and a straight edge')
+  const [x, y] = await pageXY(IN_OTHER_HOLE, page)
+  await page.mouse.move(x, y)
+  await page.mouse.move(x + 1, y)
+  await expect(readout(page)).toContainText('By its axis:')
   await expect(readout(page)).toContainText('is a cylinder face')
+  await expect(readout(page)).not.toContainText('≈')
   await expect(readout(page)).not.toContainText('assembly:')
+  // Not clicked: the first end is dropped, and nothing is kept.
+  await page.keyboard.press('Escape')
   expect(marksOnDisk(root).marks).toHaveLength(2)
   expect((await state(page)).marksProblem).toBeNull()
   // A refusal is answered, not thrown: Electron prints nothing of it on the terminal.

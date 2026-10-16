@@ -586,8 +586,15 @@ kernel, which measures on the exact geometry and says how (`6 mm between
 planes`, `axis to axis`, `point to plane`, `minimum`). A distance between two
 parallel flat faces is the distance between their planes, between two
 cylinders or circles with parallel axes the distance between the axes, and of
-anything else the least distance. When the kernel refuses (an angle between a
-flat face and a cylinder), nothing is kept and its reason is read out at the
+anything else the least distance. An angle is between flat faces, straight
+edges and the axes of cylinders, cones, tori and circles (`between axes` of two
+bores, `axis to plane` of a bore and a face); a face that is flat, or an edge
+that is straight, within 1e-6 mm but stored as a spline or an extrusion is
+taken too, and its angle is not said to be exact. Before the second click of an
+angle the pointer says, in place of the estimate, when an end is taken by its
+axis (no estimate from the mesh), only if it is flat or straight (a spline),
+or not at all (a sphere); the click is sent all the same. When the kernel
+refuses (an angle to a sphere), nothing is kept and its reason is read out at the
 pointer. `Esc` drops a first click; the tool stays in hand.
 
 **Dimensions.** What the Measure tool leaves is a dimension: a mark (`M4`)
@@ -634,7 +641,7 @@ answer in one line.
 | `kind` | Of | Reply |
 |---|---|---|
 | `distance` | `a` and `b` | mm, the two `points` it is between, and `how` |
-| `angle` | `a` and `b` | degrees: between the outward normals of two flat faces (0 to 180), or between two straight edges, or a straight edge and a flat face (0 to 90) |
+| `angle` | `a` and `b` | degrees: between the outward normals of two flat faces (0 to 180), or between two straight edges or axes, or a straight edge or axis and a flat face (0 to 90); the axis of a cylinder, cone, torus or circle is taken as a line, and a face flat or an edge straight within 1e-6 mm as a plane or a line, not exact |
 | `radius`, `diameter` | a cylindrical, spherical or toroidal face, or a circular edge | mm |
 | `thickness` | a face of a solid, at a point of it (the centre of the face when none is given) | mm, along the inward normal to where the part ends; `moved` says how far the point was from the face before it was laid on it |
 | `bbox` | a part, a face or an edge | `min`, `max`, `size` |

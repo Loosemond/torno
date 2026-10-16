@@ -278,6 +278,57 @@ describe('the measure tool', () => {
     expect(drafts.at(-1)).toEqual({ kind: 'dimension', from: [5, 3, 3], to: null })
   })
 
+  it('in angle mode, says before the click what the kernel takes an angle of only if flat, or never, and gives no estimate of it; a plane has its estimate', async () => {
+    const SPHERE: Described = { kind: 'face', ref: 'assembly:plate/F11', type: 'sphere', area: 50, center: [0, 0, 0], normal: [0, 0, 1], radius: 2, descriptor: 'sphere, 50 mm²' }
+    const SPLINE: Described = { kind: 'face', ref: 'assembly:plate/F12', type: 'bspline', area: 50, center: [0, 0, 0], normal: [0, 0, 1], radius: null, descriptor: 'bspline, 50 mm²' }
+    const ball = (): Hit => ({ ...top(), index: 11, ref: 'plate/F11', normal: [0, 0, -1] })
+    const sheet = (): Hit => ({ ...top(), index: 12, ref: 'plate/F12', normal: [0, 0, -1] })
+    const tool = measureTool()
+    const { ctx, said, committed } = fake({ describe: async (ref) => ({ ...KNOWN, 'plate/F11': SPHERE, 'plate/F12': SPLINE })[ref] ?? null })
+    setBetween('angle')
+    tool.onPointer(pointer('click', [50, 50], top()), ctx)
+    await settled()
+    // A plane: the estimate from the normals.
+    tool.onPointer(pointer('move', [50, 120], bottom()), ctx)
+    await settled()
+    expect(said.at(-1)).toBe('≈ 180° | plate/F0')
+    // A sphere: never, and why, with no estimate.
+    tool.onPointer(pointer('move', [50, 121], ball()), ctx)
+    await settled()
+    expect(said.at(-1)).toBe('Not flat: plate/F11 is a sphere face. An angle needs a flat face, a straight edge or an axis')
+    // A spline face: taken only if it is flat.
+    tool.onPointer(pointer('move', [50, 122], sheet()), ctx)
+    await settled()
+    expect(said.at(-1)).toBe('Taken only if flat: plate/F12 is a bspline face')
+    // A hole: by its axis, which the mesh does not give.
+    tool.onPointer(pointer('move', [50, 123], hole()), ctx)
+    await settled()
+    expect(said.at(-1)).toBe('By its axis: plate/F9 is a cylinder face')
+    // A descriptor already given says it at once, with no estimate meanwhile.
+    const known = fake({ descriptor: (ref) => (ref === 'plate/F12' ? SPLINE.descriptor : undefined), describe: () => new Promise(() => {}) })
+    const other = measureTool()
+    other.onPointer(pointer('click', [50, 50], top()), known.ctx)
+    other.onPointer(pointer('move', [50, 122], sheet()), known.ctx)
+    expect(known.said.at(-1)).toBe('Taken only if flat: plate/F12 is a bspline face')
+    // A hint, not a gate: the click goes to main all the same.
+    tool.onPointer(pointer('click', [50, 121], ball()), ctx)
+    await settled()
+    expect(committed).toMatchObject([{ measure: 'angle', a: { ref: 'plate/F5' }, b: { ref: 'plate/F11' } }])
+  })
+
+  it('in angle mode, says of the first end what the kernel will not take an angle of', async () => {
+    const SPHERE: Described = { kind: 'face', ref: 'assembly:plate/F11', type: 'sphere', area: 50, center: [0, 0, 0], normal: [0, 0, 1], radius: 2, descriptor: 'sphere, 50 mm²' }
+    const ball = (): Hit => ({ ...top(), index: 11, ref: 'plate/F11', normal: [0, 0, -1] })
+    const tool = measureTool()
+    const { ctx, said } = fake({ describe: async (ref) => ({ ...KNOWN, 'plate/F11': SPHERE })[ref] ?? null })
+    setBetween('angle')
+    tool.onPointer(pointer('click', [50, 50], ball()), ctx)
+    await settled()
+    tool.onPointer(pointer('move', [50, 120], bottom()), ctx)
+    await settled()
+    expect(said.at(-1)).toBe('Not flat: plate/F11 is a sphere face. An angle needs a flat face, a straight edge or an axis')
+  })
+
   it('once main has kept it, reads out the kernel’s value in place of the estimate, and takes its draft away', async () => {
     const tool = measureTool()
     const { ctx, drafts, said } = fake()
