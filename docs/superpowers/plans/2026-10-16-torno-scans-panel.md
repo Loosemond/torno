@@ -42,7 +42,9 @@ language), and Issue #21 ("Scans panel: one scan takes most of the left column")
   every task with a message describing the change, ending with
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #21: Every recommendation below holds.
 
 The owner brainstorms each issue: these are the recommendations the tasks are written to. The ones marked
 **(changes tasks)** would change the tasks if answered otherwise.

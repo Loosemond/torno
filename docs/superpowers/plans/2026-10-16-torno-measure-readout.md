@@ -43,7 +43,9 @@ above the keys button between them.
 - Before each commit: `pnpm test`, `pnpm test:kernel`, `(cd kernel && uv run pytest -q)`, `pnpm test:e2e`,
   `pnpm -C app typecheck`, all from the repository root.
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #18: Every recommendation below holds.
 
 Each is a question from the issue's "To brainstorm" list. **(changes tasks)** means a different answer changes the
 tasks below.

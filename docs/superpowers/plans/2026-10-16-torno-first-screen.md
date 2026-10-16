@@ -34,7 +34,9 @@ Main is not touched: the folder dialog already offers to make a folder (`propert
   `pnpm test:e2e`, plus `pnpm -C app typecheck`. Commit after every task; the message ends with
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #15: Every recommendation below holds, but for decision 3, changed: the line under "Open folder" makes no promise about the dialog (Electron's `createDirectory` is macOS only, and the Linux chooser cannot be checked from a test). It reads "An empty folder is fine: torno helps you make the first object."
 
 Each is the issue's "To brainstorm" question, the recommendation, the reason, the alternative. **(changes tasks)**
 marks those whose other answer changes the tasks.
@@ -46,11 +48,10 @@ marks those whose other answer changes the tasks.
 2. **The main idea.** A three-line tree in the monospace face (`objects/` the folder you open, `bracket/` an object,
    `bracket.py` its model), each line with a muted label beside it. It shows the nesting a sentence has to explain.
    Alternative: explain only after a folder is picked (the empty page already does). **(changes tasks)**
-3. **Making the folder.** No new button: one line under "Open folder" says an empty folder is fine and that the
-   dialog can make a new one. The dialog is asked for `createDirectory`, which Electron honours on macOS only;
-   on Linux the GTK or portal chooser has a "Create folder" button of its own (check it once by hand on the owner's
-   desktop before the sentence promises it). A torno-made folder would need a
-   new bridge call, a place to put it and the workspace rule to be widened. Alternative: "Start a new folder for my
+3. **Making the folder.** No new button: one line under "Open folder" says an empty folder is fine ("An empty folder
+   is fine: torno helps you make the first object."). It makes no promise about the dialog: Electron honours
+   `createDirectory` on macOS only, and no test can check the Linux chooser. A torno-made folder would need a new
+   bridge call, a place to put it and the workspace rule to be widened. Alternative: "Start a new folder for my
    objects" (a name field + `workspace.create` in main writing `~/objects`). **(changes tasks: adds a main task,
    a bridge call, a vitest of main and an e2e, and a change to the root CLAUDE.md's write rule)**
 4. **First object.** No jump: an empty folder opens on the page of objects, whose empty state has "New object" as
@@ -82,8 +83,7 @@ A single column centred in the viewport region, `max-width: 34rem`, gaps from th
    - `bracket.py` — "its model, in build123d"
 4. The ways in, `.welcome-ways`:
    - `button button-primary` **"Open folder"** (name kept: README, FolderMenu and the e2e use it).
-   - Under it, `<p class="welcome-note">`: **"An empty folder is fine: the dialog can make a new one, and torno
-     helps you make the first object."**
+   - Under it, `<p class="welcome-note">`: **"An empty folder is fine: torno helps you make the first object."**
    - When `hasExample()`: `button button-quiet` **"Open the example"**, then `<span class="welcome-note">`
      **"A temporary copy, removed when torno quits."** (the `title` tooltip stays as it is).
 5. Problem (unchanged): `<p class="welcome-problem" role="alert">` with "<what> could not be opened: <reason>".
@@ -148,7 +148,7 @@ await expect(says).toContainText('Make CAD parts with an AI agent: it writes the
 const tree = first.getByRole('figure', { name: 'How a folder of objects is laid out' })
 await expect(tree.locator('.num')).toHaveText(['objects/', 'bracket/', 'bracket.py'])
 await expect(tree).toContainText('the folder you open')
-await expect(says).toContainText('An empty folder is fine: the dialog can make a new one, and torno helps you make the first object.')
+await expect(says).toContainText('An empty folder is fine: torno helps you make the first object.')
 await expect(says).toContainText('A temporary copy, removed when torno quits.')
 await expect(says).toContainText('torno writes only into a .torno folder inside each object.')
 await expect(says).not.toContainText('for the keys')

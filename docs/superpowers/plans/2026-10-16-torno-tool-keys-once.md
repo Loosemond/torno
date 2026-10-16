@@ -30,7 +30,9 @@ default; the palette grouped into inspecting and marking tools).
 - Before each commit run all four suites: `pnpm test`, `pnpm test:kernel`, `(cd kernel && uv run pytest -q)`,
   `pnpm test:e2e`, and `pnpm -C app typecheck`.
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #19: Every recommendation below holds.
 
 1. **Enough already?** Recommended: yes, the palette (key on the button, key in the tooltip) and `?` are enough; the
    empty Marks section drops its list. The palette is always on screen beside the view, so the list only repeated

@@ -37,7 +37,9 @@ main checks each id as `update` does. The row's chip is the id alone (`rowLabel`
   `pnpm test:e2e`, and `pnpm -C app typecheck`.
 - Not this plan's: the empty state of Marks (#19), what Measure makes (#18), the scans panel (#21).
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #17: Every recommendation below holds. It lands after #19 (`tool-keys-once`), which changes the empty state of `MarksPanel.tsx`: build on that.
 
 1. **Reading a note in full: the active row opens out.** The active row (clicked, or chosen on the view) shows its
    note wrapped, whole; other rows stay one line. It is where the eye already is and needs no new surface.

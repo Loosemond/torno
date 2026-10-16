@@ -38,7 +38,9 @@ goes on through `openObject` as today.
   list (#19), part groups (#20), the scans panel (#21), chat pictures (#22). This plan only decides whether the Marks
   section is shown on the New object page, not what it says.
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #16: Every recommendation below holds.
 
 1. **What the right pane shows while you make an object.** Recommended: what Claude Code will be given, filled in live
    (the name, whether there is a brief, "3 photos, 1 doodle, 1 scan, 1 object"), under one line that says it starts

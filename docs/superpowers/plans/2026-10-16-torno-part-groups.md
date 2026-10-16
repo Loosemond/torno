@@ -58,7 +58,9 @@ model contract), plus Issue #20 "Groups of parts, for the person and for Claude 
 - Commit after every task, with a message that describes the change and ends with
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #20: Every recommendation below holds. The owner chose decision 2's recommendation: groups are defined in the model (`groups(p)`); no `.torno/groups.json`, no group tools, no "Group" action in the window.
 
 The owner brainstorms each issue. Each decision below gives a recommendation and the main alternative. **[changes tasks]** means
 that the other answer changes the task list.

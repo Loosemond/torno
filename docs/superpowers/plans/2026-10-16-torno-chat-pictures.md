@@ -25,7 +25,9 @@ Everything in the root `CLAUDE.md` and in the `CLAUDE.md` of every folder touche
 - No new npm dependency. Stage explicit paths (never `git add -A`). Commit after every task, ending the message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Before each commit: `pnpm -C app typecheck`, `pnpm test`, `pnpm test:kernel`, `pnpm test:e2e` green (`kernel/` is not touched, so no pytest).
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-16)
+
+Confirmed on #22: Every recommendation below holds. The owner chose decision 4's recommendation: a new session gets one line naming the files in `reference/`, not the pictures. Task 6 (by hand, against the real CLI) stays with the owner: an implementer does not do it.
 
 The owner asked to brainstorm these first. Each one gives a recommendation, the reason, and the main alternative. **(changes tasks)** marks a decision that would change the tasks if it went the other way.
 
