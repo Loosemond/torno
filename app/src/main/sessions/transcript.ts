@@ -138,10 +138,12 @@ export class Transcript {
     this.run(() => {
       const texts: string[] = []
       const images: ChatImage[] = []
-      for (const block of content) {
-        if (block.type === 'text') texts.push(block.text)
-        else if (block.type === 'image') images.push(this.image(block.source.media_type, block.source.data))
-      }
+      content.forEach((block, i) => {
+        // A text that comes right before a picture, after the first text, only names that picture: the window shows the pictures.
+        if (block.type === 'text') {
+          if (texts.length === 0 || content[i + 1]?.type !== 'image') texts.push(block.text)
+        } else if (block.type === 'image') images.push(this.image(block.source.media_type, block.source.data))
+      })
       made = { kind: 'user', id: this.newId('i'), text: this.redact(texts.join('\n')), images, state: this.closed ? 'not-sent' : queued ? 'queued' : 'sent', at: this.now() }
       this.put(made)
       this.keepImages(made.id, images)

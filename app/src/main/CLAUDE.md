@@ -751,7 +751,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   in the text as not attached.
 - A referred object is told as `objectSummary` of its last build in this run (the parts of the first layout and their box,
   `exact` or `approximate` as the kernel's `bboxExact` says) or "not built in this run". Notes are one line each.
-- The answer has `prompt` (as sent, "attached below" for a picture) and `held` (for the composer to hold: every picture
+- Each picture comes after a text block naming it ("Picture 2: reference/doodle-1.png (the person's doodle): <note>",
+  "Picture 3: ../lid/ as torno last drew it (its thumbnail): <note>"), because the CLI gives the model no file name for an
+  image; the main text says "(attached: picture N)". The transcript's user item shows the first text only: a later text
+  right before an image is a caption and is not shown.
+- The answer has `prompt` (as sent, "attached: picture N" for a picture) and `held` (for the composer to hold: every picture
   "not attached: read reference/<file>", a referred object's as `../<name>/.torno/thumb.png`); the window holds
   `held`. The prompt names the scan tools by the adapter's tool names (`scans`, `scan_section`, `scan_clash`,
   `scan_deviation`) and says the person aligns a scan in torno.

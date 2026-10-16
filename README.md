@@ -242,7 +242,7 @@ hold, sizes you know, how it will be made), and then for what you have, each wit
 
 - **Photos** ("Add photos…", or dropped on the page): PNG, JPEG or WebP, at most 12, 25 MB each and 50 megapixels
   (a larger picture is refused with a reason on the card, before it is decoded). HEIC, the iPhone's default, is
-  not read: set the phone to Most compatible, or export as JPEG. Claude gets each one attached to its first prompt,
+  not read: set the phone to Most compatible, or export as JPEG. Claude gets each one attached to its first prompt, after a line naming it ("Picture 1: reference/photo-1.jpg"),
   scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the object.
 - **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
   whichever theme you drew it in, and `reference/` keeps it.

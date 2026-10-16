@@ -129,7 +129,7 @@ describe('onboarding a new object', () => {
     expect(user.text).toContain('This is a new object, cable-clip')
     for (const note of ['the desk', 'the shape', 'the edge', 'mounts on this']) expect(user.text).toContain(note)
     expect(user.text).toContain('Scan S1 "edge.stl"')
-    expect(user.text).toContain('../lid/ (another object of this workspace: not built in this run; its picture is attached below)')
+    expect(user.text).toContain('../lid/ (another object of this workspace: not built in this run; its picture is attached: picture 3)')
     expect(sessions.history(out.sessionId!)!.items.filter((i) => i.kind === 'user')).toHaveLength(1)
 
     // The hook answered this prompt with the context, like any other.
@@ -155,7 +155,7 @@ describe('onboarding a new object', () => {
       const out = await onboardObject(depsOf(sessions), objectId, draft)
       expect(out.problem).toMatch(/Claude Code stopped \(exit code 1\): error: not logged in/)
       expect(out.held).toContain('This is a new object, signed-out')
-      expect(out.held).not.toContain('attached below')
+      expect(out.held).not.toContain('attached: picture')
     } finally {
       delete process.env.FAKE_AGENT_FAIL
     }
@@ -170,7 +170,7 @@ describe('onboarding a new object', () => {
       expect(out.problem).toMatch(/not found on PATH/)
       expect(out.prompt).toContain('This is a new object, no-agent')
       expect(out.prompt).toContain('Scan S1 "edge.stl"')
-      expect(out.held).not.toContain('attached below')
+      expect(out.held).not.toContain('attached: picture')
       expect(lost.current(objectId)).toBeNull()
       expect(readFileSync(join(root, objectId, 'brief.md'), 'utf8')).toContain('the desk')
     } finally {

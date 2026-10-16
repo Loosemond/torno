@@ -193,6 +193,16 @@ describe('what is sent', () => {
     expect(of(t, 'user').map((u) => u.state)).toEqual(['sent', 'sent'])
   })
 
+  it('shows the first text of a prompt and its pictures, and not the captions that come before each picture', () => {
+    const t = new Transcript()
+    const img = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_1X1 } } as const
+    const item = t.userSent([...text('main'), ...text('Picture 1: a.png (the person\'s photo): note'), img, ...text('Picture 2: b.png: x'), img], false)
+    expect(item).toMatchObject({ kind: 'user', text: 'main' })
+    expect((item as { images: unknown[] }).images).toHaveLength(2)
+    // A text, then a picture: the text is the prompt's.
+    expect(t.userSent([...text('look'), img], false)).toMatchObject({ text: 'look' })
+  })
+
   it('stays queued through an init until its own: one queued command becomes sent for each init no hook explains', () => {
     const t = new Transcript()
     t.userSent(text('/a'), true)

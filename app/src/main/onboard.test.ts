@@ -102,26 +102,45 @@ describe('onboardPrompt', () => {
         'A clip that holds a 6 mm cable\nto the edge of a desk.',
         '',
         'What they gave (all of it is also in brief.md; files are in reference/):',
-        '- reference/photo-1.jpg: the desk edge (attached below)',
-        '- reference/doodle-1.png: the shape I want (attached below)',
+        '- reference/photo-1.jpg: the desk edge (attached: picture 1)',
+        '- reference/doodle-1.png: the shape I want (attached: picture 2)',
         '- Scan S1 "desk.stl": the edge, scanned. It is imported into this object and is not aligned: the person aligns it in torno, and mcp__torno__scan_clash and mcp__torno__scan_deviation need that. Read it with mcp__torno__scans and mcp__torno__scan_section.',
         '- Scan "bad.stl": another try. It could not be imported (the file has no triangles); the file is the person\'s to give again.',
-        '- ../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached below): mounts on this',
+        '- ../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3): mounts on this',
         '- ../base/ (another object of this workspace: not built in this run)',
         '',
         'cable_clip.py is torno\'s placeholder (a 20 mm cube). Read brief.md, look at what was given, ask what you need to know, then replace the placeholder with the real model.'
       ].join('\n')
     )
-    expect(blocks).toHaveLength(4)
+    expect(blocks).toHaveLength(7)
     expect(blocks[0]).toEqual({ type: 'text', text })
-    expect(blocks.slice(1).map((b) => (b as { source: { media_type: string } }).source.media_type)).toEqual(['image/jpeg', 'image/png', 'image/png'])
+    expect(blocks.map((b) => b.type)).toEqual(['text', 'text', 'image', 'text', 'image', 'text', 'image'])
+    expect(blocks.filter((b) => b.type === 'text').slice(1)).toEqual([
+      { type: 'text', text: 'Picture 1: reference/photo-1.jpg (the person\'s photo): the desk edge' },
+      { type: 'text', text: 'Picture 2: reference/doodle-1.png (the person\'s doodle): the shape I want' },
+      { type: 'text', text: 'Picture 3: ../lid/ as torno last drew it (its thumbnail): mounts on this' }
+    ])
+    expect(blocks.filter((b) => b.type === 'image').map((b) => (b as { source: { media_type: string } }).source.media_type)).toEqual(['image/jpeg', 'image/png', 'image/png'])
+  })
+
+  it('captions only the pictures that are attached, numbered in order, and folds a note to one line', () => {
+    const { blocks } = onboardPrompt({
+      name: 'x',
+      description: 'd',
+      items: [{ file: 'reference/photo-1.jpg', note: 'no picture' }, { file: 'reference/doodle-1.png', note: 'a\nb', image: image(png(100, 100)) }, { file: 'reference/doodle-2.png', note: '', image: image(png(100, 100)) }],
+      scans: [],
+      objects: []
+    })
+    expect(blocks.map((b) => b.type)).toEqual(['text', 'text', 'image', 'text', 'image'])
+    expect((blocks[1] as { text: string }).text).toBe("Picture 1: reference/doodle-1.png (the person's doodle): a b")
+    expect((blocks[3] as { text: string }).text).toBe("Picture 2: reference/doodle-2.png (the person's doodle)")
   })
 
   it('writes a text to hold that says no picture is attached and names the files of the pictures', () => {
     const { text, held } = onboardPrompt(full())
-    expect(text).toContain('(attached below)')
-    expect(held).not.toContain('attached below')
-    expect(held).not.toContain('is attached')
+    expect(text).toContain('(attached: picture 1)')
+    expect(held).not.toContain('attached: picture')
+    expect(held).not.toContain('Picture 1')
     expect(held).toContain('- reference/photo-1.jpg: the desk edge (not attached: read reference/photo-1.jpg)')
     expect(held).toContain('- reference/doodle-1.png: the shape I want (not attached: read reference/doodle-1.png)')
     expect(held).toContain('; its picture: ../lid/.torno/thumb.png): mounts on this')
@@ -247,13 +266,13 @@ describe('onboardObject', () => {
     expect(out.sessionId).toBe('sess')
     expect(out.problem).toBeUndefined()
     expect(sent).toHaveLength(1)
-    expect(sent[0].blocks.map((b) => b.type)).toEqual(['text', 'image', 'image', 'image'])
+    expect(sent[0].blocks.map((b) => b.type)).toEqual(['text', 'text', 'image', 'text', 'image', 'text', 'image'])
     const text = sent[0].blocks[0].text!
     expect(out.prompt).toBe(text)
-    expect(out.held).not.toContain('attached below')
+    expect(out.held).not.toContain('attached: picture')
     for (const note of ['desk', 'shape', 'the edge', 'mounts on this']) expect(text).toContain(note)
     expect(text).toContain('Scan S1 "desk.stl"')
-    expect(text).toContain('../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached below)')
+    expect(text).toContain('../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3)')
     expect(text).toContain('../base/ (another object of this workspace: not built in this run)')
   })
 

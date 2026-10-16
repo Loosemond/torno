@@ -123,25 +123,27 @@ const imageBlock = (image: ImageBytes): PromptBlock => ({ type: 'image', source:
 const CLAUDE_TOOL = (tool: string): string => `mcp__torno__${tool}`
 
 /**
- * The first prompt of a new object: the text, then the pictures it says are attached, at most 6 in all. `held` is
+ * The first prompt of a new object: the text, then the pictures it says are attached, at most 6 in all, each after a line of text that names it
+ * ("Picture 2: reference/doodle-1.png (the person's doodle): <note>"): the CLI gives the model no file name for an image. `held` is
  * the same text for a prompt that is not sent with its pictures (the composer holds it): each picture is named by
  * its file and says it is not attached, and a referred object's picture by the file it is in.
  */
 export function onboardPrompt(input: PromptInput, toolName: (tool: string) => string = CLAUDE_TOOL): { text: string; held: string; blocks: PromptBlock[] } {
-  const images: ImageBytes[] = []
-  /** Whether a picture fits in the prompt; it is attached when it does. */
-  const attach = (image: ImageBytes | undefined): boolean => {
-    if (!image || images.length >= MOST_IMAGES) return false
-    images.push(image)
-    return true
-  }
+  const images: Array<{ image: ImageBytes; caption: (n: number) => string }> = []
   const said = (note: string): string => oneLine(note, 'note')
-  const attached = input.items.map((item) => attach(item.image))
-  const pictured = input.objects.map((other) => (other.thumb ? attach(other.thumb) : false))
+  /** The number of the picture when it fits in the prompt (it is attached then), else none. */
+  const attach = (image: ImageBytes | undefined, what: string, note: string): number | null => {
+    if (!image || images.length >= MOST_IMAGES) return null
+    const line = said(note)
+    images.push({ image, caption: (n) => `Picture ${n}: ${what}${line === '' ? '' : `: ${line}`}` })
+    return images.length
+  }
+  const attached = input.items.map((item) => attach(item.image, `${item.file} (the person's ${item.file.startsWith('reference/doodle') ? 'doodle' : 'photo'})`, item.note))
+  const pictured = input.objects.map((other) => (other.thumb ? attach(other.thumb, `../${said(other.name)}/ as torno last drew it (its thumbnail)`, other.note) : null))
   const compose = (held: boolean): string => {
     const lines: string[] = []
     input.items.forEach((item, i) => {
-      const tail = attached[i] && !held ? ' (attached below)' : ` (not attached: read ${item.file})`
+      const tail = attached[i] !== null && !held ? ` (attached: picture ${attached[i]})` : ` (not attached: read ${item.file})`
       lines.push(`- ${item.file}${said(item.note) === '' ? '' : `: ${said(item.note)}`}${tail}`)
     })
     for (const scan of input.scans) {
@@ -156,7 +158,7 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
     }
     input.objects.forEach((other, i) => {
       const name = said(other.name)
-      const picture = !other.thumb ? '' : held ? `; its picture: ../${name}/.torno/thumb.png` : pictured[i] ? '; its picture is attached below' : '; its picture is not attached'
+      const picture = !other.thumb ? '' : held ? `; its picture: ../${name}/.torno/thumb.png` : pictured[i] !== null ? `; its picture is attached: picture ${pictured[i]}` : '; its picture is not attached'
       const note = said(other.note)
       lines.push(`- ../${name}/ (another object of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
     })
@@ -170,7 +172,7 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
     ].join('\n')
   }
   const text = compose(false)
-  return { text, held: compose(true), blocks: [{ type: 'text', text }, ...images.map(imageBlock)] }
+  return { text, held: compose(true), blocks: [{ type: 'text', text }, ...images.flatMap((p, i): PromptBlock[] => [{ type: 'text', text: p.caption(i + 1) }, imageBlock(p.image)])] }
 }
 
 export interface OnboardDeps {
