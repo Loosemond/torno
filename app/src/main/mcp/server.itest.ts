@@ -113,7 +113,7 @@ afterEach(async () => {
 
 afterAll(() => http.close())
 
-const ALL = ['add_mark', 'check', 'describe', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show']
+const ALL = ['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show']
 /** The least each tool can be called with. */
 const MINIMAL: Record<string, Record<string, unknown>> = {
   scene: {},

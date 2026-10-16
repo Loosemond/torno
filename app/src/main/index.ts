@@ -11,7 +11,7 @@ import { copyExample, exampleSource, removeExample, sweepExamples } from './exam
 import { type Config, configOf, listed, recentWith, recentWithout } from './recent'
 import { startHttp } from './http'
 import { contextFor } from './context'
-import { buildState, closeWorkspace, findObject, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
+import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart } from './kernel/client'
 import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
@@ -292,6 +292,7 @@ const toolDeps: ToolDeps = {
   object: findObject,
   build: buildState,
   scene: lastScene,
+  scenes: keptScenes,
   // A view reported for an object stays on record after the window has moved on to another.
   view: (id) => (openObjectId() === id ? latestView(id) : undefined),
   openObjectId,
