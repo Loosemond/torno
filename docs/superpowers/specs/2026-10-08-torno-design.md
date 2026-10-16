@@ -92,8 +92,7 @@ In each object folder, `.torno/`:
   marks.json          all marks, open and resolved
   scene.json          layer visibility, colours, the section, how far each layout is exploded, the saved views
   thumb.png, thumb.json  a picture of the last build, for the page of objects
-  agent.json          which agent this object's sessions run
-  prompt.md           what an agent without hooks is told when the person sends their marks
+  agent.json          the view of this object's sessions, chat or terminal (Claude Code only since 2026-10-16)
   exports/            HTML files the person exported (ignored by git)
   scans.json          every scan: its source (path, size, hash), how it was imported, one transform per layout
   scans/<id>/         mesh.bin (the scan, in mm, Z up) and one .mask per region painted on it

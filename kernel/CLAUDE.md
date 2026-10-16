@@ -79,6 +79,12 @@ is the detail of this folder, under the headings it has there.
   told `exact: false`. `thin` is never exact: the wall along the inward normal at 5 × 5 points of each face, in
   10 s at most (`THIN_BUDGET`, then `sampling.complete` false). `bed` is the layout's box from the parts' boxes
   (`tess.part_box`), exact only when every one of them is.
+- An angle (`measure.py` `_angle`) is exact between planes, lines and the axes of cylinders, cones, tori and
+  circles (`_round_axis`). A face of another type that `GeomLib_IsPlanarSurface` finds flat within 1e-6 mm, or an
+  edge whose 129 sampled points are within 1e-6 mm of the line through its ends (`_flat`, `_straight`), is taken
+  for a plane or a line, and the angle is then `exact: false`, `how` ending `flat` or `straight within 1e-6 mm`.
+  One that is not is refused as `curved: an extrusion face that is not flat`. The exact `_plane` and `_line` are
+  what distances use.
 - `measure`'s `moved`, on a thickness, is how far the given point was from
   the face it was laid on; it says nothing of the value's precision.
 

@@ -1015,7 +1015,9 @@ kernel on the model's own B-rep, never on the mesh on screen. A reply says
 `exact: true` when the value is exact; otherwise the reading starts with `≈`
 and says `approximate`, and `how` says why.
 
-- Distances, angles, radii, diameters and thicknesses are exact.
+- Distances, angles, radii, diameters and thicknesses are exact. An angle to a
+  face or an edge that is flat or straight only within 1e-6 mm (a B-spline, a
+  surface of extrusion) is not: `how` ends `flat within 1e-6 mm`.
 - A volume is exact only of a part all of whose faces are planes, cylinders,
   cones, spheres and tori. Of any other part (a loft, a spline, an offset) it
   is integrated and never said to be exact: `≈`, `volumeExact: false` in

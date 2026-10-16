@@ -47,7 +47,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   table: it is another program. The Measure tool is `tools/measureTool.ts`;
   what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
-  `ui/DimensionFields.tsx`. A tool is a `Tool`
+  `ui/DimensionFields.tsx`. In Angle, before the second click, an end the kernel takes by its axis, only if
+  flat or straight, or never (`angleTaking`, by the descriptor's type, the kernel's rule) is said at the pointer
+  in place of the `≈` estimate; it is a hint, never a gate: the click is sent whatever it says. A tool is a `Tool`
   (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
