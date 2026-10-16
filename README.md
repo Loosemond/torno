@@ -25,8 +25,8 @@ Linux. Developed on Arch with Wayland (Hyprland); nothing else has been tried.
 - Node.js 22.12 or later (developed with 26) and pnpm 10
 - [uv](https://docs.astral.sh/uv/)
 - Python 3.11 or 3.12 (uv fetches one if none is installed)
-- An agent CLI on `PATH`, logged in: `claude` (Claude Code), or `copilot`
-  (Copilot CLI; see [Choosing an agent](#choosing-an-agent))
+- Claude Code (`claude`) on `PATH`, logged in (see [What Claude Code is
+  given](#what-claude-code-is-given))
 - A workspace: a folder of objects, each a subfolder with a Python model in
   it. If the workspace has a `pyproject.toml`, its environment must already
   exist and hold build123d (`uv sync` there once, yourself). Torno runs the
@@ -106,10 +106,8 @@ opens it, asking first if a session there is in the middle of its work.
 Torno has no menu. The window is closed through the window manager, which
 ends torno and the sessions in it. When that would cut something short, torno
 asks first ("Close torno?", with "Keep it open" in focus): a session working or
-waiting for an answer, a session of an agent that does not say what it is
-doing (Copilot CLI), a line of "Send marks" at a prompt and not sent, a region
-painted on a scan and not kept, a scan being imported or an export being
-written. With none of that it closes at once. `Ctrl+Q`, `Ctrl+W`, `F11` and
+waiting for an answer, a region painted on a scan and not kept, a scan being
+imported or an export being written. With none of that it closes at once. `Ctrl+Q`, `Ctrl+W`, `F11` and
 the zoom shortcuts do not exist. For work on torno itself, `pnpm dev` runs the app from
 the Vite dev server, where `F5` and `Ctrl+R` reload the window.
 
@@ -291,14 +289,13 @@ does closing the window ("A new object is set up here and not made yet"). Nothin
 
 ## The agent
 
-Each object has its own session: the agent's CLI running in the object's
-folder. Claude Code opens in a chat, a pane of torno's own; Copilot CLI, and
-Claude Code when you switch to it, in a terminal. It keeps running while
-another object is shown. "New session"
+Each object has its own session: Claude Code running in the object's folder.
+It opens in a chat, a pane of torno's own, or in a terminal when you switch to
+it. It keeps running while another object is shown. "New session"
 starts one, in place of the session running there, if any; torno asks first if
-that one may be in the middle of its work. "End" ends the session and starts
+that one is in the middle of its work. "End" ends the session and starts
 none, asking first in the same way. "Resume" continues the last
-conversation that agent had there. ``Ctrl+` `` moves between the session and
+conversation Claude Code had there. ``Ctrl+` `` moves between the session and
 the viewport. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
 `Ctrl+Shift+V` copy and paste.
 
@@ -356,23 +353,25 @@ kept in `.torno/agent.json`. What the chat showed is kept as text in
 conversation"; pictures are never written, and say "Picture not kept" after the
 session.
 
-### Choosing an agent
+### What Claude Code is given
 
-The agent of an object is chosen in the header of the session pane and kept in
-`.torno/agent.json`; without that file it is Claude Code. One whose command is
-not on `PATH` is listed as `(not installed)`. Choosing another while a session
-runs asks, ends that session and starts none. Torno reads and changes nothing
-of an agent's own settings; everything it gives an agent is on the command
-line, in the environment, or under `.torno/agent/`.
+Torno runs Claude Code, and reads and changes nothing of its settings:
+everything it gives it is on the command line or in the environment.
 
-| | Claude Code (`claude`) | Copilot CLI (`copilot`) |
-|---|---|---|
-| Torno's tools | `--mcp-config`, `--allowedTools mcp__torno__*` | `--additional-mcp-config`, `--allow-tool=torno` |
-| Torno's instructions | `--append-system-prompt`, and torno's skills with `--plugin-dir` | `.torno/agent/AGENTS.md`, named by `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
-| Hooks | `--settings`: it posts them to torno | none |
-| What you marked | goes with your next prompt, by itself | "Send marks" writes `.torno/prompt.md` and puts a line at the prompt for you to send |
-| When a mark counts as sent | when the prompt's hook has been answered with it | when you press Enter with torno's line shown at the prompt and nothing typed after it |
-| Status shown | idle, working, needs input, ended | running, ended |
+- Torno's tools: `--mcp-config`, `--allowedTools mcp__torno__*`.
+- Torno's instructions: `--append-system-prompt`, and torno's skills with
+  `--plugin-dir`.
+- Hooks: `--settings`; it posts them to torno, which follows its status by
+  them (idle, working, needs input, ended) and adds to its prompts.
+- What you marked goes with your next prompt, by itself, and counts as sent
+  once the prompt's hook has been answered with it.
+
+`.torno/agent.json` keeps the view, chat or terminal, with `"agent":
+"claude"`. A file that names another agent is not followed: Claude Code is
+used, in the chat, and the pane says so, with "Use Claude Code" to write the
+file anew. One that names Copilot CLI, which torno also ran until 16 October
+2026, says that torno no longer supports it. The `.torno/prompt.md` and
+`.torno/agent/` such sessions left are neither read nor removed.
 
 Claude Code is also given torno's skills, a plugin that comes with torno
 (`app/resources/agent-plugin`) and is loaded for that session only, with
@@ -382,10 +381,9 @@ contract in full (which file, `Params`, `assembly`, `printables`, `make_<part>`)
 with a template; `torno:build123d` the idioms of build123d 0.13 and its usual
 failures (fillets, booleans, `StdFail_NotDone`) and how to read the installed
 version's help offline; `torno:scans` and `torno:dimensions` what the
-instructions say of scans and of dimensions for an agent without skills. So
-Claude Code's instructions are shorter: they keep what torno is, refs, marks,
-the loop and the model file in short, and name the skills. Copilot CLI has no
-skills and is told all of it.
+instructions would otherwise say of scans and of dimensions. So Claude Code's
+instructions are shorter: they keep what torno is, refs, marks, the loop and
+the model file in short, and name the skills.
 
 Claude Code is also given a subagent, `torno-reviewer`, on its command line
 (`--agents`; nothing is written to `.claude/agents/`). It has only the tools
@@ -395,7 +393,7 @@ every open mark and every dimension, and reports what holds and what does not
 with numbers from `measure`. It changes nothing. Claude Code is told to call
 it after a change of several steps, before saying it is done.
 
-With Claude Code the status follows the hooks it posts: `UserPromptSubmit`,
+The status follows the hooks Claude Code posts: `UserPromptSubmit`,
 `PreToolUse` and `PostToolUse` mean working, `Stop` idle, `PermissionRequest`
 and a `Notification` that asks something needs input. A `Notification` that
 only says Claude Code has been waiting at its prompt for a while (or has
@@ -417,28 +415,9 @@ Claude Code writes it to `~/.claude/settings.json`, torno's or not. The model
 menu of the chat does not; nor does starting torno with
 `TORNO_AGENT_CMD="claude --model sonnet"`, which saves nothing.
 
-Copilot CLI posts no hooks, so torno cannot add to its prompts and cannot see
-what it is doing. Its instructions tell it to read `.torno/state.md` at the
-start of each task. When you have left marks, the pane offers "Send marks
-(2)": it writes what a hook would have carried to `.torno/prompt.md` and
-pastes one line at the prompt, such as `torno: 2 new marks (M1, M2) and the
-build status are in .torno/prompt.md. Read it first.` Nothing is sent until
-you press Enter, and the marks turn to sent only if that Enter came with the
-line shown at the agent's prompt and nothing typed or pasted after it.
-Otherwise they stay drafts, the pane says why, and the button is offered
-again: so send torno's line alone, then your own, and not while a question of
-the agent's is up. Torno then knows that the line left with your Enter, never
-that the agent read the file, and the pane says so. Copilot CLI is not started
-in an object whose path has a comma. Like Claude Code it asks whether to
-trust the folder; it may name a folder above the object, and asks again at
-every "Resume" unless you choose to remember the answer. It has been run
-against the real CLI once; what is still to try is in [the last
-section](#not-yet-verified-on-a-visible-screen).
-
 ### What the agent is told
 
-With every prompt (Claude Code), or in `.torno/prompt.md` ("Send marks"), a
-few lines:
+With every prompt, a few lines:
 
 ```
 [torno] bracket · build ok · r3 (1.2 s) · layout assembly · parts: base, post.
@@ -998,11 +977,9 @@ place.
 | `marks.json` | the marks of the object: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
 | `scans.json` | the scans of the object: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
-| `agent.json` | the agent the object's sessions run, and whether Claude Code is shown as a chat or a terminal; without it, Claude Code in a chat | travels |
+| `agent.json` | whether Claude Code is shown as a chat or a terminal; without it, in a chat | travels |
 | `chat/<conversation>.jsonl` | what a chat session said and did, as text; no picture data, no address | ignored |
-| `session.json` | the conversation to resume, and the agent it is of | ignored |
-| `agent/` | what torno tells an agent that takes no system prompt on its command line (`AGENTS.md` for Copilot CLI) | ignored |
-| `prompt.md` | what "Send marks" last wrote for an agent without hooks; one line saying there is nothing new when a session of such an agent starts or ends | ignored |
+| `session.json` | the conversation to resume | ignored |
 | `state.md` | the build, the parts, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
 | `views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 | ignored (a picture of a scan may show the real world) |
@@ -1012,9 +989,9 @@ place.
 adds lines to and never rewrites; a line you negate there (`!state.md`) is
 yours, and is not added against. What travels with the object in git is what
 is the object's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
-What changes with every build, session or send, or is of this machine, is
-ignored: `state.md`, `session.json`, `chat/`, `prompt.md`, `agent/`, the thumbnail,
-`views/` and `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
+What changes with every build or session, or is of this machine, is
+ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `views/` and
+`exports/`. Add `.torno/` to the workspace's `.gitignore` if you
 want none of it in git.
 
 Outside the workspace:
@@ -1135,13 +1112,11 @@ build is not built again until a source changes.
 - **Nothing is kept of an object: no mark, no view, no picture.** Its `.torno`
   is a link or a file; the Marks panel says so. Put a real folder in its place.
   A link in the place of `.torno/views`, `.torno/exports`, `.torno/scans` or
-  `.torno/agent` stops only what goes there (the agent's pictures, an export,
-  the scans, a session of an agent that reads its instructions from a file):
-  torno writes nothing through it and deletes nothing behind it. Take the
-  link away.
-- **The agent is listed as `(not installed)`, or "New session" says its
-  command was not found on PATH.** Torno looks for `claude` or `copilot` on
-  the `PATH` it was started with. Started from a desktop launcher, that may
+  `.torno/chat` stops only what goes there (the agent's pictures, an export,
+  the scans, the log of a chat): torno writes nothing through it and deletes
+  nothing behind it. Take the link away.
+- **"New session" says the agent's command was not found on PATH.** Torno
+  looks for `claude` on the `PATH` it was started with. Started from a desktop launcher, that may
   not be your shell's: start torno from a terminal, or set
   `TORNO_AGENT_CMD`.
 - **The window does not come up, or stays blank.** Try
@@ -1160,8 +1135,6 @@ build is not built again until a source changes.
   or Safari with hardware acceleration on. `firefox --headless --screenshot`
   takes its picture before the first frame is drawn, so it shows the page
   without its parts: that is the screenshot, not the page.
-- **Marks stay drafts with Copilot CLI.** They are sent only by an Enter with
-  torno's line alone at the prompt; the pane says why they were not.
 - **`TORNO_DEBUG=1`** prints the workspace opened at start, the address of
   the MCP server, and the command line and hooks of every session.
 
@@ -1186,7 +1159,7 @@ code: its table of keys, and the tools it names.
 | Variable | Effect |
 |---|---|
 | `TORNO_WORKSPACE=<path>` | the workspace to open at start, instead of the one remembered. `scripts/torno <path>` sets it. |
-| `TORNO_AGENT_CMD=<cmd>` | the command to run for a session in place of the command of whichever agent is chosen (`claude`, `copilot`), split on spaces and given that agent's arguments: `TORNO_AGENT_CMD="claude --model sonnet"` |
+| `TORNO_AGENT_CMD=<cmd>` | the command to run for a session in place of `claude`, split on spaces and given Claude Code's arguments: `TORNO_AGENT_CMD="claude --model sonnet"` |
 | `TORNO_BUILD_TIMEOUT=<seconds>` | how long a build may run before it is stopped: 600 by default, a day at most |
 | `TORNO_OZONE=wayland` or `x11` | read by `scripts/torno` only: the platform Electron is told to draw on. Unset, Electron chooses. |
 | `TORNO_CONFIG=<path>` | the config file to use instead of `~/.config/torno/config.json` |
@@ -1205,7 +1178,7 @@ for the agent.
 
 **Verified on a real compositor output (Hyprland, NVIDIA; the session was
 locked, so not by eye).** On 10 October 2026 torno ran as a real, mapped window
-on a Hyprland output, on Wayland and on X11, with the real agents; what it drew
+on a Hyprland output, on Wayland and on X11, with the real agent; what it drew
 was taken from the compositor and looked at afterwards. The first start drew
 the parts on the GPU at 60 frames a second on both platforms. Only one torno:
 a second start exited and the first opened the folder it was given. There is
@@ -1219,10 +1192,7 @@ brought up the sheet of keys. Left alone for five minutes with a large object
 open, torno's memory stayed flat and its processes idled near zero. With
 Claude Code a pin was told with the next prompt and turned from draft to sent,
 and `scene`, `look`, `marks`, `save_view` and `add_mark` ran without a
-permission question. With Copilot CLI `/mcp` listed torno, the instructions in
-`.torno/agent/` were read, a tool of torno's ran without a question, "Send
-marks" and Enter sent a pin, "Resume" continued the conversation, and nothing
-was left outside `.torno/`. What that run found wrong is mended: closing the
+permission question. What that run found wrong is mended: closing the
 window now asks first when something would be cut short, the Marks list no
 longer runs out of its column when a mark has moved, "Needs input" is no longer
 shown while Claude Code is only idle, a session can be ended from its header,
@@ -1249,12 +1219,12 @@ On the screen:
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
 - **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large object it did; with a session working nobody has watched it.
 - **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
-- **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. An agent whose command is only on the `PATH` of a login shell is listed as not installed there: start torno from a terminal, or put the command on the launcher's `PATH`.
+- **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. With `claude` only on the `PATH` of a login shell, "New session" says it was not found there: start torno from a terminal, or put the command on the launcher's `PATH`.
 
 With a real agent:
 
 - **Claude Code and the trust question.** In a folder never opened before, with a `.claude/settings.json` that holds a hook (or a `.mcp.json`), either in the object or in a folder above it: "New session" asks "Start the chat anyway?" and starts nothing; "Start the chat" starts it (and the hook runs, as Claude Code's documentation says it does without a question when run non-interactively), and the next session there is not asked; "Use the terminal" shows Claude Code's own trust question. The measuring on 2026-10-15 (Claude Code 2.1.300) only read the documentation for this.
-- **The prompts in the command menu.** In a chat, type `/mcp`: `/mcp__torno__review`, `/mcp__torno__printable` and `/mcp__torno__explain` are offered, and choosing one sends it; the stand-in names none of them, so no test has seen them in Claude Code's own list. Whether Copilot CLI offers them, and under what name, is to be seen too; their text names the tools as Claude Code does.
+- **The prompts in the command menu.** In a chat, type `/mcp`: `/mcp__torno__review`, `/mcp__torno__printable` and `/mcp__torno__explain` are offered, and choosing one sends it; the stand-in names none of them, so no test has seen them in Claude Code's own list.
 - **A failed or old Claude Code in the chat.** A `claude` that does not know one of the chat's flags, or is signed out: the pane says "Claude Code stopped (exit code 1)" with the last line it wrote, and "It did not start: is `claude` up to date and signed in?". Not yet seen with a real old CLI; the stand-in prints to stderr and exits 1.
 - **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.
 - **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
@@ -1262,6 +1232,3 @@ With a real agent:
 - **Claude Code and torno's skills.** `--plugin-dir` works under `-p` (chat) and in the terminal view: in each, `/skills` (or asking the agent) lists `torno:torno-model`, `torno:build123d`, `torno:scans` and `torno:dimensions`, a model written in an empty object uses `torno-model` and builds with both layouts on the first try, and nothing was written under `~/.claude` or in the object's `.claude/`. The stand-in only shows the flag is passed.
 - **The torno-reviewer subagent.** One run with the real CLI, in chat and in the terminal: after a change of several steps Claude Code calls `torno-reviewer`, which uses only its read-only tools, reports with numbers from `measure` and changes nothing; whether the subagent's MCP calls go through `--allowedTools 'mcp__torno__*'` without a permission prompt; and that an invalid `--agents` would have stopped the start (it did not). The stand-in only shows the argument is passed.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
-- **Copilot CLI: what must not send.** "Send marks" while its trust question is up, then Enter; "Send marks", then type ` see @` and Enter; "Send marks", then paste two lines: each time the mark stays a draft and the pane says why.
-- **Copilot CLI: Shift+Enter.** Torno writes Esc Enter: a new line, or a send? Torno takes it for a change of the line either way.
-- **Copilot CLI: resume after `/clear`.** After `/clear` inside Copilot, "Resume" still resumes the conversation torno started: torno cannot see a new one.

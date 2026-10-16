@@ -1,7 +1,7 @@
 /**
- * What every agent torno starts is told of torno. A tool is written here as
- * Claude Code names it to its model (`mcp__torno__scene`); `systemPrompt`
- * writes it as another client does.
+ * What Claude Code is told of torno. A tool is written here as Claude Code
+ * names it to its model (`mcp__torno__scene`); `systemPrompt` writes it as
+ * it is given.
  */
 
 /** What the text says of scans: for Claude Code, the skill `torno:scans` says it, to the letter (`prompt.test.ts`). */
@@ -73,40 +73,15 @@ const text = (skills: boolean): string => [
 const CLAUDE_TOOL = /mcp__torno__([a-z_]+)/g
 
 /**
- * What the text says of things that arrive with a prompt, and what is said in its place to an agent that posts
- * no hooks, to which nothing arrives: it reads them in `.torno/prompt.md`.
+ * The system prompt, with torno's tools named by `toolName`. Given torno's skills (`skills`: Claude Code with
+ * `--plugin-dir`) what the skills say of scans and dimensions is left to them.
  */
-const WITHOUT_HOOKS: ReadonlyArray<[string, string]> = [
-  ['New marks arrive with the prompt, a line each;', 'New marks are in .torno/prompt.md when the user sends a line that begins with "torno:", a line each;'],
-  ['are listed under "Dimensions (measured on rN):" with every prompt until they pass', 'are listed under "Dimensions (measured on rN):" in .torno/prompt.md whenever it is written, until they pass'],
-  ['The build result of an edit of the model comes back with the edit;', 'After every edit, check the build status with mcp__torno__scene, and']
-]
-
-/**
- * The system prompt, with torno's tools named as an agent's client names them. For an agent that posts no
- * hooks (`hooks` false) it never says that anything goes with a prompt. For an agent given torno's skills
- * (`skills`: Claude Code with `--plugin-dir`) what the skills say of scans and dimensions is left to them.
- */
-export function systemPrompt(toolName: (tool: string) => string, hooks = true, skills = false): string {
-  let said = text(skills)
-  if (!hooks) {
-    for (const [was, instead] of WITHOUT_HOOKS) {
-      if (!said.includes(was)) throw new Error(`the system prompt no longer says: ${was}`)
-      said = said.replace(was, instead)
-    }
-  }
-  return said.replace(CLAUDE_TOOL, (_all, tool: string) => toolName(tool))
+export function systemPrompt(toolName: (tool: string) => string, skills = false): string {
+  return text(skills).replace(CLAUDE_TOOL, (_all, tool: string) => toolName(tool))
 }
 
 /** Appended to Claude Code's system prompt in every session torno starts, with torno's skills beside it. */
-export const SYSTEM_PROMPT = systemPrompt((tool) => `mcp__torno__${tool}`, true, true)
+export const SYSTEM_PROMPT = systemPrompt((tool) => `mcp__torno__${tool}`, true)
 
-/** The whole text, tools named as Claude Code names them: what an agent without skills is told (Copilot CLI's, in other names). */
+/** The whole text: what Claude Code is told when it is started without torno's skills (no plugin folder). */
 export const FULL_PROMPT = systemPrompt((tool) => `mcp__torno__${tool}`)
-
-/**
- * Added for an agent that posts no hooks: nothing goes with its prompts, so it
- * is told where to read what a hook would have carried.
- */
-export const NO_HOOKS_PROMPT =
-  'torno cannot add to your prompts in this CLI. When the user sends a line that begins with "torno:", read the file .torno/prompt.md in this folder before anything else: it holds the build status, what is on their screen and the marks they have just made. .torno/state.md always holds the build, the parts and every open mark as text. At the start of each task read .torno/state.md, since nothing is pushed to you. Read these two files only; never write in .torno/.'

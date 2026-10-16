@@ -2,19 +2,30 @@ import { describe, expect, it } from 'vitest'
 import { TOOLS } from './mcp/schemas'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DIMENSIONS_TEXT, FULL_PROMPT, NO_HOOKS_PROMPT, SCANS_TEXT, SYSTEM_PROMPT, systemPrompt } from './prompt'
+import { DIMENSIONS_TEXT, FULL_PROMPT, SCANS_TEXT, SYSTEM_PROMPT, systemPrompt } from './prompt'
 
-// The whole text, as an agent without skills (Copilot CLI) is told it; Claude Code's is below.
+// The whole text, as Claude Code is told it when it is not given torno's skills; with them, below.
 describe('the system prompt', () => {
   it('says what each thing means that a prompt may say of a mark, and what its other lines are', () => {
     // As `contextFor` and `describeMark` write them.
     for (const said of ['(changed)', 'reopened by the user', '[not checked against rN]', '"Selected:"', '"Marks still open"']) expect(FULL_PROMPT).toContain(said)
   })
 
-  it('says the build comes back with an edit, and still to look; only an agent without hooks is told to check scene after every edit', () => {
+  it('says the build comes back with an edit, and still to look', () => {
     expect(SYSTEM_PROMPT).toContain('The build result of an edit of the model comes back with the edit; look at the result before saying it is done.')
     expect(SYSTEM_PROMPT).not.toContain('After every edit, always check the build status with scene')
-    expect(systemPrompt((tool) => `the torno tool ${tool}`, false)).toContain('After every edit, check the build status with the torno tool scene, and look at the result before saying it is done.')
+  })
+
+  it('says that new marks and the dimensions that fail come with the prompt, as the tools that read them say', () => {
+    expect(FULL_PROMPT).toContain('New marks arrive with the prompt')
+    expect(FULL_PROMPT).toContain('with every prompt until they pass')
+    expect(TOOLS.marks.description).toContain('new ones are told to you with the prompt, a line each')
+    expect(TOOLS.add_mark.description).toContain('it is told to you again with every prompt for as long as it fails')
+  })
+
+  it('names the tools as it is told to', () => {
+    expect(systemPrompt((tool) => `torno.${tool}`)).toContain('torno.scene reports the build status')
+    expect(systemPrompt((tool) => `torno.${tool}`)).not.toContain('mcp__torno__')
   })
 
   it('says of a mark told as changed that it may have been moved: one put somewhere else is told so too', () => {
@@ -96,49 +107,12 @@ describe('the system prompt', () => {
   })
 })
 
-// Final fix wave (I5): what is told to an agent that posts no hooks never says that anything comes with its prompts.
-describe('what an agent without hooks is told', () => {
-  const WITH_A_PROMPT = /with (the|every|each|your|its) (next )?prompts?|with a prompt(?!, or in \.torno\/prompt\.md)/i
-  const hookless = `${systemPrompt((tool) => `the torno tool ${tool}`, false)}\n\n${NO_HOOKS_PROMPT}`
-
-  it('is its instructions, which never say that something arrives with a prompt, and stay short', () => {
-    expect(hookless).not.toMatch(WITH_A_PROMPT)
-    expect(hookless).not.toMatch(/arrive|pushed to you with/)
-    // AGENTS.md is read into every conversation of that agent: the prompt's own bound, the tool names in words, and the paragraph on the two files.
-    expect(hookless.length).toBeLessThan(8200)
-    expect(NO_HOOKS_PROMPT.length).toBeLessThan(500)
-  })
-
-  it('and the tools, whose descriptions are the same for every agent: none says so either', () => {
-    const texts: string[] = []
-    const walk = (value: unknown): void => {
-      if (typeof value === 'string') texts.push(value)
-      else if (typeof value === 'object' && value !== null) {
-        const described = (value as { description?: unknown }).description
-        if (typeof described === 'string') texts.push(described)
-        for (const inner of Object.values(value)) if (typeof inner === 'object' && inner !== null) walk(inner)
-      }
-    }
-    walk(TOOLS)
-    expect(texts.length).toBeGreaterThan(60)
-    for (const text of texts) expect(text, text).not.toMatch(WITH_A_PROMPT)
-    // Said so that it is true of both kinds of agent.
-    expect(TOOLS.marks.description).toContain('new ones are told to you as a line each (with a prompt, or in .torno/prompt.md)')
-    expect(TOOLS.add_mark.description).toContain('it is told to you again for as long as it fails (with a prompt, or in .torno/prompt.md)')
-  })
-
-  it('while one with hooks is told that they do', () => {
-    expect(FULL_PROMPT).toContain('New marks arrive with the prompt')
-    expect(FULL_PROMPT).toContain('with every prompt until they pass')
-  })
-})
-
 // #4: Claude Code is given torno's skills (`resources/agent-plugin`), and its prompt leaves to them what they say.
 describe("Claude Code's prompt, with the skills", () => {
   const skill = (name: string) => readFileSync(join(__dirname, '../../resources/agent-plugin/skills', name, 'SKILL.md'), 'utf8')
 
   it('is the whole text without the scans and the dimensions, noticeably shorter', () => {
-    expect(systemPrompt((tool) => `mcp__torno__${tool}`, true, true)).toBe(SYSTEM_PROMPT)
+    expect(systemPrompt((tool) => `mcp__torno__${tool}`, true)).toBe(SYSTEM_PROMPT)
     expect(SYSTEM_PROMPT.length).toBeLessThan(6400)
     expect(FULL_PROMPT.length - SYSTEM_PROMPT.length).toBeGreaterThan(1000)
     for (const sentence of [...SCANS_TEXT, ...DIMENSIONS_TEXT]) {
@@ -149,7 +123,7 @@ describe("Claude Code's prompt, with the skills", () => {
 
   it('names each skill, and keeps what every prompt needs to be read: dimensions listed, scans, refs, the contract', () => {
     for (const named of ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions']) expect(SYSTEM_PROMPT).toContain(named)
-    // #6: when to ask the reviewer subagent Claude Code is given with --agents; the agent without one is not told of it.
+    // #6: when to ask the reviewer subagent Claude Code is given with --agents; the whole text, of a session without the skills, does not name it.
     expect(SYSTEM_PROMPT).toContain('After a change of several steps, before saying it is done, have the torno-reviewer subagent check it')
     expect(FULL_PROMPT).not.toContain('torno-reviewer')
     for (const said of ['"Dimensions (measured on rN):" with every prompt until they pass', 'A scan (S1, S2)', 'nothing taken from it is exact', 'New marks arrive with the prompt', 'a class Params (made with no arguments)', 'mcp__torno__measure {"kind": "distance"']) expect(SYSTEM_PROMPT).toContain(said)

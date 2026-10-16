@@ -35,9 +35,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     has `edge` and, when two faces meet there, `between`.
 - Status: `draft` until a `UserPromptSubmit` hook has carried the mark to the
   agent of its own object (`src/main/context.ts`; turned `sent` only once the
-  answer has left), then `resolved`. No other hook consumes drafts. For an
-  agent that posts no hooks, see "Agents": the Enter that sends the line of
-  "Send marks" is the one other thing that does. A sent
+  answer has left), then `resolved`. Nothing else consumes drafts. A sent
   mark of the person's whose note or shape changes is a draft again
   (`sentBefore`: told as `(changed)`), as is a dimension of the agent's whose
   `expected` or `tolerance` the person changes; and one the person makes a
@@ -312,7 +310,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   lines that are missing at the end, makes the file when there is none, never removes or rewrites what is
   there, and adds nothing against a line the person negated (`!thumb.png`). The thumbnails ask it for
   `thumb.png` and `thumb.json`, the state file for `state.md`, a conversation put on file for `session.json`,
-  a hookless start for `prompt.md` and `agent/`, an export for `exports/`, a picture for `views/`. What is the
+  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`. What is the
   object's travels: `scene.json`, `marks.json`, `scans.json`, `agent.json`.
 - **`.torno` is named in one module, `src/main/own.ts`** (`FOLDER`), and every write under it goes through
   `ownTorno(dir)` first (`writeOwn` for a file written whole): a link or a file in its place is refused with a
@@ -321,7 +319,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   inside them, written by whoever makes the folder.)
   - The folders torno keeps under it are held to the same rule by the same function, named after the folder:
     `ownTorno(dir, 'views')`, `ownTorno(dir, 'exports')`, `ownTorno(dir, 'scans', 'S1')` (`ownFolders` and
-    `linkRefusal` of the scans are that call), `ownTorno(dir, 'agent')`. It is asked before every write into
+    `linkRefusal` of the scans are that call), `ownTorno(dir, 'chat')`. It is asked before every write into
     such a folder and before every delete in it (the pictures cleared away past the newest 20, a scan's
     folder, a mask, a sweep): a link or a file in its place is refused, nothing is written or deleted where it
     leads, and the window is told once for each such folder, by itself (`inside` of the listener: the rest of
@@ -557,80 +555,43 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 ## Agents
 
-- An agent CLI is started by an adapter (`src/main/sessions/adapter.ts`: `AgentAdapter`, `adapters()`): Claude
-  Code (`claude.ts`) and Copilot CLI (`copilot.ts`). An adapter says its `label`, the `command` looked for on
-  PATH, whether its CLI posts `hooks`, how its client names a tool of torno's to the model (`toolName`:
-  `mcp__torno__scene`, `the torno tool scene`), and `launch(ctx)`: the command, its arguments as a list of
-  strings (never a line for a shell), variables to add to the environment, and `files` to write.
-  Everything an agent is given of torno is on its command line, in its environment or under
-  `<object>/.torno/agent/` (`ctx.agentDir`, where `files` are written atomically before the start; nothing is
-  made for an adapter without files). Nothing of the person's configuration of an agent is read or written, and
-  nothing is written in the object folder outside `.torno/`. The MCP address given is of that object alone.
-- The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName, hooks, skills)`). Claude Code is
+- Claude Code is the one agent torno runs. It is started by an adapter (`src/main/sessions/adapter.ts`: `AgentAdapter`; `claude.ts`
+  `claudeAdapter`, the one there is), which says the `command` looked for on PATH, whether it is given torno's
+  `skills`, how its client names a tool of torno's to the model (`toolName`: `mcp__torno__scene`), and
+  `launch(ctx)`: the command, its arguments as a list of strings (never a line for a shell), and variables to
+  add to the environment. Everything the agent is given of torno is on its command line or in its environment.
+  Nothing of the person's configuration of it is read or written, and nothing is written in the object folder
+  outside `.torno/`. The MCP address given is of that object alone.
+- The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName, skills)`). Claude Code is
   given torno's skills, a plugin in `app/resources/agent-plugin` (`torno-model`, `build123d`, `scans`,
   `dimensions`) passed with `--plugin-dir` (`paths.ts` `agentPluginDir()`; nothing is installed in the person's
   Claude Code), so its prompt (`SYSTEM_PROMPT`, `skills` true, under 6,400 characters) says of scans and
   dimensions only what a prompt's lines need and names the skills; `SCANS_TEXT` and `DIMENSIONS_TEXT` are said
-  to the letter in the skills `scans` and `dimensions`. An agent without skills (Copilot CLI) is told the whole
-  text (`FULL_PROMPT` in Claude Code's names, under 7,400 characters). A change to what the prompt says of scans
+  to the letter in the skills `scans` and `dimensions`. Started without the plugin folder (`skills` false) it is
+  told the whole text (`FULL_PROMPT`, under 7,400 characters). A change to what the prompt says of scans
   or dimensions is a change to the skill too (`prompt.test.ts` holds them together); the template of
   `torno-model` is built by the kernel's `tests/test_skill_template.py`. Claude Code is also given a subagent on
   its command line, `--agents` with `torno-reviewer` (`claude.ts` `reviewerAgents`): tools `scene`, `look`,
   `marks`, `measure`, `check`, `section`, `describe` and `Read`, never one that edits, resolves, adds a mark or
   changes the view; its prompt checks the build against what was asked, every open mark and every dimension, with
   numbers from the tools. Claude Code's prompt says to use it after a change of several steps, before saying it
-  is done. An agent without hooks gets it with `NO_HOOKS_PROMPT` after it: read
-  `.torno/state.md` at the start of each task, and `.torno/prompt.md` when a line begins with `torno:`.
-  `contextFor` names tools through `opts.toolName` likewise.
-- The agent of an object is chosen in the session header (`ui/AgentPicker.tsx`) and kept in
-  `<object>/.torno/agent.json` (`{ "agent": "copilot" }`; `sessions/choice.ts`, main's alone, atomic). No file is
-  Claude Code; a file that cannot be read or names an agent torno does not know is Claude Code too, with a `note`
-  the pane shows. Main refuses a choice while a session runs or starts in the object (`End the session first`):
-  the window asks, ends the session, then chooses, and starts none. Which agents are installed is asked when an
-  object is shown and whenever the list is opened (`installedAgents`); one that is not is listed disabled.
-  `TORNO_AGENT_CMD` is run in place of whichever is chosen, with that agent's arguments.
-- `session.json` holds the conversation to resume and the `agent` it is of (a file without the key is Claude
-  Code's), and under `kept` the last conversation of each other agent (`sessions/resume.ts`, written through
-  `writeFileAtomic`, one change at a time). A conversation is resumed only by its own agent. `Sessions.start` is a promise (the choice is read from the disk); a second start for an object while
-  the first is under way is answered with the first, and `stopAll` waits for one that is.
-- An agent without hooks (`sessions/delivery.ts`):
-  - Its status is `starting`, then `idle` from its first output until `exited`; what is shown and told of it is
-    `running` (`shared/agents.ts` `sessionSaid`), never idle, working or waiting. Whatever asks before ending a
-    session takes it for one that may be working (`busyWith`). `/hooks/<session>/…` answers 404 for it.
-  - Its conversation is put on file by the first Enter written to its terminal (`hasEnter`: not a line break
-    inside a paste, not Esc Enter). `told` in `session.json` says a line of torno's was sent in it: a resumed
-    conversation without it has seen no mark (`fresh`).
-  - Its instructions never say that anything arrives with a prompt (`systemPrompt(toolName, false)`).
-  - Nothing goes with its prompts. "Send marks" (`Sessions.sendMarks`; offered only while there are drafts or
-    dimensions it was given that the build does not meet, `toSend`) writes what a hook would have carried to
-    `<object>/.torno/prompt.md` (`sessions/sendMarks.ts` `promptFile`) and pastes one line that names the file
-    at its cursor (`sendLine`), not sent. While that line waits, the file is written again whenever the marks or
-    the build change (`Sessions.changed`), and a second "Send marks" pastes nothing more.
-  - **When its marks are sent.** By an Enter written to its terminal, and only if all of this holds between
-    the paste and that Enter: the agent's own output, escape sequences taken out, held the line's beginning
-    (`lineShown`: the CLI showed it at a prompt, which a question that is up in its place does not); and
-    nothing was typed or pasted after it (`followTyped`: a printable character, a bracketed paste whole or cut
-    short, Esc Enter, a key that deletes, clears, completes or recalls, or a sequence torno does not know, all
-    drop the line at once; so does anything torno itself puts in after it that is not that line, the
-    selection's "Insert": `Sessions.insert`, `Delivery.inserted`). The line is looked for by its own head
-    (`lineHead`: `torno: 2 new marks (M4`), not by any `torno:` the CLI writes. What leaves it waiting: the terminal's own answers, focus in and out, reports of
-    the pointer, and Left, Right, Home and End. Dropped, nothing is delivered, the marks stay drafts, the file
-    stays as it was written (the line may still be sent by hand, and names it), and the pane says which it was (`toldLine`: "Something was typed after
-    the line" / "The line was not at the prompt when Enter was pressed") and offers the button again. A session
-    that ends first delivers nothing. The pane's word for success is "Enter was pressed with the line at the
-    prompt": never that the agent has the marks.
-  - `prompt.md` says only that there is nothing new (`nothingNew`) when such a session starts and when it
-    ends: what it told an earlier session of is never read as news.
-  - No draft is consumed by anything but a `UserPromptSubmit` hook or that Enter.
-- What torno writes for an agent it writes into folders of its own: `<object>/.torno` and `.torno/agent`
-  (`ownTorno(dir, 'agent')`) are checked with `lstat` before an adapter's files are written,
-  and a link or a file under either name refuses the start with the path. Copilot CLI is not started in an object whose path has
-  a comma (its list of folders for instructions is separated by commas): the start is refused, naming the path.
-- `.torno/.gitignore` (`ensureIgnored`) has `prompt.md` and `agent/` from the first hookless start: they are
-  written anew at every start or send. `agent.json` is not ignored: the choice is the object's and travels with
-  it, as `scene.json` does. `session.json` is ignored from the first conversation put on file.
-- For an agent with hooks the pane says in one line what the next prompt carries (`nextPromptLine`,
-  `nextCarries` in `shared/agents.ts`); for one without, the "Send marks" strip is that.
+  is done. `contextFor` names tools through `opts.toolName` likewise.
+- The view of an object's sessions, chat or terminal, is chosen under the session header and kept in
+  `<object>/.torno/agent.json` (`{ "agent": "claude", "view": "terminal" }`; `sessions/choice.ts`, main's alone,
+  atomic; `agent` is written still, so that the file is one an older torno reads). No file is the chat. A file
+  that cannot be read, that names another agent (Copilot CLI: "which torno no longer supports"; or one torno
+  never knew) or a view torno does not know is the chat too, with a `note` the pane shows beside "Use Claude
+  Code", which writes the file anew. Main refuses a choice while a session runs or starts in the object (`End
+  the session first`). `TORNO_AGENT_CMD` is run in place of `claude`, with Claude Code's arguments.
+- `session.json` holds the conversation to resume, with `"agent": "claude"` (`sessions/resume.ts`, written
+  through `writeFileAtomic`, one change at a time). A file without the key is Claude Code's; one an older torno
+  wrote with another agent's conversation last holds Claude Code's under `kept.claude`, and that one is resumed;
+  any other conversation is not. `Sessions.start` is a promise (the view is read from the disk); a second start
+  for an object while the first is under way is answered with the first, and `stopAll` waits for one that is.
+- `agent.json` is not ignored: the choice is the object's and travels with it, as `scene.json` does. `session.json`
+  is ignored from the first conversation put on file. The `prompt.md` and `agent/` that sessions of Copilot CLI
+  left under `.torno/` are neither read nor removed, nor their lines in `.gitignore`.
+- The pane says in one line what the next prompt carries (`nextPromptLine`, `nextCarries` in `shared/agents.ts`).
 - `stopAll` ends the sessions there are and those being started when it is called, not one started while it
   waits (`Sessions.busy` says whether any is there or on its way).
 - "End" in the session header (`ui/SessionPane.tsx`) ends the session shown through `session.stop` and starts
@@ -652,14 +613,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `close` (`createWindow` in `index.ts`) and sends `window:closeAsked`; the window answers `window:closeAnswer`
   at once (`App.tsx`, from `renderer/closing.ts` `closingWhy`): `true` when nothing would be cut short, and the
   window closes; `false` while it asks the person in place ("Close torno?", "Keep it open" in focus), and then
-  `true` only on "Close torno". What is cut short: a session working, waiting for an answer, or of an agent
-  without hooks (`busyWith`), a "Send marks" line waiting at a prompt, a painting of a region holding what is
-  not kept (`unkept`), an import, an export being written. A window that does not answer within
+  `true` only on "Close torno". What is cut short: a session working or waiting for an answer (`busyWith`), a
+  painting of a region holding what is not kept (`unkept`), an import, an export being written. A window that does not answer within
   `CLOSE_ANSWER_MS` (1.5 s), or is loading or crashed, is closed without one; a quit that does not come through
   the window (`before-quit`, as `app.close()` of a test) is not held. Under test the question is answered by
   clicking it (`e2e/session.spec.ts`).
-- The tools' descriptions are the same for every agent and never say that something comes "with every
-  prompt" (`prompt.test.ts` scans them and the hookless instructions, and bounds the latter's length).
 - **The chat session** (Claude Code with `view` `chat`; `sessions/stream.ts`, `transcript.ts`, `chatlog.ts`,
   `permissions.ts`, `Sessions` in `manager.ts`). The adapter adds `HEADLESS` to the same arguments as a terminal
   session (`claude.ts`); the CLI is spawned on pipes, detached, in the object's folder, with the terminal

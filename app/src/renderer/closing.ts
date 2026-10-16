@@ -1,12 +1,12 @@
 import { busyWith } from '../shared/agents'
-import type { SendState, SessionStatus } from '../shared/bridge'
+import type { SessionStatus } from '../shared/bridge'
 import type { Painting } from './tools/regionPainting'
 
 // Closing the window ends torno and every session in it. When that would cut something short, the window asks
 // first, in place (`ui/Confirm.tsx`); with nothing under way it closes at once. What "something" is, is here.
 
 export interface ClosingState {
-  sessions: ReadonlyArray<{ status: SessionStatus; hooks: boolean; send?: { state: SendState } }>
+  sessions: ReadonlyArray<{ status: SessionStatus }>
   /** How many paintings of a region are not kept yet, in any object. */
   paintings: number
   importing: boolean
@@ -22,11 +22,9 @@ export interface ClosingState {
 /** What closing the window now would end, as sentences; null when nothing is under way. */
 export function closingWhy(state: ClosingState): string | null {
   const said: string[] = []
-  const busy = state.sessions.filter((s) => busyWith(s.status, s.hooks) !== undefined)
+  const busy = state.sessions.filter((s) => busyWith(s.status) !== undefined)
   if (busy.length > 1) said.push('Sessions are in the middle of their work.')
-  else if (busy.length === 1) said.push(busy[0].hooks ? 'A session is in the middle of its work.' : 'A session may be in the middle of its work: its agent does not say.')
-  // Of a session that is still there: one that has ended has no prompt for a line to wait at.
-  if (state.sessions.some((s) => s.status !== 'exited' && s.send?.state === 'waiting')) said.push("A line of marks is at an agent's prompt, not sent yet.")
+  else if (busy.length === 1) said.push('A session is in the middle of its work.')
   if ((state.unsent ?? 0) > 0) said.push('A prompt written in the chat is not sent yet.')
   if (state.draft === true) said.push('A new object is set up and not made yet.')
   if (state.heldPrompt === true) said.push('The first prompt of a new object was not sent and is not in a chat yet.')

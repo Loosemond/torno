@@ -4,12 +4,11 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { type SessionSaid, AGENT_LABEL, AGENT_VIEWS, busyWith, isTrustQuestion, nextCarries, nextPromptLine, sendLabel, sessionSaid, toldLine, toSend } from '../../shared/agents'
-import type { AgentId, AgentView } from '../../shared/bridge'
+import { AGENT_LABEL, busyWith, isTrustQuestion, nextCarries, nextPromptLine } from '../../shared/agents'
+import type { AgentView, SessionStatus } from '../../shared/bridge'
 import { chatActions, connectChat, useChat } from '../state/chat'
 import { onboarding, useOnboard } from '../state/onboard'
 import { actions, store, useStore } from '../state/store'
-import { type AgentChoice, AgentPicker } from './AgentPicker'
 import { ChatPane } from './chat/ChatPane'
 import { clearDrafts } from './chat/Composer'
 import { ModelMenu } from './chat/ModelMenu'
@@ -19,23 +18,16 @@ import { edgeGround } from './termGround'
 
 const FONT_SIZE = 13
 
-const STATUS_WORD: Record<SessionSaid, string> = {
+const STATUS_WORD: Record<SessionStatus, string> = {
   starting: 'Starting',
   idle: 'Idle',
   working: 'Working',
   needs_input: 'Needs input',
-  // Of an agent that posts no hooks: nothing says whether it is at work.
-  running: 'Running',
   exited: 'Ended'
 }
 
-/** Until main has said which are installed. */
-const AGENTS: AgentChoice[] = [
-  { id: 'claude', label: AGENT_LABEL.claude, installed: true, hooks: true },
-  { id: 'copilot', label: AGENT_LABEL.copilot, installed: true, hooks: false }
-]
-
-const SEND_TITLE = 'Writes .torno/prompt.md and puts a line at the cursor for you to send'
+/** The views of a session, the one it starts in first. */
+const VIEWS: readonly AgentView[] = ['chat', 'terminal']
 
 // ---- Terminals ----
 //
@@ -93,9 +85,9 @@ let schemeTheme: ITheme | null = null
 const themeNow = (): ITheme => (schemeTheme ??= readTheme())
 
 /**
- * The terminal's ground follows the one the agent paints the edges of its screen in, if it paints one (Copilot
- * CLI does): the inset round the terminal and what is left beyond its last whole cell are drawn in it, so that
- * the agent's screen fills the pane as another agent's does. Asked after every write the terminal has parsed.
+ * The terminal's ground follows the one the agent paints the edges of its screen in, if it paints one: the inset
+ * round the terminal and what is left beyond its last whole cell are drawn in it, so that the agent's screen fills
+ * the pane. Asked after every write the terminal has parsed.
  */
 function paintGround(t: ObjectTerminal): void {
   const theme = themeNow()
@@ -263,14 +255,10 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const [asking, setAsking] = useState(false)
   /** "End" was pressed while the session is in the middle of something: asked about first. */
   const [ending, setEnding] = useState(false)
-  /** The agent the object's next session runs, as its `.torno/agent.json` has it; `note` when that file could not be followed. */
-  const [choice, setChoice] = useState<{ agent: AgentId; view: AgentView; note?: string }>({ agent: 'claude', view: 'chat' })
-  const [agents, setAgents] = useState<AgentChoice[]>(AGENTS)
-  /** The agent chosen while a session runs, waiting for a yes: choosing it ends that session. */
-  const [choosing, setChoosing] = useState<AgentId | null>(null)
+  /** The view the object's next session starts in, as its `.torno/agent.json` has it; `note` when that file could not be followed. */
+  const [choice, setChoice] = useState<{ view: AgentView; note?: string }>({ view: 'chat' })
   /** Counted up when the choice was written, so that what main has for the object is asked again. */
   const [chosen, setChosen] = useState(0)
-  const [sending, setSending] = useState(false)
   /** The view chosen while a busy session runs, waiting for a yes: choosing it ends that session and resumes it in the other view. */
   const [switching, setSwitching] = useState<AgentView | null>(null)
   /** The chat was refused for this folder's own Claude Code settings: main's question, and whether the start was to resume. */
@@ -284,7 +272,6 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     const offData = window.torno.session.onData(({ sessionId, data }) => {
       for (const t of terminals.values()) if (t.sessionId === sessionId) t.term.write(data)
     })
-    const offSend = window.torno.session.onSend((m) => actions.applySend(m))
     // What main tells of the chat sessions, for the transcripts kept apart from the store of the window.
     const offChat = connectChat()
     const offStatus = window.torno.session.onStatus((m) => {
@@ -378,7 +365,6 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
 
     return () => {
       offData()
-      offSend()
       offChat()
       offStatus()
       scheme.removeEventListener('change', onScheme)
@@ -404,10 +390,9 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     setProblem(null)
     setAsking(false)
     setEnding(false)
-    setChoosing(null)
     setSwitching(null)
     setTrusting(null)
-    setChoice({ agent: 'claude', view: 'chat' })
+    setChoice({ view: 'chat' })
     if (!objectId) return
     const mine = terminals.get(objectId)
     if (mine) mount(mine, host.current!)
@@ -428,9 +413,9 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       ([info]) => {
         if (!live) return
         setResumable(info.resumable)
-        setChoice({ agent: info.agent, view: info.view, ...(info.note ? { note: info.note } : {}) })
+        setChoice({ view: info.view, ...(info.note ? { note: info.note } : {}) })
         // A chat that ended before this window was loaded: main still holds what it said, and it is shown as ended.
-        if (!info.running && info.ended && !store.getState().sessions[objectId]) actions.setSession(objectId, { sessionId: info.ended.sessionId, status: 'exited', agent: 'claude', hooks: true, view: 'chat' })
+        if (!info.running && info.ended && !store.getState().sessions[objectId]) actions.setSession(objectId, { sessionId: info.ended.sessionId, status: 'exited', view: 'chat' })
         if (!info.running || store.getState().sessions[objectId]) return
         actions.setSession(objectId, info.running)
         // A chat has no terminal: its transcript is asked of main by its pane.
@@ -446,12 +431,6 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       live = false
     }
   }, [objectId, root, status, chosen])
-
-  // Which agents are installed: asked for each object shown, and again whenever the list is opened.
-  const askAgents = (): void => void window.torno.session.agents().then(setAgents, () => {})
-  useEffect(() => {
-    if (objectId) askAgents()
-  }, [objectId, root])
 
   // A session just started takes the keyboard, once its terminal is no longer hidden.
   const focusWanted = useRef(false)
@@ -499,7 +478,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         t.sessionId = started.sessionId
       }
       // As main has it: a session that was already running here is not starting, and may say nothing more for a while.
-      actions.setSession(objectId, { sessionId: started.sessionId, status: started.status, agent: started.agent, hooks: started.hooks, view: started.view })
+      actions.setSession(objectId, { sessionId: started.sessionId, status: started.status, view: started.view })
       setChoice((was) => ({ ...was, view: started.view }))
       focusWanted.current = true
     } catch (e) {
@@ -542,60 +521,27 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   }
 
   const ended = status === 'exited'
-  const busy = session ? busyWith(session.status, session.hooks) : undefined
-  /** The agent of the session shown; of none, the one a new session would run. */
-  const agentLabel = AGENT_LABEL[session?.agent ?? choice.agent]
-  // What an agent without hooks has not been told: there is a button for it only while there is something.
-  const unsent = useMemo(() => toSend(marks, revision > 0 ? revision : undefined), [marks, revision])
-  const send = sendLabel(unsent)
-  const told = session && !ended && !session.hooks
-  // For an agent that is told with every prompt: what the next one carries, said in one quiet line. Of the
-  // session there is; with none, of the agent a new one would run.
+  const busy = session ? busyWith(session.status) : undefined
+  // What the next prompt carries, said in one quiet line: of the session there is, or of the one a new session would be.
   const live = session !== undefined && !ended
-  const withHooks = live ? session.hooks : (agents.find((one) => one.id === choice.agent)?.hooks ?? false)
   const chatting = session?.view === 'chat'
   const chatOf = useChat(chatting ? session.sessionId : undefined)
   const model = chatOf?.meta.model
   /** The view of the session that runs, or, with none running, the one the next session starts in. */
   const view: AgentView = live ? session.view : choice.view
-  const next = useMemo(() => (objectId && withHooks && !(chatting && live) ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, withHooks, marks, revision, live, chatting])
+  const next = useMemo(() => (objectId && !(chatting && live) ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, marks, revision, live, chatting])
 
-  /** Write the file and put the line that names it at the agent's cursor, where the person's Enter sends it. */
-  async function sendMarks(): Promise<void> {
-    if (!objectId || !session || sending) return
-    setSending(true)
-    setProblem(null)
-    try {
-      await window.torno.session.sendMarks(session.sessionId)
-      terminals.get(objectId)?.term.focus()
-    } catch (e) {
-      setProblem(reason(e))
-    } finally {
-      setSending(false)
-    }
-  }
-
-  /** Keep another agent for the object's sessions to come. One that runs is ended first, and none is started. */
-  async function applyChoice(agent: AgentId): Promise<void> {
+  /** "Use Claude Code" beside the note: `agent.json` is written anew as torno reads it, and the note is gone. */
+  async function keepChoice(): Promise<void> {
     if (!objectId) return
     setProblem(null)
     try {
-      const live = store.getState().sessions[objectId]
-      if (live && live.status !== 'exited') await window.torno.session.stop(live.sessionId)
-      await window.torno.session.chooseAgent(objectId, agent)
-      if (store.getState().objectId === objectId) setChoice((was) => ({ agent, view: AGENT_VIEWS[agent].includes(was.view) ? was.view : AGENT_VIEWS[agent][0] }))
+      await window.torno.session.chooseView(objectId, choice.view)
     } catch (e) {
       setProblem(reason(e))
     } finally {
       setChosen((n) => n + 1)
     }
-  }
-
-  /** Another agent was picked: asked about first while a session runs, since it ends that one. */
-  function choose(agent: AgentId): void {
-    if (agent === choice.agent && !choice.note) return
-    if (session && !ended) setChoosing(agent)
-    else void applyChoice(agent)
   }
 
   /** A new session in place of the one running, asked about first if that one is in the middle of something. */
@@ -665,17 +611,16 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   return (
     <>
       <header className="panel-head session-head">
-        <h2 className="panel-title">{objectId ? agentLabel : 'Session'}</h2>
+        <h2 className="panel-title">{objectId ? AGENT_LABEL : 'Session'}</h2>
         {session && (
-          <span className="session-status" role="status" data-status={sessionSaid(session.status, session.hooks)}>
+          <span className="session-status" role="status" data-status={session.status}>
             <span className="status-dot" />
-            {STATUS_WORD[sessionSaid(session.status, session.hooks)]}
+            {STATUS_WORD[session.status]}
           </span>
         )}
         <span className="spacer" />
-        {objectId && <AgentPicker value={choice.agent} agents={agents} disabled={starting || asking || choosing !== null} onOpen={askAgents} onChoose={choose} />}
         {session && !ended && (
-          <button type="button" className="button button-quiet" aria-label="End session" title="End this session. Its conversation can be resumed" disabled={starting || asking || ending || choosing !== null} onClick={end}>
+          <button type="button" className="button button-quiet" aria-label="End session" title="End this session. Its conversation can be resumed" disabled={starting || asking || ending} onClick={end}>
             End
           </button>
         )}
@@ -694,16 +639,16 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       </header>
 
       {/* How Claude Code is shown, and the model of its session: a quiet row of its own under the header. */}
-      {objectId && AGENT_VIEWS[choice.agent].length > 1 && (
+      {objectId && (
         <div className="session-views">
           <span className="view-switch" role="group" aria-label="View">
-            {AGENT_VIEWS[choice.agent].map((one) => (
+            {VIEWS.map((one) => (
               <button
                 key={one}
                 type="button"
                 className="button button-quiet"
                 aria-pressed={view === one}
-                disabled={starting || asking || ending || choosing !== null || switching !== null}
+                disabled={starting || asking || ending || switching !== null}
                 title={one === 'chat' ? 'Talk with Claude Code here' : "Claude Code's own terminal. The same conversation goes on"}
                 onClick={() => chooseView(one)}
               >
@@ -724,28 +669,17 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         </div>
       )}
 
-      {/* An agent that posts no hooks is told nothing with a prompt: said here, with the button that tells it. */}
-      {told && (
-        <div className="session-told">
-          <p aria-live="polite">{toldLine(session.send, unsent.drafts)}</p>
-          {send && (
-            <button type="button" className="button session-send" title={SEND_TITLE} disabled={sending} onClick={() => void sendMarks()}>
-              {send.text} (<span className="num">{send.count}</span>)
-            </button>
-          )}
-        </div>
-      )}
       {next !== null && (
         <p className="session-next" role="status">
           {numbered(next)}
         </p>
       )}
       {choice.note && objectId && (
-        <div className="session-told">
+        <div className="session-note">
           <p role="note">{choice.note}</p>
-          {/* Claude Code is already what the list shows: choosing it there changes nothing, so it is chosen here. */}
-          <button type="button" className="button session-send" disabled={starting || choosing !== null} onClick={() => choose('claude')}>
-            Use {AGENT_LABEL.claude}
+          {/* The file is the person's until they say: it is written only by this, or by choosing a view. */}
+          <button type="button" className="button session-note-action" disabled={starting || live} title={live ? 'End the session first' : undefined} onClick={() => void keepChoice()}>
+            Use {AGENT_LABEL}
           </button>
         </div>
       )}
@@ -774,7 +708,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
               void start(false)
             }}
           >
-            {agentLabel} {busy ?? 'is running'}. A new session ends this one.
+            {AGENT_LABEL} {busy ?? 'is running'}. A new session ends this one.
           </Confirm>
         )}
         {trusting !== null && objectId && (
@@ -784,7 +718,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         )}
         {ending && session && (
           <Confirm label="End the running session?" accept="End it" cancel="Keep it" onCancel={keepSession} onAccept={() => void endSession()}>
-            {agentLabel} {busy ?? 'is running'}. Ending the session stops it there.
+            {AGENT_LABEL} {busy ?? 'is running'}. Ending the session stops it there.
           </Confirm>
         )}
         {switching !== null && session && (
@@ -799,25 +733,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
               void applyView(next)
             }}
           >
-            {agentLabel} {busy ?? 'is running'}. Changing the view ends this session and goes on with the same conversation in the {switching}.
-          </Confirm>
-        )}
-        {choosing !== null && session && (
-          <Confirm
-            label="End the running session?"
-            accept={`End it and choose ${AGENT_LABEL[choosing]}`}
-            cancel="Keep it"
-            onCancel={() => {
-              setChoosing(null)
-              keepSession()
-            }}
-            onAccept={() => {
-              const agent = choosing
-              setChoosing(null)
-              void applyChoice(agent)
-            }}
-          >
-            {agentLabel} {busy ?? 'is running'}. Choosing another agent ends this session, and starts none.
+            {AGENT_LABEL} {busy ?? 'is running'}. Changing the view ends this session and goes on with the same conversation in the {switching}.
           </Confirm>
         )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
@@ -839,7 +755,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
                 )}
               </div>
               <p>
-                {agentLabel} runs here, in the folder of {objectName}, and works on it with you{choice.agent === 'claude' && view === 'chat' ? ', in a chat' : ''}.
+                {AGENT_LABEL} runs here, in the folder of {objectName}, and works on it with you{view === 'chat' ? ', in a chat' : ''}.
               </p>
             </div>
           )

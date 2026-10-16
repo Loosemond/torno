@@ -108,9 +108,6 @@ test('after each step of a session of work, P takes the pin tool', async () => {
   await page.mouse.move(at.x - 40, at.y + 300, { steps: 4 })
   await page.mouse.up()
   await pinIsInHand('the session pane resized')
-  // The agent of the object, chosen in the session header.
-  await choose(page.getByRole('combobox', { name: 'Agent' }), 'claude')
-  await pinIsInHand('an agent chosen')
   // Two scans: a unit chosen on a row, and in the align bar which scan to align.
   for (const name of ['plate.stl', 'floor.stl']) {
     await pickFile(join(root, name))

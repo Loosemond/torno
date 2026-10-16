@@ -30,11 +30,9 @@ import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToM
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
-import { AGENT_VIEWS, sessionSaid } from '../shared/agents'
 import type { ChatAnswer } from '../shared/chat'
-import type { AgentId, AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
-import { adapters } from './sessions/adapter'
-import { installedAgents, readChoice, writeChoice } from './sessions/choice'
+import type { AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
+import { readChoice, writeChoice } from './sessions/choice'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
@@ -176,7 +174,7 @@ function cards(): Promise<ObjectCard[]> {
     marks: (id) => (marks ? marks.list(id) : Promise.reject(new Error('marks are not available'))),
     session: (id) => {
       const session = sessions?.current(id)
-      return session ? sessionSaid(session.status, session.hooks) : null
+      return session ? session.status : null
     },
     readFile: (path) => readFile(path, 'utf8'),
     sourcesMtimeMs: newestPython,
@@ -448,7 +446,6 @@ export function registerIpc(
   sessions?.on('item', (m) => broadcast('chat:item', { sessionId: m.sessionId, item: m.item, seq: m.seq }))
   sessions?.on('meta', (m) => broadcast('chat:meta', { sessionId: m.sessionId, meta: m.meta, seq: m.seq }))
   sessions?.on('capabilities', (m) => broadcast('chat:capabilities', { sessionId: m.sessionId, commands: m.commands, models: m.models, seq: m.seq }))
-  sessions?.on('send', (m) => broadcast('session:send', { sessionId: m.sessionId, state: m.state, marks: m.marks, ...(m.why ? { why: m.why } : {}) }))
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')
     return sessions
@@ -550,15 +547,13 @@ export function registerIpc(
   handle('session:current', async (_event, objectId: string) => {
     const obj = findObject(objectId)
     const running = sessions?.current(objectId) ?? null
-    // The agent its next session runs: the one chosen for it, whatever the session there now is of.
-    const choice: { agent: AgentId; view: AgentView; note?: string } = obj ? await readChoice(obj.dir) : { agent: 'claude', view: 'chat' }
+    // The view its next session starts in: the one chosen for it, whatever the session there now is in.
+    const choice: { view: AgentView; note?: string } = obj ? await readChoice(obj.dir) : { view: 'chat' }
     return {
-      running: running && { sessionId: running.sessionId, status: running.status, agent: running.agent, hooks: running.hooks, view: running.view },
+      running: running && { sessionId: running.sessionId, status: running.status, view: running.view },
       ...(!running && sessions?.endedChat(objectId) ? { ended: { sessionId: sessions.endedChat(objectId)! } } : {}),
-      resumable: obj !== undefined && sessions !== null && sessions.resumable(obj, choice.agent),
-      agent: choice.agent,
+      resumable: obj !== undefined && sessions !== null && sessions.resumable(obj),
       view: choice.view,
-      hooks: adapters()[choice.agent].hooks,
       ...(choice.note ? { note: choice.note } : {})
     }
   })
@@ -576,26 +571,13 @@ export function registerIpc(
     await requireSessions().trust(obj)
   })
 
-  // Which agents there are, and of each whether its command is on PATH now: asked again whenever the list is opened.
-  handle('session:agents', () => installedAgents(adapters(process.env.TORNO_AGENT_CMD), process.env.PATH, process.env.TORNO_AGENT_CMD))
-
-  // The choice is of the sessions to come: the one that runs is of the agent it was started with, and is ended first.
-  handle('session:chooseAgent', async (_event, objectId: string, agent: AgentId) => {
-    const obj = findObject(String(objectId))
-    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
-    if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Refusal('End the session first')
-    await writeChoice(obj.dir, { agent })
-  })
-
-  // The view is of the sessions to come, as the agent is: the one that runs is ended first.
+  // The view is of the sessions to come: the one that runs is of the view it was started in, and is ended first.
   handle('session:chooseView', async (_event, objectId: string, view: AgentView) => {
     const obj = findObject(String(objectId))
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
     if (view !== 'chat' && view !== 'terminal') throw new Refusal(`no view named ${String(view).slice(0, 40)}`)
     if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Refusal('End the session first')
-    const { agent } = await readChoice(obj.dir)
-    if (!AGENT_VIEWS[agent].includes(view)) throw new Refusal(`${adapters()[agent].label} has no ${view} view`)
-    await writeChoice(obj.dir, { agent, view })
+    await writeChoice(obj.dir, view)
   })
 
   handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
@@ -610,12 +592,6 @@ export function registerIpc(
 
   ipcMain.on('session:insert', (_event, sessionId: string, text: string) => {
     if (typeof text === 'string' && ofThisWorkspace(String(sessionId))) sessions?.insert(String(sessionId), text)
-  })
-
-  // Like what is typed: only into a session of the open workspace.
-  handle('session:sendMarks', async (_event, sessionId: string) => {
-    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
-    return requireSessions().sendMarks(String(sessionId))
   })
 
   ipcMain.on('session:resize', (_event, sessionId: string, cols: number, rows: number) => {

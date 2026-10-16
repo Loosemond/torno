@@ -1,7 +1,7 @@
 // The ground an agent paints its terminal in. An agent's CLI may fill its whole screen with a background of its
-// own (Copilot CLI does); the terminal's inset in the pane, and what is left beyond its last whole cell, are then
-// drawn in that ground too, so that its screen fills the pane as another agent's does. Read from the cells that
-// border the inset: the left column and the bottom row.
+// own; the terminal's inset in the pane, and what is left beyond its last whole cell, are then drawn in that
+// ground too, so that its screen fills the pane. Read from the cells that border the inset: the left column and
+// the bottom row.
 
 /** What is read of a cell: xterm's `IBufferCell` has these. */
 export interface GroundCell {

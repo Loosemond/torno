@@ -30,8 +30,8 @@ import { makeTestProfile, removeTestProfileAfterExit } from './testProfile'
 import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
 import { proposing, sceneFileNow, sceneFilesSettled } from './scenefile'
-import { adapters } from './sessions/adapter'
 import { readChoice } from './sessions/choice'
+import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
 import { Trust } from './trust'
@@ -342,8 +342,6 @@ const toolDeps: ToolDeps = {
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
 const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
-// A line of "Send marks" that waits at an agent's cursor names a file: it is kept as the marks are.
-marks.on('changed', ({ objectId }) => sessions?.changed(objectId))
 // Where a region is told to be follows its scan's alignment.
 scans.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 // A mask that did not read for a region is asked for again: what the scans are has changed.
@@ -402,9 +400,9 @@ void app.whenReady().then(async () => {
     http,
     // Whether a chat may start in a folder with Claude Code settings of its own: asked once, and kept beside the recent folders.
     trust: new Trust(configPath ? join(dirname(configPath), 'trusted.json') : null),
-    // The agent chosen for the object, as its file says now. TORNO_AGENT_CMD is run in place of whichever it is.
-    adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD, agentPluginDir())[(await readChoice(obj.dir)).agent],
-    // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat for Claude Code unless it says terminal).
+    // Claude Code, given torno's skills. TORNO_AGENT_CMD is run in place of `claude`.
+    adapter: claudeAdapter(process.env.TORNO_AGENT_CMD, agentPluginDir()),
+    // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat unless it says terminal).
     viewFor: async (obj) => (await readChoice(obj.dir)).view,
     // The viewport as the person has it, for a prompt that attaches the view: of the object the session is of.
     picture: async (obj) => {
@@ -423,7 +421,7 @@ void app.whenReady().then(async () => {
     buildContextFor: async (id, toolName) => buildContextFor(toolDeps, id, await marks.list(id).catch(() => []), { toolName }),
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
-    systemPromptFor: (adapter) => systemPrompt(adapter.toolName, true, adapter.skills),
+    systemPromptFor: (adapter) => systemPrompt(adapter.toolName, adapter.skills),
     mcpUrlFor,
     debug: isDebug
   })
@@ -438,7 +436,6 @@ void app.whenReady().then(async () => {
     onBuild: (state) => {
       stateFiles.changed(state.objectId)
       sessions?.built(state)
-      sessions?.changed(state.objectId)
     },
     // The saved views are named in the state file.
     onSceneFile: (objectId) => stateFiles.changed(objectId),

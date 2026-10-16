@@ -1,7 +1,7 @@
 import { own } from '../../shared/exportdata'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
+import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, explodeShown, isExploded, neverBoth, sameExplode } from '../../shared/explode'
 import type { Mark, Vec3 } from '../../shared/marks'
@@ -17,13 +17,8 @@ import type { WorkspaceInfo } from '../../shared/workspace'
 export interface SessionView {
   sessionId: string
   status: SessionStatus
-  /** The agent it runs, and whether that one posts hooks: without, its status says only that it runs. */
-  agent: AgentId
-  hooks: boolean
   /** How it is shown: the CLI's own terminal, or the chat of torno's own. */
   view: AgentView
-  /** Of an agent without hooks: what became of the line "Send marks" last put at its cursor, and why it was dropped when it was. */
-  send?: { state: SendState; why?: SendDropped }
 }
 
 /** Where a selected ref was clicked: the point, and the normal there (an edge has none). Object frame. */
@@ -666,16 +661,6 @@ export const actions = {
     const objectId = Object.keys(sessions).find((id) => sessions[id].sessionId === m.sessionId)
     if (objectId === undefined || sessions[objectId].status === m.status) return
     store.setState({ sessions: { ...sessions, [objectId]: { ...sessions[objectId], status: m.status } } })
-  },
-
-  /** What became of the line "Send marks" put at a session's cursor, as main follows it. */
-  applySend(m: { sessionId: string; state: SendState; why?: SendDropped }): void {
-    const { sessions } = store.getState()
-    const objectId = Object.keys(sessions).find((id) => sessions[id].sessionId === m.sessionId)
-    if (objectId === undefined) return
-    const before = sessions[objectId].send
-    if (before?.state === m.state && before.why === m.why) return
-    store.setState({ sessions: { ...sessions, [objectId]: { ...sessions[objectId], send: { state: m.state, ...(m.why ? { why: m.why } : {}) } } } })
   }
 }
 

@@ -39,7 +39,7 @@ const turns = async (sessionId: string): Promise<number> => (await kinds(session
 const failure = (call: () => Promise<unknown>): Promise<string> => call().then(() => 'done', (e: Error) => e.message)
 
 test('a chat session is started, spoken to, answered, interrupted and read back through the bridge', async () => {
-  // The view is chosen for the sessions to come, and only a view the agent has.
+  // The view is chosen for the sessions to come, and only a view there is.
   await page.evaluate(() => window.torno.session.chooseView('measures', 'terminal'))
   expect(choiceOnDisk()).toEqual({ agent: 'claude', view: 'terminal' })
   await page.evaluate(() => window.torno.session.chooseView('measures', 'chat'))

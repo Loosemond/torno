@@ -1,14 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
 import { type HttpRouter, startHttp } from '../http'
-import { onNotOwn } from '../own'
 import { Trust } from '../trust'
-import type { AgentId } from '../../shared/bridge'
-import { adapters } from './adapter'
+import { claudeAdapter } from './claude'
 import { killGroup, Sessions } from './manager'
 import type { ChatItem, ChatMeta } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
@@ -41,15 +39,13 @@ function object(id: string): ObjectInfo {
   return { id, name: id, dir, model: null }
 }
 
-/** The agent each object is started with: Claude Code's arguments unless a test names another. */
-let chosen = new Map<string, AgentId>()
 /** The view each object is started in: the terminal unless a test names the chat. */
 let views = new Map<string, AgentView>()
 
 function make(command = `node ${FAKE}`): Sessions {
   const made = new Sessions({
     http,
-    adapterFor: (obj) => adapters(command)[chosen.get(obj.id) ?? 'claude'],
+    adapter: claudeAdapter(command),
     viewFor: (obj) => views.get(obj.id) ?? 'terminal',
     contextFor: async (id, opts) => {
       asking?.()
@@ -71,45 +67,6 @@ function make(command = `node ${FAKE}`): Sessions {
 
 /** Sessions made by a test for itself, to be ended after it. */
 let others: Sessions[] = []
-let folders = 0
-
-/**
- * A session of the stand-in started with the arguments of the agent named, in a folder of its own, by a manager
- * of its own: what it is told on "Send marks" (`context`), and who hears that marks were delivered.
- */
-async function started(agent: AgentId, opts: { context?: { text: string; sentMarkIds: string[] }; onDelivered?: (objectId: string, marks: string[]) => void } = {}) {
-  const made = new Sessions({
-    http,
-    adapterFor: () => adapters(`node ${FAKE}`)[agent],
-    viewFor: () => 'terminal',
-    contextFor: () => opts.context ?? { text: 'Build ok.', sentMarkIds: [] },
-    onDelivered: opts.onDelivered,
-    systemPromptFor: () => '',
-    mcpUrlFor: (id) => http.url(`/mcp/${id}`)
-  })
-  others.push(made)
-  let all = ''
-  made.on('data', (m) => (all += m.data))
-  const sent: Array<{ state: string; marks: number; why?: string }> = []
-  made.on('send', (m) => sent.push({ state: m.state, marks: m.marks, ...(m.why ? { why: m.why } : {}) }))
-  folders += 1
-  const obj = object(`${agent}-${folders}`)
-  const { sessionId } = await made.start(obj, {})
-  return {
-    sessions: made,
-    obj,
-    sessionId,
-    sent,
-    typed: (data: string) => made.write(sessionId, data),
-    output: {
-      all: () => all,
-      async until(text: string): Promise<string> {
-        await expect.poll(() => all).toContain(text)
-        return all
-      }
-    }
-  }
-}
 
 const said = (id: string) => output.get(id) ?? ''
 const sessionFile = (id: string) => JSON.parse(readFileSync(join(root, id, '.torno', 'session.json'), 'utf8'))
@@ -139,7 +96,6 @@ afterEach(async () => {
   statuses = new Map()
   context = (id) => `context for ${id}`
   drafts = new Map()
-  chosen = new Map()
   views = new Map()
   delivered = []
   gate = Promise.resolve()
@@ -346,14 +302,14 @@ describe('a session', () => {
       await expect.poll(() => said(sessionId)).toContain(`${event}: ok`)
     }
     expect(existsSync(join(root, 'lid', '.torno'))).toBe(false)
-    expect(sessions.resumable(object('lid'), 'claude')).toBe(false)
+    expect(sessions.resumable(object('lid'))).toBe(false)
   })
 
   it('follows the conversation when the agent starts another, and resumes that one', async () => {
     const other = '7c1f0c0e-3a54-4f0b-8a3e-5d2b9f6a1c11'
     const first = await sessions.start(object('lid'), {})
     await expect.poll(() => said(first.sessionId)).toContain('READY')
-    expect(sessions.resumable(object('lid'), 'claude')).toBe(false)
+    expect(sessions.resumable(object('lid'))).toBe(false)
     sessions.write(first.sessionId, `hook Stop ${other}\r`)
     await expect.poll(() => said(first.sessionId)).toContain('Stop: ok')
     expect(sessionFile('lid').conversationId).toBe(other)
@@ -368,7 +324,7 @@ describe('a session', () => {
     expect(sessions.current('lid')?.sessionId).toBe(first.sessionId)
     await sessions.stop(first.sessionId)
 
-    expect(sessions.resumable(object('lid'), 'claude')).toBe(true)
+    expect(sessions.resumable(object('lid'))).toBe(true)
     const second = await sessions.start(object('lid'), { resume: true })
     await expect.poll(() => said(second.sessionId)).toContain('READY')
     const args = argv(second.sessionId)
@@ -484,7 +440,7 @@ describe('a session', () => {
       await expect.poll(() => said(sessionId)).toContain('context: ')
       await gone
       expect(existsSync(join(root, 'hungup', '.torno', 'session.json'))).toBe(false)
-      expect(sessions.resumable(object('hungup'), 'claude')).toBe(false)
+      expect(sessions.resumable(object('hungup'))).toBe(false)
     } finally {
       delete process.env.FAKE_AGENT_STUBBORN
     }
@@ -543,308 +499,6 @@ describe('a session', () => {
     await expect(none.start(object('bracket'), {})).rejects.toThrow(/torno-no-such-agent.*not found/)
     expect(none.current('bracket')).toBeNull()
   })
-})
-
-describe('an agent without hooks', () => {
-  it('starts an agent without hooks with its own arguments, files and variables, and never resumes another agent\'s conversation', async () => {
-    const { sessions, obj, output, typed } = await started('copilot')
-    const argv = JSON.parse(/READY (.*)/.exec(await output.until('READY\u0020['))![1]) as string[]
-    expect(argv[0]).toBe('--session-id')
-    expect(argv).toContain('--allow-tool=torno')
-    expect(argv.join(' ')).not.toContain('--settings')
-    expect(JSON.parse(argv[argv.indexOf('--additional-mcp-config') + 1])).toEqual({ mcpServers: { torno: { type: 'http', url: http.url(`/mcp/${obj.id}`), tools: ['*'] } } })
-    expect(readFileSync(join(obj.dir, '.torno', 'agent', 'AGENTS.md'), 'utf8')).toContain('the torno tool scene')
-    // Nothing is on file before it was sent a line: it was opened, and there is nothing to resume.
-    expect(existsSync(join(obj.dir, '.torno', 'session.json'))).toBe(false)
-    typed('env\r')
-    expect(await output.until('env:')).toContain('COPILOT_CUSTOM_INSTRUCTIONS_DIRS')
-    // It sent a line: its conversation can be resumed, by Copilot and by no other.
-    await expect.poll(() => existsSync(join(obj.dir, '.torno', 'session.json'))).toBe(true)
-    expect(JSON.parse(readFileSync(join(obj.dir, '.torno', 'session.json'), 'utf8'))).toMatchObject({ agent: 'copilot', conversationId: argv[1] })
-    expect(sessions.resumable(obj, 'copilot')).toBe(true)
-    expect(sessions.resumable(obj, 'claude')).toBe(false)
-    expect(sessions.current(obj.id)!.status).toBe('idle')
-    expect(sessions.current(obj.id)).toMatchObject({ agent: 'copilot', hooks: false })
-    expect(sessions.agentOf(sessions.current(obj.id)!.sessionId)).toBe('copilot')
-  })
-
-  it('sends marks through a file and a line, and counts them sent only once the line has gone', async () => {
-    const delivered: string[][] = []
-    const { sessions, obj, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok, r3.\nMarks from the user:\nM4 pin on lid/F2', sentMarkIds: ['M4'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
-    await output.until('READY')
-    const sent = await sessions.sendMarks(sessionId)
-    expect(sent).toEqual({ marks: ['M4'], line: 'torno: 1 new mark (M4) and the build status are in .torno/prompt.md. Read it first.' })
-    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M4 pin on lid/F2')
-    // Pasted, not sent: the terminal echoes what was pasted, but the stand-in has been given no line (it answers each with `> `), and the mark is still a draft.
-    await output.until('torno: 1 new mark')
-    await new Promise((r) => setTimeout(r, 200))
-    expect(output.all()).not.toContain('> ')
-    expect(delivered).toEqual([])
-    expect(states).toEqual([{ state: 'waiting', marks: 1 }])
-    // The click into the terminal and what the terminal answers the agent are not the person's keys.
-    typed('\x1b[I')
-    typed('\x1b[12;40R')
-    typed('\r')
-    // The line it was given, between the marks of a paste.
-    expect(await output.until('> ')).toMatch(/> .*torno: 1 new mark \(M4\)/)
-    expect(delivered).toEqual([['M4']])
-    expect(states.at(-1)).toEqual({ state: 'sent', marks: 1 })
-    // The file is the agent's to read now: it is as it was sent.
-    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M4 pin on lid/F2')
-    // Nothing is pending now: another Enter delivers nothing more.
-    typed('\r')
-    await new Promise((r) => setTimeout(r, 100))
-    expect(delivered).toHaveLength(1)
-    expect(states).toHaveLength(2)
-  })
-
-  it('leaves marks drafts when the session ends before the line is sent, and refuses for an agent that has hooks', async () => {
-    const delivered: string[][] = []
-    const { sessions, obj, sessionId } = await started('copilot', { context: { text: 'Build ok.\nM1 pin', sentMarkIds: ['M1'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
-    await sessions.sendMarks(sessionId)
-    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M1 pin')
-    await sessions.stop(sessionId)
-    expect(delivered).toEqual([])
-    // What the file told of went nowhere: a later session's agent must not read it as news.
-    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toMatch(/^Nothing new from torno as of [^\n]*\n$/)
-    await expect(sessions.sendMarks(sessionId)).rejects.toThrow('This session has ended')
-    const claude = await started('claude')
-    await expect(claude.sessions.sendMarks(claude.sessionId)).rejects.toThrow('This agent is told with every prompt')
-    // Nor is a folder or a file made for an agent that is given none.
-    expect(existsSync(join(claude.obj.dir, '.torno'))).toBe(false)
-  })
-
-  it('leaves marks drafts when something was typed after the line, says why, and puts the line there again when asked again', async () => {
-    const delivered: string[][] = []
-    const { sessions, obj, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.\nM2 pin', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
-    await output.until('READY')
-    const file = () => readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')
-    // It was started with nothing to read there.
-    expect(file()).toMatch(/^Nothing new from torno/)
-    await sessions.sendMarks(sessionId)
-    await output.until('torno: 1 new mark')
-    // Moving along the line changes nothing.
-    typed('\x1b[D')
-    typed('\x1b[H')
-    expect(states.map((s) => s.state)).toEqual(['waiting'])
-    // A letter: what Enter then does is not known to be sending the line (an answer to a question, a menu).
-    typed('y')
-    expect(states).toEqual([{ state: 'waiting', marks: 1 }, { state: 'dropped', marks: 1, why: 'typed' }])
-    typed('\r')
-    await output.until('> ')
-    expect(delivered).toEqual([])
-    // The line went all the same, with what was typed after it, and it names the file: the file is as it was written, for the agent that reads it.
-    await new Promise((r) => setTimeout(r, 150))
-    expect(file()).toContain('M2 pin')
-    // Asked again, the line is put in again, and its Enter delivers.
-    await sessions.sendMarks(sessionId)
-    expect(file()).toContain('M2 pin')
-    await expect.poll(() => (output.all().match(/\[200~torno: 1 new mark \(M2\)/g) ?? []).length).toBeGreaterThanOrEqual(3)
-    typed('\r')
-    await expect.poll(() => (output.all().match(/> /g) ?? []).length).toBe(2)
-    expect(delivered).toEqual([['M2']])
-    expect(states.map((s) => s.state)).toEqual(['waiting', 'dropped', 'waiting', 'sent'])
-  })
-
-  it('leaves marks drafts when the person pastes lines after it: a line break in a paste is not an Enter', async () => {
-    const delivered: string[][] = []
-    const { sessions, obj, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
-    await output.until('READY')
-    await sessions.sendMarks(sessionId)
-    await output.until('torno: 1 new mark')
-    // As xterm.js writes two pasted lines while the agent has bracketed paste on.
-    typed('\x1b[200~Traceback (most recent call last):\r  File "lid.py", line 3\x1b[201~')
-    expect(delivered).toEqual([])
-    expect(states.at(-1)).toEqual({ state: 'dropped', marks: 1, why: 'typed' })
-    // Nor did the person send anything: there is no conversation to resume.
-    await new Promise((r) => setTimeout(r, 100))
-    expect(existsSync(join(obj.dir, '.torno', 'session.json'))).toBe(false)
-    expect(sessions.resumable(obj, 'copilot')).toBe(false)
-  })
-
-  it('leaves marks drafts when something of torno\'s own is put in after the line: "Insert" from the selection, a paste from the app', async () => {
-    const delivered: string[][] = []
-    const { sessions, obj, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.\nM2 pin', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
-    await output.until('READY')
-    await sessions.sendMarks(sessionId)
-    await output.until('torno: 1 new mark')
-    expect(states).toEqual([{ state: 'waiting', marks: 1 }])
-    // The refs of what is selected, pasted after torno's line: what an Enter then sends is not that line as it was.
-    sessions.insert(sessionId, 'lid/F3 (plane, normal +Z)')
-    expect(states).toEqual([{ state: 'waiting', marks: 1 }, { state: 'dropped', marks: 1, why: 'typed' }])
-    await output.until('lid/F3')
-    typed('\r')
-    await output.until('> ')
-    expect(delivered).toEqual([])
-    // What the line names is still what was written for it.
-    expect(readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')).toContain('M2 pin')
-    // An insert with no line waiting drops nothing, and one into an agent with hooks is only a paste.
-    sessions.insert(sessionId, 'again')
-    expect(states).toHaveLength(2)
-  })
-
-  it('leaves marks drafts when Enter is pressed while the agent has a question up in place of its prompt, and says so', async () => {
-    const delivered: string[][] = []
-    const { sessions, output, typed, sessionId, sent: states } = await started('copilot', { context: { text: 'Build ok.', sentMarkIds: ['M2'] }, onDelivered: (_id, marks) => void delivered.push(marks) })
-    await output.until('READY')
-    // "Do you trust the files in this folder?": what is typed is not shown at a prompt.
-    typed('dialog\r')
-    await output.until('dialog: up')
-    await sessions.sendMarks(sessionId)
-    await new Promise((r) => setTimeout(r, 200))
-    expect(output.all()).not.toContain('torno: 1 new mark')
-    typed('\r')
-    await output.until('dialog: answered')
-    expect(delivered).toEqual([])
-    expect(states).toEqual([{ state: 'waiting', marks: 1 }, { state: 'dropped', marks: 1, why: 'absent' }])
-    // At the prompt again, it goes.
-    await sessions.sendMarks(sessionId)
-    await output.until('torno: 1 new mark')
-    typed('\r')
-    await output.until('> ')
-    expect(delivered).toEqual([['M2']])
-  })
-
-  it('pastes one line however often it is asked while that line waits, and keeps the file it names as things are', async () => {
-    const delivered: string[][] = []
-    const context = { text: 'Build ok.\nM2 pin', sentMarkIds: ['M2'] }
-    const { sessions, obj, output, typed, sessionId } = await started('copilot', { context, onDelivered: (_id, marks) => void delivered.push(marks) })
-    await output.until('READY')
-    await sessions.sendMarks(sessionId)
-    await output.until('torno: 1 new mark')
-    const file = () => readFileSync(join(obj.dir, '.torno', 'prompt.md'), 'utf8')
-    // The person made another mark and pressed the button again: the same line, another file.
-    context.text = 'Build ok.\nM2 pin\nM3 arrow'
-    context.sentMarkIds = ['M2', 'M3']
-    expect((await sessions.sendMarks(sessionId)).marks).toEqual(['M2', 'M3'])
-    expect(file()).toContain('M3 arrow')
-    // A mark changed while the line waits: the file follows by itself, and nothing is pasted.
-    context.text = 'Build ok.\nM2 pin, moved\nM3 arrow\nM4 pick'
-    context.sentMarkIds = ['M2', 'M3', 'M4']
-    sessions.changed(obj.id)
-    await expect.poll(file).toContain('M4 pick')
-    typed('\r')
-    await output.until('> ')
-    // The line the stand-in was given holds one paste, not three.
-    expect(/> (.*)/.exec(output.all())![1].match(/\[200~/g)).toHaveLength(1)
-    expect(delivered).toEqual([['M2', 'M3', 'M4']])
-    // With no line waiting, a change writes nothing: the file is of the prompt that went.
-    context.text = 'Build failed.'
-    sessions.changed(obj.id)
-    await new Promise((r) => setTimeout(r, 150))
-    expect(file()).toContain('M4 pick')
-  })
-
-  it('tells a conversation that has seen nothing so, until a line of torno\'s has been sent in it, also when it is resumed', async () => {
-    const asked: boolean[] = []
-    const made = await started('copilot')
-    // Its own manager, to hear what the context is asked with.
-    const sessions = new Sessions({ http, adapterFor: () => adapters(`node ${FAKE}`).copilot, contextFor: (_id, opts) => (asked.push(opts.fresh), { text: opts.toolName('marks'), sentMarkIds: [] }), systemPromptFor: () => '', mcpUrlFor: (id) => http.url(`/mcp/${id}`) })
-    others.push(sessions)
-    let shown = ''
-    sessions.on('data', (m) => (shown += m.data))
-    const file = () => JSON.parse(readFileSync(join(made.obj.dir, '.torno', 'session.json'), 'utf8'))
-    const first = await sessions.start(made.obj, {})
-    // A line of the person's own: there is a conversation, and torno has told it nothing.
-    sessions.write(first.sessionId, 'hello\r')
-    await expect.poll(() => shown).toContain('> hello')
-    await expect.poll(() => existsSync(join(made.obj.dir, '.torno', 'session.json'))).toBe(true)
-    expect(file().told).toBeUndefined()
-    await sessions.stop(first.sessionId)
-    shown = ''
-    const { sessionId } = await sessions.start(made.obj, { resume: true })
-    await sessions.sendMarks(sessionId)
-    expect(readFileSync(join(made.obj.dir, '.torno', 'prompt.md'), 'utf8')).toMatch(/^Written \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC by torno, for the prompt that follows it\.\n\nthe torno tool marks\n$/)
-    await expect.poll(() => shown).toContain('torno: the build status')
-    sessions.write(sessionId, '\r')
-    await sessions.sendMarks(sessionId)
-    expect(asked).toEqual([true, false])
-    await expect.poll(() => file().told).toBe(true)
-    // Resumed, it has seen what it was told before.
-    await sessions.stop(sessionId)
-    const again = await sessions.start(made.obj, { resume: true })
-    await sessions.sendMarks(again.sessionId)
-    expect(asked).toEqual([true, false, false])
-  })
-
-  it('writes its instructions only into a folder of torno\'s own, has git pass over what changes with every send, and starts nothing otherwise', async () => {
-    const { sessions, obj, sessionId } = await started('copilot')
-    // What is of this machine or changes with every send is not for git; the choice of agent and the conversation are not among it.
-    expect(readFileSync(join(obj.dir, '.torno', '.gitignore'), 'utf8').split('\n').filter(Boolean)).toEqual(['prompt.md', 'agent/'])
-    await sessions.stop(sessionId)
-
-    // A workspace from elsewhere, whose folder for the agent leads out of it.
-    const outside = mkdtempSync(join(root, 'outside-'))
-    rmSync(join(obj.dir, '.torno', 'agent'), { recursive: true })
-    symlinkSync(outside, join(obj.dir, '.torno', 'agent'))
-    const told: Array<string | null> = []
-    onNotOwn((_dir, _message, inside) => told.push(inside))
-    await expect(sessions.start(obj, {})).rejects.toThrow(`cannot start the agent: ${join(obj.dir, '.torno', 'agent')} is a link, not a folder`)
-    await expect(sessions.start(obj, {})).rejects.toThrow('is a link')
-    expect(readdirSync(outside)).toEqual([])
-    // By the one rule of torno's folders: whoever listens is told, once.
-    expect(told).toEqual(['agent'])
-    onNotOwn(null)
-    expect(sessions.current(obj.id)).toBeNull()
-    expect(sessions.size).toBe(0)
-
-    // And one whose .torno itself does.
-    const linked = object('linked')
-    symlinkSync(outside, join(linked.dir, '.torno'))
-    await expect(sessions.start(linked, {})).rejects.toThrow(`cannot start the agent: ${join(linked.dir, '.torno')} is a link, not a folder`)
-    expect(readdirSync(outside)).toEqual([])
-
-    // A comma in the path would split the list of folders the agent reads its instructions from.
-    const comma = object('parts, v2')
-    await expect(sessions.start(comma, {})).rejects.toThrow(`Copilot CLI cannot be given torno's instructions in a folder whose path has a comma: ${join(comma.dir, '.torno', 'agent')}`)
-    expect(readdirSync(comma.dir)).toEqual([])
-    expect(sessions.size).toBe(0)
-  })
-
-  it('has no hook endpoint: whatever posts there is not it', async () => {
-    const { sessions, obj, output, typed, sessionId } = await started('copilot')
-    await output.until('READY')
-    const reply = await fetch(http.url(`/hooks/${sessionId}/Stop`), { method: 'POST', body: '{}' })
-    expect(reply.status).toBe(404)
-    expect(sessions.current(obj.id)!.status).toBe('idle')
-    // And the stand-in was given none to post to, as the agent is not.
-    typed('hook\r')
-    await output.until('no UserPromptSubmit hook')
-  })
-
-  it('keeps the last conversation of each agent: going to another and back resumes its own', async () => {
-    const obj = object('both')
-    const first = await sessions.start(obj, {})
-    await expect.poll(() => said(first.sessionId)).toContain('READY')
-    sessions.write(first.sessionId, 'hook\r')
-    await expect.poll(() => said(first.sessionId)).toContain('context:')
-    const claudes = sessionFile('both').conversationId
-    expect(sessionFile('both').agent).toBe('claude')
-    await sessions.stop(first.sessionId)
-
-    chosen.set('both', 'copilot')
-    // Asked to resume, it starts anew: the conversation on file is not its own.
-    const second = await sessions.start(obj, { resume: true })
-    await expect.poll(() => said(second.sessionId)).toContain('READY')
-    const copilots = argv(second.sessionId)[1]
-    expect(copilots).not.toBe(claudes)
-    sessions.write(second.sessionId, 'hello\r')
-    await expect.poll(() => said(second.sessionId)).toContain('> hello')
-    await expect.poll(() => sessionFile('both')).toMatchObject({ agent: 'copilot', conversationId: copilots, kept: { claude: { conversationId: claudes } } })
-    expect([sessions.resumable(obj, 'copilot'), sessions.resumable(obj, 'claude')]).toEqual([true, true])
-    await sessions.stop(second.sessionId)
-
-    chosen.set('both', 'claude')
-    const third = await sessions.start(obj, { resume: true })
-    await expect.poll(() => said(third.sessionId)).toContain('READY')
-    const args = argv(third.sessionId)
-    expect(args[args.indexOf('--resume') + 1]).toBe(claudes)
-    await sessions.stop(third.sessionId)
-    chosen.set('both', 'copilot')
-    const fourth = await sessions.start(obj, { resume: true })
-    await expect.poll(() => said(fourth.sessionId)).toContain('READY')
-    expect(argv(fourth.sessionId).slice(0, 2)).toEqual(['--session-id', copilots])
-  })
 
   it('starts one session when asked twice at once, and ends one that was still starting when all are stopped', async () => {
     const obj = object('twice')
@@ -859,6 +513,30 @@ describe('an agent without hooks', () => {
     expect(sessions.size).toBe(0)
     await late
   })
+
+  it('resumes the conversation of Claude Code that a file written by an older torno keeps beside another agent\'s', async () => {
+    const obj = object('older')
+    const claudes = '2c1e5a52-6d0c-4f6e-9a55-2f4a3c1d9e10'
+    mkdirSync(join(obj.dir, '.torno'), { recursive: true })
+    // As the torno that also ran Copilot CLI left it, that agent's conversation last.
+    writeFileSync(join(obj.dir, '.torno', 'session.json'), JSON.stringify({ conversationId: '3d1e5a52-6d0c-4f6e-9a55-2f4a3c1d9e10', agent: 'copilot', kept: { claude: { conversationId: claudes } } }))
+    expect(sessions.resumable(obj)).toBe(true)
+    const { sessionId } = await sessions.start(obj, { resume: true })
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    const args = argv(sessionId)
+    expect(args[args.indexOf('--resume') + 1]).toBe(claudes)
+    // Written anew, it is Claude Code's alone.
+    sessions.write(sessionId, 'hook\r')
+    await expect.poll(() => said(sessionId)).toContain('context:')
+    expect(sessionFile('older')).toEqual({ conversationId: claudes, agent: 'claude', updatedAt: expect.any(String) })
+  })
+
+  it('offers nothing to resume when the file holds no conversation of Claude Code\'s', () => {
+    const obj = object('another')
+    mkdirSync(join(obj.dir, '.torno'), { recursive: true })
+    writeFileSync(join(obj.dir, '.torno', 'session.json'), JSON.stringify({ conversationId: '3d1e5a52-6d0c-4f6e-9a55-2f4a3c1d9e10', agent: 'copilot' }))
+    expect(sessions.resumable(obj)).toBe(false)
+  })
 })
 
 describe('stopAll', () => {
@@ -867,9 +545,10 @@ describe('stopAll', () => {
     const held = new Promise<void>((resolve) => (release = resolve))
     const made = new Sessions({
       http,
-      adapterFor: async (obj) => {
+      adapter: claudeAdapter(`node ${FAKE}`),
+      viewFor: async (obj): Promise<AgentView> => {
         if (obj.id === 'slow-start') await held
-        return adapters(`node ${FAKE}`).claude
+        return 'terminal'
       },
       contextFor: () => ({ text: '', sentMarkIds: [] }),
       systemPromptFor: () => '',
@@ -1000,29 +679,25 @@ describe('the hook endpoint', () => {
     const secret = new URL(http.url('/hooks/x')).pathname.split('/')[2]
     const filesOf = (dir: string): string[] => readdirSync(dir, { withFileTypes: true, recursive: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name))
     try {
-      for (const agent of ['claude', 'copilot'] as const) {
-        const made = new Sessions({ http, debug: true, adapterFor: () => adapters(`node ${FAKE}`)[agent], contextFor: () => ({ text: 'Build ok.', sentMarkIds: [] }), systemPromptFor: () => 'You are in torno.', mcpUrlFor: (id) => http.url(`/mcp/${id}`) })
-        others.push(made)
-        let all = ''
-        made.on('data', (m) => (all += m.data))
-        const obj = object(`secret-${agent}`)
-        const { sessionId } = await made.start(obj, {})
-        await expect.poll(() => all).toContain('READY')
-        // The agent has it: in the address of the MCP server, and in that of every hook it is given.
-        const args: string[] = JSON.parse(/READY (\[.*\])/s.exec(all.replace(/\r?\n/g, ''))![1])
-        const mcp = JSON.parse(args[args.indexOf(agent === 'claude' ? '--mcp-config' : '--additional-mcp-config') + 1]).mcpServers.torno.url
-        expect(mcp).toBe(`http://127.0.0.1:${http.port}/mcp/${secret}/${obj.id}`)
-        if (agent === 'claude') expect(JSON.parse(args[args.indexOf('--settings') + 1]).hooks.Stop[0].hooks[0].url).toBe(`http://127.0.0.1:${http.port}/hooks/${secret}/${sessionId}/Stop`)
-        if (agent === 'copilot') await made.sendMarks(sessionId)
-        // Nothing torno wrote in the object holds it: not the instructions, not what is pasted, not the conversation on file.
-        const files = filesOf(obj.dir)
-        if (agent === 'copilot') expect(files.map((file) => file.slice(obj.dir.length + 1)).sort()).toEqual(expect.arrayContaining(['.torno/agent/AGENTS.md', '.torno/prompt.md']))
-        for (const file of files) expect([file, readFileSync(file, 'utf8').includes(secret)]).toEqual([file, false])
-        // What is logged of the start names the arguments, with the secret taken out.
-        const lines = logged.mock.calls.map((call) => call.join(' '))
-        expect(lines.some((line) => line.includes(`session ${sessionId}`) && line.includes('/mcp/<secret>/'))).toBe(true)
-        for (const line of lines) expect(line).not.toContain(secret)
-      }
+      const made = new Sessions({ http, debug: true, adapter: claudeAdapter(`node ${FAKE}`), contextFor: () => ({ text: 'Build ok.', sentMarkIds: [] }), systemPromptFor: () => 'You are in torno.', mcpUrlFor: (id) => http.url(`/mcp/${id}`) })
+      others.push(made)
+      let all = ''
+      made.on('data', (m) => (all += m.data))
+      const obj = object('secret')
+      const { sessionId } = await made.start(obj, {})
+      await expect.poll(() => all).toContain('READY')
+      // The agent has it: in the address of the MCP server, and in that of every hook it is given.
+      const args: string[] = JSON.parse(/READY (\[.*\])/s.exec(all.replace(/\r?\n/g, ''))![1])
+      const mcp = JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.torno.url
+      expect(mcp).toBe(`http://127.0.0.1:${http.port}/mcp/${secret}/${obj.id}`)
+      expect(JSON.parse(args[args.indexOf('--settings') + 1]).hooks.Stop[0].hooks[0].url).toBe(`http://127.0.0.1:${http.port}/hooks/${secret}/${sessionId}/Stop`)
+      // Nothing torno wrote in the object holds it.
+      const files = filesOf(obj.dir)
+      for (const file of files) expect([file, readFileSync(file, 'utf8').includes(secret)]).toEqual([file, false])
+      // What is logged of the start names the arguments, with the secret taken out.
+      const lines = logged.mock.calls.map((call) => call.join(' '))
+      expect(lines.some((line) => line.includes(`session ${sessionId}`) && line.includes('/mcp/<secret>/'))).toBe(true)
+      for (const line of lines) expect(line).not.toContain(secret)
     } finally {
       logged.mockRestore()
     }
@@ -1079,7 +754,7 @@ describe('a chat session', () => {
     chatHttp = await startHttp()
     chatSessions = new Sessions({
       http: chatHttp,
-      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
       contextFor: async (id) => contextOf(id, (calls += 1)),
       onDelivered: (objectId, sentMarkIds) => chatDelivered.push({ objectId, sentMarkIds }),
@@ -1132,7 +807,7 @@ describe('a chat session', () => {
   it('starts headless: the stream, not a terminal, with the chat flags and the arguments of the terminal', async () => {
     const c = await chat()
     expect(c.started.view).toBe('chat')
-    expect(c.sessions.current(c.obj.id)).toMatchObject({ view: 'chat', agent: 'claude', hooks: true })
+    expect(c.sessions.current(c.obj.id)).toMatchObject({ view: 'chat' })
     c.send('say hello')
     await expect.poll(() => c.results().length).toBe(1)
     const init = c.messages.find((m) => m.type === 'system' && m.subtype === 'init')!
@@ -1382,7 +1057,7 @@ describe('a chat session', () => {
     const file = sessionFile('chat-resume')
     expect(file.conversationId).toMatch(UUID)
     await first.sessions.stop(first.sessionId)
-    expect(first.sessions.resumable(first.obj, 'claude')).toBe(true)
+    expect(first.sessions.resumable(first.obj)).toBe(true)
 
     const second = await chat({ folder: 'chat-resume', resume: true })
     second.send('say again')
@@ -1399,15 +1074,11 @@ describe('a chat session', () => {
     expect(c.statuses.at(-1)).toBe('exited')
   })
 
-  it('starts in the view chosen for the object, and in the first view of an agent that cannot be in it', async () => {
+  it('starts in the view chosen for the object', async () => {
     views.set('chosen-terminal', 'terminal')
     views.set('chosen-chat', 'chat')
-    chosen.set('copilot-chat', 'copilot')
-    views.set('copilot-chat', 'chat')
     expect((await sessions.start(object('chosen-terminal'), {})).view).toBe('terminal')
     expect((await sessions.start(object('chosen-chat'), {})).view).toBe('chat')
-    // Copilot CLI has no chat: whatever is asked, a terminal.
-    expect((await sessions.start(object('copilot-chat'), {})).view).toBe('terminal')
   })
 })
 
@@ -1433,7 +1104,7 @@ describe('the transcript of a chat session', () => {
     tHttp = await startHttp()
     tSessions = new Sessions({
       http: tHttp,
-      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
       contextFor: async () => {
         const ids = marksPerCall[hooks++] ?? marks
@@ -1952,7 +1623,7 @@ describe('the question before a chat in a folder with settings of its own', () =
     tHttp = await startHttp()
     trustSessions = new Sessions({
       http: tHttp,
-      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
       contextFor: async () => ({ text: '', sentMarkIds: [] }),
       systemPromptFor: () => '',
@@ -1991,7 +1662,7 @@ describe('the question before a chat in a folder with settings of its own', () =
   it('asks nothing for the terminal, which has Claude Code\'s own question', async () => {
     const terminal = new Sessions({
       http: tHttp,
-      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'terminal',
       contextFor: async () => ({ text: '', sentMarkIds: [] }),
       systemPromptFor: () => '',
@@ -2032,7 +1703,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     const server = own
     made = new Sessions({
       http: server,
-      adapterFor: () => adapters(`node ${FAKE}`).claude,
+      adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'terminal',
       contextFor: () => ({ text: '', sentMarkIds: [] }),
       build: (id) => states.get(id),

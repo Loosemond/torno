@@ -11,7 +11,6 @@ const ctx = {
   cwd: '/ws/bracket',
   mcpUrl: 'http://127.0.0.1:4100/mcp/bracket',
   hookUrl: (event: string) => `http://127.0.0.1:4100/hooks/s1/${event}`,
-  agentDir: '/ws/bracket/.torno/agent',
   systemPrompt: 'You are in torno.'
 }
 
@@ -87,9 +86,8 @@ describe('the Claude Code adapter', () => {
       '--append-system-prompt',
       'You are in torno. Mind the "quotes" and $HOME.'
     ])
-    // It adds nothing to the environment and is given no file: everything is on its command line.
+    // It adds nothing to the environment: everything is on its command line.
     expect(launch.env).toEqual({})
-    expect(launch.files).toBeUndefined()
   })
 
   it('is the terminal one plus the flags of the headless mode in chat, `-p` first after what the command brings', () => {
@@ -105,13 +103,9 @@ describe('the Claude Code adapter', () => {
     expect(after(claudeAdapter().launch({ ...ctx, view: 'chat', resume: true }).args, '--resume')).toBe(ctx.conversationId)
   })
 
-  it('says which views it can be in', () => {
-    expect(claudeAdapter().views).toEqual(['chat', 'terminal'])
-  })
-
-  it('says of itself that it posts hooks, and how it names a tool', () => {
+  it('says the command it is looked for by, and how it names a tool', () => {
     const adapter = claudeAdapter('node /abs/fake-agent.mjs')
-    expect([adapter.id, adapter.label, adapter.command, adapter.hooks, adapter.toolName('scene')]).toEqual(['claude', 'Claude Code', 'claude', true, 'mcp__torno__scene'])
+    expect([adapter.command, adapter.toolName('scene')]).toEqual(['claude', 'mcp__torno__scene'])
   })
 
   // #4: torno's skills, a plugin that ships with the app, loaded for this session only.

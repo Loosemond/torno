@@ -6,18 +6,15 @@ const NOTHING = { sessions: [], paintings: 0, importing: false, exporting: false
 describe('what closing the window would end', () => {
   it('is nothing with no session, with one at rest and with one that has ended: the window closes at once', () => {
     expect(closingWhy(NOTHING)).toBeNull()
-    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true }, { status: 'exited', hooks: true }, { status: 'exited', hooks: false }] })).toBeNull()
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle' }, { status: 'exited' }, { status: 'starting' }] })).toBeNull()
   })
 
-  it('is a session at work, one waiting for an answer, and one of an agent that does not say', () => {
-    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'working', hooks: true }] })).toBe('A session is in the middle of its work.')
-    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'needs_input', hooks: true }] })).toBe('A session is in the middle of its work.')
-    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: false }] })).toBe('A session may be in the middle of its work: its agent does not say.')
+  it('is a session at work, and one waiting for an answer', () => {
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'working' }] })).toBe('A session is in the middle of its work.')
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'needs_input' }] })).toBe('A session is in the middle of its work.')
   })
 
-  it('is a line of marks waiting at the prompt, a painting not kept, an import and an export under way', () => {
-    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true, send: { state: 'waiting' } }] })).toBe('A line of marks is at an agent\'s prompt, not sent yet.')
-    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'idle', hooks: true, send: { state: 'sent' } }] })).toBeNull()
+  it('is a prompt not sent, a painting not kept, an import and an export under way', () => {
     expect(closingWhy({ ...NOTHING, unsent: 1 })).toBe('A prompt written in the chat is not sent yet.')
     expect(closingWhy({ ...NOTHING, unsent: 0 })).toBeNull()
     expect(closingWhy({ ...NOTHING, draft: true })).toBe('A new object is set up and not made yet.')
@@ -39,11 +36,11 @@ describe('what closing the window would end', () => {
   })
 
   it('says how many sessions are at work, without a number', () => {
-    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'working', hooks: true }, { status: 'idle', hooks: false }] })).toBe('Sessions are in the middle of their work.')
+    expect(closingWhy({ ...NOTHING, sessions: [{ status: 'working' }, { status: 'needs_input' }, { status: 'idle' }] })).toBe('Sessions are in the middle of their work.')
   })
 
   it('says all there is, in one line', () => {
-    expect(closingWhy({ sessions: [{ status: 'working', hooks: true }], paintings: 2, importing: true, exporting: false })).toBe(
+    expect(closingWhy({ sessions: [{ status: 'working' }], paintings: 2, importing: true, exporting: false })).toBe(
       'A session is in the middle of its work. A region painted on a scan is not kept yet. A scan is being imported.'
     )
   })

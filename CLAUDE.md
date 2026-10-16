@@ -62,7 +62,7 @@ what was never seen on a visible screen is one section.
   as base64url, made in `startHttp` and kept nowhere), compared in constant time; without it the answer is 404.
   An address is made only by `HttpRouter.url`. The secret reaches an agent only in what it is started with
   (argv, settings, env); it is never logged (`HttpRouter.redact` for whatever is logged of an address or of an
-  agent's arguments) and never written to `state.md`, `prompt.md`, `.torno/agent/` or any other file. Should a
+  agent's arguments) and never written to `state.md`, `.torno/chat/` or any other file. Should a
   file under `.torno/` ever have to hold an address for a running session, it is one git passes over
   (`ensureIgnored`) and is written anew at each start. The test hook `__tornoMain.mcpUrlFor(id)` gives the
   whole address, secret and all; the stand-in agent reads its hook addresses from its `--settings`.
@@ -103,7 +103,7 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   pending (`≈`), which the kernel's value replaces. What is taken from a scan
   is the other, and is never said to be exact (see Scans).
 
-- Claude Code is shown as a chat by default (`view` in `.torno/agent.json`; Copilot CLI is always a terminal). The
+- Claude Code is the one agent torno runs. It is shown as a chat by default (`view` in `.torno/agent.json`). The
   chat is the CLI's own headless mode (`-p --input-format stream-json --output-format stream-json`) on pipes,
   under the person's own login, never run by a test. Hooks stay the one source of status and of the marks sent;
   the stream adds only that a request waiting for the person is `needs_input`. `.torno/chat/` holds text only:
@@ -133,9 +133,7 @@ folders has a part in each.
 ## Never run a real agent CLI from tests
 
 Tests set `TORNO_AGENT_CMD` to the stand-in, `node app/test/fake-agent.mjs`,
-which prints its arguments and posts hooks on request; started with Copilot
-CLI's arguments it has no hook to post, as an agent without hooks. No test
-runs `claude` or `copilot`: a real CLI spends the person's subscription,
-depends on their login and settings, and asks questions in folders it has not
-seen. Checking torno against a real CLI is done by hand, once per change that
+which prints its arguments and posts hooks on request. No test runs `claude`:
+a real CLI spends the person's subscription, depends on their login and
+settings, and asks questions in folders it has not seen. Checking torno against a real CLI is done by hand, once per change that
 needs it (the README lists what is still to be checked).

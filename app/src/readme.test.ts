@@ -71,11 +71,11 @@ it('is laid out for a first-time reader: what it is, how to start it, a walk-thr
     '## Environment variables',
     '## Not yet verified on a visible screen'
   ])
-  for (const heading of ['### Choosing an agent', '### What the agent is told', '### Tools', '### Prompts']) expect(headings).toContain(heading)
+  for (const heading of ['### What Claude Code is given', '### What the agent is told', '### Tools', '### Prompts']) expect(headings).toContain(heading)
 })
 
 it('names the files torno writes and the variables it reads', () => {
-  for (const name of ['scene.json', 'marks.json', 'scans.json', 'session.json', 'agent.json', 'prompt.md', 'state.md', 'thumb.png', 'thumb.json', 'exports/', 'views/', 'config.json', 'TORNO_OZONE', 'TORNO_WORKSPACE', 'TORNO_AGENT_CMD', 'TORNO_BUILD_TIMEOUT', 'TORNO_CONFIG', 'TORNO_DEBUG', 'TORNO_TEST']) {
+  for (const name of ['scene.json', 'marks.json', 'scans.json', 'session.json', 'agent.json', 'state.md', 'thumb.png', 'thumb.json', 'exports/', 'views/', 'config.json', 'TORNO_OZONE', 'TORNO_WORKSPACE', 'TORNO_AGENT_CMD', 'TORNO_BUILD_TIMEOUT', 'TORNO_CONFIG', 'TORNO_DEBUG', 'TORNO_TEST']) {
     expect([name, readme.includes(name)]).toEqual([name, true])
   }
 })
@@ -88,11 +88,11 @@ it('lists in one section what nobody has seen on a visible screen or with a real
   const remains = section.indexOf('What remains is yours to try once.')
   expect([seen > 0, remains > seen]).toEqual([true, true])
   const verified = section.slice(seen, remains)
-  for (const item of ['Only one torno', 'no menu', 'Alt-drag', 'hyprctl clients', 'thumbnail', 'Ctrl+Shift+E', 'Claude Code', 'Copilot CLI', 'Firefox']) {
+  for (const item of ['Only one torno', 'no menu', 'Alt-drag', 'hyprctl clients', 'thumbnail', 'Ctrl+Shift+E', 'Claude Code', 'Firefox']) {
     expect([item, verified.includes(item)]).toEqual([item, true])
   }
   const toTry = section.slice(remains)
-  for (const item of ['Hyprland', 'flicker', 'comes to the front', 'Closing', 'clipboard', 'dark', 'dropped on the view', 'folder dialog', 'save dialog', 'replace', 'Claude Code', 'Copilot CLI', 'Firefox', 'Safari', 'phone', 'file://', '--install-desktop', 'another workspace with a session working']) {
+  for (const item of ['Hyprland', 'flicker', 'comes to the front', 'Closing', 'clipboard', 'dark', 'dropped on the view', 'folder dialog', 'save dialog', 'replace', 'Claude Code', 'Firefox', 'Safari', 'phone', 'file://', '--install-desktop', 'another workspace with a session working']) {
     expect([item, toTry.includes(item)]).toEqual([item, true])
   }
 })

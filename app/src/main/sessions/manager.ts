@@ -1,15 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { mkdir } from 'node:fs/promises'
-import { basename, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import * as pty from 'node-pty'
-import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
+import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
 import type { BuildState } from '../../shared/build'
 import type { ObjectInfo } from '../../shared/workspace'
-import { writeFileAtomic } from '../atomic'
-import { ensureIgnored } from '../ignored'
-import { FOLDER, ownTorno } from '../own'
+import { FOLDER } from '../own'
 import type { PromptContext } from '../context'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import { trustQuestion } from '../../shared/agents'
@@ -18,15 +15,11 @@ import type { AgentAdapter } from './adapter'
 import { appendItems, readLog, trimLog } from './chatlog'
 import { sessionRules } from './permissions'
 import { findCommand } from './choice'
-import { type Told, blankPrompt, Delivery, untold } from './delivery'
-import { PROMPT_FILE } from './sendMarks'
-import { conversationTold, SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
+import { SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
 import { type AskAnswer, ClaudeStream, type PromptBlock, type StreamAsk, type StreamMessage } from './stream'
 import { Transcript } from './transcript'
 
-/** `<object>/.torno/agent`: where an adapter's own files are written, for its agent to be pointed at. */
-const AGENT_FOLDER = 'agent'
 const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
 /** A chat session that has been told to end: SIGTERM to its group after this long, SIGKILL after twice. */
@@ -44,7 +37,7 @@ const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse'])
 /** C0 and C1 controls and DEL: among them ESC, the newlines and the one-byte CSI. */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
 
-interface Session extends Told {
+interface Session {
   id: string
   object: ObjectInfo
   /** The agent's id of the conversation, as its last hook named it. */
@@ -80,7 +73,6 @@ interface Session extends Told {
   /** The kill: SIGHUP's two seconds after for a terminal session, the last of two signals for a chat session. */
   killTimer?: NodeJS.Timeout
   termTimer?: NodeJS.Timeout
-  adapter: AgentAdapter
   /** What the hooks of the turn under way said of the model: see `TurnState`. */
   turn?: TurnState
 }
@@ -136,29 +128,22 @@ export interface SessionInfo {
   cols: number
   rows: number
   pid: number
-  agent: AgentId
-  /** Whether its agent posts hooks: without, its status says only that it runs. */
-  hooks: boolean
   /** `chat`: the agent runs headless and torno draws the conversation; `terminal`: its own terminal in a PTY. */
   view: AgentView
 }
 
-/** What `start` answers with: the session, at its size, as it stands, and whose it is. */
+/** What `start` answers with: the session, at its size, as it stands. */
 export interface Started {
   sessionId: string
   cols: number
   rows: number
   status: SessionStatus
-  agent: AgentId
-  hooks: boolean
   view: AgentView
 }
 
 interface Events {
   data: { sessionId: string; data: string }
   status: { sessionId: string; objectId: string; status: SessionStatus }
-  /** What became of the line "Send marks" put at the cursor of an agent without hooks, and how many marks its file tells of. */
-  send: { sessionId: string; objectId: string; state: SendState; marks: number; why?: SendDropped }
   // `stream`, `ask`, `asked` and `context` have no listener in the app: they are the probe the integration tests
   // (`manager.itest.ts`) watch the CLI's stand-in through. `stream` is made only while somebody listens.
   /** A chat session: a line the CLI printed, as the stream read it. Never for a terminal session. */
@@ -178,17 +163,9 @@ interface Events {
 }
 
 /**
- * The agent sessions: each the real CLI in a PTY, in the folder of one object,
+ * The agent sessions: each the real CLI in a PTY, or headless on pipes for a chat, in the folder of one object,
  * and at most one per object. The status of a session follows the hooks the
  * agent posts to `/hooks/<secret>/<sessionId>/<event>` on the local HTTP server (`http.url`: the address has the run's secret).
- *
- * An agent that posts none (`AgentAdapter.hooks` false) is `idle` from its
- * first output until it leaves, which says only that it runs. Nothing goes
- * with its prompts: `sendMarks` writes what a hook would have carried to
- * `<object>/.torno/prompt.md` and puts a line that names the file at its
- * cursor, and the marks that file tells of are delivered when the Enter that
- * sends the line is written to its terminal (`followTyped`), and not
- * otherwise.
  */
 export class Sessions {
   private readonly sessions = new Map<string, Session>()
@@ -203,19 +180,14 @@ export class Sessions {
   private buildWaiters = new Set<() => void>()
   /** By object: a session that is being started there. */
   private readonly starting = new Map<string, Promise<Started>>()
-  /** How an agent without hooks is told, and when what it was told counts as sent. */
-  private readonly delivery: Delivery<Session>
-  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], send: [], stream: [], ask: [], asked: [], context: [], item: [], meta: [], capabilities: [] }
+  private readonly listeners: { [E in keyof Events]: ((m: Events[E]) => void)[] } = { data: [], status: [], stream: [], ask: [], asked: [], context: [], item: [], meta: [], capabilities: [] }
 
   constructor(
     private readonly deps: {
       http: HttpRouter
-      /** The agent to run in an object: the one chosen for it. */
-      adapterFor: (obj: ObjectInfo) => AgentAdapter | Promise<AgentAdapter>
-      /**
-       * How the agent of an object is shown, as chosen for it: `chat` starts it headless, `terminal` in a PTY.
-       * None: the terminal. A view the agent cannot be in: its first view.
-       */
+      /** How the agent is started: Claude Code's adapter (`claude.ts`). */
+      adapter: AgentAdapter
+      /** How the agent of an object is shown, as chosen for it: `chat` starts it headless, `terminal` in a PTY. None: the terminal. */
       viewFor?: (obj: ObjectInfo) => AgentView | Promise<AgentView>
       /**
        * What the agent should know with the next prompt in that object ('' for
@@ -228,11 +200,10 @@ export class Sessions {
       /**
        * The answer to a prompt's hook has left for the agent of that object,
        * and these marks were in it. Only ever for a UserPromptSubmit of a
-       * session that is still the one of its object; or, of an agent without
-       * hooks, for the Enter that sent the line naming the file they are in.
+       * session that is still the one of its object.
        */
       onDelivered?: (objectId: string, sentMarkIds: string[]) => void
-      /** What an adapter that has a flag for it adds to its agent's system prompt. */
+      /** What is added to the agent's system prompt. */
       systemPromptFor: (adapter: AgentAdapter) => string
       mcpUrlFor: (objectId: string) => string
       /**
@@ -253,13 +224,6 @@ export class Sessions {
     }
   ) {
     deps.http.route('/hooks', (req, res, rest) => this.hook(req, res, rest))
-    this.delivery = new Delivery<Session>({
-      contextFor: deps.contextFor,
-      onDelivered: deps.onDelivered,
-      live: (s) => this.sessions.get(s.id) === s && !s.killTimer,
-      insert: (s, text) => this.paste(s, text),
-      said: (s, state, marks, why) => this.emit('send', { sessionId: s.id, objectId: s.object.id, state, marks, ...(why ? { why } : {}) })
-    })
   }
 
   on<E extends keyof Events>(event: E, cb: (m: Events[E]) => void): void {
@@ -269,7 +233,7 @@ export class Sessions {
   /**
    * Start the agent in an object's folder, or return the session already
    * running there. `resume` continues the conversation on file, if there is one.
-   * Rejects when the agent's command cannot be found. The agent is the one
+   * Rejects when the agent's command cannot be found. The view is the one
    * chosen for the object, which is read from the disk: a second call for an
    * object while the first is still starting there is answered with the first.
    */
@@ -285,20 +249,16 @@ export class Sessions {
   }
 
   private async begin(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number }): Promise<Started> {
-    const { http } = this.deps
-    const adapter = await this.deps.adapterFor(obj)
-    const wanted = (await this.deps.viewFor?.(obj)) ?? 'terminal'
-    const view = adapter.views.includes(wanted) ? wanted : adapter.views[0]
+    const { http, adapter } = this.deps
+    const view = (await this.deps.viewFor?.(obj)) ?? 'terminal'
     // Before anything is written or started: the chat loads what the folder's settings name without asking.
     if (view === 'chat' && this.deps.trust) {
       const files = await this.deps.trust.pending(obj.dir)
       if (files.length > 0) throw new Error(trustQuestion(files))
     }
     const id = randomUUID()
-    // Only a conversation of this agent's own: another agent's id means nothing to it.
-    const stored = opts.resume ? storedConversation(obj.dir, adapter.id) : null
+    const stored = opts.resume ? storedConversation(obj.dir) : null
     const conversationId = stored ?? randomUUID()
-    const agentDir = join(obj.dir, FOLDER, AGENT_FOLDER)
     const person = agentEnv(process.env)
     const launch = adapter.launch({
       sessionId: id,
@@ -308,34 +268,13 @@ export class Sessions {
       cwd: obj.dir,
       mcpUrl: this.deps.mcpUrlFor(obj.id),
       hookUrl: (event) => http.url(`/hooks/${id}/${encodeURIComponent(event)}`),
-      agentDir,
-      systemPrompt: this.deps.systemPromptFor(adapter),
-      env: person
+      systemPrompt: this.deps.systemPromptFor(adapter)
     })
     // The arguments hold the addresses the agent is given: the run's secret in them is not for a log.
     if (this.deps.debug) console.error(http.redact(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`))
     const env: Record<string, string> = { ...person, ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id }
     // node-pty reports a command that does not exist only as a process that exits at once.
     if (!findCommand(launch.command, env.PATH)) throw new Error(`cannot start the agent: '${launch.command}' was not found on PATH`)
-    // What the agent is pointed at is whole before it starts, in a folder that is torno's own and inside the
-    // object: a link there (a workspace from elsewhere) would have torno write, and the agent read, wherever it
-    // leads. Nothing is made for an adapter that has no file.
-    const files = Object.entries(launch.files ?? {})
-    if (files.length > 0) {
-      // By the one rule of every folder under `.torno` (`ownTorno`), which tells the window once.
-      await ownTorno(obj.dir, AGENT_FOLDER).catch((e: Error) => {
-        throw new Error(`cannot start the agent: ${e.message}`)
-      })
-      await mkdir(agentDir, { recursive: true })
-      for (const [name, text] of files) await writeFileAtomic(join(agentDir, basename(name)), text)
-    }
-    if (!adapter.hooks) {
-      // What changes with every send, and what is written anew at every start, is not for git. The choice of
-      // agent (`agent.json`) is the object's and travels with it, as `scene.json` does.
-      await ensureIgnored(obj.dir, [PROMPT_FILE, ...(files.length > 0 ? [`${AGENT_FOLDER}/`] : [])])
-      // Whatever the file told an earlier session of is not news to this one.
-      await blankPrompt(obj.dir)
-    }
 
     // What a chat shows of the conversation it resumes is read before the session exists: it is the log's as it was.
     if (view === 'chat' && stored !== null) await trimLog(obj.dir, stored)
@@ -388,10 +327,7 @@ export class Sessions {
       heard: false,
       watchers: [],
       sending: Promise.resolve(),
-      exited: new Promise<void>((resolve) => (ended = resolve)),
-      adapter,
-      // A conversation that is resumed has seen the marks only if a line of torno's was sent in it.
-      ...untold(stored === null || !conversationTold(obj.dir, adapter.id, stored), stored !== null)
+      exited: new Promise<void>((resolve) => (ended = resolve))
     }
     // Only the newest session of an object keeps its transcript: the one before it was readable until now.
     if (chat) {
@@ -403,17 +339,13 @@ export class Sessions {
 
     child?.onData((data) => {
       this.emit('data', { sessionId: id, data })
-      if (!adapter.hooks) this.delivery.output(session, data)
       this.advance(session, 'output')
     })
     child?.onExit(() => {
       clearTimeout(session.killTimer)
       this.sessions.delete(id)
       this.advance(session, 'exit')
-      // A line that was never sent went with it: the marks it would have told of are drafts still, and the
-      // file is made to say so before the session counts as gone.
-      if (adapter.hooks) ended()
-      else void this.delivery.ended(session).then(ended)
+      ended()
     })
     if (stream) this.follow(session, stream, ended)
     return started(session)
@@ -432,17 +364,12 @@ export class Sessions {
   /** The session running in an object's folder. */
   current(objectId: string): SessionInfo | null {
     const s = this.of(objectId)
-    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: (s.pty ?? s.stream)?.pid ?? 0, agent: s.adapter.id, hooks: s.adapter.hooks, view: s.view } : null
+    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: (s.pty ?? s.stream)?.pid ?? 0, view: s.view } : null
   }
 
   /** Whether a session is being started in an object's folder and is not there yet. */
   isStarting(objectId: string): boolean {
     return this.starting.has(objectId)
-  }
-
-  /** The agent a session runs. None for a session that has ended. */
-  agentOf(sessionId: string): AgentId | undefined {
-    return this.sessions.get(sessionId)?.adapter.id
   }
 
   /**
@@ -455,9 +382,9 @@ export class Sessions {
     return s && !s.killTimer ? { id: s.object.id, dir: s.object.dir } : undefined
   }
 
-  /** Whether a conversation of that agent's is on file for the object, to resume. */
-  resumable(obj: ObjectInfo, agent: AgentId): boolean {
-    return storedConversation(obj.dir, agent) !== null
+  /** Whether a conversation is on file for the object, to resume. */
+  resumable(obj: ObjectInfo): boolean {
+    return storedConversation(obj.dir) !== null
   }
 
   write(sessionId: string, data: string): void {
@@ -465,18 +392,6 @@ export class Sessions {
     // A chat session has no terminal to type into: its prompts are `prompt`.
     if (!s?.pty) return
     s.pty.write(data)
-    if (!s.adapter.hooks && !s.killTimer) this.delivery.typed(s, data)
-  }
-
-  /**
-   * For an agent without hooks: writes what a hook would have carried with its next prompt to
-   * `<object>/.torno/prompt.md` and puts one line that names the file at its cursor, not sent (`Delivery`).
-   */
-  sendMarks(sessionId: string): Promise<{ marks: string[]; line: string }> {
-    const s = this.sessions.get(sessionId)
-    if (!s || s.killTimer) return Promise.reject(new Error('This session has ended'))
-    if (s.adapter.hooks) return Promise.reject(new Error('This agent is told with every prompt'))
-    return this.delivery.send(s)
   }
 
   /** A build of an object began or ended: an edit's answer may be waiting for it. */
@@ -523,7 +438,7 @@ export class Sessions {
       const now = Date.now()
       if (!begun && now >= grace) return {}
       if (begun && now >= deadline) {
-        const text = `A build is running (r${(state?.revision ?? 0) + 1}); call ${session.adapter.toolName('scene')} for its result.`
+        const text = `A build is running (r${(state?.revision ?? 0) + 1}); call ${this.deps.adapter.toolName('scene')} for its result.`
         session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text, buildState: 'building' })
         return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } }
       }
@@ -531,7 +446,7 @@ export class Sessions {
     }
     let told: PromptContext
     try {
-      told = await buildContextFor(objectId, session.adapter.toolName)
+      told = await buildContextFor(objectId, this.deps.adapter.toolName)
     } catch (e) {
       console.error(`no build context for the edit in ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
       return {}
@@ -556,15 +471,9 @@ export class Sessions {
       return { decision: 'block', reason: `The latest build (r${state.revision + 1}) failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.` }
     }
     if (turn.unlooked && state.status === 'ok') {
-      return { decision: 'block', reason: `You edited the model and have not looked at r${state.revision}. Call ${session.adapter.toolName('look')} before finishing.` }
+      return { decision: 'block', reason: `You edited the model and have not looked at r${state.revision}. Call ${this.deps.adapter.toolName('look')} before finishing.` }
     }
     return null
-  }
-
-  /** What is told of an object changed: its marks, or its build. A file that a waiting line names follows it. */
-  changed(objectId: string): void {
-    const s = this.of(objectId)
-    if (s) this.delivery.changed(s)
   }
 
   /**
@@ -572,21 +481,12 @@ export class Sessions {
    * reads it, adds to it and presses Enter themselves. Control characters are
    * taken out first, so the text can neither end the paste nor send the prompt.
    * Nothing is written to a session that has ended or been hung up on.
-   *
-   * It is not the line of "Send marks": while that line waits at the cursor of
-   * an agent without hooks, what is put in after it drops it, as typing does.
    */
   insert(sessionId: string, text: string): void {
     const s = this.sessions.get(sessionId)
     if (!s || s.killTimer) return
-    if (this.paste(s, text) && !s.adapter.hooks) this.delivery.inserted(s)
-  }
-
-  /** The paste itself: whether anything was written. */
-  private paste(s: Session, text: string): boolean {
     const plain = text.replace(CONTROL_CHARACTERS, '')
     if (plain && s.pty) s.pty.write(`\x1b[200~${plain}\x1b[201~`)
-    return plain !== '' && s.pty !== null
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
@@ -951,7 +851,7 @@ export class Sessions {
     const name = typeof body.tool_name === 'string' ? body.tool_name : ''
     const useId = typeof body.tool_use_id === 'string' ? body.tool_use_id : ''
     const turn: TurnState = (session.turn ??= { since: this.finished, unlooked: false, editing: new Map() })
-    if (name === session.adapter.toolName('look')) {
+    if (name === this.deps.adapter.toolName('look')) {
       if (event === 'PostToolUse') turn.unlooked = false
       return {}
     }
@@ -978,8 +878,7 @@ export class Sessions {
   private async hook(req: IncomingMessage, res: ServerResponse, rest: string[]): Promise<void> {
     const [sessionId, event] = rest
     const session = rest.length === 2 ? this.sessions.get(sessionId) : undefined
-    // Nor of an agent that was given no hook to post: whatever posts there is not it.
-    if (!session || !session.adapter.hooks) return sendJson(res, 404, { error: 'no such session' })
+    if (!session) return sendJson(res, 404, { error: 'no such session' })
     // Only what the agent posts: `exit` and `output` are the PTY's to say, and would end a live session.
     if (!HOOK_EVENTS.includes(event)) return sendJson(res, 404, { error: 'no such hook' })
     session.activity += 1
@@ -1023,7 +922,7 @@ export class Sessions {
     if (!session.killTimer && CONVERSATION_EVENTS.has(event) && typeof conversation === 'string' && UUID.test(conversation)) {
       session.conversationId = conversation
       // On file before the hook is answered: whoever sees the answer can resume.
-      await storeConversation(session.object.dir, session.adapter.id, conversation).catch((e) => console.error(`cannot write ${join(session.object.dir, FOLDER, SESSION_FILE)}: ${(e as Error).message}`))
+      await storeConversation(session.object.dir, conversation).catch((e) => console.error(`cannot write ${join(session.object.dir, FOLDER, SESSION_FILE)}: ${(e as Error).message}`))
     }
 
     // A SessionEnd is not the end of the session: on /clear the agent carries on
@@ -1050,7 +949,7 @@ export class Sessions {
     if (named !== undefined) session.promptedIn = named
     let context: PromptContext
     try {
-      context = await this.deps.contextFor(objectId, { fresh, toolName: session.adapter.toolName })
+      context = await this.deps.contextFor(objectId, { fresh, toolName: this.deps.adapter.toolName })
     } catch (e) {
       // The prompt goes ahead without it rather than wait for the hook to time out.
       console.error(`no context for the prompt in ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
@@ -1068,7 +967,7 @@ export class Sessions {
 }
 
 function started(s: Session): Started {
-  return { sessionId: s.id, cols: s.cols, rows: s.rows, status: s.status, agent: s.adapter.id, hooks: s.adapter.hooks, view: s.view }
+  return { sessionId: s.id, cols: s.cols, rows: s.rows, status: s.status, view: s.view }
 }
 
 /** What `initialize` answered, read for the commands and models it names, and nothing else. */

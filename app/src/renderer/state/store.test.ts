@@ -603,27 +603,20 @@ describe('the note that is open', () => {
 describe('the running session of the open object', () => {
   it('is the one an agent still runs in', () => {
     expect(runningSession(store.getState())).toBeUndefined()
-    actions.setSession('gear', { sessionId: 'g', status: 'idle', agent: 'claude', hooks: true, view: 'terminal' })
+    actions.setSession('gear', { sessionId: 'g', status: 'idle', view: 'terminal' })
     expect(runningSession(store.getState())).toBeUndefined()
-    actions.setSession('bracket', { sessionId: 'b', status: 'working', agent: 'claude', hooks: true, view: 'terminal' })
-    expect(runningSession(store.getState())).toEqual({ sessionId: 'b', status: 'working', agent: 'claude', hooks: true, view: 'terminal' })
+    actions.setSession('bracket', { sessionId: 'b', status: 'working', view: 'terminal' })
+    expect(runningSession(store.getState())).toEqual({ sessionId: 'b', status: 'working', view: 'terminal' })
     actions.applySessionStatus({ sessionId: 'b', status: 'exited' })
     expect(runningSession(store.getState())).toBeUndefined()
   })
 
-  it('keeps whose it is when its status changes, and what became of the line put at its cursor', () => {
-    actions.setSession('bracket', { sessionId: 'c', status: 'starting', agent: 'copilot', hooks: false, view: 'terminal' })
+  it('keeps its view when its status changes, and follows no session that is no longer its object\'s', () => {
+    actions.setSession('bracket', { sessionId: 'c', status: 'starting', view: 'chat' })
     actions.applySessionStatus({ sessionId: 'c', status: 'idle' })
-    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', agent: 'copilot', hooks: false, view: 'terminal' })
-    actions.applySend({ sessionId: 'c', state: 'waiting' })
-    expect(store.getState().sessions.bracket.send).toEqual({ state: 'waiting' })
-    // Of a session that is no longer its object's, nothing is followed.
-    actions.applySend({ sessionId: 'gone', state: 'sent' })
-    expect(store.getState().sessions.bracket.send).toEqual({ state: 'waiting' })
-    actions.applySend({ sessionId: 'c', state: 'dropped', why: 'absent' })
-    expect(store.getState().sessions.bracket.send).toEqual({ state: 'dropped', why: 'absent' })
-    actions.applySend({ sessionId: 'c', state: 'sent' })
-    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', agent: 'copilot', hooks: false, view: 'terminal', send: { state: 'sent' } })
+    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', view: 'chat' })
+    actions.applySessionStatus({ sessionId: 'gone', status: 'working' })
+    expect(store.getState().sessions.bracket).toEqual({ sessionId: 'c', status: 'idle', view: 'chat' })
   })
 })
 

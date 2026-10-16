@@ -11,7 +11,7 @@ import { createObject } from './objects/create'
 import { onboardObject, sessionRunning, type OnboardDeps } from './onboard'
 import { ScanStore } from './scans/store'
 import { processImporter } from './scans/importer'
-import { adapters } from './sessions/adapter'
+import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import type { StreamMessage } from './sessions/stream'
 
@@ -40,7 +40,7 @@ const objects = new Map<string, ObjectInfo>()
 function make(command: string): Sessions {
   const made = new Sessions({
     http,
-    adapterFor: () => adapters(command).claude,
+    adapter: claudeAdapter(command),
     viewFor: () => 'chat',
     contextFor: async (id) => ({ text: `context for ${id}`, sentMarkIds: [] }),
     onDelivered: () => {},

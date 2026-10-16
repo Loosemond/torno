@@ -360,11 +360,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 ## Agents
 
-- The agent's terminal (`ui/SessionPane.tsx`) has the same inset in the pane for every agent, in the
-  terminal's ground: the panel's, or the one the agent paints the edges of its screen in, when it paints one
-  (Copilot CLI does). Most of the left column and the bottom row decides (`ui/termGround.ts` `edgeGround`,
-  after every write parsed); the terminal's own ground and the inset then take it, so that the agent's screen
-  fills the pane (`window.__tornoTerm.ground()`; the stand-in's `ground r g b`).
+- The agent's terminal (`ui/SessionPane.tsx`) has its inset in the pane in the terminal's ground: the panel's,
+  or the one the agent paints the edges of its screen in, when it paints one. Most of the left column and the
+  bottom row decides (`ui/termGround.ts` `edgeGround`, after every write parsed); the terminal's own ground and
+  the inset then take it, so that the agent's screen fills the pane (`window.__tornoTerm.ground()`; the
+  stand-in's `ground r g b`).
+- The session header names Claude Code, the one agent there is; under it, "Chat · Terminal" chooses the view.
+  When `.torno/agent.json` could not be followed (`note` of `session:current`) the pane says why, with "Use
+  Claude Code", which writes the file anew and is disabled while a session runs.
 
 - **The chat pane** (`ui/chat/`, `state/chat.ts`; a Claude Code session whose `view` is chat has no `.xterm`). The
   window draws what main's transcript says: `placed` and `drawn` in `state/chat.ts` reproduce main's order

@@ -6,22 +6,15 @@
 //     in its --settings argument and prints the additionalContext it is given;
 //     `hook <Event> [session id]` posts another event, or as another conversation;
 //   - on the line `size`, prints the size of its terminal;
-//   - on the line `env`, prints the names of its HOME, PATH, TORNO*, CLAUDE*,
-//     ANTHROPIC* and COPILOT* variables, sorted, as JSON;
-//   - on the line `file <path>`, prints `file: ` and the first 200 characters
-//     of that file on one line, or `file: none`;
+//   - on the line `env`, prints the names of its HOME, PATH, TORNO*, CLAUDE* and
+//     ANTHROPIC* variables, sorted, as JSON;
 //   - on the line `args`, prints its READY line again;
-//   - on the line `dialog`, shows nothing of what is typed until the next line,
-//     as a CLI does while a question of its own is up in place of its prompt,
-//     and answers that line with `dialog: answered` and nothing else;
 //   - on the line `palette`, prints the sixteen ANSI colours;
 //   - on the line `ground <r> <g> <b>`, goes to the other screen and paints the whole of it in that colour, as a
-//     CLI with a ground of its own does (Copilot CLI's); `ground` alone goes back to the main screen;
+//     CLI with a ground of its own does; `ground` alone goes back to the main screen;
 //   - on the line `child`, starts a process of its own that ignores SIGHUP, as
 //     a tool the agent runs might, and prints `child: <pid>`;
 //   - on the line `exit`, exits.
-// Started with another agent's arguments (Copilot CLI's: no --settings) it has
-// no hook to post, and `hook` prints `no UserPromptSubmit hook`.
 // With FAKE_AGENT_STUBBORN=1 it ignores SIGHUP, like a process that has hung (in stream mode also SIGTERM and the
 // end of its stdin).
 //
@@ -69,7 +62,6 @@
 // With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
 // (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const argv = process.argv.slice(2)
@@ -96,14 +88,6 @@ function palette() {
     let line = ''
     for (let i = 0; i < 8; i += 1) line += `\x1b[${base + i}m colour${base === 30 ? i : i + 8} \x1b[0m`
     console.log(line)
-  }
-}
-
-function fileStart(path) {
-  try {
-    return readFileSync(path, 'utf8').slice(0, 200).replace(/\s+/g, ' ')
-  } catch {
-    return 'none'
   }
 }
 
@@ -406,24 +390,13 @@ function terminalMode() {
 console.log(`READY ${JSON.stringify(argv)}`)
 
 const lines = createInterface({ input: process.stdin })
-let asking = false
 lines.on('line', (line) => {
-  if (asking) {
-    asking = false
-    process.stdin.setRawMode?.(false)
-    return console.log('dialog: answered')
-  }
   console.log(`> ${line.replaceAll('\x1b', '\\e')}`)
   const [word, event, sessionId] = line.trim().split(/\s+/)
   if (word === 'hook') void hook(event ?? 'UserPromptSubmit', sessionId ?? conversation).catch((e) => console.log(`hook failed: ${e.message}`))
   else if (word === 'size') console.log(`size: ${process.stdout.columns}x${process.stdout.rows}`)
-  else if (word === 'env') console.log(`env: ${JSON.stringify(Object.keys(process.env).filter((name) => /^(HOME$|PATH$|TORNO|CLAUDE|ANTHROPIC|COPILOT)/.test(name)).sort())}`)
-  else if (word === 'file') console.log(`file: ${fileStart(line.trim().slice('file'.length).trim())}`)
-  else if (word === 'dialog') {
-    asking = true
-    process.stdin.setRawMode?.(true)
-    console.log('dialog: up')
-  } else if (word === 'args') console.log(`READY ${JSON.stringify(argv)}`)
+  else if (word === 'env') console.log(`env: ${JSON.stringify(Object.keys(process.env).filter((name) => /^(HOME$|PATH$|TORNO|CLAUDE|ANTHROPIC)/.test(name)).sort())}`)
+  else if (word === 'args') console.log(`READY ${JSON.stringify(argv)}`)
   else if (word === 'palette') palette()
   else if (word === 'ground') {
     const [r, g, b] = line.trim().split(/\s+/).slice(1).map(Number)

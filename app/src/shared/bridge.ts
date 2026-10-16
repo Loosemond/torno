@@ -204,25 +204,16 @@ export interface TornoBridge {
   }
   session: {
     /**
-     * What there is for an object: its running session and the agent that one is of; the agent its next session
-     * runs (`agent`, `hooks`: the one chosen for it) and whether one of that agent's conversations can be resumed.
-     * `note` says so when the object's `agent.json` could not be followed and Claude Code is used in its place.
+     * What there is for an object: its running session; the view its next session starts in (the one chosen for it)
+     * and whether a conversation can be resumed. `note` says so when the object's `agent.json` could not be followed.
      */
-    current(objectId: string): Promise<{ running: { sessionId: string; status: SessionStatus; agent: AgentId; hooks: boolean; view: AgentView } | null; /** A chat that has ended and whose conversation main still holds: a window loaded after it ended can read it. Absent while one runs. */ ended?: { sessionId: string }; resumable: boolean; agent: AgentId; view: AgentView; hooks: boolean; note?: string }>
-    /** Starts the agent chosen for the object in its folder, at the terminal's size; returns the session already running there, if any. Either way with its status as it is then, and the agent it is of. */
-    start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }): Promise<{ sessionId: string; cols: number; rows: number; status: SessionStatus; agent: AgentId; hooks: boolean; view: AgentView }>
-    /** The agents there are, and of each whether its command is on PATH now. */
-    agents(): Promise<Array<{ id: AgentId; label: string; installed: boolean; hooks: boolean }>>
+    current(objectId: string): Promise<{ running: { sessionId: string; status: SessionStatus; view: AgentView } | null; /** A chat that has ended and whose conversation main still holds: a window loaded after it ended can read it. Absent while one runs. */ ended?: { sessionId: string }; resumable: boolean; view: AgentView; note?: string }>
+    /** Starts Claude Code in the object's folder, at the terminal's size; returns the session already running there, if any. Either way with its status as it is then. */
+    start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }): Promise<{ sessionId: string; cols: number; rows: number; status: SessionStatus; view: AgentView }>
     /** The person said to start the chat in the object's folder though it has Claude Code settings of its own (the question `start` refused with): remembered in torno's own data, for the real path of the folder. */
     trust(objectId: string): Promise<void>
-    /** Keeps the agent of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs in that object. */
-    chooseAgent(objectId: string, agent: AgentId): Promise<void>
-    /** Keeps the view (`chat` or `terminal`) of the agent of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs there, and for a view the agent has not. */
+    /** Keeps the view (`chat` or `terminal`) of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs there. */
     chooseView(objectId: string, view: AgentView): Promise<void>
-    /** For an agent without hooks: writes `.torno/prompt.md` and pastes one line at its cursor, not sent. Answers with the marks the file tells of for the first time. */
-    sendMarks(sessionId: string): Promise<{ marks: string[]; line: string }>
-    /** What became of that line, and how many marks its file tells of: they are sent only by `sent`. */
-    onSend(cb: (m: { sessionId: string; state: SendState; marks: number; why?: SendDropped }) => void): () => void
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
     stop(sessionId: string): Promise<void>
@@ -251,18 +242,7 @@ export interface TornoBridge {
     setModel(sessionId: string, model: string): Promise<void>
   }
 }
-/** An agent CLI torno can start (`main/sessions/adapter.ts`). */
-export type AgentId = 'claude' | 'copilot'
-/** How an agent's session is shown: as a chat torno draws, or as the CLI's own terminal. */
+/** How Claude Code's session is shown: as a chat torno draws, or as the CLI's own terminal. */
 export type AgentView = 'chat' | 'terminal'
-
-/**
- * What became of the line "Send marks" put at the cursor of an agent without hooks: `waiting` there for the
- * person's Enter; `sent` by it, when the agent had shown the line and nothing was typed after it; `dropped`
- * otherwise, and then the marks it told of are drafts still.
- */
-export type SendState = 'waiting' | 'sent' | 'dropped'
-/** Why a line was dropped: something was typed or pasted after it, or the agent had not shown it when Enter was pressed. */
-export type SendDropped = 'typed' | 'absent'
 
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_input' | 'exited'

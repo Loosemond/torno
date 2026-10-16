@@ -74,13 +74,11 @@ async function goTo(to: string): Promise<void> {
 
 /**
  * What a session of this workspace is in the middle of that leaving the workspace would end, as a sentence; null
- * when none is. One of an agent that says nothing of its work may be in the middle of it: asked about like one
- * that is, and said as what it is.
+ * when none is.
  */
 function sessionsBusy(): string | null {
-  const busy = Object.values(store.getState().sessions).filter((s) => busyWith(s.status, s.hooks) !== undefined)
-  if (busy.length === 0) return null
-  return busy.some((s) => s.hooks) ? 'A session here is in the middle of its work.' : 'A session here may be in the middle of its work: its agent does not say.'
+  const busy = Object.values(store.getState().sessions).some((s) => busyWith(s.status) !== undefined)
+  return busy ? 'A session here is in the middle of its work.' : null
 }
 
 /** What leaving the workspace would throw away besides the sessions: a new object set up on its page and not made. */

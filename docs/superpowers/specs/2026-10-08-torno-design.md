@@ -193,6 +193,8 @@ The real CLI in a PTY, drawn with xterm.js, one or more per object. Launch argum
 
 An **agent adapter** says how one CLI is started so that it knows torno (command, arguments, where the MCP server is, the system prompt) and whether it posts hooks. Claude Code does. Copilot CLI is the second adapter and does not: it reads its instructions from a folder torno names, is told of the build and the marks through .torno/prompt.md when the person presses "Send marks", and its status is only running or ended. The agent is chosen per object. Codex, Gemini CLI and opencode are not written: none was at hand to read the flags of.
 
+*2026-10-16:* support for Copilot CLI was removed, and with it the machinery for an agent without hooks ("Send marks", `.torno/prompt.md`, `.torno/agent/`) and the choice of agent. Torno runs Claude Code only; `.torno/agent.json` keeps only the view, and a file naming Copilot CLI is read as Claude Code with a note saying so. Git history keeps the adapter should it come back.
+
 Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSubmit`, `Stop`, `Notification`, `PermissionRequest`, `SessionEnd`. (`SessionStart` does not fire as an HTTP hook and is not used.) Torno does not read Claude's private files.
 
 ### Three ways information reaches the agent

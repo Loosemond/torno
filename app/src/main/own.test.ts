@@ -10,7 +10,6 @@ import { FOLDER, onNotOwn, ownTorno, writeOwn } from './own'
 import { saveScansFile } from './scans/file'
 import { saveSceneFile } from './scenefile'
 import { writeChoice } from './sessions/choice'
-import { blankPrompt } from './sessions/delivery'
 import { storeConversation } from './sessions/resume'
 import { saveThumbnail } from './show/cards'
 import { StateFiles } from './statefile'
@@ -36,9 +35,8 @@ const WRITERS: Record<string, (dir: string) => Promise<unknown>> = {
   'marks.json': (dir) => saveMarksFile(dir, { next: 1, marks: [] }),
   'scans.json': (dir) => saveScansFile(dir, { next: 1, scans: [] }),
   'scene.json': (dir) => saveSceneFile(dir, { layers: {} }),
-  'agent.json': (dir) => writeChoice(dir, { agent: 'copilot', view: 'terminal' }),
-  'prompt.md': (dir) => blankPrompt(dir),
-  'session.json': (dir) => storeConversation(dir, 'claude', '11111111-1111-4111-8111-111111111111'),
+  'agent.json': (dir) => writeChoice(dir, 'terminal'),
+  'session.json': (dir) => storeConversation(dir, '11111111-1111-4111-8111-111111111111'),
   'thumb.png': (dir) => saveThumbnail(dir, PNG, OF, new Date()),
   '.gitignore': (dir) => ensureIgnored(dir, ['thumb.png']),
   'exports/': (dir) => prepareExports(dir),
@@ -76,7 +74,7 @@ describe('ownTorno', () => {
 
 describe('what git is told to pass over', () => {
   const ignored = (): string[] => readFileSync(join(obj, FOLDER, '.gitignore'), 'utf8').split('\n').filter(Boolean)
-  it('is what changes with every build, session or send: the state file and the session file among them', async () => {
+  it('is what changes with every build or session: the state file and the session file among them', async () => {
     await WRITERS['state.md'](obj)
     expect(ignored()).toEqual(['state.md'])
     await WRITERS['session.json'](obj)
@@ -86,7 +84,7 @@ describe('what git is told to pass over', () => {
     expect(ignored()).toEqual(['state.md', 'session.json', 'thumb.png', 'thumb.json', 'exports/', 'views/'])
   })
 
-  it('is never what travels with the object: its marks, its scene, its scans and its choice of agent', async () => {
+  it('is never what travels with the object: its marks, its scene, its scans and its choice of view', async () => {
     for (const name of ['marks.json', 'scene.json', 'scans.json', 'agent.json']) await WRITERS[name](obj)
     expect(existsSync(join(obj, FOLDER, '.gitignore'))).toBe(false)
   })
