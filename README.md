@@ -256,7 +256,7 @@ beyond that, or one that fails the checks (PNG or JPEG, 2000 px at most, 5 MB), 
 attached, with the file in `reference/` to read. Notes are kept to a line each and the description to 20,000
 characters.
 
-The name is the folder's and its model's: letters, digits, `.`, `-` and `_`, starting with a letter or digit, at
+The name is the folder's and its model's: letters, digits, `-` and `_` (no dots), starting with a letter or digit, at
 most 64 characters, and not one that is there already (compared without regard to case, and `a-b` is `a_b`). Torno
 refuses a name that would stand in for a library (`json`, `typing`, `numpy`, `build123d`, any module of Python's
 standard library), since a model's folder leads the import path and its file would be imported in the library's

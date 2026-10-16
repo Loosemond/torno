@@ -101,7 +101,7 @@ test.describe('a new object', () => {
     await name.fill('.hidden')
     await expect(newPage()).toContainText('starts with a letter or a digit')
     await name.fill('cable-clip')
-    await expect(newPage().locator('#new-name-help')).toHaveText("The folder's name: letters, digits, . - _")
+    await expect(newPage().locator('#new-name-help')).toHaveText("The folder's name: letters, digits, - _ (no dots)")
     // A name alone is not enough.
     await expect(create).toBeDisabled()
     await page.getByLabel('What is it?').fill('A clip that holds a 6 mm cable to the edge of a desk, printed in PETG.')

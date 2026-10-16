@@ -259,7 +259,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
           <label htmlFor="new-name">Name</label>
           <input id="new-name" ref={nameField} className="new-input num" type="text" value={draft.name} spellCheck={false} autoComplete="off" disabled={busy} aria-invalid={nameProblem !== null} aria-describedby="new-name-help" onChange={(e) => onboarding.setName(e.target.value)} />
           <p id="new-name-help" className="new-help" data-tone={nameProblem ? 'fail' : undefined}>
-            {nameProblem ?? "The folder's name: letters, digits, . - _"}
+            {nameProblem ?? "The folder's name: letters, digits, - _ (no dots)"}
           </p>
         </div>
 

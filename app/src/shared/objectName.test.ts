@@ -3,10 +3,14 @@ import { STDLIB_MODULES } from './pythonModules'
 import { MAX_PHOTO_BYTES, moduleName, objectNameProblem } from './objectName'
 
 describe('objectNameProblem', () => {
-  it('accepts letters, digits, dot, dash and underscore', () => {
-    for (const name of ['clip', 'cable-clip', 'Cable_Clip.v2', '3d-stand', 'a', 'x'.repeat(64)]) {
+  it('accepts letters, digits, dash and underscore', () => {
+    for (const name of ['clip', 'cable-clip', 'Cable_Clip_v2', '3d-stand', 'a', 'x'.repeat(64)]) {
       expect(objectNameProblem(name, [])).toBeNull()
     }
+  })
+
+  it('refuses a dot anywhere in a name: the model file would be named otherwise than the folder', () => {
+    for (const name of ['bracket.v2', 'a.b', 'clip.']) expect(objectNameProblem(name, []), name).toMatch(/letters, digits, `-` and `_`/)
   })
 
   it('refuses an empty name, one that is too long, and one that starts with a dot, dash or underscore', () => {

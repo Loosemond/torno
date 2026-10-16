@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstatSync, readdirSync, rmSync } from 'node:fs'
 import { lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { extname, isAbsolute, join } from 'node:path'
 import type { CreateRequest } from '../../shared/bridge'
 import { MAX_PHOTO_BYTES, moduleName, MOST_REFERENCES, objectNameProblem } from '../../shared/objectName'
@@ -41,10 +42,19 @@ const TEMP_FOLDER = /^\.[A-Za-z0-9][A-Za-z0-9._-]*\.torno-new-[0-9a-f]{12}$/
 /** How old a hidden folder is before it is taken for a crash's: no create takes this long, however big the photos. */
 export const STALE_AFTER_MS = 10 * 60 * 1000
 
+/** Whether a crashed create's folder holds files in `reference/`: the doodles in it exist nowhere else, so it is left for the person. */
+function holdsReferences(folder: string): boolean {
+  try {
+    return readdirSync(join(folder, 'reference')).length > 0
+  } catch {
+    return false
+  }
+}
+
 /**
  * Removes the hidden folders of a create that never ended (`.<name>.torno-new-<random>`) from the root of a
  * workspace, when they are real folders last changed more than 10 minutes before `now` (another torno may be
- * creating in the same workspace). A link of that name is left alone, as is
+ * creating in the same workspace) and hold nothing in `reference/` (what the person gave is not deleted). A link of that name is left alone, as is
  * whatever it leads to. Whatever cannot be removed is left; nothing is said.
  */
 export function sweepStaleNew(root: string, now: number): void {
@@ -58,7 +68,7 @@ export function sweepStaleNew(root: string, now: number): void {
     if (!TEMP_FOLDER.test(name)) continue
     try {
       const stat = lstatSync(join(root, name))
-      if (stat.isDirectory() && stat.mtimeMs < now - STALE_AFTER_MS) rmSync(join(root, name), { recursive: true, force: true })
+      if (stat.isDirectory() && stat.mtimeMs < now - STALE_AFTER_MS && !holdsReferences(join(root, name))) rmSync(join(root, name), { recursive: true, force: true })
     } catch {
       // Gone, or not ours to remove.
     }
@@ -75,8 +85,16 @@ async function isEmptyFolder(path: string): Promise<boolean> {
 export function oneLine(note: unknown, what: string): string {
   if (note === undefined || note === null) return ''
   if (typeof note !== 'string') throw new Error(`The note of a ${what} is not text.`)
-  if (note.length > MAX_NOTE) throw new Error(`The note of a ${what} is over ${MAX_NOTE} characters.`)
-  return note.replace(/\s+/g, ' ').trim()
+  if (note.length > 10 * MAX_NOTE) throw new Error(`The note of a ${what} is over ${MAX_NOTE} characters.`)
+  const folded = note.replace(/\s+/g, ' ').trim()
+  if (folded.length > MAX_NOTE) throw new Error(`The note of a ${what} is over ${MAX_NOTE} characters.`)
+  return folded
+}
+
+/** A path under the person's home folder with `~` for it: `brief.md` is meant to be committed. */
+function homeRelative(path: string): string {
+  const home = homedir()
+  return home.length > 1 && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path
 }
 
 const line = (what: string, note: string): string => (note === '' ? `- ${what}` : `- ${what}: ${note}`)
@@ -140,10 +158,20 @@ function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string
     if (typeof scan?.path !== 'string' || !isAbsolute(scan.path) || !(SCAN_FORMATS as readonly string[]).includes(extname(scan.path).toLowerCase())) {
       throw new Error(`A scan is a ${SCAN_FORMATS.join(', ')} file given by its path.`)
     }
+    oneLine(scan.note, 'scan')
     // The path is one line of `brief.md`: one with a line break (or any control character) could write lines of its own.
     if (/\p{Cc}/u.test(scan.path)) throw new Error('The path of a scan has a control character or a line break in it.')
   }
+  for (const photo of req.photos) {
+    if (typeof photo?.path !== 'string') throw new Error('A photo is given by the path of a file; this is not one.')
+    oneLine(photo.note, 'photo')
+  }
+  for (const doodle of req.doodles) oneLine(doodle?.note, 'doodle')
+  for (const [kind, keys] of [['photo', req.photos.map((p) => p.path)], ['scan', req.scans.map((s) => s.path)], ['object', req.objects.map((o) => o?.id)]] as const) {
+    if (new Set(keys).size !== keys.length) throw new Error(`The same ${kind} is given twice.`)
+  }
   for (const other of req.objects) {
+    oneLine(other?.note, 'object')
     if (typeof other?.id !== 'string' || !deps.objects.includes(other.id)) throw new Error(`There is no object ${JSON.stringify(other?.id)} in this workspace.`)
   }
 }
@@ -184,7 +212,7 @@ export async function createObject(req: CreateRequest, deps: CreateDeps): Promis
       await writeFileAtomic(join(temp, file), png)
       references.push(line(file, oneLine(doodle.note, 'doodle')))
     }
-    for (const scan of req.scans) references.push(line(`scan ${scan.path}`, oneLine(scan.note, 'scan')))
+    for (const scan of req.scans) references.push(line(`scan ${homeRelative(scan.path)}`, oneLine(scan.note, 'scan')))
     for (const other of req.objects) references.push(line(`../${other.id}/`, oneLine(other.note, 'object')))
     const brief = [`# ${name}`, '', req.description.trim(), ...(references.length ? ['', '## References', '', ...references] : []), ''].join('\n')
     await writeFileAtomic(join(temp, 'brief.md'), brief)

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { CreateRequest } from '../../shared/bridge'
@@ -156,6 +156,34 @@ describe('creating an object', () => {
     expect(readdirSync(ws)).toEqual(['lid'])
   })
 
+  it('checks every note and refuses a file given twice before it makes anything, the photos last of all', async () => {
+    writeFileSync(join(files, 'a.png'), PNG)
+    const a = { path: join(files, 'a.png'), note: '' }
+    const seen: string[] = []
+    const hooks = { beforeRename: (t: string) => void seen.push(t) }
+    const long = 'x'.repeat(2001)
+    await expect(make(request({ photos: [a, { ...a }] }), [], hooks)).rejects.toThrow(/twice/)
+    await expect(make(request({ photos: [{ ...a, note: long }] }), [], hooks)).rejects.toThrow(/note/)
+    await expect(make(request({ doodles: [{ png: PNG, note: long }] }), [], hooks)).rejects.toThrow(/note/)
+    await expect(make(request({ scans: [{ path: '/s/a.stl', note: long }] }), [], hooks)).rejects.toThrow(/note/)
+    await expect(make(request({ objects: [{ id: 'lid', note: long }] }), ['lid'], hooks)).rejects.toThrow(/note/)
+    await expect(make(request({ scans: [{ path: '/s/a.stl', note: '' }, { path: '/s/a.stl', note: '' }] }), [], hooks)).rejects.toThrow(/twice/)
+    await expect(make(request({ objects: [{ id: 'lid', note: '' }, { id: 'lid', note: '' }] }), ['lid'], hooks)).rejects.toThrow(/twice/)
+    expect(seen).toEqual([])
+    // A note is 2,000 characters after it is folded to one line: this one is longer before, not after.
+    await make(request({ photos: [{ ...a, note: `${'x '.repeat(900)}\n\n\n    ${'y'.repeat(100)}` }] }), [], hooks)
+    expect(seen).toHaveLength(1)
+  })
+
+  it('writes a scan under the home folder with ~', async () => {
+    const home = homedir()
+    await make(request({ scans: [{ path: join(home, 'Downloads', 'desk.stl'), note: '' }, { path: '/mnt/scans/b.stl', note: '' }] }))
+    const brief = readFileSync(join(ws, 'cable-clip', 'brief.md'), 'utf8')
+    expect(brief).toContain('- scan ~/Downloads/desk.stl\n')
+    expect(brief).toContain('- scan /mnt/scans/b.stl\n')
+    expect(brief).not.toContain(home)
+  })
+
   it('refuses an object that is not in the workspace, and a scan of a format scans do not have', async () => {
     await expect(make(request({ objects: [{ id: 'nope', note: '' }] }), ['lid'])).rejects.toThrow(/nope/)
     await expect(make(request({ objects: [{ id: '../x', note: '' }] }), ['lid'])).rejects.toThrow()
@@ -254,7 +282,6 @@ describe('sweeping what a crash left', () => {
 
   it('removes the hidden folders older than this run, with what is in them, and nothing else', () => {
     mkdirSync(join(ws, stale, 'reference'), { recursive: true })
-    writeFileSync(join(ws, stale, 'reference', 'photo-1.png'), PNG)
     mkdirSync(join(ws, '.fresh.torno-new-0123456789ab'))
     mkdirSync(join(ws, '.odd.torno-new-xyz'))
     mkdirSync(join(ws, 'visible.torno-new-0123456789ab'))
@@ -264,6 +291,19 @@ describe('sweeping what a crash left', () => {
     utimesSync(join(ws, stale), hourAgo, hourAgo)
     sweepStaleNew(ws, Date.now())
     expect(readdirSync(ws).sort()).toEqual(['.fresh.torno-new-0123456789ab', '.hidden', '.odd.torno-new-xyz', 'lid', 'visible.torno-new-0123456789ab'])
+  })
+
+  it('leaves a folder that holds files in reference/ (doodles that exist nowhere else), and removes one with none', () => {
+    const kept = '.kept.torno-new-0123456789ab'
+    mkdirSync(join(ws, kept, 'reference'), { recursive: true })
+    writeFileSync(join(ws, kept, 'reference', 'doodle-1.png'), PNG)
+    mkdirSync(join(ws, stale, 'reference'), { recursive: true })
+    writeFileSync(join(ws, stale, 'brief.md'), 'x')
+    const hourAgo = new Date(Date.now() - 3_600_000)
+    for (const name of [kept, stale]) utimesSync(join(ws, name), hourAgo, hourAgo)
+    sweepStaleNew(ws, Date.now())
+    expect(readdirSync(ws).sort()).toEqual([kept, 'lid'])
+    expect(existsSync(join(ws, kept, 'reference', 'doodle-1.png'))).toBe(true)
   })
 
   it('removes none that is under 10 minutes old, whenever this run began', () => {

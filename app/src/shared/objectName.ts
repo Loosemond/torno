@@ -36,7 +36,7 @@ export function objectNameProblem(name: string, existing: readonly string[]): st
   if (name === '') return 'Give the object a name.'
   if (name.length > MAX_OBJECT_NAME) return `A name is at most ${MAX_OBJECT_NAME} characters.`
   if (!/^[A-Za-z0-9]/.test(name)) return 'A name starts with a letter or a digit.'
-  if (!/^[A-Za-z0-9._-]+$/.test(name)) return 'A name has only letters, digits, `.`, `-` and `_`.'
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return 'A name has only letters, digits, `-` and `_`; a dot would make the model file a different name.'
   if (RESERVED.includes(name.toLowerCase())) return `\`${name}\` is a name the workspace keeps for itself.`
   const module = moduleName(name)
   if (KEYWORDS.has(module)) return `\`${name}\` is a Python keyword, and the model is a Python module.`
