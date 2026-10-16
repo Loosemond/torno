@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { mkdir } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import * as pty from 'node-pty'
 import type { AgentId, AgentView, SendDropped, SendState, SessionStatus } from '../../shared/bridge'
 import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
+import type { BuildState } from '../../shared/build'
 import type { ObjectInfo } from '../../shared/workspace'
 import { writeFileAtomic } from '../atomic'
 import { ensureIgnored } from '../ignored'
@@ -80,7 +81,33 @@ interface Session extends Told {
   killTimer?: NodeJS.Timeout
   termTimer?: NodeJS.Timeout
   adapter: AgentAdapter
+  /** What the hooks of the turn under way said of the model: see `TurnState`. */
+  turn?: TurnState
 }
+
+/**
+ * What a turn did to the model, as its hooks said, for the `Stop` that ends it: the count of builds ended before it
+ * began (`Sessions.finished`, so that a build of an earlier turn is not held against it), whether the model was edited
+ * and no `look` has come since, and the `PreToolUse` times of the edits under way, by tool use.
+ */
+interface TurnState {
+  since: number
+  unlooked: boolean
+  editing: Map<string, number>
+  /** The tool use of the last edit answered: the chat's card its build is put on. */
+  lastToolUse?: string
+}
+
+/** The tools whose `PostToolUse` of a `.py` of the object is answered with the build the save started. */
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
+/** A tool hook's body is read up to this: one that is longer is answered {} unread. */
+const TOOL_BODY_LIMIT = 8 * 1024 * 1024
+/**
+ * How long the answer to an edit waits for its build, and how long for that build to begin (the watcher waits 300 ms
+ * for a save to settle). Under the timeout `claude.ts` gives the hook (`EDIT_HOOK_TIMEOUT_S`), with room to answer.
+ */
+export const EDIT_ANSWER_MS = 55_000
+const EDIT_GRACE_MS = 3000
 
 /** Whether a chat session's CLI took the prompt up (it said something) or ended without; `why` is the note the person reads. */
 export type Began = { began: true } | { began: false; why: string }
@@ -167,6 +194,13 @@ export class Sessions {
   private readonly sessions = new Map<string, Session>()
   /** The transcript of each chat session there is, and of the last one of each object that has ended. */
   private readonly records = new Map<string, ChatRecord>()
+  /** By object: when its latest build began, and the count of `finished` when its latest build ended. */
+  private readonly buildStarts = new Map<string, number>()
+  private readonly buildEnds = new Map<string, number>()
+  /** Builds that ended, of any object, counted: a turn knows which came after it began. */
+  private finished = 0
+  /** Who waits for the next change of a build. */
+  private buildWaiters = new Set<() => void>()
   /** By object: a session that is being started there. */
   private readonly starting = new Map<string, Promise<Started>>()
   /** How an agent without hooks is told, and when what it was told counts as sent. */
@@ -208,6 +242,12 @@ export class Sessions {
       trust?: Pick<Trust, 'pending' | 'accept'>
       /** A PNG of the viewport of an object as the person sees it now, for a prompt that attaches the view. Absent: none can be attached. */
       picture?: (obj: ObjectInfo) => Promise<Uint8Array>
+      /** How the build of an object stands now. Absent: tool hooks are not read, and a Stop is never held back. */
+      build?: (objectId: string) => BuildState | undefined
+      /** What the agent is told of the build after it edited the model (`buildContextFor` of `context.ts`). */
+      buildContextFor?: (objectId: string, toolName: (tool: string) => string) => PromptContext | Promise<PromptContext>
+      /** Tests only: how long an edit's answer waits for its build, and for it to begin. */
+      editTiming?: { answerMs: number; graceMs: number }
       /** Print the command line of every session started, and every hook it posts. */
       debug?: boolean
     }
@@ -440,6 +480,69 @@ export class Sessions {
   }
 
   /** What is told of an object changed: its marks, or its build. A file that a waiting line names follows it. */
+  /** A build of an object began or ended: an edit's answer may be waiting for it. */
+  built(state: BuildState): void {
+    if (state.status === 'building') this.buildStarts.set(state.objectId, state.startedAt ?? Date.now())
+    else if (state.status === 'ok' || state.status === 'failed') this.buildEnds.set(state.objectId, ++this.finished)
+    const waiting = this.buildWaiters
+    this.buildWaiters = new Set()
+    for (const wake of waiting) wake()
+  }
+
+  /** Resolves at the next change of a build, or at `until` (ms epoch), whichever comes first. */
+  private nextBuild(until: number): Promise<void> {
+    return new Promise((done) => {
+      const wake = (): void => {
+        clearTimeout(timer)
+        done()
+      }
+      const timer = setTimeout(() => {
+        this.buildWaiters.delete(wake)
+        done()
+      }, Math.max(0, until - Date.now()))
+      this.buildWaiters.add(wake)
+    })
+  }
+
+  /**
+   * The answer to the `PostToolUse` of an edit of a `.py` of the object: the build the save started (one begun at
+   * `since` or after), in the words of `buildContextFor`, once it has ended; that it is still running, should it run
+   * past `EDIT_ANSWER_MS`; nothing when none begins within `EDIT_GRACE_MS` (the file was saved as it was).
+   */
+  private async afterEdit(session: Session, since: number): Promise<unknown> {
+    const { build, buildContextFor } = this.deps
+    if (!build || !buildContextFor) return {}
+    const objectId = session.object.id
+    const arrived = Date.now()
+    const timing = this.deps.editTiming ?? { answerMs: EDIT_ANSWER_MS, graceMs: EDIT_GRACE_MS }
+    const deadline = arrived + timing.answerMs
+    const grace = arrived + timing.graceMs
+    for (;;) {
+      const state = build(objectId)
+      const begun = (this.buildStarts.get(objectId) ?? -Infinity) >= since
+      if (begun && state && (state.status === 'ok' || state.status === 'failed')) break
+      const now = Date.now()
+      if (!begun && now >= grace) return {}
+      if (begun && now >= deadline) {
+        const text = `A build is running (r${(state?.revision ?? 0) + 1}); call ${session.adapter.toolName('scene')} for its result.`
+        session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text, buildState: 'building' })
+        return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } }
+      }
+      await this.nextBuild(begun ? deadline : Math.min(grace, deadline))
+    }
+    let told: PromptContext
+    try {
+      told = await buildContextFor(objectId, session.adapter.toolName)
+    } catch (e) {
+      console.error(`no build context for the edit in ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
+      return {}
+    }
+    if (session.turn) session.turn.unlooked = true
+    if (!told.text) return {}
+    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}) })
+    return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
+  }
+
   changed(objectId: string): void {
     const s = this.of(objectId)
     if (s) this.delivery.changed(s)
@@ -821,6 +924,37 @@ export class Sessions {
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })
   }
 
+  /**
+   * A `PreToolUse` or `PostToolUse`, read: an edit of a `.py` of the object is answered, after it, with the build it
+   * started; a `look` is the turn's look at the model. Anything else is answered {}.
+   */
+  private async toolHook(session: Session, event: string, body: Record<string, unknown>): Promise<unknown> {
+    const name = typeof body.tool_name === 'string' ? body.tool_name : ''
+    const useId = typeof body.tool_use_id === 'string' ? body.tool_use_id : ''
+    const turn: TurnState = (session.turn ??= { since: this.finished, unlooked: false, editing: new Map() })
+    if (name === session.adapter.toolName('look')) {
+      if (event === 'PostToolUse') turn.unlooked = false
+      return {}
+    }
+    if (!EDIT_TOOLS.has(name) || !this.ofObject(session, body.tool_input)) return {}
+    if (event === 'PreToolUse') {
+      turn.editing.set(useId, Date.now())
+      return {}
+    }
+    const since = turn.editing.get(useId) ?? Date.now()
+    turn.editing.delete(useId)
+    turn.lastToolUse = useId || undefined
+    return this.afterEdit(session, since)
+  }
+
+  /** Whether a tool's input names a `.py` inside the object's folder. */
+  private ofObject(session: Session, input: unknown): boolean {
+    const path = typeof input === 'object' && input !== null ? (input as { file_path?: unknown }).file_path : undefined
+    if (typeof path !== 'string' || !path.endsWith('.py')) return false
+    const inside = relative(session.object.dir, resolvePath(session.object.dir, path))
+    return inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
+  }
+
   /** `POST /hooks/<secret>/<sessionId>/<event>`, with the hook's JSON as the body; `rest` is what comes after the secret. */
   private async hook(req: IncomingMessage, res: ServerResponse, rest: string[]): Promise<void> {
     const [sessionId, event] = rest
@@ -835,10 +969,21 @@ export class Sessions {
     // A tool hook says only that the agent is at work. Its body is the tool's input or result, which may
     // be megabytes: it is neither read nor parsed, and never a reason to refuse the hook.
     if (TOOL_EVENTS.has(event)) {
-      req.resume()
       this.advance(session, event)
       if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}`)
-      return sendJson(res, 200, {})
+      if (!this.deps.build) {
+        req.resume()
+        return sendJson(res, 200, {})
+      }
+      // Read for the tool's name and the file it wrote: one longer than that, or no JSON, says neither.
+      let tool: Record<string, unknown> = {}
+      try {
+        const parsed: unknown = JSON.parse(await readBody(req, TOOL_BODY_LIMIT))
+        if (typeof parsed === 'object' && parsed !== null) tool = parsed as Record<string, unknown>
+      } catch {
+        return sendJson(res, 200, {})
+      }
+      return sendJson(res, 200, await this.toolHook(session, event, tool))
     }
 
     let body: unknown
@@ -866,6 +1011,8 @@ export class Sessions {
     // in another conversation, and when it does leave, the exit of its process
     // says so. Until then the session is still the one of its object.
     if (event !== 'SessionEnd') this.advance(session, event, fields)
+    if (event === 'Stop') session.turn = undefined
+    if (event === 'UserPromptSubmit') session.turn = { since: this.finished, unlooked: false, editing: new Map() }
 
     if (event !== 'UserPromptSubmit') {
       if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}`)

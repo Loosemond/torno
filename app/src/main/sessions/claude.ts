@@ -6,6 +6,12 @@ export { HOOK_EVENTS }
 
 const HOOK_TIMEOUT_S = 5
 /**
+ * The `PostToolUse` of an edit of the model is answered once the build the save started has ended (`Sessions.afterEdit`,
+ * which answers by 55 s that a build is running): builds of seconds are usual. Every other tool's is answered at once,
+ * so the one hook of the event has this longer limit (a second entry matched to the edit tools would post them twice).
+ */
+const EDIT_HOOK_TIMEOUT_S = 60
+/**
  * What makes Claude Code speak JSON lines on its pipes instead of drawing a terminal: a prompt is a line of
  * stdin, everything it does a line of stdout, and what it would ask the person (a permission, a question) a
  * request on stdout that is answered on stdin.
@@ -30,7 +36,7 @@ export function claudeAdapter(agentCmd?: string): AgentAdapter {
     views: AGENT_VIEWS.claude,
     toolName: (tool) => `mcp__torno__${tool}`,
     launch(ctx) {
-      const hook = (event: string) => [{ hooks: [{ type: 'http', url: ctx.hookUrl(event), timeout: HOOK_TIMEOUT_S }] }]
+      const hook = (event: string) => [{ hooks: [{ type: 'http', url: ctx.hookUrl(event), timeout: event === 'PostToolUse' ? EDIT_HOOK_TIMEOUT_S : HOOK_TIMEOUT_S }] }]
       const settings = { hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, hook(event)])) }
       const mcp = { mcpServers: { torno: { type: 'http', url: ctx.mcpUrl } } }
       const args = [

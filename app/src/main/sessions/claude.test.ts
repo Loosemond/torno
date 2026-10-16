@@ -50,7 +50,7 @@ describe('the Claude Code adapter', () => {
     expect(Object.keys(settings.hooks)).toEqual(HOOK_EVENTS)
     for (const event of HOOK_EVENTS) {
       expect(settings.hooks[event]).toEqual([
-        { hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: 5 }] }
+        { hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: event === 'PostToolUse' ? 60 : 5 }] }
       ])
     }
   })
@@ -78,7 +78,7 @@ describe('the Claude Code adapter', () => {
       '--allowedTools',
       'mcp__torno__*',
       '--settings',
-      JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: 5 }] }]])) }),
+      JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: event === 'PostToolUse' ? 60 : 5 }] }]])) }),
       '--append-system-prompt',
       'You are in torno. Mind the "quotes" and $HOME.'
     ])

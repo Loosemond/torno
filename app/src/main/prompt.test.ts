@@ -8,6 +8,12 @@ describe('the system prompt', () => {
     for (const said of ['(changed)', 'reopened by the user', '[not checked against rN]', '"Selected:"', '"Marks still open"']) expect(SYSTEM_PROMPT).toContain(said)
   })
 
+  it('says the build comes back with an edit, and still to look; only an agent without hooks is told to check scene after every edit', () => {
+    expect(SYSTEM_PROMPT).toContain('The build result of an edit of the model comes back with the edit; look at the result before saying it is done.')
+    expect(SYSTEM_PROMPT).not.toContain('After every edit, always check the build status with scene')
+    expect(systemPrompt((tool) => `the torno tool ${tool}`, false)).toContain('After every edit, check the build status with the torno tool scene, and look at the result before saying it is done.')
+  })
+
   it('says of a mark told as changed that it may have been moved: one put somewhere else is told so too', () => {
     expect(SYSTEM_PROMPT).toContain('(changed) is of a mark you were given before that the user has since changed or moved')
   })

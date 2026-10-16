@@ -112,6 +112,18 @@ describe('a recorded conversation', () => {
   })
 })
 
+describe('the build after an edit', () => {
+  it('is put under the card of the tool that edited, and nowhere for a tool it does not know', () => {
+    const t = new Transcript({ now: () => 1000 })
+    t.message(toolUse('toolu_9', 'Edit', { file_path: '/ws/part/part.py' }))
+    const card = of(t, 'tool')[0]
+    expect(t.toolContext({ toolUseId: 'toolu_9', text: '[torno] part · BUILD FAILED', revision: 3, buildState: 'failed' })).toMatchObject({ kind: 'context', forUser: card.id, text: '[torno] part · BUILD FAILED', marks: [], revision: 3, buildState: 'failed' })
+    expect(t.toolContext({ toolUseId: 'toolu_x', text: 'r4 ok' })).toBeNull()
+    expect(t.toolContext({ text: 'r4 ok' })).toBeNull()
+    expect(of(t, 'context')).toHaveLength(1)
+  })
+})
+
 describe('streaming', () => {
   it('has the text as soon as its first word comes, growing, and whole when the block ends', () => {
     const t = new Transcript()
