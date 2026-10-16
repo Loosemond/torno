@@ -27,7 +27,7 @@ export type BetweenMeasure = 'distance' | 'angle'
 export type RoundMeasure = 'diameter' | 'radius'
 export const BETWEEN: { measure: BetweenMeasure; label: string; title: string }[] = [
   { measure: 'distance', label: 'Distance', title: 'Two clicks measure the distance between the two' },
-  { measure: 'angle', label: 'Angle', title: 'Two clicks measure the angle between two flat faces or straight edges' }
+  { measure: 'angle', label: 'Angle', title: 'Two clicks measure the angle between flat faces, straight edges and the axes of holes and circles' }
 ]
 export const ROUND: { measure: RoundMeasure; label: string; title: string }[] = [
   { measure: 'diameter', label: 'Diameter', title: 'A double click on a hole, a cylinder or a circle measures its diameter' },
