@@ -183,7 +183,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'onboard', 'onboard-board'] as const
+const STATES = ['main', 'section', 'explode', 'views', 'scans', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'view-board', 'onboard', 'onboard-board'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -294,6 +294,23 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
           await expect(page.locator('.chat-rate')).toBeVisible()
           await page.keyboard.type('thicker than that, please')
+        } else if (shot === 'view-board') {
+          // The board over the view, from the chat's "Draw on view": a ring round the middle and an arrow to it.
+          await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+          await expect(page.locator('[data-chat-composer]')).toBeFocused()
+          await page.locator('[data-region="session"]').getByRole('button', { name: 'Draw on view' }).click()
+          const board = page.getByRole('dialog', { name: 'Drawing on the view' })
+          const box = (await board.locator('canvas').boundingBox())!
+          const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
+          await board.getByRole('button', { name: 'Thick pen' }).click()
+          const ring = Array.from({ length: 25 }, (_, i) => [0.5 + 0.12 * Math.cos((i / 24) * Math.PI * 2), 0.5 + 0.1 * Math.sin((i / 24) * Math.PI * 2)])
+          for (const points of [ring, [[0.85, 0.15], [0.62, 0.4]], [[0.62, 0.4], [0.68, 0.4]], [[0.62, 0.4], [0.62, 0.34]]]) {
+            await page.mouse.move(...at(points[0][0], points[0][1]))
+            await page.mouse.down()
+            for (const [fx, fy] of points.slice(1)) await page.mouse.move(...at(fx, fy), { steps: 4 })
+            await page.mouse.up()
+          }
+          await expect(board.locator('canvas')).toHaveAttribute('data-strokes', '4')
         } else if (shot === 'onboard' || shot === 'onboard-board') {
           // The page of a new object with something of every kind given, and, for the second, the doodle board open on a drawing.
           const new_ = page.getByRole('region', { name: 'New object' })

@@ -499,14 +499,15 @@ button.ref-chip {
   font-size: var(--text-small);
 }
 
+/* The box the width of the pane, and under it a row: what goes with the prompt (the view, a drawing on it) on the
+   left, Stop and Send on the right. */
 .chat-composer {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: var(--space-2);
 }
 
 .chat-input {
-  flex: 1;
   min-width: 0;
   min-height: 2.6em;
   max-height: 10em;
@@ -533,7 +534,8 @@ button.ref-chip {
 
 .chat-actions {
   display: flex;
-  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
 }
 

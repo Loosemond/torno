@@ -5,7 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Loc
 import type { TornoState } from '../src/renderer/state/store'
 
 // What the chat asks of the person and what it offers: a permission request, the questions of `AskUserQuestion`
-// and a plan, each a card that is answered; "Attach view"; the `/` commands the CLI named; the model of the session;
+// and a plan, each a card that is answered; "Attach view" and "Draw on view"; the `/` commands the CLI named; the model of the session;
 // the rate line. The agent is the stand-in in its stream mode (test/fake-agent.mjs). The window is hidden: everything
 // is read from the DOM and the store, never from pixels.
 const appDir = resolve(__dirname, '..')
@@ -281,6 +281,90 @@ test('Attach view adds a picture of the viewport at 1280 px to the next prompt o
   await say('images')
   await expect(chat().locator('.chat-text').last()).toContainText('images: 0')
   await expect(chat().locator('.chat-user').last().locator('.chat-thumb')).toHaveCount(0)
+})
+
+/** Draws a line on the board between two fractions of its canvas, with real pointer events. */
+async function line(board: Locator, from: [number, number], to: [number, number]): Promise<void> {
+  const box = (await board.locator('canvas').boundingBox())!
+  await page.mouse.move(box.x + box.width * from[0], box.y + box.height * from[1])
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * to[0], box.y + box.height * to[1], { steps: 10 })
+  await page.mouse.up()
+}
+const drawingBoard = () => page.getByRole('dialog', { name: 'Drawing on the view' })
+const drawButton = () => dock().getByRole('button', { name: 'Draw on view' })
+const waiting = () => dock().getByRole('group', { name: 'Drawing on the view' })
+
+test('Draw on view: a board over the agent\'s picture of the view; the drawing goes with the next prompt only, with what its ink lies over', async () => {
+  // A point of the canvas over a part: the same fraction of the picture is over it too (one camera, one aspect).
+  const spot = await page.evaluate(() => {
+    for (const fy of [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65]) {
+      for (const fx of [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65]) {
+        const hit = window.__tornoTest!.pickAt(fx, fy, { edges: false })
+        if (hit) return { fx, fy, part: hit.part }
+      }
+    }
+    return null
+  })
+  expect(spot).not.toBeNull()
+  const { fx, fy, part } = spot!
+  // The turns of this session so far: `finished` waits for one more.
+  ended = await turns().count()
+
+  await drawButton().click()
+  await expect(drawingBoard()).toBeVisible()
+  const canvas = drawingBoard().locator('canvas')
+  expect(Math.max(Number(await canvas.getAttribute('width')), Number(await canvas.getAttribute('height')))).toBe(1280)
+  await line(drawingBoard(), [fx - 0.01, fy], [fx + 0.01, fy])
+  await expect(canvas).toHaveAttribute('data-strokes', '1')
+  // Escape asks before what was drawn is thrown away; "Keep drawing" goes on.
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Keep drawing' }).click()
+  await expect(drawingBoard()).toBeVisible()
+  await drawingBoard().getByRole('button', { name: 'Done' }).click()
+  await expect(drawingBoard()).toHaveCount(0)
+  await expect(waiting()).toBeVisible()
+  await expect(drawButton()).toBeDisabled()
+
+  await say('images')
+  await expect(waiting()).toHaveCount(0)
+  const user = chat().locator('.chat-user').last()
+  await expect(user.locator('.chat-thumb')).toHaveCount(1, { timeout: 20_000 })
+  await expect(user).not.toContainText('Picture:')
+  // The stand-in says the size of each picture, then each line of the caption.
+  await expect(chat()).toContainText(/images: 1 (1280x\d+|\d+x1280)/, { timeout: 20_000 })
+  await expect(chat()).toContainText('Picture: the view as the person saw it when they drew on it')
+  await expect(chat()).toContainText('Under the ink, stroke by stroke')
+  await expect(chat()).toContainText(new RegExp(`stroke 1, x \\d+–\\d+, y \\d+–\\d+: ${part}/F\\d+`))
+  await finished()
+  await expect(drawButton()).toBeEnabled()
+
+  // The next prompt carries none.
+  await say('images')
+  await expect(chat().locator('.chat-text').last()).toContainText('images: 0')
+  await finished()
+})
+
+test('a drawing waits in the composer: Edit opens it with its strokes, Remove takes it away, and a board discarded keeps nothing', async () => {
+  await drawButton().click()
+  await line(drawingBoard(), [0.2, 0.2], [0.4, 0.3])
+  await drawingBoard().getByRole('button', { name: 'Done' }).click()
+  await waiting().getByRole('button', { name: 'Edit' }).click()
+  await expect(drawingBoard().locator('canvas')).toHaveAttribute('data-strokes', '1')
+  // Nothing drawn since it was opened: Escape puts it away without asking, and the drawing still waits.
+  await page.keyboard.press('Escape')
+  await expect(drawingBoard()).toHaveCount(0)
+  await expect(waiting()).toBeVisible()
+  await waiting().getByRole('button', { name: 'Remove' }).click()
+  await expect(waiting()).toHaveCount(0)
+
+  // A board with a stroke that is discarded leaves nothing waiting.
+  await drawButton().click()
+  await line(drawingBoard(), [0.2, 0.2], [0.4, 0.3])
+  await drawingBoard().getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Discard', exact: true }).click()
+  await expect(drawingBoard()).toHaveCount(0)
+  await expect(waiting()).toHaveCount(0)
 })
 
 test('typing a / command offers the commands the CLI named: arrows choose, Tab or a click completes to the name and a space', async () => {

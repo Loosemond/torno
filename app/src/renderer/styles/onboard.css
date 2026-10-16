@@ -405,6 +405,8 @@
 }
 
 .board-head h2 {
+  /* The title stays on one line; the hint beside it wraps. */
+  flex: none;
   font-size: 15px;
   font-weight: 500;
 }

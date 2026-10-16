@@ -240,18 +240,6 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
           }}
         />
         <div className="chat-actions">
-          {working && live && (
-            <button
-              type="button"
-              className="button"
-              onClick={() => {
-                setProblem(null)
-                window.torno.chat.interrupt(sessionId).catch((e: unknown) => setProblem(reason(e)))
-              }}
-            >
-              Stop
-            </button>
-          )}
           <button
             type="button"
             className="button"
@@ -274,6 +262,19 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
           >
             Draw on view
           </button>
+          <span className="spacer" />
+          {working && live && (
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setProblem(null)
+                window.torno.chat.interrupt(sessionId).catch((e: unknown) => setProblem(reason(e)))
+              }}
+            >
+              Stop
+            </button>
+          )}
           <button type="button" className="button button-primary" disabled={!live || text.trim() === ''} title={`Send (${hint('chat.send')})`} onClick={() => void send()}>
             {working ? 'Queue' : 'Send'}
           </button>
