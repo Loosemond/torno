@@ -696,7 +696,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   taken by `mkdir` (fails if it is there) and the temp folder is renamed onto it, the last step; on any failure the temp
   folder is removed. The name rule is `shared/objectName.ts`, the window's and main's alike, compared with every entry of
   the workspace folder without regard to case. The rule refuses more than the kernel does, since torno makes the
-  folder: `common`, `tests`, `out` (the workspace's own) and `docs`, `tools`, `reference` (torno gives them a meaning);
+  folder: a `.` anywhere (the module name folds it to `_`, which the kernel and `scanWorkspace` do not take for the
+  folder's name, so a second `.py` would make the object ambiguous; existing objects with dots are untouched), `common`, `tests`, `out` (the workspace's own) and `docs`, `tools`, `reference` (torno gives them a meaning);
   a Python keyword; a name whose model file would be taken for a test (`test_*`, `*_test`, `conftest`); a folder
   or file of the workspace that is the same module (`a-b` and `a_b`); and a name that would stand in for a library, since
   the loader puts the object's folder first on `sys.path`: those a model or the worker imports and torno's own
@@ -707,16 +708,21 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - A folder of the name that is empty (a crash between the claim and the rename leaves one) is free: it is renamed onto,
   which fails should anything be put in it meanwhile. One that appears empty while a create works is not taken. When a
   workspace is opened, `sweepStaleNew` removes the hidden `.<name>.torno-new-<12 hex>` folders more than ten minutes old
-  (real folders only; a link of that name is left alone; the age, not the run, since another torno may be creating).
+  (real folders only; a link of that name is left alone; the age, not the run, since another torno may be creating),
+  but not one that holds files in `reference/`: its doodles are nowhere else, so it stays (the README says it can be
+  deleted).
 - Photos come as paths, copied as `reference/photo-<n>.<ext>` (png, jpg, jpeg, webp; at most 25 MB; `lstat` and an
   `O_NOFOLLOW` open, so no link, folder or pipe; read through the open handle, never more than the size said). Doodles
   come as PNG bytes (signature checked, at most 8 MB). Scans are not copied (`objects:onboard` imports them) and other objects are named
-  by id; the path of a scan is refused if it holds a control character, a line break above all, as it is a line of `brief.md`. At most 12 photos, 6 doodles, 4 scans and 8 objects (`MOST_REFERENCES` in `shared/objectName.ts`, held by the window and main alike). `brief.md` is `# name`, the description, and `## References` with a line per item in the
+  by id; the path of a scan is refused if it holds a control character, a line break above all, as it is a line of `brief.md`,
+  which writes a path under the home folder with `~`. At most 12 photos, 6 doodles, 4 scans and 8 objects (`MOST_REFERENCES` in `shared/objectName.ts`, held by the window and main alike). `brief.md` is `# name`, the description, and `## References` with a line per item in the
   order photos, doodles, scans, objects.
 - `objects:create` answers after `rescan`, so the listing has the object; if the workspace was left meanwhile, or it
   does not list the object, it rejects saying the object "was made, but ..." (the window then does not offer the
-  draft again). It validates the whole request (name, caps, every note and path, duplicates, the files named) before
-  it makes anything. A description is at most 20,000 characters, a note 2,000 (after folding to one line).
+  draft again). It validates the request (name, caps, every note, every scan and object, the same photo, scan or object given
+  twice) before the temp folder is made; the photos are read, and the doodles checked, as they are written, and a
+  failure there removes the temp folder. A description is at most 20,000 characters, a note 2,000 (after folding to
+  one line). `objects:taken` lists the entries of the root, for the window to check a name against as main does.
 - `objects:pickPhotos` is the photo dialog; tests answer it with `__tornoMain.pickPhotos` (`photoPicks` counts).
   Every path it returns goes into `Offered` (`objects/offered.ts`, at most 500, cleared when a workspace is opened or
   closed). `objects:readPhoto` (the window cannot read a file, and the picture for the prompt must be scaled there)
@@ -738,14 +744,21 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   has no `agent.json`), and sends one prompt (`Sessions.prompt`): the text of `onboardPrompt`, then the pictures.
 - The pictures are the window's. Main has no decoder (Electron's `nativeImage` has none for WebP, and the window already
   decodes), so the window scales to a long edge of 1280 px and sends PNG or JPEG bytes; main reads the size from the
-  header (`checkedImage`) and attaches only a PNG or JPEG of at most 2000 px and 5 MB. One that is not is left out and the
+  header (`checkedImage`) and attaches only a PNG or JPEG of at most 2000 px and 3.75 MB (`MAX_IMAGE_BYTES`; base64 of
+  it is 5 MB, the API's limit). One that is not is left out and the
   text says "not attached: read reference/<file>". Photos and doodles in order, then the pictures of the objects referred
   to (`.torno/thumb.png`, read as a plain file only, `readThumb`), at most 6 in all (`MOST_IMAGES`); a further one is named
   in the text as not attached.
 - A referred object is told as `objectSummary` of its last build in this run (the parts of the first layout and their box,
   `exact` or `approximate` as the kernel's `bboxExact` says) or "not built in this run". Notes are one line each.
+- The answer has `prompt` (as sent, "attached below" for a picture) and `held` (for the composer to hold: every picture
+  "not attached: read reference/<file>", a referred object's as `../<name>/.torno/thumb.png`); the window holds
+  `held`. The prompt names the scan tools by the adapter's tool names (`scans`, `scan_section`, `scan_clash`,
+  `scan_deviation`) and says the person aligns a scan in torno.
+- After the prompt is sent `Sessions.began` is awaited (the CLI said anything, or ended: then its exit note is the
+  `problem`, and `held` is held again; a CLI silent for 10 s is taken to have begun). Tested with `FAKE_AGENT_FAIL`.
 - A session that cannot be started (the command is not on PATH, the trust question) is not a rejection: the answer is
-  `sessionId: null`, the prompt text and the reason, for the composer to hold. An agent whose view is not the chat
+  `sessionId: null`, the prompt text, `held` and the reason, for the composer to hold. An agent whose view is not the chat
   gets `sessionId` and a `problem`, and nothing is sent.
 - One onboarding at a time per object: a set of objects in flight, entered before anything is imported and freed in
   `finally`, also after a rejection. Everything that can be refused (the draft's shape, caps, notes folded and

@@ -21,7 +21,8 @@ import type { PromptBlock } from './sessions/stream'
 export const MOST_IMAGES = 6
 /** The longest edge of a picture main will attach (the window sends 1280; this is the rule's ceiling), and the biggest file. */
 export const MAX_EDGE = 2000
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+/** Base64 of this many bytes is 5 MB, which is what the API takes of one picture. */
+export const MAX_IMAGE_BYTES = 3_750_000
 const MOST_PARTS_NAMED = 8
 const MAX_DESCRIPTION = 20_000
 const REFERENCE_FILE = /^reference\/(photo|doodle)-[1-9][0-9]*\.(png|jpg|jpeg|webp)$/
@@ -34,7 +35,7 @@ export interface ImageBytes {
 }
 
 /**
- * A PNG or a JPEG of at most 5 MB whose long edge is at most 2000 px, read from its own header; null for
+ * A PNG or a JPEG of at most 3.75 MB whose long edge is at most 2000 px, read from its own header; null for
  * anything else (a WebP, a PDF, a picture with no size, one that is too big). Nothing is decoded.
  */
 export function checkedImage(bytes: unknown): ImageBytes | null {

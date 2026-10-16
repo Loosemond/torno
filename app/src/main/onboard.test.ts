@@ -43,8 +43,11 @@ describe('checkedImage', () => {
     expect(checkedImage('nope' as unknown as Uint8Array)).toBeNull()
   })
 
-  it('refuses a picture of more than 5 MB', () => {
-    const big = new Uint8Array(5 * 1024 * 1024 + 1)
+  it('refuses a picture of more than 3.75 MB (its base64 would be over 5 MB)', () => {
+    const ok = new Uint8Array(3_750_000)
+    ok.set(png(10, 10))
+    expect(checkedImage(ok)).not.toBeNull()
+    const big = new Uint8Array(3_750_001)
     big.set(png(10, 10))
     expect(checkedImage(big)).toBeNull()
   })

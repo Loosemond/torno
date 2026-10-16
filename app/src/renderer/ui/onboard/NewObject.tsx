@@ -8,7 +8,7 @@ import { numbered } from '../numbered'
 import { isScan, NO_PATH } from '../scanDrop'
 import { TYPING, giveKeysBack } from '../typing'
 import { Doodle } from './Doodle'
-import { prepareImage } from './images'
+import { HEIC_REASON, prepareImage } from './images'
 import { makeObject, reason } from './make'
 import { ObjectMenu, ReferenceCards } from './ReferenceItems'
 
@@ -183,7 +183,8 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         if (file.size > MAX_PHOTO_BYTES) problems.push(`${file.name} is over ${MAX_PHOTO_BYTES / (1024 * 1024)} MB.`)
         else if (!path) problems.push(`${file.name}: ${NO_PATH}`)
         else pictures.push({ path, name: file.name, bytes: async () => new Uint8Array(await file.arrayBuffer()) })
-      } else problems.push(`${file.name} is neither a picture nor a scan.`)
+      } else if (/\.(heic|heif)$/i.test(file.name)) problems.push(`${file.name}: ${HEIC_REASON}`)
+      else problems.push(`${file.name} is neither a picture nor a scan.`)
     }
     setSaid(problems.length > 0 ? problems.join(' ') : null)
     if (pictures.length > 0) void takePhotos(pictures).then(() => problems.length > 0 && setSaid((now) => [...problems, ...(now ? [now] : [])].join(' ')))

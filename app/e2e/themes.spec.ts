@@ -306,7 +306,7 @@ for (const theme of ['light', 'dark'] as const) {
           await app.evaluate((_electron, picked) => void ((globalThis as unknown as { __tornoMain: Main & { pickPhotos: string[] } }).__tornoMain.pickPhotos = picked), photos)
           await new_.getByRole('button', { name: 'Add photos…' }).click()
           await expect(new_.locator('.ref-card[data-kind="photos"]')).toHaveCount(2)
-          await new_.locator('.ref-card[data-kind="photos"]').first().getByLabel('Note for Claude').fill('the desk edge, seen from the front')
+          await new_.locator('.ref-card[data-kind="photos"]').first().getByLabel(/^Note for /).fill('the desk edge, seen from the front')
           const sketch = async (): Promise<void> => {
             await new_.getByRole('button', { name: 'Draw…' }).click()
             const board = page.getByRole('dialog', { name: 'Doodle board' })
@@ -322,14 +322,14 @@ for (const theme of ['light', 'dark'] as const) {
           }
           await sketch()
           await page.getByRole('dialog', { name: 'Doodle board' }).getByRole('button', { name: 'Done' }).click()
-          await new_.locator('.ref-card[data-kind="doodles"]').first().getByLabel('Note for Claude').fill('the jaw, about 30 mm deep')
+          await new_.locator('.ref-card[data-kind="doodles"]').first().getByLabel(/^Note for /).fill('the jaw, about 30 mm deep')
           const sheet = join(root, 'desk-scan.stl')
           writeFileSync(sheet, stl(grid(30, 1, (x, y) => 41 + 0.4 * Math.sin(x / 3) * Math.cos(y / 4))))
           await app.evaluate((_electron, path) => void ((globalThis as unknown as { __tornoMain: Main }).__tornoMain.pickFile = path), sheet)
           await new_.getByRole('button', { name: 'Add a scan…' }).click()
           await new_.getByRole('button', { name: 'Refer to an object…' }).click()
           await page.getByRole('menuitem', { name: 'plain' }).click()
-          await new_.locator('.ref-card[data-kind="objects"]').first().getByLabel('Note for Claude').fill('mounts on this')
+          await new_.locator('.ref-card[data-kind="objects"]').first().getByLabel(/^Note for /).fill('mounts on this')
           if (shot === 'onboard-board') {
             await new_.getByRole('button', { name: 'Change doodle 1' }).click()
             await expect(page.getByRole('dialog', { name: 'Doodle board' })).toBeVisible()

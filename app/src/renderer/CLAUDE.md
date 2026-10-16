@@ -295,8 +295,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   it. A sheet or question asked over the page (the sheet of keys, the closing question) keeps its own keys.
   `export` and `rebuild` keys do nothing on this page.
 - **Images are scaled in the window** (`images.ts`): the window decodes (WebP too), scales to a long edge of 1280
-  px (a PNG stays PNG, anything else becomes JPEG at 0.85; a PNG already within 1280 px and 5 MB goes as is) and
-  hands main the bytes. Main reads a chosen photo through `objects.readPhoto`, which serves only the paths its
+  px (a PNG stays PNG, anything else becomes JPEG at 0.85; a PNG already within 1280 px and 3.75 MB goes as is, a
+  heavier one goes as a JPEG) and
+  hands main the bytes. The header is read before anything is decoded (`headerSize`: PNG, JPEG, WebP): over 50
+  megapixels is refused with its reason on the card, and a HEIC is refused with how to get a JPEG (`HEIC_REASON`). Main reads a chosen photo through `objects.readPhoto`, which serves only the paths its
   dialog offered; a dropped file is read by the window (`File.arrayBuffer`, at most 25 MB, checked before it is
   read) and its path comes from `objects.pathOf`. The copy in `reference/` is the original; the scaled picture is
   only the prompt's.
@@ -307,6 +309,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   are heard in the capture phase before anything else, so that no tool under the board gets them. The PNG is made
   by `strokes.ts` with a white ground and dark ink whatever the theme: what is drawn on screen follows the theme,
   what Claude receives does not (`PNG_GROUND`).
+- The name is checked against `objects.taken()` (every entry of the workspace folder, read when the page opens and
+  after each create) as well as the objects. While `Creating…` shows, Escape, Cancel and the discard question do
+  nothing. A note field is named by its card ("Note for photo desk.png"); numbers in the page's prose are set by
+  `numbered`.
 - **Create** is `ui/onboard/make.ts` (`makeObject`, tested with fakes, and guarded against a second call while one
   runs). The order is `objects.create`, the list is refreshed, the draft is spent, the object is opened as a click
   opens it, then `objects.onboard` once; the session main started is put into the store. A failure of `create`

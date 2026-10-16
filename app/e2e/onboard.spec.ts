@@ -145,7 +145,7 @@ test.describe('a new object', () => {
     await expect(cards('photos').nth(1)).toContainText('800 × 600')
     const widths = await cards('photos').locator('img').evaluateAll((imgs) => imgs.map((img) => (img as HTMLImageElement).naturalWidth))
     expect(widths).toEqual([1280, 800])
-    await cards('photos').nth(0).getByLabel('Note for Claude').fill('the desk edge, 18 mm thick')
+    await cards('photos').nth(0).getByLabel(/^Note for /).fill('the desk edge, 18 mm thick')
     // The same photo twice is one.
     await newPage().getByRole('button', { name: 'Add photos…' }).click()
     await expect(newPage()).toContainText('2 photos are there already')
@@ -236,7 +236,7 @@ test.describe('a new object', () => {
     await expect(cards('doodles').first()).toContainText('Doodle')
     const size = await cards('doodles').locator('img').evaluate((img) => [(img as HTMLImageElement).naturalWidth, (img as HTMLImageElement).naturalHeight])
     expect(size).toEqual([1200, 800])
-    await cards('doodles').first().getByLabel('Note for Claude').fill('the shape of the jaw')
+    await cards('doodles').first().getByLabel(/^Note for /).fill('the shape of the jaw')
 
     // Opened again, the strokes are there to change.
     await cards('doodles').first().getByRole('button', { name: 'Change doodle 1' }).click()
@@ -244,7 +244,7 @@ test.describe('a new object', () => {
     await stroke([0.2, 0.7], [0.8, 0.7])
     await board().getByRole('button', { name: 'Done' }).click()
     await expect(cards('doodles')).toHaveCount(1)
-    await expect(cards('doodles').first().getByLabel('Note for Claude')).toHaveValue('the shape of the jaw')
+    await expect(cards('doodles').first().getByLabel(/^Note for /)).toHaveValue('the shape of the jaw')
     await cards('doodles').first().getByRole('button', { name: 'Change doodle 1' }).click()
     await expect(board().locator('canvas')).toHaveAttribute('data-strokes', '2')
     await board().getByRole('button', { name: 'Cancel' }).click()
@@ -257,7 +257,7 @@ test.describe('a new object', () => {
     await expect(cards('scans')).toHaveCount(1)
     await expect(cards('scans').first()).toContainText('Scan')
     await expect(cards('scans').first()).toContainText('plate.stl')
-    await cards('scans').first().getByLabel('Note for Claude').fill('the desk, scanned')
+    await cards('scans').first().getByLabel(/^Note for /).fill('the desk, scanned')
     // The same scan twice is one.
     await newPage().getByRole('button', { name: 'Add a scan…' }).click()
     await expect(newPage()).toContainText('plate.stl is there already')
@@ -269,7 +269,7 @@ test.describe('a new object', () => {
     await menu.getByRole('menuitem', { name: 'plain' }).click()
     await expect(menu).toHaveCount(0)
     await expect(cards('objects')).toHaveCount(1)
-    await cards('objects').first().getByLabel('Note for Claude').fill('same style')
+    await cards('objects').first().getByLabel(/^Note for /).fill('same style')
     // It is not offered twice.
     await newPage().getByRole('button', { name: 'Refer to an object…' }).click()
     await expect(page.getByRole('menuitem', { name: 'plain' })).toHaveCount(0)

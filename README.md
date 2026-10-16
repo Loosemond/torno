@@ -240,20 +240,22 @@ failed) nothing is picked, and the pointer says why.
 of objects and in its empty state. The page asks for a name and "What is it?" (what it is for, what it must fit or
 hold, sizes you know, how it will be made), and then for what you have, each with a note for Claude:
 
-- **Photos** ("Add photos…", or dropped on the page): png, jpg or webp, at most 12, 25 MB each. A phone's photos
-  are fine. Claude gets each one attached to its first prompt, scaled to 1280 px on its long edge; the original is
-  copied to `reference/photo-<n>.<ext>` in the object.
+- **Photos** ("Add photos…", or dropped on the page): PNG, JPEG or WebP, at most 12, 25 MB each and 50 megapixels
+  (a larger picture is refused with a reason on the card, before it is decoded). HEIC, the iPhone's default, is
+  not read: set the phone to Most compatible, or export as JPEG. Claude gets each one attached to its first prompt,
+  scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the object.
 - **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
   whichever theme you drew it in, and `reference/` keeps it.
 - **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the object as "Import scan…" does, not
-  copied and not aligned; Claude is told where each came from and that it is not aligned.
+  copied and not aligned; Claude is told each scan's file name and id, and that it is not aligned (you align it in
+  torno); `brief.md` keeps the path it came from, with `~` for your home folder.
 - **Other objects** (a menu of the objects of the workspace): up to 8. Claude is told to look in `../<name>/` and
   gets the object's summary (its parts and box, with whether the kernel says it is exact; "not built in this run"
   if it has not been built) and its thumbnail.
 
 At most 6 pictures go with the prompt, photos and doodles first, then the thumbnails of other objects; a picture
-beyond that, or one that fails the checks (PNG or JPEG, 2000 px at most, 5 MB), is named in the prompt as not
-attached, with the file in `reference/` to read. Notes are kept to a line each and the description to 20,000
+beyond that, or one that fails the checks (PNG or JPEG, 2000 px at most, 3.75 MB, so that it is under 5 MB as
+the API takes it; a PNG over that is sent as a JPEG), is named in the prompt as not attached, with the file in `reference/` to read. Notes are kept to a line each and the description to 20,000
 characters.
 
 The name is the folder's and its model's: letters, digits, `-` and `_` (no dots), starting with a letter or digit, at
@@ -268,10 +270,15 @@ cube, to be replaced), `brief.md` (your words and a line for each reference with
 `.torno/` folder is made as for any object. It is made in a hidden temporary folder beside it and renamed into
 place as the last step, so it is whole or not there, and it never goes into or over a folder that exists (an
 empty one of that name is used). A temporary folder a crash left is swept away at the next opening of the
-workspace once it is ten minutes old. Then torno opens the object, imports the scans, starts Claude Code in a
+workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles may be nowhere else):
+such a leftover, a hidden `.<name>.torno-new-<hex>` folder in the workspace, is yours to look at and delete. Then torno opens the object, imports the scans, starts Claude Code in a
 chat and sends one prompt with everything. If Claude Code cannot start (the command is not found, or the
-trust question stands), the object is made and open anyway: the pane says why and the text of the prompt waits in
-the message box for you to send.
+trust question stands, or the CLI starts and leaves at once because it is signed out or too old), the object is made
+and open anyway: the pane says why and the text of the prompt waits in the message box for you to send. The
+pictures are not sent then: the text says each is "not attached" and names the file in `reference/` (and the
+`.torno/thumb.png` of another object) for Claude to read. If the object was made but the workspace does not list it,
+the scans were not imported, and the page says so and where the folder is. While "Creating…" shows, `Esc`, Cancel
+and Discard do nothing.
 
 The doodle board has a thin pen, a thick pen and an eraser, "Undo" and `Ctrl+Z`, "Clear", and "Done" and "Cancel".
 `Esc` puts the board away; if strokes were drawn since it was opened it asks "Discard this doodle?" first. A
