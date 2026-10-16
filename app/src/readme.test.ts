@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, it } from 'vitest'
+import { PROMPTS } from './main/mcp/prompts'
 import { TOOLS } from './main/mcp/schemas'
 import { cheatSheet, TOOL_KEYS } from './shared/keys'
 
@@ -37,8 +38,13 @@ it('has its table of keys from the one table of keys', () => {
 })
 
 it('names every tool the agent has, and no tool there is not', () => {
-  const named = [...new Set([...readme.matchAll(/mcp__torno__([a-z_]+)/g)].map((match) => match[1]))].sort()
+  const named = [...new Set([...readme.matchAll(/(?<!\/)mcp__torno__([a-z_]+)/g)].map((match) => match[1]))].sort()
   expect(named).toEqual(Object.keys(TOOLS).sort())
+})
+
+it('names every prompt the server offers, as a slash command, and no prompt there is not', () => {
+  const named = [...new Set([...readme.matchAll(/\/mcp__torno__([a-z_]+)/g)].map((match) => match[1]))].sort()
+  expect(named).toEqual(Object.keys(PROMPTS).sort())
 })
 
 it('is laid out for a first-time reader: what it is, how to start it, a walk-through, then the reference', () => {
@@ -65,7 +71,7 @@ it('is laid out for a first-time reader: what it is, how to start it, a walk-thr
     '## Environment variables',
     '## Not yet verified on a visible screen'
   ])
-  for (const heading of ['### Choosing an agent', '### What the agent is told', '### Tools']) expect(headings).toContain(heading)
+  for (const heading of ['### Choosing an agent', '### What the agent is told', '### Tools', '### Prompts']) expect(headings).toContain(heading)
 })
 
 it('names the files torno writes and the variables it reads', () => {

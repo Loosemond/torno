@@ -488,6 +488,18 @@ naming the keys it takes.
 There is no tool that exports, imports or aligns a scan, or writes a file:
 those are yours.
 
+### Prompts
+
+The same server offers requests that come up again and again as MCP prompts.
+Claude Code lists them as slash commands, and the chat's command menu shows
+them when you type `/`:
+
+| Command | What it asks the agent |
+|---|---|
+| `/mcp__torno__review` | Go through every open mark and every unmet dimension against the current build: measure, look, and resolve the marks that are done. |
+| `/mcp__torno__printable` | Check the `print` layout for 3D printing: thin walls, overhangs, closed meshes, and whether it fits your bed, given as an argument (`/mcp__torno__printable 256x256x256`, in mm). |
+| `/mcp__torno__explain` | Describe the model for someone new to it: its parts, its `Params` and how the parts relate. |
+
 ## Marks
 
 The tools, each with its key (all keys are under [Keys](#keys)):
@@ -1204,6 +1216,7 @@ On the screen:
 With a real agent:
 
 - **Claude Code and the trust question.** In a folder never opened before, with a `.claude/settings.json` that holds a hook (or a `.mcp.json`), either in the object or in a folder above it: "New session" asks "Start the chat anyway?" and starts nothing; "Start the chat" starts it (and the hook runs, as Claude Code's documentation says it does without a question when run non-interactively), and the next session there is not asked; "Use the terminal" shows Claude Code's own trust question. The measuring on 2026-10-15 (Claude Code 2.1.300) only read the documentation for this.
+- **The prompts in the command menu.** In a chat, type `/mcp`: `/mcp__torno__review`, `/mcp__torno__printable` and `/mcp__torno__explain` are offered, and choosing one sends it; the stand-in names none of them, so no test has seen them in Claude Code's own list. Whether Copilot CLI offers them, and under what name, is to be seen too; their text names the tools as Claude Code does.
 - **A failed or old Claude Code in the chat.** A `claude` that does not know one of the chat's flags, or is signed out: the pane says "Claude Code stopped (exit code 1)" with the last line it wrote, and "It did not start: is `claude` up to date and signed in?". Not yet seen with a real old CLI; the stand-in prints to stderr and exits 1.
 - **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.
 - **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.

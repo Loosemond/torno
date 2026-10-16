@@ -134,6 +134,35 @@ const MINIMAL: Record<string, Record<string, unknown>> = {
 }
 
 describe('the MCP server', () => {
+  it('lists the prompts it offers as commands, each with a description', async () => {
+    const client = await connect('bracket')
+    const { prompts } = await client.listPrompts()
+    expect(prompts.map((p) => p.name).sort()).toEqual(['explain', 'printable', 'review'])
+    for (const p of prompts) expect(p.description?.length ?? 0).toBeGreaterThan(20)
+    expect(prompts.find((p) => p.name === 'printable')?.arguments).toEqual([expect.objectContaining({ name: 'bed', required: false })])
+  })
+
+  it('gives each prompt as a message from the user naming the tools as the agent knows them', async () => {
+    const client = await connect('bracket')
+    const text = async (name: string, args?: Record<string, string>): Promise<string> => {
+      const { messages } = await client.getPrompt({ name, arguments: args })
+      expect(messages).toHaveLength(1)
+      expect(messages[0].role).toBe('user')
+      return (messages[0].content as { type: string; text: string }).text
+    }
+    const review = await text('review')
+    for (const tool of ['marks', 'measure', 'look', 'resolve_mark']) expect(review).toContain(`mcp__torno__${tool}`)
+    const printable = await text('printable', { bed: '256x256x256' })
+    expect(printable).toContain('print')
+    expect(printable).toContain('"kind": "bed"')
+    expect(printable).toContain('[256, 256, 256]')
+    for (const kind of ['thin', 'overhang', 'mesh']) expect(printable).toContain(`"kind": "${kind}"`)
+    expect(await text('printable')).not.toContain('"kind": "bed"')
+    const explain = await text('explain')
+    expect(explain).toContain('mcp__torno__scene')
+    expect(explain).toContain('params')
+  })
+
   it('lists the tools, each with a description', async () => {
     const client = await connect('bracket')
     expect(client.getServerVersion()?.name).toBe('torno')

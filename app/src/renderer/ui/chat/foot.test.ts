@@ -36,3 +36,13 @@ it('offers the commands for a single /word, and none once there is a space or ot
   // Only a name that begins with what is typed is offered.
   expect(commandsFor('/view', all.concat({ name: 'preview', description: '', argumentHint: '' }, { name: 'view', description: '', argumentHint: '' })).map((c) => c.name)).toEqual(['view'])
 })
+
+it("offers the MCP server's prompts, named as Claude Code names them", () => {
+  const all = [
+    { name: 'compact', description: '', argumentHint: '' },
+    { name: 'mcp__torno__review', description: '', argumentHint: '' },
+    { name: 'mcp__torno__printable', description: '', argumentHint: 'bed' }
+  ]
+  expect(commandsFor('/mcp', all).map((c) => c.name)).toEqual(['mcp__torno__review', 'mcp__torno__printable'])
+  expect(commandsFor('/mcp__torno__p', all).map((c) => c.name)).toEqual(['mcp__torno__printable'])
+})
