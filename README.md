@@ -556,8 +556,11 @@ anything else the least distance. An angle is between flat faces, straight
 edges and the axes of cylinders, cones, tori and circles (`between axes` of two
 bores, `axis to plane` of a bore and a face); a face that is flat, or an edge
 that is straight, within 1e-6 mm but stored as a spline or an extrusion is
-taken too, and its angle is not said to be exact. When the kernel refuses (an
-angle to a sphere), nothing is kept and its reason is read out at the
+taken too, and its angle is not said to be exact. Before the second click of an
+angle the pointer says, in place of the estimate, when an end is taken by its
+axis (no estimate from the mesh), only if it is flat or straight (a spline),
+or not at all (a sphere); the click is sent all the same. When the kernel
+refuses (an angle to a sphere), nothing is kept and its reason is read out at the
 pointer. `Esc` drops a first click; the tool stays in hand.
 
 **Dimensions.** What the Measure tool leaves is a dimension: a mark (`M4`)

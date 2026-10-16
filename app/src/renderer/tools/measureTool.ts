@@ -37,6 +37,35 @@ export function isRound(described: Described | null): boolean {
 }
 
 /**
+ * How the kernel takes an angle of a face or an edge of a type: as a plane or a line (`flat`), by its axis
+ * (`axis`: a cylinder, a cone, a torus, a circle), only if it is flat or straight within its tolerance
+ * (`ifFlat`: a B-spline, an extrusion and the like, which may be either), or not at all (`never`).
+ */
+export type AngleTaking = 'flat' | 'axis' | 'ifFlat' | 'never'
+
+export function angleTaking(kind: 'face' | 'edge', type: string): AngleTaking {
+  if (kind === 'face') {
+    if (type === 'plane') return 'flat'
+    if (['cylinder', 'cone', 'torus'].includes(type)) return 'axis'
+    return type === 'sphere' ? 'never' : 'ifFlat'
+  }
+  if (type === 'line') return 'flat'
+  if (type === 'circle') return 'axis'
+  return ['ellipse', 'hyperbola', 'parabola'].includes(type) ? 'never' : 'ifFlat'
+}
+
+/** What is said at the pointer, in place of an estimate, of an end of an angle (`ref`) that is not flat or straight. */
+export function angleHint(ref: string, kind: 'face' | 'edge', type: string): string | null {
+  const taking = angleTaking(kind, type)
+  const what = `${ref} is ${/^[aeiou]/.test(type) ? 'an' : 'a'} ${type} ${kind}`
+  const flat = kind === 'face' ? 'flat' : 'straight'
+  if (taking === 'axis') return `By its axis: ${what}`
+  if (taking === 'ifFlat') return `Taken only if ${flat}: ${what}`
+  if (taking === 'never') return `Not ${flat}: ${what}. An angle needs a flat face, a straight edge or an axis`
+  return null
+}
+
+/**
  * What the mesh says a measurement between two picks will be, to read out
  * while the second is pending: the distance between the two points clicked,
  * or the angle between the normals there. It is an estimate, shown with `≈`:
@@ -61,7 +90,9 @@ export function estimate(measure: 'distance' | 'angle', a: Pick<Hit, 'point' | '
  * point: where it was clicked, tied to no face.
  *
  * While the second end is pending the line to the pointer is drawn and an
- * estimate from the mesh read out, marked `≈`. The value of the dimension is
+ * estimate from the mesh read out, marked `≈`. Of an angle, an end the kernel
+ * takes by its axis, only if flat or straight, or not at all has no estimate:
+ * that is said instead (`angleHint`), and the click is sent all the same. The value of the dimension is
  * the kernel's: main measures it as it keeps the mark, and it is read out in
  * place of the estimate. When the kernel refuses the measurement (no angle
  * between a plane and a cylinder), nothing is kept and its reason is read out
@@ -83,6 +114,9 @@ export function measureTool(): Tool {
    */
   let held: { until: number; timer?: ReturnType<typeof setTimeout>; client: [number, number]; within: number; sticky?: true } | null = null
   let rest: ReturnType<typeof setTimeout> | undefined
+  /** What the kernel said each ref is, for an angle: its kind and type. Null when it could not say. */
+  const types = new Map<string, { kind: 'face' | 'edge'; type: string } | null>()
+  const asking = new Set<string>()
 
   const release = (): void => {
     clearTimeout(held?.timer)
@@ -189,6 +223,44 @@ export function measureTool(): Tool {
     void commit(toolStore.getState().between, begun, { hit, bare: e.shift }, e.client, ctx)
   }
 
+  /** What a ref is, as far as the kernel has said: asked once, and read out again when it answers while the pointer is still on it. */
+  const typeOf = (end: Hit, ctx: ToolContext): { kind: 'face' | 'edge'; type: string } | null | undefined => {
+    const { ref } = end
+    // A ref names another face in another build.
+    const key = `${ctx.objectId}\n${ctx.revision}\n${ctx.layout}\n${ref}`
+    if (types.has(key)) return types.get(key)
+    // A descriptor the kernel has already given starts with the type: "bspline, 50 mm²".
+    const line = ctx.descriptor(ref)
+    if (line !== undefined) return { kind: end.kind, type: line.split(',')[0].trim() }
+    if (asking.has(key)) return undefined
+    asking.add(key)
+    void ctx.describe(ref).then((said) => {
+      asking.delete(key)
+      types.set(key, said && said.kind !== 'part' ? { kind: said.kind, type: said.type } : null)
+      if (first && hover && (hover.hit.ref === ref || first.hit.ref === ref) && !holding(hover.client)) readOut(hover.client, hover.hit, ctx)
+    })
+    return undefined
+  }
+
+  /** The readout while the second end is pending: an estimate, or why there is none. */
+  const readOut = (client: [number, number], hit: Hit, ctx: ToolContext): void => {
+    if (!first) return
+    const { between } = toolStore.getState()
+    // No estimate of what is no distance of the model's: said up front, before the click that main would refuse.
+    if (between === 'distance' && spreadApart(first, hit, ctx)) return ctx.readout.say(client, SPREAD_LINE)
+    if (between === 'angle') {
+      // What the kernel takes only by an axis, only if flat, or never has no estimate from the mesh: said
+      // before the click, which still goes to main. Until the kernel has said what an end is, the estimate.
+      const ends = [hit, first.bare ? null : first.hit].filter((end): end is Hit => end !== null)
+      for (const end of ends) {
+        const known = typeOf(end, ctx)
+        const hint = known ? angleHint(end.ref, known.kind, known.type) : null
+        if (hint) return ctx.readout.say(client, hint)
+      }
+    }
+    ctx.readout.show(client, estimate(between, first.hit, hit) ?? between, hit.ref)
+  }
+
   const hovering = (e: ViewportPointer, hit: Hit, ctx: ToolContext): void => {
     hover = { hit, client: e.client }
     ctx.viewport.setHover(hit)
@@ -196,10 +268,7 @@ export function measureTool(): Tool {
     if (first) drawFirst(ctx, hit.point)
     if (holding(e.client)) return
     if (first) {
-      const { between } = toolStore.getState()
-      // No estimate of what is no distance of the model's: said up front, before the click that main would refuse.
-      if (between === 'distance' && spreadApart(first, hit, ctx)) ctx.readout.say(e.client, SPREAD_LINE)
-      else ctx.readout.show(e.client, estimate(between, first.hit, hit) ?? between, hit.ref)
+      readOut(e.client, hit, ctx)
       return
     }
     // Nothing under way: what the first end would be on, and what the kernel says it is, once the pointer rests.
