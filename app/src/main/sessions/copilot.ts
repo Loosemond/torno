@@ -24,6 +24,7 @@ export function copilotAdapter(agentCmd?: string): AgentAdapter {
     label: AGENT_LABEL.copilot,
     command: 'copilot',
     hooks: false,
+    skills: false,
     views: AGENT_VIEWS.copilot,
     toolName,
     launch(ctx) {

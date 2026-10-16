@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { claudeAdapter, HOOK_EVENTS } from './claude'
 
@@ -107,5 +109,27 @@ describe('the Claude Code adapter', () => {
   it('says of itself that it posts hooks, and how it names a tool', () => {
     const adapter = claudeAdapter('node /abs/fake-agent.mjs')
     expect([adapter.id, adapter.label, adapter.command, adapter.hooks, adapter.toolName('scene')]).toEqual(['claude', 'Claude Code', 'claude', true, 'mcp__torno__scene'])
+  })
+
+  // #4: torno's skills, a plugin that ships with the app, loaded for this session only.
+  it("loads torno's plugin of skills by its folder, for this session only, when it is given one", () => {
+    const launch = claudeAdapter(undefined, '/opt/torno/resources/agent-plugin').launch(ctx)
+    expect(after(launch.args, '--plugin-dir')).toBe('/opt/torno/resources/agent-plugin')
+    expect(claudeAdapter(undefined, '/opt/torno/resources/agent-plugin').skills).toBe(true)
+    // In chat too: the same arguments after the headless ones.
+    expect(after(claudeAdapter(undefined, '/p').launch({ ...ctx, view: 'chat' }).args, '--plugin-dir')).toBe('/p')
+    expect(claudeAdapter().launch(ctx).args).not.toContain('--plugin-dir')
+    expect(claudeAdapter().skills).toBe(false)
+  })
+
+  it('is given the plugin that is in the app: a manifest and the four skills, each named in its frontmatter', () => {
+    const dir = join(__dirname, '../../../resources/agent-plugin')
+    expect(JSON.parse(readFileSync(join(dir, '.claude-plugin/plugin.json'), 'utf8')).name).toBe('torno')
+    for (const name of ['torno-model', 'build123d', 'scans', 'dimensions']) {
+      const text = readFileSync(join(dir, 'skills', name, 'SKILL.md'), 'utf8')
+      const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1]
+      expect(front).toMatch(new RegExp(`^name: ${name}$`, 'm'))
+      expect(front).toMatch(/^description: .{40,}$/m)
+    }
   })
 })

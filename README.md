@@ -368,11 +368,24 @@ line, in the environment, or under `.torno/agent/`.
 | | Claude Code (`claude`) | Copilot CLI (`copilot`) |
 |---|---|---|
 | Torno's tools | `--mcp-config`, `--allowedTools mcp__torno__*` | `--additional-mcp-config`, `--allow-tool=torno` |
-| Torno's instructions | `--append-system-prompt` | `.torno/agent/AGENTS.md`, named by `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
+| Torno's instructions | `--append-system-prompt`, and torno's skills with `--plugin-dir` | `.torno/agent/AGENTS.md`, named by `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
 | Hooks | `--settings`: it posts them to torno | none |
 | What you marked | goes with your next prompt, by itself | "Send marks" writes `.torno/prompt.md` and puts a line at the prompt for you to send |
 | When a mark counts as sent | when the prompt's hook has been answered with it | when you press Enter with torno's line shown at the prompt and nothing typed after it |
 | Status shown | idle, working, needs input, ended | running, ended |
+
+Claude Code is also given torno's skills, a plugin that comes with torno
+(`app/resources/agent-plugin`) and is loaded for that session only, with
+`--plugin-dir`: nothing is installed in your Claude Code. A skill costs a line
+until the agent decides to read it. `torno:torno-model` is the model file
+contract in full (which file, `Params`, `assembly`, `printables`, `make_<part>`)
+with a template; `torno:build123d` the idioms of build123d 0.13 and its usual
+failures (fillets, booleans, `StdFail_NotDone`) and how to read the installed
+version's help offline; `torno:scans` and `torno:dimensions` what the
+instructions say of scans and of dimensions for an agent without skills. So
+Claude Code's instructions are shorter: they keep what torno is, refs, marks,
+the loop and the model file in short, and name the skills. Copilot CLI has no
+skills and is told all of it.
 
 With Claude Code the status follows the hooks it posts: `UserPromptSubmit`,
 `PreToolUse` and `PostToolUse` mean working, `Stop` idle, `PermissionRequest`
@@ -1208,6 +1221,7 @@ With a real agent:
 - **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.
 - **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
 - **Making a new object with the real Claude Code.** "New object" with a name, a description, two photos from a phone (one large), a doodle, a scan and a reference to another object, each with a note, then "Create": the object is opened, its chat shows the one prompt with the pictures, Claude Code's reply speaks of them and of the notes, the scan is in the Scans list, `reference/` holds the original photos, and nothing else was written in the workspace. The stand-in agent has taken the prompt; the real CLI has not.
+- **Claude Code and torno's skills.** `--plugin-dir` works under `-p` (chat) and in the terminal view: in each, `/skills` (or asking the agent) lists `torno:torno-model`, `torno:build123d`, `torno:scans` and `torno:dimensions`, a model written in an empty object uses `torno-model` and builds with both layouts on the first try, and nothing was written under `~/.claude` or in the object's `.claude/`. The stand-in only shows the flag is passed.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
 - **Copilot CLI: what must not send.** "Send marks" while its trust question is up, then Enter; "Send marks", then type ` see @` and Enter; "Send marks", then paste two lines: each time the mark stays a draft and the pane says why.
 - **Copilot CLI: Shift+Enter.** Torno writes Esc Enter: a new line, or a send? Torno takes it for a change of the line either way.

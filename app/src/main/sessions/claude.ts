@@ -19,14 +19,18 @@ const HEADLESS = ['-p', '--input-format', 'stream-json', '--output-format', 'str
  *
  * `agentCmd` replaces the command `claude`: TORNO_AGENT_CMD, split on spaces,
  * so a path with a space in it cannot be named this way.
+ *
+ * `pluginDir` is torno's plugin of skills (`resources/agent-plugin`, `agentPluginDir()`), loaded with
+ * `--plugin-dir` for that session only: nothing is installed in the person's Claude Code.
  */
-export function claudeAdapter(agentCmd?: string): AgentAdapter {
+export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapter {
   const [command = 'claude', ...before] = (agentCmd ?? '').split(' ').filter(Boolean)
   return {
     id: 'claude',
     label: AGENT_LABEL.claude,
     command: 'claude',
     hooks: true,
+    skills: Boolean(pluginDir),
     views: AGENT_VIEWS.claude,
     toolName: (tool) => `mcp__torno__${tool}`,
     launch(ctx) {
@@ -45,6 +49,7 @@ export function claudeAdapter(agentCmd?: string): AgentAdapter {
         '--settings',
         JSON.stringify(settings)
       ]
+      if (pluginDir) args.push('--plugin-dir', pluginDir)
       if (ctx.systemPrompt) args.push('--append-system-prompt', ctx.systemPrompt)
       return { command, args, env: {} }
     }

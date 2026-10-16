@@ -21,7 +21,7 @@ import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
 import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
-import { kernelDir } from './paths'
+import { agentPluginDir, kernelDir } from './paths'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { systemPrompt } from './prompt'
@@ -402,7 +402,7 @@ void app.whenReady().then(async () => {
     // Whether a chat may start in a folder with Claude Code settings of its own: asked once, and kept beside the recent folders.
     trust: new Trust(configPath ? join(dirname(configPath), 'trusted.json') : null),
     // The agent chosen for the object, as its file says now. TORNO_AGENT_CMD is run in place of whichever it is.
-    adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD)[(await readChoice(obj.dir)).agent],
+    adapterFor: async (obj) => adapters(process.env.TORNO_AGENT_CMD, agentPluginDir())[(await readChoice(obj.dir)).agent],
     // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat for Claude Code unless it says terminal).
     viewFor: async (obj) => (await readChoice(obj.dir)).view,
     // The viewport as the person has it, for a prompt that attaches the view: of the object the session is of.
@@ -419,7 +419,7 @@ void app.whenReady().then(async () => {
     },
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
-    systemPromptFor: (adapter) => systemPrompt(adapter.toolName),
+    systemPromptFor: (adapter) => systemPrompt(adapter.toolName, true, adapter.skills),
     mcpUrlFor,
     debug: isDebug
   })

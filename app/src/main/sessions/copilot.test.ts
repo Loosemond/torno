@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NO_HOOKS_PROMPT, SYSTEM_PROMPT, systemPrompt } from '../prompt'
+import { DIMENSIONS_TEXT, FULL_PROMPT, NO_HOOKS_PROMPT, SCANS_TEXT, SYSTEM_PROMPT, systemPrompt } from '../prompt'
 import { adapters } from './adapter'
 import { copilotAdapter } from './copilot'
 
@@ -60,7 +60,20 @@ describe('copilotAdapter', () => {
     // Claude Code is told as before.
     expect(SYSTEM_PROMPT).toContain('New marks arrive with the prompt, a line each;')
     expect(SYSTEM_PROMPT).toContain('with every prompt until they pass')
-    expect(systemPrompt((tool) => `mcp__torno__${tool}`, true)).toBe(SYSTEM_PROMPT)
+    expect(systemPrompt((tool) => `mcp__torno__${tool}`, true)).toBe(FULL_PROMPT)
+  })
+
+  // #4: it has no skills, so it keeps what Claude Code's are given of scans and dimensions.
+  it('is told the whole text, scans and dimensions too, and given no plugin', () => {
+    const adapter = copilotAdapter()
+    expect(adapter.skills).toBe(false)
+    const launch = adapter.launch(ctx)
+    const told = launch.files!['AGENTS.md']
+    for (const sentence of [...SCANS_TEXT, ...DIMENSIONS_TEXT]) {
+      const named = sentence.replace(/mcp__torno__([a-z_]+)/g, (_all, tool: string) => adapter.toolName(tool)).replace(' with every prompt until they pass', ' in .torno/prompt.md whenever it is written, until they pass')
+      expect(told).toContain(named)
+    }
+    expect(launch.args.join(' ')).not.toMatch(/plugin|torno:/)
   })
 
   it('says of itself what the window needs to know', () => {
@@ -71,8 +84,8 @@ describe('copilotAdapter', () => {
   })
 })
 
-it('names the tools as each client does, and is the same text for Claude Code as before', () => {
-  expect(systemPrompt((tool) => `mcp__torno__${tool}`)).toBe(SYSTEM_PROMPT)
+it('names the tools as each client does, and is the whole text for an agent without skills', () => {
+  expect(systemPrompt((tool) => `mcp__torno__${tool}`)).toBe(FULL_PROMPT)
   expect(SYSTEM_PROMPT).toContain('mcp__torno__scene reports the build status')
   expect(systemPrompt((tool) => `the torno tool ${tool}`)).toContain('the torno tool scene reports the build status')
   expect(NO_HOOKS_PROMPT).toContain('.torno/prompt.md')

@@ -49,6 +49,8 @@ export interface AgentAdapter {
   command: string
   /** It posts hooks: context goes with every prompt and the status follows its work. Without, it is told through `.torno/prompt.md` and "Send marks". */
   hooks: boolean
+  /** It is given torno's skills (Claude Code's `--plugin-dir`): its system prompt leaves to them what they say. */
+  skills: boolean
   /** How this agent's client names a tool of torno's to the model: `mcp__torno__scene`. */
   toolName(tool: string): string
   /** The views it can be in, the first its default: only an agent with a headless mode has `chat`. */
@@ -56,7 +58,10 @@ export interface AgentAdapter {
   launch(ctx: LaunchContext): AgentLaunch
 }
 
-/** Every agent torno can start. `agentCmd` (TORNO_AGENT_CMD) is run in place of each one's command. */
-export function adapters(agentCmd?: string): Record<AgentId, AgentAdapter> {
-  return { claude: claudeAdapter(agentCmd), copilot: copilotAdapter(agentCmd) }
+/**
+ * Every agent torno can start. `agentCmd` (TORNO_AGENT_CMD) is run in place of each one's command; `pluginDir`
+ * is torno's plugin of skills, for an agent that takes one.
+ */
+export function adapters(agentCmd?: string, pluginDir?: string): Record<AgentId, AgentAdapter> {
+  return { claude: claudeAdapter(agentCmd, pluginDir), copilot: copilotAdapter(agentCmd) }
 }
