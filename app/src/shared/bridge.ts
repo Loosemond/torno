@@ -134,6 +134,8 @@ export interface TornoBridge {
      * cannot be started is not a rejection: `sessionId` is null and the prompt comes back to be held.
      */
     onboard(objectId: string, draft: OnboardDraft): Promise<Onboarded>
+    /** Every name in the open workspace's folder (folders and files, hidden ones too), for the page to check a new name against as main does. */
+    taken(): Promise<string[]>
   }
   /** The scans of an object, kept by main in <object>/.torno/scans.json and .torno/scans/. Calls reject with a plain message. */
   scans: {

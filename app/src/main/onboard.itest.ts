@@ -57,6 +57,7 @@ const depsOf = (s: Sessions): OnboardDeps => ({
   importScan: (id, path) => scans.import(id, path),
   start: (obj) => s.start(obj, {}),
   prompt: (id, blocks) => s.prompt(id, blocks),
+  began: (id) => s.began(id),
   scene: () => undefined
 })
 
@@ -147,6 +148,19 @@ describe('onboarding a new object', () => {
     expect(await scans.list(objectId)).toEqual([])
   })
 
+  it('holds the prompt again, with the exit note, for a CLI that starts and leaves before it takes the prompt up (signed out, too old)', async () => {
+    process.env.FAKE_AGENT_FAIL = 'error: not logged in'
+    try {
+      const { objectId, draft } = await made('signed-out')
+      const out = await onboardObject(depsOf(sessions), objectId, draft)
+      expect(out.problem).toMatch(/Claude Code stopped \(exit code 1\): error: not logged in/)
+      expect(out.held).toContain('This is a new object, signed-out')
+      expect(out.held).not.toContain('attached below')
+    } finally {
+      delete process.env.FAKE_AGENT_FAIL
+    }
+  })
+
   it('answers with no session, the prompt and the reason when the agent\'s command is missing; the object stays whole', async () => {
     const lost = make('torno-no-such-agent-command')
     try {
@@ -156,6 +170,7 @@ describe('onboarding a new object', () => {
       expect(out.problem).toMatch(/not found on PATH/)
       expect(out.prompt).toContain('This is a new object, no-agent')
       expect(out.prompt).toContain('Scan S1 "edge.stl"')
+      expect(out.held).not.toContain('attached below')
       expect(lost.current(objectId)).toBeNull()
       expect(readFileSync(join(root, objectId, 'brief.md'), 'utf8')).toContain('the desk')
     } finally {

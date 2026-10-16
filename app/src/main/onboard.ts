@@ -182,6 +182,8 @@ export interface OnboardDeps {
   /** Starts the session of the object's agent; rejects with why it cannot. */
   start(obj: ObjectInfo): Promise<{ sessionId: string; view: string }>
   prompt(sessionId: string, blocks: PromptBlock[]): void
+  /** Resolves once the session's CLI has taken the prompt up, or with why it ended without; none when this cannot be known. */
+  began?(sessionId: string): Promise<{ began: true } | { began: false; why: string }>
   /** The last good build of an object in this run. */
   scene(objectId: string): Pick<Scene, 'layouts' | 'parts'> | undefined
 }
@@ -288,5 +290,8 @@ async function onboarded(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft
   } catch (e) {
     return { sessionId: started.sessionId, prompt: text, held, problem: firstLine(e) }
   }
+  // A CLI that is signed out, or too old for a flag, starts and leaves: the prompt it never took is held, with the reason.
+  const began = await deps.began?.(started.sessionId)
+  if (began && !began.began) return { sessionId: started.sessionId, prompt: text, held, problem: began.why }
   return { sessionId: started.sessionId, prompt: text, held }
 }

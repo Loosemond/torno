@@ -4,6 +4,7 @@ import { MAX_PHOTO_BYTES, moduleName, MOST_REFERENCES, objectNameProblem } from 
 import { actions, store, useStore } from '../../state/store'
 import { draftHas, onboard, onboarding, useOnboard, type Stroke } from '../../state/onboard'
 import { Confirm } from '../Confirm'
+import { numbered } from '../numbered'
 import { isScan, NO_PATH } from '../scanDrop'
 import { TYPING, giveKeysBack } from '../typing'
 import { Doodle } from './Doodle'
@@ -65,7 +66,14 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
   const asked = useRef(false)
   asked.current = asking
 
-  const nameProblem = draft.name === '' ? null : objectNameProblem(draft.name, ids)
+  /** Every entry of the workspace folder, as main reads it: a folder that is no object, a file, is a name taken too. */
+  const [taken, setTaken] = useState<string[]>([])
+  const refreshTaken = useCallback((): void => void window.torno.objects.taken().then(setTaken, () => {}), [])
+  useEffect(refreshTaken, [refreshTaken])
+  const busyNow = useRef(false)
+  busyNow.current = busy
+
+  const nameProblem = draft.name === '' ? null : objectNameProblem(draft.name, [...new Set([...ids, ...taken])])
   const ready = draft.name !== '' && nameProblem === null && draft.description.trim() !== ''
   const files = draft.photos.length + draft.doodles.length
   const module = moduleName(draft.name)
@@ -81,6 +89,8 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
   }, [])
 
   const leave = useCallback((): void => {
+    // While the object is made nothing can drop the draft.
+    if (busyNow.current) return
     if (draftHas(onboard.getState().draft)) setAsking(true)
     else leaveNewObject()
   }, [])
@@ -101,6 +111,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         if (!pressed(e, 'new.back')) return
         e.preventDefault()
         e.stopPropagation()
+        if (busyNow.current) return
         if (draftHas(onboard.getState().draft)) giveKeysBack(target as HTMLElement)
         else leaveNewObject()
         return
@@ -206,6 +217,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         if (store.getState().objectId !== id) throw new Error('not shown')
       },
       sameWorkspace: () => store.getState().workspace?.root === root,
+      folderOf: (id) => `${root}/${id}`,
       discard: () => onboarding.discard(),
       hold: (id, held) => onboarding.hold(id, held)
     })
@@ -216,6 +228,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
       actions.showPage('objects')
     }
     setBusy(false)
+    refreshTaken()
   }
 
   const editing = board?.uid ? draft.doodles.find((d) => d.uid === board.uid) : undefined
@@ -251,7 +264,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
 
         {madeAlready !== null && (
           <p className="new-problem" role="alert">
-            {madeAlready} It is not made again.
+            {numbered(madeAlready)} It is not made again.
           </p>
         )}
 
@@ -295,11 +308,11 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
           </div>
           <p className="new-help">
             Photos and scans can also be dropped on this page. Each can have a note for Claude.
-            {reading > 0 && <span role="status"> Reading {plural(reading, 'picture', 'pictures')}…</span>}
+            {reading > 0 && <span role="status"> Reading {numbered(plural(reading, 'picture', 'pictures'))}…</span>}
           </p>
           {said !== null && (
             <p className="new-help" data-tone="warn" role="status">
-              {said}
+              {numbered(said)}
             </p>
           )}
           <ReferenceCards draft={draft} onEditDoodle={(key) => setBoard({ uid: key })} />
@@ -312,7 +325,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
                 Creates <span className="num">{wsName}/{draft.name}/</span> with <span className="num">{module}.py</span> (a placeholder to be replaced), <span className="num">brief.md</span>
                 {files > 0 && (
                   <>
-                    {' '}and <span className="num">reference/</span> ({plural(files, 'file', 'files')})
+                    {' '}and <span className="num">reference/</span> ({numbered(plural(files, 'file', 'files'))})
                   </>
                 )}
                 , opens it and starts Claude Code with all of this.
@@ -324,7 +337,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
           </p>
           {problem !== null && (
             <p className="new-problem" role="alert">
-              {problem}
+              {numbered(problem)}
             </p>
           )}
           <div className="new-actions">

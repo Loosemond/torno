@@ -274,6 +274,14 @@ describe('onboardObject', () => {
     expect(sent).toEqual([])
   })
 
+  it('holds the prompt again, with the reason, when the session ends without having taken it up', async () => {
+    const out = await onboardObject(deps({ began: async () => ({ began: false as const, why: 'Claude Code stopped (exit code 1): not logged in' }) }), 'cable-clip', draft())
+    expect(out).toMatchObject({ sessionId: 'sess', problem: 'Claude Code stopped (exit code 1): not logged in' })
+    expect(out.held).toContain('This is a new object, cable-clip')
+    const fine = await onboardObject(deps({ began: async () => ({ began: true as const }) }), 'cable-clip', draft())
+    expect(fine.problem).toBeUndefined()
+  })
+
   it('keeps the session and the prompt, and says why, when the agent has no chat to send it to', async () => {
     const out = await onboardObject(deps({ start: async () => ({ sessionId: 'term', view: 'terminal' }) }), 'cable-clip', draft())
     expect(out.sessionId).toBe('term')

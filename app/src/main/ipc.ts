@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
@@ -52,7 +52,7 @@ import { scanOrder, scanWorkspace } from './workspace'
 //           marks:dismissProblem, geometry:describe,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, show:cards, show:thumbnail, export:plan, export:save
+//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:taken, show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer
@@ -729,6 +729,12 @@ export function registerIpc(
     if (!ws.info.objects.some((o) => o.id === made.objectId)) throw new Error(`${made.objectId} was made, but the workspace does not list it.`)
     return made
   })
+  // The names in the root, which a new object's name is checked against as `createObject` checks it.
+  ipcMain.handle('objects:taken', async () => {
+    const ws = current
+    if (!ws) throw new Error('No workspace is open.')
+    return readdir(ws.info.root)
+  })
   // The first half of a new object's life after `objects:create`: its scans imported, its chat started, the prompt sent.
   ipcMain.handle('objects:onboard', (_event, objectId: string, draft: OnboardDraft) => {
     const ws = current
@@ -740,6 +746,7 @@ export function registerIpc(
         importScan: (id, path) => requireScans().import(id, path),
         start: (obj) => requireSessions().start(obj, {}),
         prompt: (sessionId, blocks) => requireSessions().prompt(sessionId, blocks),
+        began: (sessionId) => requireSessions().began(sessionId),
         scene: (id) => ws.builds.scene(id)?.scene
       },
       String(objectId),

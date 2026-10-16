@@ -18,6 +18,8 @@ export interface MakeDeps {
   hold(objectId: string, held: Held): void
   /** Whether the workspace is still the one the object was made in. */
   sameWorkspace(): boolean
+  /** Where the object's folder is. */
+  folderOf(objectId: string): string
 }
 
 export type Outcome =
@@ -65,6 +67,8 @@ export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome>
       if (!WAS_MADE.test(message)) return { kind: 'refused', message }
       // On the disk, whatever the listing says: not made again. Opened if the workspace lists it now.
       objectId = message.split(' ')[0]
+      // The scans are imported by `onboard`, which is not called here: the person is told, with where the folder is.
+      const told = `${message}${draft.scans.length > 0 ? ' The scans were not imported.' : ''} The folder is ${deps.folderOf(objectId)}.`
       const ids = await deps.listed().catch(() => [] as string[])
       deps.discard()
       // Of this workspace only: one left meanwhile may have an object of the same name.
@@ -72,9 +76,9 @@ export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome>
       if (opened) {
         await deps.open(objectId).catch(() => {})
         // The page is gone once the object opens: the reason is said where the session is.
-        deps.hold(objectId, { text: '', reason: message })
+        deps.hold(objectId, { text: '', reason: told })
       }
-      return { kind: 'made', objectId, message, opened }
+      return { kind: 'made', objectId, message: told, opened }
     }
     await deps.listed().catch(() => [])
     deps.discard()

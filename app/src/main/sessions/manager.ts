@@ -71,6 +71,8 @@ interface Session extends Told {
   /** A chat session: the last lines the CLI wrote on stderr, redacted, and whether it printed anything on stdout. */
   stderr: string[]
   heard: boolean
+  /** A chat session: those waiting to know whether the CLI began (`Sessions.began`). */
+  watchers: Array<(began: Began) => void>
   /** A chat session: what a prompt waits for when it is sent with a picture, so that prompts reach the CLI in the order they were sent. */
   sending: Promise<void>
   exited: Promise<void>
@@ -79,6 +81,9 @@ interface Session extends Told {
   termTimer?: NodeJS.Timeout
   adapter: AgentAdapter
 }
+
+/** Whether a chat session's CLI took the prompt up (it said something) or ended without; `why` is the note the person reads. */
+export type Began = { began: true } | { began: false; why: string }
 
 /** The transcript of a chat session, and what the window needs to draw it again. */
 interface ChatRecord {
@@ -341,6 +346,7 @@ export class Sessions {
       activity: 0,
       stderr: [],
       heard: false,
+      watchers: [],
       sending: Promise.resolve(),
       exited: new Promise<void>((resolve) => (ended = resolve)),
       adapter,
@@ -492,6 +498,28 @@ export class Sessions {
   }
 
   /**
+   * A chat session: whether its CLI took up what it was sent, which it shows by saying anything. Resolves at once for
+   * one that has, with the reason for one that ended without, and as having begun once `within` ms pass in silence (a
+   * CLI slow to start is not one that failed).
+   */
+  began(sessionId: string, within = 10_000): Promise<Began> {
+    const s = this.sessions.get(sessionId)
+    if (!s?.stream) return Promise.resolve({ began: false, why: 'The session ended before its first prompt was taken up.' })
+    if (s.heard) return Promise.resolve({ began: true })
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        s.watchers.splice(s.watchers.indexOf(watcher), 1)
+        resolve({ began: true })
+      }, within)
+      const watcher = (b: Began): void => {
+        clearTimeout(timer)
+        resolve(b)
+      }
+      s.watchers.push(watcher)
+    })
+  }
+
+  /**
    * A chat session: what the person typed, with a picture of the viewport as it is now when `attachView` (made
    * through the window: `deps.picture`). Rejects, sending nothing, when the picture cannot be made or the session has ended.
    */
@@ -608,6 +636,7 @@ export class Sessions {
     stream.on('message', (message) => {
       session.activity += 1
       session.heard = true
+      for (const watcher of session.watchers.splice(0)) watcher({ began: true })
       this.advance(session, 'output')
       // The CLI gave up a request of its own (the turn was stopped while a card was open): it is not to be answered.
       if (message.type === 'control_cancel_request' && typeof message.request_id === 'string') this.cancelAsk(session, message.request_id)
@@ -646,7 +675,8 @@ export class Sessions {
       // Nobody can answer what the agent was waiting for any more.
       for (const requestId of session.asks.keys()) this.emit('asked', { sessionId: session.id, requestId, answered: false })
       session.asks.clear()
-      if (!asked || (code !== null && code !== 0)) this.stoppedNote(session, code, signal)
+      const why = !asked || (code !== null && code !== 0) ? this.stoppedNote(session, code, signal) : 'The session was stopped.'
+      for (const watcher of session.watchers.splice(0)) watcher({ began: false, why: why || 'The session ended.' })
       // What was open ends in a stated state, and the log has all of it before the session counts as gone.
       session.chat?.transcript.ended()
       this.advance(session, 'exit')
@@ -673,13 +703,15 @@ export class Sessions {
   }
 
   /** The CLI left when torno did not ask it to, or with an error: the person is told what it said last, and when it never began. */
-  private stoppedNote(session: Session, code: number | null, signal: string | null): void {
+  private stoppedNote(session: Session, code: number | null, signal: string | null): string {
     const transcript = session.chat?.transcript
-    if (!transcript) return
+    if (!transcript) return ''
     const last = session.stderr.at(-1)
     const how = code !== null ? `exit code ${code}` : signal ? `signal ${signal}` : 'no exit code'
-    transcript.note(`Claude Code stopped (${how})${last ? `: ${last}` : ''}`, 'warn')
+    const said = `Claude Code stopped (${how})${last ? `: ${last}` : ''}`
+    transcript.note(said, 'warn')
     if (!session.heard) transcript.note(DID_NOT_START, 'warn')
+    return said
   }
 
   /** A request of the CLI's that waits for the person is given up: the card ends, and the status goes on from there. */

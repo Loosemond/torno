@@ -35,7 +35,7 @@ function useObjectPicture(id: string): string | null {
   return url
 }
 
-function Note({ kind, itemKey, value }: { kind: Kind; itemKey: string; value: string }) {
+function Note({ kind, itemKey, value, label }: { kind: Kind; itemKey: string; value: string; label: string }) {
   return (
     <input
       className="ref-note"
@@ -43,7 +43,7 @@ function Note({ kind, itemKey, value }: { kind: Kind; itemKey: string; value: st
       value={value}
       maxLength={NOTE_MAX}
       placeholder="Note for Claude"
-      aria-label="Note for Claude"
+      aria-label={label}
       spellCheck
       autoComplete="off"
       onChange={(e) => onboarding.setNote(kind, itemKey, e.target.value)}
@@ -67,7 +67,7 @@ function Card({ kind, word, itemKey, file, detail, note, thumb, onEdit, name }: 
           </span>
           {detail && <span className="ref-detail num">{detail}</span>}
         </p>
-        <Note kind={kind} itemKey={itemKey} value={note} />
+        <Note kind={kind} itemKey={itemKey} value={note} label={`Note for ${word.toLowerCase()} ${file}`} />
       </div>
       <div className="ref-actions">
         {onEdit && (

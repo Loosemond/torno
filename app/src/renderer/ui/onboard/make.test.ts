@@ -25,6 +25,7 @@ function deps(over: Partial<MakeDeps> = {}) {
     discard: vi.fn(() => void calls.push('discard')),
     hold: vi.fn(),
     sameWorkspace: vi.fn(() => true),
+    folderOf: vi.fn((id: string) => `/ws/${id}`),
     ...over
   }
   return { made, calls }
@@ -67,11 +68,11 @@ describe('making the object', () => {
   it('does not offer to create again when the object was made and the rescan failed after: it opens the object if it is listed', async () => {
     const { made, calls } = deps({ create: vi.fn(async () => Promise.reject(new Error('cable-clip was made, but the workspace does not list it.'))), listed: vi.fn(async () => ['cable-clip']) })
     const outcome = await makeObject(draft(), made)
-    expect(outcome).toEqual({ kind: 'made', objectId: 'cable-clip', message: 'cable-clip was made, but the workspace does not list it.', opened: true })
+    expect(outcome).toEqual({ kind: 'made', objectId: 'cable-clip', message: 'cable-clip was made, but the workspace does not list it. The scans were not imported. The folder is /ws/cable-clip.', opened: true })
     expect(calls).toEqual(['discard', 'open'])
     expect(made.onboard).not.toHaveBeenCalled()
     // The page is gone once the object opens: the reason is said where the session is.
-    expect(made.hold).toHaveBeenCalledWith('cable-clip', { text: '', reason: 'cable-clip was made, but the workspace does not list it.' })
+    expect(made.hold).toHaveBeenCalledWith('cable-clip', { text: '', reason: 'cable-clip was made, but the workspace does not list it. The scans were not imported. The folder is /ws/cable-clip.' })
   })
 
   it('says so, and opens nothing, when the object was made and is not listed', async () => {
