@@ -1178,7 +1178,8 @@ for the agent.
 
 **Verified on a real compositor output (Hyprland, NVIDIA; the session was
 locked, so not by eye).** On 10 October 2026 torno ran as a real, mapped window
-on a Hyprland output, on Wayland and on X11, with the real agent; what it drew
+on a Hyprland output, on Wayland and on X11, with the real agents (Copilot CLI too, which
+torno has since stopped running); what it drew
 was taken from the compositor and looked at afterwards. The first start drew
 the parts on the GPU at 60 frames a second on both platforms. Only one torno:
 a second start exited and the first opened the folder it was given. There is
