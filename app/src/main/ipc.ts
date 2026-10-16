@@ -25,6 +25,7 @@ import { addDimension, dueAfterEdit, remeasure } from './marks/measure'
 import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, tendRegions } from './marks/regions'
 import type { MarkStore } from './marks/store'
 import { kernelDir } from './paths'
+import { Refusal, refusable } from './refusal'
 import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
@@ -41,6 +42,16 @@ import { onboardObject, sessionRunning } from './onboard'
 import { createObject, readPhoto, sweepStaleNew } from './objects/create'
 import { Offered } from './objects/offered'
 import { scanOrder, scanWorkspace } from './workspace'
+
+/**
+ * Every channel the window invokes is registered here: a `Refusal` (what the
+ * person asked cannot be done, and the window says why) resolves as a tagged
+ * value, which the preload throws again, so that Electron prints nothing for
+ * it. Anything else is thrown, and Electron logs it.
+ */
+function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown): void {
+  ipcMain.handle(channel, refusable(fn))
+}
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
@@ -457,9 +468,9 @@ export function registerIpc(
     return info
   }
 
-  ipcMain.handle('workspace:current', () => current?.info ?? null)
+  handle('workspace:current', () => current?.info ?? null)
 
-  ipcMain.handle('workspace:pick', async (event) => {
+  handle('workspace:pick', async (event) => {
     if (opts.pickFolder) {
       const folder = await opts.pickFolder()
       return folder === null ? null : chosen(await openWorkspace(folder))
@@ -475,24 +486,24 @@ export function registerIpc(
     return chosen(await openWorkspace(picked.filePaths[0]))
   })
 
-  ipcMain.handle('workspace:open', async (_event, root: string) => chosen(await openWorkspace(root)))
+  handle('workspace:open', async (_event, root: string) => chosen(await openWorkspace(root)))
 
-  ipcMain.handle('workspace:recent', async () => (await opts.recent?.()) ?? [])
-  ipcMain.handle('workspace:forget', async (_event, root: string) => (await opts.forget?.(String(root))) ?? [])
-  ipcMain.handle('workspace:hasExample', () => opts.example !== undefined)
+  handle('workspace:recent', async () => (await opts.recent?.()) ?? [])
+  handle('workspace:forget', async (_event, root: string) => (await opts.forget?.(String(root))) ?? [])
+  handle('workspace:hasExample', () => opts.example !== undefined)
   // Not `chosen`: a copy in the temporary folder is not what to open at the next start, nor a folder opened lately.
-  ipcMain.handle('workspace:openExample', async () => {
+  handle('workspace:openExample', async () => {
     const folder = await opts.example?.()
     if (!folder) throw new Error('this torno has no example beside it')
     return openWorkspace(folder, { example: true })
   })
 
-  ipcMain.handle('workspace:versions', async () => {
+  handle('workspace:versions', async () => {
     const ws = requireWorkspace()
     return (await ws.kernel.ready).versions
   })
 
-  ipcMain.handle('object:open', async (event, id: string): Promise<BuildState> => {
+  handle('object:open', async (event, id: string): Promise<BuildState> => {
     const ws = requireWorkspace()
     // From here on the window shows this object, whatever comes of building it.
     ws.shown = id
@@ -514,11 +525,11 @@ export function registerIpc(
     return state
   })
 
-  ipcMain.handle('object:rebuild', (_event, id: string) => {
+  handle('object:rebuild', (_event, id: string) => {
     requireWorkspace().builds.rebuild(id)
   })
 
-  ipcMain.handle('object:sceneFile', (_event, id: string): Promise<SceneFile> => {
+  handle('object:sceneFile', (_event, id: string): Promise<SceneFile> => {
     const obj = findObject(id)
     return obj ? loadSceneFile(obj.dir) : Promise.resolve({ layers: {} })
   })
@@ -531,7 +542,7 @@ export function registerIpc(
     onSceneFile?.(id)
   })
 
-  ipcMain.handle('session:current', async (_event, objectId: string) => {
+  handle('session:current', async (_event, objectId: string) => {
     const obj = findObject(objectId)
     const running = sessions?.current(objectId) ?? null
     // The agent its next session runs: the one chosen for it, whatever the session there now is of.
@@ -547,42 +558,42 @@ export function registerIpc(
     }
   })
 
-  ipcMain.handle('session:start', async (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }) => {
+  handle('session:start', async (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }) => {
     const obj = findObject(objectId)
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
     return requireSessions().start(obj, { resume: opts?.resume === true, cols: opts?.cols, rows: opts?.rows })
   })
 
   // The person said to start the chat in a folder that has Claude Code settings of its own (the question `session:start` refused with).
-  ipcMain.handle('session:trust', async (_event, objectId: string) => {
+  handle('session:trust', async (_event, objectId: string) => {
     const obj = findObject(objectId)
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
     await requireSessions().trust(obj)
   })
 
   // Which agents there are, and of each whether its command is on PATH now: asked again whenever the list is opened.
-  ipcMain.handle('session:agents', () => installedAgents(adapters(process.env.TORNO_AGENT_CMD), process.env.PATH, process.env.TORNO_AGENT_CMD))
+  handle('session:agents', () => installedAgents(adapters(process.env.TORNO_AGENT_CMD), process.env.PATH, process.env.TORNO_AGENT_CMD))
 
   // The choice is of the sessions to come: the one that runs is of the agent it was started with, and is ended first.
-  ipcMain.handle('session:chooseAgent', async (_event, objectId: string, agent: AgentId) => {
+  handle('session:chooseAgent', async (_event, objectId: string, agent: AgentId) => {
     const obj = findObject(String(objectId))
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
-    if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Error('End the session first')
+    if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Refusal('End the session first')
     await writeChoice(obj.dir, { agent })
   })
 
   // The view is of the sessions to come, as the agent is: the one that runs is ended first.
-  ipcMain.handle('session:chooseView', async (_event, objectId: string, view: AgentView) => {
+  handle('session:chooseView', async (_event, objectId: string, view: AgentView) => {
     const obj = findObject(String(objectId))
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
-    if (view !== 'chat' && view !== 'terminal') throw new Error(`no view named ${String(view).slice(0, 40)}`)
-    if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Error('End the session first')
+    if (view !== 'chat' && view !== 'terminal') throw new Refusal(`no view named ${String(view).slice(0, 40)}`)
+    if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Refusal('End the session first')
     const { agent } = await readChoice(obj.dir)
-    if (!AGENT_VIEWS[agent].includes(view)) throw new Error(`${adapters()[agent].label} has no ${view} view`)
+    if (!AGENT_VIEWS[agent].includes(view)) throw new Refusal(`${adapters()[agent].label} has no ${view} view`)
     await writeChoice(obj.dir, { agent, view })
   })
 
-  ipcMain.handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
+  handle('session:stop', (_event, sessionId: string) => sessions?.stop(String(sessionId)))
 
   // What a window types or inserts goes only to a session the manager has in a folder of the open
   // workspace: the window names a session, and is not taken at its word.
@@ -597,8 +608,8 @@ export function registerIpc(
   })
 
   // Like what is typed: only into a session of the open workspace.
-  ipcMain.handle('session:sendMarks', async (_event, sessionId: string) => {
-    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
+  handle('session:sendMarks', async (_event, sessionId: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
     return requireSessions().sendMarks(String(sessionId))
   })
 
@@ -608,15 +619,15 @@ export function registerIpc(
 
   // The conversation of a chat session. The window names a session and is not taken at its word: it must be one of
   // the open workspace. A transcript is readable after its session has ended; nothing else is allowed then.
-  ipcMain.handle('chat:history', (_event, sessionId: string) => {
+  handle('chat:history', (_event, sessionId: string) => {
     const history = sessions && sessionOfWorkspace(sessions.chatOf(String(sessionId)), current?.info.root) ? sessions.history(String(sessionId)) : undefined
     if (!history) throw new Error('There is no such conversation')
     return history
   })
 
-  ipcMain.handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown }) => {
-    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
-    if (typeof prompt?.text !== 'string' || prompt.text.length > MAX_PROMPT_CHARS) throw new Error('Nothing to send')
+  handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown }) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
+    if (typeof prompt?.text !== 'string' || prompt.text.length > MAX_PROMPT_CHARS) throw new Refusal('Nothing to send')
     await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true })
   })
 
@@ -624,30 +635,30 @@ export function registerIpc(
     if (typeof requestId === 'string' && ofThisWorkspace(String(sessionId))) sessions?.respond(String(sessionId), requestId, answer)
   })
 
-  ipcMain.handle('chat:interrupt', async (_event, sessionId: string) => {
-    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
+  handle('chat:interrupt', async (_event, sessionId: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
     await requireSessions().control(String(sessionId), { subtype: 'interrupt' })
   })
 
   // For the session alone: the CLI is told, and the person's own settings are not touched.
-  ipcMain.handle('chat:setModel', async (_event, sessionId: string, model: string) => {
-    if (!ofThisWorkspace(String(sessionId))) throw new Error('This session has ended')
-    if (typeof model !== 'string' || !MODEL_NAME.test(model)) throw new Error('Not a model name')
+  handle('chat:setModel', async (_event, sessionId: string, model: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
+    if (typeof model !== 'string' || !MODEL_NAME.test(model)) throw new Refusal('Not a model name')
     await requireSessions().control(String(sessionId), { subtype: 'set_model', model })
   })
 
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
-  ipcMain.handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
+  handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
   // A mark made in the window is the person's. The agent's come through its tools, which call the store themselves.
   // What only main says of a mark is said here: how far its part is spread on the build it was placed on.
   // A dimension is measured as it is kept (`addDimension`): its value is the kernel's, never the window's.
   const measuring = (store: MarkStore) => ({ marks: store, query: queryObject, scene: lastScene })
-  ipcMain.handle('marks:add', (_event, objectId: string, mark: NewMark) => {
+  handle('marks:add', (_event, objectId: string, mark: NewMark) => {
     const placed = placedMark({ ...mark, author: 'user' }, String(objectId))
     return placed.kind === 'dimension' ? addDimension(measuring(requireMarks()), String(objectId), placed) : requireMarks().add(String(objectId), placed)
   })
   // Whoever resolves a mark from the window is the person.
-  ipcMain.handle('marks:update', async (_event, objectId: string, id: string, patch: MarkPatch) => {
+  handle('marks:update', async (_event, objectId: string, id: string, patch: MarkPatch) => {
     const store = requireMarks()
     const changed = await store.update(String(objectId), String(id), patch, 'user')
     // What a dimension should measure was changed: its verdict is already judged anew from the value it has.
@@ -657,18 +668,18 @@ export function registerIpc(
   })
   // With a region goes the mask that held its triangles.
   const regions = (): RegionDeps => ({ marks: requireMarks(), scans: requireScans() })
-  ipcMain.handle('marks:remove', (_event, objectId: string, id: string) => (scans ? removeMark(regions(), String(objectId), String(id)) : requireMarks().remove(String(objectId), String(id))))
+  handle('marks:remove', (_event, objectId: string, id: string) => (scans ? removeMark(regions(), String(objectId), String(id)) : requireMarks().remove(String(objectId), String(id))))
   // What the person painted on a scan: main works out what it is from the mesh, and writes its triangles beside it.
-  ipcMain.handle('marks:addRegion', (_event, objectId: string, region: NewRegion) => addRegion(regions(), String(objectId), region))
+  handle('marks:addRegion', (_event, objectId: string, region: NewRegion) => addRegion(regions(), String(objectId), region))
   // A region painted again: the same mark, of the triangles sent; main writes them as a new mask and says the numbers anew.
-  ipcMain.handle('marks:repaintRegion', (_event, objectId: string, id: string, bits: Uint8Array) => repaintRegion(regions(), String(objectId), String(id), bits))
-  ipcMain.handle('marks:replace', async (_event, objectId: string, id: string, placed: Replacement) => {
+  handle('marks:repaintRegion', (_event, objectId: string, id: string, bits: Uint8Array) => repaintRegion(regions(), String(objectId), String(id), bits))
+  handle('marks:replace', async (_event, objectId: string, id: string, placed: Replacement) => {
     const store = requireMarks()
     const layout = (await store.list(String(objectId))).find((m) => m.id === String(id))?.layout
     return store.replace(String(objectId), String(id), layout === undefined ? placed : asReplaced(placed, layout, lastScene(String(objectId))))
   })
-  ipcMain.handle('marks:problem', (_event, objectId: string) => requireMarks().problem(String(objectId)))
-  ipcMain.handle('marks:dismissProblem', (_event, objectId: string) => requireMarks().dismissProblem(String(objectId)))
+  handle('marks:problem', (_event, objectId: string) => requireMarks().problem(String(objectId)))
+  handle('marks:dismissProblem', (_event, objectId: string) => requireMarks().dismissProblem(String(objectId)))
 
   scans = opts.scans ?? null
   scans?.on('changed', (m) => broadcast('scans:changed', m))
@@ -687,7 +698,7 @@ export function registerIpc(
       return info
     })
   // As for the marks: the renderer names the object, and the store finds its folder.
-  ipcMain.handle('scans:list', async (_event, objectId: string) => {
+  handle('scans:list', async (_event, objectId: string) => {
     const listed = await requireScans().list(String(objectId))
     // The window asks: an alignment that was not checked against the last build is asked about again.
     recheckAlignments(String(objectId), listed)
@@ -695,14 +706,14 @@ export function registerIpc(
     if (marks) void tendRegions(regions(), String(objectId)).catch((e) => console.error(`cannot check the regions of ${String(objectId)} against its scans: ${e instanceof Error ? e.message : String(e)}`))
     return listed
   })
-  ipcMain.handle('scans:pick', async (event): Promise<string | null> => {
+  handle('scans:pick', async (event): Promise<string | null> => {
     if (opts.pickFile) return opts.pickFile()
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = { title: 'Import scan', properties: ['openFile'], filters: [{ name: 'Scans', extensions: SCAN_FORMATS.map((format) => format.slice(1)) }] }
     const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
     return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
   })
-  ipcMain.handle('objects:pickPhotos', async (event): Promise<string[]> => {
+  handle('objects:pickPhotos', async (event): Promise<string[]> => {
     const paths = await (async (): Promise<string[]> => {
       if (opts.pickPhotos) return opts.pickPhotos()
       const win = BrowserWindow.fromWebContents(event.sender)
@@ -713,14 +724,14 @@ export function registerIpc(
     offered.add(paths)
     return paths
   })
-  ipcMain.handle('objects:readPhoto', (_event, path: string) => {
+  handle('objects:readPhoto', (_event, path: string) => {
     // Only what the dialog gave: a file dropped on the window is read by the window itself.
-    if (!offered.has(path)) throw new Error('That file was not chosen in this window.')
+    if (!offered.has(path)) throw new Refusal('That file was not chosen in this window.')
     return readPhoto(path)
   })
   // The one place torno makes a folder in a workspace (`createObject`). It answers once the listing has the object,
   // as a change in the folder would have it listed.
-  ipcMain.handle('objects:create', async (_event, req: CreateRequest) => {
+  handle('objects:create', async (_event, req: CreateRequest) => {
     const ws = current
     if (!ws) throw new Error('No workspace is open.')
     const made = await createObject(req, { root: ws.info.root, objects: ws.info.objects.map((o) => o.id) })
@@ -730,13 +741,13 @@ export function registerIpc(
     return made
   })
   // The names in the root, which a new object's name is checked against as `createObject` checks it.
-  ipcMain.handle('objects:taken', async () => {
+  handle('objects:taken', async () => {
     const ws = current
     if (!ws) throw new Error('No workspace is open.')
     return readdir(ws.info.root)
   })
   // The first half of a new object's life after `objects:create`: its scans imported, its chat started, the prompt sent.
-  ipcMain.handle('objects:onboard', (_event, objectId: string, draft: OnboardDraft) => {
+  handle('objects:onboard', (_event, objectId: string, draft: OnboardDraft) => {
     const ws = current
     if (!ws) throw new Error('No workspace is open.')
     return onboardObject(
@@ -753,45 +764,45 @@ export function registerIpc(
       draft
     )
   })
-  ipcMain.handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
+  handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
   // Read again, a scan may be another mesh: what the last build makes of its alignments is asked anew.
   // What was painted on it was painted on the mesh it had: of another mesh, or of the same count from another file, its regions are of nothing.
-  ipcMain.handle('scans:reimport', async (_event, objectId: string, id: string) => {
+  handle('scans:reimport', async (_event, objectId: string, id: string) => {
     const read = await checked(String(objectId), requireScans().reimport(String(objectId), String(id)))
     if (read.meshChanged || read.sourceChanged) await marks?.orphanRegions(String(objectId), read.scan.id)
     return read
   })
   // Its triangles are the same and are elsewhere: what its regions say of themselves is worked out again from the mesh it has now.
-  ipcMain.handle('scans:convert', (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) =>
+  handle('scans:convert', (_event, objectId: string, id: string, as: { unit: ScanUnit; up: ScanUp }) =>
     marks ? convertScan(regions(), String(objectId), String(id), as) : requireScans().convert(String(objectId), String(id), as)
   )
-  ipcMain.handle('scans:rename', (_event, objectId: string, id: string, name: string) => requireScans().rename(String(objectId), String(id), name))
+  handle('scans:rename', (_event, objectId: string, id: string, name: string) => requireScans().rename(String(objectId), String(id), name))
   // Its regions go on as marks, with their notes, and say that their scan is gone.
-  ipcMain.handle('scans:remove', async (_event, objectId: string, id: string) => {
+  handle('scans:remove', async (_event, objectId: string, id: string) => {
     await requireScans().remove(String(objectId), String(id))
     await marks?.orphanRegions(String(objectId), String(id))
   })
-  ipcMain.handle('scans:problem', (_event, objectId: string) => requireScans().problem(String(objectId)))
-  ipcMain.handle('scans:dismissProblem', (_event, objectId: string) => requireScans().dismissProblem(String(objectId)))
+  handle('scans:problem', (_event, objectId: string) => requireScans().problem(String(objectId)))
+  handle('scans:dismissProblem', (_event, objectId: string) => requireScans().dismissProblem(String(objectId)))
   // What only main says of an alignment is said here: how the parts of that layout are spread on the last build,
   // when, and which build that is. An alignment is of the build it was fitted on: one made on another than the
   // last is refused, as a dimension placed on another is. Then it is checked against that build, like every other.
-  ipcMain.handle('scans:align', (_event, objectId: string, id: string, layout: string, alignment: NewAlignment | null, made?: AlignMade) => {
+  handle('scans:align', (_event, objectId: string, id: string, layout: string, alignment: NewAlignment | null, made?: AlignMade) => {
     if (alignment === null || alignment === undefined) return requireScans().align(String(objectId), String(id), layout, null)
     const last = lastScene(String(objectId))
     const frame = frameOf(last?.scene, layout)
-    if (!last || !frame) throw new Error(`no build of this object has a layout named ${String(layout)}: there is nothing to align the scan to`)
+    if (!last || !frame) throw new Refusal(`no build of this object has a layout named ${String(layout)}: there is nothing to align the scan to`)
     const revision = Object(made).revision
-    if (typeof revision !== 'number' || !Number.isSafeInteger(revision)) throw new Error('an alignment says which build it was made on')
-    if (revision !== last.revision) throw new Error(`that alignment was made on r${revision}, the build is r${last.revision}: align again`)
+    if (typeof revision !== 'number' || !Number.isSafeInteger(revision)) throw new Refusal('an alignment says which build it was made on')
+    if (revision !== last.revision) throw new Refusal(`that alignment was made on r${revision}, the build is r${last.revision}: align again`)
     const moved = tiedToMoved(Object(alignment), frame)
-    if (moved.length > 0) throw new Error(`torno moved ${moved.join(', ')} for display in ${layout}: align to a part it did not move, or in a layout that places the parts as assembled`)
+    if (moved.length > 0) throw new Refusal(`torno moved ${moved.join(', ')} for display in ${layout}: align to a part it did not move, or in a layout that places the parts as assembled`)
     const accepted = { rough: Object(made).rough === true, scaled: Object(made).scaled === true }
     return checked(String(objectId), requireScans().align(String(objectId), String(id), layout, { ...Object(alignment), frame, at: new Date().toISOString(), revision }, accepted))
   })
-  ipcMain.handle('scans:undoAlign', (_event, objectId: string, id: string, layout: string) => checked(String(objectId), requireScans().undoAlign(String(objectId), String(id), layout)))
+  handle('scans:undoAlign', (_event, objectId: string, id: string, layout: string) => checked(String(objectId), requireScans().undoAlign(String(objectId), String(id), layout)))
   // "Still right": the model as it stands now is what the alignment is held against from here on, and that is asked of the kernel first.
-  ipcMain.handle('scans:alignHolds', async (_event, objectId: string, id: string, layout: string) => {
+  handle('scans:alignHolds', async (_event, objectId: string, id: string, layout: string) => {
     const ws = requireWorkspace()
     const scan = (await requireScans().list(String(objectId))).find((one) => one.id === String(id))
     const alignment = scan ? alignmentOf(scan, String(layout)) : null
@@ -805,12 +816,12 @@ export function registerIpc(
     return checked(String(objectId), requireScans().alignmentHolds(String(objectId), String(id), String(layout), holds))
   })
   // A copy with a buffer of its own, as the blob of a scene is sent.
-  ipcMain.handle('scans:mesh', async (_event, objectId: string, id: string) => toArrayBuffer(await requireScans().mesh(String(objectId), String(id))))
-  ipcMain.handle('scans:mask', async (_event, objectId: string, id: string, markId: string) => toArrayBuffer(await requireScans().mask(String(objectId), String(id), String(markId))))
+  handle('scans:mesh', async (_event, objectId: string, id: string) => toArrayBuffer(await requireScans().mesh(String(objectId), String(id))))
+  handle('scans:mask', async (_event, objectId: string, id: string, markId: string) => toArrayBuffer(await requireScans().mask(String(objectId), String(id), String(markId))))
 
   // What the kernel says of a part, a face or an edge of an object's last good build, for what the pointer rests
   // on (`Builds.describe`): never a reason to have the object built again.
-  ipcMain.handle('geometry:describe', async (_event, objectId: string, layout: string, ref: string): Promise<Described> => {
+  handle('geometry:describe', async (_event, objectId: string, layout: string, ref: string): Promise<Described> => {
     if (typeof layout !== 'string' || typeof ref !== 'string' || !layout || !ref) throw new Error('describe needs a layout and a ref')
     try {
       return await requireWorkspace().builds.describe<Described>(String(objectId), layout, ref)
@@ -823,8 +834,8 @@ export function registerIpc(
 
   // The page of objects. Asking for the cards, or for a picture on file, reads and does nothing else: no
   // object is opened or built for it. The window hands over the pictures it drew of the builds it was sent.
-  ipcMain.handle('show:cards', () => cards())
-  ipcMain.handle('show:thumbnail', async (_event, objectId: string) => {
+  handle('show:cards', () => cards())
+  handle('show:thumbnail', async (_event, objectId: string) => {
     const obj = findObject(String(objectId))
     const png = obj ? await thumbnailOnFile(obj.dir) : null
     return png && toArrayBuffer(png)
@@ -868,13 +879,13 @@ export function registerIpc(
       throw new Error(e instanceof Error ? e.message : String(e))
     }
   }
-  ipcMain.handle('export:plan', (_event, given: unknown): Promise<ExportPlan> =>
+  handle('export:plan', (_event, given: unknown): Promise<ExportPlan> =>
     plainly(async () => {
       const deps = exportDeps()
       return exportPlan(deps, exportAsked(given), await loadAssets(), requireWorkspace().info.objects.map((o) => o.id))
     })
   )
-  ipcMain.handle('export:save', (event, given: unknown) =>
+  handle('export:save', (event, given: unknown) =>
     plainly(async () => {
       const ws = requireWorkspace()
       const deps = exportDeps()

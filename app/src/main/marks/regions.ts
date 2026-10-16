@@ -5,6 +5,7 @@ import { type ScanInfo, type ScanUnit, type ScanUp, maskBits, parseScanMesh } fr
 import { MaskGone } from '../scans/masks'
 import type { ScanStore } from '../scans/store'
 import type { MarkStore, RegionSaid } from './store'
+import { Refusal } from '../refusal'
 
 // Regions of scans, kept: a region is a mark whose triangles are a mask beside its scan's mesh. What the window
 // painted comes here as bits; everything said of the region is worked out here from the mesh, and the mask is
@@ -35,15 +36,15 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 async function scanOf(deps: RegionDeps, objectId: string, id: unknown): Promise<ScanInfo> {
   const scans = await deps.scans.list(objectId)
   const scan = scans.find((one) => one.id === id)
-  if (!scan) throw new Error(`no scan ${String(id)}; scans: ${scans.map((one) => one.id).join(', ') || 'none'}`)
+  if (!scan) throw new Refusal(`no scan ${String(id)}; scans: ${scans.map((one) => one.id).join(', ') || 'none'}`)
   return scan
 }
 
 /** What bits painted on a scan are, worked out from its mesh as main keeps it; the refusal for bits that are no region of it. */
 async function said(deps: RegionDeps, objectId: string, scan: ScanInfo, bits: Uint8Array): Promise<RegionSaid> {
   const refused = bitsRefused(bits, scan.imported.triangles)
-  if (refused !== null) throw new Error(refused)
-  if (popcount(bits) === 0) throw new Error('a region needs at least one triangle: paint some of the scan first')
+  if (refused !== null) throw new Refusal(refused)
+  if (popcount(bits) === 0) throw new Refusal('a region needs at least one triangle: paint some of the scan first')
   let blob: Buffer
   try {
     blob = await deps.scans.mesh(objectId, scan.id)
@@ -52,14 +53,14 @@ async function said(deps: RegionDeps, objectId: string, scan: ScanInfo, bits: Ui
     throw gone ? new Error(`${gone[1]}: import it again before painting on it`) : e
   }
   const stats = regionStats(parseScanMesh(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength) as ArrayBuffer), bits)
-  if (!stats) throw new Error('a region needs at least one triangle: paint some of the scan first')
+  if (!stats) throw new Refusal('a region needs at least one triangle: paint some of the scan first')
   return { ...stats, mesh: meshIdentity(scan) }
 }
 
 /** Writes a mask for a mark that is about to be written, once the scan is seen to be the mesh the numbers are of. */
 async function written(deps: RegionDeps, objectId: string, scan: ScanInfo, stem: string, bits: Uint8Array): Promise<void> {
   // It was not read again, converted or removed while they were worked out.
-  if (meshIdentity(await scanOf(deps, objectId, scan.id)) !== meshIdentity(scan)) throw new Error(`${scan.id} was read again or converted while the region was being kept: paint it again`)
+  if (meshIdentity(await scanOf(deps, objectId, scan.id)) !== meshIdentity(scan)) throw new Refusal(`${scan.id} was read again or converted while the region was being kept: paint it again`)
   writing.add(`${objectId} ${scan.id} ${stem}`)
   await deps.scans.writeMask(objectId, scan.id, stem, bits)
 }
@@ -74,7 +75,7 @@ async function written(deps: RegionDeps, objectId: string, scan: ScanInfo, stem:
 export async function addRegion(deps: RegionDeps, objectId: string, given: NewRegion): Promise<Mark> {
   const asked = Object(given) as Partial<NewRegion>
   const bits = bytesOf(asked.bits)
-  if (!bits) throw new Error('a region is given as the bits of its triangles')
+  if (!bits) throw new Refusal('a region is given as the bits of its triangles')
   const scan = await scanOf(deps, objectId, asked.scan)
   const stats = await said(deps, objectId, scan, bits)
   const mark = { kind: 'region', author: 'user', scan: scan.id, note: asked.note, layout: asked.layout, revision: asked.revision, camera: asked.camera } as NewMark
@@ -103,10 +104,10 @@ export async function addRegion(deps: RegionDeps, objectId: string, given: NewRe
  */
 export async function repaintRegion(deps: RegionDeps, objectId: string, id: string, given: unknown): Promise<Mark> {
   const bits = bytesOf(given)
-  if (!bits) throw new Error('a region is given as the bits of its triangles')
+  if (!bits) throw new Refusal('a region is given as the bits of its triangles')
   const mark = (await deps.marks.list(objectId)).find((one) => one.id === id)
-  if (!mark) throw new Error(`no mark ${String(id)}`)
-  if (mark.kind !== 'region') throw new Error(`${id} is a ${mark.kind}, not a region: it has no triangles to paint again`)
+  if (!mark) throw new Refusal(`no mark ${String(id)}`)
+  if (mark.kind !== 'region') throw new Refusal(`${id} is a ${mark.kind}, not a region: it has no triangles to paint again`)
   const scan = await scanOf(deps, objectId, mark.scan)
   const stats = await said(deps, objectId, scan, bits)
   const next = { ...stats, mask: (mark.mask ?? 0) + 1 }

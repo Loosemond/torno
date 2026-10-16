@@ -3,6 +3,7 @@ import { isSpreadRefusal } from '../../shared/dimension'
 import type { Anchor, DimensionMark, Mark, Measurement, NewMark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
+import { Refusal } from '../refusal'
 import { sanitiseMark } from './file'
 import { addDimension, addDimensionTold, dueAfterEdit, measureDimension, measureRequest, remeasure, wire } from './measure'
 
@@ -422,6 +423,21 @@ describe('adding a dimension', () => {
       // From a point to the part that stayed where the model placed it, it is kept and measured.
       expect(await addDimension({ ...k, marks: store }, 'spread', across({ b: { point: [0, 0, 9] } }))).toMatchObject({ id: 'M1', value: 6.000000000000001 })
     })
+  })
+
+  it('refuses as a Refusal (told to the window, never logged) what the kernel will not measure, a build since, and parts spread apart; a kernel that is gone is no Refusal', async () => {
+    const refusing = kernel(() => {
+      throw new KernelError('bad_request', 'angle is measured between two planar faces; assembly:plate/F9 is a cylinder face')
+    })
+    await expect(addDimensionTold({ ...refusing, marks: marks() }, 'measures', distance({ measure: 'angle', b: HOLE }))).rejects.toBeInstanceOf(Refusal)
+    await expect(addDimensionTold({ ...kernel(() => EIGHT), marks: marks() }, 'measures', hole({ revision: 2 }))).rejects.toBeInstanceOf(Refusal)
+    const spreadScene = { model: 'm.py', layouts: ['print'], parts: [{ key: 'print:tray', name: 'tray', layout: 'print' }, { key: 'print:lid', name: 'lid', layout: 'print', arranged: [25, 0, 0] }], seconds: 0, output: '' } as unknown as Scene
+    const spread = { ...kernel(() => SIX), scene: () => ({ revision: 3, scene: spreadScene }) }
+    const across = distance({ layout: 'print', a: { point: [0, 0, 4], part: 'tray', ref: 'tray/F5' }, b: { point: [30, 0, 2], part: 'lid', ref: 'lid/F5' } })
+    await expect(addDimensionTold({ ...spread, marks: marks() }, 'spread', across)).rejects.toBeInstanceOf(Refusal)
+    const gone = await onR3(kernel(() => { throw new KernelError('exited', 'the kernel exited') }), 'measures', hole() as DimensionMark).catch((e: unknown) => e)
+    expect(gone).toBeInstanceOf(Error)
+    expect(gone).not.toBeInstanceOf(Refusal)
   })
 
   it('is refused when it was placed on another build than the last: its refs are of that build, and the kernel is not asked', async () => {

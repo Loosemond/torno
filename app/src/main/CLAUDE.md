@@ -167,6 +167,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     the Measure tool's do through `addDimension`, kept `sent`. One kept
     without a value of the last build is answered `NOT MEASURED: …` first
     (`keptUnmeasured`), so that its line is not taken for a measurement.
+- **A refusal is not a failure.** What the person asked that cannot be done (a dimension the kernel refuses,
+  one placed on an older build or between parts torno spread apart, a change of a mark that is not valid, a
+  choice while a session runs) is thrown as a `Refusal` (`main/refusal.ts`). Every channel is registered through
+  `handle` in `ipc.ts` (`refusable`), which resolves a `Refusal` as `{ __tornoRefused: message }`
+  (`shared/refusal.ts`) so that Electron prints nothing; the preload throws it again (`unrefused`), so the window
+  sees a rejection with that message. Anything else is thrown, and logged.
 - `<object>/.torno/state.md` says the same as the tools, as text
   (`src/main/statefile.ts`): the build, the parts, the scans with how each is
   aligned in every layout, the open marks. Its first line is when it was
