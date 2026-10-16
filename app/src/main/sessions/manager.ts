@@ -543,6 +543,25 @@ export class Sessions {
     return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
   }
 
+  /**
+   * What a `Stop` is held back with, once (a body with `stop_hook_active` is let go): the turn ran a build and the
+   * latest failed, or it edited the model and no `look` came after. Null to let it go. A dimension that fails holds
+   * nothing back: the agent may rightly stop to ask about it.
+   */
+  private stopAnswer(session: Session, fields: Record<string, unknown>): { decision: 'block'; reason: string } | null {
+    const turn = session.turn
+    const state = this.deps.build?.(session.object.id)
+    if (fields.stop_hook_active === true || !turn || !state) return null
+    const builtInTurn = (this.buildEnds.get(session.object.id) ?? 0) > turn.since
+    if (builtInTurn && state.status === 'failed') {
+      return { decision: 'block', reason: `The latest build (r${state.revision + 1}) failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.` }
+    }
+    if (turn.unlooked && state.status === 'ok') {
+      return { decision: 'block', reason: `You edited the model and have not looked at r${state.revision}. Call ${session.adapter.toolName('look')} before finishing.` }
+    }
+    return null
+  }
+
   changed(objectId: string): void {
     const s = this.of(objectId)
     if (s) this.delivery.changed(s)
@@ -1010,6 +1029,12 @@ export class Sessions {
     // A SessionEnd is not the end of the session: on /clear the agent carries on
     // in another conversation, and when it does leave, the exit of its process
     // says so. Until then the session is still the one of its object.
+    // A Stop held back is no end of the turn: the agent goes on, and so does its status.
+    const held = event === 'Stop' ? this.stopAnswer(session, fields) : null
+    if (held) {
+      if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}, held back: ${held.reason}`)
+      return sendJson(res, 200, held)
+    }
     if (event !== 'SessionEnd') this.advance(session, event, fields)
     if (event === 'Stop') session.turn = undefined
     if (event === 'UserPromptSubmit') session.turn = { since: this.finished, unlooked: false, editing: new Map() }

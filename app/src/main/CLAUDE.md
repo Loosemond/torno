@@ -611,14 +611,16 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   waits (`Sessions.busy` says whether any is there or on its way).
 - "End" in the session header (`ui/SessionPane.tsx`) ends the session shown through `session.stop` and starts
   none; it asks first when the session is busy (`busyWith`), as "New session" does.
-- **The build after an edit** (`Sessions.toolHook`, `afterEdit`). Tool hooks
+- **The build after an edit, and the Stop of a turn** (`Sessions.toolHook`, `afterEdit`, `stopAnswer`). Tool hooks
   are read (up to 8 MB; longer, or no JSON, is answered `{}`) only for the tool's name and `file_path`. The
   `PostToolUse` of `Edit`, `Write` or `MultiEdit` of a `.py` inside the object's folder waits for a build begun at
   or after that tool's `PreToolUse` (`Sessions.built`, fed every `BuildState` from `index.ts`) and is answered
   with `buildContextFor` of `context.ts` (the first lines and the dimensions of `contextFor`, in the same words)
   as `additionalContext`; the chat puts it under that tool's card (`Transcript.toolContext`). No build begun
   within 3 s: `{}`. Still running at 55 s: `A build is running (rN); call scene …` (`claude.ts` gives
-  `PostToolUse` a 60 s timeout).
+  `PostToolUse` a 60 s timeout). A `Stop` is held back (`decision: block`) when the turn (since its
+  `UserPromptSubmit`) saw a build end and the latest failed, or edited the model and no `look` came after;
+  never with `stop_hook_active`, never for a failing dimension. A Stop held back moves no status and ends no turn.
 - A `Notification` hook is a question (`needs_input`) unless its body says it is none (`reduceStatus` in
   `sessions/status.ts`: `notification_type` `idle_prompt` or `auth_success`, or, without a type, a message that
   it is waiting for input): Claude Code also posts one when it has only been idle at its prompt for a while.

@@ -2101,4 +2101,42 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     setTimeout(() => land(building(obj.id, 3)), 50)
     expect(await answer).toEqual(context('A build is running (r4); call mcp__torno__scene for its result.'))
   })
+
+  it('holds a Stop back once after a build of the turn failed, and lets it go with stop_hook_active', async () => {
+    const { obj, post, seen } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    land(building(obj.id, 8))
+    land(failed(obj.id, 8))
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The latest build (r9) failed: NameError: x. Fix it, or say it is still broken.' })
+    expect(seen.at(-1)).toBe('working')
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+    expect(seen.at(-1)).toBe('idle')
+  })
+
+  it('does not hold a Stop back for a build that failed before the turn', async () => {
+    const { obj, post } = await begun()
+    land(building(obj.id, 8))
+    land(failed(obj.id, 8))
+    await post('UserPromptSubmit', { prompt: 'what is it?' })
+    expect(await post('Stop', {})).toEqual({})
+  })
+
+  it('holds a Stop back after an edit no look has seen, and lets it go after a look', async () => {
+    const { obj, post, edit } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    let answer = edit()
+    setTimeout(() => land(building(obj.id, 8)), 50)
+    setTimeout(() => land(ok(obj.id, 9)), 100)
+    await answer
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'You edited the model and have not looked at r9. Call mcp__torno__look before finishing.' })
+
+    await post('UserPromptSubmit', { prompt: 'again' })
+    answer = edit()
+    setTimeout(() => land(building(obj.id, 9)), 50)
+    setTimeout(() => land(ok(obj.id, 10)), 100)
+    await answer
+    expect(await post('PreToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
+    expect(await post('PostToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
+    expect(await post('Stop', {})).toEqual({})
+  })
 })
