@@ -480,7 +480,7 @@ naming the keys it takes.
 | `mcp__torno__resolve_mark` | Resolves a mark with a line on what was done, which you then confirm or reopen. A dimension of yours with an expected value is refused: it is your check, and only you resolve it. |
 | `mcp__torno__measure` | An exact number from the geometry. See [Measuring and dimensions](#measuring-and-dimensions). |
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
-| `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed. |
+| `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
 | `mcp__torno__scans` | The scans of the object and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
 | `mcp__torno__scan_deviation` | How far a part lies from a scan. |
@@ -609,13 +609,17 @@ answer in one line.
 | `mass` | a part that is a solid | grams, with the `density` used (g/cm³; 1.24, PLA, when none is given, and the reply says so) |
 
 **`check`** takes `kind`, `a`, for two parts `b`, and `layout`; `a` and `b`
-are names of whole parts.
+are names of whole parts. `overhang`, `thin` and `bed` ask whether it prints:
+they are of the `print` layout when the model has one and no other is named.
 
 | `kind` | Reply |
 |---|---|
 | `overlap` | the `volume` two solid parts share, in mm³, and the box it lies in |
 | `clearance` | the least `distance` between two parts and the `points` it is between; 0 when they touch, and when they overlap, which `overlapping: true` then says |
 | `mesh` | whether the mesh the part is drawn and exported with is closed (`watertight`), its `triangles`, the number of `openEdges` and where up to 20 of them are |
+| `overhang` | with `angle` (degrees from vertical, 45 when none is given): the `faces` of `a` that face down steeper than that, each a `ref` (`tray/F7`) with its `area` and `steepest` lean, and their whole `area`; faces on the bed are left out. Planes are exact; a curved face is judged by its normals at sampled points and is not |
+| `thin` | with `min` (mm): the `faces` of `a` where the wall, measured along the inward normal at sampled points of each face, is under `min`, with the `thinnest` of each and of the part; always approximate, and `sampling` says what was measured |
+| `bed` | with `size` ([x, y, z] mm), no part: whether the layout's box `fits` the bed, its `size`, and by how much it is `over` along each axis; exact only when every part's box is |
 
 What is exact, what is approximate and what is refused is under
 [Limits and exactness](#limits-and-exactness).

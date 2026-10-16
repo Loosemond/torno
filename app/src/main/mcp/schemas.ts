@@ -244,10 +244,13 @@ const scanDeviationInput = {
 }
 
 const checkInput = {
-  kind: z.enum(['overlap', 'clearance', 'mesh']).describe('overlap and clearance are of the two parts a and b; mesh is of the part a.'),
-  a: z.string().describe('The name of a part, as listed by scene.'),
+  kind: z.enum(['overlap', 'clearance', 'mesh', 'overhang', 'thin', 'bed']).describe('overlap and clearance are of the two parts a and b; mesh, overhang and thin are of the part a; bed is of the whole layout.'),
+  a: z.string().optional().describe('The name of a part, as listed by scene. Not for bed.'),
   b: z.string().optional().describe('The name of the other part, for overlap and clearance.'),
-  layout: z.string().optional().describe('The layout the parts are in, as listed by scene. Default: the one on screen.')
+  layout: z.string().optional().describe('The layout the parts are in, as listed by scene. Default: print for overhang, thin and bed when the model has it, else the one on screen.'),
+  angle: loose(z.number()).optional().describe('For overhang: how far from vertical a face may lean before it overhangs, in degrees, above 0 and below 90. Default 45.'),
+  min: loose(z.number()).optional().describe('For thin: the least wall, in mm.'),
+  size: loose(z.array(z.number())).optional().describe('For bed: the build volume of the printer, [x, y, z] in mm.')
 }
 
 const resolveMarkInput = {
@@ -359,7 +362,7 @@ export const TOOLS = {
   },
   check: {
     description:
-      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are. A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap and mesh can take seconds on large parts. Use it after changing parts that must fit together, and before saying a part is ready to print.',
+      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are; and, of the print layout, overhang the faces of a part that face down steeper than angle from vertical (refs such as tray/F7, with their areas; faces on the bed left out; curved faces judged by sampled normals, approximate), thin where its walls are under min mm, sampled over its faces (always approximate), and bed whether the layout fits a bed of size [x, y, z] mm, and by how much it does not on each axis ({"kind": "bed", "size": [256, 256, 256]}). A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap, mesh and thin can take seconds on large parts; a bed fit is exact only where every box is. Use it after changing parts that must fit together, and before saying a part is ready to print.',
     inputSchema: checkInput
   },
   scans: {

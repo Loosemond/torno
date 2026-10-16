@@ -130,6 +130,39 @@ export interface SectionLoop {
 export interface CheckedOverlap { volume: number; bbox: { min: Vec3; max: Vec3 } | null }
 export interface CheckedClearance { distance: number; points: [Vec3, Vec3]; overlapping: boolean | null; how: string }
 export interface CheckedMesh { watertight: boolean; openEdges: number; where: Vec3[]; triangles: number }
+/** Of the print layout, as `kernel/src/torno_kernel/printable.py` answers. Refs are `<part>/F<i>`. */
+export interface CheckedOverhang {
+  part: string
+  angle: number
+  /** `steepest`: the most the face leans from vertical, degrees (90 a ceiling). `exact` false of a curved face, judged by sampled normals. */
+  faces: Array<{ ref: string; area: number; areaExact: boolean; steepest: number; exact: boolean }>
+  count: number
+  area: number
+  exact: boolean
+  how: string
+}
+export interface CheckedThin {
+  part: string
+  min: number
+  faces: Array<{ ref: string; thinnest: number; points: [Vec3, Vec3] }>
+  count: number
+  thinnest: { value: number; ref: string; points: [Vec3, Vec3] } | null
+  /** Never exact: walls are measured at sampled points. */
+  exact: false
+  how: string
+  sampling: { faces: number; of: number; points: number; measured: number; complete: boolean }
+}
+export interface CheckedBed {
+  layout: string
+  parts: string[]
+  bed: Vec3
+  size: Vec3
+  bbox: { min: Vec3; max: Vec3 }
+  fits: boolean
+  over: Vec3
+  exact: boolean
+  how: string
+}
 
 /**
  * What the kernel says of a scan against a part (`kernel/src/torno_kernel/scanclash.py`). A scan is a mesh of the

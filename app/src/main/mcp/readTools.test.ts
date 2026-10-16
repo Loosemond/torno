@@ -372,6 +372,33 @@ describe('check', () => {
     expect(await reading({ watertight: false, openEdges: 0, where: [], triangles: 0 })).toBe('mesh of lid: no triangles')
   })
 
+  it('asks overhang, thin and bed of the print layout unless told another, and reads each', async () => {
+    const faces = [{ ref: 'tub/F7', area: 150, areaExact: true, steepest: 90, exact: true }, { ref: 'tub/F9', area: 150, areaExact: true, steepest: 90, exact: true }]
+    const over = fake(() => ({ part: 'tub', angle: 45, faces, count: 2, area: 300, exact: true, how: 'faces facing down' }))
+    const said = data(await checkTool(over, 'box', { kind: 'overhang', a: 'tub' }))
+    expect(over.queries).toEqual([{ name: 'check', args: { kind: 'overhang', layout: 'print', a: 'tub', angle: 45 } }])
+    expect(said).toMatchObject({ layout: 'print', kind: 'overhang', faces, area: 300 })
+    expect(said.reading).toBe('overhang of tub beyond 45° from vertical: 2 faces, 300 mm² (tub/F7, tub/F9)')
+    const curved = data(await checkTool(fake(() => ({ part: 'tub', angle: 60, faces: [{ ...faces[0], exact: false }], count: 1, area: 150, exact: false })), 'box', { kind: 'overhang', a: 'tub', angle: 60, layout: 'assembly' }))
+    expect(curved).toMatchObject({ layout: 'assembly' })
+    expect(curved.reading).toBe('overhang of tub beyond 60° from vertical: 1 face, ≈ 150 mm² (tub/F7), approximate: curved faces judged by sampled normals')
+    expect(data(await checkTool(fake(() => ({ part: 'tub', angle: 45, faces: [], count: 0, area: 0, exact: true })), 'box', { kind: 'overhang', a: 'tub' })).reading).toBe('no overhang of tub beyond 45° from vertical')
+
+    const thinAsked = fake(() => ({ part: 'tub', min: 0.8, faces: [{ ref: 'tub/F3', thinnest: 0.6, points: [[0, 0, 0], [0, 0, 0.6]] }], count: 1, thinnest: { value: 0.6, ref: 'tub/F3', points: [[0, 0, 0], [0, 0, 0.6]] }, exact: false, how: 'approximate', sampling: { complete: true } }))
+    expect(data(await checkTool(thinAsked, 'box', { kind: 'thin', a: 'tub', min: 0.8 })).reading).toBe('walls of tub under 0.8 mm: 1 face, thinnest ≈ 0.6 mm at tub/F3 (tub/F3), approximate: sampled at points of each face')
+    expect(thinAsked.queries[0].args).toEqual({ kind: 'thin', layout: 'print', a: 'tub', min: 0.8 })
+    expect(data(await checkTool(fake(() => ({ part: 'tub', min: 0.8, faces: [], count: 0, thinnest: { value: 2, ref: 'tub/F1', points: [] }, exact: false, sampling: { complete: false } })), 'box', { kind: 'thin', a: 'tub', min: 0.8 })).reading).toBe('no wall of tub under 0.8 mm where sampled, thinnest ≈ 2 mm, approximate: sampled at points of each face; the time ran out before every face was')
+    expect(await checkTool(fake(), 'box', { kind: 'thin', a: 'tub' })).toEqual(refused('thin needs min, the least wall in mm: {"kind": "thin", "a": "tub", "min": 0.8}'))
+
+    const bedAsked = fake(() => ({ layout: 'print', parts: ['tub', 'lid'], bed: [256, 256, 256], size: [120, 80, 40], fits: true, over: [0, 0, 0], exact: true }))
+    expect(data(await checkTool(bedAsked, 'box', { kind: 'bed', size: [256, 256, 256] })).reading).toBe('print layout fits a bed of 256 × 256 × 256 mm: it is 120 × 80 × 40 mm')
+    expect(bedAsked.queries[0].args).toEqual({ kind: 'bed', layout: 'print', size: [256, 256, 256] })
+    expect(data(await checkTool(fake(() => ({ layout: 'print', bed: [100, 100, 100], size: [120, 80, 140.5], fits: false, over: [20, 0, 40.5], exact: false })), 'box', { kind: 'bed', size: [100, 100, 100] })).reading).toBe('print layout does NOT fit a bed of 100 × 100 × 100 mm: it is ≈ 120 × 80 × 140.5 mm, over by 20 mm along x and 40.5 mm along z, approximate')
+    expect(await checkTool(fake(), 'box', { kind: 'bed', a: 'tub', size: [1, 1, 1] })).toEqual(refused('bed is of the whole layout: leave a out'))
+    expect(await checkTool(fake(), 'box', { kind: 'bed' })).toEqual(refused('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}'))
+    expect(await checkTool(fake(), 'box', { kind: 'overhang' })).toEqual(refused('overhang is of the part a: give a'))
+  })
+
   it('is of parts of the scene: anything else is refused before the kernel is asked', async () => {
     const deps = fake()
     expect(await checkTool(deps, 'box', { kind: 'clearance', a: 'lid', b: 'cap' })).toEqual(refused("no part 'cap' in layout assembly (parts: tub, lid)"))
