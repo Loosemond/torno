@@ -122,7 +122,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `show`, `save_view`, `add_mark`, `resolve_mark`,
-  `measure`, `section`, `check`, `scans`, `scan_clash`, `scan_deviation`.
+  `measure`, `section`, `check`, `diff`, `scans`, `scan_clash`, `scan_deviation`.
+  `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept)
+  from what the kernel sent with each, asking it nothing: a number is `exact` only where both builds say so.
   `look` and `show` take the name of a saved view as `view`, and `save_view`
   proposes one (Views). `show` changes
   the view for now and is never saved to `scene.json`; it is refused while a

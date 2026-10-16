@@ -506,6 +506,26 @@ describe('Builds', () => {
     expect(scenes).toHaveLength(1)
     expect(scenes[0]).toMatchObject({ objectId: 'bracket', revision: 1, scene: { model: 'bracket.py' } })
     expect(builds.scene('bracket')).toEqual({ revision: 1, scene: scenes[0].scene, blob: scenes[0].blob })
+    expect(builds.scenes('bracket')).toEqual([{ revision: 1, scene: scenes[0].scene }])
+  })
+
+  it('keeps the last two successful scenes, oldest first, through a failure', async () => {
+    const { kernel, builds, scenes } = setup()
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.fail(1, { kind: 'exception', message: 'boom' })
+    await flush()
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(2)
+    await flush()
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(3)
+    await flush()
+    expect(builds.scenes('bracket').map((s) => s.revision)).toEqual([2, 3])
+    expect(builds.scenes('bracket').map((s) => s.scene)).toEqual([scenes[1].scene, scenes[2].scene])
+    expect(builds.scenes('nothing')).toEqual([])
   })
 
   it('goes to failed with the error when the first build fails, with nothing stale on screen', async () => {

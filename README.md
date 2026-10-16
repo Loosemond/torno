@@ -481,6 +481,7 @@ naming the keys it takes.
 | `mcp__torno__measure` | An exact number from the geometry. See [Measuring and dimensions](#measuring-and-dimensions). |
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed. |
+| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume, box size and min corner before and after, with whether each is exact, and its face and edge counts, a hint that refs may name other faces now. Only the last two builds are kept. |
 | `mcp__torno__scans` | The scans of the object and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
 | `mcp__torno__scan_deviation` | How far a part lies from a scan. |

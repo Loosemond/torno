@@ -6,7 +6,7 @@ import type { Part, Scene } from '../../shared/scene'
 import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState } from '../../shared/view'
 import { KernelError } from '../kernel/client'
 import { addMarkTool } from './markTools'
-import { MAX_SECTION_POINTS, checkTool, measureTool, sectionTool, thinned } from './readTools'
+import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned } from './readTools'
 import { TOOLS } from './schemas'
 import { type ToolDeps, type ToolResult, describeTool } from './tools'
 import { lookTool, sceneTool, showTool } from './viewTools'
@@ -852,5 +852,75 @@ describe('while the user draws the parts apart', () => {
     await measureTool(apart, 'box', { kind: 'bbox', a: 'lid' })
     await measureTool(together, 'box', { kind: 'bbox', a: 'lid' })
     expect(apart.queries).toEqual(together.queries)
+  })
+})
+
+describe('diff', () => {
+  const exactPart = (layout: string, name: string, more: Partial<Part> = {}): Part => part(layout, name, { bboxExact: true, volumeExact: true, ...more })
+  const BEFORE: Scene = { ...SCENE, layouts: ['assembly'], parts: [exactPart('assembly', 'tub'), exactPart('assembly', 'lid'), exactPart('assembly', 'cap')] }
+  const AFTER: Scene = {
+    ...SCENE,
+    layouts: ['assembly'],
+    parts: [
+      exactPart('assembly', 'tub', { bbox: { min: [-20, -15, -3], max: [20, 15, 1] }, volume: 4800, faceCount: 14, edgeCount: 36 }),
+      exactPart('assembly', 'lid'),
+      exactPart('assembly', 'clip', { volume: 50 })
+    ]
+  }
+  const kept = (...builds: Array<[number, Scene]>): Fake =>
+    fake(undefined, { scenes: () => builds.map(([revision, scene]) => ({ revision, scene })), scene: () => ({ revision: builds.at(-1)![0], scene: builds.at(-1)![1] }) })
+  type Row = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+  const partsOf = (result: Row, i = 0): Row[] => result.layouts[i].parts
+
+  it('is a tool with from and to', () => {
+    expect(Object.keys(TOOLS.diff.inputSchema)).toEqual(['from', 'to'])
+    expect(TOOLS.diff.description).toMatch(/exact/)
+  })
+
+  it('tells the parts added, removed and changed between the previous build and the last', async () => {
+    const result: Row = data(await diffTool(kept([3, BEFORE], [4, AFTER]), 'box', {}))
+    expect(result.from).toBe(3)
+    expect(result.to).toBe(4)
+    const layout = result.layouts[0]
+    expect(layout.layout).toBe('assembly')
+    expect(layout.added).toEqual(['clip'])
+    expect(layout.removed).toEqual(['cap'])
+    const tub = partsOf(result).find((p) => p.name === 'tub')!
+    expect(tub.changed).toBe(true)
+    expect(tub.volume).toEqual({ before: 6000, after: 4800, change: -1200, exact: true })
+    expect(tub.size).toEqual({ before: [40, 30, 6], after: [40, 30, 4], change: [0, 0, -2], exact: true })
+    expect(tub.min).toEqual({ before: [-20, -15, -3], after: [-20, -15, -3], change: [0, 0, 0], exact: true })
+    expect(tub.faces).toEqual({ before: 12, after: 14 })
+    expect(tub.edges).toEqual({ before: 30, after: 36 })
+    expect(tub.line).toBe('tub: volume 6000 → 4800 mm³ (-1200), size 40 × 30 × 6 → 40 × 30 × 4 mm, faces 12 → 14, edges 30 → 36')
+    expect(partsOf(result).find((p) => p.name === 'lid')!.changed).toBe(false)
+    expect(partsOf(result).map((p) => p.name)).toEqual(['tub', 'lid'])
+  })
+
+  it('takes from and to', async () => {
+    const result: Row = data(await diffTool(kept([2, AFTER], [3, BEFORE]), 'box', { from: 3, to: 2 }))
+    expect([result.from, result.to]).toEqual([3, 2])
+    expect(result.layouts[0].added).toEqual(['clip'])
+  })
+
+  it('says a box or a volume that is not exact', async () => {
+    const rough: Scene = { ...AFTER, parts: AFTER.parts.map((p) => (p.name === 'tub' ? { ...p, bboxExact: false, volumeExact: undefined } : p)) }
+    const result: Row = data(await diffTool(kept([3, BEFORE], [4, rough]), 'box', {}))
+    const tub = partsOf(result).find((p) => p.name === 'tub')!
+    expect(tub.volume.exact).toBe(false)
+    expect(tub.size.exact).toBe(false)
+    expect(tub.min.exact).toBe(false)
+    expect(tub.line).toBe('tub: volume ≈ 6000 → 4800 mm³ (-1200), size ≈ 40 × 30 × 6 → 40 × 30 × 4 mm, faces 12 → 14, edges 30 → 36')
+    expect(result.notes).toEqual(expect.arrayContaining([expect.stringMatching(/approximate/)]))
+  })
+
+  it('refuses with one build so far', async () => {
+    const result = await diffTool(kept([1, BEFORE]), 'box', {})
+    expect(result.isError).toBe(true)
+    expect(text(result)).toMatch(/only one successful build so far \(revision 1\)/)
+  })
+
+  it('refuses a revision not kept, naming those that are', async () => {
+    expect(await diffTool(kept([3, BEFORE], [4, AFTER]), 'box', { from: 1 })).toEqual(refused('revision 1 is not kept: revisions 3 and 4 are'))
   })
 })

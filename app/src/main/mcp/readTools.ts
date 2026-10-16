@@ -590,3 +590,103 @@ export function thinned(loop: Pick<SectionLoop, 'points' | 'closed' | 'deflectio
   const strays = Math.max(0, ...spans.map((span) => span.off))
   return { points: points.filter((_, i) => keep[i] === 1), deflection: loop.deflection + strays }
 }
+
+export interface DiffToolArgs {
+  from?: number
+  to?: number
+}
+
+/** Said in `diff` when a number it compares is not exact in either build. */
+export const DIFF_APPROXIMATE = 'A volume, size or min with exact false is approximate in at least one of the two builds (the kernel said so): call measure for a number to rely on.'
+/** Said in `diff` when a part's face or edge count changed. */
+export const DIFF_REFS = 'Face or edge counts changed: refs such as lid/F12 may name other faces or edges now; describe a ref again before relying on it.'
+
+type Kept = { revision: number; scene: Scene }
+const sizeOf = (p: Part): Vec3 => p.bbox.max.map((max, i) => max - p.bbox.min[i]) as Vec3
+const minus = (a: readonly number[], b: readonly number[]): number[] => a.map((v, i) => v - b[i])
+const same = (a: readonly number[], b: readonly number[]): boolean => a.every((v, i) => clean(v) === clean(b[i]))
+const signed = (v: number): string => (clean(v) > 0 ? `+${number(v)}` : number(v))
+
+/** One part in both builds: its numbers before and after, as data in full, and a line of what changed. */
+function partDiff(before: Part, after: Part): { data: object; approximate: boolean; refsMoved: boolean } {
+  const volumeExact = before.volumeExact === true && after.volumeExact === true
+  const boxExact = before.bboxExact === true && after.bboxExact === true
+  const [sizeBefore, sizeAfter] = [sizeOf(before), sizeOf(after)]
+  const volumeChanged = clean(before.volume) !== clean(after.volume)
+  const sizeChanged = !same(sizeBefore, sizeAfter)
+  const minChanged = !same(before.bbox.min, after.bbox.min)
+  const facesChanged = before.faceCount !== after.faceCount
+  const edgesChanged = before.edgeCount !== after.edgeCount
+  const about = (exact: boolean): string => (exact ? '' : '≈ ')
+  const said: string[] = []
+  if (volumeChanged) said.push(`volume ${about(volumeExact)}${number(before.volume)} → ${number(after.volume)} mm³ (${signed(after.volume - before.volume)})`)
+  if (sizeChanged) said.push(`size ${about(boxExact)}${sizes(sizeBefore)} → ${sizes(sizeAfter)} mm`)
+  if (minChanged) said.push(`min corner ${about(boxExact)}${vector(before.bbox.min)} → ${vector(after.bbox.min)}`)
+  if (facesChanged) said.push(`faces ${before.faceCount} → ${after.faceCount}`)
+  if (edgesChanged) said.push(`edges ${before.edgeCount} → ${after.edgeCount}`)
+  const changed = said.length > 0
+  const arranged = before.arranged || after.arranged ? { arranged: { before: before.arranged ?? [0, 0, 0], after: after.arranged ?? [0, 0, 0] } } : {}
+  return {
+    data: {
+      name: after.name,
+      changed,
+      volume: { before: before.volume, after: after.volume, change: after.volume - before.volume, exact: volumeExact },
+      size: { before: sizeBefore, after: sizeAfter, change: minus(sizeAfter, sizeBefore), exact: boxExact },
+      // The box's corner of least x, y and z, in the object frame of the layout: where the part is.
+      min: { before: before.bbox.min, after: after.bbox.min, change: minus(after.bbox.min, before.bbox.min), exact: boxExact },
+      faces: { before: before.faceCount, after: after.faceCount },
+      edges: { before: before.edgeCount, after: after.edgeCount },
+      ...arranged,
+      line: `${after.name}: ${changed ? said.join(', ') : 'unchanged'}`
+    },
+    approximate: changed && (!volumeExact || !boxExact),
+    refsMoved: facesChanged || edgesChanged
+  }
+}
+
+/**
+ * What changed between two successful builds that main keeps (`Builds.scenes`: the last two), from what the
+ * kernel said of each part as it built it: no query. Nothing is said to be exact that either build does not say is.
+ */
+export function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): ToolResult {
+  const found = built(deps, objectId)
+  if ('content' in found) return found
+  const kept: Kept[] = deps.scenes?.(objectId) ?? [{ revision: found.revision, scene: found.scene }]
+  const revisions = kept.map((k) => k.revision)
+  if (kept.length < 2) return failure(`only one successful build so far (revision ${revisions.join(', ')}): there is nothing to compare it with yet`)
+  const listed = `revisions ${revisions.slice(0, -1).join(', ')} and ${revisions.at(-1)} are`
+  const pick = (revision: number | undefined, fallback: Kept): Kept | ToolResult => {
+    if (revision === undefined) return fallback
+    return kept.find((k) => k.revision === revision) ?? failure(`revision ${revision} is not kept: ${listed}`)
+  }
+  const from = pick(args.from, kept.at(-2)!)
+  if ('content' in from) return from
+  const to = pick(args.to, kept.at(-1)!)
+  if ('content' in to) return to
+
+  let approximate = false
+  let refsMoved = false
+  const named = (parts: Part[], name: string): Part | undefined => parts.find((p) => p.name === name)
+  const layouts = [...new Set([...to.scene.layouts, ...from.scene.layouts])].map((layout) => {
+    const before = from.scene.parts.filter((p) => p.layout === layout)
+    const after = to.scene.parts.filter((p) => p.layout === layout)
+    const parts = after.flatMap((p) => {
+      const was = named(before, p.name)
+      if (!was) return []
+      const told = partDiff(was, p)
+      approximate ||= told.approximate
+      refsMoved ||= told.refsMoved
+      return [told.data]
+    })
+    const only = !from.scene.layouts.includes(layout) ? { only: 'to' } : !to.scene.layouts.includes(layout) ? { only: 'from' } : {}
+    return {
+      layout,
+      ...only,
+      added: after.filter((p) => !named(before, p.name)).map((p) => p.name),
+      removed: before.filter((p) => !named(after, p.name)).map((p) => p.name),
+      parts
+    }
+  })
+  const notes = [...(approximate ? [DIFF_APPROXIMATE] : []), ...(refsMoved ? [DIFF_REFS] : [])]
+  return reply(clean({ object: found.obj.id, from: from.revision, to: to.revision, layouts, ...(notes.length > 0 ? { notes } : {}) }))
+}

@@ -243,6 +243,10 @@ const scanDeviationInput = {
   layout: z.string().optional().describe('The layout the part is in and the scan is aligned in, as listed by scene. Default: the one on screen.')
 }
 
+const diffInput = {
+  from: z.number().int().optional().describe('The revision to compare from, as scene and the build status give it. Default: the successful build before the last.'),
+  to: z.number().int().optional().describe('The revision to compare to. Default: the last successful build.')
+}
 const checkInput = {
   kind: z.enum(['overlap', 'clearance', 'mesh']).describe('overlap and clearance are of the two parts a and b; mesh is of the part a.'),
   a: z.string().describe('The name of a part, as listed by scene.'),
@@ -361,6 +365,11 @@ export const TOOLS = {
     description:
       'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are. A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap and mesh can take seconds on large parts. Use it after changing parts that must fit together, and before saying a part is ready to print.',
     inputSchema: checkInput
+  },
+  diff: {
+    description:
+      "Returns JSON of what changed between two successful builds (by default the one before the last and the last; only those two are kept): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face and edge counts before and after, changed, and a line saying what changed. Call it after an edit to see what it did; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
+    inputSchema: diffInput
   },
   scans: {
     description:

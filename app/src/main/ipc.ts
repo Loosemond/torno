@@ -358,6 +358,11 @@ export function buildState(id: string): BuildState | undefined {
 }
 
 /** The last successful build of an object. */
+/** The last two successful builds of an object, the older first (`diff`). */
+export function keptScenes(id: string): Array<{ revision: number; scene: Scene }> {
+  return current?.builds.scenes(id) ?? []
+}
+
 export function lastScene(id: string): { revision: number; scene: Scene } | undefined {
   return current?.builds.scene(id)
 }

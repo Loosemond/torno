@@ -78,6 +78,8 @@ interface Entry {
   obj: ObjectInfo
   state: BuildState
   lastGood?: LastGood
+  /** The successful build before `lastGood`, for `diff`; its blob is not kept. */
+  previousGood?: { revision: number; scene: Scene }
   attempt: number // counts builds started; a result for an older attempt is dropped
   startedAt: number
   /** Something other than Python changed while it was building: build once more when that build ends. */
@@ -251,6 +253,14 @@ export class Builds {
     return this.entries.get(objectId)?.lastGood
   }
 
+  /** The last two successful builds of an object, the older first: what `diff` compares. Empty before the first. */
+  scenes(objectId: string): Array<{ revision: number; scene: Scene }> {
+    const entry = this.entries.get(objectId)
+    if (!entry?.lastGood) return []
+    const last = { revision: entry.lastGood.revision, scene: entry.lastGood.scene }
+    return entry.previousGood ? [entry.previousGood, last] : [last]
+  }
+
   /**
    * Ask the kernel about the last successful build of an open object. Rejects
    * with a KernelError: `no_build` when the object has not been built
@@ -421,6 +431,7 @@ export class Builds {
   private succeeded(entry: Entry, scene: Scene, blob: Buffer): void {
     const id = entry.obj.id
     const revision = entry.state.revision + 1
+    if (entry.lastGood) entry.previousGood = { revision: entry.lastGood.revision, scene: entry.lastGood.scene }
     entry.lastGood = { revision, scene, blob }
     entry.failure = undefined
     entry.letGo = false

@@ -27,7 +27,7 @@ import { movedForDisplay } from '../marks/spread'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { onlyKeysWrong, unknownKeys } from './keys'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
-import { type MeasureToolArgs, type SectionToolArgs, checkTool, measureTool, sectionTool } from './readTools'
+import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, checkTool, diffTool, measureTool, sectionTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
 import { type AddMarkArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
 import { lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
@@ -38,6 +38,8 @@ export interface ToolDeps {
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
   scene(objectId: string): { revision: number; scene: Scene } | undefined
+  /** The last two successful builds, the older first (`diff`). Without it, only the last is known. */
+  scenes?(objectId: string): Array<{ revision: number; scene: Scene }>
   /** The camera, layout and visible parts of an object as the window last showed it. */
   view(objectId: string): ViewState | undefined
   /** The object the window shows now: the only one it can make a picture of. */
@@ -136,6 +138,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<MeasureToolArgs>('measure', (args) => measureTool(deps, objectId, args))
   tool<SectionToolArgs>('section', (args) => sectionTool(deps, objectId, args))
   tool<Parameters<typeof checkTool>[2]>('check', (args) => checkTool(deps, objectId, args))
+  tool<DiffToolArgs>('diff', (args) => diffTool(deps, objectId, args))
   tool<ScansArgs>('scans', (args) => scansTool(deps, objectId, args))
   tool<ScanClashArgs>('scan_clash', (args) => scanClashTool(deps, objectId, args))
   tool<ScanDeviationArgs>('scan_deviation', (args) => scanDeviationTool(deps, objectId, args))
