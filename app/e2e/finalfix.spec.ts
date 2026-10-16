@@ -230,7 +230,8 @@ test('the sheet of keys ends inside the window, however small, and what does not
     const row = (await last.boundingBox())!
     const inside = (await body.boundingBox())!
     expect(row.y).toBeGreaterThanOrEqual(inside.y)
-    expect(row.y + row.height).toBeLessThanOrEqual(inside.y + inside.height)
+    // A scroll offset is a whole number of pixels: brought into view, the row may stand less than one beyond the body's edge.
+    expect(row.y + row.height).toBeLessThan(inside.y + inside.height + 1)
     expect(await body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
     await page.keyboard.press('Escape')
     await expect(sheet).toHaveCount(0)
