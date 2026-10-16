@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { BodyTooLarge, type HttpRouter, readBody } from '../http'
+import { registerPrompts } from './prompts'
 import { registerTools, type ToolDeps } from './tools'
 
 const BODY_LIMIT = 4 * 1024 * 1024
@@ -34,6 +35,7 @@ export function mountMcp(http: HttpRouter, deps: ToolDeps): void {
     const server = new McpServer({ name: 'torno', version: VERSION })
     // An id the workspace does not have is answered by the tools, in words the agent reads.
     registerTools(server, deps, rest[0])
+    registerPrompts(server)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     res.on('close', () => {
       void transport.close()

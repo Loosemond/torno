@@ -175,6 +175,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `handle` in `ipc.ts` (`refusable`), which resolves a `Refusal` as `{ __tornoRefused: message }`
   (`shared/refusal.ts`) so that Electron prints nothing; the preload throws it again (`unrefused`), so the window
   sees a rejection with that message. Anything else is thrown, and logged.
+- The MCP prompts (`mcp/prompts.ts`, `PROMPTS`, registered by `registerPrompts` beside the tools): `review`,
+  `printable` (argument `bed`, `XxYxZ` in mm, read by `parseBed`) and `explain`, each one user message. Their text
+  names tools through a `toolName`, Claude Code's (`mcp__torno__<tool>`): the server is stateless and does not know
+  the client. The README lists them as `/mcp__torno__<name>` (`readme.test.ts` holds it to `PROMPTS`).
 - `<object>/.torno/state.md` says the same as the tools, as text
   (`src/main/statefile.ts`): the build, the parts, the scans with how each is
   aligned in every layout, the open marks. Its first line is when it was
