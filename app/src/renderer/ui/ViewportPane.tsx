@@ -10,7 +10,7 @@ import { agentStore, connectAgent, picture, setPictures } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { newCut } from '../../shared/cut'
 import { actions, layerOf, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
-import { setViewHost } from '../state/drawing'
+import { screenShows, setViewHost, viewHost } from '../state/drawing'
 import { connectThumbs } from '../state/thumbs'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { alignTool, connectAlign } from '../tools/alignTool'
@@ -344,8 +344,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     shows: () => {
       const s = store.getState()
       const box = canvasBox(viewport)
-      const scans = viewport.scanState().map(({ id, visible, opacity }) => [id, visible, opacity])
-      return JSON.stringify([s.objectId, s.revision, s.layout, viewport.getCamera(), Math.round(box.width), Math.round(box.height), s.section, explodeNow(s), viewport.exploded(), visibleKeys(s), scans])
+      return screenShows({ objectId: s.objectId, revision: s.revision, layout: s.layout, camera: viewport.getCamera(), width: box.width, height: box.height, section: s.section, explode: explodeNow(s), apart: viewport.exploded(), visible: visibleKeys(s), scans: viewport.scanState() })
     },
     under: (points) => {
       const box = canvasBox(viewport)
@@ -354,6 +353,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         const y = box.top + fy * box.height
         const hit = viewport.pick(x, y, { edges: false })
         if (hit) return { ref: hit.ref }
+        // A section's cut face is drawn in its part's colour: it is that part, not nothing.
+        const cut = viewport.pickedCutOf()
+        if (cut !== null) return { cut }
         const scan = viewport.pickScan(x, y)
         return scan ? { scan: scan.scan } : null
       })
@@ -395,6 +397,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       exploded: () => viewport.exploded(),
       // What a pointer move costs: the same call, at points spread over the canvas in a grid.
       timePicks: (count = 200, opts) => timed(count, (x, y) => viewport.pick(x, y, opts) !== null),
+      underAt: (fx, fy) => viewHost()?.under([[fx, fy]])[0] ?? null,
       pickScanAt: (fx, fy) => {
         const box = canvasBox(viewport)
         return viewport.pickScan(box.left + fx * box.width, box.top + fy * box.height)

@@ -1319,7 +1319,7 @@ describe('the transcript of a chat session', () => {
     objectId, revision, layout: 'assembly', caption: 'view current · layout assembly · parts a · perspective · 4×4',
     camera: { position: [10, -10, 10], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
     png: new Uint8Array(PNG_4X4), width: 4, height: 4, ink: '#B5127A',
-    under: [{ box: [0, 0, 3, 3], refs: [{ ref: 'a/F1', descriptor: 'plane, normal +Z' }], scans: [], bare: true }]
+    under: [{ box: [0, 0, 3, 3], refs: [{ ref: 'a/F1', descriptor: 'plane, normal +Z' }], cuts: [], scans: [], bare: true }]
   })
 
   it('adds a drawing on the view to the prompt: the text, the caption, then the picture; the prompt shows the text and the picture', async () => {

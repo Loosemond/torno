@@ -113,6 +113,8 @@ export class Viewport {
   )
   /** Whether the last `pick` ended on the cut face of a solid. */
   private onCut = false
+  /** Whose cut face that is (`Picked.cutOf`). */
+  private cutOf: string | null = null
   /** The scan that hid a part from the last pick. */
   private behindScan: string | null = null
   /** The scan the gizmo holds while it is moved by hand, and the points of an alignment being made. */
@@ -705,8 +707,14 @@ export class Viewport {
     // A part is there, and a scan drawn solid is in front of it: said at the pointer, or nothing would say why the part cannot be picked.
     this.behindScan = picked.hit ? blocker : null
     this.onCut = picked.cut && !hidden
+    this.cutOf = this.onCut ? picked.cutOf ?? null : null
     // The ray met the part where it is drawn: answered where the part is.
     return hidden ? null : asBuilt(picked.hit, this.apart.offsets())
+  }
+
+  /** Whose cut face the last `pick` met, when it answered nothing because the pointer is on a section's cut face; else null. */
+  pickedCutOf(): string | null {
+    return this.cutOf
   }
 
   /** What a point of the window is on of the scans drawn, whatever part is in front: `pick`'s twin. Nothing of a scan whose tree is not there yet, nor of what a section takes away. */

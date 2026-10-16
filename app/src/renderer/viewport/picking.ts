@@ -180,6 +180,8 @@ export interface Cut {
 export interface Picked {
   hit: Hit | null
   cut: boolean
+  /** Whose cut face it is, when it is one: the name of the part the plane is inside of there. */
+  cutOf?: string
 }
 
 /**
@@ -206,7 +208,7 @@ export function pickUnder(
   const ray = raycaster.ray.clone()
   const seen = firstSeen(parts, cut)
   const edge = opts.edges === false ? null : nearestEdge(parts, camera, ray, [((ndc.x + 1) / 2) * size.width, ((1 - ndc.y) / 2) * size.height], size, cut)
-  return edge ? { hit: edge, cut: false } : { hit: seen.face, cut: seen.cut }
+  return edge ? { hit: edge, cut: false } : { hit: seen.face, cut: seen.cut, ...(seen.cutOf !== undefined ? { cutOf: seen.cutOf } : {}) }
 }
 
 /** The face or edge `pickUnder` finds, or null. */
@@ -257,6 +259,7 @@ function nearestFace(parts: Pickable[]): Hit | null {
 interface Seen {
   face: Hit | null
   cut: boolean
+  cutOf?: string
   distance: number | null
 }
 
@@ -282,7 +285,8 @@ function firstSeen(parts: Pickable[], cut: Cut | null): Seen {
   const { ray } = raycaster
   const crossing = ray.distanceToPlane(cut.keeps)
   let best: { part: Pickable; hit: THREE.Intersection; distance: number; point: THREE.Vector3 } | null = null
-  let capped = false
+  /** The first part the plane is inside of along the ray: whose cut face is there. */
+  let capped: string | null = null
   for (const part of parts) {
     const { mesh, solid } = part.built
     const tree = mesh.geometry.boundsTree as MeshBVH | undefined
@@ -304,9 +308,9 @@ function firstSeen(parts: Pickable[], cut: Cut | null): Seen {
       found = true
       if (!best || hit.distance < best.distance) best = { part, hit, distance: hit.distance, point: world.clone() }
     }
-    if (inside > 0) capped = true
+    if (inside > 0 && capped === null) capped = part.name
   }
-  if (capped && crossing !== null && (!best || crossing < best.distance - SAME_CROSSING_MM)) return { face: null, cut: true, distance: crossing }
+  if (capped !== null && crossing !== null && (!best || crossing < best.distance - SAME_CROSSING_MM)) return { face: null, cut: true, cutOf: capped, distance: crossing }
   if (!best) return { face: null, cut: false, distance: null }
   const { part, hit } = best
   const index = faceOfTriangle(part.built.faceStarts, hit.faceIndex ?? -1)

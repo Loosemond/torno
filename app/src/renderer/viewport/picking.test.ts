@@ -312,9 +312,15 @@ describe('pointing at parts that a section cuts', () => {
 
   it('finds nothing on the cut face of a solid, and says that is what it is', () => {
     expect(pickUnder([block], camera, over(5, 5), size)).toMatchObject({ hit: { ref: 'block/F2' }, cut: false })
-    expect(pickUnder([block], camera, over(5, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    expect(pickUnder([block], camera, over(5, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true, cutOf: 'block' })
     // Beside the part there is no cut face, and nothing.
     expect(pickUnder([block], camera, over(12, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: false })
+  })
+
+  it('says whose cut face it is: the part the plane is inside of where the pointer meets it', () => {
+    const second = box('second', [2, 12, 2], [8, 30, 8])
+    // The plane at y = 20 takes the block away whole, and is inside the second part there.
+    expect(pickUnder([block, second], camera, over(5, 5), size, { cut: cutAt(20) })).toEqual({ hit: null, cut: true, cutOf: 'second' })
   })
 
   it('does not hit what the plane takes away: the pointer goes on to what is behind', () => {
@@ -348,7 +354,7 @@ describe('pointing at parts that a section cuts', () => {
 
   it('counts one cut face per part: a solid behind another is covered by the cut face in front', () => {
     const second = box('second', [2, 12, 2], [8, 30, 8])
-    expect(pickUnder([block, second], camera, over(5, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    expect(pickUnder([block, second], camera, over(5, 5), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true, cutOf: 'block' })
     // With the plane behind the first part, the second is what is seen: its own front face.
     expect(pickUnder([block, second], camera, over(5, 5), size, { cut: cutAt(11) })).toMatchObject({ hit: { ref: 'second/F2' }, cut: false })
   })
@@ -356,10 +362,10 @@ describe('pointing at parts that a section cuts', () => {
   it('does not pick an edge the plane takes away, nor one behind a cut face', () => {
     // The box's one edge runs along X at y = 0, z = 0.
     expect(pickParts([block], camera, over(5, 0.2), size)).toMatchObject({ kind: 'edge', index: 0 })
-    expect(pickUnder([block], camera, over(5, 0.2), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    expect(pickUnder([block], camera, over(5, 0.2), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true, cutOf: 'block' })
     // An edge of a part further back, behind the first part's cut face.
     const back = box('back', [0, 14, 0], [10, 16, 10])
-    expect(pickUnder([block, back], camera, over(5, 0.2), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true })
+    expect(pickUnder([block, back], camera, over(5, 0.2), size, { cut: cutAt(4) })).toEqual({ hit: null, cut: true, cutOf: 'block' })
     expect(pickParts([back], camera, over(5, 0.2), size, { cut: cutAt(4) })).toMatchObject({ part: 'back', kind: 'edge' })
   })
 })

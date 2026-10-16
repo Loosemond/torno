@@ -36,6 +36,8 @@ declare global {
       scans(): ScanLayerState[]
       /** What is tinted on the scans: the regions kept, each with how many triangles it draws and in which colour, and the set being painted. */
       regions(): ReturnType<ScanTints['state']>
+      /** What a drawing on the view is told lies under a point of the canvas (fractions, as `pickAt`): what `ViewHost.under` says. */
+      underAt(fx: number, fy: number): import('./ui/drawing/under').Under
       /** What a point of the canvas is on of the scans drawn, as `pickAt` is of the parts. */
       pickScanAt(fx: number, fy: number): ScanHit | null
       /** Where a point of a scan, in the scan's own frame, is drawn: fractions of the canvas, as `project`. */

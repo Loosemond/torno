@@ -29,7 +29,10 @@ it('boxes a stroke with half its width round it, within the picture, in whole pi
 
 describe('strokeUnder', () => {
   it('names the faces in the order first crossed, each once; the scans; and whether some lies over nothing', () => {
-    expect(strokeUnder([0, 0, 1, 1], [{ ref: 'a/F2' }, { ref: 'a/F2' }, null, { ref: 'b/F1' }, { ref: 'a/F2' }, { scan: 'S1' }])).toEqual({ box: [0, 0, 1, 1], refs: [{ ref: 'a/F2' }, { ref: 'b/F1' }], scans: ['S1'], bare: true })
+    expect(strokeUnder([0, 0, 1, 1], [{ ref: 'a/F2' }, { ref: 'a/F2' }, null, { ref: 'b/F1' }, { ref: 'a/F2' }, { scan: 'S1' }])).toEqual({ box: [0, 0, 1, 1], refs: [{ ref: 'a/F2' }, { ref: 'b/F1' }], cuts: [], scans: ['S1'], bare: true })
+  })
+  it('names the parts whose cut face it lies over, each once, and a cut face is not nothing', () => {
+    expect(strokeUnder([0, 0, 1, 1], [{ cut: 'lid' }, { ref: 'lid/F3' }, { cut: 'lid' }, { cut: 'base' }])).toEqual({ box: [0, 0, 1, 1], refs: [{ ref: 'lid/F3' }], cuts: ['lid', 'base'], scans: [], bare: false })
   })
   it('counts the faces beyond the most it names', () => {
     const found = Array.from({ length: MOST_REFS_TOLD + 3 }, (_, i) => ({ ref: `a/F${i + 1}` }))
@@ -45,7 +48,7 @@ describe('underInk', () => {
     const strokes: Stroke[] = [pen([[10, 50], [190, 50]]), { tool: 'eraser', width: 28, points: [[150, 50], [190, 50]] }]
     const { under, more } = underInk(strokes, size, (x) => x < 140, look)
     expect(more).toBe(0)
-    expect(under).toEqual([{ box: [8, 48, 192, 52], refs: [{ ref: 'a/F1' }], scans: [], bare: true }])
+    expect(under).toEqual([{ box: [8, 48, 192, 52], refs: [{ ref: 'a/F1' }], cuts: [], scans: [], bare: true }])
   })
   it('tells no stroke of which no ink is left', () => {
     expect(underInk([pen([[10, 50], [90, 50]])], size, () => false, look).under).toEqual([])

@@ -10,6 +10,8 @@ export const DRAWING_INK_NAME = 'magenta'
 export const MOST_STROKES_TOLD = 16
 export const MOST_REFS_TOLD = 6
 export const MOST_SCANS_TOLD = 4
+/** The most parts whose cut face (a section's) one stroke is told to lie over. */
+export const MOST_CUTS_TOLD = 4
 
 /** What one stroke of ink lies over in the picture, where ink is still left of it. */
 export interface StrokeUnder {
@@ -19,6 +21,8 @@ export interface StrokeUnder {
   refs: Array<{ ref: string; descriptor?: string }>
   /** How many more faces it crosses than `refs` holds. */
   moreRefs?: number
+  /** The parts whose cut face, where a section cuts them, is under it (`lid`), in the order first crossed. */
+  cuts: string[]
   /** The scans under it where no part is (`S1`). */
   scans: string[]
   /** Some of it lies over no part (nor a scan). */

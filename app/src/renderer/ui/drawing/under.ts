@@ -1,4 +1,4 @@
-import { MOST_REFS_TOLD, MOST_SCANS_TOLD, MOST_STROKES_TOLD, type StrokeUnder } from '../../../shared/drawing'
+import { MOST_CUTS_TOLD, MOST_REFS_TOLD, MOST_SCANS_TOLD, MOST_STROKES_TOLD, type StrokeUnder } from '../../../shared/drawing'
 import type { Stroke } from '../../state/onboard'
 
 // What the person's ink lies over in a drawing on the view: points along each pen stroke where ink is still left,
@@ -8,8 +8,8 @@ import type { Stroke } from '../../state/onboard'
 export const SAMPLE_STEP = 6
 export const MOST_SAMPLES = 48
 
-/** What is under a point of the view: a face of a part, a scan where no part is, or nothing. */
-export type Under = { ref: string } | { scan: string } | null
+/** What is under a point of the view: a face of a part, the cut face of a part (a section's), a scan where no part is, or nothing. */
+export type Under = { ref: string } | { cut: string } | { scan: string } | null
 
 /** Points `step` apart along a stroke, its first and last among them; at most `most`, spread evenly. */
 export function samplesOf(points: ReadonlyArray<readonly [number, number]>, step = SAMPLE_STEP, most = MOST_SAMPLES): Array<[number, number]> {
@@ -43,19 +43,21 @@ export function boxOf(stroke: Stroke, size: { width: number; height: number }): 
   return [Math.max(0, Math.floor(Math.min(...xs) - half)), Math.max(0, Math.floor(Math.min(...ys) - half)), Math.min(size.width, Math.ceil(Math.max(...xs) + half)), Math.min(size.height, Math.ceil(Math.max(...ys) + half))]
 }
 
-/** What one stroke lies over, from what is under each of its points: faces in the order first crossed, the scans, and whether any is over nothing. */
+/** What one stroke lies over, from what is under each of its points: faces and cut faces in the order first crossed, the scans, and whether any is over nothing. */
 export function strokeUnder(box: [number, number, number, number], found: readonly Under[]): StrokeUnder {
   const faces: string[] = []
+  const cuts: string[] = []
   const scans: string[] = []
   let bare = false
+  const add = (list: string[], one: string): void => void (list.includes(one) || list.push(one))
   for (const one of found) {
     if (one === null) bare = true
-    else if ('ref' in one) {
-      if (!faces.includes(one.ref)) faces.push(one.ref)
-    } else if (!scans.includes(one.scan)) scans.push(one.scan)
+    else if ('ref' in one) add(faces, one.ref)
+    else if ('cut' in one) add(cuts, one.cut)
+    else add(scans, one.scan)
   }
   const more = faces.length - MOST_REFS_TOLD
-  return { box, refs: faces.slice(0, MOST_REFS_TOLD).map((ref) => ({ ref })), ...(more > 0 ? { moreRefs: more } : {}), scans: scans.slice(0, MOST_SCANS_TOLD), bare }
+  return { box, refs: faces.slice(0, MOST_REFS_TOLD).map((ref) => ({ ref })), ...(more > 0 ? { moreRefs: more } : {}), cuts: cuts.slice(0, MOST_CUTS_TOLD), scans: scans.slice(0, MOST_SCANS_TOLD), bare }
 }
 
 /**

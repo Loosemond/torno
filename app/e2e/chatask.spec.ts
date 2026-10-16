@@ -325,6 +325,10 @@ test('Draw on view: a board over the agent\'s picture of the view; the drawing g
   await expect(drawingBoard()).toHaveCount(0)
   await expect(waiting()).toBeVisible()
   await expect(drawButton()).toBeDisabled()
+  // The keys are the box's again: what is typed next is the prompt, not a key of the view.
+  await page.keyboard.type('thicker')
+  await expect(composer()).toHaveValue('thicker')
+  await composer().fill('')
 
   await say('images')
   await expect(waiting()).toHaveCount(0)
@@ -365,6 +369,36 @@ test('a drawing waits in the composer: Edit opens it with its strokes, Remove ta
   await page.getByRole('button', { name: 'Discard', exact: true }).click()
   await expect(drawingBoard()).toHaveCount(0)
   await expect(waiting()).toHaveCount(0)
+  // Put away too, the board gives the keys back to the box.
+  await page.keyboard.type('never mind')
+  await expect(composer()).toHaveValue('never mind')
+  await composer().fill('')
+})
+
+test('ink over the face a section cuts is told as the cut face of its part, not as over no part', async () => {
+  await page.locator('[data-region="viewport"] canvas').first().click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('x')
+  await expect.poll(async () => (await state()).section !== null).toBe(true)
+  // A point of the canvas where the view shows a cut face: what the drawing is told is there.
+  const spot = await page.evaluate(() => {
+    for (let fy = 0.3; fy <= 0.7; fy += 0.025) {
+      for (let fx = 0.3; fx <= 0.7; fx += 0.025) {
+        const under = window.__tornoTest!.underAt(fx, fy)
+        if (under && 'cut' in under) return { fx, fy, part: under.cut }
+      }
+    }
+    return null
+  })
+  expect(spot).not.toBeNull()
+  const { fx, fy, part } = spot!
+  ended = await turns().count()
+  await drawButton().click()
+  await line(drawingBoard(), [fx - 0.005, fy], [fx + 0.005, fy])
+  await drawingBoard().getByRole('button', { name: 'Done' }).click()
+  await expect(waiting()).toBeVisible()
+  await say('images')
+  await expect(chat()).toContainText(new RegExp(`stroke 1, x \\d+–\\d+, y \\d+–\\d+: (.*, )?the cut face of ${part}`), { timeout: 20_000 })
+  await finished()
 })
 
 test('typing a / command offers the commands the CLI named: arrows choose, Tab or a click completes to the name and a space', async () => {

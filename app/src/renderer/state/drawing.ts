@@ -19,6 +19,29 @@ export interface ViewHost {
   under(points: ReadonlyArray<readonly [number, number]>): Under[]
 }
 
+/**
+ * What the screen shows, as one string (`ViewHost.shows`): the object, its build, the layout, the camera, the canvas's
+ * size, the section, the explode and whether parts are on their way apart, the parts drawn, and each scan by whether it
+ * is drawn, how thin, whether its mesh has come and where it stands. Not whether a scan's tree is made: once it is,
+ * the picks only see what the picture already drew.
+ */
+export function screenShows(of: {
+  objectId: string | null
+  revision: number
+  layout: string
+  camera: Camera
+  width: number
+  height: number
+  section: unknown
+  explode: unknown
+  apart: boolean
+  visible: readonly string[]
+  scans: ReadonlyArray<{ id: string; visible: boolean; opacity: number; loaded: boolean; transform: unknown }>
+}): string {
+  const scans = of.scans.map(({ id, visible, opacity, loaded, transform }) => [id, visible, opacity, loaded, transform])
+  return JSON.stringify([of.objectId, of.revision, of.layout, of.camera, Math.round(of.width), Math.round(of.height), of.section, of.explode, of.apart, of.visible, scans])
+}
+
 let host: ViewHost | null = null
 export function setViewHost(of: ViewHost | null): void {
   host = of

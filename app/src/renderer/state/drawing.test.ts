@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ViewDrawing } from '../../shared/drawing'
-import { type Drawn, type Pictured, drawingActions, drawingStore, drawingWaits } from './drawing'
+import { type Drawn, type Pictured, drawingActions, drawingStore, drawingWaits, screenShows } from './drawing'
 
 // The store of a drawing on the view: what waits for which session, and when what a picture holds of the window's
 // memory (its object URL and its decoded bitmap) is let go: once no board and no drawing holds it, and not before.
@@ -110,4 +110,23 @@ it('lets everything go with the workspace: every drawing, and the board', () => 
   drawingActions.clear()
   expect(drawingStore.getState()).toEqual({ board: null, drawn: {}, opening: null })
   expect(closed.sort()).toEqual(['one', 'three', 'two'])
+})
+
+describe('what the screen shows, as one string', () => {
+  const scan = { id: 'S1', visible: true, opacity: 0.6, loaded: false, ready: false, transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 } }
+  const shown = (over: Partial<Parameters<typeof screenShows>[0]> = {}, scanOver: Partial<typeof scan> = {}): string =>
+    screenShows({ objectId: 'bracket', revision: 3, layout: 'assembly', camera: picture('x').camera, width: 672.4, height: 872, section: null, explode: null, apart: false, visible: ['assembly:base'], scans: [{ ...scan, ...scanOver }], ...over })
+  it('is another when what a point of the canvas is over may be another: the camera, the canvas, a build, a part', () => {
+    expect(shown({ camera: { ...picture('x').camera, zoom: 2 } })).not.toBe(shown())
+    expect(shown({ width: 700 })).not.toBe(shown())
+    expect(shown({ revision: 4 })).not.toBe(shown())
+    expect(shown({ visible: [] })).not.toBe(shown())
+  })
+  it('is another once a scan\'s mesh has come, or the scan stands elsewhere: the picture did not draw it so', () => {
+    expect(shown({}, { loaded: true })).not.toBe(shown())
+    expect(shown({}, { transform: { t: [0, 0, 5], q: [0, 0, 0, 1], s: 1 } })).not.toBe(shown())
+  })
+  it('is the same when only a scan\'s tree was made: the picks then see what the picture already drew', () => {
+    expect(shown({}, { ready: true })).toBe(shown())
+  })
 })

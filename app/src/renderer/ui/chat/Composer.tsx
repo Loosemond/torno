@@ -110,6 +110,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const [attach, setAttach] = useState(false)
   const drawn = useDrawing((s) => s.drawn[sessionId])
   const opening = useDrawing((s) => s.opening === sessionId)
+  const drawingHere = useDrawing((s) => s.board?.sessionId === sessionId)
   const [choice, setChoice] = useState(0)
   const chat = useChat(sessionId)
   /** The text for which Escape closed the list of commands: the list stays shut until the text changes. */
@@ -149,6 +150,13 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     field.current?.setSelectionRange(cursor.current, cursor.current)
     cursor.current = null
   }, [text])
+  // The board over the view put away, by Done or by Cancel: the keys are the box's again, for the prompt the drawing
+  // goes with. After the board's own giving back, which finds "Draw on view" disabled once a drawing waits.
+  const boardWasHere = useRef(false)
+  useEffect(() => {
+    if (boardWasHere.current && !drawingHere) field.current?.focus()
+    boardWasHere.current = drawingHere
+  }, [drawingHere])
   // Kept as it is written, so that what closing the window would lose can be asked of it, and kept when the pane goes.
   useEffect(() => void drafts.set(sessionId, text), [sessionId, text])
 
