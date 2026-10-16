@@ -17,7 +17,7 @@ export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'Wi
  * - `viewport`: outside a field and the terminal, with an object on show.
  * - `measure`, `section`, `align`, `region`: with that tool in hand, which then has the key before the viewport.
  * - `shape`: while a shape of the person's is the active mark.
- * - `page`: on the page of objects; `filter`: in its field. `newobject`: on the page of a new object and its doodle board.
+ * - `page`: on the page of objects; `filter`: in its field. `newobject`: on the page of a new object.
  * - `session`: in the terminal. `composer`: in the box a chat prompt is written in. `picture`: while a picture of the
  *   chat is shown large. `separator`: on the edge of the session pane.
  * - `field`, `menu`, `sheet`: in a field, an open menu, a sheet or a question.
@@ -116,7 +116,6 @@ const ROWS = [
   row('filter.down', ['Down'], 'In the filter: down to the cards', 'Page of objects', 'filter'),
 
   row('new.back', ['Esc'], 'Leave the page, asking first when something is in it; on the doodle board, put the board away', 'New object', 'newobject'),
-  row('board.undo', ['Ctrl+Z'], 'Doodle board: undo the last stroke', 'New object', 'newobject'),
 
   row('session.newline', ['Shift+Enter'], 'A new line in the prompt, not a send', 'Session', 'session'),
   row('session.copy', ['Ctrl+Shift+C'], 'Copy what is selected in the terminal', 'Session', 'session'),
@@ -136,6 +135,7 @@ const ROWS = [
   row('menu.ends', ['Home', 'End'], 'Menu: the first or the last', 'In a field, a menu or a sheet', 'menu'),
   row('menu.close', ['Esc', 'Tab'], 'Menu: close it', 'In a field, a menu or a sheet', 'menu'),
   row('sheet.close', ['Esc'], 'Sheet or question: put it away', 'In a field, a menu or a sheet', 'sheet'),
+  row('board.undo', ['Ctrl+Z'], 'Drawing board (a doodle, or a drawing on the view): undo the last stroke', 'In a field, a menu or a sheet', 'sheet'),
   row('sheet.round', ['Tab'], 'Sheet: to its next control, and round', 'In a field, a menu or a sheet', 'sheet', true),
 
   row('devtools', ['F12', 'Ctrl+Shift+I'], 'Developer tools', 'For working on torno', 'global')

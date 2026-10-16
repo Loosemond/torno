@@ -936,7 +936,6 @@ name without `.html` gets it.
 | Page of objects | `Enter` | In the filter: open the first card |
 | Page of objects | `Down` | In the filter: down to the cards |
 | New object | `Esc` | Leave the page, asking first when something is in it; on the doodle board, put the board away |
-| New object | `Ctrl+Z` | Doodle board: undo the last stroke |
 | Session | `Shift+Enter` | A new line in the prompt, not a send |
 | Session | `Ctrl+Shift+C` | Copy what is selected in the terminal |
 | Session | `Ctrl+Shift+V` | Paste into the terminal |
@@ -954,6 +953,7 @@ name without `.html` gets it.
 | In a field, a menu or a sheet | `Home` `End` | Menu: the first or the last |
 | In a field, a menu or a sheet | `Esc` `Tab` | Menu: close it |
 | In a field, a menu or a sheet | `Esc` | Sheet or question: put it away |
+| In a field, a menu or a sheet | `Ctrl+Z` | Drawing board (a doodle, or a drawing on the view): undo the last stroke |
 | For working on torno | `F12` `Ctrl+Shift+I` | Developer tools |
 <!-- keys: end -->
 

@@ -1,4 +1,4 @@
-/* ---- The page of a new object (ui/onboard/NewObject.tsx) and the doodle board (ui/onboard/Doodle.tsx) ---- */
+/* ---- The page of a new object (ui/onboard/NewObject.tsx) and the board (ui/board/Board.tsx): its doodle, a drawing on the view ---- */
 
 .new-object-button {
   display: flex;
@@ -369,7 +369,7 @@
   text-wrap: pretty;
 }
 
-/* ---- The doodle board: a sheet over the page ---- */
+/* ---- The board: a sheet over the window, for a new object's doodle or a drawing on the view ---- */
 
 .board-layer {
   position: absolute;
@@ -426,17 +426,24 @@
   place-items: center;
 }
 
-/* The ground is the panel's own colour: light in the light theme, the panel's dark in the dark one. The ink is --ink. */
+/* The ground is the panel's own colour, or a picture; a doodle's ink is --ink, a drawing's --drawing-ink. Its shape
+   is the board's own (`--board-aspect`, set by Board.tsx). */
 .board-canvas {
   display: block;
-  width: min(100%, calc((100vh - 230px) * 1.5));
+  width: min(100%, calc((100vh - 230px) * var(--board-aspect, 1.5)));
   height: auto;
-  aspect-ratio: 3 / 2;
+  aspect-ratio: var(--board-aspect, 1.5);
   border: var(--divider);
   border-radius: 4px;
   background: var(--panel);
   cursor: crosshair;
   touch-action: none;
+}
+
+/* A picture under the ink (a drawing on the view): stretched to the board, which is its very size. */
+.board-canvas[data-ground] {
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
 }
 
 .board-foot {
@@ -449,5 +456,11 @@
 .board-size {
   margin-right: auto;
   color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.board-problem {
+  margin-right: auto;
+  color: var(--fail);
   font-size: var(--text-small);
 }
