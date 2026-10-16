@@ -12,6 +12,29 @@ const HOOK_TIMEOUT_S = 5
  */
 const HEADLESS = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
 
+/** The tools of torno's the reviewer may call: those that read the part. Not `show`, `resolve_mark`, `add_mark`. */
+const REVIEWER_TOOLS = ['scene', 'look', 'marks', 'measure', 'check', 'section', 'describe']
+
+/**
+ * `torno-reviewer`, a subagent passed with `--agents` (nothing is written to `.claude/agents/`): a second look at a
+ * change with a fresh context and only the tools that read, so it can change nothing.
+ */
+export function reviewerAgents(toolName: (tool: string) => string) {
+  return {
+    'torno-reviewer': {
+      description: 'Reviews the current build of the torno object against what the user asked, read-only. Use it after a change of several steps, before saying it is done.',
+      prompt: [
+        'You review a CAD part in torno and change nothing. You are given what the user asked for.',
+        `Check the current build against it: ${toolName('scene')} for the build status (a failed build is the first finding), ${toolName('look')} at the views that show the change, every open mark with ${toolName('marks')} (was each acted on as its note asks?), and every dimension (does it pass on the latest build?).`,
+        `Every number you state comes from ${toolName('measure')}, ${toolName('check')} or ${toolName('section')}, never from the mesh, a picture or the model's source; say so when a value is approximate.`,
+        'Report, in short lines, what holds and what does not, each with its numbers and refs, and what you could not check.',
+        'Change nothing: do not edit files, do not resolve or add marks, do not change what the user sees.'
+      ].join(' '),
+      tools: [...REVIEWER_TOOLS.map(toolName), 'Read']
+    }
+  }
+}
+
 /**
  * Claude Code. Everything torno adds is passed on the command line, so the
  * person's own settings and MCP servers are neither read nor changed
@@ -23,6 +46,8 @@ const HEADLESS = ['-p', '--input-format', 'stream-json', '--output-format', 'str
  * `pluginDir` is torno's plugin of skills (`resources/agent-plugin`, `agentPluginDir()`), loaded with
  * `--plugin-dir` for that session only: nothing is installed in the person's Claude Code.
  */
+const toolName = (tool: string): string => `mcp__torno__${tool}`
+
 export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapter {
   const [command = 'claude', ...before] = (agentCmd ?? '').split(' ').filter(Boolean)
   return {
@@ -32,7 +57,7 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
     hooks: true,
     skills: Boolean(pluginDir),
     views: AGENT_VIEWS.claude,
-    toolName: (tool) => `mcp__torno__${tool}`,
+    toolName,
     launch(ctx) {
       const hook = (event: string) => [{ hooks: [{ type: 'http', url: ctx.hookUrl(event), timeout: HOOK_TIMEOUT_S }] }]
       const settings = { hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, hook(event)])) }
@@ -49,6 +74,7 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
         '--settings',
         JSON.stringify(settings)
       ]
+      args.push('--agents', JSON.stringify(reviewerAgents(toolName)))
       if (pluginDir) args.push('--plugin-dir', pluginDir)
       if (ctx.systemPrompt) args.push('--append-system-prompt', ctx.systemPrompt)
       return { command, args, env: {} }

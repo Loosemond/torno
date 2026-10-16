@@ -133,8 +133,8 @@ describe("Claude Code's prompt, with the skills", () => {
 
   it('is the whole text without the scans and the dimensions, noticeably shorter', () => {
     expect(systemPrompt((tool) => `mcp__torno__${tool}`, true, true)).toBe(SYSTEM_PROMPT)
-    expect(SYSTEM_PROMPT.length).toBeLessThan(6200)
-    expect(FULL_PROMPT.length - SYSTEM_PROMPT.length).toBeGreaterThan(1100)
+    expect(SYSTEM_PROMPT.length).toBeLessThan(6400)
+    expect(FULL_PROMPT.length - SYSTEM_PROMPT.length).toBeGreaterThan(1000)
     for (const sentence of [...SCANS_TEXT, ...DIMENSIONS_TEXT]) {
       expect(FULL_PROMPT).toContain(sentence)
       expect(SYSTEM_PROMPT).not.toContain(sentence)
@@ -143,6 +143,9 @@ describe("Claude Code's prompt, with the skills", () => {
 
   it('names each skill, and keeps what every prompt needs to be read: dimensions listed, scans, refs, the contract', () => {
     for (const named of ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions']) expect(SYSTEM_PROMPT).toContain(named)
+    // #6: when to ask the reviewer subagent Claude Code is given with --agents; the agent without one is not told of it.
+    expect(SYSTEM_PROMPT).toContain('After a change of several steps, before saying it is done, have the torno-reviewer subagent check it')
+    expect(FULL_PROMPT).not.toContain('torno-reviewer')
     for (const said of ['"Dimensions (measured on rN):" with every prompt until they pass', 'A scan (S1, S2)', 'nothing taken from it is exact', 'New marks arrive with the prompt', 'a class Params (made with no arguments)', 'mcp__torno__measure {"kind": "distance"']) expect(SYSTEM_PROMPT).toContain(said)
   })
 

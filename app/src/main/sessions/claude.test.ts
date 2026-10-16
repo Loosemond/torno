@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { claudeAdapter, HOOK_EVENTS } from './claude'
+import { claudeAdapter, HOOK_EVENTS, reviewerAgents } from './claude'
 
 const ctx = {
   sessionId: 's1',
@@ -81,6 +81,9 @@ describe('the Claude Code adapter', () => {
       'mcp__torno__*',
       '--settings',
       JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: 5 }] }]])) }),
+      // Added since (#6): the reviewer subagent.
+      '--agents',
+      JSON.stringify(reviewerAgents((tool) => `mcp__torno__${tool}`)),
       '--append-system-prompt',
       'You are in torno. Mind the "quotes" and $HOME.'
     ])
@@ -120,6 +123,20 @@ describe('the Claude Code adapter', () => {
     expect(after(claudeAdapter(undefined, '/p').launch({ ...ctx, view: 'chat' }).args, '--plugin-dir')).toBe('/p')
     expect(claudeAdapter().launch(ctx).args).not.toContain('--plugin-dir')
     expect(claudeAdapter().skills).toBe(false)
+  })
+
+  // #6: a second look with a fresh context and only the tools that read.
+  it('defines the read-only torno-reviewer subagent with --agents, whose tools read and change nothing', () => {
+    for (const view of ['terminal', 'chat'] as const) {
+      const agents = JSON.parse(after(claudeAdapter().launch({ ...ctx, view }).args, '--agents'))
+      expect(Object.keys(agents)).toEqual(['torno-reviewer'])
+      const reviewer = agents['torno-reviewer']
+      expect(Object.keys(reviewer).sort()).toEqual(['description', 'prompt', 'tools'])
+      expect(reviewer.tools).toEqual(['mcp__torno__scene', 'mcp__torno__look', 'mcp__torno__marks', 'mcp__torno__measure', 'mcp__torno__check', 'mcp__torno__section', 'mcp__torno__describe', 'Read'])
+      for (const never of ['Edit', 'Write', 'Bash', 'mcp__torno__resolve_mark', 'mcp__torno__show', 'mcp__torno__add_mark']) expect(reviewer.tools).not.toContain(never)
+      expect(reviewer.description).toMatch(/after a change of several steps/i)
+      for (const said of ['what the user asked', 'every open mark', 'every dimension', 'mcp__torno__measure', 'never from the mesh', 'Change nothing']) expect(reviewer.prompt).toContain(said)
+    }
   })
 
   it('is given the plugin that is in the app: a manifest and the four skills, each named in its frontmatter', () => {

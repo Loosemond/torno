@@ -27,7 +27,8 @@ export const DIMENSIONS_TEXT: readonly string[] = [
 const WITH_SKILLS: readonly string[] = [
   'A scan (S1, S2) is a mesh of the real thing that the user imported and aligns (you cannot); nothing taken from it is exact: see the skill torno:scans.',
   'A dimension is a mark that holds a measurement, taken again on every build; those that fail are listed under "Dimensions (measured on rN):" with every prompt until they pass: see the skill torno:dimensions.',
-  'Read the skills torno:torno-model (the model file in full, a template) and torno:build123d (its idioms and failures) before writing or repairing a model.'
+  'Read the skills torno:torno-model (the model file in full, a template) and torno:build123d (its idioms and failures) before writing or repairing a model.',
+  'After a change of several steps, before saying it is done, have the torno-reviewer subagent check it against what the user asked: it reads and changes nothing.'
 ]
 
 const text = (skills: boolean): string => [
