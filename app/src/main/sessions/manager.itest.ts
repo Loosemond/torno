@@ -11,6 +11,7 @@ import { killGroup, Sessions } from './manager'
 import type { ChatItem, ChatMeta } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
 import type { BuildState } from '../../shared/build'
+import type { ViewDrawing } from '../../shared/drawing'
 import type { PromptContext } from '../context'
 
 // The session manager with a real PTY and a real HTTP server; only the agent is
@@ -1147,7 +1148,7 @@ describe('the transcript of a chat session', () => {
       id,
       items,
       kinds: () => items().map((i) => i.kind),
-      send: (text: string, extra: { attachView?: boolean } = {}) => tSessions.send(id, { text, ...extra }),
+      send: (text: string, extra: { attachView?: boolean; drawing?: ViewDrawing } = {}) => tSessions.send(id, { text, ...extra }),
       turns: () => items().filter((i) => i.kind === 'turn').length,
       logFile: () => {
         const folder = join(obj.dir, '.torno', 'chat')
@@ -1312,6 +1313,33 @@ describe('the transcript of a chat session', () => {
     await expect(c.send('say nothing', { attachView: true })).rejects.toThrow('the window shows another object')
     expect(c.items()).toEqual([])
     await expect(tSessions.send('nope', { text: 'x' })).rejects.toThrow()
+  })
+
+  const drawingFor = (objectId: string, revision = 1): ViewDrawing => ({
+    objectId, revision, layout: 'assembly', caption: 'view current · layout assembly · parts a · perspective · 4×4',
+    camera: { position: [10, -10, 10], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
+    png: new Uint8Array(PNG_4X4), width: 4, height: 4, ink: '#B5127A',
+    under: [{ box: [0, 0, 3, 3], refs: [{ ref: 'a/F1', descriptor: 'plane, normal +Z' }], scans: [], bare: true }]
+  })
+
+  it('adds a drawing on the view to the prompt: the text, the caption, then the picture; the prompt shows the text and the picture', async () => {
+    const c = await start()
+    await c.send('images', { drawing: drawingFor(c.obj.id) })
+    const user = c.items()[0] as { kind: string; text: string; images: Array<{ width?: number; height?: number }> }
+    expect(user).toMatchObject({ kind: 'user', text: 'images' })
+    expect(user.images).toEqual([expect.objectContaining({ width: 4, height: 4 })])
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    // The stand-in says what came: one picture, and each line of the caption (a line that is no command is said).
+    const said = c.items().filter((i) => i.kind === 'text').map((i) => (i as { text: string }).text)
+    expect(said).toContain('images: 1 4x4')
+    expect(said.some((t) => t.startsWith('Picture: the view as the person saw it when they drew on it, on r1'))).toBe(true)
+    expect(said).toContain('- stroke 1, x 0–3, y 0–3: a/F1 (plane, normal +Z); partly over no part')
+  })
+
+  it('refuses a drawing of another object than the session is of, sending nothing', async () => {
+    const c = await start()
+    await expect(c.send('images', { drawing: drawingFor('another') })).rejects.toThrow('The drawing is of another, not of')
+    expect(c.items()).toEqual([])
   })
 
   it('keeps the data of the newest pictures only, and never writes it', async () => {

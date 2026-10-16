@@ -9,6 +9,7 @@ import type { SceneFile } from './scenefile'
 import type { ObjectCard, ThumbnailOf } from './show'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { RecentFolder, WorkspaceInfo } from './workspace'
+import type { ViewDrawing } from './drawing'
 
 /** What the onboarding page asks for when the person presses "Create": the new object and everything they gave. */
 export interface CreateRequest {
@@ -233,8 +234,12 @@ export interface TornoBridge {
     onMeta(cb: (m: { sessionId: string; meta: ChatMeta; seq: number }) => void): () => void
     /** The slash commands and models the session's CLI has, told when it has said them (a history had earlier may lack them). */
     onCapabilities(cb: (m: { sessionId: string; commands: ChatCommand[]; models: ChatModel[]; seq: number }) => void): () => void
-    /** Sends a prompt; with `attachView`, main adds a picture of the viewport as the person sees it now. Rejects, sending nothing, when that picture cannot be made. */
-    send(sessionId: string, prompt: { text: string; attachView?: boolean }): Promise<void>
+    /**
+     * Sends a prompt; with `attachView`, main adds a picture of the viewport as the person sees it now; with `drawing`,
+     * the person's drawing on the view, after a caption main writes. Rejects, sending nothing, when a picture cannot be
+     * made or the drawing is not one.
+     */
+    send(sessionId: string, prompt: { text: string; attachView?: boolean; drawing?: ViewDrawing }): Promise<void>
     /** Answers a request of the agent's. The tool runs with the input it asked with; only the answers of `AskUserQuestion` are taken from the window. */
     answer(sessionId: string, requestId: string, answer: ChatAnswer): void
     interrupt(sessionId: string): Promise<void>

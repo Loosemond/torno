@@ -5,6 +5,7 @@ import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
 import type { BuildState } from '../../shared/build'
+import type { ViewDrawing } from '../../shared/drawing'
 import type { ObjectInfo } from '../../shared/workspace'
 import { FOLDER } from '../own'
 import type { PromptContext } from '../context'
@@ -13,6 +14,7 @@ import { trustQuestion } from '../../shared/agents'
 import type { Trust } from '../trust'
 import type { AgentAdapter } from './adapter'
 import { appendItems, readLog, trimLog } from './chatlog'
+import { drawingText } from './drawing'
 import { sessionRules } from './permissions'
 import { findCommand } from './choice'
 import { SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
@@ -542,10 +544,11 @@ export class Sessions {
   }
 
   /**
-   * A chat session: what the person typed, with a picture of the viewport as it is now when `attachView` (made
-   * through the window: `deps.picture`). Rejects, sending nothing, when the picture cannot be made or the session has ended.
+   * A chat session: what the person typed, then the person's drawing on the view after its caption when `drawing`,
+   * then a picture of the viewport as it is now when `attachView` (made through the window: `deps.picture`). Rejects,
+   * sending nothing, when the picture cannot be made, the drawing is of another object, or the session has ended.
    */
-  async send(sessionId: string, prompt: { text: string; attachView?: boolean }): Promise<void> {
+  async send(sessionId: string, prompt: { text: string; attachView?: boolean; drawing?: ViewDrawing }): Promise<void> {
     const s = this.chat(sessionId, 'send')
     if (!s?.stream) throw new Error('This session has ended')
     // One after another: a prompt that waits for its picture is not overtaken by the one sent after it.
@@ -558,9 +561,16 @@ export class Sessions {
     return mine
   }
 
-  private async sendOne(sessionId: string, s: Session, prompt: { text: string; attachView?: boolean }): Promise<void> {
+  private async sendOne(sessionId: string, s: Session, prompt: { text: string; attachView?: boolean; drawing?: ViewDrawing }): Promise<void> {
     const content: PromptBlock[] = []
     if (prompt.text !== '') content.push({ type: 'text', text: prompt.text })
+    if (prompt.drawing) {
+      // Drawn on the view of this session's object, or not sent.
+      if (prompt.drawing.objectId !== s.object.id) throw new Error(`The drawing is of ${prompt.drawing.objectId}, not of ${s.object.id}`)
+      // What the agent reads of it right before it: the transcript shows the text and the picture, not a caption.
+      content.push({ type: 'text', text: drawingText(prompt.drawing, { revision: this.deps.build?.(s.object.id)?.revision, toolName: this.deps.adapter.toolName }) })
+      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(prompt.drawing.png).toString('base64') } })
+    }
     if (prompt.attachView === true) {
       if (!this.deps.picture) throw new Error('No view can be attached here')
       const png = await this.deps.picture(s.object)

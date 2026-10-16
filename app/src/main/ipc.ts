@@ -33,6 +33,7 @@ import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './
 import type { ChatAnswer } from '../shared/chat'
 import type { AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
 import { readChoice, writeChoice } from './sessions/choice'
+import { drawingOf } from './sessions/drawing'
 import type { Sessions } from './sessions/manager'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
@@ -606,10 +607,13 @@ export function registerIpc(
     return history
   })
 
-  handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown }) => {
+  handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown; drawing?: unknown }) => {
     if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
     if (typeof prompt?.text !== 'string' || prompt.text.length > MAX_PROMPT_CHARS) throw new Refusal('Nothing to send')
-    await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true })
+    // The window's drawing is taken only once it is what one is: main words what the agent reads of it.
+    const drawing = prompt.drawing === undefined ? undefined : drawingOf(prompt.drawing)
+    if (typeof drawing === 'string') throw new Refusal(drawing)
+    await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true, ...(drawing ? { drawing } : {}) })
   })
 
   ipcMain.on('chat:answer', (_event, sessionId: string, requestId: string, answer: ChatAnswer) => {
