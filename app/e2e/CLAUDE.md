@@ -100,7 +100,9 @@ Two fixtures were recorded from the real CLI and scrubbed: `app/test/fixtures/cl
 - A drop with a real path cannot be made in a test: a `File` made in the page has no path (`webUtils` gives
   none), so the drop is tested only for its refusals (no path, not a picture, a picture over 25 MB, not read). The
   code a real drop takes is the dialog's, from `takePhotos` on. Photos go through the dialog hook.
-- `themes.spec.ts` has the states `onboard` and `onboard-board` for `TORNO_SHOTS`.
+- `themes.spec.ts` has the states `onboard` and `onboard-board` for `TORNO_SHOTS`, and `view-board` for the chat's
+  "Draw on view" (`e2e/chatask.spec.ts` drives it: a point of the canvas over a part is found with `pickAt` and the
+  same fraction of the board is drawn on; the caption is read from what the stand-in says back, line by line).
 
 ## Light and dark
 

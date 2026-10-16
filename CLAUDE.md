@@ -109,6 +109,10 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   the stream adds only that a request waiting for the person is `needs_input`. `.torno/chat/` holds text only:
   no address, no secret, no picture data. A permission answer never writes the person's settings: "Allow for
   this session" sends only `addRules` suggestions, rewritten to `destination: "session"`.
+- A drawing on the view ("Draw on view" in the chat) goes with one prompt as a picture: the agent's own picture of
+  the view with the person's ink on it, after a caption main writes from data the window sends and main checks
+  (`shared/drawing.ts`, `main/sessions/drawing.ts`). It names what the ink lies over by ref, with the kernel's line,
+  and never a coordinate (the hit points are of the mesh). It is kept nowhere: not under `.torno/`, not in the log.
 
 ## Where the detail is
 

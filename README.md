@@ -278,7 +278,7 @@ pictures are not sent then: the text says each is "not attached" and names the f
 the scans were not imported, and the page says so and where the folder is. While "Creating…" shows, `Esc`, Cancel
 and Discard do nothing.
 
-The doodle board has a thin pen, a thick pen and an eraser, "Undo" and `Ctrl+Z`, "Clear", and "Done" and "Cancel".
+The doodle board (the same board as the chat's "Draw on view") has a thin pen, a thick pen and an eraser, "Undo" and `Ctrl+Z`, "Clear", and "Done" and "Cancel".
 `Esc` puts the board away; if strokes were drawn since it was opened it asks "Discard this doodle?" first. A
 doodle can be opened again from its card and changed.
 
@@ -335,6 +335,22 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   tools it used.
 - **"Attach view"** adds a picture of the viewport as you see it to the next
   prompt only.
+- **"Draw on view"** opens a board over a picture of the view: the very picture
+  the agent's `look` makes of it, with the axes, the scale bar and the marks
+  numbered. Draw on it as on the doodle board (two pens, an eraser that takes
+  away only your ink, "Undo" and `Ctrl+Z`, "Clear"); the ink is magenta, edged
+  with a thin line, which no mark is drawn in. "Done" puts the drawing above the
+  box, with "Edit" and "Remove", and it goes with your next prompt only. Claude
+  Code gets the picture with your ink, and before it a caption torno writes: that
+  the strokes are your drawing, which build it was drawn on, the camera it was
+  seen from (so that it can `look` from there again), and stroke by stroke the
+  faces of the parts and the scans your ink lies over, by ref with the kernel's
+  line for each face (`lid/F12 (plane, normal +Z, z = 20, 1180 mm²)`). No
+  coordinate is taken from the drawing. If the view moved while you drew (the
+  agent's `show`, a build), the caption says what lies under the ink was not
+  worked out; if the model was built again before you sent it, it says the refs
+  are of the build you drew on. The terminal view has no "Draw on view", and a
+  drawing is never written to disk.
 - **`/` commands.** Typing `/` offers the commands Claude Code has; `Up` and
   `Down` choose, `Tab` completes, `Esc` closes the list. `/compact` leaves one
   note with the tokens before and after. What you type is sent to Claude Code as
@@ -1216,6 +1232,7 @@ On the screen:
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.
+- **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the chat shows the picture with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.

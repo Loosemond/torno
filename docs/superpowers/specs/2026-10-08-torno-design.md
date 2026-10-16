@@ -202,6 +202,8 @@ Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSu
 2. **On request.** The agent calls MCP tools.
 3. **By insertion.** "Insert ref" pastes `lid/F12` or `M3` at the terminal cursor, as a bracketed paste, never auto-submitted.
 
+*2026-10-16:* in the chat a prompt can also carry a drawing on the view: the agent's picture of the view with the person's ink, and a caption naming what the ink lies over by ref (`2026-10-16-torno-draw-on-view-design.md`).
+
 ### MCP tools
 
 | Tool | Returns |

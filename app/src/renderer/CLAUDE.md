@@ -227,6 +227,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   canvas). The line is 3:1 on its casing; the casing is 3:1 on every part
   colour in dark and 2:1 in light, where no panel-coloured casing can do more
   against pastel parts.
+- The person's ink on a picture of the view is `--drawing-ink`, magenta in both themes: 3:1 on its casing and on the
+  ground, 30° of hue at least from either mark colour, and no axis's, the accent's or `--deviation-near`
+  (`contrast.test.ts`). `ui/drawing/make.ts` writes the light values out for where the stylesheet cannot be read.
 - What the system draws follows the theme: `color-scheme` is one scheme at a time, said outright in
   `tokens.css` (never `light dark`, which left the native light scrollbars in the dark theme), and every
   scroller of the window has the thin bar in `--scroll-thumb` (`late.css`). `e2e/themes.spec.ts` holds both.
@@ -290,7 +293,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
   at each discard: photos being read when the draft was thrown away are not put back. The held first prompt
   (`hold/take/dismiss`) is in the same store.
-- **Keys** are rows of `shared/keys.ts` in the scope `newobject`: `new.back` (Esc) and `board.undo` (Ctrl+Z). The
+- **Keys** are rows of `shared/keys.ts`: `new.back` (Esc) in the scope `newobject`, and the board's `board.undo` (Ctrl+Z) in the scope `sheet`. The
   page listens in the capture phase and takes every key not meant for a field, so no tool of the view is handed
   one. In a field Esc leaves the field (the keys go back to the page) when the draft has something, and the page
   when it has not; elsewhere it leaves the page, asking first ("Discard this new object?") when there is something in
@@ -304,7 +307,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   dialog offered; a dropped file is read by the window (`File.arrayBuffer`, at most 25 MB, checked before it is
   read) and its path comes from `objects.pathOf`. The copy in `reference/` is the original; the scaled picture is
   only the prompt's.
-- **The board** (`Doodle.tsx`) is a sheet over the page: a canvas of 1200 x 800 board pixels, scaled to fit, pointer
+- **The board** (`Doodle.tsx`, a wrapper over `ui/board/Board.tsx`, which the chat's "Draw on view" uses too) is a sheet over the page: a canvas of 1200 x 800 board pixels, scaled to fit, pointer
   events and canvas only (no React state per move). A thin and a thick pen and an eraser; Undo takes the last
   stroke, Clear all of them; Done gives back the strokes and the PNG, Cancel and Esc leave, asking "Discard this
   doodle?" when the strokes are other than it was opened with. Its keys (Esc is `sheet.close`, Ctrl+Z `board.undo`)
@@ -401,6 +404,18 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   to remember the folder and starts again, "Use the terminal" chooses that view and starts it.
 - The agent's text is drawn by torno's own `markdown.tsx`: React text nodes, never raw HTML, a link shows its URL
   and is not an `<a>`. A picture without its data says "Picture not kept".
+- **"Draw on view"** (`ui/drawing/`, `state/drawing.ts`). The ground is the agent's own picture of the view
+  (`picture({ view: 'current', size: 1280 })`, the code of `look`), opened on `ui/board/Board.tsx` by `ViewBoard`, over
+  the whole window as the export sheet is. The ink is `--drawing-ink` over a casing in `--panel` (`InkLook`), read once
+  when the picture is made: the picture is of that theme. "Done" (`finishDrawing` in `make.ts`) composes the PNG
+  (`compose.ts`) and, only while the screen is what the picture was made of (`ViewHost.shows()`, registered by
+  `ViewportPane`: object, build, layout, camera, canvas size, section, explode, parts and scans shown), picks the view
+  along each pen stroke where ink is left (`under.ts`: every 6 board pixels, 48 points a stroke at most): a face
+  (`edges: false`), else a scan, else nothing. A point of the picture is the same fraction of the canvas: one camera,
+  one aspect. The faces' descriptors are waited for 3 s. The drawing then waits per session above the composer's box
+  ("Edit", "Remove"), is taken by the next send and given back if that fails, counts as an unsent prompt when the
+  window is closed (`unsentPrompts`), and goes with the workspace (`clearDrafts`). The composer's box takes the pane's
+  width; its buttons are a row under it.
 
 ## Export
 

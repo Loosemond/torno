@@ -659,6 +659,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `projectSettings`, `userSettings`, `setMode` and `addDirectories` are never passed on, because the first three
   would write `.claude/` in the object's folder or the person's settings. A deny with no reason says "The person
   denied this."
+- **A drawing on the view** (`sessions/drawing.ts`). `chat:send` takes `drawing` (`ViewDrawing`, `shared/drawing.ts`):
+  the window's data, checked field by field by `drawingOf` before anything is sent (a `Refusal` with its reason
+  otherwise): one-line names and caption, a build above 0, a camera within ±1e9 mm, the picture a PNG main may attach
+  (`checkedImage`, now `main/images.ts`: at most 2000 px and 3.75 MB) of the size it says, the ink `#rrggbb`, at most
+  `MOST_STROKES_TOLD` strokes, each within the picture, with at most `MOST_REFS_TOLD` faces (a face as `refOf` names
+  it: any one-line part name, faces from `F0`) and `MOST_SCANS_TOLD` scans; a descriptor is folded and cut to 200.
+  `Sessions.sendOne` refuses a drawing of another object than the session's, and puts in the prompt, in order: the
+  text, `drawingText` (what the picture is and on which build, the ink and its colour, the camera as JSON with how
+  to `look` from it, a line per stroke of what it lies over, and that the model was built again since when it was),
+  the picture, then the picture "Attach view" asks for. No line of the caption begins with a word the stand-in agent
+  takes for a command. Nothing of it is written anywhere.
 - When the CLI stops without being asked to (not through `stop`), or with a non-zero code, the pane gets a `warn`
   note "Claude Code stopped (exit code N): <its last stderr line>" (the last 20 lines of stderr are kept, redacted)
   and, when it never printed a line, "It did not start: is `claude` up to date and signed in? …". An `initialize`
