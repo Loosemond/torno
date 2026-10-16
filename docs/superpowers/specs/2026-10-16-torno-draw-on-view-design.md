@@ -38,9 +38,11 @@ which faces, parts and scans each stroke lies over.
    6 board pixels, 64 points a stroke at most) where ink is still left (the eraser is honoured by reading the ink
    layer's alpha). The picture and the canvas share camera and aspect (`setProjection` takes the frustum from the
    camera alone; the extent only sets near and far), so a point of the picture is the same fraction of the canvas.
-   Faces only (`edges: false`); where no part is hit, a scan if one is drawn there; else nothing. This is said only
+   Faces only (`edges: false`); on a section's cut face, that part's cut face (it has no ref: "the cut face of lid");
+   where no part is hit, a scan if one is drawn there; else nothing. This is said only
    when the view is still what the picture was made of (a fingerprint of object, revision, layout, camera, canvas
-   size, section, explode, parts and scans shown): otherwise the caption says it was not worked out. Each ref
+   size, section, explode, parts, and scans shown: drawn, how thin, mesh come, where): otherwise the caption says it
+   was not worked out. Each ref
    gets the kernel's descriptor when it comes within 3 s. No coordinate is told: a hit point is of the mesh, and
    only refs and the kernel's descriptors cross to the agent (the exactness rule).
 5. **Main words it.** The window sends data (`ViewDrawing` in `shared/drawing.ts`: the PNG, the picture's caption,

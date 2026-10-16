@@ -411,9 +411,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`compose.ts`) and, only while the screen is what the picture was made of (`ViewHost.shows()`, registered by
   `ViewportPane`: object, build, layout, camera, canvas size, section, explode, parts and scans shown), picks the view
   along each pen stroke where ink is left (`under.ts`: every 6 board pixels, 48 points a stroke at most): a face
-  (`edges: false`), else a scan, else nothing. A point of the picture is the same fraction of the canvas: one camera,
+  (`edges: false`), else a section's cut face, by its part (`Viewport.pickedCutOf`, from `pickUnder`'s `cutOf`), else a
+  scan, else nothing. `ViewHost.shows()` is `screenShows`: a scan counts by whether it is drawn, how thin, whether its
+  mesh has come and where it stands, not by whether its tree is made. A point of the picture is the same fraction of the canvas: one camera,
   one aspect. The faces' descriptors are waited for 3 s. The drawing then waits per session above the composer's box
-  ("Edit", "Remove"), is taken by the next send and given back if that fails, counts as an unsent prompt when the
+  ("Edit", "Remove"); the board put away, by Done or Cancel, gives the keys to the composer's box (its own giving back
+  finds "Draw on view" disabled once a drawing waits). It is taken by the next send and given back if that fails, counts as an unsent prompt when the
   window is closed (`unsentPrompts`), and goes with the workspace (`clearDrafts`). The composer's box takes the pane's
   width; its buttons are a row under it.
 

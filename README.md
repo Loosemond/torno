@@ -340,12 +340,14 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   numbered. Draw on it as on the doodle board (two pens, an eraser that takes
   away only your ink, "Undo" and `Ctrl+Z`, "Clear"); the ink is magenta, edged
   with a thin line, which no mark is drawn in. "Done" puts the drawing above the
-  box, with "Edit" and "Remove", and it goes with your next prompt only. Claude
+  box, with "Edit" and "Remove", and the box has the keys again, for the prompt
+  it goes with; it goes with your next prompt only. Claude
   Code gets the picture with your ink, and before it a caption torno writes: that
   the strokes are your drawing, which build it was drawn on, the camera it was
   seen from (so that it can `look` from there again), and stroke by stroke the
-  faces of the parts and the scans your ink lies over, by ref with the kernel's
-  line for each face (`lid/F12 (plane, normal +Z, z = 20, 1180 mm²)`). No
+  faces of the parts, the cut faces of a section ("the cut face of lid") and the
+  scans your ink lies over, by ref with the kernel's line for each face
+  (`lid/F12 (plane, normal +Z, z = 20, 1180 mm²)`). No
   coordinate is taken from the drawing. If the view moved while you drew (the
   agent's `show`, a build), the caption says what lies under the ink was not
   worked out; if the model was built again before you sent it, it says the refs

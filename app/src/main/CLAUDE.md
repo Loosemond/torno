@@ -664,7 +664,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   otherwise): one-line names and caption, a build above 0, a camera within ±1e9 mm, the picture a PNG main may attach
   (`checkedImage`, now `main/images.ts`: at most 2000 px and 3.75 MB) of the size it says, the ink `#rrggbb`, at most
   `MOST_STROKES_TOLD` strokes, each within the picture, with at most `MOST_REFS_TOLD` faces (a face as `refOf` names
-  it: any one-line part name, faces from `F0`) and `MOST_SCANS_TOLD` scans; a descriptor is folded and cut to 200.
+  it: any one-line part name, faces from `F0`), `MOST_CUTS_TOLD` parts whose section's cut face it lies over (one-line
+  names, told as "the cut face of lid": a cut face has no ref) and `MOST_SCANS_TOLD` scans; a descriptor is folded and
+  cut to 200.
   `Sessions.sendOne` refuses a drawing of another object than the session's, and puts in the prompt, in order: the
   text, `drawingText` (what the picture is and on which build, the ink and its colour, the camera as JSON with how
   to `look` from it, a line per stroke of what it lies over, and that the model was built again since when it was),
