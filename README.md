@@ -130,6 +130,18 @@ repository, the menu bar names the app "Electron" (the bundle of `node_modules/e
 "torno". On a Mac torno asks your login shell for its `PATH` at start, so `uv` and `claude` are found when torno
 is started from the Finder or the Dock.
 
+On macOS, `pnpm dist:mac` makes `torno.app` in `app/dist/`: `mac-arm64/torno.app` on Apple silicon (and a zip
+beside it), `mac/torno.app` on an Intel Mac (`pnpm dist:mac -- --x64`). Copy it to `/Applications` and open it from
+the Finder or the Dock. It carries the kernel's source, torno's skills for Claude Code, the icon and the example, and
+still needs `uv` and `claude` installed; it finds them through your login shell's `PATH` (above). Its Python environment for
+a workspace with no `pyproject.toml` is made at the first build of one, in
+`~/Library/Application Support/torno/kernel-env`, and never inside the app. The app is signed ad hoc and not
+notarized: one built on your own Mac opens as it is; one that was downloaded (the zip a CI run uploads, say) is
+quarantined, so right-click it and choose Open, or run `xattr -dr com.apple.quarantine torno.app`. Updating means
+building again. (`pnpm pack:check` builds the same files as a folder on Linux, `app/dist/linux-unpacked`, to check
+the packaging with `TORNO_PACKAGED=… pnpm -C app exec playwright test e2e/packaged.spec.ts`; it is no way to install
+torno on Linux.)
+
 ## Five minutes with torno
 
 This walk-through uses the small models torno is tested with, on a copy, so
@@ -1073,6 +1085,8 @@ Outside the workspace:
 
 - `~/.config/torno/` (on macOS `~/Library/Application Support/torno/`): `config.json` holds the workspace last opened and the
   folders opened lately (eight at most); the rest is Electron's own cache.
+- `~/Library/Application Support/torno/kernel-env` on macOS, for the packaged app only: the kernel's Python
+  environment, made at the first build of a workspace with no `pyproject.toml`. Never inside `torno.app`.
 - The one file an export writes, at the path you choose.
 - `torno.desktop`, only by `scripts/torno --install-desktop`.
 - A copy of the example in the system's temporary folder, removed when torno
