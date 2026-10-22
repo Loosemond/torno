@@ -3,6 +3,7 @@ import { MeshAsks } from './scanMeshes'
 import { useEffect, useRef, useState } from 'react'
 import { apply } from '../../shared/align'
 import { EXPLODED_TOOLS, explodeOf } from '../../shared/explode'
+import { measuredValue } from '../../shared/dimension'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
@@ -25,12 +26,16 @@ import { sectionTool } from '../tools/sectionTool'
 import { selectTool } from '../tools/selectTool'
 import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
+import { chipSays, markChips } from '../tools/markChips'
 import { Readout } from '../viewport/highlight'
+import { labelText } from '../viewport/marks/labels'
 import { NARROW_BELOW } from '../viewport/overlay'
 import { meshOf } from '../viewport/scans'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
 import { AlignBar } from './AlignBar'
+import { goToRow } from './BuildStatus'
+import { hoverMark } from './markHover'
 import { RegionBar } from './RegionBar'
 import { NotePopover } from './NotePopover'
 import { importScan, scanDropped } from './scanDrop'
@@ -223,11 +228,41 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     }
   }
 
-  // The one pointer subscription: every event goes to the tool in use, and to
-  // none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
+  // The one pointer subscription: every event goes to the chips of the marks first (`markChips`), then to the tool
+  // in use, and to none while the parts are stale (`routePointer`). Tools made by later tasks are added here.
   const tools: Partial<Record<ToolName, Tool>> = { select: selectTool(), pin: pinTool(), arrow: arrowTool(), draw: drawTool(), shape: shapeTool(), section: sectionTool(), measure: measureTool(), align: alignTool(), region: regionTool() }
   let tool = tools[toolStore.getState().tool]
+  // A chip in the view points at its mark, and a click on one opens it, whatever tool is in hand.
+  const chips = markChips({
+    markAt: ([x, y]) => viewport.markAt(x, y),
+    point: (id) => {
+      hoverMark(id)
+      viewport.canvas.style.cursor = id === null ? (tool?.cursor ?? '') : 'pointer'
+      // What the tool lit under the pointer is under the chip: the chip has the pointer now.
+      if (id === null) readout.hide()
+      else viewport.setHover(null)
+    },
+    say: (client, id) => {
+      const s = store.getState()
+      const mark = s.marks.find((m) => m.id === id)
+      if (!mark) return
+      const revision = s.scene ? s.revision : 0
+      // A dimension's numbers in the face of numbers; a note in the face of the UI.
+      if (mark.kind === 'dimension' && measuredValue(mark, revision) !== undefined) readout.show(client, labelText(mark), chipSays(mark, revision))
+      else readout.note(client, labelText(mark), chipSays(mark, revision))
+    },
+    open: (id) => {
+      const s = store.getState()
+      const mark = s.marks.find((m) => m.id === id)
+      if (!mark || !s.objectId) return
+      // Its row opens, in view; the camera stays: the person is looking at it.
+      goToRow(id)
+      // A mark of the person's not yet sent: its note opens beside it, to be written.
+      if (mark.author === 'user' && mark.status === 'draft') actions.openNote({ objectId: s.objectId, layout: s.layout, id })
+    }
+  })
   const putDown = () => {
+    chips.drop()
     tool?.cancel(context())
     readout.hide()
     viewport.setNavigation(true)
@@ -251,7 +286,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     }
   })
   viewport.onPointer((e) => {
-    if (tool && store.getState().scene) routePointer(tool, e, context())
+    if (!store.getState().scene || chips.route(e)) return
+    if (tool) routePointer(tool, e, context())
   })
   // Keys outside any field: the tool in use first, then Escape puts a mark tool down for Select.
   const onKey = (e: KeyboardEvent) => {

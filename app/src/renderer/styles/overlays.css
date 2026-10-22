@@ -45,6 +45,12 @@
   font-family: var(--font-mono);
 }
 
+/* A mark's note, as its chip in the view says it: prose, on the one line, cut to the room there is. */
+.pick-readout[data-says='note'] .pick-readout-detail {
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
 /* A sentence may be a long one (why the kernel would not measure something): it runs on, where a ref is cut. */
 .pick-readout[data-says='sentence'] {
   white-space: normal;

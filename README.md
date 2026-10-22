@@ -814,6 +814,15 @@ there. The pointer on a row rings the mark's chip in the view, more faintly than
 active one's, and lights the face it is on, as a mention of it in the chat
 does.
 
+The chips in the view answer the pointer too. On a chip the pointer is a hand,
+the mark's row lights, and its note is read out beside the pointer on one line
+(`M1 too thin here`; for a dimension its numbers, `M3 40 mm, expected 42 ±
+0.05, 2 under`). A click on a chip makes its mark the active one and brings
+its row into view, opened, without moving the camera; for a mark of yours not
+yet sent, its note opens beside it to be written. A click on a chip is the
+chip's whatever tool is in hand: no pin is left under it. A drag that starts on
+a chip turns the camera, as anywhere else.
+
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.
 - The Marks list is grouped: **To send**, **With the agent**, **To review**,

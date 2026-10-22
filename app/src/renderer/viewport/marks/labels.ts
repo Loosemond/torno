@@ -175,6 +175,22 @@ export function place(labels: Label[], chip: Chip, size: Size, unit = 1): Placed
   return placed
 }
 
+/** How far around a chip's box the pointer is still on it, in pixels: the hairline drawn round it. */
+const CHIP_REACH_PX = 2
+
+/**
+ * The mark whose chip is under a point of the view (pixels from its top left, as the boxes are), among chips as they
+ * were placed and drawn: the one drawn last where two meet, as it is the one seen. Null for none. Only a chip that is
+ * drawn is there to be pointed at.
+ */
+export function chipAt(placed: readonly Placed[], x: number, y: number): string | null {
+  for (let i = placed.length - 1; i >= 0; i--) {
+    const { visible, box, id } = placed[i]
+    if (visible && x >= box.x - CHIP_REACH_PX && x <= box.x + box.w + CHIP_REACH_PX && y >= box.y - CHIP_REACH_PX && y <= box.y + box.h + CHIP_REACH_PX) return id
+  }
+  return null
+}
+
 function overlaps(a: Placed['box'], b: Placed['box'], pad: number): boolean {
   return a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad
 }

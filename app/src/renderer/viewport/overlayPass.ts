@@ -5,7 +5,7 @@ import { type BrushRing, drawBrushRing } from './brushRing'
 import type { MarkLayer } from './marks/MarkLayer'
 import type { Placed } from './marks/labels'
 import { markPoints } from './marks/markObjects'
-import { mmPerPx } from './marks/labels'
+import { chipAt, mmPerPx } from './marks/labels'
 import { SCALE_BAR_MAX, SCREEN_UNIT, chipSize, drawFrameCues, drawLabels, type LabelStyle } from './overlay'
 
 const ORIGIN = new THREE.Vector3()
@@ -37,6 +37,8 @@ export class OverlayPass {
   readonly canvas: HTMLCanvasElement | null
   alignPoints: AlignPoint[] = []
   brush: BrushRing | null = null
+  /** The chips of the marks as the last frame placed and drew them: what the pointer is on is read from these, not worked out again. */
+  private chips: Placed[] = []
 
   constructor(private readonly host: OverlayHost) {
     this.canvas = host.canvas.parentElement ? document.createElement('canvas') : null
@@ -59,7 +61,8 @@ export class OverlayPass {
     const style = host.style()
     ctx.setTransform(this.canvas.width / size.width, 0, 0, this.canvas.height / size.height, 0, 0)
     ctx.clearRect(0, 0, size.width, size.height)
-    drawLabels(ctx, host.marks.labels(host.layout(), host.camera(), size, 1, chipSize(ctx, 1)), style, 1, host.marks.activeId, host.marks.hoverId)
+    this.chips = host.marks.labels(host.layout(), host.camera(), size, 1, chipSize(ctx, 1))
+    drawLabels(ctx, this.chips, style, 1, host.marks.activeId, host.marks.hoverId)
     this.drawFrame(ctx, size, style)
     // Not while the parts are drawn apart: a point picked on the model would be drawn where its part is not.
     if (host.exploded?.()) return
@@ -121,7 +124,14 @@ export class OverlayPass {
     return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys), at, visible: label.visible }
   }
 
+  /** The mark whose chip is under a point of the window (client pixels), as the last frame drew the chips; null for none. */
+  markAt(clientX: number, clientY: number): string | null {
+    const rect = this.host.canvas.getBoundingClientRect()
+    return chipAt(this.chips, clientX - rect.left, clientY - rect.top)
+  }
+
   dispose(): void {
+    this.chips = []
     this.canvas?.remove()
   }
 

@@ -74,7 +74,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   mark and is never drawn in a mark's colour. In Angle, before the second click, an end the kernel takes by its axis, only if
   flat or straight, or never (`angleTaking`, by the descriptor's type, the kernel's rule) is said at the pointer
   in place of the `≈` estimate; it is a hint, never a gate: the click is sent whatever it says. A tool is a `Tool`
-  (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
+  (`src/renderer/tools/Tool.ts`) and gets every pointer event the chips of the marks do not take from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
 - A mark's row and its chip in the view point at each other. The pointer on a row is the store's `hoveredMark`
@@ -84,6 +84,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   A click on a row is `actions.selectMark` (the mark active, its layout shown): the camera moves to the view it was
   placed from only when its label is not in view (`markReveal`, `Viewport.revealMark`, `needsCamera`). "Go to its
   view", the reticle of the row, and a mark's chip in the chat are `actions.focusMark`, which always goes there.
+- **The chips in the view answer the pointer before the tool in hand** (`tools/markChips.ts`, first in the one
+  pointer subscription of `ViewportPane`; an event it takes, no tool is told of). Hit-testing is of the chips as the
+  last frame placed and drew them (`OverlayPass.markAt`, `chipAt` of `viewport/marks/labels.ts`), never worked out
+  again per move. On a chip the cursor is `pointer`, the mark is `hoverMark`ed as from its row, and the readout says
+  `chipSays` (a note in the face of the UI, `Readout.note`, one line cut to its width; a dimension's numbers as a
+  ref's). A click opens it whatever tool is in hand (the head ruling of #74): `goToRow` (active, row in view, the
+  camera stays as it is in view) and, for a draft of the person's, `actions.openNote`. A drag that starts on a chip
+  is the orbit's; a press that began beside one is the tool's to the end.
 - The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts), "With the agent"
   (sent), "To review" and the fold "Resolved"; a heading only for a group that has marks, and the heading says
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is

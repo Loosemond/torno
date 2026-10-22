@@ -430,6 +430,11 @@ export class Viewport {
     return this.overlay.markLabel(id)
   }
 
+  /** The mark whose chip is under a point of the window, in client pixels, as the last frame drew it; null for none. */
+  markAt(clientX: number, clientY: number): string | null {
+    return this.overlay.markAt(clientX, clientY)
+  }
+
   /** What a mark of the layout shown covers on the canvas, in client pixels, and where it is anchored; null for a mark that is not drawn. */
   markBox(id: string): ReturnType<OverlayPass['markBox']> {
     return this.overlay.markBox(id)

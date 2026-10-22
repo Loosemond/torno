@@ -147,6 +147,24 @@ test('after each step of a session of work, P takes the pin tool', async () => {
   await pinIsInHand('the marks made taller')
   await line.dblclick()
   await pinIsInHand('the shares put back')
+  // A mark's row clicked, and another's chip in the view: marks that were sent, so no note opens to take the keys.
+  for (const point of [[14, 9, 2.5], [-14, -9, 2.5]]) {
+    await page.evaluate(
+      (at) => window.torno.marks.add('bracket', { kind: 'pin', author: 'user', note: 'too thin here', layout: window.__tornoTest!.state().layout, revision: 1, camera: window.__tornoTest!.camera(), anchor: { point: at, normal: [0, 0, 1], part: 'base' } } as never),
+      point
+    )
+  }
+  for (const id of ['M1', 'M2']) await page.evaluate((mark) => window.torno.marks.update('bracket', mark, { status: 'sent' }), id)
+  await expect(page.locator('.mark-row[data-status="sent"]')).toHaveCount(2)
+  await page.locator('.mark-row[data-mark="M1"] .mark-chip').click()
+  await expect.poll(async () => (await state()).activeMark).toBe('M1')
+  await pinIsInHand('a mark\'s row clicked')
+  const chip = await page.evaluate(() => window.__tornoTest!.markScreen('M2'))
+  expect(chip?.visible).toBe(true)
+  const shown = await canvas()
+  await page.mouse.click(shown.x + chip!.x * shown.width, shown.y + chip!.y * shown.height)
+  await expect.poll(async () => (await state()).activeMark).toBe('M2')
+  await pinIsInHand('a mark\'s chip clicked in the view')
   // Another object chosen in the switcher's menu with the pointer, and back.
   for (const name of ['hollow', 'bracket']) {
     await page.locator('.object-switcher').click()

@@ -452,6 +452,97 @@ test('with a scan\'s detail open and the objects folded to their switcher, five 
   }
 })
 
+test('a mark\'s chip in the view answers the pointer: its line at the pointer, its row on a click, over any tool', async () => {
+  test.setTimeout(120_000)
+  const own = copyFixtures()
+  const placed = { position: [120, -90, 60], target: [0, 0, 6], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
+  const at = { author: 'user', status: 'sent', anchorState: 'ok', layout: 'assembly', revision: 1, camera: placed, createdAt: '2026-10-09T20:00:00.000Z' }
+  mkdirSync(join(own, 'hollow', '.torno'), { recursive: true })
+  writeFileSync(
+    join(own, 'hollow', '.torno', 'marks.json'),
+    JSON.stringify({
+      next: 5,
+      marks: [
+        { ...at, id: 'M1', kind: 'pin', status: 'draft', note: 'too thin here', anchor: { point: [20, 0, 20], normal: [1, 0, 0], part: 'tub' } },
+        { ...at, id: 'M3', kind: 'dimension', note: 'height with the lid', measure: 'distance', a: { point: [0, 0, 0], normal: [0, 0, -1], part: 'tub' }, b: { point: [0, 0, 40], normal: [0, 0, 1], part: 'lid' }, expected: 42 },
+        { ...at, id: 'M4', kind: 'pin', author: 'agent', note: 'I thickened this wall to 2 mm', anchor: { point: [0, -20, 20], normal: [0, -1, 0], part: 'tub' } }
+      ]
+    })
+  )
+  const ownApp = await launch({ TORNO_WORKSPACE: own })
+  try {
+    const p = await ownApp.firstWindow()
+    await p.waitForSelector('[data-region="left"]')
+    await openListed(p, 'hollow')
+    await expect.poll(async () => (await state(p)).build?.status, { timeout: 30_000 }).toBe('ok')
+    await expect.poll(async () => (await state(p)).marks.find((m): m is Extract<Mark, { kind: 'dimension' }> => m.id === 'M3' && m.kind === 'dimension')?.verdict, { timeout: 30_000 }).toBe('fail')
+    const canvas = p.locator('.viewport-canvas canvas').first()
+    const view = (await canvas.boundingBox())!
+    const chip = async (id: string): Promise<[number, number]> => {
+      const label = (await markScreen(id, p))!
+      expect(label.visible, id).toBe(true)
+      return [view.x + label.x * view.width, view.y + label.y * view.height]
+    }
+    const readout = p.locator('.pick-readout')
+    const hovered = (): Promise<string | null> => p.evaluate(() => window.__tornoTest!.hoveredMark())
+
+    // The pointer on a chip: the hand, the row's hover, the chip ringed, and its line at the pointer.
+    await p.mouse.move(...(await chip('M1')))
+    await expect(readout).toBeVisible()
+    await expect(readout).toHaveText(/^M1\s*too thin here$/)
+    await expect(readout).toHaveAttribute('data-says', 'note')
+    expect(await hovered()).toBe('M1')
+    await expect(row('M1', p)).toHaveAttribute('data-hovered', '')
+    await expect(canvas).toHaveCSS('cursor', 'pointer')
+    // A failing dimension says what it should be and by how much it misses, in the face of numbers.
+    await p.mouse.move(...(await chip('M3')))
+    await expect(readout).toHaveText(/^M3\s*40 mm, expected 42 ± 0\.05, 2 under$/)
+    await expect(readout).toHaveAttribute('data-says', 'ref')
+    await expect(row('M1', p)).not.toHaveAttribute('data-hovered', '')
+
+    // A click on it opens its row, in view, and leaves the camera where it is.
+    const before = await camera(p)
+    await p.mouse.click(...(await chip('M3')))
+    await expect(row('M3', p)).toHaveAttribute('aria-current', 'true')
+    await expect(row('M3', p)).toBeInViewport()
+    expect(await camera(p)).toEqual(before)
+    // A mark that was sent has its note in its row: no card opens over the view.
+    await expect(p.locator('.note-card')).toHaveCount(0)
+    // One of the person's not yet sent opens its note beside it, to be written.
+    await p.mouse.click(...(await chip('M1')))
+    await expect(p.locator('.note-card[data-mark="M1"]')).toBeVisible()
+    await expect(p.getByRole('textbox', { name: 'Note on M1' })).toBeFocused()
+    await p.keyboard.press('Escape')
+    await expect(p.locator('.note-card')).toHaveCount(0)
+    expect((await state(p)).activeMark).toBe('M1')
+
+    // With the Pin tool in hand a click on a chip is the chip's: no pin is left under it.
+    await p.keyboard.press('p')
+    await expect(p.locator('.tool-button[data-tool="pin"]')).toHaveAttribute('aria-pressed', 'true')
+    await p.mouse.click(...(await chip('M4')))
+    await expect(row('M4', p)).toHaveAttribute('aria-current', 'true')
+    await p.waitForTimeout(500)
+    expect((await state(p)).marks.map((m) => m.id)).toEqual(['M1', 'M3', 'M4'])
+    // Off the chips the tool has the pointer again: over the part, the pin says what it would be on.
+    const [x, y] = await chip('M4')
+    await p.mouse.move(view.x + view.width / 2, view.y + view.height / 2)
+    await expect.poll(hovered).toBeNull()
+    await expect(canvas).not.toHaveCSS('cursor', 'pointer')
+
+    // A drag that starts on a chip turns the camera, and opens nothing.
+    const turned = await camera(p)
+    await p.mouse.move(x, y)
+    await p.mouse.down()
+    await p.mouse.move(x + 80, y + 30, { steps: 5 })
+    await p.mouse.up()
+    await expect.poll(async () => JSON.stringify(await camera(p))).not.toBe(JSON.stringify(turned))
+    expect((await state(p)).activeMark).toBe('M4')
+    expect((await state(p)).marks).toHaveLength(3)
+  } finally {
+    await ownApp.close()
+    rmSync(own, { recursive: true, force: true })
+  }
+})
 
 // Set TORNO_SHOTS=<dir> to write marks-light.png and marks-dark.png there: the
 // window with the bracket and five marks, one of each kind, three of them the

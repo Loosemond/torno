@@ -257,6 +257,13 @@ export class Readout {
     this.write(this.ref.textContent ?? '', detail)
   }
 
+  /** Shows a mark's number at the pointer with its note: on one line, cut to the room there is, in the face of the UI. */
+  note(client: [number, number], label: string, note: string): void {
+    this.element.dataset.says = 'note'
+    this.write(label, note)
+    this.place(client)
+  }
+
   /** Shows a sentence at the pointer instead of a ref: in the face of the UI, but for the builds and refs it names (`namedPieces`). */
   say(client: [number, number], message: string): void {
     this.element.dataset.says = 'sentence'
