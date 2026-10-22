@@ -647,9 +647,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **Closing the window ends torno and every session in it, so it is asked first.** Main holds the window's
   `close` (`createWindow` in `index.ts`) and sends `window:closeAsked`; the window answers `window:closeAnswer`
   at once (`App.tsx`, from `renderer/closing.ts` `closingWhy`): `true` when nothing would be cut short, and the
-  window closes; `false` while it asks the person in place ("Close torno?", "Keep it open" in focus), and then
-  `true` only on "Close torno". What is cut short: a session working or waiting for an answer (`busyWith`), a
-  painting of a region holding what is not kept (`unkept`), an import, an export being written. A window that does not answer within
+  window closes; `false` while it asks the person in a dialog over the whole window (`ui/WorkspaceQuestion.tsx`: "Close torno?",
+  "Keep it open" in focus), and then `true` only on "Close torno". The dialog lists what is cut short, a line each, with the
+  object it is of as a link to it (`closingWhy` returns `{ objectId, what }` items): a session working or waiting for an
+  answer (`busyWith`), a prompt written and not sent, a new object not made, a first prompt held, a painting of a region
+  holding what is not kept (`unkept`), an import, an export being written. A window that does not answer within
   `CLOSE_ANSWER_MS` (1.5 s), or is loading or crashed, is closed without one; a quit that does not come through
   the window (`before-quit`, as `app.close()` of a test) is not held. Under test the question is answered by
   clicking it (`e2e/session.spec.ts`).

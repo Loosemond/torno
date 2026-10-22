@@ -46,6 +46,15 @@
   font-size: var(--text-small);
 }
 
+/* What went wrong opening the folder last asked for, under the folder's name until the next action. */
+.workspace-problem {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--fail);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
 /* The folder button and its menu: the folders opened lately, the dialog, the example. */
 .folder-menu-host {
   position: relative;
@@ -120,6 +129,14 @@
   flex: none;
   color: var(--muted);
   font-size: var(--text-small);
+}
+
+/* The open folder's mark: a check beside the word, in the muted face of the row's other words. */
+.folder-check {
+  width: 12px;
+  height: 12px;
+  margin-right: 3px;
+  vertical-align: -1px;
 }
 
 .folder-remove {

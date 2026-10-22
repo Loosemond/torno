@@ -184,7 +184,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'view-board', 'onboard', 'onboard-board'] as const
+const STATES = ['main', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'view-board', 'onboard', 'onboard-board', 'confirm-close'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -304,6 +304,19 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
           await expect(page.locator('.chat-rate')).toBeVisible()
           await page.keyboard.type('thicker than that, please')
+        } else if (shot === 'confirm-close') {
+          // The window closed while the agent waits for an answer and a prompt is written and not sent: the question names the object and each thing.
+          await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+          await expect(page.locator('[data-chat-composer]')).toBeFocused()
+          await page.keyboard.type('ask Write {"file_path":"hollow.py","content":"WALL = 3\\nLID = 2\\n"}')
+          await page.keyboard.press('Enter')
+          await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
+          await page.locator('[data-chat-composer]').click()
+          await page.keyboard.type('thicker than that, please')
+          await app.evaluate(({ BrowserWindow }) => void setTimeout(() => BrowserWindow.getAllWindows()[0]?.close(), 0))
+          const asked = page.getByRole('alertdialog', { name: 'Close torno?' })
+          await expect(asked.getByRole('listitem')).toHaveText(['hollow: Claude Code is waiting for your answer', 'hollow: a prompt is not sent'])
+          await expect(asked.getByRole('button', { name: 'Keep it open' })).toBeFocused()
         } else if (shot === 'view-board') {
           // The board over the view, from the chat's "Draw on view": a ring round the middle and an arrow to it.
           await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()

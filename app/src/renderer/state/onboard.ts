@@ -195,8 +195,10 @@ export const onboarding = {
   /** Counts the times the draft was thrown away: a photo that began to be read before one is not added after it. */
   epoch: (): number => epoch,
 
-  /** How many held prompts have not been taken by a chat: they would be lost. */
-  heldUnsent: (): number => Object.values(onboard.getState().held).filter((h) => h.text !== '' && !h.taken).length,
+  /** The objects whose held prompt has not been taken by a chat: it would be lost. */
+  heldObjects: (): string[] => Object.entries(onboard.getState().held).filter(([, h]) => h.text !== '' && !h.taken).map(([objectId]) => objectId),
+  /** How many held prompts have not been taken by a chat. */
+  heldUnsent: (): number => onboarding.heldObjects().length,
 
   /** Throws the draft away. */
   discard(): void {

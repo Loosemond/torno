@@ -1,14 +1,14 @@
 import { pressed, which } from '../shared/keys'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
-import { busyWith } from '../shared/agents'
 import { EXAMPLE_NOTE, type WorkspaceInfo } from '../shared/workspace'
 import { connectLook } from './state/agent'
 import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
-import { closingWhy, isExporting, unkept } from './closing'
-import { unsentPrompts } from './ui/chat/Composer'
+import { closingWhy, isExporting, leavingWhy, unkept, type Reason } from './closing'
+import { unsentSessions } from './ui/chat/Composer'
 import { paintings } from './tools/regionPainting'
-import { Confirm } from './ui/Confirm'
+import { WorkspaceQuestion } from './ui/WorkspaceQuestion'
+import { openProblem } from './ui/openFolder'
 import { Layers } from './ui/Layers'
 import { MarksPanel } from './ui/MarksPanel'
 import { ObjectList } from './ui/ObjectList'
@@ -18,7 +18,7 @@ import { ExportSheet } from './ui/ExportSheet'
 import { ViewBoard } from './ui/drawing/ViewBoard'
 import { FolderMenu } from './ui/FolderMenu'
 import { ShowPage, usePageKey } from './ui/ShowPage'
-import { NewObject } from './ui/onboard/NewObject'
+import { NewObject, openNewObject } from './ui/onboard/NewObject'
 import { draftHas, onboard, onboarding } from './state/onboard'
 import { ViewportPane } from './ui/ViewportPane'
 import { KeySheet, useKeysKey } from './ui/KeySheet'
@@ -59,32 +59,26 @@ async function pickWorkspace(): Promise<void> {
 const PICK = 'pick'
 const EXAMPLE = 'example'
 
-/** Leave the workspace for a folder, or for the one chosen in the dialog. */
-async function goTo(to: string): Promise<void> {
-  if (to === PICK) return pickWorkspace()
-  if (to === EXAMPLE) {
-    const info = await window.torno.workspace.openExample().catch(() => null)
-    if (info) showWorkspace(info)
-    return
-  }
-  if (store.getState().workspace?.root === to) return
-  // A folder that cannot be opened leaves the workspace as it is; main has said why on stderr.
-  const info = await window.torno.workspace.open(to).catch(() => null)
-  if (info) showWorkspace(info)
-}
-
 /**
- * What a session of this workspace is in the middle of that leaving the workspace would end, as a sentence; null
- * when none is.
+ * Leave the workspace for a folder, or for the one chosen in the dialog. A folder that cannot be opened leaves the
+ * workspace as it is, and what could not be opened and why is the answer, to be said where the folder is named; null
+ * when nothing went wrong (also when the dialog was cancelled).
  */
-function sessionsBusy(): string | null {
-  const busy = Object.values(store.getState().sessions).some((s) => busyWith(s.status) !== undefined)
-  return busy ? 'A session here is in the middle of its work.' : null
+async function goTo(to: string): Promise<string | null> {
+  const what = to === PICK ? 'The folder' : to === EXAMPLE ? 'The example' : basename(to)
+  try {
+    const info = to === PICK ? await window.torno.workspace.pick() : to === EXAMPLE ? await window.torno.workspace.openExample() : store.getState().workspace?.root === to ? null : await window.torno.workspace.open(to)
+    if (info) showWorkspace(info) // null: the dialog was cancelled
+    return null
+  } catch (e) {
+    return openProblem(what, e)
+  }
 }
 
-/** What leaving the workspace would throw away besides the sessions: a new object set up on its page and not made. */
-function draftLeft(): string | null {
-  return draftHas(onboard.getState().draft) ? 'A new object is set up here and not made yet.' : null
+/** The sessions of this workspace and the new object that opening another folder would end or throw away, as the question names them. */
+function leavingReasons(): Reason[] {
+  const s = store.getState()
+  return leavingWhy({ sessions: Object.entries(s.sessions).map(([objectId, x]) => ({ objectId, status: x.status })), draft: draftHas(onboard.getState().draft) })
 }
 
 let opening = 0
@@ -274,35 +268,61 @@ export function App() {
 
   // Leaving a workspace ends its sessions. `leaving` is where to, while that is
   // being asked about: a folder, or 'pick' for the one still to be chosen.
-  const [leaving, setLeaving] = useState<string | null>(null)
-  const [leavingWhat, setLeavingWhat] = useState('')
-  const [leavingLabel, setLeavingLabel] = useState('')
-  const leave = useCallback((to: string) => {
-    const busy = sessionsBusy()
-    const draft = draftLeft()
-    if (busy === null && draft === null) return void goTo(to)
-    setLeavingWhat([busy === null ? null : `${busy} Opening another folder ends it.`, draft === null ? null : `${draft} Opening another folder throws it away.`].filter((x) => x !== null).join(' '))
-    setLeavingLabel(busy === null ? 'Leave this folder?' : 'End the sessions of this folder?')
-    setLeaving(to)
+  const [leaving, setLeaving] = useState<{ to: string; reasons: Reason[] } | null>(null)
+  // What went wrong with the last folder asked for, said under the folder button until the next action.
+  const [openFailed, setOpenFailed] = useState<string | null>(null)
+  const go = useCallback((to: string) => {
+    setOpenFailed(null)
+    void goTo(to).then(setOpenFailed)
   }, [])
+  const leave = useCallback(
+    (to: string) => {
+      setOpenFailed(null)
+      const reasons = leavingReasons()
+      if (reasons.length === 0) return go(to)
+      setLeaving({ to, reasons })
+    },
+    [go]
+  )
   // Another launch of torno was given a folder: it is opened here.
   useEffect(() => window.torno.workspace.onRequested((root) => leave(root)), [leave])
-  useEffect(() => setLeaving(null), [workspace?.root])
+  useEffect(() => {
+    setLeaving(null)
+    setOpenFailed(null)
+  }, [workspace?.root])
 
   // Closing the window ends torno: asked first when that would cut something short, and at once otherwise.
   // Heard on every screen, the first one too: the window is held until this answers.
-  const [closing, setClosing] = useState<string | null>(null)
+  const [closing, setClosing] = useState<Reason[] | null>(null)
   useEffect(
     () =>
       window.torno.workspace.onCloseAsked(() => {
         const s = store.getState()
-        const why = closingWhy({ sessions: Object.values(s.sessions), paintings: unkept(paintings.values()), importing: s.importing !== null, exporting: isExporting(), draft: draftHas(onboard.getState().draft), heldPrompt: onboarding.heldUnsent() > 0, unsent: unsentPrompts(Object.values(s.sessions).filter((x) => x.view === 'chat' && x.status !== 'exited').map((x) => x.sessionId)) })
-        window.torno.workspace.answerClose(why === null)
-        setClosing(why)
+        const sessions = Object.entries(s.sessions).map(([objectId, x]) => ({ objectId, ...x }))
+        const chats = sessions.filter((x) => x.view === 'chat' && x.status !== 'exited')
+        const unsent = new Set(unsentSessions(chats.map((x) => x.sessionId)))
+        const why = closingWhy({
+          sessions,
+          paintings: unkept(paintings.values()),
+          importing: s.importing !== null ? s.objectId : null,
+          exporting: isExporting(),
+          draft: draftHas(onboard.getState().draft),
+          heldPrompts: onboarding.heldObjects(),
+          unsent: chats.filter((x) => unsent.has(x.sessionId)).map((x) => x.objectId)
+        })
+        window.torno.workspace.answerClose(why.length === 0)
+        setClosing(why.length === 0 ? null : why)
       }),
     []
   )
   useEffect(() => setClosing(null), [workspace?.root])
+  // A name in either question: the question is put away, and the object (or the page of the new one) is shown.
+  const showReason = useCallback((reason: Reason) => {
+    setClosing(null)
+    setLeaving(null)
+    if (reason.objectId !== null) void openObject(reason.objectId)
+    else if (reason.page === 'new') openNewObject()
+  }, [])
 
   const errorOpened = useCallback((open: boolean) => setErrorOpen(open), [])
   const revealDock = useCallback(() => setDockOpen(true), [])
@@ -350,33 +370,10 @@ export function App() {
             {EXAMPLE_NOTE}
           </p>
         )}
-        {closing !== null && (
-          <Confirm
-            label="Close torno?"
-            accept="Close torno"
-            cancel="Keep it open"
-            onCancel={() => setClosing(null)}
-            onAccept={() => {
-              setClosing(null)
-              window.torno.workspace.answerClose(true)
-            }}
-          >
-            {closing} Closing torno ends it.
-          </Confirm>
-        )}
-        {leaving !== null && (
-          <Confirm
-            label={leavingLabel}
-            accept="Open another folder"
-            cancel="Stay here"
-            onCancel={() => setLeaving(null)}
-            onAccept={() => {
-              setLeaving(null)
-              void goTo(leaving)
-            }}
-          >
-            {leavingWhat}
-          </Confirm>
+        {openFailed !== null && (
+          <p className="workspace-problem" role="alert">
+            {openFailed}
+          </p>
         )}
         <ObjectList onOpen={(id) => void openObject(id)} />
         {/* While the page of objects is up, the layers and the scans act on a view that is not on screen: they give way. The marks stay: they say why a card has a failing chip. On the New object page the marks give way too: no tool works there. */}
@@ -414,6 +411,38 @@ export function App() {
         <DockIcon />
       </button>
 
+      {/* Over everything but the keys: the window's own questions, closing torno and leaving the folder. */}
+      {closing !== null && (
+        <WorkspaceQuestion
+          label="Close torno?"
+          lead="Closing torno ends every session in it and cuts these short:"
+          reasons={closing}
+          accept="Close torno"
+          cancel="Keep it open"
+          onCancel={() => setClosing(null)}
+          onAccept={() => {
+            setClosing(null)
+            window.torno.workspace.answerClose(true)
+          }}
+          onGo={showReason}
+        />
+      )}
+      {leaving !== null && (
+        <WorkspaceQuestion
+          label={leaving.reasons.some((r) => r.objectId !== null && r.page === undefined) ? 'End the sessions of this folder?' : 'Leave this folder?'}
+          lead="Opening another folder ends the sessions of this one and cuts these short:"
+          reasons={leaving.reasons}
+          accept="Open another folder"
+          cancel="Stay here"
+          onCancel={() => setLeaving(null)}
+          onAccept={() => {
+            const to = leaving.to
+            setLeaving(null)
+            go(to)
+          }}
+          onGo={showReason}
+        />
+      )}
       <BuildStatus errorOpen={errorOpen} onErrorOpen={errorOpened} />
       {/* Over everything: the keys, asked for with ? or at the foot of the tools. */}
       <KeySheet />

@@ -131,7 +131,7 @@ test.describe('a new object', () => {
     await expect(page.getByLabel('What is it?')).toHaveValue(/6 mm cable/)
     // A close of the window with a draft in it is asked about.
     await app.evaluate(({ BrowserWindow }) => void BrowserWindow.getAllWindows()[0].close())
-    await expect(page.getByRole('alertdialog', { name: 'Close torno?' })).toContainText('A new object is set up and not made yet.')
+    await expect(page.getByRole('alertdialog', { name: 'Close torno?' })).toContainText('New object: it is set up and not made yet')
     await page.getByRole('alertdialog', { name: 'Close torno?' }).getByRole('button', { name: 'Keep it open' }).click()
   })
 

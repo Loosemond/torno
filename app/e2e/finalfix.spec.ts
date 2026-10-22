@@ -1,6 +1,6 @@
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
@@ -155,7 +155,7 @@ test('the folder button opens a menu: the folders opened lately, the dialog and 
   expect(await menu.getByRole('menuitem').count()).toBe(3)
   await expect(menu.getByRole('menuitem')).toHaveText([/torno-e2e-finalfix-/, 'Open folder…', 'Open the example'])
   // The open one is marked, and is not to be opened again.
-  await expect(menu.locator('.folder-row[data-open]')).toContainText('Open')
+  await expect(menu.locator('.folder-row[data-open]')).toContainText('current')
   await expect(menu.getByRole('menuitem').first()).toBeDisabled()
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
@@ -259,6 +259,35 @@ test('Rebuild takes no press while a build runs: it says Building, and the key s
   await open('hollow')
   await expect(button).toHaveText('Rebuild')
   await expect(button).toBeEnabled()
+})
+
+test('a folder that went away after the menu was read is said not to open, under the folder button, until the next action', async () => {
+  // A folder of the list that is there when the menu is read, and gone when it is chosen: an unmounted disk.
+  const gone = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-finalfix-gone-'))
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ workspace: root, recent: [root, gone] }))
+  const folders = page.getByRole('button', { name: 'Folders' })
+  await folders.click()
+  const row = page.getByRole('menu', { name: 'Folders' }).getByRole('menuitem', { name: new RegExp(basename(gone)) })
+  await expect(row).toBeEnabled()
+  rmSync(gone, { recursive: true, force: true })
+  await row.click()
+  const said = page.getByRole('alert').filter({ hasText: 'could not be opened' })
+  // A session may run here, and leaving then asks first (it would end it): the folder is asked for once that is answered.
+  const leave = page.getByRole('alertdialog').getByRole('button', { name: 'Open another folder' })
+  await expect(leave.or(said)).toBeVisible()
+  if (await leave.isVisible()) await leave.click()
+  await expect(said).toHaveText(new RegExp(`^${basename(gone)} could not be opened: .+`))
+  // The workspace is as it was.
+  expect((await state()).workspace!.root).toBe(root)
+  // The next action takes it away.
+  await folders.click()
+  await page.getByRole('menu', { name: 'Folders' }).getByRole('menuitem', { name: 'Open folder…' }).click()
+  await expect(said).toHaveCount(0)
+  // With a session here that asks first: it stays.
+  const stay = page.getByRole('alertdialog').getByRole('button', { name: 'Stay here' })
+  if (await stay.isVisible()) await stay.click()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  expect((await state()).workspace!.root).toBe(root)
 })
 
 test('the example says for as long as it is open that it is a temporary copy', async () => {

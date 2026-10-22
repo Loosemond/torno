@@ -299,7 +299,14 @@ test('closing the window asks first while a session is in the middle of somethin
 
     const asked = window.getByRole('alertdialog', { name: 'Close torno?' })
     await closeWindow(busy)
-    await expect(asked).toContainText('A session is in the middle of its work. Closing torno ends it.')
+    await expect(asked).toContainText('bracket: Claude Code is working')
+    // Over the whole window, in the middle of it; not a strip in the left column.
+    expect(await window.locator('[data-region="left"]').getByRole('alertdialog').count()).toBe(0)
+    const box = (await asked.boundingBox())!
+    const [width, height] = await window.evaluate(() => [innerWidth, innerHeight])
+    expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(2)
+    expect(Math.abs(box.y + box.height / 2 - height / 2)).toBeLessThan(2)
+    await expect(asked.getByRole('button')).toHaveText(['bracket', 'Keep it open', 'Close torno'])
     // The button that changes nothing has the focus: a stray Enter keeps torno open.
     await expect(asked.getByRole('button', { name: 'Keep it open' })).toBeFocused()
     await asked.getByRole('button', { name: 'Keep it open' }).click()

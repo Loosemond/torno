@@ -235,3 +235,57 @@
   align-items: center;
   gap: var(--space-2);
 }
+
+/* ---- The window's own questions: closing torno, leaving the folder (ui/WorkspaceQuestion.tsx) ---- */
+
+.workspace-layer {
+  /* Over the whole window, the keys' sheet above it: nothing behind takes a click while a question stands. */
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.workspace-question {
+  display: grid;
+  gap: var(--space-3);
+  width: min(460px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: var(--space-4);
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+}
+
+.workspace-question:focus {
+  outline: none;
+}
+
+.workspace-question h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.workspace-question p {
+  text-wrap: pretty;
+}
+
+.workspace-reasons {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+/* `.link-button` takes the font of its line; the name of an object is in the face of refs. */
+.workspace-reasons .link-button {
+  font-family: var(--font-mono);
+  text-align: left;
+}

@@ -12,7 +12,7 @@ export type FolderChoice = { root: string } | 'pick' | 'example'
 
 /**
  * The folder button at the top of the left column, and its menu: the folders opened lately (the open one
- * marked; one that is not found struck, with a way to take it off the list), then the folder dialog, and the
+ * marked with a check and the word "current"; one that is not found struck, with a way to take it off the list), then the folder dialog, and the
  * example where torno has one. It is the way back to another workspace without the first screen. The list is
  * read when the menu opens, each time. Arrows, Home and End move among the items; Escape and Tab put it away.
  */
@@ -89,7 +89,14 @@ export function FolderMenu({ open: current, disabled, onChoose }: { open: string
                       <bdi>{folder.root}</bdi>
                     </span>
                   </button>
-                  {folder.root === current && <span className="folder-said">Open</span>}
+                  {folder.root === current && (
+                    <span className="folder-said">
+                      <svg className="folder-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m3.5 8.5 3 3 6-7" />
+                      </svg>
+                      current
+                    </span>
+                  )}
                   {folder.missing && (
                     <>
                       <span className="folder-said">Not found</span>

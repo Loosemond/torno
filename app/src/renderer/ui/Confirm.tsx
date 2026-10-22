@@ -3,8 +3,10 @@ import { useEffect, useRef, type ReactNode } from 'react'
 
 /**
  * A question asked in place, before something that cannot be undone: a strip in
- * the panel the question is about, not a window over the app. The button that
- * changes nothing has the focus, and Escape presses it.
+ * the panel the question is about (a scan, a mark, the session), not a window over
+ * the app. A question about the window as a whole, closing torno or leaving the
+ * folder, is `WorkspaceQuestion`'s. The button that changes nothing has the focus,
+ * and Escape presses it.
  */
 export function Confirm(props: { label: string; children: ReactNode; accept: string; cancel: string; onAccept: () => void; onCancel: () => void }) {
   const cancel = useRef<HTMLButtonElement>(null)

@@ -116,9 +116,11 @@ opens it, asking first if a session there is in the middle of its work.
 
 On Linux torno has no menu. The window is closed through the window manager, which
 ends torno and the sessions in it. When that would cut something short, torno
-asks first ("Close torno?", with "Keep it open" in focus): a session working or
-waiting for an answer, a region painted on a scan and not kept, a scan being
-imported or an export being written. With none of that it closes at once. `Ctrl+Q`, `Ctrl+W`, `F11` and
+asks first, in a dialog over the window ("Close torno?", with "Keep it open" in
+focus) that names each object and what would be cut short, as a link to the
+object: a session working or waiting for an answer, a prompt written and not
+sent, a region painted on a scan and not kept, a scan being imported or an
+export being written. With none of that it closes at once. `Ctrl+Q`, `Ctrl+W`, `F11` and
 the zoom shortcuts do not exist. For work on torno itself, `pnpm dev` runs the app from
 the Vite dev server, where `F5` and `Ctrl+R` reload the window.
 
@@ -251,9 +253,11 @@ shows that group alone in the layout; ask the agent to group parts and it edits
 `groups(p)`. In the viewport, drag to orbit, drag with the right or
 middle button to pan, scroll to zoom; the bar at the top switches layout
 (`assembly`, `print`), view and projection. The folder button (top left)
-opens a menu of the folders opened lately, "Open folder…" and the example;
-opening another ends the sessions of this one, so torno asks first if one of
-them is working or waiting for an answer.
+opens a menu of the folders opened lately (the open one marked "current"),
+"Open folder…" and the example; opening another ends the sessions of this one,
+so torno asks first, in a dialog that names the objects, if one of them is
+working or waiting for an answer. A folder that cannot be opened is said under
+the folder's name, and the workspace stays as it was.
 
 "Rebuild", in the line at the bottom beside how the build stands, builds the
 open object again from its sources as they are (`Ctrl+Shift+B` from anywhere).

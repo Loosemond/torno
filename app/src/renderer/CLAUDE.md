@@ -231,7 +231,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - With a folder open, the folder button of the left column is a menu
   (`ui/FolderMenu.tsx`): the recent folders, "Open folder…", "Open the
   example". A folder torno is started with (`TORNO_WORKSPACE`) is added to the
-  recent ones; the workspace to open next stays the one chosen in the window.
+  recent ones; the workspace to open next stays the one chosen in the window. The open folder's row is marked
+  with a check and the word "current" in the muted face. A folder that cannot be opened (one gone since the menu
+  was read, one main refuses) leaves the workspace as it is and is said under the folder's name, a `role="alert"`
+  line with `openProblem`'s text, until the next action (`goTo` in `App.tsx` returns the problem).
+- **The window's own questions are dialogs over the whole window, not strips of a panel.** Closing torno and
+  opening another folder while something would be cut short ask in `ui/WorkspaceQuestion.tsx`, a centred
+  `alertdialog` (modal: nothing behind it takes a click or a key, Tab goes round within it, "Keep it open" /
+  "Stay here" in focus, Escape presses it, even with the focus elsewhere). It lists a line for each thing with the
+  object it is of, as a link that goes to that object (or to the page of a new one) and puts the question away
+  (`closingWhy`, `leavingWhy` in `closing.ts` return those items). `ui/Confirm.tsx` stays the strip for a question
+  about one panel (a scan, a mark, the session).
 - A workspace with no object says what to make (`ui/ShowPage.tsx`), and one
   without a `pyproject.toml` that its models are built with torno's own
   build123d. torno runs no `uv` command there.
@@ -475,7 +485,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   one aspect. The faces' descriptors are waited for 3 s. The drawing then waits per session above the composer's box
   ("Edit", "Remove"); the board put away, by Done or Cancel, gives the keys to the composer's box (its own giving back
   finds "Draw on view" disabled once a drawing waits). It is taken by the next send and given back if that fails, counts as an unsent prompt when the
-  window is closed (`unsentPrompts`), and goes with the workspace (`clearDrafts`). The composer's box takes the pane's
+  window is closed (`unsentSessions`), and goes with the workspace (`clearDrafts`). The composer's box takes the pane's
   width; its buttons are a row under it.
 
 ## Export

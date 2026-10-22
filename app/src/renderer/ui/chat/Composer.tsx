@@ -17,11 +17,9 @@ const reason = (e: unknown): string => (e instanceof Error ? e.message : String(
 /** A prompt not yet sent, kept for a session while its pane is not shown (another object's, say). */
 const drafts = new Map<string, string>()
 
-/** How many of these sessions have a prompt written in their box, or a drawing on the view waiting for it, and not sent: closing the window would lose it. */
-export function unsentPrompts(sessionIds: Iterable<string>): number {
-  let n = 0
-  for (const id of sessionIds) if ((drafts.get(id) ?? '').trim() !== '' || drawingWaits(id)) n += 1
-  return n
+/** Which of these sessions have a prompt written in their box, or a drawing on the view waiting for it, and not sent: closing the window would lose it. */
+export function unsentSessions(sessionIds: Iterable<string>): string[] {
+  return [...sessionIds].filter((id) => (drafts.get(id) ?? '').trim() !== '' || drawingWaits(id))
 }
 
 /** The drafts of the prompts not sent, and the drawings waiting for them, are let go when the workspace they were made in is closed. */
