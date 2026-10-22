@@ -14,7 +14,7 @@ describe('the system prompt', () => {
 
   it('says the build comes back with an edit, and still to look', () => {
     expect(SYSTEM_PROMPT).toContain('The build result of an edit of the model comes back with the edit, with what it did to the parts')
-    expect(SYSTEM_PROMPT).toContain('is a defect to mend or to explain. Look at the result before saying it is done.')
+    expect(SYSTEM_PROMPT).toContain('mend it or say why. Look at the result before saying it is done.')
     expect(SYSTEM_PROMPT).not.toContain('After every edit, always check the build status with scene')
   })
 
@@ -91,7 +91,9 @@ describe('the system prompt', () => {
 
   it('says how to read the digest that comes back with an edit: numbers of the B-rep, to be held to what was meant', () => {
     expect(FULL_PROMPT).toContain('("Changed since rN")')
-    expect(FULL_PROMPT).toContain('("Check:"), from the B-rep, which a picture is not: adding material must raise a volume and a cut lower it, and a change in a part you did not touch, or anything under Check, is a defect to mend or to explain.')
+    expect(FULL_PROMPT).toContain('("Check:"), from the B-rep, which a picture is not: adding material must raise a volume and a cut lower it; a change in a part your edit did not mean to touch is a defect, and so is a part Check calls not valid, inside out, open or of more solids than meant: mend it or say why.')
+    // What Check lists of an edit (faces renumbered, a part come or gone) is told, never called a defect.
+    expect(FULL_PROMPT).not.toContain('anything under Check')
     expect(SYSTEM_PROMPT).toContain('Check:')
   })
 

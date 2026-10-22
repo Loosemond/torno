@@ -562,7 +562,9 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
 - `Changed since` is each part whose volume, size, place, face, edge or solid
   count changed since the last good build, in the words of `diff`, with `≈`
   where either build's number is not exact; the parts that did not change are
-  counted.
+  counted. A number that is not exact (a freeform part's volume or box) may
+  differ in its last digits from one build to the next: it counts as changed
+  only by more than the kernel says each build's is in doubt.
 - `Check` names a part that is not valid (OCC's check finds a defect), one with
   a solid inside out, one with no solid, one of more than one solid or of
   another number of them than before, one with an open shell, one whose mesh

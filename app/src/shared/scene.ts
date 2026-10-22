@@ -17,9 +17,13 @@ export interface Part {
   bbox: { min: [number, number, number]; max: [number, number, number] }      // object frame: the kernel's box of the part, the one `describe` and `measure bbox` tell
   /** Whether that box is exact: only of planes and cylinders with straight and circular edges. Of any other part it is approximate (widened to the mesh, or the mesh's alone). Absent from a kernel that does not say: then nothing is claimed. */
   bboxExact?: boolean
+  /** Of a box that is not exact, how far each of its sides may be from the part's, mm, as the kernel can say it (the deflection the part was drawn at). Absent of an exact one. */
+  bboxDoubt?: number
   volume: number         // mm³; above 0 of a closed solid, which is how the window knows one
   /** Whether the volume is exact: only of a part all planes, cylinders, cones, spheres and tori. Of any other it is integrated, approximate. */
   volumeExact?: boolean
+  /** Of a volume that is not exact, how far the kernel says it may be from the true one, mm³ (its integrals' spread): two builds of an untouched part may differ by that much. Absent of an exact one. */
+  volumeDoubt?: number
   /** The solids of the part that are inside out (their faces point inward), 0-based among its solids in the kernel's order, as faces are numbered; absent of a sound part. `volume` is then the size of the material and not a verdict: a build's sanity pass and `check` read this. */
   reversed?: number[]
   /** How many solids the part has (0 of a shell or a face); absent from a kernel that does not say. One that reads more than it did has come apart. */

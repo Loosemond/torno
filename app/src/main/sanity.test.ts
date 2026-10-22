@@ -95,6 +95,21 @@ describe('the digest of a build', () => {
     expect(digest.parts[0].volume.exact).toBe(false)
   })
 
+  it('holds a number that is not exact to the doubt the kernel says it has: an untouched freeform part is unchanged', () => {
+    const horn = (more: Partial<Part>): Part => part('assembly', 'horn', { volumeExact: false, bboxExact: false, volumeDoubt: 0.4, bboxDoubt: 0.02, volume: 12345.6, meshVolume: 12345.6, ...more })
+    const before = kept(7, [horn({}), part('assembly', 'lid')])
+    // The last digits of the integral, and a box drawn at another moment: within what both builds say of them.
+    const again = kept(8, [horn({ volume: 12345.9, volumeDoubt: 0.3, bbox: { min: [-20.01, -15, -3], max: [20, 15.015, 3] } }), part('assembly', 'lid')])
+    const digest = sanity(before, again)
+    expect(digest).toMatchObject({ changed: false, parts: [], unchanged: 2 })
+    // Beyond them it changed, and says so with ≈.
+    const cut = sanity(before, kept(8, [horn({ volume: 12340, bbox: { min: [-20, -15, -3], max: [20, 15, 2] } }), part('assembly', 'lid')]))
+    expect(cut.changed).toBe(true)
+    expect(cut.parts[0].text).toBe('horn: volume ≈ 12350 → 12340 mm³ (-5.6, -0.045 %), size ≈ 40 × 30 × 6 → 40 × 30 × 5 mm')
+    // An exact number has no doubt: any change is one.
+    expect(sanity(BEFORE, kept(8, [part('assembly', 'tub', { volume: 6000.001 }), part('assembly', 'lid'), part('assembly', 'cap')])).changed).toBe(true)
+  })
+
   it('tells a change of volume alone as a change, never as a defect', () => {
     const digest = sanity(BEFORE, kept(8, [part('assembly', 'tub', { volume: 2000, meshVolume: 2000 }), part('assembly', 'lid'), part('assembly', 'cap')]))
     expect(digest.changed).toBe(true)

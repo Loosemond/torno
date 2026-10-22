@@ -75,6 +75,9 @@ is the detail of this folder, under the headings it has there.
   neither is told as the other; an area that is exact is one number, measured once whoever asks first. A part has one box, told alike by the scene, `describe` and `measure bbox`
   (`tess.part_box`), exact only of planes and cylinders with straight and circular edges
   (`extent.boxed_exactly`, `bboxExact`).
+- Of a part whose volume is not exact the scene gives `volumeDoubt`, its spread (mm³), and of one whose box is not
+  exact `bboxDoubt`, the deflection it was drawn at (mm): an untouched part's approximate numbers may differ that
+  much from one build to the next, and main does not tell that as a change. Absent of an exact one.
 - What a build tells of a part besides its sizes (`tess._sanity`): `solids`, how many it has; `openShells`, how many
   of its shells have a free edge (one that only one of their faces has: a seam and a pole are none); and
   `meshVolume`, the size of what the part's own mesh encloses, a sum over the triangles it is drawn with. That is

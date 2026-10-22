@@ -549,3 +549,22 @@ def test_a_mesh_is_not_held_against_a_part_whose_volume_says_nothing():
     parts = sanity_of(bad=cube_reversed(), shell=open_box())
     assert parts["bad"]["meshVolume"] == pytest.approx(1000)
     assert all("meshDisagrees" not in p for p in parts.values())
+
+
+def test_a_number_that_is_not_exact_comes_with_how_far_the_kernel_says_it_may_be_out():
+    from build123d import Box
+
+    from torno_kernel import extent
+
+    parts = sanity_of(box=Box(10, 10, 10), **horn_and_ball())
+    # Exact: nothing to doubt, and nothing told.
+    assert "volumeDoubt" not in parts["box"] and "bboxDoubt" not in parts["box"]
+    horn = parts["horn"]
+    assert (horn["volumeExact"], horn["bboxExact"]) == (False, False)
+    # The volume's spread, as extent says it of the integrals; the box's, the deflection the part was drawn at.
+    loft = horn_and_ball()["horn"]
+    assert horn["volumeDoubt"] == pytest.approx(extent.volume(loft).spread, rel=0.5, abs=1e-9)
+    assert horn["volumeDoubt"] >= 0
+    assert 0 < horn["bboxDoubt"] < 1
+    # A sphere's volume is exact, its box is not.
+    assert "volumeDoubt" not in parts["ball"] and parts["ball"]["bboxDoubt"] > 0

@@ -246,6 +246,13 @@ def _part(
     if volume.reversed:
         # Which solids of the part are inside out, 0-based in OCC's order: absent of a sound part.
         told["reversed"] = list(volume.reversed)
+    # How far a number that is not exact may be from the true one, as the kernel can say it: so that two builds of an
+    # untouched part, whose last digits may differ, are not told apart. Of the volume its spread (``extent.Volume``);
+    # of the box the deflection it was drawn at, which bounds how far the mesh it is widened to, or is, lies off.
+    if not volume.exact:
+        told["volumeDoubt"] = volume.spread
+    if not exact:
+        told["bboxDoubt"] = drawn_at
     told.update(_sanity(shape, arrays, volume, drawn_at))
     return told
 

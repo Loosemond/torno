@@ -644,8 +644,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   verdicts)` holds it against the successful build before (`Builds.scenes`, the data `diff` reads) from what the
   kernel sent with each (`solids`, `openShells`, `meshVolume`, `meshDisagrees`, `valid`, `reversed`): no query.
   Parts are compared by name, each in the first layout of the build that has it, with `partDiff` (which `diff`
-  uses too: the same line, the volume's change also in percent, `≈` where either build is not exact); unchanged
-  parts are counted. Its flags are of the shape alone, never a guess at intent: not valid, inside out, no solid or
+  uses too: the same line, the volume's change also in percent, `≈` where either build is not exact; a number that
+  is not exact has changed only by more than both builds' doubt of it, `volumeDoubt` and `bboxDoubt`, twice that of
+  a size); unchanged parts are counted. Its flags are of the shape alone, never a guess at intent: not valid, inside out, no solid or
   no volume, more than one solid or another count than before, an open shell, a mesh that disagrees, a part come
   or gone, face or edge counts changed (refs may name others), a dimension that passed on the build before and
   fails now. Each says whether it is new; a hard one (`DigestFlag.hard`: not valid, inside out, a solid count that

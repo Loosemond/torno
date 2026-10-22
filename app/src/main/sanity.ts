@@ -31,6 +31,8 @@ export function clean<T>(value: T): T {
 const sizeOf = (p: Part): Vec3 => p.bbox.max.map((max, i) => max - p.bbox.min[i]) as Vec3
 const minus = (a: readonly number[], b: readonly number[]): number[] => a.map((v, i) => v - b[i])
 const same = (a: readonly number[], b: readonly number[]): boolean => a.every((v, i) => clean(v) === clean(b[i]))
+/** The same, or apart by no more than `slack` in any coordinate. */
+const within = (a: readonly number[], b: readonly number[], slack: number): boolean => same(a, b) || a.every((v, i) => Math.abs(v - b[i]) <= slack)
 const signed = (v: number): string => (clean(v) > 0 ? `+${number(v)}` : number(v))
 /** A change as a part of what it was, in percent, to two significant digits; none of what was nothing. */
 const percentOf = (change: number, before: number): number | undefined => (Math.abs(before) < 1e-9 ? undefined : Number(((change / before) * 100).toPrecision(2)))
@@ -40,9 +42,14 @@ export function partDiff(before: Part, after: Part): { data: Omit<DigestPart, 'l
   const volumeExact = before.volumeExact === true && after.volumeExact === true
   const boxExact = before.bboxExact === true && after.bboxExact === true
   const [sizeBefore, sizeAfter] = [sizeOf(before), sizeOf(after)]
-  const volumeChanged = clean(before.volume) !== clean(after.volume)
-  const sizeChanged = !same(sizeBefore, sizeAfter)
-  const minChanged = !same(before.bbox.min, after.bbox.min)
+  // A number that is not exact may differ in its last digits from one build to the next however untouched the part
+  // is: it changed only by more than both builds' doubt of it (`volumeDoubt`, `bboxDoubt`). An exact one, by anything.
+  const volumeSlack = volumeExact ? 0 : (before.volumeDoubt ?? 0) + (after.volumeDoubt ?? 0)
+  const boxSlack = boxExact ? 0 : (before.bboxDoubt ?? 0) + (after.bboxDoubt ?? 0)
+  const volumeChanged = clean(before.volume) !== clean(after.volume) && Math.abs(after.volume - before.volume) > volumeSlack
+  // A size has two sides, each of them in doubt.
+  const sizeChanged = !within(sizeBefore, sizeAfter, 2 * boxSlack)
+  const minChanged = !within(before.bbox.min, after.bbox.min, boxSlack)
   const facesChanged = before.faceCount !== after.faceCount
   const edgesChanged = before.edgeCount !== after.edgeCount
   const solidsChanged = before.solids !== undefined && after.solids !== undefined && before.solids !== after.solids
