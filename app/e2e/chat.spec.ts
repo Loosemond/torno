@@ -355,7 +355,7 @@ test('the build an edit started is a build under the edit: that it worked and ho
 
   await say('edit hollow.py "return {" "return WAL, {"')
   const failed = chat().locator('.chat-build').last()
-  await expect(failed).toContainText("r3 failed: NameError: name 'WAL' is not defined", { timeout: 30_000 })
+  await expect(failed).toContainText("Build after r2 failed: NameError: name 'WAL' is not defined", { timeout: 30_000 })
   await expect(failed.locator('.chat-build-head')).toHaveAttribute('data-verdict', 'failed')
   await failed.getByRole('button', { name: 'Show error' }).click()
   await expect(page.getByRole('dialog', { name: 'Build error' })).toContainText("name 'WAL' is not defined")

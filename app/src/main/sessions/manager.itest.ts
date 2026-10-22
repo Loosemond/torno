@@ -2092,7 +2092,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     await post('UserPromptSubmit', { prompt: 'make it' })
     land(building(obj.id, 8))
     land(failed(obj.id, 8))
-    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The latest build (r9) failed: NameError: x. Fix it, or say it is still broken.' })
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The build after r8 failed: NameError: x. Fix it, or say it is still broken.' })
     expect(seen.at(-1)).toBe('working')
     expect(await post('Stop', { stop_hook_active: true })).toEqual({})
     expect(seen.at(-1)).toBe('idle')
@@ -2195,7 +2195,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     await post('UserPromptSubmit', { prompt: 'make it' })
     land(building(obj.id, 7))
     land(failed(obj.id, 7))
-    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The latest build (r8) failed: NameError: x. Fix it, or say it is still broken.' })
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The build after r7 failed: NameError: x. Fix it, or say it is still broken.' })
     // Fixed, with a part that came apart, a dimension broken and nobody looking: the second hold is the defect (and says so of the look),
     // the third reason is not held for.
     kept = { revision: 9, scene: sceneOf({ solids: 2 }) }
@@ -2299,7 +2299,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     land(building(obj.id, 7))
     setTimeout(() => land(failed(obj.id, 7)), 150)
     const begunAt = Date.now()
-    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The latest build (r8) failed: NameError: x. Fix it, or say it is still broken.' })
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The build after r7 failed: NameError: x. Fix it, or say it is still broken.' })
     expect(Date.now() - begunAt).toBeGreaterThanOrEqual(140)
     expect(Date.now() - begunAt).toBeLessThan(2500)
   })
@@ -2425,6 +2425,54 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     const [good, bad] = items.filter((i) => i.kind === 'context')
     expect(good).not.toHaveProperty('error')
     expect(bad).not.toHaveProperty('seconds')
+  })
+
+  it('says of an edit the failure of its own build, not of a newer one that began while its context was made', async () => {
+    states = new Map()
+    own = recording(await startHttp())
+    const server = own
+    made = new Sessions({
+      configDir,
+      http: server,
+      adapter: claudeAdapter(`node ${FAKE}`),
+      viewFor: () => 'chat',
+      contextFor: () => ({ text: '', sentMarkIds: [] }),
+      build: (id) => states.get(id),
+      // The context takes its time, as it does with a dimension to measure: a save lands meanwhile and fails differently.
+      buildContextFor: async (id) => {
+        const said = told(id)
+        await new Promise((done) => setTimeout(done, 300))
+        return said
+      },
+      editTiming: { answerMs: 5000, graceMs: 1500 },
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => server.url(`/mcp/${id}`)
+    })
+    others.push(made)
+    n += 1
+    const obj = { ...object(`leak-${n}`), model: 'part.py' }
+    mkdirSync(obj.dir, { recursive: true })
+    writeFileSync(join(obj.dir, 'part.py'), 'W = 1\n')
+    const messages: StreamMessage[] = []
+    made.on('stream', (m) => messages.push(m.message))
+    const { sessionId } = await made.start(obj, {})
+    const error = (message: string): BuildState => ({ ...failed(obj.id, 2), error: { kind: 'exception', message, traceback: `Traceback\n${message}\n` } })
+    let seen = false
+    const timer = setInterval(() => {
+      if (seen || readFileSync(join(obj.dir, 'part.py'), 'utf8') === 'W = 1\n') return
+      seen = true
+      land(building(obj.id, 2))
+      setTimeout(() => land(error('NameError: first')), 100)
+      // After the answer began to be made, before it ends.
+      setTimeout(() => land(error('NameError: later')), 250)
+    }, 10)
+    try {
+      made.prompt(sessionId, [{ type: 'text', text: 'edit part.py "W = 1" "W = 2"' }])
+      await expect.poll(() => messages.filter((m) => m.type === 'result').length, { timeout: 10_000 }).toBe(1)
+    } finally {
+      clearInterval(timer)
+    }
+    expect(made.history(sessionId)!.items.filter((i) => i.kind === 'context')).toMatchObject([{ forTool: true, buildState: 'failed', error: 'NameError: first' }])
   })
 
   it('tells what the build did to the parts, from the real kernel, and holds a Stop back once for a part that came apart', async () => {

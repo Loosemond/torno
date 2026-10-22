@@ -17,9 +17,6 @@ export function verdictWord(now: Verdict): string {
   return now === 'pass' ? 'now passes' : now === 'fail' ? 'now fails' : 'is no longer measured'
 }
 
-/** The build that failed after `revision`, the last good one: the number it would have been given (a failure has none of its own). */
-export const failedAs = (item: Pick<Context, 'revision'>): string => `r${(item.revision ?? 0) + 1}`
-
 /** Whether the latest build is the failure this line tells of: only then does "Show error" open the sheet of it. */
 export function stillLatest(build: Pick<BuildState, 'status' | 'revision' | 'error'> | null, item: Pick<Context, 'revision' | 'error'>): boolean {
   if (build?.status !== 'failed' || build.error === undefined || item.error === undefined) return false
@@ -48,7 +45,14 @@ export const BuildLine = memo(function BuildLine({ item }: { item: Context }) {
         )}
         {item.buildState === 'failed' && (
           <span className="chat-build-head" data-verdict="failed">
-            <span className="num">{failedAs(item)}</span> failed{item.error ? <>: {numbered(item.error)}</> : ''}
+            {item.revision ? (
+              <>
+                Build after <RefChip value={`r${item.revision}`} /> failed
+              </>
+            ) : (
+              'First build failed'
+            )}
+            {item.error ? <>: {numbered(item.error)}</> : ''}
           </span>
         )}
         {item.buildState === 'building' && <span className="chat-build-head">Build running</span>}

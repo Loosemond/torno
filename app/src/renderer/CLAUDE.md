@@ -444,8 +444,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   and metas are merged by `seq` with the history, so none is drawn twice or lost. Each `context` item is drawn
   under its prompt, as chips from its fields (marks, build, selection), never from its text. One made for a tool's
   card (`forTool`: the build an edit of the model started) is a build line under that card (`BuildLine`), drawn from
-  its fields alone: `Built r2 · ok · 1.2 s`, or `r3 failed: <the last line of the traceback>` in `--fail` (a failure
-  has no revision of its own: it is named as the one after the last good build, as the Stop hook names it), "Show
+  its fields alone: `Built r2 · ok · 1.2 s`, or `Build after r2 failed: <the last line of the traceback>` in `--fail` (a revision names a build that worked, as
+  `main/builds.ts` counts them: a failure has no number of its own and is the build after the one on show, `failedAfter`
+  of `shared/build.ts`, which the Stop hook says too; the prompt's "torno added" line says it alike), "Show
   error" while that failure is still the latest build, the dimensions whose verdict it changed (`digest.dimensions`,
   from `verdictChanges`, never worked out again here) as chips with `now passes` / `now fails`, and the parts it
   changed (`digest.parts[].text`, four at most, the rest counted), then "Show text". The sheet of a failed build is

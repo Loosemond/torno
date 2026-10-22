@@ -646,7 +646,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   begun in the turn that is still running and, when a dimension passed when the turn began, for the dimensions to be
   measured on the build that ended (`Verdicts.settled`, to the same deadline). Then it is held back (`decision:
   block`) for the first of these five reasons: the build begun in the turn is still running; the latest build, ended
-  in the turn, failed; the last successful build, built in the turn, has a hard defect (`hardDefects`) that the
+  in the turn, failed (said as "The build after rN failed", `failedAfter`: a revision names a build that worked, and a
+  failure has no number of its own); the last successful build, built in the turn, has a hard defect (`hardDefects`) that the
   last successful build when the turn began (`TurnState.before`) had not, and the reason says the agent may answer
   that it is meant; a dimension that passed on that build fails on the latest (`verdictChanges` of `verdicts.ts`,
   kept `pass` to `fail`; the reason names it with `valueAgainstExpected`); a build of the object ended in the turn

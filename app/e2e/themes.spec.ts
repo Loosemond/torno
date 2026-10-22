@@ -299,7 +299,7 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(page.locator('.chat-turn')).toContainText('Pulled from torno: look, 1 picture', { timeout: 30_000 })
           // The two edits each started a build, under the edit: one that worked and mended a dimension, one that failed.
           await expect(page.locator('.chat-build').first()).toContainText('Built r2 · ok')
-          await expect(page.locator('.chat-build').last()).toContainText('r3 failed: NameError')
+          await expect(page.locator('.chat-build').last()).toContainText('Build after r2 failed: NameError')
           // Then a request to use a tool, waiting for the person, and a window of the rate limit half used.
           await page.keyboard.type('rate 72')
           await page.keyboard.press('Shift+Enter')

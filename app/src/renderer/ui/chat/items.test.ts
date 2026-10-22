@@ -19,6 +19,11 @@ describe('what is drawn under an item', () => {
     expect(out.replace(/<[^>]*>/g, '')).toContain('torno added')
   })
 
+  it('names a failed build in what torno added to a prompt as the build after the revision on show', () => {
+    const out = drawn([user, { ...forPrompt, marks: [], buildState: 'failed' }]).replace(/<[^>]*>/g, '')
+    expect(out).toContain('build after r1 failed')
+  })
+
   it('draws a build whose card is gone as a build where it stands', () => {
     const out = drawn([{ ...forEdit, forUser: 'gone' }])
     expect(out).toContain('chat-build')

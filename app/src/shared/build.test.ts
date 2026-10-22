@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ERROR_LINE, errorLine } from './build'
+import { ERROR_LINE, errorLine, failedAfter } from './build'
 
 describe('the line of a failed build the chat shows', () => {
   it('is the last line of the traceback, which names the kind of error', () => {
@@ -16,5 +16,12 @@ describe('the line of a failed build the chat shows', () => {
     const line = errorLine({ message: 'x'.repeat(ERROR_LINE * 2) })
     expect(line).toHaveLength(ERROR_LINE)
     expect(line.endsWith('…')).toBe(true)
+  })
+})
+
+describe('how a failed build is named', () => {
+  it('is the build after the last one that worked, since a revision names a build that worked; the first build when none has', () => {
+    expect(failedAfter(2)).toBe('build after r2')
+    expect(failedAfter(0)).toBe('first build')
   })
 })

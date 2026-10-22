@@ -45,3 +45,12 @@ export function errorLine(error: Pick<BuildError, 'message' | 'traceback'>): str
   const line = lastOf(error.traceback) || lastOf(error.message)
   return line.length > ERROR_LINE ? `${line.slice(0, ERROR_LINE - 1)}…` : line
 }
+
+/**
+ * Which build a failure is told as: a revision names a build that worked, as the builds count them, so a failure
+ * has no number of its own and is "the build after r2" (the one still on show), or "the first build" when none
+ * has worked yet. `revision` is `BuildState.revision`.
+ */
+export function failedAfter(revision: number): string {
+  return revision > 0 ? `build after r${revision}` : 'first build'
+}

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '../../../shared/chat'
 import type { BuildDigest } from '../../../shared/sanity'
 import { store } from '../../state/store'
-import { BuildLine, failedAs, MOST_PARTS, stillLatest, verdictWord } from './BuildLine'
+import { BuildLine, MOST_PARTS, stillLatest, verdictWord } from './BuildLine'
 
 type Context = Extract<ChatItem, { kind: 'context' }>
 const context = (more: Partial<Context> = {}): Context => ({ kind: 'context', id: 'i3', forUser: 'i2', forTool: true, text: 'THE WHOLE TEXT THE AGENT WAS GIVEN', marks: [], ...more })
@@ -34,12 +34,16 @@ describe('the build line under an edit', () => {
     expect(out).not.toContain('THE WHOLE TEXT')
   })
 
-  it('names the failure of a build that failed by the last line of its error, as the build the revision after the last good one', () => {
+  it('names the failure of a build as the build after the last one that worked, which has the revision; a failure has none of its own', () => {
     const out = drawn(context({ revision: 2, buildState: 'failed', error: "NameError: name 'WAL' is not defined" }))
-    expect(text(out)).toContain("r3 failed: NameError: name 'WAL' is not defined")
+    expect(text(out)).toContain("Build after r2 failed: NameError: name 'WAL' is not defined")
+    expect(text(out)).not.toContain('r3')
     expect(out).toContain('data-verdict="failed"')
-    expect(failedAs({})).toBe('r1')
-    expect(failedAs({ revision: 2 })).toBe('r3')
+    expect(out).toContain('data-ref="r2"')
+    // None has worked: there is no revision to name.
+    const first = text(drawn(context({ buildState: 'failed', error: 'SyntaxError: x' })))
+    expect(first).toContain('First build failed: SyntaxError: x')
+    expect(first).not.toMatch(/r\d/)
   })
 
   it('offers "Show error" only while that failure is the latest build', () => {

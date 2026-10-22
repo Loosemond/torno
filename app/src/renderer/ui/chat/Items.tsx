@@ -40,7 +40,15 @@ const Added = memo(function Added({ item }: { item: Of<'context'> }) {
         ))}
         {item.revision !== undefined && item.buildState && (
           <span className="chat-added-build">
-            <RefChip value={`r${item.revision}`} /> <span data-verdict={item.buildState}>{item.buildState}</span>
+            {item.buildState === 'failed' ? (
+              <>
+                build after <RefChip value={`r${item.revision}`} /> <span data-verdict="failed">failed</span>
+              </>
+            ) : (
+              <>
+                <RefChip value={`r${item.revision}`} /> <span data-verdict={item.buildState}>{item.buildState}</span>
+              </>
+            )}
           </span>
         )}
         {item.selection && item.selection.length > 0 && (

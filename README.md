@@ -360,20 +360,22 @@ is a new line, and a prompt sent while the agent is at work waits its turn
 ("Queued"; "Stop" interrupts the turn, and what was queued still runs after it).
 
 - **What torno added.** Under each prompt, a "torno added" line shows what went
-  with it: the marks sent, as chips in their colours, the build (`r12 ok`), and
-  the selection; "Show text" opens the exact text the agent was given. Above the
+  with it: the marks sent, as chips in their colours, the build (`r12 ok`, or
+  `build after r12 failed`), and the selection; "Show text" opens the exact text the agent was given. Above the
   box, "Goes with your next prompt" says what will go.
 - **The build an edit started.** When the agent edits the model, the build that
   follows is a line of its own under the edit's card: `Built r2 · ok · 1.2 s`,
-  or `r3 failed: NameError: name 'WAL' is not defined` in the fail colour (the
-  last line of the traceback), with "Show error" opening the sheet of that
+  or `Build after r2 failed: NameError: name 'WAL' is not defined` in the fail
+  colour (the last line of the traceback), with "Show error" opening the sheet of that
   failure while it is the latest build. Under it, the dimensions whose verdict
   that build changed (`M3 now passes`, `M2 now fails`) and the parts it changed,
   a line each as the kernel said them (`tub: volume 14710 → 20460 mm³ (+5752, +39
   %)`, with `≈` where the number is not exact), four at most. "Show text" opens
-  the exact text the agent was given. A failed build is named as the revision
-  after the last good one, as it would be numbered; once a build has failed, the
-  chip of the build still on show opens the same sheet.
+  the exact text the agent was given. A revision names a build that worked: a
+  failure has no number of its own, and is told as the build after the one still
+  on show (the first build, when none has worked), in the window and in what
+  the agent is told. Once a build has failed, the chip of the build still on
+  show opens the same sheet.
 - **What the agent pulled from torno.** Every tool of torno's it calls is a card
   of its own, with its input, its result and its pictures as thumbnails that
   open large; the turn ends with a line such as "Pulled from torno: scene, 2
@@ -603,7 +605,8 @@ dimensions to be measured. Then, by the first that applies:
 
 1. The build is still running. It is asked to read the result with `scene` and
    to look.
-2. The latest build failed, and it is asked to fix it or say it is still broken.
+2. The build after the one on show failed (`The build after r7 failed: ...`), and
+   it is asked to fix it or say it is still broken.
 3. A part has a defect the build the turn began with had not (above).
 4. A dimension that passed on the build the turn began with fails on the latest:
    `M4 passed on r7 and fails on r9 (6 mm, expected 8 ± 0.05). Fix it, or say

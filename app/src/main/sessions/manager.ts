@@ -6,7 +6,7 @@ import { isInsideFolder } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
-import { type BuildState, errorLine } from '../../shared/build'
+import { type BuildState, errorLine, failedAfter } from '../../shared/build'
 import type { ViewDrawing } from '../../shared/drawing'
 import type { Scene } from '../../shared/scene'
 import type { ObjectInfo } from '../../shared/workspace'
@@ -524,6 +524,9 @@ export class Sessions {
     // Its dimensions of its own build, as far as they are measured in the time there is: else they say not measured.
     const ended = build(objectId)
     if (ended?.status === 'ok') await this.deps.settled?.(objectId, ended.revision, Math.min(deadline, Date.now() + EDIT_SETTLE_MS))
+    // The state this edit's build ended in, read before anything is awaited: a save while the context is made may
+    // begin another build, whose failure is not this edit's to say.
+    const at = build(objectId)
     let told: PromptContext
     try {
       told = await buildContextFor(objectId, this.deps.adapter.toolName)
@@ -533,9 +536,8 @@ export class Sessions {
     }
     if (!told.text) return {}
     // How long it took and what it said, as data: the window draws a build line from these and the digest, never from the text.
-    const state = build(objectId)
-    const took = told.buildState === 'ok' && state?.status === 'ok' && state.revision === told.revision ? state.seconds : undefined
-    const error = told.buildState === 'failed' && state?.status === 'failed' ? state.error ? errorLine(state.error) : undefined : undefined
+    const took = told.buildState === 'ok' && at?.status === 'ok' && at.revision === told.revision ? at.seconds : undefined
+    const error = told.buildState === 'failed' && at?.status === 'failed' && at.error ? errorLine(at.error) : undefined
     session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}) })
     return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
   }
@@ -586,7 +588,7 @@ export class Sessions {
     const builtInTurn = (this.buildEnds.get(objectId) ?? 0) > turn.since
     if (!builtInTurn) return null
     if (state.status === 'failed') {
-      return hold('failed', `The latest build (r${state.revision + 1}) failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.`)
+      return hold('failed', `The ${failedAfter(state.revision)} failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.`)
     }
     if (state.status !== 'ok') return null
     const last = this.deps.scene?.(objectId)
