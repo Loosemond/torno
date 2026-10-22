@@ -847,9 +847,13 @@ describe('what the model printed', () => {
   it('is told of the build that ended last: not while one runs, and not for a kernel that stopped', () => {
     const building: BuildState = { objectId: 'bracket', status: 'building', revision: 4, startedAt: 0, stale: true }
     expect(buildContextFor(deps({ build: building, scene: printing('old') }), 'bracket').text).not.toContain('Model printed')
-    // The output of a crash is the kernel's stderr, not the model's.
-    const crashed: BuildState = { objectId: 'bracket', status: 'failed', revision: 4, stale: true, error: { kind: 'crash', message: 'kernel stopped', output: 'Traceback in the kernel' } }
-    expect(buildContextFor(deps({ build: crashed, scene: printing('old') }), 'bracket').text).not.toContain('Model printed')
+    // The output of a kernel that stopped is its stderr, not the model's.
+    const stopped: BuildState = { objectId: 'bracket', status: 'failed', revision: 4, stale: true, error: { kind: 'crash', message: 'kernel stopped', output: 'Traceback in the kernel', kernelStderr: true } }
+    expect(buildContextFor(deps({ build: stopped, scene: printing('old') }), 'bracket').text).not.toContain('Model printed')
+    expect(buildContextFor(deps({ build: stopped, scene: printing('old') }), 'bracket').text).not.toContain('Traceback in the kernel')
+    // A build process that was killed (a segfault in a boolean) keeps what the model printed before it.
+    const killed: BuildState = { objectId: 'bracket', status: 'failed', revision: 4, stale: true, error: { kind: 'crash', message: 'the build process was killed by SIGSEGV (Segmentation fault) before it finished', output: 'cutting\nabout to fuse' } }
+    expect(buildContextFor(deps({ build: killed, scene: printing('old') }), 'bracket').text).toMatch(/\nModel printed \(last 2 lines\):\ncutting\nabout to fuse$/)
     // Nor is the output of the build before a failed one.
     expect(buildContextFor(deps({ build: { ...FAILED, error: { kind: 'exception', message: 'no' } }, scene: printing('from r3') }), 'bracket').text).not.toContain('from r3')
   })

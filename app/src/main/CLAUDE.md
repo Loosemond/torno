@@ -632,7 +632,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`OUTPUT_LINES` 15, `OUTPUT_CHARS` 1,000, the end kept; `, earlier output cut` when anything was left out), and
   `output` (with `outputCut`) of `scene`, which also gives it after a first build that failed, with no scene. It is
   of the build that ended last: a failed build's is its error's, never the output of the good build before; none
-  while a build runs; none for `kind: 'crash'`, whose `output` is the kernel's stderr and not the model's. It takes
+  while a build runs; none for the error main makes when the kernel process stopped (`kernelStderr`, whose `output` is the kernel's stderr and
+  not the model's); a build process the supervisor reports as a `crash` (killed, a garbled result) keeps its prints. It takes
   what is left of `CONTEXT_LIMIT` after the status, the dimensions and the count of those that pass, so a traceback
   and a dimension outrank it; with less than `MIN_OUTPUT_CHARS` left it is a line that there is output and that
   `scene` has it, or nothing.

@@ -346,8 +346,10 @@ describe('scene', () => {
       expect(told.parts).toHaveLength(4)
       // A failed build that printed nothing does not leave the build before it in its place.
       expect(JSON.parse(textOf(sceneTool(fake({ state: failed(undefined), ...printing('from r3') }), 'bracket')))).not.toHaveProperty('output')
-      // The output of a crash is the kernel's own.
-      expect(JSON.parse(textOf(sceneTool(fake({ state: failed('kernel stderr', 'crash') }), 'bracket')))).not.toHaveProperty('output')
+      // The output of a kernel that stopped is its stderr; that of a build process that was killed is the model's.
+      const stopped: BuildState = { ...failed('kernel stderr', 'crash'), error: { kind: 'crash', message: 'kernel stopped', output: 'kernel stderr', kernelStderr: true } }
+      expect(JSON.parse(textOf(sceneTool(fake({ state: stopped }), 'bracket')))).not.toHaveProperty('output')
+      expect(JSON.parse(textOf(sceneTool(fake({ state: failed('about to fuse', 'crash') }), 'bracket'))).output).toBe('about to fuse')
     })
 
     it('is given with the error of a first build that failed, when there is no scene to put it in', () => {

@@ -782,7 +782,7 @@ describe('Builds', () => {
     await flush()
     kernel.tail = 'ModuleNotFoundError: build123d'
     kernel.stop(1)
-    const error = { kind: 'crash', message: 'kernel stopped', output: 'ModuleNotFoundError: build123d' }
+    const error = { kind: 'crash', message: 'kernel stopped', output: 'ModuleNotFoundError: build123d', kernelStderr: true }
     expect(builds.state('bracket')).toMatchObject({ status: 'failed', revision: 1, stale: true, error })
     expect(builds.state('gear')).toMatchObject({ status: 'failed', revision: 0, stale: false, error })
     expect(builds.scene('bracket')?.revision).toBe(1)

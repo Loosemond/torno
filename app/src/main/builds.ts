@@ -493,7 +493,7 @@ export class Builds {
     for (const entry of this.entries.values()) {
       entry.attempt += 1 // nothing still on its way is shown
       const revision = entry.state.revision
-      const error: BuildError = { kind: 'crash', message: 'kernel stopped', output: tail }
+      const error: BuildError = { kind: 'crash', message: 'kernel stopped', output: tail, kernelStderr: true }
       this.set(entry, { objectId: entry.obj.id, status: 'failed', revision, error, stale: revision > 0 })
     }
   }

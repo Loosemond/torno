@@ -454,12 +454,13 @@ function someOf(names: string[], room: number): string {
  * What the model printed in the build that ended last, as far as it is told: the last `OUTPUT_LINES` lines of it, and
  * of those the last `chars` characters (the end is what a `print` meant to say), with whether anything was left out.
  * Null when it printed nothing, when a build is running or there is none, and for a kernel that stopped (its `output`
- * is then the kernel's own stderr). A failed build's is its error's; a good build's, its scene's. `deps.redact` is
- * applied before the cut, so that no part of a secret is left standing at it.
+ * is then the kernel's own stderr: `kernelStderr`). A build process that crashed (killed, or a result it could not
+ * read) keeps what the model printed. A failed build's is its error's; a good build's, its scene's. `deps.redact`
+ * is applied before the cut, so that no part of a secret is left standing at it.
  */
 export function modelOutput(deps: Pick<ContextDeps, 'build' | 'scene' | 'redact'>, objectId: string, chars = OUTPUT_CHARS): { text: string; lines: number; cut: boolean } | null {
   const build = deps.build(objectId)
-  const given = build?.status === 'failed' ? (build.error?.kind === 'crash' ? '' : build.error?.output) : build?.status === 'ok' ? deps.scene(objectId)?.scene.output : ''
+  const given = build?.status === 'failed' ? (build.error?.kernelStderr ? '' : build.error?.output) : build?.status === 'ok' ? deps.scene(objectId)?.scene.output : ''
   if (!given || given.trim() === '') return null
   const whole = (deps.redact?.(given) ?? given).trimEnd()
   const all = whole.split('\n')

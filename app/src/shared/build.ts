@@ -1,5 +1,12 @@
 export type BuildStatus = 'idle' | 'building' | 'ok' | 'failed'
-export interface BuildError { kind: string; message: string; traceback?: string; output?: string }
+export interface BuildError {
+  kind: string
+  message: string
+  traceback?: string
+  output?: string
+  /** `output` is the stderr of the kernel process that stopped (set by main where it makes that error), not what the model printed. */
+  kernelStderr?: true
+}
 export interface BuildState {
   objectId: string
   status: BuildStatus
