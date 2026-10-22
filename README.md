@@ -393,7 +393,10 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   "Deny", with a reason if you give one. A change to a file (`Edit`, `MultiEdit`)
   is shown as lines removed (struck through, with a "−") and lines added (with a
   "+"), the first six of them and "Show all"; the same lines are in its tool card
-  when you open it. A `Write` shows the first lines of what it will hold. A question of the agent's is a card with
+  when you open it. They are the lines of the edit, not of the file: where in the
+  file it lands is not shown (the card says so), and an edit that replaces every
+  match says that. A text of more than 400 differing lines is not compared: all
+  its old lines are shown removed and all the new ones added. A `Write` shows the first lines of what it will hold. A question of the agent's is a card with
   its options and an "Other" line; a plan is shown to be approved or kept
   planning. The session reads "Needs input" while a card is open. "Stop" with a
   card open ends the turn and the card reads "Cancelled: the turn was stopped";

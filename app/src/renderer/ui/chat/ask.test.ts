@@ -69,6 +69,10 @@ it('shows an Edit as the lines removed and added, a MultiEdit as one block for e
   expect(cut.hunks?.[0].rows).toHaveLength(6)
   expect(describeInput('MultiEdit', { file_path: 'm.py', edits }, true)).toMatchObject({ more: 0, hunks: [{ rows: expect.arrayContaining([{ kind: 'added', text: 'e' }]) }] })
 
+  // An edit with replace_all changes every match in the file: the card says so.
+  expect(describeInput('Edit', { file_path: 'm.py', old_string: 'a', new_string: 'b', replace_all: true }).hunks?.[0].everywhere).toBe(true)
+  expect(describeInput('Edit', { file_path: 'm.py', old_string: 'a', new_string: 'b' }).hunks?.[0].everywhere).toBeUndefined()
+
   // A Write has no old text to compare with: it stays the first lines of what it holds.
   expect(describeInput('Write', { file_path: 'm.py', content: 'WALL = 3' })).toEqual({ lead: 'm.py', body: 'WALL = 3', more: 0 })
   expect(describeInput('Write', { file_path: 'm.py', content: 'WALL = 3' }).hunks).toBeUndefined()

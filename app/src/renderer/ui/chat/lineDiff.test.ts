@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CHANGE_LINES, diffText, editHunks, limitHunks } from './diff'
+import { CHANGE_LINES, diffText, editHunks, limitHunks } from './lineDiff'
 
 const kinds = (text: { rows: Array<{ kind: string; text: string }> }): string[] => text.rows.map((r) => `${r.kind === 'same' ? ' ' : r.kind === 'removed' ? '-' : r.kind === 'added' ? '+' : r.kind === 'gap' ? '~' : '?'}${r.text}`)
 
@@ -31,13 +31,33 @@ describe('the line diff of two texts', () => {
     expect(diffText('a\nb', 'a\nb')).toEqual({ rows: [], same: true })
   })
 
-  it('compares up to 400 lines each, and says so beyond: the new text is shown plain', () => {
+  it('compares up to 400 lines of what differs, after the lines the two share at both ends are left out', () => {
     const lines = (n: number, tag = ''): string => Array.from({ length: n }, (_, i) => `l${i}${tag}`).join('\n')
     expect(diffText(lines(400), lines(400, 'x')).tooLong).toBeUndefined()
+    // 450 lines with one changed in the middle is a change of one line, not too long.
+    const old = Array.from({ length: 450 }, (_, i) => `line ${i}`)
+    const now = old.map((l, i) => (i === 200 ? 'line 200 changed' : l))
+    const one = diffText(old.join('\n'), now.join('\n'))
+    expect(one.tooLong).toBeUndefined()
+    expect(kinds(one)).toEqual(['~199 unchanged lines', ' line 199', '-line 200', '+line 200 changed', ' line 201', '~248 unchanged lines'])
+  })
+
+  it('says a text is too long to compare, and then shows every line of the old text removed and of the new one added', () => {
+    const lines = (n: number, tag = ''): string => Array.from({ length: n }, (_, i) => `l${i}${tag}`).join('\n')
     const long = diffText(lines(401), lines(10, 'x'))
     expect(long.tooLong).toBe(true)
-    expect(long.rows).toHaveLength(10)
-    expect(long.rows.every((r) => r.kind === 'plain')).toBe(true)
+    expect(long.rows.filter((r) => r.kind === 'removed')).toHaveLength(401)
+    expect(long.rows.filter((r) => r.kind === 'added')).toHaveLength(10)
+    // A large deletion is not left out: an edit that takes 500 lines out for nothing shows them all, and says so.
+    const deleted = diffText(lines(500), '')
+    expect(deleted.tooLong).toBe(true)
+    expect(deleted.rows).toHaveLength(500)
+    expect(deleted.rows.every((r) => r.kind === 'removed')).toBe(true)
+    // The lines at both ends the two share are kept as context, as ever.
+    const kept = diffText(`top\n${lines(500)}\nend`, `top\n${lines(450, 'x')}\nend`)
+    expect(kept.tooLong).toBe(true)
+    expect(kept.rows[0]).toEqual({ kind: 'same', text: 'top' })
+    expect(kept.rows[kept.rows.length - 1]).toEqual({ kind: 'same', text: 'end' })
   })
 })
 
@@ -56,6 +76,14 @@ describe('the hunks of an edit of a file', () => {
     expect(kinds(hunks![1])).toEqual(['-c', '+d'])
     expect(editHunks('MultiEdit', { file_path: 'a.py', edits: [] })).toBeUndefined()
     expect(editHunks('MultiEdit', { file_path: 'a.py' })).toBeUndefined()
+  })
+
+  it('says an edit replaces every match, for an Edit and for the edits of a MultiEdit', () => {
+    expect(editHunks('Edit', { old_string: 'a', new_string: 'b', replace_all: true })?.[0].everywhere).toBe(true)
+    expect(editHunks('Edit', { old_string: 'a', new_string: 'b', replace_all: false })?.[0].everywhere).toBeUndefined()
+    expect(editHunks('Edit', { old_string: 'a', new_string: 'b' })?.[0].everywhere).toBeUndefined()
+    const multi = editHunks('MultiEdit', { edits: [{ old_string: 'a', new_string: 'b', replace_all: true }, { old_string: 'c', new_string: 'd' }] })
+    expect(multi?.map((h) => h.everywhere)).toEqual([true, undefined])
   })
 
   it('has no hunk for an edit that changes nothing, but keeps the others', () => {

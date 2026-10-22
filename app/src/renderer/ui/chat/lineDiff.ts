@@ -2,8 +2,8 @@
 // (`old_string` against `new_string`): nothing of the person's files is read to make it.
 
 export interface DiffRow {
-  /** `same` is a line kept beside a change, `plain` one of a text too long to compare, `gap` the lines left out between. */
-  kind: 'same' | 'removed' | 'added' | 'plain' | 'gap'
+  /** `same` is a line kept beside a change, `gap` the lines left out between. */
+  kind: 'same' | 'removed' | 'added' | 'gap'
   text: string
 }
 
@@ -13,11 +13,13 @@ export interface Hunk {
   rows: DiffRow[]
   /** The two texts were the same. */
   same?: boolean
-  /** A side had more than `COMPARED_LINES` lines: `rows` is the new text, not compared with the old. */
+  /** What differs had more than `COMPARED_LINES` lines on a side: every line of the old text in it is a line removed and every line of the new one a line added, not compared. */
   tooLong?: boolean
+  /** The edit has `replace_all`: it replaces every match in the file, of which the rows show one. */
+  everywhere?: boolean
 }
 
-/** The most lines of either text that are compared. */
+/** The most lines of either text that are compared, once what the two share at both ends is left out. */
 export const COMPARED_LINES = 400
 /** How many lines removed and added a card shows before "Show all". */
 export const CHANGE_LINES = 6
@@ -33,13 +35,22 @@ const linesOf = (text: string, trim: boolean): string[] => {
 }
 
 /** The rows of two lists of lines: the lines of `a` that `b` lacks removed, the lines of `b` that `a` lacks added. */
-function compare(a: string[], b: string[]): DiffRow[] {
+function compare(a: string[], b: string[]): { rows: DiffRow[]; tooLong: boolean } {
   let start = 0
   while (start < a.length && start < b.length && a[start] === b[start]) start += 1
   let end = 0
   while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end += 1
   const x = a.slice(start, a.length - end)
   const y = b.slice(start, b.length - end)
+  const rows: DiffRow[] = a.slice(0, start).map((text) => ({ kind: 'same', text }))
+  const tail: DiffRow[] = a.slice(a.length - end).map((text) => ({ kind: 'same', text }))
+  if (x.length > COMPARED_LINES || y.length > COMPARED_LINES) {
+    // Not compared, and nothing hidden: all of what differs is removed and all of it added.
+    // (Concatenated, not spread: a text can have more lines than a call has arguments.)
+    const removed = x.map((text): DiffRow => ({ kind: 'removed', text }))
+    const added = y.map((text): DiffRow => ({ kind: 'added', text }))
+    return { rows: rows.concat(removed, added, tail), tooLong: true }
+  }
   // The longest common run of what is left: `table[i][j]` is its length in x[i..] and y[j..].
   const width = y.length + 1
   const table = new Uint16Array((x.length + 1) * width)
@@ -48,7 +59,6 @@ function compare(a: string[], b: string[]): DiffRow[] {
       table[i * width + j] = x[i] === y[j] ? table[(i + 1) * width + j + 1] + 1 : Math.max(table[(i + 1) * width + j], table[i * width + j + 1])
     }
   }
-  const rows: DiffRow[] = a.slice(0, start).map((text) => ({ kind: 'same', text }))
   let i = 0
   let j = 0
   while (i < x.length || j < y.length) {
@@ -64,8 +74,7 @@ function compare(a: string[], b: string[]): DiffRow[] {
       j += 1
     }
   }
-  for (const text of a.slice(a.length - end)) rows.push({ kind: 'same', text })
-  return rows
+  return { rows: rows.concat(tail), tooLong: false }
 }
 
 /** Only the lines of change and `CONTEXT` lines beside them; a longer run of the others is one `gap` row. */
@@ -94,9 +103,9 @@ export function diffText(old: string, now: string): Omit<Hunk, 'title'> {
   const trim = old.endsWith('\n') && now.endsWith('\n')
   const a = linesOf(old, trim)
   const b = linesOf(now, trim)
-  if (a.length > COMPARED_LINES || b.length > COMPARED_LINES) return { tooLong: true, rows: b.map((text) => ({ kind: 'plain', text })) }
-  const rows = compare(a, b)
-  return rows.every((r) => r.kind === 'same') ? { rows: [], same: true } : { rows: trimmed(rows) }
+  const { rows, tooLong } = compare(a, b)
+  if (rows.every((r) => r.kind === 'same')) return { rows: [], same: true }
+  return tooLong ? { tooLong, rows: trimmed(rows) } : { rows: trimmed(rows) }
 }
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
@@ -111,7 +120,7 @@ export function editHunks(tool: string, input: unknown): Hunk[] | undefined {
   const hunk = (edit: Record<string, unknown>): Omit<Hunk, 'title'> | undefined => {
     const old = text(edit.old_string)
     const now = text(edit.new_string)
-    return old === undefined || now === undefined ? undefined : diffText(old, now)
+    return old === undefined || now === undefined ? undefined : { ...diffText(old, now), ...(edit.replace_all === true ? { everywhere: true } : {}) }
   }
   if (tool === 'Edit') {
     const one = hunk(fields)

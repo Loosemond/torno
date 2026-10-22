@@ -120,6 +120,9 @@ test('a request to use a tool is a card with the input, answered with Allow, All
   await expect(edit.locator('.chat-ask-input .diff del')).toHaveText('WALL = 2')
   await expect(edit.locator('.chat-ask-input .diff ins')).toHaveText('WALL = 3')
   await expect(edit.locator('.chat-ask-input .diff-sign')).toHaveText(['−', '+', ''])
+  // Its lines are the edit's, not the file's, and the card says so; no replace_all, so nothing of every match.
+  await expect(edit.locator('.diff-caption')).toHaveText('Lines of the edit, not of the file: where it lands is not shown')
+  await expect(edit.locator('.diff-note')).toHaveCount(1)
   await edit.getByRole('button', { name: 'Deny', exact: true }).click()
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: The person denied this.')
@@ -130,8 +133,10 @@ test('a request to use a tool is a card with the input, answered with Allow, All
   await expect(denied).not.toContainText('old_string')
 
   // A MultiEdit is one block for each of its edits, numbered.
-  await say('ask MultiEdit {"file_path":"b.txt","edits":[{"old_string":"WALL = 2","new_string":"WALL = 3"},{"old_string":"LID = 1","new_string":"LID = 2"}]}')
+  await say('ask MultiEdit {"file_path":"b.txt","edits":[{"old_string":"WALL = 2","new_string":"WALL = 3","replace_all":true},{"old_string":"LID = 1","new_string":"LID = 2"}]}')
   const multi = asks().last()
+  // An edit that replaces every match says so, and only that one.
+  await expect(multi.locator('.diff-note:not(.diff-caption)')).toHaveText('Replaces every match in the file, of which one is shown')
   await expect(multi.locator('.diff-title')).toHaveText(['Edit 1 of 2', 'Edit 2 of 2'])
   await expect(multi.locator('.diff del')).toHaveText(['WALL = 2', 'LID = 1'])
   await expect(multi.locator('.diff ins')).toHaveText(['WALL = 3', 'LID = 2'])

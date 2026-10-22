@@ -454,13 +454,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   from `verdictChanges`, never worked out again here) as chips with `now passes` / `now fails`, and the parts it
   changed (`digest.parts[].text`, four at most, the rest counted), then "Show text". The sheet of a failed build is
   `errorOpen` in the store (`actions.setErrorOpen`): the status line, the viewport's "Show error" and the chat open
-  it. An `Edit` or a `MultiEdit` is drawn as a diff (`ui/chat/Diff.tsx`, from the tool's own input by `ui/chat/diff.ts`, never
+  it. An `Edit` or a `MultiEdit` is drawn as a diff (`ui/chat/Diff.tsx`, from the tool's own input by `ui/chat/lineDiff.ts`, never
   from the person's files), in the permission card (six lines removed and added, then "Show all") and, in place of the JSON, in the
   opened tool card (twelve): each line has a `−` or a `+` in the gutter, a removed one is struck through (`<del>`), an added one is
   `<ins>`; the washes behind them (`--diff-removed-wash`, a grey step of the hairline on the panel, and `--diff-added-wash`,
-  the accent's wash) only group, and are neither mark colours nor verdicts (`contrast.test.ts`). A side of more than 400 lines
-  is "Too long to compare" and the new text is shown as it is; a `Write` keeps the first lines of what it holds, there being
-  no old text to compare with. A tool card reads "denied" (the person refused its ask) or "cancelled" (its ask ended with the turn stopped) in the muted colour; "failed", in the fail colour, only for an error the person did not cause. Nothing is per frame
+  the accent's wash) only group, and are neither mark colours nor verdicts (`contrast.test.ts`). The diff is of `old_string`
+  against `new_string` alone, so its context lines and "N unchanged lines" are of the edit and have no place in the file: a
+  caption on every diff says "Lines of the edit, not of the file: where it lands is not shown". An edit with `replace_all`
+  says "Replaces every match in the file" (`Hunk.everywhere`), a card never understating a change. The cap of 400 lines is
+  of what differs once the lines both texts share at their ends are left out; beyond it the text is not compared, and says
+  "Too long to compare": every old line of it is shown removed and every new one added, so a large deletion is never out of
+  sight. A `Write` keeps the first lines of what it holds, there being no old text to compare with. A tool card reads "denied" (the person refused its ask) or "cancelled" (its ask ended with the turn stopped) in the muted colour; "failed", in the fail colour, only for an error the person did not cause. Nothing is per frame
   in React, and there is no endless animation in it: a working indication is still, toggled once a second by
   `useBeat`, and only while something streams or runs (`styles.test.ts` fails for an endless one). The window holds
   at most `MAX_ITEMS` (2,000) as main does, dropping the oldest, and says once, at the top, "Earlier items are not

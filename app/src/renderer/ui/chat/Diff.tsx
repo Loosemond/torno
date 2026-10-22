@@ -1,7 +1,7 @@
 import { numbered } from '../numbered'
-import type { DiffRow, Hunk } from './diff'
+import type { DiffRow, Hunk } from './lineDiff'
 
-const SIGN: Record<DiffRow['kind'], string> = { same: '', removed: '−', added: '+', plain: '', gap: '' }
+const SIGN: Record<DiffRow['kind'], string> = { same: '', removed: '−', added: '+', gap: '' }
 
 function Row({ row }: { row: DiffRow }) {
   if (row.kind === 'gap') return (
@@ -31,7 +31,8 @@ export function Diff({ hunks }: { hunks: Hunk[] }) {
       {hunks.map((hunk, n) => (
         <div key={n} className="diff-hunk">
           {hunk.title !== undefined && <p className="diff-title">{numbered(hunk.title)}</p>}
-          {hunk.tooLong && <p className="diff-note">Too long to compare: the new text is shown as it is</p>}
+          {hunk.tooLong && <p className="diff-note">Too long to compare: every line of the old text is shown removed, every line of the new text added</p>}
+          {hunk.everywhere && <p className="diff-note">Replaces every match in the file, of which one is shown</p>}
           {hunk.same && <p className="diff-note">No change</p>}
           {hunk.rows.length > 0 && (
             <div className="diff-rows">
@@ -42,6 +43,7 @@ export function Diff({ hunks }: { hunks: Hunk[] }) {
           )}
         </div>
       ))}
+      <p className="diff-note diff-caption">Lines of the edit, not of the file: where it lands is not shown</p>
     </div>
   )
 }

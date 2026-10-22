@@ -1,7 +1,7 @@
 // What a card that asks the person shows of a request, and how the questions of `AskUserQuestion` are answered.
 // The pure part of `AskCard.tsx`.
 import { type ChatWhere, shownPath } from '../../../shared/chat'
-import { CHANGE_LINES, editHunks, type Hunk, limitHunks } from './diff'
+import { CHANGE_LINES, editHunks, type Hunk, limitHunks } from './lineDiff'
 
 /** How many lines of what a file will hold a card shows. */
 const FILE_LINES = 6
