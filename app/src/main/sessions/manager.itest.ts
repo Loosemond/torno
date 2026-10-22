@@ -498,6 +498,7 @@ describe('a session', () => {
       TORNO_KEEP_BUILDS: '1',
       // What a Claude Code session exports to what it starts.
       CLAUDECODE: '1',
+      CLAUDE_CODE_BRIDGE_SESSION_ID: 'x',
       CLAUDE_CODE_CHILD_SESSION: '1',
       CLAUDE_CODE_ENTRYPOINT: 'cli',
       CLAUDE_CODE_EXECPATH: '/x',
