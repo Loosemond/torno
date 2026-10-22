@@ -137,6 +137,16 @@ test('after each step of a session of work, P takes the pin tool', async () => {
     await pinIsInHand(`${name} as it was`)
   }
   await expect(fold('Objects')).toHaveAttribute('aria-expanded', 'false')
+  // The marks given more room by the line above them, and the shares put back with a double click.
+  const line = page.getByRole('separator', { name: 'Resize marks' })
+  const from = (await line.boundingBox())!
+  await page.mouse.move(from.x + 100, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 100, from.y - 60, { steps: 4 })
+  await page.mouse.up()
+  await pinIsInHand('the marks made taller')
+  await line.dblclick()
+  await pinIsInHand('the shares put back')
   // Another object chosen in the switcher's menu with the pointer, and back.
   for (const name of ['hollow', 'bracket']) {
     await page.locator('.object-switcher').click()

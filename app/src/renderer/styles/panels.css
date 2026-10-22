@@ -3,7 +3,8 @@
 /*
  * The marks are the section read most, after every reply: they keep room for five rows at least (their title, a
  * group's heading and five rows of 30 px; `MARKS_FLOOR` in `state/column.ts`), and every section above gives way
- * before they do, each down to its title.
+ * before they do, each down to its title. The splitter above them (`ui/ColumnSplit.tsx`) gives them more:
+ * `--marks-h`, set on the column.
  */
 .left {
   --marks-floor: 212px;
@@ -69,6 +70,35 @@
   min-height: var(--marks-floor);
   border-top: var(--divider);
   padding-top: var(--space-1);
+}
+
+/* Given more room by the splitter: never past the column, less the titles above. */
+.left:has(> .column-split) > .marks {
+  min-height: max(var(--marks-floor), min(var(--marks-h, 0px), 100% - 160px));
+}
+
+/* The splitter: the hairline above the marks, a band of 7 px to take hold of. */
+.column-split {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  height: 7px;
+  margin: -3px 0 -4px;
+  cursor: row-resize;
+}
+
+.column-split:hover,
+.left[data-resizing] .column-split {
+  background: linear-gradient(transparent 3px, var(--accent) 3px, var(--accent) 4px, transparent 4px);
+}
+
+.column-split:focus-visible {
+  outline-offset: -2px;
+}
+
+.left[data-resizing] {
+  cursor: row-resize;
+  user-select: none;
 }
 
 /* A title with the one thing to do in its section beside it. */

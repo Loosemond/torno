@@ -467,6 +467,44 @@ test('with an object open the list folds to a switcher, the marks start high, an
   await expect(switcher(page)).toBeVisible()
 })
 
+test('the line above the marks gives them more room, from the sections above down to their titles, and a double click puts the shares back', async () => {
+  const left = page.locator('[data-region="left"]')
+  const marks = left.getByRole('region', { name: 'Marks' })
+  const line = left.getByRole('separator', { name: 'Resize marks' })
+  const kept = async (): Promise<number | null> => JSON.parse((await page.evaluate(() => localStorage.getItem('torno.column'))) ?? '{}').marks ?? null
+  // The Layers unfolded above it: they give way, down to their title.
+  await expect(left.locator('.section-fold').and(left.getByRole('button', { name: 'Layers', exact: true }))).toHaveAttribute('aria-expanded', 'true')
+  const share = (await marks.boundingBox())!.height
+  const from = (await line.boundingBox())!
+  await page.mouse.move(from.x + 120, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 120, from.y - 40, { steps: 4 })
+  await page.mouse.up()
+  const taller = (await marks.boundingBox())!.height
+  expect(taller).toBeGreaterThan(share + 30)
+  await expect.poll(kept).toBe(Math.round(taller))
+  await expect(line).toHaveAttribute('aria-valuenow', `${Math.round(taller)}`)
+  // As far as it goes: every section above at its title, never off the column.
+  await page.mouse.move(from.x + 120, from.y - 40)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 120, 0, { steps: 4 })
+  await page.mouse.up()
+  const layers = (await left.getByRole('region', { name: 'Layers' }).boundingBox())!
+  expect(layers.height).toBeLessThanOrEqual(34)
+  expect((await marks.boundingBox())!.y).toBeGreaterThan(layers.y + layers.height - 1)
+  // By the keys: Down gives back a step of 16 px, Up takes it again.
+  const most = (await kept())!
+  await line.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(kept).toBe(most - 16)
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(kept).toBe(most)
+  // A double click: the shares as they were, and nothing kept.
+  await line.dblclick()
+  await expect.poll(kept).toBeNull()
+  await expect.poll(async () => Math.round((await marks.boundingBox())!.height)).toBe(Math.round(share))
+})
+
 // Forty objects, none opened: what the page costs when it is the face of a full workspace. Thirty have a picture
 // on file. Nothing is built, and only the pictures of the cards in view, or near it, are asked for.
 test('with forty objects the page is there at once, builds nothing, and asks for the pictures in view only', async () => {

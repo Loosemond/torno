@@ -657,6 +657,12 @@ export const actions = {
     setColumn({ ...column, folded: { ...column.folded, [section]: folded } })
   },
 
+  /** The height the splitter gave the marks, once it is let go; null puts back their share. */
+  setMarksHeight(height: number | null): void {
+    const { column } = store.getState()
+    if (column.marks !== height) setColumn({ ...column, marks: height })
+  },
+
   setDockOpen(open: boolean): void {
     if (store.getState().dockOpen !== open) store.setState({ dockOpen: open })
   },

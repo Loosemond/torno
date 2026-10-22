@@ -338,9 +338,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   keys go back to the view); folded, a section is its title row, which says what matters (`ui/sectionSaid.ts`:
   `Layers 12 · 3 hidden`, `Scans 1 · unaligned`, `Objects 17`), and Scans keeps only what is said of an import
   and the question it asks. Marks never folds: it keeps `--marks-floor` (`MARKS_FLOOR`: its title, a group's
-  heading and five rows), and every section above gives way before it, each down to its title. What is folded is
-  the window's (`store.column`, in `localStorage` under `torno.column`, read and written in try/catch), never the
-  workspace's.
+  heading and five rows), and every section above gives way before it, each down to its title. The splitter
+  above Marks (`ui/ColumnSplit.tsx`, `role="separator"`, `column.resize` Up/Down) gives Marks more: its drag writes
+  `--marks-h` on the column, nothing through React per move; a double click puts back the shares. What is
+  folded and the splitter's height are the window's (`store.column`, in `localStorage` under `torno.column`, read
+  and written in try/catch), never the workspace's.
 - **Objects folds to a switcher by default** (`switcherShown`): folded, with an object open or a new one being
   made, in a workspace of more than one object, the list is one row, the open object's name in ink
   (`ObjectSwitcher`; "New object", pressed, on the page of a new object). Its accessible name is the object's

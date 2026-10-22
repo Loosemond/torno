@@ -1402,4 +1402,11 @@ describe('the left column', () => {
     actions.foldSection('objects', true)
     expect(store.getState().column.folded).toEqual({ objects: true, layers: false, scans: false })
   })
+
+  it('keeps the height the marks were given, or none for their share', () => {
+    actions.setMarksHeight(320)
+    expect(store.getState().column.marks).toBe(320)
+    actions.setMarksHeight(null)
+    expect(store.getState().column.marks).toBeNull()
+  })
 })

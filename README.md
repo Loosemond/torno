@@ -274,8 +274,9 @@ build with `try_fillet` before it edits the model again.
 **The window.** On the left, the list of objects, then the layers and the scans of the
 open object, then its marks. Objects, Layers and Scans each fold by their title; folded, the
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
-it keeps room for five rows at least, and the sections above give way first. What is folded
-is kept by the window, not in the folder. The
+it keeps room for five rows at least, and the sections above give way first. Drag the line
+above Marks up for more (`Up` and `Down` with it in focus), double click it for the shares
+again. What is folded and where the line is are kept by the window, not in the folder. The
 layers (parts) of the open object each have a visibility switch. A model that says which of its parts belong together (an optional
 `groups(p)` beside `assembly`, group name to part names) has them listed under a
 header each, which folds the group, hides or shows all of it, or, on "Show only",
@@ -1293,6 +1294,7 @@ your slicer, when "Open it once saved" is ticked.
 | In a field, a menu or a sheet | `Up` `Left` | Menu: the one before |
 | In a field, a menu or a sheet | `Home` `End` | Menu: the first or the last |
 | In a field, a menu or a sheet | `Esc` `Tab` | Menu: close it |
+| In a field, a menu or a sheet | `Up` `Down` | On the line above the marks: more room for them, or less |
 | In a field, a menu or a sheet | `Esc` | Sheet or question: put it away |
 | In a field, a menu or a sheet | `Ctrl+Z` | Drawing board (a doodle, or a drawing on the view): undo the last stroke |
 | For working on torno | `F12` `Ctrl+Shift+I` | Developer tools |
@@ -1598,8 +1600,9 @@ On the screen:
 - **A session that needs you, away from its pane.** In two objects, ask Claude Code in one for something that needs a permission, then open the other (and again with the session pane hidden): the first one's row has a dot and "needs you" in the warning colour, the status line has the button "*name* needs you", which opens it and brings you to the card, and a working session's dot is a quiet grey. In a window that is not in front (another window on top, or a workspace switched away) the frame should flash on Linux, and the dock icon bounce once on a Mac: no test shows a window, so only the rule is tested.
 - **The left column.** With a folder of many objects, open one: the list is one row, "All objects `W`" beside its
   title. Its menu, by the mouse and by the keys, opens another; folding Layers and Scans gives their room to the
-  marks, and their titles say how many parts and scans there are. Start torno again: what was folded is as you left
-  it. Legible in light and dark.
+  marks, and their titles say how many parts and scans there are. Drag the line above Marks up and down, and double
+  click it: it moves without lag, the sections above give way down to their titles, and the shares come back.
+  Start torno again: what was folded, and where the line was, are as you left them. Legible in light and dark.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.

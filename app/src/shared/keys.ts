@@ -19,7 +19,7 @@ export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'Wi
  * - `shape`: while a shape of the person's is the active mark.
  * - `page`: on the page of objects; `filter`: in its field. `newobject`: on the page of a new object.
  * - `session`: in the terminal. `composer`: in the box a chat prompt is written in. `picture`: while a picture of the
- *   chat is shown large. `separator`: on the edge of the session pane.
+ *   chat is shown large. `separator`: on the edge of the session pane, or the line above the marks.
  * - `field`, `menu`, `sheet`: in a field, an open menu, a sheet or a question.
  * - `dev`: under the dev server only.
  */
@@ -143,6 +143,7 @@ const ROWS = [
   row('menu.previous', ['Up', 'Left'], 'Menu: the one before', 'In a field, a menu or a sheet', 'menu'),
   row('menu.ends', ['Home', 'End'], 'Menu: the first or the last', 'In a field, a menu or a sheet', 'menu'),
   row('menu.close', ['Esc', 'Tab'], 'Menu: close it', 'In a field, a menu or a sheet', 'menu'),
+  row('column.resize', ['Up', 'Down'], 'On the line above the marks: more room for them, or less', 'In a field, a menu or a sheet', 'separator'),
   row('sheet.close', ['Esc'], 'Sheet or question: put it away', 'In a field, a menu or a sheet', 'sheet'),
   row('board.undo', ['Ctrl+Z'], 'Drawing board (a doodle, or a drawing on the view): undo the last stroke', 'In a field, a menu or a sheet', 'sheet'),
   row('sheet.round', ['Tab'], 'Sheet: to its next control, and round', 'In a field, a menu or a sheet', 'sheet', true),
