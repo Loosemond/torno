@@ -131,6 +131,12 @@ function Sheet() {
         <p className="keys-count" aria-live="polite">
           <span className="num">{count}</span> {count === 1 ? 'key' : 'keys'}
           {typed.trim() !== '' && ' found'}
+          {pointer.length > 0 && (
+            <>
+              {', '}
+              <span className="num">{pointer.length}</span> of the pointer
+            </>
+          )}
         </p>
         {/* The scroller, and inside it the columns: columns on the box that scrolls would overflow sideways, not down. */}
         <div className="keys-body">

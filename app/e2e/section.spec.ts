@@ -7,6 +7,7 @@ import { BAR_SIDE, SCALE_BAR_MAX, SCREEN_UNIT, TRIAD_CLEAR } from '../src/render
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { Camera, LookRequest, SectionPlane, ViewState } from '../src/shared/view'
 import { openListed } from './objects'
+import { stableBox } from './stable'
 
 // The section: a plane that takes half of the parts away and shows what they
 // are inside. Set from the bar and with the tool, drawn in pictures, kept in
@@ -335,7 +336,7 @@ test('a handle drag let go over the bar, off the canvas, is kept all the same, a
   await page.keyboard.press('x')
   const home = await fromTheCorner()
   const [x, y] = await pageXY([0, 0, HALF_POST])
-  const over = (await bar().getByRole('button', { name: 'Flip' }).boundingBox())!
+  const over = await stableBox(bar().getByRole('button', { name: 'Flip' }))
   const [toX, toY] = [over.x + over.width / 2, over.y + over.height / 2]
   expect(toY).toBeGreaterThan(y + 100)
   await page.mouse.move(x, y - 10)
@@ -703,7 +704,7 @@ test('the bar stays clear of the triad bottom left and the scale bottom right, i
           })
           .toBe(true)
         const pane = (await page.locator('.viewport-pane').boundingBox())!
-        const box = (await bar().boundingBox())!
+        const box = await stableBox(bar())
         widths.push(Math.round(pane.width))
         const bottom = pane.y + pane.height
         // The corners as the overlay draws them: the triad's reach (its corner, arms and letters) and the scale bar or the grid's step at its longest.

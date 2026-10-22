@@ -248,6 +248,26 @@
   color: var(--muted);
 }
 
+/* The bars at the foot of the view slide to their place when the line below them comes or goes, or the view's width changes
+   (`--bar-lift`, `styles/layout.css`): one short transition, that ends, and none where motion is not wanted. */
+.selection,
+.sectionbar,
+.agent-line,
+.alignbar,
+.regionbar {
+  transition: bottom 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selection,
+  .sectionbar,
+  .agent-line,
+  .alignbar,
+  .regionbar {
+    transition: none;
+  }
+}
+
 /* ---- The line at the foot of the view: what the tool in hand waits for, or, once, how the pointer moves the view ---- */
 
 /* Always there, empty, so that what comes into it is read out. It has no box of its own. */

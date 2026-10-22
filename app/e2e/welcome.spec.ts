@@ -199,6 +199,10 @@ test('? shows every key of the one table; what is typed searches it, and no tool
   expect(await tool()).toBe('select')
   await page.keyboard.type('easure wall')
   await expect(sheet().locator('li')).toHaveText(['TMeasure: the wall under the pointer'])
+  // A search that only the pointer answers: the count says so, beside the group it shows.
+  await sheet().getByRole('textbox').fill('zoom')
+  await expect(sheet().locator('.keys-count')).toHaveText('0 keys found, 1 of the pointer')
+  await expect(sheet().locator('li')).toHaveText(['ScrollZoom, towards the pointer'])
   await sheet().getByRole('textbox').fill('nothing does this')
   await expect(sheet()).toContainText('No key says nothing does this.')
   await sheet().getByRole('textbox').fill('')

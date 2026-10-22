@@ -1283,7 +1283,7 @@ the pointer, which has no keys:
 <!-- pointer: generated from POINTER in app/src/shared/pointer.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->
 | Pointer | What it does |
 |---|---|
-| Drag | Turn the view |
+| Drag | Turn the view; with a tool that marks, a drag that starts on the part marks instead |
 | Right drag | Pan the view (a middle drag does too) |
 | Scroll | Zoom, towards the pointer |
 | Double click | With Measure in hand: measure something round, its diameter or its radius |

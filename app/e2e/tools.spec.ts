@@ -9,6 +9,7 @@ import { TOOL_KEYS, doesOf } from '../src/shared/keys'
 import { pointerLine } from '../src/shared/pointer'
 import type { Camera, LookRequest } from '../src/shared/view'
 import { openListed } from './objects'
+import { stableBox } from './stable'
 
 // The tools that leave marks with the pointer: pin, arrow, a note on the
 // selection, draw and shape; the note that opens beside a mark just made; and
@@ -323,7 +324,7 @@ test('pointing at a tool shows at once what it does and its key; a scan’s tool
     await expect(tip(t.name)).toContainText(t.label)
     await expect(tip(t.name)).toContainText(doesOf(t.name))
     await expect(tip(t.name).locator('kbd')).toHaveText(t.key)
-    await expect(button).toHaveAttribute('aria-description', new RegExp(doesOf(t.name).slice(0, 12)))
+    expect(await button.getAttribute('aria-description')).toContain(doesOf(t.name))
     // Only the tool pointed at has one.
     await expect(page.locator('.tool-tip')).toHaveCount(1)
   }
@@ -389,8 +390,8 @@ test('the line stands clear of the bars at the foot of the view, which stand abo
   await page.keyboard.press('x')
   await expect(page.locator('.sectionbar')).toBeVisible()
   await expect(hintLine()).toContainText('Section: drag the handle')
-  const line = (await hintLine().boundingBox())!
-  const bar = (await page.locator('.sectionbar').boundingBox())!
+  const line = await stableBox(hintLine())
+  const bar = await stableBox(page.locator('.sectionbar'))
   // The bar's bottom edge is above the line's top, and the line takes no pointer.
   expect(bar.y + bar.height).toBeLessThanOrEqual(line.y)
   expect(await hintLine().evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none')
