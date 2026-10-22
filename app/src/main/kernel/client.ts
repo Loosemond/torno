@@ -38,6 +38,9 @@ export function isBusy(e: unknown): boolean {
   return /\bis still busy with a query it did not answer\b/.test(e.message)
 }
 
+/** What a kernel says of its own start, each time it starts: it is starting, it answered, or it stopped for good. */
+export type KernelStateEvent = { state: 'starting' } | { state: 'ready'; versions: Record<string, string> } | { state: 'failed'; reason: string }
+
 export interface KernelClient {
   /** The first start. Rejects if the kernel stops for good before it is ever ready. */
   ready: Promise<{ versions: Record<string, string> }>
@@ -54,6 +57,11 @@ export interface KernelClient {
   dispose(): Promise<void>
   /** Called when the kernel has exited unexpectedly and was not restarted. */
   onExit(cb: (code: number | null) => void): void
+  /**
+   * Told each time the kernel starts again (it exited once and is restarted, or a build started it after it had stopped
+   * for good), when it answers `ready`, and when it stops for good. The first start is the constructor's: its answer is `ready`.
+   */
+  onState(cb: (event: KernelStateEvent) => void): void
   /** The last lines the kernel wrote to stderr. */
   stderrTail(): string
 }
@@ -128,6 +136,7 @@ class Kernel implements KernelClient {
   private readonly stderr: string[] = []
   private stderrPartial = ''
   private readonly exitCbs: Array<(code: number | null) => void> = []
+  private readonly stateCbs: Array<(event: KernelStateEvent) => void> = []
   private lastExitAt: number | null = null
   private stopped = false // exited twice in a row; started again by the next build
   private disposed: Promise<void> | null = null
@@ -147,6 +156,7 @@ class Kernel implements KernelClient {
     if (this.disposed) return Promise.resolve(failure('cancelled', 'the kernel was shut down'))
     if (this.stopped) {
       this.stopped = false
+      this.tell({ state: 'starting' })
       this.spawn()
     }
     return new Promise((resolve) => {
@@ -194,6 +204,14 @@ class Kernel implements KernelClient {
 
   onExit(cb: (code: number | null) => void): void {
     this.exitCbs.push(cb)
+  }
+
+  onState(cb: (event: KernelStateEvent) => void): void {
+    this.stateCbs.push(cb)
+  }
+
+  private tell(event: KernelStateEvent): void {
+    for (const cb of this.stateCbs) cb(event)
   }
 
   stderrTail(): string {
@@ -262,6 +280,7 @@ class Kernel implements KernelClient {
     }
     if (header.event === 'ready') {
       this.readyResolve({ versions: header.versions ?? {} })
+      this.tell({ state: 'ready', versions: header.versions ?? {} })
       return
     }
     const request = this.pending.get(header.id)
@@ -299,10 +318,12 @@ class Kernel implements KernelClient {
     const again = this.lastExitAt !== null && now - this.lastExitAt < RESTART_WINDOW_MS
     this.lastExitAt = now
     if (!again) {
+      this.tell({ state: 'starting' })
       this.spawn()
       return
     }
     this.stopped = true
+    this.tell({ state: 'failed', reason: `kernel stopped\n${this.stderrTail()}` })
     this.readyReject(new KernelError('crash', `kernel stopped\n${this.stderrTail()}`))
     for (const cb of this.exitCbs) cb(code)
   }
@@ -354,6 +375,7 @@ class NoKernel implements KernelClient {
     return Promise.resolve()
   }
   onExit(): void {}
+  onState(): void {}
   stderrTail(): string {
     return ''
   }

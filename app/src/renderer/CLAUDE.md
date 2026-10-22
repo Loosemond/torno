@@ -300,8 +300,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   object it is of, as a link that goes to that object (or to the page of a new one) and puts the question away
   (`closingWhy`, `leavingWhy` in `closing.ts` return those items). `ui/Confirm.tsx` stays the strip for a question
   about one panel (a scan, a mark, the session).
-- **What torno needs** is one block, "Ready to work" (`ui/Readiness.tsx`; its words are `ui/readiness.ts`, pure and held by
-  `readiness.test.ts`; its state is `store.ready`, asked of main once and told on each change, `useReadyFeed`). A line each
+- **What torno needs** is one block, "Ready to work" (`ui/Readiness.tsx`; its words are `ui/readyLines.ts`, pure and held by
+  `readyLines.test.ts`; its state is `store.ready`, asked of main once and told on each change, `useReadyFeed`). A line each
   for Claude Code, uv (only when missing), a folder's own environment (only with a `pyproject.toml`) and the kernel; a dot
   in `--ok`, `--warn` or `--fail` (a wait is `--muted`), the label in the muted face, versions, paths and commands in
   the monospace face, and a note in the muted face under it. When every line is ready it folds to one quiet line ("Claude

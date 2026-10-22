@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { pressed } from '../../shared/keys'
 import { actions, useStore } from '../state/store'
 import { numbered } from './numbered'
-import { allReady, foldedLine, lacking, readinessLines, type Line, type Piece } from './readiness'
+import { allReady, foldedLine, lacking, readinessLines, type Line, type Piece } from './readyLines'
 
 /** Pieces of a line: words with their numbers set in the face of numbers, and a path, a version or a command whole. */
 function Pieces({ of }: { of: Piece[] }) {

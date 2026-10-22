@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Ready } from '../../shared/ready'
-import { allReady, flat, foldedLine, lacking, makesEnvironment, readinessLines, text, type Line } from './readiness'
+import { allReady, flat, foldedLine, lacking, makesEnvironment, readinessLines, text, type Line } from './readyLines'
 
 const found: Ready = {
   searched: '/usr/local/bin:/usr/bin',
@@ -109,6 +109,19 @@ describe('the kernel', () => {
     const l = line(readinessLines(with_({ kernel: { state: 'failed', reason: 'kernel stopped\ncould not run uv: spawn uv ENOENT' } })), 'kernel')
     expect(l.tone).toBe('fail')
     expect(text(l)).toBe('Kernel Did not start: kernel stopped\ncould not run uv: spawn uv ENOENT')
+  })
+
+  it('failed over an environment that is not made: also offers to make it; made, it does not', () => {
+    const failed: Ready['kernel'] = { state: 'failed', reason: 'kernel stopped' }
+    expect(line(readinessLines(with_({ kernel: failed, environment: { kind: 'torno', dir: '/x', made: false } })), 'kernel').action).toBe('make')
+    expect(line(readinessLines(with_({ kernel: failed })), 'kernel').action).toBeUndefined()
+    expect(line(readinessLines(with_({ kernel: failed, uv: { path: null }, environment: { kind: 'torno', dir: '/x', made: false } })), 'kernel').action).toBeUndefined()
+  })
+
+  it('failed while the person has it made: preparing, not the old failure', () => {
+    const l = line(readinessLines(with_({ kernel: { state: 'failed', reason: 'kernel stopped' }, environment: { kind: 'torno', dir: '/x', made: false }, making: { state: 'making', lines: ['Resolved 3 packages'] } })), 'kernel')
+    expect(l.tone).toBe('wait')
+    expect(l.progress).toEqual(['Resolved 3 packages'])
   })
 
   it('making failed: the reason, and a way to try again', () => {

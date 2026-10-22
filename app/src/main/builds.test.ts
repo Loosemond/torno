@@ -17,6 +17,7 @@ function sceneOf(model: string, seconds = 0.5): Scene {
 
 /** A kernel whose builds finish when the test says so. Like the real one, a new build cancels the one running. */
 class FakeKernel implements KernelClient {
+  onState(): void {}
   ready = Promise.resolve({ versions: {} })
   calls: Array<{ dir: string; model: string; timeout?: number; settle: (r: BuildResult) => void; settled: boolean }> = []
   cancels = 0

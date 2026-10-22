@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Ready } from '../shared/ready'
+import type { KernelStateEvent } from './kernel/client'
 import { ReadyKeeper, type KeeperDeps, type KernelWatch } from './readiness'
 import type { Runner } from './ready'
 
@@ -17,15 +18,15 @@ function bin(name: string, body = '#!/bin/sh\nexit 0\n'): string {
 }
 
 /** A kernel that answers when the test says. */
-function kernel(): KernelWatch & { up: (versions: Record<string, string>) => void; fail: (message: string) => void; exit: () => void } {
+function kernel(): KernelWatch & { up: (versions: Record<string, string>) => void; fail: (message: string) => void; say: (event: KernelStateEvent) => void } {
   let up!: (r: { versions: Record<string, string> }) => void
   let fail!: (e: Error) => void
-  let exit: (code: number | null) => void = () => {}
+  let say: (event: KernelStateEvent) => void = () => {}
   const ready = new Promise<{ versions: Record<string, string> }>((resolve, reject) => {
     up = resolve
     fail = reject
   })
-  return { ready, onExit: (cb) => (exit = cb), up: (versions) => up({ versions }), fail: (m) => fail(new Error(m)), exit: () => exit(1) }
+  return { ready, onState: (cb) => (say = cb), up: (versions) => (up({ versions }), say({ state: 'ready', versions })), fail: (m) => (fail(new Error(m)), say({ state: 'failed', reason: m })), say: (event) => say(event) }
 }
 
 function keeper(over: Partial<KeeperDeps> = {}, calls: string[] = []): ReadyKeeper {
@@ -114,9 +115,38 @@ describe('the kernel of the open workspace', () => {
     k.opened({ root, hasProject: false }, watch)
     watch.up({ build123d: '0.13.0' })
     await new Promise((r) => setTimeout(r, 20))
-    watch.exit()
+    watch.say({ state: 'failed', reason: 'kernel stopped' })
+    await new Promise((r) => setTimeout(r, 20))
+    expect((await k.get()).kernel).toEqual({ state: 'failed', reason: 'kernel stopped' })
+  })
+
+  it('learns that a kernel that failed was started again by a build, and then answered', async () => {
+    const k = keeper()
+    const watch = kernel()
+    k.opened({ root, hasProject: false }, watch)
+    watch.fail('kernel stopped\ncould not fetch build123d')
     await new Promise((r) => setTimeout(r, 20))
     expect((await k.get()).kernel).toMatchObject({ state: 'failed' })
+    // The network is back: the next build starts the kernel again, and it comes up.
+    const again = next(k)
+    watch.say({ state: 'starting' })
+    expect((await again).kernel).toEqual({ state: 'starting' })
+    const up = next(k)
+    watch.say({ state: 'ready', versions: { build123d: '0.13.0', python: '3.12.4' } })
+    expect((await up).kernel).toEqual({ state: 'ready', versions: { build123d: '0.13.0', python: '3.12.4' } })
+  })
+
+  it('asks the CLI with the environment a session gets: without a parent Claude Code session\'s marks', async () => {
+    const dir = bin('claude', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.1.300"; exit 0; fi\nif [ -n "$CLAUDECODE" ]; then echo \'{"loggedIn":false}\'; exit 1; fi\necho \'{"loggedIn":true}\'\n')
+    const was = process.env.CLAUDECODE
+    process.env.CLAUDECODE = '1'
+    try {
+      const k = new ReadyKeeper({ probe: { command: join(dir, 'claude'), args: [] }, path: () => dir, askCli: true, own: join(root, 'no-env'), make: { command: ['uv', 'sync'], env: {}, cwd: root } })
+      expect((await k.get()).claude).toMatchObject({ version: '2.1.300', account: 'signed-in' })
+    } finally {
+      if (was === undefined) delete process.env.CLAUDECODE
+      else process.env.CLAUDECODE = was
+    }
   })
 })
 

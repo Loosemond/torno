@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events'
 import type { Making, Ready, KernelState } from '../shared/ready'
+import type { KernelStateEvent } from './kernel/client'
+import { agentEnv } from './sessions/agentEnv'
 import { ASK_MS, checkTools, environmentOf, makeEnvironment, ownEnvironmentMade, runCommand, type Runner } from './ready'
 
 export interface KeeperDeps {
@@ -19,10 +21,10 @@ export interface KeeperDeps {
   uvCommand?: string
 }
 
-/** The kernel as the keeper sees it start: its first answer, and its leaving for good. */
+/** The kernel as the keeper sees it start: its first answer, and what it says of each start after (`KernelClient`). */
 export interface KernelWatch {
   ready: Promise<{ versions: Record<string, string> }>
-  onExit(cb: (code: number | null) => void): void
+  onState(cb: (event: KernelStateEvent) => void): void
 }
 
 /** The most of a failure's text that is kept to show. */
@@ -55,7 +57,8 @@ export class ReadyKeeper extends EventEmitter {
       cli: deps.probe,
       uvCommand: deps.uvCommand ?? 'uv',
       askCli: deps.askCli,
-      run: deps.run ?? ((file, args, ms) => runCommand(file, args, ms)),
+      // As a session's: torno's environment without a parent Claude Code session's marks, so that the CLI answers as it would there.
+      run: deps.run ?? ((file, args, ms) => runCommand(file, args, ms, agentEnv(process.env))),
       timeoutMs: ASK_MS,
       ...(deps.tested ? { tested: deps.tested } : {})
     })
@@ -89,12 +92,12 @@ export class ReadyKeeper extends EventEmitter {
       ({ versions }) => this.kernelSaid(mine, { state: 'ready', versions }),
       (e: unknown) => this.kernelSaid(mine, { state: 'failed', reason: short(e instanceof Error ? e.message : String(e)) })
     )
-    // A kernel that was up and has stopped for good: the first answer was heard already.
-    kernel.onExit(() => this.kernelSaid(mine, { state: 'failed', reason: 'The kernel stopped. Rebuild to start it again.' }))
+    // Every start after the first: one that stopped and was started again by a build, and what came of it.
+    kernel.onState((event) => this.kernelSaid(mine, event))
   }
 
   private kernelSaid(mine: number, state: KernelState): void {
-    if (mine !== this.epoch) return
+    if (mine !== this.epoch || JSON.stringify(state) === JSON.stringify(this.kernel)) return
     this.kernel = state
     this.changed()
   }

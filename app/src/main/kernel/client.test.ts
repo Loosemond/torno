@@ -215,6 +215,23 @@ describe('kernel client', () => {
     expect(await k.build('/ws/a', 'a.py')).toMatchObject({ ok: true })
   })
 
+  it('tells each start after the first, when it answers, and when it stops for good', async () => {
+    const k = start()
+    const events: string[] = []
+    k.onState((e) => events.push(e.state))
+    await k.ready
+    await k.build('/ws/a', 'die.py') // exits: started again at once
+    await expect.poll(() => events.filter((e) => e === 'ready').length).toBe(2)
+    expect(events.slice(0, 3)).toEqual(['ready', 'starting', 'ready'])
+    await k.build('/ws/a', 'die.py') // twice in a row: stopped for good
+    await expect.poll(() => events.includes('failed')).toBe(true)
+    const failed: unknown[] = []
+    k.onState((e) => failed.push(e))
+    // A build starts it again: told it is starting, then that it answered.
+    expect(await k.build('/ws/a', 'a.py')).toMatchObject({ ok: true })
+    await expect.poll(() => failed.map((e) => (e as { state: string }).state)).toEqual(['starting', 'ready'])
+  })
+
   it('rejects ready when the kernel never starts', async () => {
     const k = start('die-at-start')
     const exit = exitOf(k)

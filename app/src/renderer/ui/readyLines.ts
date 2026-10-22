@@ -78,11 +78,12 @@ function kernelLine(ready: Ready): Line | null {
     const { build123d, python } = kernel.versions
     return { ...base, tone: 'ok', text: [...(build123d ? ['build123d ', num(build123d)] : ['started']), ...(python ? [', Python ', num(python)] : []), ...uvVersion] }
   }
-  if (kernel.state === 'failed') return { ...base, tone: 'fail', text: [`Did not start: ${kernel.reason}`] }
   const missing = environment.kind === 'torno' && !environment.made
   if (kernel.state === 'starting') return { ...base, tone: 'wait', text: [missing ? PREPARING : 'Starting.'], ...(missing ? {} : { quiet: true }) }
-  // No workspace is open (or its kernel is to be started again by the next build): torno's own environment, as it stands.
+  // No workspace is open, or its kernel stopped and the next build starts it again: torno's own environment, as it stands.
   if (making.state === 'making') return { ...base, tone: 'wait', text: [PREPARING], progress: making.lines }
+  // A kernel that failed for want of the environment can have it made now, before the build that tries again.
+  if (kernel.state === 'failed') return { ...base, tone: 'fail', text: [`Did not start: ${kernel.reason}`], ...(missing && uv.path !== null ? { action: 'make' as const } : {}) }
   if (uv.path === null) return null
   if (making.state === 'failed' && missing) return { ...base, tone: 'fail', text: [`Could not make torno's Python environment: ${making.reason}`], progress: making.lines, action: 'make' }
   if (missing) return { ...base, tone: 'warn', text: ['Not made yet: about 900 MB is fetched the first time, so the first run needs the network.'], action: 'make' }

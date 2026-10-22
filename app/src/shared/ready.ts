@@ -1,6 +1,6 @@
 /**
  * What torno needs before anything can run, as main finds it before it fails (`main/ready.ts`): Claude Code, uv and
- * the Python environment of the kernel. The window words it (`renderer/ui/readiness.ts`); nothing here is a ref
+ * the Python environment of the kernel. The window words it (`renderer/ui/readyLines.ts`); nothing here is a ref
  * or an address, and nothing of the person's Claude Code configuration is read to make it.
  */
 

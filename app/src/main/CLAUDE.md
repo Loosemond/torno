@@ -349,7 +349,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `paths.ts`: `kernel-env` under `userData` packaged, `kernel/.venv` otherwise), or, for a workspace with a
   `pyproject.toml`, its `.venv`, which is only reported (`environmentOf`). The kernel of the open workspace is
   `none`/`starting`/`ready` (versions)/`failed` (its reason, 600 characters at most), set by `ReadyKeeper.opened` and
-  `closed` from `openWorkspace` and `closeWorkspace`; a kernel of a workspace that was left no longer speaks (`epoch`).
+  `closed` from `openWorkspace` and `closeWorkspace`, and by what the kernel tells of every start (`KernelClient.onState`:
+  `starting` when it is started again, after one exit or by the build that follows a stop for good, `ready` when it answers,
+  `failed` when it stops for good), so a kernel that failed and was mended by a rebuild is not said to have failed any
+  longer; a kernel of a workspace that was left no longer speaks (`epoch`). The CLI and uv are asked with `agentEnv(process.env)`
+  (`sessions/agentEnv.ts`), the environment a session gets: without a parent Claude Code session's variables.
   `ReadyKeeper.makeNow` ("Make it now") runs `environmentCommand` (`uv sync --project <kernel dir>`, `--frozen` and
   `UV_PROJECT_ENVIRONMENT` when packaged) on torno's own kernel project, never on a workspace: it refuses a folder
   with its own project, no `uv`, and a kernel that is starting (it makes the environment itself); it tells uv's lines as
