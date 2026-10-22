@@ -188,13 +188,28 @@ test('the pointer on a row rings its chip in the view and lights what it is on, 
   await page.getByRole('region', { name: 'Marks' }).getByRole('heading', { name: 'To send' }).hover()
   await expect.poll(hovered).toBeNull()
   expect(await peeked()).toEqual([])
-  // The keys reach a mark by its row's buttons: with the focus in the row, its chip is pointed at too.
-  await page.getByRole('button', { name: 'Go to M2', exact: true }).focus()
+  // The keys reach a mark by its row's buttons: with their focus in the row, its chip is pointed at too.
+  await page.getByRole('button', { name: /^Note of M2/ }).focus()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: 'Go to M2', exact: true })).toBeFocused()
   await expect.poll(hovered).toBe('M2')
-  await page.getByRole('button', { name: 'Resolve M2', exact: true }).focus()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: 'Resolve M2', exact: true })).toBeFocused()
   expect(await hovered()).toBe('M2')
+  // The pointer on another row points there while it is on it, and leaving gives the light back to the keys' row.
+  await row('M1').hover()
+  await expect.poll(hovered).toBe('M1')
+  await page.getByRole('region', { name: 'Marks' }).getByRole('heading', { name: 'To send' }).hover()
+  await expect.poll(hovered).toBe('M2')
   await page.getByRole('button', { name: 'Resolve M2', exact: true }).blur()
   await expect.poll(hovered).toBeNull()
+  // A click on a row's button focuses it too, but that is no pointing of the keys': the light goes with the pointer.
+  await row('M1').hover()
+  await page.getByRole('button', { name: 'Go to M1', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Go to M1', exact: true })).toBeFocused()
+  await page.getByRole('region', { name: 'Marks' }).getByRole('heading', { name: 'To send' }).hover()
+  await expect.poll(hovered).toBeNull()
+  expect(await peeked()).toEqual([])
 })
 
 test('a named view draws the marks with its own camera, at any size', async () => {
@@ -501,6 +516,13 @@ test('a mark\'s chip in the view answers the pointer: its line at the pointer, i
     expect(await hovered()).toBe('M1')
     await expect(row('M1', p)).toHaveAttribute('data-hovered', '')
     await expect(canvas).toHaveCSS('cursor', 'pointer')
+    // What it is on is lit in the accent, on a layer of its own: nothing of the person's mark in the agent's colour.
+    const pinned = (await state(p)).marks.find((m) => m.id === 'M1')!
+    const onRef = pinned.kind === 'pin' ? pinned.anchor.ref : undefined
+    expect(onRef).toMatch(/^tub\/F\d+$/)
+    const lit = await p.evaluate(() => window.__tornoTest!.highlighted())
+    expect(lit.point).toEqual([onRef])
+    expect(lit.agent).toEqual([])
     // A failing dimension says what it should be and by how much it misses, in the face of numbers.
     await p.mouse.move(...(await chip('M3')))
     await expect(readout).toHaveText(/^M3\s*40 mm, expected 42 ± 0\.05, 2 under$/)

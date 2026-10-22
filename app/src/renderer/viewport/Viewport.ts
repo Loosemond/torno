@@ -871,6 +871,16 @@ export class Viewport {
     this.highlight('agent', refs)
   }
 
+  /** Lights what the pointer is on elsewhere (a ref of the chat, a mark's row or chip), in the accent: never in a mark's colour. */
+  setPointed(refs: string[]): void {
+    this.highlight('point', refs)
+  }
+
+  /** The refs each layer of highlights is drawn for: for the tests, which cannot read the pixels of the hidden window. */
+  highlighted(): Record<HighlightLayer, readonly string[]> {
+    return { hover: this.highlights.refsOf('hover'), selection: this.highlights.refsOf('selection'), agent: this.highlights.refsOf('agent'), userMark: this.highlights.refsOf('userMark'), agentMark: this.highlights.refsOf('agentMark'), point: this.highlights.refsOf('point') }
+  }
+
   /**
    * Has `cb` told what the pointer does over the canvas. There is one listener:
    * whoever calls this routes the events on, and a second call replaces the first.

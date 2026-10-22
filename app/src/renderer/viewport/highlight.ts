@@ -6,15 +6,22 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import type { BuiltPart } from './partMesh'
 import { parseRef } from './picking'
 
-/** What is pointed at, what is selected, what the agent points at, and what the person's and the agent's pick marks are on. */
-export type HighlightLayer = 'hover' | 'selection' | 'agent' | 'userMark' | 'agentMark'
+/**
+ * What is pointed at, what is selected, what the agent points at, what the person's and the agent's pick marks are
+ * on, and what a ref or a mark the pointer is on elsewhere (a chip of the chat, a mark's row or its chip in the view)
+ * is on (`point`).
+ */
+export type HighlightLayer = 'hover' | 'selection' | 'agent' | 'userMark' | 'agentMark' | 'point'
 
 /** The layers that belong to marks: they are in a picture when the marks are. */
 export const MARK_LAYERS: HighlightLayer[] = ['userMark', 'agentMark']
 
 // `order` is the order of drawing: a selection is drawn over the tint of a mark
-// on the same face, and both show, since each is see-through.
+// on the same face, and both show, since each is see-through. What is pointed at
+// from elsewhere is in the accent, whoever made the mark it is of: a mark's colour
+// says who made it, and nothing else is drawn in it.
 const LAYERS: Record<HighlightLayer, { color: 'accent' | 'agent' | 'user'; tint: number; line: number; order: number }> = {
+  point: { color: 'accent', tint: 0.3, line: 2.5, order: 6 },
   hover: { color: 'accent', tint: 0.26, line: 2.5, order: 5 },
   selection: { color: 'accent', tint: 0.42, line: 3.5, order: 4 },
   agent: { color: 'agent', tint: 0.45, line: 3.5, order: 3 },
@@ -88,6 +95,11 @@ export class Highlights {
     if (refs.length === state.refs.length && refs.every((ref, i) => ref === state.refs[i])) return false
     state.refs = [...refs]
     return true
+  }
+
+  /** What a layer highlights. */
+  refsOf(layer: HighlightLayer): readonly string[] {
+    return this.layers[layer].refs
   }
 
   /** Draws the layers anew. `partNamed` finds a part of the layout shown. */

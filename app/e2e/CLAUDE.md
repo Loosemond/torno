@@ -41,7 +41,8 @@ window on it.
   `.project(point)` for where a point of the object is drawn (both in fractions
   of the canvas, to aim `page.mouse` with), `.markScreen(id)` for where a
   mark's label is, `.chipAt(fx, fy)` for the mark whose chip is drawn at a point (a press there is the chip's,
-  whatever tool is in hand) and `.hoveredMark()` for the one whose chip is ringed as pointed at, `.timePicks(count)` for what a pick costs and
+  whatever tool is in hand), `.hoveredMark()` for the one whose chip is ringed as pointed at and
+  `.highlighted()` for the refs each layer of highlights is drawn for (`point` in the accent, `agent` in its colour), `.timePicks(count)` for what a pick costs and
   `.timeFrames(count)` a frame, `.scans()` for the scans as the viewport has
   them (`loaded`, `ready`, where each stands), `.pickScanAt(fx, fy)`,
   `.projectScan(id, local)` and `.timeScanPicks(count)` as the same for

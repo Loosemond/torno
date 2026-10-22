@@ -19,6 +19,7 @@ let onSaveView: (m: { id: number; request: SaveViewRequest }) => void
 let savedFiles: Array<{ id: string; file: SceneFile }>
 let replies: Array<{ id: number; result: unknown }>
 let tinted: string[][]
+let pointed: string[][]
 let views: unknown[]
 /** What the canvas is told of the pointer: a press at a point of the window, and its release. */
 let canvasEvents: Record<string, (e: { clientX: number; clientY: number; button: number }) => void>
@@ -38,6 +39,7 @@ beforeEach(() => {
   busy = false
   canvasEvents = {}
   tinted = []
+  pointed = []
   views = []
   const off = vi.fn()
   vi.stubGlobal('window', {
@@ -66,6 +68,7 @@ beforeEach(() => {
     cameraGoal: () => goal ?? CAMERA,
     pointerBusy: () => busy,
     setAgentHighlight: (refs) => tinted.push(refs),
+    setPointed: (refs) => pointed.push(refs),
     canvas: { addEventListener: (type: string, cb: (typeof canvasEvents)[string]) => (canvasEvents[type] = cb), removeEventListener: () => {} } as unknown as HTMLCanvasElement
   })
 })
@@ -78,36 +81,38 @@ afterEach(() => {
 
 const highlight = (request: Partial<HighlightRequest> = {}) => onHighlight({ id: 7, request: { objectId: 'bracket', layout: 'assembly', refs: ['base/F5', 'post'], note: 'this one?', ...request } })
 
-describe('peek: what the pointer is on in the chat', () => {
+describe('peek: what the pointer is on in the chat, in the Marks list or on a chip in the view', () => {
   it('lights the refs while it is there, and puts out what it lit when it leaves', () => {
     peek(['base/F5'])
-    expect(tinted).toEqual([['base/F5']])
+    expect(pointed).toEqual([['base/F5']])
     expect(agentStore.getState().peek).toEqual(['base/F5'])
     // The same again changes nothing.
     peek(['base/F5'])
-    expect(tinted).toHaveLength(1)
+    expect(pointed).toHaveLength(1)
     peek([])
-    expect(tinted.at(-1)).toEqual([])
+    expect(pointed.at(-1)).toEqual([])
     expect(agentStore.getState()).toMatchObject({ peek: [], highlight: null })
   })
 
-  it('is no highlight of the agent\'s: nothing for the line under the view to say', () => {
+  it('is no highlight of the agent\'s: nothing for the line under the view to say, and nothing in the agent\'s colour', () => {
     peek(['post'])
     expect(agentStore.getState().highlight).toBeNull()
+    expect(tinted).toEqual([])
   })
 
-  it('gives back what the agent points at when it leaves, and leaves it lit when the agent points while it is on', () => {
+  it('leaves what the agent points at in the agent\'s colour meanwhile: the two are lit apart', () => {
     highlight()
+    expect(tinted.at(-1)).toEqual(['base/F5', 'post'])
     peek(['post/F1'])
-    expect(tinted.at(-1)).toEqual(['post/F1'])
+    expect(pointed.at(-1)).toEqual(['post/F1'])
     peek([])
+    expect(pointed.at(-1)).toEqual([])
     expect(tinted.at(-1)).toEqual(['base/F5', 'post'])
     expect(agentStore.getState().highlight).not.toBeNull()
     peek(['post/F2'])
     highlight({ refs: ['base'] })
-    expect(tinted.at(-1)).toEqual(['post/F2'])
-    peek([])
     expect(tinted.at(-1)).toEqual(['base'])
+    expect(pointed.at(-1)).toEqual(['post/F2'])
   })
 })
 

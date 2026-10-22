@@ -73,6 +73,29 @@ describe('Highlights', () => {
     expect(shown(built).map(colourOf)).toEqual([COLOURS.user])
   })
 
+  it('lights what is pointed at in the accent, over a pick mark of the person\'s, and never in the agent\'s colour', () => {
+    const built = square()
+    const highlights = new Highlights()
+    highlights.setColors(COLOURS)
+    const partNamed = (name: string) => (name === 'plate' ? built : undefined)
+    highlights.set('userMark', ['plate/F1'])
+    highlights.set('point', ['plate/F1', 'plate/E0'])
+    highlights.apply(partNamed)
+    const drawn = shown(built)
+    const pointedAt = drawn.filter((d) => colourOf(d) === COLOURS.accent)
+    // The face and the edge, both in the accent: the person's red stays under it, and no green is drawn.
+    expect(pointedAt).toHaveLength(2)
+    expect(drawn.map(colourOf)).not.toContain(COLOURS.agent)
+    expect(drawn.map(colourOf)).toContain(COLOURS.user)
+    const mark = drawn.find((d) => colourOf(d) === COLOURS.user)!
+    for (const d of pointedAt) expect(d.renderOrder).toBeGreaterThan(mark.renderOrder)
+    expect(highlights.refsOf('point')).toEqual(['plate/F1', 'plate/E0'])
+    // What the agent points at keeps its own colour.
+    highlights.set('agent', ['plate/F0'])
+    highlights.apply(partNamed, 'agent')
+    expect(shown(built).map(colourOf)).toContain(COLOURS.agent)
+  })
+
   it('a ref that names nothing in the scene tints nothing, and does not throw', () => {
     const built = square()
     const highlights = new Highlights()

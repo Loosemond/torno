@@ -10,7 +10,7 @@ import { editRegion } from '../tools/regionPainting'
 import { rowLabel } from '../viewport/marks/labels'
 import { spanningMarks } from '../viewport/marks/apart'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
-import { hoverMark } from './markHover'
+import { hoverMark, unhoverMark } from './markHover'
 import { ShapeFields } from './ShapeFields'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
 
@@ -125,20 +125,13 @@ export function MarkRow({
   // The pointer on the row, or the focus in it, points at its mark in the view: its chip is ringed and the faces it
   // is on are lit. The keys reach a mark by its row's buttons, and see it so.
   const pointed = useStore((s) => s.hoveredMark === mark.id)
-  const on = useRef({ pointer: false, focus: false })
-  const hover = (how: 'pointer' | 'focus', is: boolean): void => {
-    const was = on.current.pointer || on.current.focus
-    on.current[how] = is
-    const now = on.current.pointer || on.current.focus
-    if (now !== was) hoverMark(now ? mark.id : null)
-  }
   // A row that goes while it is pointed at takes its light with it.
   useEffect(
     () => () => {
-      hover('pointer', false)
-      hover('focus', false)
+      unhoverMark(mark.id, 'pointer')
+      unhoverMark(mark.id, 'focus')
     },
-    []
+    [mark.id]
   )
 
   const save = () => {
@@ -177,12 +170,16 @@ export function MarkRow({
       data-replacing={replacing ? '' : undefined}
       data-hovered={pointed ? '' : undefined}
       aria-current={active ? 'true' : undefined}
-      onPointerEnter={() => hover('pointer', true)}
-      onPointerLeave={() => hover('pointer', false)}
-      onFocus={() => hover('focus', true)}
+      onPointerEnter={() => hoverMark(mark.id, 'pointer')}
+      onPointerLeave={() => unhoverMark(mark.id, 'pointer')}
+      // Only the keys' focus on one of its buttons: a click on a button focuses it too, and its light would outstay
+      // the pointer; and a note being typed is the row's own business, its mark already the active one.
+      onFocus={(e) => {
+        if (e.target.matches('button:focus-visible')) hoverMark(mark.id, 'focus')
+      }}
       onBlur={(e) => {
         // Not while the focus goes from one of its buttons to another.
-        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) hover('focus', false)
+        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) unhoverMark(mark.id, 'focus')
       }}
       onClick={() => actions.selectMark(mark.id)}
     >

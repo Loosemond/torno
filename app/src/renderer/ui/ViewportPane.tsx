@@ -236,7 +236,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const chips = markChips({
     markAt: ([x, y]) => viewport.markAt(x, y),
     point: (id) => {
-      hoverMark(id)
+      hoverMark(id, 'pointer')
       viewport.canvas.style.cursor = id === null ? (tool?.cursor ?? '') : 'pointer'
       // What the tool lit under the pointer is under the chip: the chip has the pointer now.
       if (id === null) readout.hide()
@@ -481,6 +481,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       },
       regions: () => viewport.regionState(),
       hoveredMark: () => viewport.hoveredMark(),
+      highlighted: () => viewport.highlighted(),
       chipAt: (fx, fy) => {
         const box = canvasBox(viewport)
         return viewport.markAt(box.left + fx * box.width, box.top + fy * box.height)

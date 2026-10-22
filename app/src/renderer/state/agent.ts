@@ -47,8 +47,9 @@ export interface AgentHighlight {
 
 /**
  * Apart from the window's own state: it is the agent's, and nothing of it is kept. `peek` is what the pointer is on
- * in the chat (a ref in the agent's text, in a card or in a chip): lit in the viewport in the agent's colour for as
- * long as it is there, and no highlight of the agent's own.
+ * in the chat (a ref in the agent's text, in a card or in a chip), or a mark's row or chip points at: lit in the
+ * viewport in the accent, on a layer of its own (`setPointed`), for as long as it is there. It is no highlight of the
+ * agent's, and never in a mark's colour: what the agent points at keeps its own colour meanwhile.
  */
 export const agentStore = createStore<{ highlight: AgentHighlight | null; peek: string[] }>(() => ({ highlight: null, peek: [] }))
 
@@ -59,7 +60,7 @@ export function useAgentHighlight(): AgentHighlight | null {
 let dismiss: () => void = () => {}
 let peeking: (refs: string[]) => void = () => {}
 
-/** Light these refs in the viewport while the pointer is on what names them; none when it leaves. What the agent points at comes back then. */
+/** Light these refs in the viewport, in the accent, while the pointer is on what names them; none when it leaves. */
 export function peek(refs: string[]): void {
   peeking(refs)
 }
@@ -239,19 +240,19 @@ function missing(ref: string, parts: ReturnType<typeof partsInLayout>): string |
  * dismisses it, the object, the layout or the build changes, or a minute has
  * passed. Returns what undoes the joining.
  */
-export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'cameraGoal' | 'pointerBusy' | 'setAgentHighlight' | 'canvas'>): () => void {
+export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'cameraGoal' | 'pointerBusy' | 'setAgentHighlight' | 'setPointed' | 'canvas'>): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
   const clear = (): void => {
     clearTimeout(timer)
     if (agentStore.getState().highlight === null) return
-    viewport.setAgentHighlight(agentStore.getState().peek)
+    viewport.setAgentHighlight([])
     agentStore.setState({ highlight: null })
   }
   dismiss = clear
   peeking = (refs) => {
     const before = agentStore.getState().peek
     if (refs.length === before.length && refs.every((ref, n) => ref === before[n])) return
-    viewport.setAgentHighlight(refs.length > 0 ? refs : (agentStore.getState().highlight?.refs ?? []))
+    viewport.setPointed(refs)
     agentStore.setState({ peek: refs })
   }
 
@@ -275,8 +276,8 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
       )
     }
     clear()
-    // What the pointer is on in the chat stays lit meanwhile; the highlight is there when it leaves.
-    if (agentStore.getState().peek.length === 0) viewport.setAgentHighlight(req.refs)
+    // What the pointer is on stays lit meanwhile, in the accent beside it.
+    viewport.setAgentHighlight(req.refs)
     agentStore.setState({ highlight: { refs: req.refs, note: (req.note ?? '').slice(0, MAX_NOTE) } })
     timer = setTimeout(clear, HIGHLIGHT_FOR_MS)
     return { objectId: req.objectId, layout: s.layout, refs: req.refs, revision: s.revision }
@@ -315,6 +316,7 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
 
   return () => {
     clear()
+    if (agentStore.getState().peek.length > 0) viewport.setPointed([])
     agentStore.setState({ peek: [] })
     dismiss = () => {}
     peeking = () => {}

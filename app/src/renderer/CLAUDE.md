@@ -77,10 +77,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`src/renderer/tools/Tool.ts`) and gets every pointer event the chips of the marks do not take from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
-- A mark's row and its chip in the view point at each other. The pointer on a row, or the focus in it, is the
-  store's `hoveredMark` (`hoverMark` of `ui/markHover.ts`, called as they go on and off, never per move): the row has its hover
-  background (`data-hovered`), the chip a fainter ring than the active one's (`drawLabels`'s `hovered`), and the
-  faces the mark is on are lit by `peek`, as a ref chip of the chat lights them: no agent line, no locked tools.
+- A mark's row and its chip in the view point at each other. The pointer on a row or chip, or the keys' focus in a
+  row (on one of its buttons, `:focus-visible` only: a click on a button focuses it too, and is the pointer's; a
+  note being typed is not), is the store's
+  `hoveredMark` (`hoverMark`/`unhoverMark` of `ui/markHover.ts`, called as they go on and off, never per move; the
+  pointer's mark first, else the focus's, and each lets go only of its own): the row has its hover background
+  (`data-hovered`), the chip a fainter ring than the active one's (`drawLabels`'s `hovered`), and the faces the
+  mark is on are lit by `peek`, as a ref chip of the chat lights them: no agent line, no locked tools.
   A click on a row is `actions.selectMark` (the mark active, its layout shown): the camera moves to the view it was
   placed from only when its label is not in view (`markReveal`, `Viewport.revealMark`, `needsCamera`). "Go to its
   view", the reticle of the row, and a mark's chip in the chat are `actions.focusMark`, which always goes there.
@@ -558,7 +561,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `meta.pluginLoaded` is false a line above the box offers "Restart with the whole prompt" (disabled while the agent
   works), which starts the session again, resumed, with `session.start(…, { skills: false })`.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
-  is not an agent highlight (no agent line, no locked tools); click focuses a mark or selects a face or edge (the
+  is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
+  (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is
+  of; what the agent points at keeps its own layer and colour meanwhile; click focuses a mark or selects a face or edge (the
   chip of the build on show, once the build after it has failed, opens the sheet of that failure; an older build
   is an inert chip), and
   a click with the pointer gives the keys back to the view (`giveKeysBack`), as every action on the view does. A
