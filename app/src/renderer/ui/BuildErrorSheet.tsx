@@ -4,7 +4,7 @@ import { type BuildError, kindWords, fixPrompt, rebuildHelps, stillLatest } from
 import { WHY, diagnosisText } from '../../shared/diagnosis'
 import { useChat } from '../state/chat'
 import { actions, runningSession, useStore } from '../state/store'
-import { insertIntoComposer } from './chat/Composer'
+import { insertIntoSession } from './insertIntoSession'
 
 /** Everything the kernel said about a failed build, as one text to paste elsewhere: why a fillet failed after the message. */
 export function errorText(error: BuildError): string {
@@ -79,14 +79,7 @@ export function BuildErrorSheet({ objectName, error, onClose }: { objectName: st
       setHanded('start')
       return
     }
-    if (session.view === 'chat') {
-      if (!insertIntoComposer(text)) return setProblem('The message box is not open.')
-      // Once the dock is laid out: a box in a hidden dock takes no focus.
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-region="session"] [data-chat-composer]:not([disabled])')?.focus())
-    } else {
-      window.torno.session.insert(session.sessionId, text)
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-region="session"] .session-term textarea')?.focus())
-    }
+    if (!insertIntoSession(text, { later: true })) return setProblem('The message box is not open.')
     setHanded('box')
   }
 

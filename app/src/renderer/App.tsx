@@ -10,6 +10,7 @@ import { paintings } from './tools/regionPainting'
 import { WorkspaceQuestion } from './ui/WorkspaceQuestion'
 import { openProblem } from './ui/openFolder'
 import { Layers } from './ui/Layers'
+import { ParamsPanel } from './ui/ParamsPanel'
 import { MarksPanel } from './ui/MarksPanel'
 import { ColumnSplit } from './ui/ColumnSplit'
 import { ObjectList } from './ui/ObjectList'
@@ -363,7 +364,7 @@ export function App() {
         <ViewBoard />
       </main>
 
-      <aside className="left" data-region="left" aria-label="Objects, layers, scans and marks">
+      <aside className="left" data-region="left" aria-label="Objects, layers, parameters, scans and marks">
         <header className="panel-head">
           <h1 className="workspace-name" title={workspace.root}>
             {basename(workspace.root)}
@@ -385,6 +386,7 @@ export function App() {
         <ObjectList onOpen={(id) => void openObject(id)} />
         {/* While the page of objects is up, the layers and the scans act on a view that is not on screen: they give way. The marks stay: they say why a card has a failing chip. On the New object page the marks give way too: no tool works there. */}
         {page === 'object' && <Layers />}
+        {page === 'object' && <ParamsPanel />}
         {page === 'object' && <ScansPanel />}
         {/* The line that gives the marks more room than their share, from the sections above. */}
         {page === 'object' && <ColumnSplit />}

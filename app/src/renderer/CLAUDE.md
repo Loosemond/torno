@@ -150,6 +150,22 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`.status-defects`, `defectsSaid` in its title). Of the build on show alone: whether a defect is new is for the
   agent's digest (`main/sanity.ts`) to say.
 
+## Parameters
+
+- `ui/ParamsPanel.tsx`: the fields of the model's `Params` as the kernel read them at the last build (`Scene.params`,
+  as main sends the scene, unchanged), read only; torno never writes the model. A model with none (or a kernel that does
+  not read them) has no section. A row (`paramRow` in `ui/paramRows.ts`, pure) is the name and the default in the
+  monospace face (`shared/format.ts`, four digits at most, a list or a dict by its items, a bool as Python writes it;
+  the whole value in the value's `title` where it differs, with the type as written in the row's), the comment (`doc`)
+  as written and cut to two lines (whole in the row's title), and, for a default that is not a literal, "worked out in the
+  model" (its value too when the kernel has one). No unit is taken from a comment.
+- A click on a row puts `Params.<name>` at the cursor of the open object's session by `insertIntoSession`
+  (`ui/insertIntoSession.ts`, also the selection's "Insert" and the build error sheet's ask: the box of the chat,
+  `insertIntoComposer`, else a paste at the terminal's prompt, never sent; it says whether it went in), and shows the
+  dock first (`later`: a box in a hidden dock takes no focus). `Params.x` names no geometry, so it is plain text in the
+  prompt: `refsIn` and `RefChip` do not see it. With no session running a row is text, not a button, and its
+  `aria-description` says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a fixture).
+
 ## Section
 
 - Drawing is `viewport/section.ts`: the parts' materials are clipped, and each
@@ -395,11 +411,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   leaves it, and what had the focus has it again. "All objects" is the first row of the list while no object is
   open, and beside the list's title while one is (`ofObject` in `ui/ObjectList.tsx`), the page up or not: the one
   control, so the focus it had comes back to it.
-- **The left column gives the room to the marks** (`styles/panels.css`, `state/column.ts`). Objects, Layers and
-  Scans each have a title that folds them (`ui/SectionTitle.tsx`, `aria-expanded`; folded with the pointer, the
+- **The left column gives the room to the marks** (`styles/panels.css`, `state/column.ts`). Objects, Layers,
+  Parameters and Scans each have a title that folds them (`ui/SectionTitle.tsx`, `aria-expanded`; folded with the pointer, the
   keys go back to the view); folded, a section is its title row, which says what matters (`ui/sectionSaid.ts`:
-  `Layers 12 · 3 hidden`, `Scans 1 · unaligned`, `Objects 17`), and Scans keeps only what is said of an import
-  and the question it asks. Marks never folds: it keeps `--marks-floor` (`MARKS_FLOOR`: its title, a group's
+  `Layers 12 · 3 hidden`, `Parameters 5`, `Scans 1 · unaligned`, `Objects 17`), and Scans keeps only what is said of an import
+  and the question it asks. Parameters, under the layers, starts folded. Marks never folds: it keeps `--marks-floor` (`MARKS_FLOOR`: its title, a group's
   heading and five rows), and every section above gives way before it, each down to its title. The splitter
   above Marks (`ui/ColumnSplit.tsx`, `role="separator"`, `column.resize` Up/Down) gives Marks more: its drag writes
   `--marks-h` on the column, nothing through React per move; a double click puts back the shares. What is

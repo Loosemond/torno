@@ -218,7 +218,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys'] as const
 
 /** Shots of a window with no folder open, or an empty one, where no object is opened. */
 const FIRST_SCREEN = ['welcome-first', 'welcome-first-ready', 'welcome-first-open'] as const
@@ -247,6 +247,12 @@ for (const theme of ['light', 'dark'] as const) {
         mkdirSync(join(home, 'printer-parts'))
         writeFileSync(join(home, 'config.json'), JSON.stringify({ recent: [join(home, 'helmet'), join(home, 'printer-parts')] }))
         env.TORNO_CONFIG = join(home, 'config.json')
+      }
+      if (shot === 'params') {
+        // A model with a commented field, a comment above one, an expression and a long float, in this test's own copy.
+        const model = join(root, 'hollow', 'hollow.py')
+        const fields = ['    side: float = 40  # Outer width, mm', '    wall: float = 2', '    # Room left round the post, kept clear of the lid whatever the wall', '    gap: float = 0.123456', '    inner: float = 40 - 2 * 2  # Worked out from side and wall', '    ribs: int = 4'].join('\n')
+        writeFileSync(model, readFileSync(model, 'utf8').replace('    side: float = 40\n    wall: float = 2\n', `${fields}\n`))
       }
       const { app, page } = await start(theme, env)
       let client: Client | null = null
@@ -368,6 +374,13 @@ for (const theme of ['light', 'dark'] as const) {
           await page.getByRole('dialog', { name: 'How is S1 read?' }).getByRole('button', { name: 'Later' }).click()
           for (const name of ['Layers', 'Scans']) await page.locator('.section-fold').and(page.getByRole('button', { name, exact: true })).click()
           await expect(page.locator('.scans .section-said')).toHaveText('1 · unaligned')
+        } else if (shot === 'params') {
+          // The parameters opened under the layers, a session running so that the rows are buttons.
+          await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+          await expect(page.locator('[data-chat-composer]')).toBeFocused()
+          await page.locator('.section-fold').and(page.getByRole('button', { name: 'Parameters', exact: true })).click()
+          await expect(page.locator('.params [data-param]')).toHaveCount(5)
+          await page.locator('.params [data-param="wall"] button').hover()
         } else if (shot === 'chat') {
           // A conversation: a prompt with a mark, what torno added, a torno tool with its picture, another tool, and the reply.
           await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()

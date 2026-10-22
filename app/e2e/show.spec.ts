@@ -413,6 +413,9 @@ test('with an object open the list folds to a switcher, the marks start high, an
   await expect(objects.getByRole('button', { name: 'All objects' })).toBeVisible()
   expect((await objects.boundingBox())!.height).toBeLessThanOrEqual(64)
   // Layers and Scans folded as well: their title rows say what matters, and the marks start high in the column.
+  // hollow has Params, so Parameters is there too, folded to its title from the start.
+  await expect(fold('Parameters')).toHaveAttribute('aria-expanded', 'false')
+  await expect(fold('Parameters')).toHaveAttribute('aria-description', '2')
   for (const name of ['Layers', 'Scans']) {
     await fold(name).click()
     await expect(fold(name)).toHaveAttribute('aria-expanded', 'false')
@@ -421,9 +424,9 @@ test('with an object open the list folds to a switcher, the marks start high, an
   await expect(fold('Layers').locator('.section-said')).toHaveText('2')
   await expect(fold('Scans')).toHaveAttribute('aria-description', '0')
   await expect(left.getByRole('region', { name: 'Layers' }).getByRole('listitem')).toHaveCount(0)
-  expect((await left.getByRole('region', { name: 'Marks' }).boundingBox())!.y).toBeLessThan(160)
+  expect((await left.getByRole('region', { name: 'Marks' }).boundingBox())!.y).toBeLessThan(200)
   // The window keeps what is folded, in its own storage: nothing of it is in the workspace.
-  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('torno.column')))!)).toMatchObject({ folded: { objects: true, layers: true, scans: true } })
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('torno.column')))!)).toMatchObject({ folded: { objects: true, layers: true, params: true, scans: true } })
   expect(readdirSync(join(root, 'hollow', '.torno'))).not.toContain('column.json')
   for (const name of ['Layers', 'Scans']) await fold(name).click()
 

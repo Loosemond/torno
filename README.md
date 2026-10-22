@@ -296,13 +296,20 @@ length and the points along it) is also named by that ref, as of that build. Not
 the result of its edit and in `scene`, and can try a fillet on the last good
 build with `try_fillet` before it edits the model again.
 
-**The window.** On the left, the list of objects, then the layers and the scans of the
-open object, then its marks. Objects, Layers and Scans each fold by their title; folded, the
+**The window.** On the left, the list of objects, then the layers, the parameters and the scans of the
+open object, then its marks. Objects, Layers, Parameters and Scans each fold by their title; folded, the
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
 it keeps room for five rows at least, and the sections above give way first. Drag the line
 above Marks up for more (`Up` and `Down` with it in focus), double click it for the shares
 again. What is folded and where the line is are kept by the window, not in the folder. The
-layers (parts) of the open object each have a visibility switch. A model that says which of its parts belong together (an optional
+layers (parts) of the open object each have a visibility switch. Parameters lists the fields of
+the model's `Params` (folded to its title at first; a model with none has no section): each
+field's name, its default in the monospace face (four digits at most, the whole value on hover) and
+its comment as the model has it, and, for a default the model works out (an expression, not a
+number written in), that it is worked out in the model. It is read only: torno never writes
+the model. With a session running, a click on a row puts `Params.wall` in its prompt at the
+cursor, never sent, so you can write "make Params.wall 2.4" around it; with no session the rows say
+to start one. A model that says which of its parts belong together (an optional
 `groups(p)` beside `assembly`, group name to part names) has them listed under a
 header each, which folds the group, hides or shows all of it, or, on "Show only",
 shows that group alone in the layout; ask the agent to group parts and it edits
@@ -1679,6 +1686,12 @@ On the screen:
   marks, and their titles say how many parts and scans there are. Drag the line above Marks up and down, and double
   click it: it moves without lag, the sections above give way down to their titles, and the shares come back.
   Start torno again: what was folded, and where the line was, are as you left them. Legible in light and dark.
+- **Parameters.** In an object whose model has a `Params` dataclass with comments and one default that is an
+  expression, unfold Parameters under the layers: a row for each field in the model's order, the value in the
+  monospace face, the comment as written (cut to two lines, whole on hover), "worked out in the model" on the expression's.
+  With a real session running, in the chat and then in the terminal view, a click on a row puts `Params.wall` at the
+  cursor of the box (or the prompt) and sends nothing, with the dock hidden as well; with no session the rows are
+  not clickable. Legible in light and dark, and Marks keeps its five rows with the section open.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.

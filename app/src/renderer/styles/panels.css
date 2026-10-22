@@ -48,6 +48,14 @@
   padding: var(--space-1) 0 var(--space-2);
 }
 
+.params {
+  flex: 0 1 auto;
+  max-height: 30%;
+  min-height: var(--section-least);
+  border-top: var(--divider);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
 .scans {
   flex: 0 1 auto;
   max-height: 32%;
@@ -58,6 +66,7 @@
 
 /* Folded, a section is its title row (and, for the scans, what is said of an import). */
 .layers[data-folded],
+.params[data-folded],
 .scans[data-folded] {
   flex: none;
   max-height: none;
@@ -325,6 +334,75 @@
   width: 10px;
   height: 10px;
   border-radius: 2px;
+}
+
+/* A field of the model's Params: its name and default on a line, its comment under, and that the default is worked out in the model. Text where no session can take it, a button where one can. */
+.param-row {
+  display: block;
+}
+
+.param-button {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 3px var(--space-2) 3px var(--space-4);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.param-button {
+  cursor: pointer;
+}
+
+button.param-button:hover {
+  background: var(--accent-wash);
+}
+
+button.param-button:focus-visible {
+  outline-offset: -2px;
+}
+
+.param-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+}
+
+.param-name,
+.param-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.param-name {
+  flex: 0 1 auto;
+}
+
+.param-value {
+  flex: 0 1 auto;
+  max-width: 60%;
+}
+
+.param-doc,
+.param-worked {
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.param-doc {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .layer-row .row-name {
