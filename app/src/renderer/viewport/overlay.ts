@@ -316,19 +316,24 @@ function chipFont(unit: number): string {
   return `600 ${CHIP.font * unit}px ${MONO}`
 }
 
+/** How faint the ring of the chip the pointer is on is, beside the active one's. */
+const HOVER_RING = 0.4
+
 /**
  * Draws the labels of the marks: each a small chip with the mark's number. The
  * person's are filled with their colour; the agent's are outlined in its own,
  * so that who made a mark shows without telling red from green. A chip that
  * was moved off its point is tied to it by a hairline. `active` is the id of
- * the mark being worked on, whose chip is ringed.
+ * the mark being worked on, whose chip is ringed; `hovered` the one the pointer
+ * is on, in its row or on its chip, ringed more faintly.
  */
 export function drawLabels(
   ctx: Ctx,
   labels: Array<{ id: string; text: string; author: 'user' | 'agent'; x: number; y: number; visible: boolean; box: { x: number; y: number; w: number; h: number }; value?: ChipValue }>,
   style: LabelStyle,
   unit: number,
-  active: string | null = null
+  active: string | null = null,
+  hovered: string | null = null
 ): void {
   ctx.save()
   ctx.lineCap = 'round'
@@ -365,10 +370,12 @@ export function drawLabels(
     path(CHIP.halo * unit)
     ctx.fillStyle = style.surface
     ctx.fill()
-    if (id === active) {
+    if (id === active || id === hovered) {
       path(CHIP.halo * unit + 1.5 * unit)
       ctx.fillStyle = style.ink
+      ctx.globalAlpha = id === active ? 1 : HOVER_RING
       ctx.fill()
+      ctx.globalAlpha = 1
       path(CHIP.halo * unit)
       ctx.fillStyle = style.surface
       ctx.fill()

@@ -77,6 +77,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`src/renderer/tools/Tool.ts`) and gets every pointer event from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
+- A mark's row and its chip in the view point at each other. The pointer on a row is the store's `hoveredMark`
+  (`hoverMark` of `ui/markHover.ts`, called as the pointer goes on and off, never per move): the row has its hover
+  background (`data-hovered`), the chip a fainter ring than the active one's (`drawLabels`'s `hovered`), and the
+  faces the mark is on are lit by `peek`, as a ref chip of the chat lights them: no agent line, no locked tools.
 - The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts), "With the agent"
   (sent), "To review" and the fold "Resolved"; a heading only for a group that has marks, and the heading says
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is

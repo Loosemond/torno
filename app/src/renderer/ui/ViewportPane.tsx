@@ -270,6 +270,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const shown = (s: ReturnType<typeof store.getState>): number => (s.scene ? s.revision : 0)
   viewport.setMarks(store.getState().marks, shown(store.getState()))
   viewport.setActiveMark(store.getState().activeMark)
+  viewport.setHoverMark(store.getState().hoveredMark)
   viewport.setSection(store.getState().section)
   viewport.setExplode(explodeNow(store.getState()))
   // The gizmo on the active mark while it is a shape, and the keys that say what it does.
@@ -288,6 +289,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.selection !== prev.selection && s.objectId === prev.objectId && s.scene === prev.scene && s.layout === prev.layout) reportSelection(s)
     if (s.marks !== prev.marks || shown(s) !== shown(prev)) viewport.setMarks(s.marks, shown(s))
     if (s.activeMark !== prev.activeMark) viewport.setActiveMark(s.activeMark)
+    if (s.hoveredMark !== prev.hoveredMark) viewport.setHoverMark(s.hoveredMark)
     if (s.objectId !== prev.objectId) asks.clear()
     else if (s.scans !== prev.scans) asks.told()
     // With the build on show: whether an alignment was checked against it is said with every picture.
@@ -441,6 +443,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst, bytes }
       },
       regions: () => viewport.regionState(),
+      hoveredMark: () => viewport.hoveredMark(),
       markScreen: (id) => {
         const box = canvasBox(viewport)
         const label = viewport.markLabel(id)

@@ -30,6 +30,8 @@ declare global {
       exploded(): boolean
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
+      /** The mark whose chip the viewport rings as pointed at (its row or its chip hovered); null for none. */
+      hoveredMark(): string | null
       /** What a thumbnail of the build on show (or of a scene given, with its meshes) costs, drawn `count` times off screen as a card's picture is: the mean and the worst, in milliseconds, and the size of the PNG. */
       timeThumbnail(count?: number, given?: { scene: import('../shared/scene').Scene; blob: ArrayBuffer }): Promise<{ count: number; meanMs: number; worstMs: number; bytes: number }>
       /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */

@@ -28,6 +28,7 @@
 }
 
 .mark-row:hover,
+.mark-row[data-hovered],
 .mark-row:focus-within,
 .mark-row[data-active] {
   --row-bg: var(--accent-wash);

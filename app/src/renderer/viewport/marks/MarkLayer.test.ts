@@ -72,6 +72,20 @@ describe('the marks of a part that is switched off', () => {
   })
 })
 
+describe('the mark pointed at', () => {
+  it('is kept apart from the active one, and only while it is drawn', () => {
+    const { marks } = layer()
+    marks.show('assembly')
+    marks.setActive('M1')
+    marks.setHover('M2')
+    expect(marks.activeId).toBe('M1')
+    expect(marks.hoverId).toBe('M2')
+    marks.setHover(null)
+    expect(marks.hoverId).toBeNull()
+    expect(marks.activeId).toBe('M1')
+  })
+})
+
 describe('what a mark is drawn as', () => {
   it('is not made again for what does not change how it looks: a note, being sent, having been reopened', () => {
     const marks = new MarkLayer(COLOURS)

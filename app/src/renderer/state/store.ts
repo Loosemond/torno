@@ -86,6 +86,11 @@ export interface TornoState {
   marksProblem: string | null
   /** The mark being worked on: the row lit in the panel and the label ringed in the viewport. Null for none. */
   activeMark: string | null
+  /**
+   * The mark the pointer is on, in its row or on its chip in the view: the row has its hover background and the chip
+   * a fainter ring than the active one's. Null for none. It changes as the pointer goes on or off one, never per move.
+   */
+  hoveredMark: string | null
   /** The scans of the open object, as main last told them. Their meshes are not here: they go straight to the viewport. */
   scans: ScanInfo[]
   /**
@@ -162,7 +167,7 @@ const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
 const NO_VIEWS: SavedView[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, hoveredMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -552,7 +557,8 @@ export const actions = {
     // the moment main kept it may not have been told of yet: it stays until it has been.
     const awaited = s.noting !== null && s.noting === s.activeMark && !s.marks.some((mark) => mark.id === s.noting)
     const activeMark = awaited || m.marks.some((mark) => mark.id === s.activeMark) ? s.activeMark : null
-    store.setState({ marks: m.marks, activeMark, noting: activeMark === null ? null : s.noting })
+    const hoveredMark = m.marks.some((mark) => mark.id === s.hoveredMark) ? s.hoveredMark : null
+    store.setState({ marks: m.marks, activeMark, hoveredMark, noting: activeMark === null ? null : s.noting })
   },
 
   /** The scans of an object, as listed or as changed. Those of an object that is not the open one are not kept. */
@@ -632,6 +638,12 @@ export const actions = {
   setActiveMark(id: string | null): void {
     const s = store.getState()
     if (id !== s.activeMark && (id === null || s.marks.some((m) => m.id === id))) store.setState({ activeMark: id, noting: null })
+  },
+
+  /** The pointer went on a mark of the open object, in its row or on its chip, or off it (null). */
+  hoverMark(id: string | null): void {
+    const s = store.getState()
+    if (id !== s.hoveredMark && (id === null || s.marks.some((m) => m.id === id))) store.setState({ hoveredMark: id })
   },
 
   /**

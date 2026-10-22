@@ -807,7 +807,10 @@ Every mark has a number (`M1`, `M2`, never reused), a note, and a row in the
 Marks list. Yours are drawn in red, the agent's in green. A mark is a **draft**
 until it has been carried to the agent (see [Choosing an agent](#choosing-an-agent)),
 then **sent**, then **resolved** by you or by the agent, with a line on what
-was done. Clicking a row goes to the view the mark was placed from.
+was done. Clicking a row goes to the view the mark was placed from. The
+pointer on a row rings the mark's chip in the view, more faintly than the
+active one's, and lights the face it is on, as a mention of it in the chat
+does.
 
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.

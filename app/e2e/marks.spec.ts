@@ -158,6 +158,27 @@ test('a pin and an arrow are listed with their numbers, and drawn in the picture
   expect(Math.hypot(one.x - two.x, one.y - two.y)).toBeGreaterThan(0.05)
 })
 
+test('the pointer on a row rings its chip in the view and lights what it is on, without making it the active one', async () => {
+  const hovered = (): Promise<string | null> => page.evaluate(() => window.__tornoTest!.hoveredMark())
+  const peeked = (): Promise<string[]> => page.evaluate(() => window.__tornoTest!.peeked())
+  expect(await hovered()).toBeNull()
+  await row('M2').hover()
+  await expect.poll(hovered).toBe('M2')
+  await expect(row('M2')).toHaveAttribute('data-hovered', '')
+  // Lit as a mention of it in the chat is: by the ref it is on, when the check of the marks has given it one.
+  const arrow = (await state()).marks.find((m) => m.id === 'M2')!
+  const ref = arrow.kind === 'arrow' ? arrow.from.ref : undefined
+  expect(await peeked()).toEqual(ref ? [ref] : [])
+  expect((await state()).activeMark).toBeNull()
+  await row('M1').hover()
+  await expect.poll(hovered).toBe('M1')
+  await expect(row('M2')).not.toHaveAttribute('data-hovered', '')
+  // Off the rows, nothing is pointed at.
+  await page.getByRole('region', { name: 'Marks' }).getByRole('heading', { name: 'To send' }).hover()
+  await expect.poll(hovered).toBeNull()
+  expect(await peeked()).toEqual([])
+})
+
 test('a named view draws the marks with its own camera, at any size', async () => {
   for (const size of [640, 2000]) {
     const { all } = await differing({ view: 'top', size }, { view: 'top', size, marks: false })

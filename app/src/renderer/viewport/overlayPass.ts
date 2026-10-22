@@ -13,7 +13,7 @@ const ORIGIN = new THREE.Vector3()
 /** What the overlay needs of the viewport it lies over. */
 export interface OverlayHost {
   readonly canvas: HTMLCanvasElement
-  readonly marks: Pick<MarkLayer, 'labels' | 'markOf' | 'anchorOf' | 'offsetOf' | 'drawn' | 'activeId'>
+  readonly marks: Pick<MarkLayer, 'labels' | 'markOf' | 'anchorOf' | 'offsetOf' | 'drawn' | 'activeId' | 'hoverId'>
   camera(): THREE.Camera
   layout(): string
   style(): LabelStyle & { accent: string }
@@ -59,7 +59,7 @@ export class OverlayPass {
     const style = host.style()
     ctx.setTransform(this.canvas.width / size.width, 0, 0, this.canvas.height / size.height, 0, 0)
     ctx.clearRect(0, 0, size.width, size.height)
-    drawLabels(ctx, host.marks.labels(host.layout(), host.camera(), size, 1, chipSize(ctx, 1)), style, 1, host.marks.activeId)
+    drawLabels(ctx, host.marks.labels(host.layout(), host.camera(), size, 1, chipSize(ctx, 1)), style, 1, host.marks.activeId, host.marks.hoverId)
     this.drawFrame(ctx, size, style)
     // Not while the parts are drawn apart: a point picked on the model would be drawn where its part is not.
     if (host.exploded?.()) return

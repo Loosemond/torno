@@ -48,6 +48,7 @@ export class MarkLayer {
   /** The names of the parts of that layout that are switched off: marks on them are not shown either. */
   private hidden: ReadonlySet<string> = NO_PARTS
   private active: string | null = null
+  private hovered: string | null = null
   private section: SectionPlane | null = null
   /** The build on show, which the values of the dimensions are of or not. */
   private revision = 0
@@ -274,6 +275,15 @@ export class MarkLayer {
 
   get activeId(): string | null {
     return this.active
+  }
+
+  /** The mark the pointer is on, in its row or on its chip, or null: its chip is ringed, more lightly than the active one's. On screen only. */
+  setHover(id: string | null): void {
+    this.hovered = id
+  }
+
+  get hoverId(): string | null {
+    return this.hovered
   }
 
   /** Sizes what is measured in pixels for a view: `camera` with its matrices up to date, `size` in pixels, `unit` pixels to a nominal one. */

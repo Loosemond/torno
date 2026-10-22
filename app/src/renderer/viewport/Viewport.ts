@@ -403,6 +403,17 @@ export class Viewport {
     this.invalidate()
   }
 
+  /** The mark the pointer is on, in its row or on its chip, or null: its chip is ringed, more faintly than the active one's. On screen only. */
+  setHoverMark(id: string | null): void {
+    if (id === this.marks.hoverId) return
+    this.marks.setHover(id)
+    this.invalidate()
+  }
+
+  hoveredMark(): string | null {
+    return this.marks.hoverId
+  }
+
   /** Goes to the view a mark was placed from. The layout is the caller's to switch: this moves the camera only. */
   focusMark(id: string): void {
     const mark = this.allMarks.find((m) => m.id === id)

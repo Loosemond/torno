@@ -10,6 +10,7 @@ import { editRegion } from '../tools/regionPainting'
 import { rowLabel } from '../viewport/marks/labels'
 import { spanningMarks } from '../viewport/marks/apart'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
+import { hoverMark } from './markHover'
 import { ShapeFields } from './ShapeFields'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
 
@@ -121,6 +122,17 @@ export function MarkRow({
     if (writing) field.current?.select()
   }, [writing])
 
+  // The pointer on the row points at its mark in the view: its chip is ringed and the faces it is on are lit.
+  const pointed = useStore((s) => s.hoveredMark === mark.id)
+  const hovering = useRef(false)
+  const hover = (on: boolean): void => {
+    if (on === hovering.current) return
+    hovering.current = on
+    hoverMark(on ? mark.id : null)
+  }
+  // A row that goes while the pointer is on it takes its light with it.
+  useEffect(() => () => hover(false), [])
+
   const save = () => {
     if (draft === null) return
     if (draft !== mark.note) void change({ note: draft }).catch(() => {})
@@ -155,7 +167,10 @@ export function MarkRow({
       data-awaiting={awaiting ? '' : undefined}
       data-expanded={fields || expects || awaiting ? '' : undefined}
       data-replacing={replacing ? '' : undefined}
+      data-hovered={pointed ? '' : undefined}
       aria-current={active ? 'true' : undefined}
+      onPointerEnter={() => hover(true)}
+      onPointerLeave={() => hover(false)}
       onClick={() => actions.focusMark(mark.id)}
     >
       <span className="mark-chip num" data-author={mark.author} title={[mark.author === 'user' ? 'Your mark' : "The agent's mark", resolved ? '' : anchorNote].filter(Boolean).join('. ')}>

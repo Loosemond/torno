@@ -416,6 +416,27 @@ describe('marks', () => {
     expect(store.getState().activeMark).toBeNull()
   })
 
+  it('the mark the pointer is on, in its row or on its chip, is of the open object and goes with it', () => {
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), pin('M2', 'there')] })
+    expect(store.getState().hoveredMark).toBeNull()
+    actions.hoverMark('M2')
+    expect(store.getState().hoveredMark).toBe('M2')
+    // Not the active one: pointing at a mark is not working on it.
+    expect(store.getState().activeMark).toBeNull()
+    actions.hoverMark('M9')
+    expect(store.getState().hoveredMark).toBe('M2')
+    actions.hoverMark(null)
+    expect(store.getState().hoveredMark).toBeNull()
+    // Gone with its mark, and with the object.
+    actions.hoverMark('M2')
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here')] })
+    expect(store.getState().hoveredMark).toBeNull()
+    actions.hoverMark('M1')
+    actions.openObject('two', { layers: {} })
+    expect(store.getState().hoveredMark).toBeNull()
+  })
+
   it('going to a mark makes it the active one, shows its layout, and asks for the camera each time', () => {
     actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
     actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), { ...pin('M2', 'on the bed'), layout: 'print' }] })

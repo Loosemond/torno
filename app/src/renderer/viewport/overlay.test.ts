@@ -7,6 +7,7 @@ import { DEVIATION_RAMP, BAR_SIDE, NARROW_BELOW, PERSPECTIVE_NOTE, SCALE_BAR_MAX
 function recorder() {
   const texts: Array<{ text: string; alpha: number }> = []
   const strokes: Array<{ colour: string; moves: number; lines: number }> = []
+  const fills: Array<{ colour: string; alpha: number }> = []
   let moves = 0
   let lines = 0
   const ctx = {
@@ -25,18 +26,38 @@ function recorder() {
     moveTo: () => void (moves += 1),
     lineTo: () => void (lines += 1),
     roundRect: () => {},
-    fill: () => {},
+    fill: () => void fills.push({ colour: ctx.fillStyle, alpha: ctx.globalAlpha }),
     stroke: () => void strokes.push({ colour: ctx.strokeStyle, moves, lines }),
     fillText: (text: string) => void texts.push({ text, alpha: ctx.globalAlpha })
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, strokes }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, strokes, fills }
 }
 
 const STYLE: LabelStyle = { user: '#cf3f2c', agent: '#2b8a5c', paper: '#ffffff', surface: '#f4f4f2', ink: '#1c1d1f', fail: '#c0392b', ok: '#2b8a5c' }
-const label = (value: { text: string; verdict?: 'pass' | 'fail'; stale?: true }) => ({ id: 'M1', text: 'M1', author: 'user' as const, x: 100, y: 100, visible: true, box: { x: 100, y: 90, w: 90, h: 17 }, value })
+const label = (value: { text: string; verdict?: 'pass' | 'fail'; stale?: true; off?: string } | undefined) => ({ id: 'M1', text: 'M1', author: 'user' as const, x: 100, y: 100, visible: true, box: { x: 100, y: 90, w: 90, h: 17 }, value })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('the ring of a chip', () => {
+  const ringed = (active: string | null, hovered: string | null) => {
+    const { ctx, fills } = recorder()
+    drawLabels(ctx, [label(undefined)], STYLE, 1, active, hovered)
+    return fills.filter((f) => f.colour === STYLE.ink)
+  }
+
+  it('is in ink round the active mark, and fainter round the one pointed at; none round any other', () => {
+    expect(ringed(null, null)).toEqual([])
+    expect(ringed('M1', null)).toEqual([{ colour: STYLE.ink, alpha: 1 }])
+    const hovered = ringed(null, 'M1')
+    expect(hovered).toHaveLength(1)
+    expect(hovered[0].alpha).toBeGreaterThan(0)
+    expect(hovered[0].alpha).toBeLessThan(1)
+    // The active one keeps its own ring while it is pointed at.
+    expect(ringed('M1', 'M1')).toEqual([{ colour: STYLE.ink, alpha: 1 }])
+    expect(ringed('M2', 'M3')).toEqual([])
+  })
 })
 
 describe('the chip of a dimension’s value', () => {
