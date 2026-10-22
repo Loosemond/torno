@@ -1947,3 +1947,23 @@ Recommendation: keep the CLI on pipes, the closest to "your own Claude Code", an
 #### Research
 
 - [Claude Code report](https://github.com/luisg0nc/torno/issues/42#issuecomment-6329179151) section 4 (the SDK, the policy quote, `--bare`), section 3 (auth precedence).
+
+## Task 31: Kernel test: a worker that watches its parent fails under load (#134)
+
+Issue: https://github.com/luisg0nc/torno/issues/134. Added during the run: the flake cost a re-run in most tasks. Its cause was
+seen in a failure on 2026-10-22: `kernel/tests/test_supervisor.py` `gone_or_zombie` calls `stat_of(pid)` twice, and when the
+process vanishes between the two calls the second returns `None` and `.startswith` raises
+`AttributeError: 'NoneType' object has no attribute 'startswith'` (line ~1751).
+
+#### Proposal
+
+Read the process's state once in `gone_or_zombie` (a vanished process is gone; a zombie is dead all the same), and look for
+any other helper of the test that reads a process's state twice. Do not weaken what the test proves: a worker leaves when its
+supervisor is killed. If the fixed 5 s wait is also too short on a loaded machine, wait for the event with a bound that holds
+under load.
+
+#### Done when
+
+- The test passes 20 times in a row inside the full kernel suite run three at once
+  (`for i in 1 2 3; do (cd kernel && uv run pytest -q) & done; wait`, a few rounds), or as many rounds as fit in 20 minutes.
+- `cd kernel && uv run pytest -q` passes.
