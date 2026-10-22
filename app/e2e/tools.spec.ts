@@ -80,7 +80,17 @@ async function pageXY(point: Vec3, p: Page = page): Promise<[number, number]> {
   return [box.x + fx * box.width, box.y + fy * box.height]
 }
 
+/** A press over a mark's chip is the chip's, whatever tool is in hand: a point a tool is to be handed has none on it. */
+async function clearOfChips(point: Vec3, p: Page): Promise<void> {
+  const chip = await p.evaluate((at) => {
+    const [fx, fy] = window.__tornoTest!.project(at)
+    return window.__tornoTest!.chipAt(fx, fy)
+  }, point)
+  expect(chip, `the chip of ${chip} is drawn over ${JSON.stringify(point)}`).toBeNull()
+}
+
 async function clickOver(point: Vec3, opts: { shift?: boolean } = {}, p: Page = page): Promise<void> {
+  await clearOfChips(point, p)
   const [x, y] = await pageXY(point, p)
   await p.mouse.move(x, y)
   if (opts.shift) await p.keyboard.down('Shift')
@@ -91,6 +101,7 @@ async function clickOver(point: Vec3, opts: { shift?: boolean } = {}, p: Page = 
 
 /** Press where one point is drawn, drag to where another is, and let go unless told to hold. */
 async function dragOver(from: Vec3, to: Vec3, opts: { hold?: boolean } = {}, p: Page = page): Promise<void> {
+  await clearOfChips(from, p)
   const [x0, y0] = await pageXY(from, p)
   const [x1, y1] = await pageXY(to, p)
   await p.mouse.move(x0, y0)
@@ -102,6 +113,7 @@ async function dragOver(from: Vec3, to: Vec3, opts: { hold?: boolean } = {}, p: 
 
 /** Press where the first point is drawn and draw through the others, one move each; let go unless told to hold. */
 async function strokeOver(points: Vec3[], opts: { hold?: boolean } = {}, p: Page = page): Promise<void> {
+  await clearOfChips(points[0], p)
   const at: [number, number][] = []
   for (const point of points) at.push(await pageXY(point, p))
   await p.mouse.move(...at[0])
@@ -699,7 +711,8 @@ test('on a free view a stroke across the top of the base lies on the surface', a
   await expect.poll(async () => (await state()).lockedView).toBeNull()
   await expect(tool('Draw')).toHaveAttribute('aria-pressed', 'true')
   const before = marksOnDisk().marks.length
-  const path: Vec3[] = [[15, 11, 2.5], [10, 0, 2.5], [16, -6, 2.5], [12, -12, 2.5]]
+  // From the front corner: the chip of M5 is drawn over the back one.
+  const path: Vec3[] = [[12, -12, 2.5], [16, -6, 2.5], [10, 0, 2.5], [15, 11, 2.5]]
   const hit = (await pickOver(path[0]))!
   expect(hit.part).toBe('base')
   await strokeOver(path)

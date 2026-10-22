@@ -71,7 +71,17 @@ async function pageXY(point: Vec3, p: Page): Promise<[number, number]> {
   return [box.x + fx * box.width, box.y + fy * box.height]
 }
 
+/** A press over a mark's chip is the chip's, whatever tool is in hand: a point a tool is to be handed has none on it. */
+async function clearOfChips(point: Vec3, p: Page): Promise<void> {
+  const chip = await p.evaluate((at) => {
+    const [fx, fy] = window.__tornoTest!.project(at)
+    return window.__tornoTest!.chipAt(fx, fy)
+  }, point)
+  expect(chip, `the chip of ${chip} is drawn over ${JSON.stringify(point)}`).toBeNull()
+}
+
 async function clickOver(point: Vec3, p: Page, times = 1): Promise<void> {
+  await clearOfChips(point, p)
   const [x, y] = await pageXY(point, p)
   await p.mouse.move(x, y)
   for (let i = 0; i < times; i++) {
@@ -105,6 +115,8 @@ async function openMeasures(p: Page): Promise<void> {
 
 // Points of the plate, as the iso view sees them: its top, the far wall of each hole, its chamfer.
 const ON_TOP: Vec3 = [-2, 10, 3]
+/** Also on its top, clear of the chip of the dimension kept there (M1). */
+const ON_TOP_CLEAR: Vec3 = [2, -6, 3]
 const UNDER: Vec3 = [-2, -2, -3]
 const IN_HOLE: Vec3 = [-10 - 2.83, 5 + 2.83, 1.6]
 const IN_OTHER_HOLE: Vec3 = [10 - 2.83, 5 + 2.83, 1.6]
@@ -247,7 +259,7 @@ test('a double click on the wall of a hole measures its diameter, ⌀ 8, and Ent
 
 test('an angle to the wall of a hole: before the click the pointer says it is taken by its axis, with no estimate', async () => {
   await page.getByRole('group', { name: 'What to measure' }).getByRole('button', { name: 'Angle' }).click()
-  await clickOver(ON_TOP, page)
+  await clickOver(ON_TOP_CLEAR, page)
   const [x, y] = await pageXY(IN_OTHER_HOLE, page)
   await page.mouse.move(x, y)
   await page.mouse.move(x + 1, y)
@@ -295,12 +307,12 @@ test('with an expected value the hole fails: the row says so, and the chip in th
   })
   expect(covered).toBe(false)
 
-  // The picture: the same but for the chip of M2, whose value is now ringed.
+  // The picture: the same but for the chip of M2, whose value is now ringed, with its cross and by how much it misses.
   await atRest(page)
   const after = await picture(page, 'after', true, '--fail')
   const changed = await differing(page, 'before', 'after')
   expect(changed).toBeGreaterThan(40)
-  expect(changed).toBeLessThan(4000)
+  expect(changed).toBeLessThan(8000)
   expect(after).toBeGreaterThan(before)
 
   // Within the tolerance it passes.

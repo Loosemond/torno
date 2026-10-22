@@ -122,16 +122,24 @@ export function MarkRow({
     if (writing) field.current?.select()
   }, [writing])
 
-  // The pointer on the row points at its mark in the view: its chip is ringed and the faces it is on are lit.
+  // The pointer on the row, or the focus in it, points at its mark in the view: its chip is ringed and the faces it
+  // is on are lit. The keys reach a mark by its row's buttons, and see it so.
   const pointed = useStore((s) => s.hoveredMark === mark.id)
-  const hovering = useRef(false)
-  const hover = (on: boolean): void => {
-    if (on === hovering.current) return
-    hovering.current = on
-    hoverMark(on ? mark.id : null)
+  const on = useRef({ pointer: false, focus: false })
+  const hover = (how: 'pointer' | 'focus', is: boolean): void => {
+    const was = on.current.pointer || on.current.focus
+    on.current[how] = is
+    const now = on.current.pointer || on.current.focus
+    if (now !== was) hoverMark(now ? mark.id : null)
   }
-  // A row that goes while the pointer is on it takes its light with it.
-  useEffect(() => () => hover(false), [])
+  // A row that goes while it is pointed at takes its light with it.
+  useEffect(
+    () => () => {
+      hover('pointer', false)
+      hover('focus', false)
+    },
+    []
+  )
 
   const save = () => {
     if (draft === null) return
@@ -169,8 +177,13 @@ export function MarkRow({
       data-replacing={replacing ? '' : undefined}
       data-hovered={pointed ? '' : undefined}
       aria-current={active ? 'true' : undefined}
-      onPointerEnter={() => hover(true)}
-      onPointerLeave={() => hover(false)}
+      onPointerEnter={() => hover('pointer', true)}
+      onPointerLeave={() => hover('pointer', false)}
+      onFocus={() => hover('focus', true)}
+      onBlur={(e) => {
+        // Not while the focus goes from one of its buttons to another.
+        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) hover('focus', false)
+      }}
       onClick={() => actions.selectMark(mark.id)}
     >
       <span className="mark-chip num" data-author={mark.author} title={[mark.author === 'user' ? 'Your mark' : "The agent's mark", resolved ? '' : anchorNote].filter(Boolean).join('. ')}>

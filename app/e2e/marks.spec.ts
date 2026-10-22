@@ -188,6 +188,13 @@ test('the pointer on a row rings its chip in the view and lights what it is on, 
   await page.getByRole('region', { name: 'Marks' }).getByRole('heading', { name: 'To send' }).hover()
   await expect.poll(hovered).toBeNull()
   expect(await peeked()).toEqual([])
+  // The keys reach a mark by its row's buttons: with the focus in the row, its chip is pointed at too.
+  await page.getByRole('button', { name: 'Go to M2', exact: true }).focus()
+  await expect.poll(hovered).toBe('M2')
+  await page.getByRole('button', { name: 'Resolve M2', exact: true }).focus()
+  expect(await hovered()).toBe('M2')
+  await page.getByRole('button', { name: 'Resolve M2', exact: true }).blur()
+  await expect.poll(hovered).toBeNull()
 })
 
 test('a named view draws the marks with its own camera, at any size', async () => {

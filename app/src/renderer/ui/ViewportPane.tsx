@@ -481,6 +481,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       },
       regions: () => viewport.regionState(),
       hoveredMark: () => viewport.hoveredMark(),
+      chipAt: (fx, fy) => {
+        const box = canvasBox(viewport)
+        return viewport.markAt(box.left + fx * box.width, box.top + fy * box.height)
+      },
       markScreen: (id) => {
         const box = canvasBox(viewport)
         const label = viewport.markLabel(id)

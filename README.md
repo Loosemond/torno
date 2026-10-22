@@ -810,7 +810,7 @@ then **sent**, then **resolved** by you or by the agent, with a line on what
 was done. Clicking a row makes its mark the active one and opens the row; the
 camera goes to the view the mark was placed from only when the mark is out of
 view, and the reticle at the end of the row ("Go to its view") always goes
-there. The pointer on a row rings the mark's chip in the view, more faintly than the
+there. The pointer on a row, or the keys' focus in it, rings the mark's chip in the view, more faintly than the
 active one's, and lights the face it is on, as a mention of it in the chat
 does.
 
