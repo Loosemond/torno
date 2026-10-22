@@ -540,14 +540,50 @@ Open marks: M2 (moved), M6 (unchecked)
   most, then how many more), to read when they matter.
 
 When Claude Code has edited the model, the answer to that edit says how the
-build ended, the same first lines and the dimensions, and ends with what the
-model printed: `Model printed (last 2 lines):` and the end of it, fifteen
+build ended, the same first lines and the dimensions. Between them, of a build
+that worked, torno says what the build did to the parts and what is wrong with
+them, which it checks at every build from the numbers the kernel worked out of
+the shape:
+
+```
+[torno] tub · build ok · r8 (0.9 s) · layout assembly · parts: tub, lid.
+Changed since r7: tub: volume 28400 → 26100 mm³ (-2300, -8.1 %), faces 14 → 22, solids 1 → 2; 1 part unchanged.
+Check: tub is 2 solids (was 1); the face or edge numbers of tub may name others now (describe refs again).
+Dimensions (measured on r8):
+M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 0.05: FAIL, 1 under)
+```
+
+- `Changed since` is each part whose volume, size, place, face, edge or solid
+  count changed since the last good build, in the words of `diff`, with `≈`
+  where either build's number is not exact; the parts that did not change are
+  counted.
+- `Check` names a part that is not valid (OCC's check finds a defect), one with
+  a solid inside out, one with no solid, one of more than one solid or of
+  another number of them than before, one with an open shell, one whose mesh
+  encloses another volume than its own (by more than the mesh explains), a part
+  that came or went, the parts whose refs may now name other faces, and a
+  dimension that passed on the build before and fails now. With nothing to name
+  it says so. A change of volume is told, never judged: torno cannot know
+  whether a pocket was meant.
+- At most 1,200 characters, cut by whole parts, with what was left out counted
+  and the tool to read it with. The first build of a run has only `Check`.
+- A part that is not valid, has a solid inside out, came apart into more solids
+  or has a mesh that disagrees with it, where the build the turn began with did
+  not, holds Claude Code back once when it would stop, as a failed build or an
+  edit it has not looked at does:
+  it is asked to mend the model or to say why that is meant. A change of volume
+  alone never does.
+- The chat shows it under the edit's card, behind "Show text", and
+  `state.md` carries it under the build. It is not told with a prompt.
+
+The answer waits for the dimensions to be measured on the new build, ten
+seconds at most, and ends with what the model printed: `Model printed (last 2 lines):` and the end of it, fifteen
 lines and a thousand characters at most, with a note when earlier output was
 cut, and nothing when the model printed nothing. It is the output of the
 build that ended last, failed or good, and build123d's own warnings are in it.
 So a `print()` in the model is how the agent sees a value, since it may not run
 the model itself; `scene` gives the same as `output`. `state.md` does not
-carry it.
+carry what the model printed.
 
 `.torno/state.md` says the same as text, for an agent without torno's tools:
 the build, the layouts and parts, the saved views, the scans and every open
@@ -577,7 +613,7 @@ naming the keys it takes.
 | `mcp__torno__measure` | An exact number from the geometry. See [Measuring and dimensions](#measuring-and-dimensions). |
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
-| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume, box size and min corner before and after, with whether each is exact, and its face and edge counts, a hint that refs may name other faces now. Only the last two builds are kept. |
+| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. |
 | `mcp__torno__scans` | The scans of the object and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
 | `mcp__torno__scan_deviation` | How far a part lies from a scan. |
@@ -1162,6 +1198,12 @@ and says `approximate`, and `how` says why.
   names the parts). A sound part has no `reversed`. torno never mends the
   shape: the volume of a part with a reversed solid is the material it
   encloses, not a sign that the part is sound, and the model is to be fixed.
+  A cavity whose shell faces into it is counted as material, and positive: what
+  says it is broken is OCC's check, and the part is told as not valid.
+- What a part's own mesh encloses (`meshVolume`) is a sum over the triangles it
+  is drawn with, never exact and never a number to rely on: it is told, with
+  `≈`, only where it and the volume are further apart than the mesh explains,
+  as a sign that one of them is wrong.
 - An area is exact for planes, cylinders, cones, spheres and tori, and for a
   curve extruded straight. The area of any other face (a loft, a B-spline
   surface, an offset) is never said to be exact: `how` says `approximate, good
@@ -1394,4 +1436,10 @@ With a real agent:
   interpolates `$VAR` for the names in its `allowedEnvVars`; that a file given to `--mcp-config` is expanded the same way
   it only implies. If it is not, Claude Code sends the placeholder, torno answers 404 and the chat warns that the tools
   are not connected; the way out would be a small stdio bridge that reads the token from its environment.
+- **The digest of a build with the real Claude Code.** Ask it to raise a boss off a plate until it no longer touches
+  it: the answer to its edit says `Changed since rN:` and `Check: plate is 2 solids (was 1)`, the chat shows it under
+  the edit's card behind "Show text", and when Claude Code would stop it is held back once and either mends the
+  model or says why two solids are meant. Then ask for a pocket: the volume falls in `Changed since`, nothing is
+  held, and it reads the line rather than asking for a picture first. Whether it heeds the line is the agent's;
+  no test has seen a real CLI read it.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.

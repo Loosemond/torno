@@ -132,7 +132,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `show`, `save_view`, `add_mark`, `resolve_mark`,
   `measure`, `section`, `check`, `diff`, `scans`, `scan_clash`, `scan_deviation`.
-  `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept)
+  `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept; each
+  part by `partDiff` of `sanity.ts`)
   from what the kernel sent with each, asking it nothing: a number is `exact` only where both builds say so.
   `look` and `show` take the name of a saved view as `view`, and `save_view`
   proposes one (Views). `show` changes
@@ -195,7 +196,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   each part's `group`; `describe` of a group's name is the box of its parts and their volume, from the scene,
   exact only where every part's is. `state.md` names each layout's groups before its parts.
 - `<object>/.torno/state.md` says the same as the tools, as text
-  (`src/main/statefile.ts`): the build, the parts, the scans with how each is
+  (`src/main/statefile.ts`): the build (and under it the digest of a build that
+  worked, naming tools as `the diff tool`), the parts, the scans with how each is
   aligned in every layout, the open marks. Its first line is when it was
   written.
 
@@ -545,6 +547,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `scene`'s sizes are for orientation: its description sends the agent to `measure` for a number to rely on.
   A part with solids turned inside out (`Part.reversed`, indexes 0-based in the kernel's order) lists them in `scene`
   with a note (`REVERSED_NOTE`), and `checkReading` of an overlap names the parts the kernel says have one.
+  `scene` gives each part `solids`, `openShells` only above 0 (`OPEN_NOTE`) and `meshVolume` only beside
+  `meshDisagrees` (`MESH_NOTE`): what a mesh encloses is never exact, is said with `≈` wherever it is said, and is
+  only ever a warning.
 - A `print` layout that was spread (`arrange.py`) has its parts where torno
   put them. Between two parts of which either was moved, `check overlap`,
   `check clearance` and `measure distance` are refused in main
@@ -588,10 +593,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName, skills)`). Claude Code is
   given torno's skills, a plugin in `app/resources/agent-plugin` (`torno-model`, `build123d`, `scans`,
   `dimensions`) passed with `--plugin-dir` (`paths.ts` `agentPluginDir()`; nothing is installed in the person's
-  Claude Code), so its prompt (`SYSTEM_PROMPT`, `skills` true, under 6,400 characters) says of scans and
+  Claude Code), so its prompt (`SYSTEM_PROMPT`, `skills` true, under 7,000 characters) says of scans and
   dimensions only what a prompt's lines need and names the skills; `SCANS_TEXT` and `DIMENSIONS_TEXT` are said
   to the letter in the skills `scans` and `dimensions`. Started without the plugin folder (`skills` false) it is
-  told the whole text (`FULL_PROMPT`, under 7,400 characters). A change to what the prompt says of scans
+  told the whole text (`FULL_PROMPT`, under 8,000 characters). A change to what the prompt says of scans
   or dimensions is a change to the skill too (`prompt.test.ts` holds them together); the template of
   `torno-model` is built by the kernel's `tests/test_skill_template.py`. Claude Code is also given a subagent on
   its command line, `--agents` with `torno-reviewer` (`claude.ts` `reviewerAgents`): tools `scene`, `look`,
@@ -622,13 +627,39 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The build after an edit, and the Stop of a turn** (`Sessions.toolHook`, `afterEdit`, `stopAnswer`). Tool hooks
   are read (up to 8 MB; longer, or no JSON, is answered `{}`) only for the tool's name and `file_path`. The
   `PostToolUse` of `Edit`, `Write` or `MultiEdit` of a `.py` inside the object's folder waits for a build begun at
-  or after that tool's `PreToolUse` (`Sessions.built`, fed every `BuildState` from `index.ts`) and is answered
-  with `buildContextFor` of `context.ts` (the first lines and the dimensions of `contextFor`, in the same words)
-  as `additionalContext`; the chat puts it under that tool's card (`Transcript.toolContext`). No build begun
-  within 3 s: `{}`. Still running at 55 s: `A build is running (rN); call scene …` (`claude.ts` gives
-  `PostToolUse` a 60 s timeout). A `Stop` is held back (`decision: block`) when the turn (since its
-  `UserPromptSubmit`) saw a build end and the latest failed, or edited the model and no `look` came after;
-  never with `stop_hook_active`, never for a failing dimension. A Stop held back moves no status and ends no turn.
+  or after that tool's `PreToolUse` (`Sessions.built`, fed every `BuildState` from `index.ts`), then, of a build
+  that worked, for its marks to be checked against it and its dimensions measured (`Verdicts.settled`, 10 s at
+  most, `EDIT_SETTLE_MS`), and is answered with `buildContextFor` of `context.ts` (the first lines and the
+  dimensions of `contextFor`, in the same words, and between them the digest: The sanity pass, below) as
+  `additionalContext`; the chat puts it under that tool's card (`Transcript.toolContext`), with the digest as data
+  (`digest` of the `context` item). No build begun within 3 s: `{}`. Still running at 55 s: `A build is running
+  (rN); call scene …` (`claude.ts` gives `PostToolUse` a 60 s timeout). A `Stop` is held back (`decision: block`)
+  once, with one reason, the first of: the turn (since its `UserPromptSubmit`) saw a build end and the latest
+  failed; the last successful build, built in the turn, has a hard defect (`hardDefects`) that the last successful
+  build when the turn began had not (`TurnState.before`), and the reason says the agent may answer that it is
+  meant (and that it has not looked, when it has not); it edited the model and no `look` came after. Never with
+  `stop_hook_active`, never for a failing dimension, never for a change of volume alone. A Stop held back moves
+  no status and ends no turn.
+- **The sanity pass** (`src/main/sanity.ts`, pure). After every successful build `sanity(previous, current,
+  verdicts)` holds it against the successful build before (`Builds.scenes`, the data `diff` reads) from what the
+  kernel sent with each (`solids`, `openShells`, `meshVolume`, `meshDisagrees`, `valid`, `reversed`): no query.
+  Parts are compared by name, each in the first layout of the build that has it, with `partDiff` (which `diff`
+  uses too: the same line, the volume's change also in percent, `≈` where either build is not exact); unchanged
+  parts are counted. Its flags are of the shape alone, never a guess at intent: not valid, inside out, no solid or
+  no volume, more than one solid or another count than before, an open shell, a mesh that disagrees, a part come
+  or gone, face or edge counts changed (refs may name others), a dimension that passed on the build before and
+  fails now. Each says whether it is new; a hard one (`DigestFlag.hard`: not valid, inside out, a solid count that
+  went up, a mesh that disagrees, each new) holds a Stop back. `digestText` says it in two lines, `Changed since
+  rN:` and `Check:`, in at most `DIGEST_LIMIT` (1,200) characters, cut by whole parts and flags, the hard ones
+  first and what is cut counted with where to read it. `buildContextFor` puts it after the status and before the
+  dimensions, in what their least leaves of `CONTEXT_LIMIT` (status, digest, dimensions, output, each outranking
+  the next); it is told nowhere else to the agent (not with a prompt), and `state.md` writes it under the build.
+- **Each build's verdicts** (`src/main/verdicts.ts`, `Verdicts`, in memory only, 16 builds an object). Recorded
+  from the marks whenever they change and when a check of them against a build ends (`onMarksChecked` of
+  `registerIpc`), always of the last successful build, never of an older one: a mark holds one value.
+  `verdictChanges(was, now)` is the one place that says which dimensions changed verdict between two builds
+  (`{ id, was, now }`, each `pass`, `fail` or `none`): the digest takes it from there, and so does whatever else
+  needs it.
 - **What the model printed reaches the agent** (`modelOutput` of `context.ts`; the kernel returns it as `output` of
   the scene of a good build and of the error of a failed one). The model's own text, run through `HttpRouter.redact`
   (`ContextDeps.redact`, `ToolDeps.redact`) before it is cut. It is told in two places and in no other (not with a

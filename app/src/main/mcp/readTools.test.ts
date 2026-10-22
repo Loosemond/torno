@@ -923,12 +923,12 @@ describe('diff', () => {
     expect(layout.removed).toEqual(['cap'])
     const tub = partsOf(result).find((p) => p.name === 'tub')!
     expect(tub.changed).toBe(true)
-    expect(tub.volume).toEqual({ before: 6000, after: 4800, change: -1200, exact: true })
+    expect(tub.volume).toEqual({ before: 6000, after: 4800, change: -1200, percent: -20, exact: true })
     expect(tub.size).toEqual({ before: [40, 30, 6], after: [40, 30, 4], change: [0, 0, -2], exact: true })
     expect(tub.min).toEqual({ before: [-20, -15, -3], after: [-20, -15, -3], change: [0, 0, 0], exact: true })
     expect(tub.faces).toEqual({ before: 12, after: 14 })
     expect(tub.edges).toEqual({ before: 30, after: 36 })
-    expect(tub.line).toBe('tub: volume 6000 → 4800 mm³ (-1200), size 40 × 30 × 6 → 40 × 30 × 4 mm, faces 12 → 14, edges 30 → 36')
+    expect(tub.line).toBe('tub: volume 6000 → 4800 mm³ (-1200, -20 %), size 40 × 30 × 6 → 40 × 30 × 4 mm, faces 12 → 14, edges 30 → 36')
     expect(partsOf(result).find((p) => p.name === 'lid')!.changed).toBe(false)
     expect(partsOf(result).map((p) => p.name)).toEqual(['tub', 'lid'])
   })
@@ -946,8 +946,15 @@ describe('diff', () => {
     expect(tub.volume.exact).toBe(false)
     expect(tub.size.exact).toBe(false)
     expect(tub.min.exact).toBe(false)
-    expect(tub.line).toBe('tub: volume ≈ 6000 → 4800 mm³ (-1200), size ≈ 40 × 30 × 6 → 40 × 30 × 4 mm, faces 12 → 14, edges 30 → 36')
+    expect(tub.line).toBe('tub: volume ≈ 6000 → 4800 mm³ (-1200, -20 %), size ≈ 40 × 30 × 6 → 40 × 30 × 4 mm, faces 12 → 14, edges 30 → 36')
     expect(result.notes).toEqual(expect.arrayContaining([expect.stringMatching(/approximate/)]))
+  })
+
+  it('says a count of solids that changed', async () => {
+    const apart: Scene = { ...AFTER, parts: AFTER.parts.map((p) => (p.name === 'lid' ? { ...p, solids: 2 } : { ...p, solids: 1 })) }
+    const before: Scene = { ...BEFORE, parts: BEFORE.parts.map((p) => ({ ...p, solids: 1 })) }
+    const lid = partsOf(data(await diffTool(kept([3, before], [4, apart]), 'box', {}))).find((p) => p.name === 'lid')!
+    expect(lid).toMatchObject({ changed: true, solids: { before: 1, after: 2 }, line: 'lid: solids 1 → 2' })
   })
 
   it('refuses with one build so far', async () => {

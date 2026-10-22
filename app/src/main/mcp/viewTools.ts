@@ -21,6 +21,10 @@ import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, cl
 
 /** Said in `scene` when a part's size or volume is not exact. */
 export const REVERSED_NOTE = 'A part with reversed lists solids turned inside out (their faces point inward; the index counts its solids from 0): its volume is a size only and it is broken, so say so and mend the model.'
+/** Said in `scene` when a part is not closed. */
+export const OPEN_NOTE = 'A part with openShells has shells with an edge only one face has: it is not closed, so its volume says nothing of it; mend the model.'
+/** Said in `scene` when what a part's mesh encloses is not its volume. */
+export const MESH_NOTE = 'A part with meshDisagrees encloses with its mesh (meshVolume, approximate) other than its volume says, by more than the mesh explains: one of them is wrong; check the model before relying on either.'
 export const APPROXIMATE_NOTE = 'A size (and bbox) with sizeExact false, or a volume with volumeExact false, is approximate: call measure for a number to rely on.'
 
 /** What is said of a view that is neither a name nor a camera. */
@@ -88,6 +92,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   if (explode) notes.push(`The user's view is ${explodeText(explode)}: ${EXPLODED_NOTE}.`)
   if (scene.parts.some((p) => p.bboxExact !== true || p.volumeExact !== true)) notes.push(APPROXIMATE_NOTE)
   if (scene.parts.some((p) => p.reversed && p.reversed.length > 0)) notes.push(REVERSED_NOTE)
+  if (scene.parts.some((p) => (p.openShells ?? 0) > 0)) notes.push(OPEN_NOTE)
+  if (scene.parts.some((p) => p.meshDisagrees === true)) notes.push(MESH_NOTE)
   // The model's groups of parts, in the layout shown (or the first): each with its parts there, and how many are on.
   const groupLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
   const groups = groupLayout === undefined ? [] : groupsIn(scene, groupLayout).map((group) => ({
@@ -128,6 +134,10 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
       edges: p.edgeCount,
       valid: p.valid,
       ...(p.reversed && p.reversed.length > 0 ? { reversed: p.reversed } : {}),
+      ...(p.solids !== undefined ? { solids: p.solids } : {}),
+      ...((p.openShells ?? 0) > 0 ? { openShells: p.openShells } : {}),
+      // What the mesh encloses only where it is a warning: never a number to rely on.
+      ...(p.meshDisagrees === true && p.meshVolume !== undefined ? { meshVolume: round(p.meshVolume), meshDisagrees: true } : {}),
       ...(p.arranged ? { arranged: p.arranged.map(round) } : {})
     })),
     camera: view

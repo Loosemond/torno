@@ -22,6 +22,14 @@ export interface Part {
   volumeExact?: boolean
   /** The solids of the part that are inside out (their faces point inward), 0-based among its solids in the kernel's order, as faces are numbered; absent of a sound part. `volume` is then the size of the material and not a verdict: a build's sanity pass and `check` read this. */
   reversed?: number[]
+  /** How many solids the part has (0 of a shell or a face); absent from a kernel that does not say. One that reads more than it did has come apart. */
+  solids?: number
+  /** How many of its shells have a free edge (an edge only one of their faces has): above 0, the part is not closed. */
+  openShells?: number
+  /** The size of what the part's own mesh encloses, mm³: a sum over its triangles, never exact, a check of `volume` and no number to rely on. */
+  meshVolume?: number
+  /** Present, and true, only when `meshVolume` and `volume` are further apart than the mesh's deflection explains: one of them is wrong. Never judged of a part with no solid, an open shell or a solid inside out. */
+  meshDisagrees?: boolean
   faceCount: number
   edgeCount: number
   triangleCount: number

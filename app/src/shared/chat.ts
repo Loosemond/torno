@@ -3,6 +3,8 @@
 // keeps them, and tells the window of each as it changes; the window draws them. An item is upserted by its `id`:
 // a change sends the whole item again.
 
+import type { BuildDigest } from './sanity'
+
 /** How many items a transcript holds, in main and in the window: the oldest go. */
 export const MAX_ITEMS = 2000
 
@@ -20,8 +22,8 @@ export interface ChatImage {
 export type ChatItem =
   /** What the person sent. `queued` until the CLI takes the prompt up (a prompt sent while it works waits). */
   | { kind: 'user'; id: string; text: string; images: ChatImage[]; state: 'queued' | 'sent' | 'not-sent'; at: number }
-  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it: the marks sent, the build it named and the refs it said were selected. Or, under a tool's card (`forUser` is then that card's id), the build an edit of the model started, as its `PostToolUse` was answered. */
-  | { kind: 'context'; id: string; forUser: string; text: string; marks: string[]; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[] }
+  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it: the marks sent, the build it named and the refs it said were selected. Or, under a tool's card (`forUser` is then that card's id), the build an edit of the model started, as its `PostToolUse` was answered, with what that build did to the parts as data (`digest`, `main/sanity.ts`) when it worked. */
+  | { kind: 'context'; id: string; forUser: string; text: string; marks: string[]; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[]; digest?: BuildDigest }
   /** The agent's words, as markdown. */
   | { kind: 'text'; id: string; text: string; streaming: boolean }
   /** The agent thought. This CLI leaves the text of a thought empty. */

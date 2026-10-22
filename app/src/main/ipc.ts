@@ -136,6 +136,9 @@ export function recheckAlignments(objectId: string, listed: ScanInfo[]): void {
 /** Told where the build of an object stands, each time that changes, once `registerIpc` has been given it. */
 let onBuild: ((state: BuildState) => void) | null = null
 
+/** Told that a check of an object's marks against a build ended, and which build that was, once `registerIpc` has been given it. */
+let onMarksChecked: ((objectId: string, revision: number | undefined) => void) | null = null
+
 /** Told that the window gave the scene file of an object to save: its saved views may be others. */
 let onSceneFile: ((objectId: string) => void) | null = null
 
@@ -246,6 +249,8 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
     const counted = checks.get(objectId) ?? { started: 0, finished: 0 }
     checks.set(objectId, counted)
     counted.started += 1
+    // The build it is a check against: the last when it begins. One that succeeds meanwhile is checked after it.
+    const revision = builds.scene(objectId)?.revision
     return checkMarks(
       {
         marks: store,
@@ -254,7 +259,10 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
         scene: (id) => (current === ws ? builds.scene(id) : undefined)
       },
       objectId
-    ).finally(() => (counted.finished += 1))
+    ).finally(() => {
+      counted.finished += 1
+      if (current === ws) onMarksChecked?.(objectId, revision)
+    })
   })
   builds.on('scene', ({ objectId }) => reanchor(objectId))
   ws.reanchor = reanchor
@@ -406,6 +414,8 @@ export function queryObject<T = unknown>(id: string, name: string, args: object)
  * `sessions` backs the session pane; without it there are no sessions.
  * `marks` backs the marks of the objects; without it there are none.
  * `onBuild` is told where the build of an object stands, each time that changes.
+ * `onMarksChecked` is told that a check of an object's marks against a build, and the measuring of its dimensions on
+ * it, ended (as far as it could go), and of which build.
  * `pickFolder` answers "Open folder" in place of the dialog, which tests must
  * never open; `pickFile` answers "Import scan" likewise, and `pickPhotos` "Add photos".
  * `scans` backs the scans of the objects; without it there are none.
@@ -418,6 +428,7 @@ export function registerIpc(
     sessions?: Sessions
     marks?: MarkStore
     onBuild?: (state: BuildState) => void
+    onMarksChecked?: (objectId: string, revision: number | undefined) => void
     /** The window gave the scene file of an object to save. */
     onSceneFile?: (objectId: string) => void
     /** The open workspace was left: object ids mean nothing any more. */
@@ -454,6 +465,7 @@ export function registerIpc(
   }
 
   onBuild = opts.onBuild ?? null
+  onMarksChecked = opts.onMarksChecked ?? null
   onSceneFile = opts.onSceneFile ?? null
   onWorkspaceClosed = opts.onWorkspaceClosed ?? null
   marks = opts.marks ?? null

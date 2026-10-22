@@ -37,6 +37,7 @@ import { readChoice } from './sessions/choice'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
+import { Verdicts } from './verdicts'
 import { Trust } from './trust'
 
 // Environment switches:
@@ -373,9 +374,16 @@ const toolDeps: ToolDeps = {
 }
 const promptDeps = { ...toolDeps, references: referencesOf }
 
+/** Each build's verdicts on the dimensions, in memory: the digest of an edit's build, and the Stop, compare two. */
+const verdicts = new Verdicts()
+/** What the answer to an edit is made from: the tools' deps, and the verdicts of the builds it compares. */
+const editDeps = { ...toolDeps, verdicts: (id: string, revision: number | undefined) => verdicts.of(id, revision) }
+
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
-const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
+const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, scenes: keptScenes, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
+// What the marks say of the last build, whenever they change: its verdicts from then on.
+marks.on('changed', ({ objectId, marks: all }) => verdicts.record(objectId, lastScene(objectId)?.revision, all))
 // Where a region is told to be follows its scan's alignment.
 scans.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 // A mask that did not read for a region is asked for again: what the scans are has changed.
@@ -462,7 +470,10 @@ void app.whenReady().then(async () => {
     },
     // An edit of the model is answered with the build it started, and a Stop held back once over a build the turn left failed or unseen.
     build: buildState,
-    buildContextFor: async (id, toolName) => buildContextFor(toolDeps, id, await marks.list(id).catch(() => []), { toolName }),
+    buildContextFor: async (id, toolName) => buildContextFor(editDeps, id, await marks.list(id).catch(() => []), { toolName }),
+    // A hard defect the turn's builds brought is held against its Stop, once; and an edit's dimensions are of its build.
+    scene: lastScene,
+    settled: (id, revision, until) => verdicts.settled(id, revision, until),
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
     systemPromptFor: (adapter) => systemPrompt(adapter.toolName, adapter.skills),
@@ -481,11 +492,18 @@ void app.whenReady().then(async () => {
       stateFiles.changed(state.objectId)
       sessions?.built(state)
     },
+    // The verdicts of the build the marks were checked against, as the check left them.
+    onMarksChecked: (objectId, revision) =>
+      void marks
+        .list(objectId)
+        .then((all) => verdicts.checkedOn(objectId, revision, all))
+        .catch(() => verdicts.checkedOn(objectId, revision)),
     // The saved views are named in the state file.
     onSceneFile: (objectId) => stateFiles.changed(objectId),
     // What was waiting to be written was of objects of the workspace that is left.
     onWorkspaceClosed: () => {
       stateFiles.forget()
+      verdicts.forget()
       // An import still running there is ended, and its importer with it: its scan is not kept, and its id not given again.
       importer?.run.stop()
       importer = null

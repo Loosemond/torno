@@ -87,8 +87,8 @@ build and must never be written into the model.
 - `StdFail_NotDone`, `BRep_API: command not done` or an empty result: the two shapes touch only along a face or an
   edge, or are coincident. Make a cutting tool overshoot what it cuts (a hole 0.01 mm or more longer each way) and
   a join overlap by a little rather than meet exactly.
-- A union of shapes that do not touch is several solids: torno takes each part as it is, but `print(len(part.solids()))`
-  in the model when one is meant, and read it in the build result (`torno-model`, "Seeing a value while building").
+- A union of shapes that do not touch is several solids: torno takes each part as it is, and the build result of an
+  edit says so under `Check:` (`plate is 2 solids (was 1)`), with every part that is not valid, inside out or open.
 - Many small cuts are faster as one: build the tools as a list and subtract their sum, or use `Hole` in builder mode.
 - Thin walls under about 0.01 mm and self-intersecting sketches give invalid solids: `check` with `kind: "mesh"`
   says whether the part's mesh is closed.

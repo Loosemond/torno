@@ -3,11 +3,14 @@ import { standingOf, unmetDimensions } from '../shared/dimension'
 import { explodeText, isExploded } from '../shared/explode'
 import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
 import type { ScanInfo } from '../shared/scans'
+import type { BuildDigest } from '../shared/sanity'
 import type { Scene } from '../shared/scene'
 import { type ViewState, MAX_SELECTION_REPORTED, planeText } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import { describeMark } from './marks/describe'
+import { digestText, sanity } from './sanity'
 import { alignmentSaid, shownText } from './scans/said'
+import { type BuildVerdicts, verdictChanges } from './verdicts'
 
 /** The most the agent is given with a prompt, in characters. */
 export const CONTEXT_LIMIT = 6000
@@ -70,6 +73,10 @@ export interface ContextDeps {
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
   scene(objectId: string): { revision: number; scene: Scene } | undefined
+  /** The successful builds main keeps, oldest first: the last two (`Builds.scenes`). Without it, the answer to an edit has no digest. */
+  scenes?(objectId: string): Array<{ revision: number; scene: Scene }>
+  /** The verdicts of a build on the dimensions, as main last recorded them (`Verdicts.of`). */
+  verdicts?(objectId: string, revision: number | undefined): BuildVerdicts | undefined
   /** What the window shows of the object, when it is the one open there. */
   view(objectId: string): ViewState | undefined
   /** The object the window shows. */
@@ -101,6 +108,8 @@ export interface PromptContext {
   buildState?: 'ok' | 'failed' | 'building'
   /** The refs the text says are selected (as many as it lists). Absent when it says none. */
   selection?: string[]
+  /** What the build of an edit did to the parts, as data (`sanity`), of the answer to an edit whose build is the last that succeeded; its text, as far as it fitted, is in `text`. */
+  digest?: BuildDigest
 }
 
 /**
@@ -149,8 +158,12 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
  * What the agent is told of the build after it edited the model (the answer to a `PostToolUse`): the first lines of
  * `contextFor` (how the build stands, the error and the end of its traceback when it failed) and its dimensions, in
  * the same words; nothing of the selection, the scans or the other marks. No mark is told by it: `sentMarkIds` is
- * always empty, and drafts are left for the next prompt. It ends with what the model printed in the build that
- * ended last (`modelOutput`), should that fit in what is left of CONTEXT_LIMIT after all the rest.
+ * always empty, and drafts are left for the next prompt. Between the status and the dimensions, of a build that
+ * worked, the digest of the sanity pass (`buildDigest`): what changed since the successful build before and what the
+ * shape says, in at most `DIGEST_LIMIT` characters and in what the dimensions' least leaves of CONTEXT_LIMIT, and as
+ * data in `digest`. It ends with what the model printed in the build that ended last (`modelOutput`), should that fit
+ * in what is left of CONTEXT_LIMIT after all the rest: the status, then the digest, then the dimensions, then the
+ * output, each outranking the next.
  */
 export function buildContextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { toolName?: (tool: string) => string } = {}): PromptContext {
   const dimensions = marks.filter((m) => m.kind === 'dimension' && m.status !== 'draft' && m.status !== 'resolved')
@@ -201,6 +214,10 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   const named = layoutNamed(deps, objectId)
   // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
   const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + moreDimensions(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
+  // After an edit, what its build did to the parts: before the dimensions, in what their least leaves.
+  const digest = opts.buildOnly ? buildDigest(deps, objectId) : undefined
+  const digestLines = digest ? digestText(digest, CONTEXT_LIMIT - lines.join('\n').length - floor - 1, toolName) : ''
+  if (digestLines) lines.push(digestLines)
   let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor
   /**
    * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
@@ -258,10 +275,25 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // Last, so that nothing above it is given up for it: it takes the room that is left.
   const printed = opts.buildOnly ? printedBlock(deps, objectId, toolName, CONTEXT_LIMIT - joined.length - 1) : ''
   const text = printed ? `${joined}\n${printed}` : referred && joined.length + 1 + referred.length <= CONTEXT_LIMIT ? `${joined}\n${referred}` : joined
-  if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id) }
+  if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id), ...(digest ? { digest } : {}) }
   // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is
   // the end, and no mark whose line may be among it is said to have been told.
   return { text: cutEnd(text, CONTEXT_LIMIT), sentMarkIds: [] }
+}
+
+/**
+ * The digest of the last successful build against the one before it (`sanity`, with what the dimensions' verdicts
+ * did between them, `verdictChanges`), when the build that ended last is that one; of a first build, its check
+ * alone. None while a build runs, after one that failed, and without the builds main keeps (`deps.scenes`).
+ */
+export function buildDigest(deps: Pick<ContextDeps, 'build' | 'scenes' | 'verdicts'>, objectId: string): BuildDigest | undefined {
+  const build = deps.build(objectId)
+  const kept = deps.scenes?.(objectId) ?? []
+  const last = kept.at(-1)
+  if (!last || build?.status !== 'ok' || build.revision !== last.revision) return undefined
+  const previous = kept.length > 1 ? kept.at(-2) : undefined
+  const changes = previous ? verdictChanges(deps.verdicts?.(objectId, previous.revision), deps.verdicts?.(objectId, last.revision)) : []
+  return sanity(previous, last, changes)
 }
 
 /**

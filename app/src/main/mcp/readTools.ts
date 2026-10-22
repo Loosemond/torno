@@ -6,6 +6,7 @@ import type { ObjectInfo } from '../../shared/workspace'
 import { KernelError, isBusy } from '../kernel/client'
 import { scanNumber } from '../../shared/format'
 import { number, sizes, vector } from '../marks/describe'
+import { DIFF_APPROXIMATE, DIFF_REFS, clean, partDiff } from '../sanity'
 import { plain, wire } from '../marks/measure'
 import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
@@ -104,13 +105,7 @@ export function refusal(e: unknown, layout: string, what: string, of = 'the part
   return failure(plain(e, layout))
 }
 
-/** A number as data: in full, but for what arithmetic leaves past the ninth decimal, and never -0. */
-export function clean<T>(value: T): T {
-  if (typeof value === 'number') return (Number.isFinite(value) ? Math.round(value * 1e9) / 1e9 + 0 : value) as T
-  if (Array.isArray(value)) return value.map(clean) as T
-  if (typeof value === 'object' && value !== null) return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, clean(v)])) as T
-  return value
-}
+export { clean }
 
 const reply = (value: object): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value) }] })
 
@@ -664,53 +659,7 @@ export interface DiffToolArgs {
   to?: number
 }
 
-/** Said in `diff` when a number it compares is not exact in either build. */
-export const DIFF_APPROXIMATE = 'A volume, size or min with exact false is approximate in at least one of the two builds (the kernel said so): call measure for a number to rely on.'
-/** Said in `diff` when a part's face or edge count changed. */
-export const DIFF_REFS = 'Face or edge counts changed: refs such as lid/F12 may name other faces or edges now; describe a ref again before relying on it.'
-
 type Kept = { revision: number; scene: Scene }
-const sizeOf = (p: Part): Vec3 => p.bbox.max.map((max, i) => max - p.bbox.min[i]) as Vec3
-const minus = (a: readonly number[], b: readonly number[]): number[] => a.map((v, i) => v - b[i])
-const same = (a: readonly number[], b: readonly number[]): boolean => a.every((v, i) => clean(v) === clean(b[i]))
-const signed = (v: number): string => (clean(v) > 0 ? `+${number(v)}` : number(v))
-
-/** One part in both builds: its numbers before and after, as data in full, and a line of what changed. */
-function partDiff(before: Part, after: Part): { data: object; approximate: boolean; refsMoved: boolean } {
-  const volumeExact = before.volumeExact === true && after.volumeExact === true
-  const boxExact = before.bboxExact === true && after.bboxExact === true
-  const [sizeBefore, sizeAfter] = [sizeOf(before), sizeOf(after)]
-  const volumeChanged = clean(before.volume) !== clean(after.volume)
-  const sizeChanged = !same(sizeBefore, sizeAfter)
-  const minChanged = !same(before.bbox.min, after.bbox.min)
-  const facesChanged = before.faceCount !== after.faceCount
-  const edgesChanged = before.edgeCount !== after.edgeCount
-  const about = (exact: boolean): string => (exact ? '' : '≈ ')
-  const said: string[] = []
-  if (volumeChanged) said.push(`volume ${about(volumeExact)}${number(before.volume)} → ${number(after.volume)} mm³ (${signed(after.volume - before.volume)})`)
-  if (sizeChanged) said.push(`size ${about(boxExact)}${sizes(sizeBefore)} → ${sizes(sizeAfter)} mm`)
-  if (minChanged) said.push(`min corner ${about(boxExact)}${vector(before.bbox.min)} → ${vector(after.bbox.min)}`)
-  if (facesChanged) said.push(`faces ${before.faceCount} → ${after.faceCount}`)
-  if (edgesChanged) said.push(`edges ${before.edgeCount} → ${after.edgeCount}`)
-  const changed = said.length > 0
-  const arranged = before.arranged || after.arranged ? { arranged: { before: before.arranged ?? [0, 0, 0], after: after.arranged ?? [0, 0, 0] } } : {}
-  return {
-    data: {
-      name: after.name,
-      changed,
-      volume: { before: before.volume, after: after.volume, change: after.volume - before.volume, exact: volumeExact },
-      size: { before: sizeBefore, after: sizeAfter, change: minus(sizeAfter, sizeBefore), exact: boxExact },
-      // The box's corner of least x, y and z, in the object frame of the layout: where the part is.
-      min: { before: before.bbox.min, after: after.bbox.min, change: minus(after.bbox.min, before.bbox.min), exact: boxExact },
-      faces: { before: before.faceCount, after: after.faceCount },
-      edges: { before: before.edgeCount, after: after.edgeCount },
-      ...arranged,
-      line: `${after.name}: ${changed ? said.join(', ') : 'unchanged'}`
-    },
-    approximate: changed && (!volumeExact || !boxExact),
-    refsMoved: facesChanged || edgesChanged
-  }
-}
 
 /**
  * What changed between two successful builds that main keeps (`Builds.scenes`: the last two), from what the

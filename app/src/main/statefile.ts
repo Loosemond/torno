@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { BuildState } from '../shared/build'
 import type { Mark } from '../shared/marks'
+import type { BuildDigest } from '../shared/sanity'
 import { type ScanInfo, importText } from '../shared/scans'
 import { groupsIn } from '../shared/groups'
 import type { Scene } from '../shared/scene'
@@ -9,7 +10,9 @@ import type { ObjectInfo } from '../shared/workspace'
 import { writeFileAtomic } from './atomic'
 import { ensureIgnored } from './ignored'
 import { FOLDER, ownTorno } from './own'
+import { buildDigest } from './context'
 import { describeMark, sizes } from './marks/describe'
+import { digestText } from './sanity'
 import { alignmentSaid } from './scans/said'
 
 const NAME = 'state.md'
@@ -24,9 +27,11 @@ export const STATE_DELAY_MS = 1000
  * know what one with them is told.
  * Nothing in it changes unless the build, the marks, the scans or the saved views do: no times, no camera.
  * The saved views are named in a line, each with what of it no longer fits the build.
+ * Under the build, of one that worked, its `digest` as the agent is told it after an edit (`digestText`): what changed
+ * since the successful build before and what the shape says.
  * The file itself begins with `writtenLine`, before this.
  */
-export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[]): string {
+export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[], digest?: BuildDigest): string {
   const lines = [
     `# ${obj.name}`,
     '',
@@ -36,6 +41,8 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     '## Build',
     '',
     ...buildLines(build, last?.revision),
+    // The tools are named as what they are: whoever reads this file may have none.
+    ...(digest && build?.status === 'ok' ? ['', digestText(digest, undefined, (tool) => `the ${tool} tool`)] : []),
     '',
     '## Layouts and parts',
     ''
@@ -129,6 +136,8 @@ export interface StateFileDeps {
   /** Where the build of an object stands; undefined for one that is not open, of which nothing is written. */
   build(objectId: string): BuildState | undefined
   scene(objectId: string): { revision: number; scene: Scene } | undefined
+  /** The successful builds main keeps, the last two (`Builds.scenes`): the digest of the last is written from them. */
+  scenes?(objectId: string): Array<{ revision: number; scene: Scene }>
   marks(objectId: string): Promise<Mark[]>
   /** The scans of an object: each is listed, and a region of one is told where the scan's alignment puts it. */
   scans?(objectId: string): Promise<ScanInfo[]>
@@ -185,7 +194,7 @@ export class StateFiles {
     // As things are once the marks are read: a build may have ended meanwhile.
     const build = this.deps.build(objectId)
     if (!build || this.deps.object(objectId)?.dir !== obj.dir) return
-    const text = stateText(obj, build, this.deps.scene(objectId), marks, scans, views)
+    const text = stateText(obj, build, this.deps.scene(objectId), marks, scans, views, buildDigest({ build: this.deps.build, scenes: this.deps.scenes }, objectId))
     const path = join(obj.dir, FOLDER, NAME)
     if (this.written.get(path) === text) return
     await ownTorno(obj.dir)

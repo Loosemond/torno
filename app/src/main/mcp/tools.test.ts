@@ -12,7 +12,7 @@ import type { NearestAnchor } from '../marks/reanchor'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
 import { TOOLS, refusedKeys } from './schemas'
 import { describeTool, marksTool, type ToolDeps } from './tools'
-import { REVERSED_NOTE, explodeAsked, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import { MESH_NOTE, OPEN_NOTE, REVERSED_NOTE, explodeAsked, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 const STAND: ObjectInfo = { id: 'helmet-stand', name: 'helmet-stand', dir: '/ws/helmet-stand', model: 'stand.py' }
@@ -244,6 +244,21 @@ describe('scene', () => {
     expect('reversed' in scene.parts[0]).toBe(false)
     expect(scene.note).toContain(REVERSED_NOTE)
     expect(JSON.parse(textOf(sceneTool(fake(), 'bracket'))).note ?? '').not.toContain(REVERSED_NOTE)
+  })
+
+  it('says how many solids a part has, its open shells and a mesh that disagrees with its volume, with notes, and nothing of what a kernel did not say', () => {
+    const apart = part('assembly', 'cap', [0, 0, 0], [10, 10, 10], { volume: 700, solids: 2, openShells: 1, meshVolume: 1000, meshDisagrees: true })
+    const sound = part('assembly', 'lid', [0, 0, 0], [10, 10, 10], { volume: 1000, solids: 1, openShells: 0, meshVolume: 1000 })
+    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: { ...SCENE, parts: [SCENE.parts[0], apart, sound] } }) }), 'bracket')))
+    expect(scene.parts[1]).toMatchObject({ name: 'cap', solids: 2, openShells: 1, meshVolume: 1000, meshDisagrees: true })
+    // A sound part says its one solid, and nothing of its shells or its mesh: the mesh is no number to rely on.
+    expect(scene.parts[2]).toMatchObject({ name: 'lid', solids: 1 })
+    expect(['openShells', 'meshVolume', 'meshDisagrees'].filter((key) => key in scene.parts[2])).toEqual([])
+    expect(['solids', 'openShells', 'meshVolume'].filter((key) => key in scene.parts[0])).toEqual([])
+    expect(scene.note).toContain(OPEN_NOTE)
+    expect(scene.note).toContain(MESH_NOTE)
+    expect(JSON.parse(textOf(sceneTool(fake(), 'bracket'))).note ?? '').not.toMatch(/openShells|meshDisagrees/)
+    expect(TOOLS.scene.description).toContain('solids')
   })
 
   it("lists the model's Params as the kernel read them, and none from a kernel that read none", () => {

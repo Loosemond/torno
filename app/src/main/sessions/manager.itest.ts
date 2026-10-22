@@ -1972,7 +1972,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     states.set(state.objectId, state)
     made.built(state)
   }
-  async function begun(opts: { wait?: number; grace?: number; context?: (id: string) => PromptContext } = {}) {
+  async function begun(opts: { wait?: number; grace?: number; context?: (id: string) => PromptContext; scene?: (id: string) => { revision: number; scene: Scene } | undefined } = {}) {
     states = new Map()
     own = recording(await startHttp())
     const server = own
@@ -1984,6 +1984,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       contextFor: () => ({ text: '', sentMarkIds: [] }),
       build: (id) => states.get(id),
       buildContextFor: (id) => (opts.context ?? told)(id),
+      ...(opts.scene ? { scene: opts.scene } : {}),
       editTiming: { answerMs: opts.wait ?? 5000, graceMs: opts.grace ?? 1500 },
       systemPromptFor: () => '',
       mcpUrlFor: (id) => server.url(`/mcp/${id}`)
@@ -2084,6 +2085,77 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     await answer
     expect(await post('PreToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
     expect(await post('PostToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
+    expect(await post('Stop', {})).toEqual({})
+  })
+
+  it('tells what the build did to the parts, from the real kernel, and holds a Stop back once for a part that came apart', async () => {
+    const ws = mkdtempSync(join(realpathSync(tmpdir()), 'torno-sanity-'))
+    const kernel = startKernel({ workspaceRoot: ws, hasProject: false, kernelDir: resolve(__dirname, '../../../../kernel') })
+    try {
+      const model = (name: string, body: string): string => {
+        mkdirSync(join(ws, name), { recursive: true })
+        writeFileSync(join(ws, name, `${name}.py`), `from dataclasses import dataclass\n\nfrom build123d import Box, Pos\n\n\n@dataclass(frozen=True)\nclass Params:\n    pass\n\n\ndef assembly(p):\n${body}\n`)
+        return join(ws, name)
+      }
+      // A boss meant to stand on the plate, 2 mm above it: the union is two solids, and valid.
+      const one = model('whole', '    return {"plate": Box(20, 20, 2) + Pos(0, 0, 3) * Box(4, 4, 4), "lid": Box(10, 10, 1)}')
+      const two = model('apart', '    return {"plate": Box(20, 20, 2) + Pos(0, 0, 5) * Box(4, 4, 4), "lid": Box(10, 10, 1)}')
+      const builds = [await kernel.build(one, 'whole.py'), await kernel.build(two, 'apart.py')]
+      const scenes = builds.map((b, i) => {
+        if (!b.ok) throw new Error(`${b.error.kind}: ${b.error.message}`)
+        return { revision: i + 1, scene: b.scene as Scene }
+      })
+      expect(scenes[1].scene.parts.find((p) => p.name === 'plate')).toMatchObject({ solids: 2, valid: true })
+      let current: BuildState | undefined
+      let kept = scenes.slice(0, 1)
+      const deps = (id: string): ContextDeps => ({
+        object: () => ({ id, name: id, dir: join(ws, id), model: `${id}.py` }),
+        openObjectId: () => id,
+        build: () => current,
+        scene: () => kept.at(-1),
+        scenes: () => kept,
+        view: () => undefined
+      })
+      const { obj, post, edit } = await begun({ context: (id) => buildContextFor(deps(id), id), scene: () => kept.at(-1) })
+      current = { objectId: obj.id, status: 'ok', revision: 1, seconds: 0.2, stale: false }
+      await post('UserPromptSubmit', { prompt: 'raise the boss' })
+      const answer = edit()
+      setTimeout(() => land(building(obj.id, 1)), 50)
+      setTimeout(() => {
+        kept = scenes
+        land((current = { objectId: obj.id, status: 'ok', revision: 2, seconds: 0.2, stale: false }))
+      }, 200)
+      const told = ((await answer) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext
+      expect(told.split('\n').slice(1, 3)).toEqual([
+        'Changed since r1: plate: size 20 × 20 × 6 → 20 × 20 × 8 mm, faces 11 → 12, solids 1 → 2; 1 part unchanged.',
+        'Check: plate is 2 solids (was 1); the face or edge numbers of plate may name others now (describe refs again).'
+      ])
+      expect(await post('Stop', {})).toEqual({
+        decision: 'block',
+        reason: 'r2, built in this turn, has what a sound part never has: plate is 2 solids (was 1). Mend the model, or say why it is meant. You have not looked at it either: call mcp__torno__look.'
+      })
+      expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+    } finally {
+      await kernel.dispose()
+      rmSync(ws, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it('does not hold a Stop back for a change of volume alone, nor for a defect the turn began with', async () => {
+    const sound = (more: object = {}): Scene => ({ model: 'part.py', layouts: ['assembly'], seconds: 0.1, output: '', parts: [{ key: 'assembly:plate', name: 'plate', layout: 'assembly', bbox: { min: [0, 0, 0], max: [20, 20, 2] }, volume: 800, faceCount: 6, edgeCount: 12, valid: true, solids: 1, ...more }] }) as unknown as Scene
+    let kept = { revision: 3, scene: sound() }
+    const { obj, post } = await begun({ scene: () => kept })
+    await post('UserPromptSubmit', { prompt: 'thinner' })
+    kept = { revision: 4, scene: sound({ volume: 200 }) }
+    land(building(obj.id, 3))
+    land(ok(obj.id, 4))
+    expect(await post('Stop', {})).toEqual({})
+
+    kept = { revision: 5, scene: sound({ valid: false }) }
+    await post('UserPromptSubmit', { prompt: 'what is wrong?' })
+    land(building(obj.id, 4))
+    land(ok(obj.id, 6))
+    kept = { revision: 6, scene: sound({ valid: false, volume: 700 }) }
     expect(await post('Stop', {})).toEqual({})
   })
 

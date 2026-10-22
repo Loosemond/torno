@@ -895,3 +895,85 @@ describe('what the model printed', () => {
     expect(text).not.toContain('s3cret')
   })
 })
+
+describe('the digest of the build of an edit', () => {
+  const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 4, seconds: 0.5, stale: false }
+  const STATUS = '[torno] bracket · build ok · r4 (0.5 s) · layout assembly · parts: base, post.'
+  const sound = (layout: string, name: string, more: Partial<Part> = {}): Part =>
+    ({ key: `${layout}:${name}`, name, layout, bbox: { min: [0, 0, 0], max: [40, 30, 6] }, bboxExact: true, volume: 7200, volumeExact: true, faceCount: 6, edgeCount: 12, valid: true, solids: 1, openShells: 0, meshVolume: 7200, ...more }) as Part
+  const R3: Scene = { ...SCENE, parts: [sound('assembly', 'base'), sound('assembly', 'post'), sound('print', 'base'), sound('print', 'post')] }
+  const R4: Scene = { ...SCENE, output: 'volume: 6000', parts: [sound('assembly', 'base', { volume: 6000, meshVolume: 6000, solids: 2, faceCount: 12, edgeCount: 24 }), sound('assembly', 'post'), sound('print', 'base', { volume: 6000, solids: 2, faceCount: 12, edgeCount: 24 }), sound('print', 'post')] }
+  const withBuilds = (over: Pick<ContextDeps, 'verdicts'> & { build?: BuildState; kept?: Array<{ revision: number; scene: Scene }> } = {}): ContextDeps => {
+    const kept = over.kept ?? [
+      { revision: 3, scene: R3 },
+      { revision: 4, scene: R4 }
+    ]
+    return { ...deps({ build: over.build ?? OK, scene: kept.at(-1)?.scene, revision: kept.at(-1)?.revision }), scenes: () => kept, ...(over.verdicts ? { verdicts: over.verdicts } : {}) }
+  }
+  const DIGEST = ['Changed since r3: base: volume 7200 → 6000 mm³ (-1200, -17 %), faces 6 → 12, edges 12 → 24, solids 1 → 2; 1 part unchanged.', 'Check: base is 2 solids (was 1); the face or edge numbers of base may name others now (describe refs again).'].join('\n')
+
+  it('comes after the status and before what the model printed, and is given as data', () => {
+    const told = buildContextFor(withBuilds(), 'bracket')
+    expect(told.text).toBe([STATUS, DIGEST, 'Model printed (last 1 line):', 'volume: 6000'].join('\n'))
+    expect(told.digest).toMatchObject({ revision: 4, since: 3, changed: true, unchanged: 1, flags: [{ kind: 'solids', part: 'base', hard: true }, { kind: 'refs', part: 'base' }] })
+    expect(told.digest?.parts.map((p) => p.name)).toEqual(['base'])
+  })
+
+  it('comes before the dimensions, and says a dimension that passed on the build before and fails now', () => {
+    const dim = (n: number, over: object): Mark =>
+      ({ id: `M${n}`, kind: 'dimension', author: 'user', note: '', status: 'sent', sentBefore: true, anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4, measure: 'diameter', a: { point: [n, 0, 5], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 4, expected: 8, tolerance: 0.05, ...over }) as unknown as Mark
+    const marks = [dim(4, { value: 9, verdict: 'fail' }), dim(5, { verdict: 'pass' })]
+    const verdicts = (_id: string, revision: number | undefined) =>
+      new Map(
+        revision === 3
+          ? [
+              ['M4', 'pass' as const],
+              ['M5', 'pass' as const]
+            ]
+          : [
+              ['M4', 'fail' as const],
+              ['M5', 'pass' as const]
+            ]
+      )
+    const told = buildContextFor(withBuilds({ verdicts, kept: [{ revision: 3, scene: R3 }, { revision: 4, scene: { ...R3, output: '' } }] }), 'bracket', marks)
+    const lines = told.text.split('\n')
+    expect(lines.slice(0, 3)).toEqual([STATUS, "Changed since r3: no part's volume, size or faces (2 as they were).", 'Check: M4 FAIL, passed on r3.'])
+    expect(lines[3]).toBe('Dimensions (measured on r4):')
+    expect(told.digest?.dimensions).toEqual([{ id: 'M4', was: 'pass', now: 'fail' }])
+  })
+
+  it('of a first build, is the check alone', () => {
+    const told = buildContextFor(withBuilds({ kept: [{ revision: 4, scene: { ...R3, output: '' } }] }), 'bracket')
+    expect(told.text).toBe([STATUS, 'Check: nothing found (every part valid, closed, not inside out, its mesh agreeing with its volume).'].join('\n'))
+    expect(told.digest).toMatchObject({ revision: 4, changed: false })
+  })
+
+  it('is not given while a build runs, after one that failed, of a build that is not the last kept, nor with a prompt', () => {
+    const running: BuildState = { objectId: 'bracket', status: 'building', revision: 4, stale: true }
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 4, stale: true, error: { kind: 'exception', message: 'boom' } }
+    for (const build of [running, failed, { ...OK, revision: 5 }]) {
+      const told = buildContextFor(withBuilds({ build }), 'bracket')
+      expect(told.text).not.toMatch(/Changed since|Check:/)
+      expect(told.digest).toBeUndefined()
+    }
+    expect(contextFor(withBuilds(), 'bracket').text).not.toMatch(/Changed since|Check:/)
+    expect(contextFor(withBuilds(), 'bracket').digest).toBeUndefined()
+  })
+
+  it('keeps the whole within CONTEXT_LIMIT, the dimensions told after it whatever their number', () => {
+    const many = (n: number, more: (i: number) => Partial<Part>): Part[] => Array.from({ length: n }, (_, i) => sound('assembly', `a-part-with-a-rather-long-name-${i}`, more(i)))
+    const before: Scene = { ...SCENE, layouts: ['assembly'], parts: many(60, () => ({})) }
+    const after: Scene = { ...SCENE, layouts: ['assembly'], output: 'x'.repeat(900), parts: many(60, (i) => ({ volume: 7000 - i, valid: i % 7 !== 0 })) }
+    const dim = (n: number): Mark =>
+      ({ id: `M${n}`, kind: 'dimension', author: 'user', note: 'a note '.repeat(10), status: 'sent', sentBefore: true, anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4, measure: 'diameter', a: { point: [n, 0, 5], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 4, expected: 8.5, tolerance: 0.05, verdict: 'fail' }) as unknown as Mark
+    for (const count of [0, 5, 40, 120]) {
+      const told = buildContextFor(withBuilds({ kept: [{ revision: 3, scene: before }, { revision: 4, scene: after }] }), 'bracket', Array.from({ length: count }, (_, n) => dim(n + 1)))
+      expect(told.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+      const lines = told.text.split('\n')
+      expect(lines[1]).toMatch(/^Changed since r3: /)
+      expect(lines[2]).toMatch(/^Check: a-part-with-a-rather-long-name-0 is not valid/)
+      expect(lines[1].length + lines[2].length + 1).toBeLessThanOrEqual(1200)
+      if (count > 0) expect(lines[3]).toBe('Dimensions (measured on r4):')
+    }
+  })
+})

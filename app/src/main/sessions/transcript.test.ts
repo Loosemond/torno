@@ -123,6 +123,14 @@ describe('the build after an edit', () => {
     expect(t.toolContext({ text: 'r4 ok' })).toBeNull()
     expect(of(t, 'context')).toHaveLength(1)
   })
+
+  it('carries what the build did to the parts as data, beside the text that says it', () => {
+    const t = new Transcript({ now: () => 1000 })
+    t.message(toolUse('toolu_9', 'Edit', { file_path: '/ws/part/part.py' }))
+    const digest = { revision: 4, since: 3, changed: true, parts: [], unchanged: 1, flags: [{ kind: 'solids' as const, part: 'tub', new: true, hard: true, text: 'tub is 2 solids (was 1)' }], dimensions: [{ id: 'M4', was: 'pass' as const, now: 'fail' as const }] }
+    const text = "[torno] part · build ok · r4\nChanged since r3: no part's volume, size or faces (1 as they were).\nCheck: tub is 2 solids (was 1)."
+    expect(t.toolContext({ toolUseId: 'toolu_9', text, revision: 4, buildState: 'ok', digest })).toMatchObject({ kind: 'context', text, revision: 4, buildState: 'ok', digest })
+  })
 })
 
 describe('streaming', () => {

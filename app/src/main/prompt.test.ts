@@ -13,7 +13,8 @@ describe('the system prompt', () => {
   })
 
   it('says the build comes back with an edit, and still to look', () => {
-    expect(SYSTEM_PROMPT).toContain('The build result of an edit of the model comes back with the edit; look at the result before saying it is done.')
+    expect(SYSTEM_PROMPT).toContain('The build result of an edit of the model comes back with the edit, with what it did to the parts')
+    expect(SYSTEM_PROMPT).toContain('is a defect to mend or to explain. Look at the result before saying it is done.')
     expect(SYSTEM_PROMPT).not.toContain('After every edit, always check the build status with scene')
   })
 
@@ -84,8 +85,14 @@ describe('the system prompt', () => {
   })
 
   it('stays short', () => {
-    // Raised from 6,250 in Milestone 5 (D12), for explode and the saved views; to 7,400 for the model file contract (#3).
-    expect(FULL_PROMPT.length).toBeLessThan(7400)
+    // Raised from 6,250 in Milestone 5 (D12), for explode and the saved views; to 7,400 for the model file contract (#3); to 8,000 for the digest of a build (#108).
+    expect(FULL_PROMPT.length).toBeLessThan(8000)
+  })
+
+  it('says how to read the digest that comes back with an edit: numbers of the B-rep, to be held to what was meant', () => {
+    expect(FULL_PROMPT).toContain('("Changed since rN")')
+    expect(FULL_PROMPT).toContain('("Check:"), from the B-rep, which a picture is not: adding material must raise a volume and a cut lower it, and a change in a part you did not touch, or anything under Check, is a defect to mend or to explain.')
+    expect(SYSTEM_PROMPT).toContain('Check:')
   })
 
   it('says that explode is for display, right after what show is for', () => {
@@ -114,7 +121,7 @@ describe("Claude Code's prompt, with the skills", () => {
 
   it('is the whole text without the scans and the dimensions, noticeably shorter', () => {
     expect(systemPrompt((tool) => `mcp__torno__${tool}`, true)).toBe(SYSTEM_PROMPT)
-    expect(SYSTEM_PROMPT.length).toBeLessThan(6400)
+    expect(SYSTEM_PROMPT.length).toBeLessThan(7000)
     expect(FULL_PROMPT.length - SYSTEM_PROMPT.length).toBeGreaterThan(1000)
     for (const sentence of [...SCANS_TEXT, ...DIMENSIONS_TEXT]) {
       expect(FULL_PROMPT).toContain(sentence)

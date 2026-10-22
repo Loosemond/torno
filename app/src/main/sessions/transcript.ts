@@ -1,4 +1,5 @@
 import { type ChatImage, type ChatItem, type ChatMeta, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
 import type { PromptBlock, StreamAsk, StreamMessage } from './stream'
 
@@ -209,10 +210,10 @@ export class Transcript {
    * What the `PostToolUse` of an edit of the model was answered with (the build the edit started), under the card of
    * that tool, as a prompt's context is under the prompt. Null when the tool is not one of this transcript's.
    */
-  toolContext(c: { toolUseId?: string; text: string; revision?: number; buildState?: 'ok' | 'failed' | 'building' }): ChatItem | null {
+  toolContext(c: { toolUseId?: string; text: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; digest?: BuildDigest }): ChatItem | null {
     const forItem = c.toolUseId === undefined ? undefined : this.tools.get(c.toolUseId)
     if (forItem === undefined || c.text.trim() === '') return null
-    const made: ChatItem = { kind: 'context', id: this.newId('i'), forUser: forItem, text: this.redact(c.text), marks: [], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}) }
+    const made: ChatItem = { kind: 'context', id: this.newId('i'), forUser: forItem, text: this.redact(c.text), marks: [], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.digest ? { digest: c.digest } : {}) }
     this.run(() => this.put(made))
     return made
   }

@@ -46,6 +46,20 @@ afterEach(() => {
 })
 
 describe('stateText', () => {
+  it('writes the digest of a build that worked under it, naming the tools as tools', () => {
+    const sound = (name: string, more: Partial<Part> = {}): Part => ({ ...part('assembly', name, [0, 0, 0], [10, 10, 10]), volume: 1000, faceCount: 6, edgeCount: 12, valid: true, solids: 1, openShells: 0, ...more }) as Part
+    const before = { revision: 2, scene: { ...SCENE, layouts: ['assembly'], parts: [sound('base'), sound('post')] } }
+    const after = { revision: 3, scene: { ...SCENE, layouts: ['assembly'], parts: [sound('base', { valid: false }), sound('post', { volume: 800 })] } }
+    const digest = { revision: 3, since: 2, changed: true, unchanged: 0, dimensions: [], parts: [], flags: [] }
+    expect(stateText(obj, OK, after, [], undefined, undefined, digest)).toContain("Build ok, r3.\n\nChanged since r2: no part's volume, size or faces.\nCheck: nothing found")
+    const files = new StateFiles({ object: () => obj, build: () => OK, scene: () => after, scenes: () => [before, after], marks: async () => [], write: async (_path, text) => void (written = text), delayMs: 0 })
+    let written = ''
+    return files.write('bracket').then(() => {
+      expect(written).toContain(['Build ok, r3.', '', 'Changed since r2: post: volume 1000 → 800 mm³ (-200, -20 %); 1 part unchanged.', "Check: base is not valid (OCC's check finds a defect).", '', '## Layouts and parts'].join('\n'))
+      expect(written).not.toContain('mcp__torno__')
+    })
+  })
+
   it('writes ≈ before the size of a part whose box the kernel does not say is exact', () => {
     const loft = { ...part('assembly', 'stand', [-64.4355, 0, 0], [65, 207.96, 120]), bboxExact: false }
     const old = { ...part('assembly', 'legacy', [0, 0, 0], [1, 2, 3]), bboxExact: undefined }
