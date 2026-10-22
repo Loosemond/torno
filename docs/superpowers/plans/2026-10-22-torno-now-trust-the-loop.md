@@ -1967,3 +1967,21 @@ under load.
 - The test passes 20 times in a row inside the full kernel suite run three at once
   (`for i in 1 2 3; do (cd kernel && uv run pytest -q) & done; wait`, a few rounds), or as many rounds as fit in 20 minutes.
 - `cd kernel && uv run pytest -q` passes.
+
+## Task 32: e2e: session.spec.ts fails now and then under load (#137)
+
+Issue: https://github.com/luisg0nc/torno/issues/137. Added during the run: `app/e2e/session.spec.ts:143` ("the status follows the
+hooks the agent posts") failed in most full e2e runs on 2026-10-22 and sometimes alone (once in three), and `:165` once; the
+file is serial, so a failure leaves the 11 tests after it not run.
+
+#### Proposal
+
+Find what the test waits on (the terminal text `typeLine` writes and reads back, the status the hooks set, `expect.poll` and
+`toHaveText` timeouts, the stand-in's `hook` command posting to torno) and wait for the event it is about, with a bound that
+holds under load. If the flake is in the app (a status set out of order when hooks arrive close together), fix the app and
+say so. Do not weaken what the test proves.
+
+#### Done when
+
+- `pnpm -C app exec playwright test e2e/session.spec.ts --repeat-each 20` passes (after `pnpm build`).
+- The spec passes in two full e2e runs in a row.
