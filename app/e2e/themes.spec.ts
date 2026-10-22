@@ -218,7 +218,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys'] as const
 
 /** Shots of a window with no folder open, or an empty one, where no object is opened. */
 const FIRST_SCREEN = ['welcome-first', 'welcome-first-ready', 'welcome-first-open'] as const
@@ -286,6 +286,16 @@ for (const theme of ['light', 'dark'] as const) {
           await page.mouse.move(view.x + at.x * view.width, view.y + at.y * view.height)
           await expect(page.locator('.pick-readout')).toContainText('2 under')
           await expect(page.locator('.mark-row[data-mark="M3"]')).toHaveAttribute('data-hovered', '')
+        } else if (shot === 'tools') {
+          // A tool in hand, its step in the line at the foot of the view, and the tip of a scan's tool with no scan beside the palette.
+          await page.keyboard.press('a')
+          await expect(page.locator('.tool-hint')).toContainText('Arrow: press on the part')
+          await page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name: 'Region of a scan', exact: true }).hover()
+          await expect(page.locator('.tool-tip[data-tip="region"]')).toContainText('Import a scan first')
+        } else if (shot === 'keys') {
+          // The sheet of keys, which starts with the pointer.
+          await page.keyboard.press('?')
+          await expect(page.getByRole('dialog', { name: 'Keys' }).getByRole('heading', { name: 'Pointer' })).toBeVisible()
         } else if (shot === 'section') {
           await page.keyboard.press('x')
           await page.getByRole('button', { name: 'Cut across Y' }).click()

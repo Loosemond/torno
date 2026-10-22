@@ -90,6 +90,9 @@ export class Viewport {
   private frame = 0
   private settleTimer: ReturnType<typeof setTimeout> | undefined
   private readonly settledListeners: ((c: Camera) => void)[] = []
+  /** Told when the person moves the camera with the pointer; true from the press that starts the orbit, pan or zoom to its end. */
+  private readonly navigatedListeners: (() => void)[] = []
+  private navigating = false
   private readonly drawnListeners = new Set<() => void>()
   private readonly sectionListeners = new Set<(plane: SectionPlane | null) => void>()
   /** How many pixels at the top of the canvas the bars floating over it cover: what is framed on screen is framed below them. */
@@ -164,6 +167,7 @@ export class Viewport {
     this.controls.zoomToCursor = true
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
     this.controls.addEventListener('start', this.onControlStart)
+    this.controls.addEventListener('end', this.onControlEnd)
     this.controls.addEventListener('change', this.onCameraChange)
 
     // Before this class listens to the pointer: by then the gizmo has said whether the pointer is on it.
@@ -918,6 +922,15 @@ export class Viewport {
     return this.pointer.busy
   }
 
+  /**
+   * Calls back as the person moves the camera with the pointer: a drag that turns or pans it, the wheel. Not for a
+   * click that moves nothing, and not for a camera the viewport moves itself (a view key, Fit, a saved view). The
+   * callback is told at every step of the move: it must be cheap and keep nothing in React.
+   */
+  onNavigated(cb: () => void): void {
+    this.navigatedListeners.push(cb)
+  }
+
   /** Calls back 150 ms after the camera stops moving, however it was moved. */
   onCameraSettled(cb: (c: Camera) => void): void {
     this.settledListeners.push(cb)
@@ -966,6 +979,7 @@ export class Viewport {
     if (this.frame) cancelAnimationFrame(this.frame)
     clearTimeout(this.settleTimer)
     this.settledListeners.length = 0
+    this.navigatedListeners.length = 0
     this.drawnListeners.clear()
     this.sectionListeners.clear()
     this.pointer.dispose()
@@ -1152,10 +1166,16 @@ export class Viewport {
 
   /** The person takes over from a camera move: it stops where it is, and the press is answered from the camera as it is. */
   private readonly onControlStart = (): void => {
+    this.navigating = true
     this.move.drop()
   }
 
+  private readonly onControlEnd = (): void => {
+    this.navigating = false
+  }
+
   private readonly onCameraChange = (): void => {
+    if (this.navigating) for (const cb of this.navigatedListeners) cb()
     // Keep the projection current between frames too: zooming to the cursor reads it.
     setProjection(this.camera, this.controls.target, this.fov, this.aspect, this.extent)
     this.invalidate()

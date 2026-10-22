@@ -160,6 +160,20 @@
   background: var(--surface);
 }
 
+/* A gesture of the pointer, where a key's cap would be: the same cap, wider for its words. It is no key. */
+.keys-gesture {
+  display: inline-grid;
+  place-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border: var(--divider);
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--ink);
+  background: var(--surface);
+}
+
 .keys-none {
   color: var(--muted);
 }

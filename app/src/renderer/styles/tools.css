@@ -176,13 +176,129 @@
 /* The key that chooses the tool, like the size stamped on a drill's shank. */
 .tool-key {
   position: absolute;
-  right: 4px;
-  bottom: 2px;
-  font-size: 9px;
+  right: 3px;
+  bottom: 1px;
+  font-size: 11px;
   line-height: 1.2;
   color: var(--muted);
 }
 
 .tool-button[aria-pressed='true'] .tool-key {
   color: inherit;
+}
+
+/* A scan's tool with no scan to work on: offered, and quieter. Not disabled: the click and the tip say why. */
+.tool-button[data-quiet]:not([aria-pressed='true']) svg {
+  color: var(--muted);
+}
+
+/* ---- The tip beside a button of the palette: at once on the pointer and on the keys' focus ---- */
+
+/* A button and its tip. The button alone is a grid cell of the palette, as it was. */
+.tool-tipped {
+  position: relative;
+  display: grid;
+}
+
+.tool-tip {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 10px);
+  z-index: 3;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  max-width: 250px;
+  padding: 6px 9px 7px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  line-height: 1.4;
+  /* It is looked at, never pointed at: the pointer goes through it to the view. */
+  pointer-events: none;
+}
+
+.tool-tip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tool-tip-name {
+  font-weight: 600;
+}
+
+.tool-tip kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: var(--divider);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tool-tip-note {
+  color: var(--muted);
+}
+
+/* ---- The line at the foot of the view: what the tool in hand waits for, or, once, how the pointer moves the view ---- */
+
+/* Always there, empty, so that what comes into it is read out. It has no box of its own. */
+.tool-hint-live {
+  display: contents;
+}
+
+.tool-hint {
+  position: absolute;
+  bottom: calc(var(--space-3) + var(--bar-floor));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(100% - 2 * var(--bar-side));
+  margin: 0;
+  padding: 3px 11px;
+  border: var(--divider);
+  border-radius: var(--radius-palette);
+  background: var(--panel);
+  box-shadow: var(--palette-shadow);
+  font-size: var(--text-small);
+  line-height: 26px;
+  color: var(--muted);
+  white-space: nowrap;
+  /* Nothing to press: the pointer goes through it to the view, and to the chips of the marks. */
+  pointer-events: none;
+}
+
+/* The words give way to the room there is; the way back stays whole. */
+.tool-hint-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-hint-stop {
+  flex: none;
+}
+
+.tool-hint kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: var(--divider);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink);
 }

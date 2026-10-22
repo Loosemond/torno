@@ -105,9 +105,11 @@ test('the palette shows the tools, each with its key', async () => {
   // One button for every tool there is, and at their foot the one for the sheet of keys.
   await expect(tools).toHaveCount(TOOLS.length)
   await expect(page.getByRole('toolbar', { name: 'Tools' }).getByRole('button')).toHaveCount(TOOLS.length + 1)
-  await expect(page.getByRole('button', { name: 'Section', exact: true })).toHaveAttribute('title', 'Section (X)')
+  // The key is on the button, in its own words for a reader of the screen, and in the tip beside it (e2e/tools.spec.ts).
+  await expect(page.getByRole('button', { name: 'Section', exact: true })).toHaveAttribute('aria-keyshortcuts', 'X')
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('title', 'Select (V)')
+  await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-keyshortcuts', 'V')
+  await expect(page.getByRole('button', { name: 'Select', exact: true }).locator('.tool-key')).toHaveText('V')
   for (const name of ['Pin', 'Arrow', 'Draw', 'Shape', 'Section']) await expect(page.getByRole('button', { name, exact: true })).toBeEnabled()
   await page.keyboard.press('s')
   await expect(page.getByRole('button', { name: 'Shape', exact: true })).toHaveAttribute('aria-pressed', 'true')

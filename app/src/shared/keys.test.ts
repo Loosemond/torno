@@ -4,7 +4,7 @@ import { expect, it } from 'vitest'
 import { GIZMO_MODES, TOOLS, TOOL_GROUPS } from '../renderer/state/tools'
 import { REBUILD_HOW, REBUILD_KEY } from './build'
 import { EXPLODED_TOOLS } from './explode'
-import { CONTEXTS, GIZMO_KEYS, capsOf, KEYS, TOOL_KEYS, VIEW_KEYS, cheatSheet, hint, keyClashes, keyName, pressOf, pressed, typed, which, type KeyRow } from './keys'
+import { CONTEXTS, GIZMO_KEYS, SCAN_TOOLS, capsOf, doesOf, KEYS, TOOL_KEYS, VIEW_KEYS, cheatSheet, hint, keyClashes, keyName, pressOf, pressed, stepOf, typed, which, type KeyRow } from './keys'
 
 it('is where the tools, the views and the gizmo have their keys from', () => {
   expect(TOOLS.map((t) => [t.name, t.label, t.key])).toEqual(TOOL_KEYS.map((t) => [t.name, t.label, t.key]))
@@ -266,4 +266,21 @@ it('takes Shift with a key for that key where Shift with it has no row: Shift+F5
   expect(pressed({ key: 'F5', shiftKey: true }, 'reload')).toBe(true)
   expect(pressed({ key: 'Enter', shiftKey: true }, 'field.keep')).toBe(false)
   expect(pressed({ key: 'Enter', shiftKey: true }, 'field.newline')).toBe(true)
+})
+
+it('says what every tool does and waits for in plain sentences, with no key written in them', () => {
+  const keys = new Set([...TOOL_KEYS.map((t) => t.key), ...KEYS.flatMap((r) => r.keys), '?'])
+  for (const t of TOOL_KEYS) {
+    for (const text of [t.does, t.next, 'then' in t ? t.then : null]) {
+      if (text === null) continue
+      expect([t.name, text, text.startsWith(`${t.label}: `)]).toEqual([t.name, text, true])
+      // Sentence case, and no word that is a key cap by itself.
+      expect([t.name, /\b[A-Z]{2,}\b/.test(text)]).toEqual([t.name, false])
+      for (const word of text.split(/[\s,;:.]+/)) expect([t.name, word, keys.has(word) && word !== t.label]).toEqual([t.name, word, false])
+    }
+    expect([t.name, doesOf(t.name).length > 0, /^[A-Z]/.test(doesOf(t.name))]).toEqual([t.name, true, true])
+  }
+  // Select waits for nothing: it has no step.
+  expect([stepOf('select'), stepOf('pin'), stepOf('measure'), stepOf('measure', 'second')]).toEqual([null, 'Pin: click the part, then write a note', TOOL_KEYS[1].next, 'Measure: click the second end'])
+  expect(SCAN_TOOLS).toEqual(['region', 'align'])
 })

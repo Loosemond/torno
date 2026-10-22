@@ -185,7 +185,12 @@ that was not shown; step 7 with a stand-in for the agent.
    while uv makes torno's own Python environment, which the status line says:
    "Making torno's Python environment, first time only") and drawn: a tub and its
    lid. Drag to turn it, drag with the right button to pan, scroll to zoom,
-   `F` to fit. `1` to `4` are the iso, front, right and top views.
+   `F` to fit. `1` to `4` are the iso, front, right and top views. The window
+   says how the pointer moves the view once, in a line at the foot of the view
+   that goes at your first move of the camera, and keeps it, with the keys, in
+   the sheet of keys (`?`), where the pointer is the first group. Point at a
+   tool in the palette for what it does; with a tool in hand that same line
+   says what it waits for next.
 
 3. Press `E`. The lid lifts off the tub: the parts are drawn apart, for
    looking only. Press `E` again to put them together.
@@ -1272,7 +1277,24 @@ your slicer, when "Open it once saved" is ticked.
 
 ## Keys
 
-`?` shows this table in the window, and searches it.
+`?` shows this table in the window, and searches it. Above the keys the sheet lists
+the pointer, which has no keys:
+
+<!-- pointer: generated from POINTER in app/src/shared/pointer.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->
+| Pointer | What it does |
+|---|---|
+| Drag | Turn the view |
+| Right drag | Pan the view (a middle drag does too) |
+| Scroll | Zoom, towards the pointer |
+| Double click | With Measure in hand: measure something round, its diameter or its radius |
+<!-- pointer: end -->
+
+Point at a tool of the palette and a panel beside it says, at once, what the tool does and its key. With a
+tool in hand (not Select) a quiet line at the foot of the view says what the tool waits for next: for Measure
+`click the first end`, then `click the second end`; for Arrow `press on the part and drag to where it should go`.
+Region of a scan and Align scan, with no scan in the object, are drawn quieter and say `Import a scan first`.
+The line that tells how the pointer moves the view shows the first time an object is drawn in this install,
+until the camera is first moved; the window remembers that in its own storage, never in a workspace.
 
 <!-- keys: generated from cheatSheet() in app/src/shared/keys.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->
 | Where | Keys | What it does |

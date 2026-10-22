@@ -14,6 +14,7 @@ import { partsNamed } from '../../shared/groups'
 import { actions, layerOf, explodeNow, partsInLayout, store, useStore, visibleKeys, type TornoState } from '../state/store'
 import { screenShows, setViewHost, viewHost } from '../state/drawing'
 import { connectThumbs } from '../state/thumbs'
+import { pointerMoved } from '../state/step'
 import { endReplace, setTool, toolStore, type ToolName } from '../state/tools'
 import { alignTool, connectAlign } from '../tools/alignTool'
 import { arrowTool } from '../tools/arrowTool'
@@ -41,6 +42,7 @@ import { NotePopover } from './NotePopover'
 import { importScan, scanDropped } from './scanDrop'
 import { SectionBar } from './SectionBar'
 import { Selection } from './Selection'
+import { ToolHint } from './ToolHint'
 import { ToolPalette } from './ToolPalette'
 import { TYPING } from './typing'
 import { Logo } from './Logo'
@@ -583,6 +585,8 @@ export function ViewportPane() {
     })
     sized.observe(host.current!)
     const offDrop = acceptDrops(pane)
+    // The first time the person moves the camera, the pointer hint at the foot of the view is done with.
+    made.onNavigated(pointerMoved)
     setViewport(made)
     return () => {
       offDrop()
@@ -611,6 +615,7 @@ export function ViewportPane() {
           <AlignBar />
           <RegionBar />
           <AgentLine />
+          <ToolHint />
           <NotePopover viewport={viewport} />
         </>
       )}

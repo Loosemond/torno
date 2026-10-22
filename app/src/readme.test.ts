@@ -4,6 +4,7 @@ import { expect, it } from 'vitest'
 import { PROMPTS } from './main/mcp/prompts'
 import { TOOLS } from './main/mcp/schemas'
 import { cheatSheet, TOOL_KEYS } from './shared/keys'
+import { POINTER } from './shared/pointer'
 
 // The README is held to the code where it names what the code names: its table of keys is the sheet of keys
 // (`cheatSheet()`), the tools it names are the tools there are, and its headings are in the order a first-time
@@ -14,6 +15,13 @@ const headings = readme.split('\n').filter((line) => /^#{1,3} /.test(line))
 
 const BEGIN = '<!-- keys: generated from cheatSheet() in app/src/shared/keys.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->'
 const END = '<!-- keys: end -->'
+const POINTER_BEGIN = '<!-- pointer: generated from POINTER in app/src/shared/pointer.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->'
+const POINTER_END = '<!-- pointer: end -->'
+
+/** The pointer's gestures as the README has them: one table, a row for each row of the sheet's first group. */
+function pointerTable(): string {
+  return ['| Pointer | What it does |', '|---|---|', ...POINTER.map((row) => `| ${row.gesture} | ${row.does} |`)].join('\n')
+}
 
 /** A key as Markdown code: one that holds a backtick needs two around it. */
 const cap = (key: string): string => (key.includes('`') ? `\`\` ${key} \`\`` : `\`${key}\``)
@@ -35,6 +43,16 @@ it('has its table of keys from the one table of keys', () => {
   else expect(readme.slice(from + BEGIN.length, to).trim()).toBe(table)
   // Every key the sheet shows is in it, and the tools' keys with their tools.
   for (const { key, label } of TOOL_KEYS) expect([label, table.includes(`\`${key}\``)]).toEqual([label, true])
+})
+
+it('has its table of the pointer from the one table of it', () => {
+  const [from, to] = [readme.indexOf(POINTER_BEGIN), readme.indexOf(POINTER_END)]
+  expect([from >= 0, to > from]).toEqual([true, true])
+  const table = pointerTable()
+  if (process.env.TORNO_README === 'write') writeFileSync(path, `${readme.slice(0, from + POINTER_BEGIN.length)}\n${table}\n${readme.slice(to)}`)
+  else expect(readme.slice(from + POINTER_BEGIN.length, to).trim()).toBe(table)
+  // The walk-through says where the window shows it.
+  expect(readme.slice(readme.indexOf('## Five minutes with torno'), readme.indexOf('## Objects and builds'))).toContain('the sheet of keys (`?`), where the pointer is the first group')
 })
 
 it('names every tool the agent has, and no tool there is not', () => {

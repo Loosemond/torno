@@ -1,10 +1,12 @@
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { ArrowMark, MarksFile, PickMark, PinMark, ShapeMark, StrokeMark } from '../src/shared/marks'
+import { TOOL_KEYS, doesOf } from '../src/shared/keys'
+import { pointerLine } from '../src/shared/pointer'
 import type { Camera, LookRequest } from '../src/shared/view'
 import { openListed } from './objects'
 
@@ -304,6 +306,98 @@ test('the palette is in three groups, split by a rule: the tools that inspect, t
     await page.keyboard.press(key)
     await expect(tool(name)).toHaveAttribute('aria-pressed', 'true')
   }
+})
+
+const tip = (name: string, p: Page = page) => p.locator(`.tool-tip[data-tip="${name}"]`)
+const hintLine = (p: Page = page) => p.locator('.tool-hint')
+
+test('pointing at a tool shows at once what it does and its key; a scan’s tool with no scan says to import one', async () => {
+  await openFromAbove()
+  // Nothing native: the words are torno's own, and the button keeps them for a reader of the screen.
+  for (const t of TOOL_KEYS) {
+    const button = tool(t.label)
+    await expect(button).not.toHaveAttribute('title', /.+/)
+    await button.hover()
+    // At once: a native title comes after about a second.
+    await expect(tip(t.name)).toBeVisible({ timeout: 200 })
+    await expect(tip(t.name)).toContainText(t.label)
+    await expect(tip(t.name)).toContainText(doesOf(t.name))
+    await expect(tip(t.name).locator('kbd')).toHaveText(t.key)
+    await expect(button).toHaveAttribute('aria-description', new RegExp(doesOf(t.name).slice(0, 12)))
+    // Only the tool pointed at has one.
+    await expect(page.locator('.tool-tip')).toHaveCount(1)
+  }
+  // The pointer leaves: the tip goes.
+  await page.mouse.move(400, 300)
+  await expect(page.locator('.tool-tip')).toHaveCount(0)
+  // No scan in this object: the scan's tools are quieter, not disabled, and the tip says why.
+  for (const [name, label] of [['region', 'Region of a scan'], ['align', 'Align scan']] as const) {
+    await expect(tool(label)).toBeEnabled()
+    await expect(tool(label)).toHaveAttribute('data-quiet', '')
+    await tool(label).hover()
+    await expect(tip(name)).toContainText('Import a scan first', { timeout: 200 })
+  }
+  await expect(tool('Pin')).not.toHaveAttribute('data-quiet', /.*/)
+  // The keys' focus shows it too, as the pointer does.
+  await page.mouse.move(400, 300)
+  await page.keyboard.press('Shift')
+  await tool('Pin').focus()
+  await expect(tip('pin')).toBeVisible()
+  // A key puts it away, as it does a tooltip.
+  await page.keyboard.press('Shift')
+  await expect(page.locator('.tool-tip')).toHaveCount(0)
+  await tool('Pin').blur()
+  await page.keyboard.press('Escape')
+})
+
+test('with a tool in hand a quiet line at the foot of the view says what it waits for, and Measure’s goes on after the first click', async () => {
+  await openFromAbove()
+  await atRest()
+  await page.keyboard.press('v')
+  await page.mouse.move(400, 300)
+  for (const t of TOOL_KEYS.filter((k) => k.next !== null && !['region', 'align', 'section'].includes(k.name))) {
+    await page.keyboard.press(t.key.toLowerCase())
+    await expect(hintLine()).toContainText(t.next!)
+    // It names no key of a tool: only the way back.
+    await expect(hintLine().locator('kbd')).toHaveText(['Esc'])
+    for (const other of TOOL_KEYS) await expect(hintLine().locator('.tool-hint-text')).not.toHaveText(new RegExp(`\\b${other.key}\\b`))
+  }
+  // Select waits for nothing: no step (the pointer hint may still be due, on this window that has not turned yet).
+  await page.keyboard.press('v')
+  await expect(page.locator('.tool-hint[data-kind="step"]')).toHaveCount(0)
+  // Measure: the first end, then the second.
+  await page.keyboard.press('m')
+  await expect(hintLine()).toContainText('Measure: click the first end')
+  await clickOver(ON_BASE)
+  await expect(hintLine()).toContainText('Measure: click the second end')
+  await page.keyboard.press('Escape')
+  await expect(hintLine()).toContainText('Measure: click the first end')
+  await clickOver(ON_BASE)
+  await expect(hintLine()).toContainText('Measure: click the second end')
+  await clickOver(ON_POST)
+  await expect(hintLine()).toContainText('Measure: click the first end')
+  // A scan's tool with no scan waits for one.
+  await page.keyboard.press('b')
+  await expect(hintLine()).toContainText('Region of a scan: import a scan first')
+  await page.keyboard.press('v')
+  await expect(page.locator('.tool-hint[data-kind="step"]')).toHaveCount(0)
+})
+
+test('the line stands clear of the bars at the foot of the view, which stand above it', async () => {
+  await openFromAbove()
+  await page.keyboard.press('v')
+  await page.keyboard.press('x')
+  await expect(page.locator('.sectionbar')).toBeVisible()
+  await expect(hintLine()).toContainText('Section: drag the handle')
+  const line = (await hintLine().boundingBox())!
+  const bar = (await page.locator('.sectionbar').boundingBox())!
+  // The bar's bottom edge is above the line's top, and the line takes no pointer.
+  expect(bar.y + bar.height).toBeLessThanOrEqual(line.y)
+  expect(await hintLine().evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none')
+  // The cut the tool made on being taken is put away again, for the tests that follow.
+  await page.locator('.sectionbar button[title="Show the parts whole again"]').click()
+  await expect.poll(async () => (await state()).section).toBeNull()
+  await page.keyboard.press('v')
 })
 
 test('P takes the pin tool; a click on the part leaves a pin and opens its note beside it', async () => {
@@ -1138,3 +1232,68 @@ for (const shot of ['pin-light', 'pin-dark', 'arrow-light', 'arrow-dark', 'draw-
     }
   })
 }
+
+test('the pointer hint shows the first time an object is drawn, goes at the first move of the camera, and is not shown again in this window’s storage', async () => {
+  const fresh = copyFixtures()
+  const first = await launch({ TORNO_WORKSPACE: fresh })
+  try {
+    const win = await first.firstWindow()
+    await win.waitForSelector('[data-region="left"]')
+    await openListed(win, 'bracket')
+    await expect.poll(async () => (await state(win)).build?.status, { timeout: 30_000 }).toBe('ok')
+    // On first open: how the pointer moves the view, and the key of the sheet of keys; no tool in hand.
+    await expect(hintLine(win)).toContainText(pointerLine())
+    await expect(hintLine(win).locator('kbd')).toHaveText(['?'])
+    await expect(hintLine(win)).toContainText('for every key')
+    // A key that moves the camera by itself is not the person turning it; neither is a click that moves nothing.
+    await win.getByRole('button', { name: 'Top', exact: true }).click()
+    await atRest(win)
+    await expect(hintLine(win)).toBeVisible()
+    // A tool's step takes its place while it is in hand, and the hint is back when it is put down.
+    await win.keyboard.press('p')
+    await expect(hintLine(win)).toContainText('Pin: click the part')
+    await win.keyboard.press('Escape')
+    await expect(hintLine(win)).toContainText(pointerLine())
+    // The line does not take the pointer: a drag that starts under it turns the view.
+    const view = (await canvas(win).boundingBox())!
+    const before = await camera(win)
+    await win.mouse.move(view.x + view.width / 2, view.y + view.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(view.x + view.width / 2 + 40, view.y + view.height / 2 + 20, { steps: 4 })
+    await win.mouse.up()
+    await expect(hintLine(win)).toBeHidden()
+    expect(await camera(win)).not.toEqual(before)
+    expect(await win.evaluate(() => localStorage.getItem('torno.pointerHint'))).toBe('seen')
+    // Nothing of it in the workspace.
+    expect(existsSync(join(fresh, 'bracket', '.torno', 'pointerHint'))).toBe(false)
+  } finally {
+    await first.close()
+    rmSync(fresh, { recursive: true, force: true })
+  }
+})
+
+test('the wheel is a move of the camera too, and a storage that refuses leaves the hint to show again', async () => {
+  const fresh = copyFixtures()
+  const second = await launch({ TORNO_WORKSPACE: fresh })
+  try {
+    const win = await second.firstWindow()
+    await win.waitForSelector('[data-region="left"]')
+    // The window’s storage refuses: the hint is shown, and nothing breaks when it cannot be remembered.
+    await win.evaluate(() => {
+      Storage.prototype.setItem = () => {
+        throw new Error('blocked')
+      }
+    })
+    await openListed(win, 'bracket')
+    await expect.poll(async () => (await state(win)).build?.status, { timeout: 30_000 }).toBe('ok')
+    await expect(hintLine(win)).toContainText(pointerLine())
+    const view = (await canvas(win).boundingBox())!
+    await win.mouse.move(view.x + view.width / 2, view.y + view.height / 2)
+    await win.mouse.wheel(0, -200)
+    await expect(hintLine(win)).toBeHidden()
+    expect(await win.evaluate(() => localStorage.getItem('torno.pointerHint'))).toBeNull()
+  } finally {
+    await second.close()
+    rmSync(fresh, { recursive: true, force: true })
+  }
+})

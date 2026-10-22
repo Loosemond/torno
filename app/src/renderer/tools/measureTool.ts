@@ -3,6 +3,7 @@ import { isSpreadRefusal, valueText } from '../../shared/dimension'
 import { keepHeld, measuredStore } from '../state/measured'
 import type { Described } from '../../shared/geometry'
 import type { Anchor, MeasureKind, Vec3 } from '../../shared/marks'
+import { setStage } from '../state/step'
 import { toolStore } from '../state/tools'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
@@ -123,6 +124,12 @@ export function measureTool(): Tool {
   const types = new Map<string, { kind: 'face' | 'edge'; type: string } | null>()
   const asking = new Set<string>()
 
+  /** The first end is taken, or let go of: the line at the foot of the view says which end waits (once per click, never per move). */
+  const setFirst = (end: typeof first): void => {
+    first = end
+    setStage(end ? 'second' : 'first')
+  }
+
   const release = (): void => {
     clearTimeout(held?.timer)
     held = null
@@ -181,7 +188,7 @@ export function measureTool(): Tool {
   }
 
   const drop = (ctx: ToolContext): void => {
-    first = null
+    setFirst(null)
     ctx.viewport.setDraft(null)
   }
 
@@ -196,7 +203,7 @@ export function measureTool(): Tool {
       const bare = e.shift
       // A bare point has no radius. Of anything else the kernel says what it is: asked now, so a double click need not wait.
       const round = bare ? Promise.resolve(false) : within(ctx.describe(hit.ref), DESCRIBE_WITHIN_MS).then(isRound)
-      first = { hit, bare, client: e.client, at: now, round }
+      setFirst({ hit, bare, client: e.client, at: now, round })
       // A new measurement begins: the last one, not kept, is let go of.
       measuredStore.getState().clearHeld()
       // Whatever was being measured is on its own from here: the draft is this end's.
@@ -222,12 +229,12 @@ export function measureTool(): Tool {
           ctx.readout.say(e.client, NOT_ROUND)
           return
         }
-        first = null
+        setFirst(null)
         return take(toolStore.getState().round, begun, null, e.client, ctx)
       })
       return
     }
-    first = null
+    setFirst(null)
     void take(toolStore.getState().between, begun, { hit, bare: e.shift }, e.client, ctx)
   }
 
@@ -354,7 +361,7 @@ export function measureTool(): Tool {
       // A key held down repeats: one wall, one dimension.
       if (e.repeat) return true
       // Whatever end was pending is dropped for it.
-      first = null
+      setFirst(null)
       hover = { hit, client: at }
       void take('thickness', { hit, bare: false }, null, at, ctx)
       return true
@@ -364,7 +371,7 @@ export function measureTool(): Tool {
       clearTimeout(rest)
       release()
       measuredStore.getState().clearHeld()
-      first = null
+      setFirst(null)
       hover = null
       ctx.viewport.setHover(null)
       ctx.viewport.setDraft(null)

@@ -31,16 +31,41 @@ export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' 
  * in this order.
  */
 export const TOOL_KEYS = [
-  { name: 'select', label: 'Select', key: 'V', group: 'inspect', does: 'Select: click a face, an edge or a part' },
-  { name: 'measure', label: 'Measure', key: 'M', group: 'inspect', does: 'Measure: two clicks, or a double click on a round thing; nothing is kept unless you keep it' },
-  { name: 'section', label: 'Section', key: 'X', group: 'inspect', does: 'Section: cut the parts by a plane' },
-  { name: 'pin', label: 'Pin', key: 'P', group: 'mark', does: 'Pin: click a point and leave a note' },
-  { name: 'arrow', label: 'Arrow', key: 'A', group: 'mark', does: 'Arrow: drag from a point' },
-  { name: 'draw', label: 'Draw', key: 'D', group: 'mark', does: 'Draw: a stroke on the surface, or on a locked view' },
-  { name: 'shape', label: 'Shape', key: 'S', group: 'mark', does: 'Shape: place a box, a cylinder, a sphere or a plane' },
-  { name: 'region', label: 'Region of a scan', key: 'B', group: 'mark', does: 'Region of a scan: paint what something is' },
-  { name: 'align', label: 'Align scan', key: 'L', group: 'scan', does: 'Align scan: stand a scan where the model is' }
+  { name: 'select', label: 'Select', key: 'V', group: 'inspect', does: 'Select: click a face, an edge or a part', next: null },
+  { name: 'measure', label: 'Measure', key: 'M', group: 'inspect', does: 'Measure: two clicks, or a double click on a round thing; nothing is kept unless you keep it', next: 'Measure: click the first end, or double click something round', then: 'Measure: click the second end' },
+  { name: 'section', label: 'Section', key: 'X', group: 'inspect', does: 'Section: cut the parts by a plane', next: 'Section: drag the handle to move the plane' },
+  { name: 'pin', label: 'Pin', key: 'P', group: 'mark', does: 'Pin: click a point and leave a note', next: 'Pin: click the part, then write a note' },
+  { name: 'arrow', label: 'Arrow', key: 'A', group: 'mark', does: 'Arrow: drag from a point', next: 'Arrow: press on the part and drag to where it should go' },
+  { name: 'draw', label: 'Draw', key: 'D', group: 'mark', does: 'Draw: a stroke on the surface, or on a locked view', next: 'Draw: press on the part and drag to leave a stroke' },
+  { name: 'shape', label: 'Shape', key: 'S', group: 'mark', does: 'Shape: place a box, a cylinder, a sphere or a plane', next: 'Shape: click the part to set a shape down there' },
+  { name: 'region', label: 'Region of a scan', key: 'B', group: 'mark', does: 'Region of a scan: paint what something is', next: 'Region of a scan: paint on the scan what something is' },
+  { name: 'align', label: 'Align scan', key: 'L', group: 'scan', does: 'Align scan: stand a scan where the model is', next: 'Align scan: choose a way in the bar, then click on the scan' }
 ] as const
+
+/** The tools that work on a scan: with none in the object they are offered quieter, and say so. */
+export const SCAN_TOOLS: readonly ToolName[] = ['region', 'align']
+
+/** Said of a scan tool when the object has no scan: on its tip and in the line at the foot of the view. */
+export const NO_SCAN_YET = 'Import a scan first'
+
+type ToolName = (typeof TOOL_KEYS)[number]['name']
+
+/**
+ * What a tool in hand waits for next, as the line at the foot of the view says it; null for Select, which waits for
+ * nothing. `stage` is `second` for a tool that has a second step (Measure, once the first end is clicked). It names
+ * no key.
+ */
+export function stepOf(tool: ToolName, stage: 'first' | 'second' = 'first'): string | null {
+  const t: { next: string | null; then?: string } = TOOL_KEYS.find((k) => k.name === tool)!
+  return stage === 'second' && t.then ? t.then : t.next
+}
+
+/** What a tool does as its tip says it, after its name and key: its `does` without the name it begins with, in a capital. */
+export function doesOf(tool: ToolName): string {
+  const t = TOOL_KEYS.find((k) => k.name === tool)!
+  const rest = t.does.slice(t.label.length + 2)
+  return rest.charAt(0).toUpperCase() + rest.slice(1)
+}
 
 /** What a tool of the palette is for: it looks at the part and leaves nothing, it leaves a mark, or it is the scan's. */
 export type ToolGroup = (typeof TOOL_KEYS)[number]['group']

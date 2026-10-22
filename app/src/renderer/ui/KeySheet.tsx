@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import { capsOf, cheatSheet, hint, pressed, type KeyRow } from '../../shared/keys'
+import { POINTER, POINTER_GROUP, type PointerRow } from '../../shared/pointer'
 import { numbered } from './numbered'
 import { TYPING } from './typing'
 
@@ -42,6 +43,12 @@ export function matchingKeys(typed: string): ReturnType<typeof cheatSheet> {
     .filter((group) => group.rows.length > 0)
 }
 
+/** The rows of the pointer's group that say all of what was typed, as the keys' do. They are no keys: the count above the sheet leaves them out. */
+export function matchingPointer(typed: string): PointerRow[] {
+  const words = typed.toLowerCase().split(/\s+/).filter(Boolean)
+  return POINTER.filter((row) => words.every((word) => `${row.gesture} ${row.does} ${POINTER_GROUP.context} ${POINTER_GROUP.when}`.toLowerCase().includes(word)))
+}
+
 /** The sheet of keys, over the window while it is asked for. */
 export function KeySheet() {
   const open = useZustand(sheetStore, (s) => s.open)
@@ -69,6 +76,7 @@ function Sheet() {
   }, [])
 
   const groups = matchingKeys(typed)
+  const pointer = matchingPointer(typed)
   const count = groups.reduce((sum, group) => sum + group.rows.length, 0)
 
   return (
@@ -127,10 +135,26 @@ function Sheet() {
         {/* The scroller, and inside it the columns: columns on the box that scrolls would overflow sideways, not down. */}
         <div className="keys-body">
           <div className="keys-columns">
-          {groups.length === 0 && (
+          {groups.length === 0 && pointer.length === 0 && (
             <p className="keys-none">
               No key says <span className="keys-typed">{typed.trim()}</span>.
             </p>
+          )}
+          {pointer.length > 0 && (
+            <section className="keys-group" aria-label={POINTER_GROUP.context} data-group="pointer">
+              <h3>{POINTER_GROUP.context}</h3>
+              <p className="keys-when">{POINTER_GROUP.when}</p>
+              <ul>
+                {pointer.map((row) => (
+                  <li key={row.id}>
+                    <span className="keys-caps">
+                      <span className="keys-gesture">{row.gesture}</span>
+                    </span>
+                    <span>{row.does}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
           {groups.map((group) => (
             <section key={group.context} className="keys-group" aria-label={group.context}>

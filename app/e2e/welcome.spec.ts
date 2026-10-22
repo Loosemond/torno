@@ -5,6 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import type { TornoState } from '../src/renderer/state/store'
 import { EXAMPLE_OBJECTS } from '../src/main/example'
 import { KEYS } from '../src/shared/keys'
+import { POINTER } from '../src/shared/pointer'
 import { openListed } from './objects'
 
 // The first screen, and the sheet of keys: what someone who has never seen torno meets, and where they look a key up.
@@ -188,8 +189,9 @@ test('? shows every key of the one table; what is typed searches it, and no tool
   for (const line of ['Pin: click a point and leave a note', 'Draw the parts apart, or together again', 'Region: undo the last stroke', 'Export to one HTML file, or to STEP, STL or 3MF']) await expect(sheet()).toContainText(line)
   await expect(sheet().locator('kbd', { hasText: /^P$/ })).toHaveCount(1)
   // Every row that is shown is there, under where it is listened to, its keys in the monospace face.
-  await expect(sheet().locator('li')).toHaveCount(KEYS.filter((row) => !row.hidden).length)
-  await expect(sheet().locator('h3')).toHaveText(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'New object', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
+  await expect(sheet().locator('li')).toHaveCount(POINTER.length + KEYS.filter((row) => !row.hidden).length)
+  // The pointer first: gestures, not keys, so no cap of its own.
+  await expect(sheet().locator('h3')).toHaveText(['Pointer', 'Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'New object', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
   expect(await sheet().locator('kbd').first().evaluate((el) => getComputedStyle(el).fontFamily)).toContain('IBM Plex Mono')
   // The focus is in its field: a letter searches, and is no tool's key.
   await expect(sheet().getByRole('textbox', { name: 'Search the keys' })).toBeFocused()
@@ -224,7 +226,7 @@ test('? shows every key of the one table; what is typed searches it, and no tool
   await expect(sheet()).toBeHidden()
   // The button at the foot of the tools, to which the focus comes back.
   const button = page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name: 'Keys' })
-  await expect(button).toHaveAttribute('title', 'Keys (?)')
+  await expect(button).toHaveAttribute('aria-keyshortcuts', '?')
   await button.focus()
   await page.keyboard.press('Enter')
   await expect(sheet()).toBeVisible()

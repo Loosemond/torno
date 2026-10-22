@@ -296,9 +296,13 @@ describe('the axes and the scale on the person’s screen', () => {
       expect(css, sheet).not.toMatch(/bottom: (var\(--space-3\)|calc\(var\(--space-3\) \+ \d+px\));/)
       expect(css, sheet).not.toContain('2 * var(--space-3)')
     }
-    expect(layout).toMatch(/\.viewport-pane\[data-narrow\] \{[^}]*--bar-lift: calc\(var\(--triad-clear\) \+ var\(--space-1\)\)/)
+    expect(layout).toMatch(/\.viewport-pane\[data-narrow\] \{[^}]*--bar-floor: calc\(var\(--triad-clear\) \+ var\(--space-1\)\)/)
     // With the Measure tool in hand the bars stand above its strip (36 px: its height and a gap), which is above the triad.
-    expect(layout).toMatch(/\.viewport-pane\[data-narrow\]:has\(\.measure-choice\) \{[^}]*--bar-lift: calc\(var\(--triad-clear\) \+ var\(--space-1\) \+ 36px\)/)
+    expect(layout).toMatch(/\.viewport-pane\[data-narrow\]:has\(\.measure-choice\) \{[^}]*--bar-floor: calc\(var\(--triad-clear\) \+ var\(--space-1\) \+ 36px\)/)
+    // The line at the foot of the view stands on that floor and the bars stand above it, a row (40 px, as the bars stand over one another) up: the line never meets a bar.
+    expect(layout).toContain('--bar-lift: calc(var(--bar-floor) + var(--hint-lift));')
+    expect(layout).toMatch(/\.viewport-pane:has\(\.tool-hint\) \{[^}]*--hint-lift: 40px/)
+    expect(readFileSync(resolve(__dirname, '../styles/tools.css'), 'utf8')).toMatch(/\.tool-hint \{[^}]*bottom: calc\(var\(--space-3\) \+ var\(--bar-floor\)\)/)
     // Where the view is as wide as the widest bar and both sides, the bars are not lifted.
     expect(NARROW_BELOW).toBe(560 + 2 * BAR_SIDE)
   })

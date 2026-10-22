@@ -77,6 +77,30 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`src/renderer/tools/Tool.ts`) and gets every pointer event the chips of the marks do not take from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
+- **Learning the tools and the pointer without the README** (`ui/ToolPalette.tsx`, `ui/ToolHint.tsx`,
+  `state/step.ts`, `shared/pointer.ts`). The palette has no `title`: each button has torno's own tip beside it (`ToolTip`,
+  at once on the pointer and on the keys' focus, `:focus-visible` only; any key puts it away; it takes no pointer
+  and is `aria-hidden`, the button holding the same words as its `aria-description`): the name, the key cap from
+  `hint`, what the tool does (`doesOf`, the `does` of `TOOL_KEYS` without its name) and, below, what else is worth
+  knowing now (`noteOf`: a scan's tool with no scan says `Import a scan first`, a painting that waits on a scan, the
+  shape the Shape tool places). A scan's tool (`SCAN_TOOLS`: Region, Align) with no scan in the object, once main has
+  said so (`scansKnown`), is drawn quieter (`data-quiet`, the icon in `--muted`) and stays enabled: its click and its tip
+  say why. The key letters are 11 px. The Keys button has the same tip.
+  With a tool other than Select in hand one line at the foot of the view (`ToolHint`, `aria-live="polite"`, no
+  animation, no pointer) says what the tool waits for next: `next` of the tool's row in `TOOL_KEYS`, with
+  Measure's `then` once the first end is clicked (`stepStore.stage`, set by `measureTool` through `setFirst`, once
+  per click, never per move), Pin's `click the part where M3 should be` while a mark is being put elsewhere, and
+  `import a scan first` for a scan's tool with no scan (`stepFor`, `hintLine`). The line names no key of a tool: only
+  `Esc` (`hint('escape')`), which steps back. The first time an object is drawn in this install the same line, with no
+  tool in hand, says how the pointer moves the view (`pointerLine()`, and `?` from `hint('keys')`); a tool's step takes
+  its place while it is in hand, and the hint goes at the first move of the camera the person makes with the pointer
+  (a drag or the wheel: `Viewport.onNavigated`, not a view key, Fit or a click that moves nothing), remembered in
+  the window's `localStorage` under `torno.pointerHint` (`pointerHintDue`, `rememberPointerHint`: a storage that is
+  not there or refuses shows it again; never in a workspace). The line stands on `--bar-floor` and, while it is
+  there (`:has(.tool-hint)`), lifts every bar at the foot of the view by a row (`--hint-lift`, 40 px) so that none meets it
+  (`styles/layout.css`, held by `viewport/overlay.test.ts`). The sheet of keys starts with a group "Pointer"
+  (`POINTER` in `shared/pointer.ts`: drag, right drag, scroll, double click with Measure): gestures, no row of `KEYS`,
+  not counted among the keys, searched with them; README's table of them is held to it (`readme.test.ts`).
 - A mark's row and its chip in the view point at each other. The pointer on a row or chip, or the keys' focus in a
   row (on one of its buttons, `:focus-visible` only: a click on a button focuses it too, and is the pointer's; a
   note being typed is not), is the store's

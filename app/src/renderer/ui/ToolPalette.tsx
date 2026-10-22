@@ -1,14 +1,16 @@
-import { hint, pressed } from '../../shared/keys'
+import { NO_SCAN_YET, doesOf, hint, pressed } from '../../shared/keys'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ShapeKind } from '../../shared/marks'
 import { BETWEEN, ROUND, SHAPES, TOOLS, TOOL_GROUPS, setBetween, setRound, setShape, setTool, useBetween, useRound, useShape, useTool, type ToolName } from '../state/tools'
 import { count } from '../../shared/format'
 import { useRegion } from '../state/region'
 import { keepHeld, useHeld } from '../state/measured'
+import { scanless } from '../state/step'
 import { useStore } from '../state/store'
 import { commitMark } from '../tools/pickMarks'
 import { valueText } from '../../shared/dimension'
 import { showKeys } from './KeySheet'
+import { numbered } from './numbered'
 import { TYPING } from './typing'
 
 /**
@@ -24,6 +26,10 @@ export function ToolPalette() {
   const waiting = useRegion((s) => s.count)
   const [choosing, setChoosing] = useState(false)
   const choice = useRef<HTMLDivElement>(null)
+  // Which tip is up: the pointer on a button, or the keys' focus on one. Set on entering and leaving, never per move.
+  const [tip, setTip] = useState<TipOf | null>(null)
+  // How many scans the object has, once main has said: the scan's tools are offered quieter with none.
+  const scans = useStore((s) => (s.scansKnown ? s.scans.length : null))
 
   // The choice is open only while the Shape tool is in hand, and closes on a press elsewhere or Escape.
   useEffect(() => {
@@ -44,6 +50,14 @@ export function ToolPalette() {
       window.removeEventListener('keydown', close, true)
     }
   }, [choosing])
+
+  // A tip is put away by a key, as a tooltip is: it comes back when the pointer enters again.
+  useEffect(() => {
+    if (tip === null) return
+    const away = () => setTip(null)
+    window.addEventListener('keydown', away, true)
+    return () => window.removeEventListener('keydown', away, true)
+  }, [tip])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -66,20 +80,33 @@ export function ToolPalette() {
         <Fragment key={g.group}>
           {i > 0 && <span className="toolbox-rule" aria-hidden="true" />}
           <div className="toolbox-group" role="group" aria-label={g.label}>
-      {TOOLS.filter((t) => t.group === g.group).map((t) =>
-        t.name === 'shape' ? (
-          <div key={t.name} className="tool-with-choice" ref={choice}>
+      {TOOLS.filter((t) => t.group === g.group).map((t) => {
+        const quiet = scanless(t.name, scans)
+        const notes = noteOf(t.name, { quiet, waiting: t.name === 'region' && tool !== 'region' ? waiting : 0, shape, ready: t.ready })
+        const says = { name: t.name, label: t.label, cap: hint(`tool.${t.name}`), does: doesOf(t.name), notes }
+        const about = `${says.does}${notes.map((n) => `. ${n}`).join('')}`
+        const open = tip === t.name && !(t.name === 'shape' && choosing)
+        const tipped = {
+          onPointerEnter: () => setTip(t.name),
+          onPointerLeave: () => setTip((now) => (now === t.name ? null : now)),
+          onFocus: (e: React.FocusEvent) => {
+            if (e.target instanceof Element && e.target.matches(':focus-visible')) setTip(t.name)
+          },
+          onBlur: () => setTip((now) => (now === t.name ? null : now))
+        }
+        return t.name === 'shape' ? (
+          <div key={t.name} className="tool-with-choice tool-tipped" ref={choice} {...tipped}>
             <button
               type="button"
               className="tool-button"
               data-tool={t.name}
               data-shape={shape}
               aria-label={t.label}
+              aria-description={about}
               aria-pressed={t.name === tool}
               aria-keyshortcuts={t.key}
               aria-haspopup="menu"
               aria-expanded={choosing}
-              title={`${t.label} (${t.key}): ${shape}. Click to choose another`}
               onClick={() => {
                 setTool(t.name)
                 setChoosing((open) => !open)
@@ -90,6 +117,7 @@ export function ToolPalette() {
                 {t.key}
               </span>
             </button>
+            {open && <ToolTip {...says} />}
             {choosing && (
               <div className="tool-choice" role="menu" aria-label="Shape to place">
                 {SHAPES.map((s) => (
@@ -113,36 +141,83 @@ export function ToolPalette() {
             )}
           </div>
         ) : (
-          <button
-            key={t.name}
-            type="button"
-            className="tool-button"
-            data-tool={t.name}
-            data-waiting={t.name === 'region' && waiting > 0 && tool !== 'region' ? '' : undefined}
-            aria-label={t.name === 'region' && waiting > 0 && tool !== 'region' ? `${t.label}: a painting of ${count(waiting)} triangles is waiting` : t.label}
-            aria-pressed={t.name === tool}
-            aria-keyshortcuts={t.key}
-            title={t.name === 'region' && waiting > 0 && tool !== 'region' ? `${t.label} (${t.key}): a painting of ${count(waiting)} triangles is waiting. Keep or Clear it` : t.ready ? `${t.label} (${t.key})` : `${t.label} (${t.key}): not available yet`}
-            disabled={!t.ready}
-            onClick={() => setTool(t.name)}
-          >
-            {ICONS[t.name]}
-            <span className="tool-key num" aria-hidden="true">
-              {t.key}
-            </span>
-          </button>
+          <div key={t.name} className="tool-tipped" {...tipped}>
+            <button
+              type="button"
+              className="tool-button"
+              data-tool={t.name}
+              data-waiting={t.name === 'region' && waiting > 0 && tool !== 'region' ? '' : undefined}
+              data-quiet={quiet ? '' : undefined}
+              aria-label={t.name === 'region' && waiting > 0 && tool !== 'region' ? `${t.label}: a painting of ${count(waiting)} triangles is waiting` : t.label}
+              aria-description={about}
+              aria-pressed={t.name === tool}
+              aria-keyshortcuts={t.key}
+              disabled={!t.ready}
+              onClick={() => setTool(t.name)}
+            >
+              {ICONS[t.name]}
+              <span className="tool-key num" aria-hidden="true">
+                {t.key}
+              </span>
+            </button>
+            {open && <ToolTip {...says} />}
+          </div>
         )
-      )}
+      })}
           </div>
         </Fragment>
       ))}
       {/* At the foot, apart from the tools: every key there is, on one sheet. */}
       <span className="toolbox-rule" aria-hidden="true" />
-      <button type="button" className="tool-button tool-keys num" aria-label="Keys" aria-keyshortcuts={hint('keys')} title={`Keys (${hint('keys')})`} onClick={() => showKeys()}>
-        {hint('keys')}
-      </button>
+      <div className="tool-tipped" onPointerEnter={() => setTip('keys')} onPointerLeave={() => setTip((now) => (now === 'keys' ? null : now))} onFocus={(e) => e.target instanceof Element && e.target.matches(':focus-visible') && setTip('keys')} onBlur={() => setTip((now) => (now === 'keys' ? null : now))}>
+        <button type="button" className="tool-button tool-keys num" aria-label="Keys" aria-description={KEYS_SAY} aria-keyshortcuts={hint('keys')} onClick={() => showKeys()}>
+          {hint('keys')}
+        </button>
+        {tip === 'keys' && <ToolTip name="keys" label="Keys" cap={hint('keys')} does={KEYS_SAY} notes={[]} />}
+      </div>
     </div>
     </>
+  )
+}
+
+/** The button at the foot of the palette: the sheet it opens lists the pointer's gestures first. */
+const KEYS_SAY = 'Every key, and how the pointer turns, pans and zooms the view'
+
+/** Which tip is up: a tool's, or the button for the sheet of keys. */
+type TipOf = ToolName | 'keys'
+
+/**
+ * What a tool's tip says besides what it does: why it is quieter (a scan's tool with no scan), a painting that waits
+ * on the scan, the shape the Shape tool places now. Each a sentence of its own, without a closing full stop.
+ */
+function noteOf(name: ToolName, of: { quiet: boolean; waiting: number; shape: ShapeKind; ready: boolean }): string[] {
+  const notes: string[] = []
+  if (of.quiet) notes.push(NO_SCAN_YET)
+  if (name === 'shape') notes.push(`Places a ${of.shape} now; click the button again to choose another`)
+  if (of.waiting > 0) notes.push(`A painting of ${count(of.waiting)} triangles is waiting: keep it or clear it`)
+  if (!of.ready) notes.push('Not available yet')
+  return notes
+}
+
+/**
+ * A small panel beside a button of the palette, at once: the name, the key cap and what the tool does, then what
+ * else is worth knowing of it now. It takes no pointer and is not read out itself: the button holds the same words
+ * as its description.
+ */
+function ToolTip({ name, label, cap, does, notes }: { name: string; label: string; cap: string; does: string; notes: string[] }) {
+  return (
+    <div className="tool-tip" data-tip={name} aria-hidden="true">
+      <div className="tool-tip-head">
+        <span className="tool-tip-name">{label}</span>
+        <kbd className="num">{cap}</kbd>
+      </div>
+      <div className="tool-tip-does">{does}</div>
+      {notes.map((note) => (
+        <div key={note} className="tool-tip-note">
+          {numbered(note)}
+        </div>
+      ))}
+    </div>
   )
 }
 
