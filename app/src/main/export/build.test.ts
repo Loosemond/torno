@@ -201,7 +201,14 @@ describe('exportFile and exportPlan', () => {
     const plan = await exportPlan(deps(), { objects: ['hollow'], marks: true, scans: [] }, ASSETS, ['hollow', 'never-built', 'nobody'])
     expect(plan.objects).toEqual([
       // The lid is switched off: it is left out, and said. Triangles are of what goes.
-      { id: 'hollow', exportable: true, revision: 3, triangles: 12, layouts: ['assembly', 'print'], parts: 1, off: 1, views: ['Hinge side'], marks: 0, dimensions: 1, drafts: 0, resolved: 0, scans: [{ id: 'S1', name: 'Car.glb', triangles: 100_000 }] },
+      {
+        id: 'hollow', exportable: true, revision: 3, triangles: 12, layouts: ['assembly', 'print'], parts: 1, off: 1, views: ['Hinge side'], marks: 0, dimensions: 1, drafts: 0, resolved: 0, scans: [{ id: 'S1', name: 'Car.glb', triangles: 100_000 }],
+        // What a file of the model could hold, layout by layout, the switched-off part said as such.
+        layoutParts: [
+          { layout: 'assembly', parts: [{ name: 'tray', solid: true }, { name: 'lid', solid: true, off: true }] },
+          { layout: 'print', parts: [{ name: 'tray', solid: true }, { name: 'lid', solid: true, off: true }] }
+        ]
+      },
       { id: 'never-built', exportable: false, why: 'Open it first: torno exports the last build of this run', scans: [] },
       { id: 'nobody', exportable: false, why: 'There is no object of that name', scans: [] }
     ])
@@ -210,6 +217,12 @@ describe('exportFile and exportPlan', () => {
     expect(plan.refusal).toBeUndefined()
     const none = await exportPlan(deps(), { objects: [], marks: false, scans: [] }, ASSETS, ['hollow'])
     expect(none).toMatchObject({ bytes: 0, budget: 12 * 1024 * 1024, refusal: 'Choose an object to export' })
+    // A file of the model is made when it is saved: nothing is weighed, and it is of one object.
+    const step = await exportPlan(deps(), { objects: ['hollow'], marks: false, scans: [], format: 'step' }, ASSETS, ['hollow'])
+    expect(step).toMatchObject({ bytes: 0, dropped: [] })
+    expect(step.refusal).toBeUndefined()
+    const two = await exportPlan(deps(), { objects: ['hollow', 'hollow2'], marks: false, scans: [], format: '3mf' }, ASSETS, ['hollow'])
+    expect(two.refusal).toBeUndefined() // one of them is no object: one is chosen
     const most = await exportPlan(deps({ most: 1000 }), { objects: ['hollow'], marks: false, scans: [] }, ASSETS, ['hollow'])
     expect(most.refusal).toMatch(/^The export would be .* more than the .* torno writes in one file\. Export fewer objects\.$/)
   })

@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import type { BuildState } from '../shared/build'
-import type { ExportPlan, ExportRequest } from '../shared/exportdata'
+import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ModelFormat } from '../shared/exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from '../shared/geometry'
 import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks'
 import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
@@ -16,7 +16,8 @@ import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspac
 import { Builds, buildTimeout, watchFolder } from './builds'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
 import { loadAssets } from './export/html'
-import { defaultExportPath, htmlPath, prepareExports, writeExport } from './export/save'
+import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
+import { defaultExportPath, exportPath, prepareExports, writeExport } from './export/save'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
@@ -882,11 +883,50 @@ export function registerIpc(
       failing: (id) => ws.builds.state(id)?.status === 'failed'
     }
   }
-  /** A request out of whatever the window sent: names of objects, four times yes or no, keys of scans, and nothing else. */
+  /**
+   * A request out of whatever the window sent: names of objects, four times yes or no, keys of scans, a format, and
+   * of a file of the model a layout, names of parts and two numbers; nothing else, and never a path.
+   */
   const exportAsked = (given: unknown): ExportRequest => {
-    const said = Object(given) as { objects?: unknown; marks?: unknown; scans?: unknown; hidden?: unknown; resolved?: unknown }
+    const said = Object(given) as { objects?: unknown; marks?: unknown; scans?: unknown; hidden?: unknown; resolved?: unknown; format?: unknown; layout?: unknown; parts?: unknown; tolerance?: unknown; angle?: unknown }
     const names = (list: unknown): string[] => (Array.isArray(list) ? [...new Set(list.filter((one): one is string => typeof one === 'string' && one !== ''))].slice(0, 1000) : [])
-    return { objects: names(said.objects), marks: said.marks === true, scans: names(said.scans), hidden: said.hidden === true, resolved: said.resolved === true }
+    const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
+    const format = EXPORT_FORMATS.find((one) => one === said.format) ?? 'html'
+    const req: ExportRequest = { objects: names(said.objects), marks: said.marks === true, scans: names(said.scans), hidden: said.hidden === true, resolved: said.resolved === true }
+    if (format === 'html') return req
+    const tolerance = finite(said.tolerance)
+    const angle = finite(said.angle)
+    return { ...req, format, ...(typeof said.layout === 'string' ? { layout: said.layout } : {}), ...(Array.isArray(said.parts) ? { parts: names(said.parts) } : {}), ...(tolerance === undefined ? {} : { tolerance }), ...(angle === undefined ? {} : { angle }) }
+  }
+  const modelDeps = (): ModelDeps => {
+    const ws = requireWorkspace()
+    const deps = exportDeps()
+    return { object: deps.object, last: deps.last, sceneFile: deps.sceneFile, query: (id, name, args, opts) => ws.builds.query(id, name, args, opts) }
+  }
+  /** Where the person says the file goes: the save dialog (under test `pickSave`), then torno's question when the name it ends in is of a file the dialog never asked about. Null for none. */
+  const askWhere = async (event: Electron.IpcMainInvokeEvent, defaultPath: string, format: ExportFormat): Promise<string | null> => {
+    let picked: string | null
+    if (opts.pickSave) picked = await opts.pickSave(defaultPath)
+    else {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const options: Electron.SaveDialogOptions = { title: 'Export', defaultPath, filters: [{ name: FORMAT_NAMES[format], extensions: [...EXTENSIONS[format]] }] }
+      const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
+      picked = answer.canceled || !answer.filePath ? null : answer.filePath
+    }
+    if (picked === null) return null
+    const path = exportPath(picked, format)
+    // The dialog asked about the name it was given: a file of the name torno made of it was never asked about, so it is now.
+    if (path !== picked && existsSync(path)) {
+      let replace: boolean
+      if (opts.confirmReplace) replace = await opts.confirmReplace(path)
+      else {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        const options: Electron.MessageBoxOptions = { type: 'question', message: `Replace ${basename(path)}?`, detail: `${path} is there already. The export was named without .${EXTENSIONS[format][0]}, so this is the file it would replace.`, buttons: ['Cancel', 'Replace'], defaultId: 0, cancelId: 0, noLink: true }
+        replace = (await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))).response === 1
+      }
+      if (!replace) return null
+    }
+    return path
   }
   const plainly = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
@@ -902,40 +942,37 @@ export function registerIpc(
     })
   )
   handle('export:save', (event, given: unknown) =>
-    plainly(async () => {
+    plainly(async (): Promise<ExportSaved | null> => {
       const ws = requireWorkspace()
       const deps = exportDeps()
       const req = exportAsked(given)
+      if (req.format !== undefined && req.format !== 'html') return saveModelFile(event, { ...req, format: req.format })
       // Made before the dialog is up: it is of the builds there were when "Export" was pressed.
       const made = await exportFile(deps, req, await loadAssets())
       const first = deps.object(req.objects[0])!
       await prepareExports(first.dir)
       const defaultPath = req.objects.length > 1 ? defaultExportPath(first.dir, basename(ws.info.root)) : defaultExportPath(first.dir, first.name, deps.last(first.id)?.revision)
-      let picked: string | null
-      if (opts.pickSave) picked = await opts.pickSave(defaultPath)
-      else {
-        const win = BrowserWindow.fromWebContents(event.sender)
-        const options: Electron.SaveDialogOptions = { title: 'Export', defaultPath, filters: [{ name: 'HTML', extensions: ['html'] }] }
-        const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
-        picked = answer.canceled || !answer.filePath ? null : answer.filePath
-      }
-      if (picked === null) return null
-      const path = htmlPath(picked)
-      // The dialog asked about the name it was given: a file of the name torno made of it was never asked about, so it is now.
-      if (path !== picked && existsSync(path)) {
-        let replace: boolean
-        if (opts.confirmReplace) replace = await opts.confirmReplace(path)
-        else {
-          const win = BrowserWindow.fromWebContents(event.sender)
-          const options: Electron.MessageBoxOptions = { type: 'question', message: `Replace ${basename(path)}?`, detail: `${path} is there already. The export was named without .html, so this is the file it would replace.`, buttons: ['Cancel', 'Replace'], defaultId: 0, cancelId: 0, noLink: true }
-          replace = (await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))).response === 1
-        }
-        if (!replace) return null
-      }
+      const path = await askWhere(event, defaultPath, 'html')
+      if (path === null) return null
       await writeExport(path, made.html)
       return { path, bytes: made.bytes, dropped: made.dropped }
     })
   )
+  // A file of the model: made by the kernel of the last good build before the dialog is up, written beside the
+  // path chosen, read back by the same worker and checked, and only then given the name.
+  const saveModelFile = async (event: Electron.IpcMainInvokeEvent, req: ExportRequest & { format: ModelFormat }): Promise<ExportSaved | null> => {
+    const deps = modelDeps()
+    const file = await makeModelFile(deps, req)
+    const obj = deps.object(file.objectId)!
+    await prepareExports(obj.dir)
+    const one = req.format === 'stl' ? file.made.parts[0]?.name : undefined
+    const defaultPath = defaultExportPath(obj.dir, one === undefined ? obj.name : `${obj.name}-${one}`, file.revision, req.format)
+    const path = await askWhere(event, defaultPath, req.format)
+    if (path === null) return null
+    let checked: ExportSaved['checked']
+    await writeExport(path, file.bytes, async (beside) => void (checked = await checkModelFile(deps, file, beside)))
+    return { path, bytes: file.bytes.length, dropped: [], checked, revision: file.revision }
+  }
 
   // The sheet was put away: what was reduced for it is let go.
   ipcMain.on('export:done', () => forgetExportScans())

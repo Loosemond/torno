@@ -266,8 +266,62 @@ export function apartParts(object: Pick<ExportObject, 'ghosts'> & { parts: Reado
 }
 
 /** What the person asks to be written: the objects, whether their marks go with them, and each scan they ticked. */
+/** What an export writes: one HTML page that opens by itself, or a file of the model for a CAD program or a slicer. */
+export type ExportFormat = 'html' | 'step' | 'stl' | '3mf'
+export const EXPORT_FORMATS: readonly ExportFormat[] = ['html', 'step', 'stl', '3mf']
+/** A file of the model: made by the kernel of the last good build, of one layout's parts, and read back before it takes its name. */
+export type ModelFormat = Exclude<ExportFormat, 'html'>
+/** The extensions a file of each format may end in, the one it is given first. */
+export const EXTENSIONS: Readonly<Record<ExportFormat, readonly string[]>> = { html: ['html', 'htm'], step: ['step', 'stp'], stl: ['stl'], '3mf': ['3mf'] }
+/** What each format is called where it is named: in the sheet, the save dialog, what was checked. */
+export const FORMAT_NAMES: Readonly<Record<ExportFormat, string>> = { html: 'HTML', step: 'STEP', stl: 'STL', '3mf': '3MF' }
+/** How far a triangle of an STL or a 3MF may be from the faces it stands for, mm, unless the sheet says another; the least and the most. As the kernel's (`export.TOLERANCE`). */
+export const MESH_TOLERANCE = 0.01
+export const MESH_TOLERANCES = [0.001, 1] as const
+/** How far apart the normals of a triangle's corners may be, degrees; the least and the most. As the kernel's (`export.ANGLE`). */
+export const MESH_ANGLE = 5
+export const MESH_ANGLES = [0.5, 45] as const
+
+/** The layout a file of the model is of unless the person picks another: the plate for a slicer, the whole for a CAD program. */
+export function defaultLayout(format: ModelFormat, layouts: readonly string[]): string | undefined {
+  const wanted = format === 'step' ? ['assembly', 'print'] : ['print', 'assembly']
+  return wanted.find((layout) => layouts.includes(layout)) ?? layouts[0]
+}
+
+/** What the read-back of a file of the model found, said in the sheet once it is saved: checked, not printed. */
+export interface ExportChecked {
+  format: ModelFormat
+  layout: string
+  /** The parts in it, by name. */
+  parts: string[]
+  /** Of a mesh: how many triangles in all, and the tolerance and angle they were made at. */
+  triangles?: number
+  tolerance?: number
+  angle?: number
+  /** Of a STEP: how many solids in all. */
+  solids?: number
+  /** How far the volume read back is from the model's at most, of all the parts, in percent of it. */
+  volumeDeviation: number | null
+}
+
+/** What a save wrote: where, how much, and of a file of the model what its check found and of which build. */
+export interface ExportSaved {
+  path: string
+  bytes: number
+  dropped: string[]
+  checked?: ExportChecked
+  revision?: number
+}
+
 export interface ExportRequest {
   objects: string[]
+  /** What is written: the HTML page unless another is named. A file of the model is of one object. */
+  format?: ExportFormat
+  /** Of a file of the model: the layout, the parts of it that go (names, or a group's), and for a mesh the tolerance (mm) and the angle (degrees). */
+  layout?: string
+  parts?: string[]
+  tolerance?: number
+  angle?: number
   marks: boolean
   /** `<objectId>/<scanId>` of each scan the person ticked. */
   scans: string[]
@@ -301,6 +355,8 @@ export interface ExportPlan {
     resolved?: number
     /** The scans that can be ticked: those with a mesh, aligned in a layout of the build. */
     scans: Array<{ id: string; name: string; triangles: number }>
+    /** What a file of the model can hold, layout by layout: each part, whether it has a solid (an STL or a 3MF is of solids alone) and whether it is switched off in torno. */
+    layoutParts?: Array<{ layout: string; parts: Array<{ name: string; solid: boolean; off?: true }> }>
   }>
   /** What the file would weigh, and what was cut or left out to keep it under the budget, a sentence each. */
   bytes: number

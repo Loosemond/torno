@@ -600,8 +600,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`prepareExports`: made on demand, ignored through `ensureIgnored(dir, ['exports/'])`), and `writeExport`
   writes it whole or not at all: `<path>.<random>.tmp` opened `wx`, written, synced, renamed onto the path, and
   removed if anything fails; the file that was there is never truncated first. No folder is made. A name
-  without `.html` gets it; if that file is there already the dialog never asked about it, so torno asks
-  before replacing it (under test `__tornoMain.replace`, counted in `replaceAsked`).
+  without the format's extension gets it (`exportPath`: `.html`/`.htm`, `.step`/`.stp`, `.stl`, `.3mf`); if that
+  file is there already the dialog never asked about it, so torno asks before replacing it (under test
+  `__tornoMain.replace`, counted in `replaceAsked`).
+- **A file of the model** (`format` `step`, `stl` or `3mf`; `export/model.ts`) is of one object, one layout and
+  the parts the sheet names (a group's name stands for its parts, `partsNamed`), in the colours torno draws them
+  (`partColors`): STEP the assembly unless asked, a mesh the `print` layout, an STL one part with a solid. The
+  window sends names and two numbers, never a path (`exportAsked`). It is made by the kernel's live worker of the
+  last good build (`Builds.query` of `export` with `blob`, `KernelClient.query`'s `{ result, blob }`), before
+  the dialog is up; `writeExport` is given a `check`, run on the `.tmp` once it is whole and closed and before
+  the rename: `checkModelFile` has the same worker read that file back (`export_check`) and throws, with every
+  problem it found (`FAILED_CHECK`), when it did not pass, or when another build of the object landed since the
+  file was made (`NEW_BUILD`). A file that fails is never named and the `.tmp` is removed. The sheet is told what
+  was checked (`ExportSaved.checked`). The plan of such a file weighs nothing (`exportPlan`: each object's
+  `layoutParts`, and `ONE_OBJECT` when several are ticked).
 
 ## Agents
 

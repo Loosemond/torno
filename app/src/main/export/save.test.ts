@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, expect, it } from 'vitest'
-import { defaultExportPath, htmlPath, prepareExports, writeExport } from './save'
+import { defaultExportPath, exportPath, prepareExports, writeExport } from './save'
 
 const root = mkdtempSync(join(tmpdir(), 'torno-export-save-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -10,9 +10,19 @@ afterAll(() => rmSync(root, { recursive: true, force: true }))
 it('names the file after the object and its build, in a folder of torno\'s own', () => {
   expect(defaultExportPath('/ws/hollow', 'hollow', 12)).toBe('/ws/hollow/.torno/exports/hollow-r12.html')
   expect(defaultExportPath('/ws/hollow', 'ws')).toBe('/ws/hollow/.torno/exports/ws.html')
-  expect(htmlPath('/tmp/a')).toBe('/tmp/a.html')
-  expect(htmlPath('/tmp/a.HTML')).toBe('/tmp/a.HTML')
-  expect(htmlPath('/tmp/a.htm')).toBe('/tmp/a.htm')
+  expect(defaultExportPath('/ws/hollow', 'hollow', 12, '3mf')).toBe('/ws/hollow/.torno/exports/hollow-r12.3mf')
+  expect(defaultExportPath('/ws/hollow', 'hollow-lid', 12, 'stl')).toBe('/ws/hollow/.torno/exports/hollow-lid-r12.stl')
+  expect(defaultExportPath('/ws/hollow', 'hollow', 3, 'step')).toBe('/ws/hollow/.torno/exports/hollow-r3.step')
+  expect(exportPath('/tmp/a', 'html')).toBe('/tmp/a.html')
+  expect(exportPath('/tmp/a.HTML', 'html')).toBe('/tmp/a.HTML')
+  expect(exportPath('/tmp/a.htm', 'html')).toBe('/tmp/a.htm')
+  // Each format by its own extension: one of another format's is a name like any other.
+  expect(exportPath('/tmp/a', 'step')).toBe('/tmp/a.step')
+  expect(exportPath('/tmp/a.STP', 'step')).toBe('/tmp/a.STP')
+  expect(exportPath('/tmp/a.stl', 'step')).toBe('/tmp/a.stl.step')
+  expect(exportPath('/tmp/a.Stl', 'stl')).toBe('/tmp/a.Stl')
+  expect(exportPath('/tmp/plate', '3mf')).toBe('/tmp/plate.3mf')
+  expect(exportPath('/tmp/plate.html', '3mf')).toBe('/tmp/plate.html.3mf')
 })
 
 it('makes the folder the dialog opens in, has git pass over it, and touches nothing else of the object', async () => {
@@ -64,4 +74,25 @@ it('leaves the file that was there whole when the write fails midway, and nothin
   await expect(writeExport(join(out, 'a.html'), 12 as unknown as string)).rejects.toThrow()
   expect(readFileSync(join(out, 'a.html'), 'utf8')).toBe('<!doctype html>kept')
   expect(readdirSync(out)).toEqual(['a.html'])
+})
+
+it('gives a file its name only once its check has passed, and leaves nothing when the check fails', async () => {
+  const out = join(root, 'checked')
+  mkdirSync(out)
+  const bytes = Uint8Array.from([1, 2, 3, 4])
+  let seen: string | null = null
+  await writeExport(join(out, 'a.stl'), bytes, async (beside) => {
+    // The file the check is given is whole and closed, beside the chosen one, which is not there yet.
+    seen = beside
+    expect(readFileSync(beside)).toEqual(Buffer.from(bytes))
+    expect(readdirSync(out)).toEqual([beside.slice(out.length + 1)])
+  })
+  expect(seen).toMatch(/a\.stl\.[0-9a-f]{12}\.tmp$/)
+  expect(readdirSync(out)).toEqual(['a.stl'])
+  // A check that fails: no file under the chosen name, no .tmp, and what had the name before is as it was.
+  await expect(writeExport(join(out, 'b.3mf'), bytes, async () => { throw new Error('not closed') })).rejects.toThrow('not closed')
+  expect(readdirSync(out)).toEqual(['a.stl'])
+  await expect(writeExport(join(out, 'a.stl'), Uint8Array.from([9]), async () => { throw new Error('not closed') })).rejects.toThrow('not closed')
+  expect(readFileSync(join(out, 'a.stl'))).toEqual(Buffer.from(bytes))
+  expect(readdirSync(out)).toEqual(['a.stl'])
 })

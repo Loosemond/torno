@@ -158,6 +158,16 @@ describe('kernel client', () => {
     expect(error).toMatchObject({ kind: 'bad_ref', message: 'no part named x' })
   })
 
+  it('gives the bytes a reply carries to whoever asks for them, and to no one else', async () => {
+    const k = start()
+    const made = await k.query<{ result: { bytes: number }; blob: Buffer }>('/ws/a', 'file', {}, { blob: true })
+    expect(made.result).toEqual({ dir: '/ws/a', bytes: 3 })
+    expect(made.blob.toString()).toBe('abc')
+    expect(await k.query('/ws/a', 'file', {})).toEqual({ dir: '/ws/a', bytes: 3 })
+    // A reply with none gives an empty one.
+    expect((await k.query<{ blob: Buffer }>('/ws/a', 'echo', {}, { blob: true })).blob.length).toBe(0)
+  })
+
   it('sends each query with the folder of the object it is about', async () => {
     const k = start()
     const [a, b] = await Promise.all([

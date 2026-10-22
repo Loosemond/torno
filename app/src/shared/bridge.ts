@@ -1,6 +1,6 @@
 import type { BuildState } from './build'
 import type { ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel } from './chat'
-import type { ExportPlan, ExportRequest } from './exportdata'
+import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
 import type { Scene } from './scene'
@@ -197,12 +197,12 @@ export interface TornoBridge {
     /** Something a card says may have changed. */
     onChanged(cb: () => void): () => void
   }
-  /** One HTML file of an object or of several, that opens by itself: see `main/export`. Calls reject with a plain message. */
+  /** One HTML file of an object or of several, that opens by itself, or a STEP, STL or 3MF file of one: see `main/export`. Calls reject with a plain message. */
   export: {
     /** What a file of this request would hold and weigh, with every object of the workspace and whether it can be exported. Writes nothing. */
     plan(req: ExportRequest): Promise<ExportPlan>
-    /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
-    save(req: ExportRequest): Promise<{ path: string; bytes: number; dropped: string[] } | null>
+    /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; of a file of the model, what its check found. Null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
+    save(req: ExportRequest): Promise<ExportSaved | null>
     /** The export sheet was put away: what main kept ready for it (scans reduced) is let go. */
     done(): void
   }

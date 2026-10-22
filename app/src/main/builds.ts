@@ -286,16 +286,18 @@ export class Builds {
    * changes, or the person asks for a build, the rejection says that there is
    * no build to answer from, with that failure. And none at all with
    * `restore: false`, for whoever asks unasked (a check on a timer): the
-   * rejection is then the kernel's `no_build`.
+   * rejection is then the kernel's `no_build`. With `blob` it resolves with the
+   * result and the bytes of the reply (`KernelClient.query`).
    */
-  async query<T = unknown>(objectId: string, name: string, args: object, opts?: { restore?: boolean }): Promise<T> {
+  async query<T = unknown>(objectId: string, name: string, args: object, opts?: { restore?: boolean; blob?: boolean }): Promise<T> {
+    const asked = opts?.blob ? { blob: true } : undefined
     const entry = this.entries.get(objectId)
     if (!entry?.lastGood) {
       const message = `${objectId} has not been built successfully yet, so there is nothing to ask about`
       throw new KernelError('no_build', message)
     }
     try {
-      return await this.kernel.query<T>(entry.obj.dir, name, args)
+      return await this.kernel.query<T>(entry.obj.dir, name, args, asked)
     } catch (e) {
       const gone = e instanceof KernelError && e.kind === 'no_build'
       if (!gone || this.entries.get(objectId) !== entry) throw e
@@ -318,7 +320,7 @@ export class Builds {
       if (e instanceof KernelError && this.entries.get(objectId) === entry && entry.state.status === 'failed' && entry.failure) throw new NotBuilding(e.kind, e.message, e.reason)
       throw e
     }
-    return this.kernel.query<T>(entry.obj.dir, name, args)
+    return this.kernel.query<T>(entry.obj.dir, name, args, asked)
   }
 
   /** For tests: as when the kernel let an object's build go to make room for another's (`letGo`), without a kernel short of memory. */

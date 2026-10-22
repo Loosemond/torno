@@ -59,6 +59,7 @@ export const SCAN_TRIANGLES = [60_000, 30_000, 15_000] as const
 export const NOT_BUILT = 'Open it first: torno exports the last build of this run'
 export const NO_OBJECT = 'There is no object of that name'
 export const NOTHING_CHOSEN = 'Choose an object to export'
+export const ONE_OBJECT = 'A STEP, STL or 3MF file is of one object: tick one'
 
 /** The meshes packed of a build, by the blob they were read from: a plan and the save that follows pack once. */
 const packed = new WeakMap<Buffer, Map<string, PackedMesh>>()
@@ -170,8 +171,24 @@ function exportMark(mark: Exclude<Mark, { kind: 'region' }>, revision: number, b
 
 const exportable = (mark: Mark): mark is Exclude<Mark, { kind: 'region' }> => mark.kind !== 'region' && mark.anchorState !== 'orphaned'
 
+/** The colour of each part as torno draws it, by name: the one the person gave it, or the palette's. */
+export function partColors(scene: Scene, file: SceneFile): Map<string, string> {
+  const palette = colorsByName(scene.parts.map((part) => part.name))
+  return new Map(
+    scene.parts.map((part) => {
+      const layer = own(file.layers, part.name)
+      return [part.name, typeof layer?.color === 'string' && HEX.test(layer.color) ? layer.color : (palette.get(part.name) ?? colorFor(part.name, -1))]
+    })
+  )
+}
+
+/** Whether a part has a solid: an STL or a 3MF is of solids alone. Of a kernel that does not count them, whether it has a volume. */
+export function hasSolid(part: Part): boolean {
+  return part.solids === undefined ? part.volume > 0 : part.solids > 0
+}
+
 /** The names of the parts that are switched off in torno, as the scene file has them. */
-function switchedOff(scene: Scene, file: SceneFile): Set<string> {
+export function switchedOff(scene: Scene, file: SceneFile): Set<string> {
   return new Set(scene.parts.map((part) => part.name).filter((name) => own(file.layers, name)?.visible === false))
 }
 
@@ -210,7 +227,7 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
   if (!last) throw new Error(NOT_BUILT)
   const { scene, revision } = last
   const file = await deps.sceneFile(id)
-  const palette = colorsByName(scene.parts.map((part) => part.name))
+  const colors = partColors(scene, file)
   // Switched off in torno, a part stays here unless the person ticked those too.
   const left = req.hidden === true ? new Set<string>() : switchedOff(scene, file)
   const going = scene.parts.filter((part) => !left.has(part.name))
@@ -223,7 +240,7 @@ async function exportObject(deps: ExportDeps, id: string, req: ExportRequest, le
       layout: part.layout,
       loc: part.loc,
       bbox: part.bbox,
-      color: typeof layer?.color === 'string' && HEX.test(layer.color) ? layer.color : (palette.get(part.name) ?? colorFor(part.name, -1)),
+      color: colors.get(part.name)!,
       opacity,
       visible: layer?.visible !== false,
       faces: part.faceCount,
@@ -377,13 +394,19 @@ export async function exportPlan(deps: ExportDeps, req: ExportRequest, assets: P
       drafts: sent.filter((mark) => mark.status === 'draft').length,
       // Of every mark that could go, ticked or not: the sheet offers them.
       resolved: marksGoing(marks, { ...req, resolved: true }, left).filter((mark) => mark.status === 'resolved').length,
-      scans: placedScans(scans, scene.layouts).map(({ scan }) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles }))
+      scans: placedScans(scans, scene.layouts).map(({ scan }) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles })),
+      layoutParts: scene.layouts.map((layout) => ({
+        layout,
+        parts: scene.parts.filter((part) => part.layout === layout).map((part) => ({ name: part.name, solid: hasSolid(part), ...(off.has(part.name) ? { off: true as const } : {}) }))
+      }))
     })
   }
   const can = new Set(objects.filter((object) => object.exportable).map((object) => object.id))
   const chosen = [...new Set(req.objects)].filter((id) => can.has(id))
   const budget = deps.budget ?? EXPORT_BUDGET
   if (chosen.length === 0) return { objects, bytes: 0, dropped: [], over: false, budget, refusal: NOTHING_CHOSEN }
+  // A file of the model is made by the kernel when it is saved: there is no page to weigh.
+  if (req.format !== undefined && req.format !== 'html') return { objects, bytes: 0, dropped: [], over: false, budget, ...(chosen.length > 1 ? { refusal: ONE_OBJECT } : {}) }
   const { html: _html, ...made } = await produce(deps, { ...req, objects: chosen }, assets)
   return { objects, ...made, budget }
 }

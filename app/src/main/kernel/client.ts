@@ -47,8 +47,9 @@ export interface KernelClient {
    * Ask about the last successful build of the object in the folder `dir`. The
    * kernel keeps one per folder, for a few folders. Rejects with
    * KernelError(kind, message): `no_build` when it holds none for that folder.
+   * With `blob`, it resolves with the result and the bytes the reply carried (`export`): `{ result, blob }`.
    */
-  query<T = unknown>(dir: string, name: string, args: object): Promise<T>
+  query<T = unknown>(dir: string, name: string, args: object, opts?: { blob?: boolean }): Promise<T>
   cancel(): void
   dispose(): Promise<void>
   /** Called when the kernel has exited unexpectedly and was not restarted. */
@@ -104,7 +105,7 @@ export function kernelEnv(opts: { packaged: boolean; userData: string; hasProjec
 
 type Pending =
   | { type: 'build'; resolve: (r: BuildResult) => void; onStarted?: (started: { retired: string[] }) => void }
-  | { type: 'query'; resolve: (result: unknown) => void; reject: (e: KernelError) => void }
+  | { type: 'query'; resolve: (result: unknown) => void; reject: (e: KernelError) => void; blob?: boolean }
 
 class Kernel implements KernelClient {
   readonly ready: Promise<{ versions: Record<string, string> }>
@@ -146,14 +147,14 @@ class Kernel implements KernelClient {
     })
   }
 
-  async query<T = unknown>(dir: string, name: string, args: object): Promise<T> {
+  async query<T = unknown>(dir: string, name: string, args: object, opts?: { blob?: boolean }): Promise<T> {
     try {
-      return (await this.queryOnce(dir, name, args)) as T
+      return (await this.queryOnce(dir, name, args, opts?.blob === true)) as T
     } catch (e) {
       // The build this query was sent to has just been replaced by a newer
       // one of the same object: ask the newer one.
       if (e instanceof KernelError && e.kind === 'cancelled' && !this.disposed) {
-        return (await this.queryOnce(dir, name, args)) as T
+        return (await this.queryOnce(dir, name, args, opts?.blob === true)) as T
       }
       throw e
     }
@@ -195,12 +196,12 @@ class Kernel implements KernelClient {
     return this.proc?.pid
   }
 
-  private queryOnce(dir: string, name: string, args: object): Promise<unknown> {
+  private queryOnce(dir: string, name: string, args: object, blob: boolean): Promise<unknown> {
     if (this.disposed) return Promise.reject(new KernelError('cancelled', 'the kernel was shut down'))
     if (!this.proc) return Promise.reject(new KernelError('crash', 'kernel stopped'))
     return new Promise((resolve, reject) => {
       const id = this.nextId++
-      this.pending.set(id, { type: 'query', resolve, reject })
+      this.pending.set(id, { type: 'query', resolve, reject, blob })
       this.send({ id, op: 'query', dir, name, args })
     })
   }
@@ -271,7 +272,8 @@ class Kernel implements KernelClient {
       if (header.ok) request.resolve({ ok: true, scene: header.scene, blob: Buffer.from(blob) })
       else request.resolve({ ok: false, error: header.error ?? { kind: 'crash', message: 'the build failed' } })
     } else if (header.ok) {
-      request.resolve(header.result)
+      // The blob is a view into the read buffer: whoever asked for it is given one of its own.
+      request.resolve(request.blob ? { result: header.result, blob: Buffer.from(blob) } : header.result)
     } else {
       request.reject(new KernelError(header.error?.kind ?? 'crash', header.error?.message ?? 'the query failed', typeof header.error?.reason === 'string' ? header.error.reason : undefined))
     }
