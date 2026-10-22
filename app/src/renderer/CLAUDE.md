@@ -340,7 +340,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The window's own questions are dialogs over the whole window, not strips of a panel.** Closing torno and
   opening another folder while something would be cut short ask in `ui/WorkspaceQuestion.tsx`, a centred
   `alertdialog` (modal: nothing behind it takes a click or a key, Tab goes round within it, "Keep it open" /
-  "Stay here" in focus, Escape presses it, even with the focus elsewhere). It lists a line for each thing with the
+  "Stay here" in focus, Escape presses it, even with the focus elsewhere). Its keys are heard before any other
+  listener's (`keyGate`, added to the window when the module is read, before the window's own keys and the view's):
+  while it stands no key reaches anything behind it, wherever the focus is, and a press on its backdrop leaves the
+  focus in it. It stands over the sheet of what torno needs, which shares its layer (`data-question`). It lists a line for each thing with the
   object it is of, as a link that goes to that object (or to the page of a new one) and puts the question away
   (`closingWhy`, `leavingWhy` in `closing.ts` return those items). `ui/Confirm.tsx` stays the strip for a question
   about one panel (a scan, a mark, the session).

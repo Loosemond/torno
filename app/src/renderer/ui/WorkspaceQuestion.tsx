@@ -6,6 +6,38 @@ import { useStore } from '../state/store'
 /** What can take the focus in the question, in order. */
 const FOCUSABLE = 'button:not(:disabled)'
 
+/** The questions standing, the last on top: while one does, every key is its own. */
+const standing: Array<{ sheet: HTMLElement; cancel: () => void; focus: () => void }> = []
+
+/**
+ * Heard before any other listener of a key (it is added when this module is first read, before the window's own
+ * keys, the tools and the view add theirs): while a question stands, no key reaches anything behind it, wherever
+ * the focus is (a click on the backdrop can leave it on the page). Escape presses the button that changes nothing,
+ * Tab goes round within the question (into it, from outside), and a button of the question in focus takes Enter and
+ * the space bar as ever.
+ */
+function keyGate(e: KeyboardEvent): void {
+  const question = standing.at(-1)
+  if (!question) return
+  e.stopImmediatePropagation()
+  if (pressed(e, 'sheet.close')) {
+    e.preventDefault()
+    question.cancel()
+    return
+  }
+  const within = e.target instanceof Node && question.sheet.contains(e.target)
+  if (pressed(e, 'sheet.round')) {
+    e.preventDefault()
+    const stops = [...question.sheet.querySelectorAll<HTMLElement>(FOCUSABLE)]
+    const at = within ? stops.indexOf(document.activeElement as HTMLElement) : -1
+    if (at < 0 || stops.length === 0) return question.focus()
+    stops[(at + (e.shiftKey ? stops.length - 1 : 1)) % stops.length].focus()
+    return
+  }
+  if (!within) e.preventDefault()
+}
+if (typeof window !== 'undefined') window.addEventListener('keydown', keyGate, true)
+
 /**
  * A question about the window as a whole, asked before torno is closed or another folder is opened: a dialog over
  * the whole window, as the export's is, and not a strip in a panel (`Confirm` is for a question about one panel).
@@ -31,17 +63,14 @@ export function WorkspaceQuestion(props: {
   const answer = useRef(props.onCancel)
   answer.current = props.onCancel
 
-  // The keys are the question's while it is up, and the focus comes back to where it was when it goes.
+  // The keys are the question's while it is up (`keyGate`), and the focus comes back to where it was when it goes.
   useEffect(() => {
     const before = document.activeElement
     cancel.current?.focus()
-    // Escape from wherever the focus is: from within, the question hears it first.
-    const onKey = (e: KeyboardEvent): void => {
-      if (pressed(e, 'sheet.close') && !e.defaultPrevented) answer.current()
-    }
-    window.addEventListener('keydown', onKey)
+    const question = { sheet: sheet.current!, cancel: () => answer.current(), focus: () => cancel.current?.focus() }
+    standing.push(question)
     return () => {
-      window.removeEventListener('keydown', onKey)
+      standing.splice(standing.indexOf(question), 1)
       const now = document.activeElement
       if (before instanceof HTMLElement && before.isConnected && (now === null || now === document.body || !now.isConnected)) before.focus()
     }
@@ -50,8 +79,9 @@ export function WorkspaceQuestion(props: {
   const nameOf = (id: string): string => names?.find((object) => object.id === id)?.name ?? id
 
   return (
-    // Over the whole window while it is up.
-    <div className="workspace-layer">
+    // Over the whole window while it is up, and over the sheet of what torno needs. A press on the backdrop leaves the
+    // focus in the question: it would go to the page behind.
+    <div className="workspace-layer" data-question="" onPointerDown={(e) => e.target === e.currentTarget && e.preventDefault()}>
       <section
         ref={sheet}
         className="workspace-question"
@@ -59,23 +89,6 @@ export function WorkspaceQuestion(props: {
         aria-modal="true"
         aria-label={props.label}
         tabIndex={-1}
-        onKeyDown={(e) => {
-          // No tool of the view under it is handed a key.
-          e.stopPropagation()
-          if (pressed(e, 'sheet.close')) {
-            e.preventDefault()
-            props.onCancel()
-            return
-          }
-          if (!pressed(e, 'sheet.round')) return
-          // Tab goes round within the question.
-          const stops = [...sheet.current!.querySelectorAll<HTMLElement>(FOCUSABLE)]
-          const at = stops.indexOf(document.activeElement as HTMLElement)
-          if (e.shiftKey ? at <= 0 : at === stops.length - 1) {
-            e.preventDefault()
-            stops[e.shiftKey ? stops.length - 1 : 0].focus()
-          }
-        }}
       >
         <h2>{props.label}</h2>
         <p className="workspace-lead">{props.lead}</p>

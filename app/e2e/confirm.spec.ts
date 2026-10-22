@@ -166,6 +166,35 @@ test('opening another folder while a session is working is asked about first; "S
   await left().getByRole('menuitem', { name: 'Open folder…' }).click()
   await expect(ask).toBeVisible()
 
+  // Modal after a click on its backdrop too: the focus stays in it, no key reaches the view or the window behind
+  // it, and Escape presses "Stay here", which nothing behind it takes first.
+  const measure = page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name: 'Measure', exact: true })
+  await expect(measure).toHaveAttribute('aria-pressed', 'false')
+  const built = (await state()).build
+  await page.mouse.click(4, 4)
+  await expect(ask).toBeVisible()
+  expect(await ask.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press('m')
+  await page.keyboard.press('Control+Shift+B')
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(500)
+  await expect(measure).toHaveAttribute('aria-pressed', 'false')
+  expect((await state()).build).toEqual(built)
+  // Enter went to the button in focus: the question stands until it is answered, and nothing else was asked for.
+  await expect(ask).toHaveCount(0)
+  expect(await picks()).toBe(before)
+  await left().getByRole('button', { name: 'Folders' }).click()
+  await left().getByRole('menuitem', { name: 'Open folder…' }).click()
+  await expect(ask).toBeVisible()
+  await page.mouse.click(4, 4)
+  await page.keyboard.press('Escape')
+  await expect(ask).toHaveCount(0)
+  expect(await picks()).toBe(before)
+  expect((await state()).workspace?.root).toBe(root)
+  await left().getByRole('button', { name: 'Folders' }).click()
+  await left().getByRole('menuitem', { name: 'Open folder…' }).click()
+  await expect(ask).toBeVisible()
+
   await ask.getByRole('button', { name: 'Stay here' }).click()
   await expect(ask).toHaveCount(0)
   // The folder was not even asked for.

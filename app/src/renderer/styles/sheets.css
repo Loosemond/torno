@@ -297,6 +297,11 @@
   background: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 
+/* A question to close torno or leave the folder stands over the sheet of what torno needs, which shares the layer. */
+.workspace-layer[data-question] {
+  z-index: 36;
+}
+
 .workspace-question {
   display: grid;
   gap: var(--space-3);
