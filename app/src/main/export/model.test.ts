@@ -25,7 +25,7 @@ const SCENE: Scene = {
 }
 
 /** Deps of an object `hollow` at `revision`, whose kernel answers `export` with `bytes` and `export_check` with `check`; every query is kept. */
-function deps(opts: { file?: SceneFile; bytes?: Buffer; check?: Partial<FileCheck>; revision?: number; onCheck?: () => void } = {}) {
+function deps(opts: { file?: SceneFile; bytes?: Buffer; check?: Partial<FileCheck>; revision?: number; onCheck?: () => void; onExport?: () => void } = {}) {
   const asked: Array<{ name: string; args: Record<string, unknown>; blob?: boolean }> = []
   const state = { revision: opts.revision ?? 4 }
   const bytes = opts.bytes ?? Buffer.from('solid-ish bytes')
@@ -36,6 +36,7 @@ function deps(opts: { file?: SceneFile; bytes?: Buffer; check?: Partial<FileChec
     query: async <T,>(_id: string, name: string, args: object, o?: { blob?: boolean }): Promise<T> => {
       asked.push({ name, args: args as Record<string, unknown>, blob: o?.blob })
       if (name === 'export') {
+        opts.onExport?.()
         const a = args as { format: MadeFile['format']; layout: string; parts: string[]; tolerance?: number; angle?: number }
         const made: MadeFile = { format: a.format, layout: a.layout, parts: a.parts.map((n) => ({ name: n, solids: 1, volume: 1, volumeExact: true, triangles: 10 })), bytes: bytes.length, ...(a.format === 'step' ? {} : { triangles: 10 * a.parts.length, tolerance: a.tolerance, angle: a.angle }) }
         return { result: made, blob: bytes } as T
@@ -112,6 +113,14 @@ describe('making and checking the file', () => {
     await expect(writeExport(path, file.bytes, async (beside) => void (await checkModelFile(d, file, beside)))).rejects.toThrow(FAILED_CHECK)
     expect(readFileSync(path, 'utf8')).toBe('kept')
     expect(readdirSync(root).filter((name) => name.startsWith('lid'))).toEqual(['lid.stl'])
+  })
+
+  it('a build that lands while the kernel makes the file has it refused before anything is asked or written', async () => {
+    const holder: { state?: { revision: number } } = {}
+    const { d, state, asked } = deps({ onExport: () => void (holder.state!.revision = 5) })
+    holder.state = state
+    await expect(makeModelFile(d, { objects: ['hollow'], marks: false, scans: [], format: '3mf' })).rejects.toThrow(NEW_BUILD)
+    expect(asked.map((one) => one.name)).toEqual(['export'])
   })
 
   it('a build that lands while the file is checked has it fail: the shapes are no longer the file\'s', async () => {

@@ -93,10 +93,12 @@ export async function modelArgs(deps: ModelDeps, req: ExportRequest & { format: 
 /** The file, made by the kernel of the last good build: its bytes and what it holds. */
 export async function makeModelFile(deps: ModelDeps, req: ExportRequest & { format: ModelFormat }): Promise<ModelFile> {
   const { objectId, args } = await modelArgs(deps, req)
-  const { result, blob } = await deps.query<{ result: MadeFile; blob: Buffer }>(objectId, 'export', args, { blob: true })
-  if (blob.length !== result.bytes) throw new Error(`The kernel said ${result.bytes} bytes and gave ${blob.length}: nothing was saved`)
-  // The build whose worker answered: one that landed while it did would be of other shapes.
+  // Of the build there was when it was asked for: one that landed while the worker made it would have other shapes,
+  // and the check would be of those.
   const revision = deps.last(objectId)?.revision ?? 0
+  const { result, blob } = await deps.query<{ result: MadeFile; blob: Buffer }>(objectId, 'export', args, { blob: true })
+  if (deps.last(objectId)?.revision !== revision) throw new Error(NEW_BUILD)
+  if (blob.length !== result.bytes) throw new Error(`The kernel said ${result.bytes} bytes and gave ${blob.length}: nothing was saved`)
   return { objectId, revision, args, made: result, bytes: blob }
 }
 

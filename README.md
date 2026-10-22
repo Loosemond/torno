@@ -1126,10 +1126,14 @@ The sheet's format buttons write a file of the model instead, of one object:
 
 Every file is in millimetres, with the parts where the layout has them: a
 plate's parts are where torno set them apart, as on screen. You tick the parts
-that go; an STL or a 3MF is of solids alone. Their triangles are made for the
+that go; an STL or a 3MF is of solids alone. A part of several solids is, in a
+3MF, one object made of a mesh of each; an STL of solids that touch is refused,
+saying to fuse them in the model or export 3MF. Their triangles are made for the
 file, not taken from the screen: none further than the tolerance from the
 faces (0.01 mm unless you type another, 0.001 to 1 mm), nor turning more than
-the angle (5°, 0.5 to 45°).
+the angle (5°, 0.5 to 45°). A tolerance that would make more than 500,000
+triangles is refused before anything is made: past that the kernel could not
+make the file in the time it has.
 
 The kernel makes the file from the last build, and torno writes it beside the
 name you chose. Before the file takes that name, the kernel reads it back and
@@ -1524,7 +1528,7 @@ On the screen:
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
 - **A 3MF opened in a slicer.** Export a 3MF of a plate of two parts or more and open it in PrusaSlicer, Bambu Studio, OrcaSlicer and Cura: each part is an object of its name, in millimetres, where torno set it; it slices with no repair asked for. "Open it once saved" opens it in the slicer the system gives `.3mf` files to. Tests read the file back with lib3mf only.
-- **An STL in a slicer, a STEP in a CAD program.** Open an STL of a round part in a slicer: no facets you can see on its holes at 0.01 mm. Open a STEP in FreeCAD and in Fusion or Onshape: the parts are named bodies in their colours, in millimetres, and a volume measured there is the one torno told. Tests read it back with OCC only.
+- **An STL in a slicer, a STEP in a CAD program.** Open an STL of a round part in a slicer: no facets you can see on its holes at 0.01 mm. Open a STEP in FreeCAD and in Fusion or Onshape: the parts are named bodies in their colours, in millimetres, and a volume measured there is the one torno told; a part named with an accent (`tampa ção`) keeps it there, as torno writes names in UTF-8. Tests read it back with OCC only.
 - **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large object it did; with a session working nobody has watched it.
 - **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
 - **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. With `claude` only on the `PATH` of a login shell, "New session" says it was not found there: start torno from a terminal, or put the command on the launcher's `PATH`.

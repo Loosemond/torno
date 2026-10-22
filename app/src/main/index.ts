@@ -33,6 +33,7 @@ import { makeTestProfile, removeTestProfileAfterExit } from './testProfile'
 import { type Importer, commandIn, processImporter } from './scans/importer'
 import { ScanStore } from './scans/store'
 import { proposing, sceneFileNow, sceneFilesSettled } from './scenefile'
+import { exportsUnderWay, stopExports } from './export/save'
 import { readChoice } from './sessions/choice'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
@@ -591,7 +592,8 @@ void app.whenReady().then(async () => {
 // The first quit also waits for what is still being written of the marks, of
 // the scans and of the scene files: the note being typed and the layers just
 // changed are handed over by the window as it closes, just before this, and
-// are not on the disk yet. All together are given `WRITES_WAIT_MS`, once (`quitGate`):
+// are not on the disk yet. An export being written is given up and waited for
+// until its `.tmp` is removed (`stopExports`, `exportsUnderWay`). All together are given `WRITES_WAIT_MS`, once (`quitGate`):
 // the quit that follows is not held for them again, so a write that never
 // ends cannot keep the app open.
 const WRITES_WAIT_MS = 2000
@@ -600,7 +602,9 @@ const writesBeforeQuit = quitGate(WRITES_WAIT_MS)
 app.on('will-quit', (event) => {
   void closeWorkspace()
   const waits: Promise<unknown>[] = []
-  const written = writesBeforeQuit([marks.settled(), scans.settled(), sceneFilesSettled()])
+  // An export still being written is given up: its check is not waited for, and the file beside the chosen one goes.
+  stopExports()
+  const written = writesBeforeQuit([marks.settled(), scans.settled(), sceneFilesSettled(), exportsUnderWay()])
   if (written) waits.push(written)
   if (sessions?.busy) waits.push(sessions.stopAll())
   // The copy of the example was torno's own, in the temporary folder: it goes with the run, last of all, once

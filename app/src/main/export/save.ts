@@ -32,29 +32,66 @@ export function exportPath(path: string, format: ExportFormat): string {
   return ext.some((one) => path.toLowerCase().endsWith(`.${one}`)) ? path : `${path}.${ext[0]}`
 }
 
+/** What an export still being written is told when torno quits: it is given up, and what it made removed. */
+export const QUIT_MID_EXPORT = 'torno quit while the file was made: nothing was saved'
+
+/** The writes under way, each with what gives it up: torno waits for them as it quits (`exportsUnderWay`). */
+const underWay = new Set<{ written: Promise<unknown>; stop: () => void }>()
+
+/** Every export still being written, settled once each is written or given up and its `.tmp` removed; null for none. */
+export function exportsUnderWay(): Promise<unknown> | null {
+  return underWay.size === 0 ? null : Promise.allSettled([...underWay].map((one) => one.written))
+}
+
+/** Gives up every export still being written (torno quits): a check waited on is not waited on, nothing takes its name, and each `.tmp` is removed. */
+export function stopExports(): void {
+  for (const one of underWay) one.stop()
+}
+
 /**
  * Writes a file to the path the person chose, whole or not at all: into a file beside it that torno makes
  * (`<path>.<random>.tmp`, never one that is there already), on the disk before it takes the chosen name. `check`,
  * when given, is given that file once it is whole and closed, and what it throws is what the write fails with: the
  * file never takes the name. A write that fails, or a file that fails its check, leaves whatever had that name as
  * it was, and removes what it made. No folder is made for it: one that is not there is an error, said in the sheet.
+ * Until it ends it is among `exportsUnderWay`, and `stopExports` gives it up the same way.
  */
 export async function writeExport(path: string, data: string | Uint8Array, check?: (beside: string) => Promise<void>): Promise<void> {
   if (!isAbsolute(path)) throw new Error(`${path} is no whole path: nothing was written`)
+  let given = false
+  let stop = (): void => {}
+  const stopped = new Promise<never>((_, reject) => {
+    stop = () => {
+      given = true
+      reject(new Error(QUIT_MID_EXPORT))
+    }
+  })
+  stopped.catch(() => {})
   // A name of this write alone: what a crash left under another is not in its way.
   const beside = `${path}.${randomBytes(6).toString('hex')}.tmp`
-  const file = await open(beside, 'wx')
-  try {
+  const write = async (): Promise<void> => {
+    const file = await open(beside, 'wx')
     try {
-      await file.writeFile(data)
-      await file.sync()
-    } finally {
-      await file.close()
+      try {
+        await file.writeFile(data)
+        await file.sync()
+      } finally {
+        await file.close()
+      }
+      if (check) await Promise.race([check(beside), stopped])
+      if (given) throw new Error(QUIT_MID_EXPORT)
+      await rename(beside, path)
+    } catch (e) {
+      await rm(beside, { force: true }).catch(() => {})
+      throw e
     }
-    if (check) await check(beside)
-    await rename(beside, path)
-  } catch (e) {
-    await rm(beside, { force: true }).catch(() => {})
-    throw e
+  }
+  const written = write()
+  const one = { written, stop }
+  underWay.add(one)
+  try {
+    await written
+  } finally {
+    underWay.delete(one)
   }
 }

@@ -29,6 +29,19 @@ except ImportError:
     )
 
 
+try:
+    from OCP.TDF import TDF_LabelSequence as LabelSequence
+except ImportError:
+    from OCP.collections import Sequence_TDF_Label as LabelSequence
+
+try:
+    from OCP.IFSelect import IFSelect_RetDone
+except ImportError:
+    from OCP.IFSelect import IFSelect_ReturnStatus
+
+    IFSelect_RetDone = IFSelect_ReturnStatus.IFSelect_RetDone
+
+
 def downcast(shape: Any) -> Any:
     """Return ``shape`` as its specific TopoDS subclass."""
     casts = {

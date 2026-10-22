@@ -310,3 +310,94 @@ def test_what_an_export_is_refused_for():
 def test_a_check_of_a_file_that_is_not_there_fails_and_says_so(tmp_path):
     said = checked(hollow(), tmp_path / "gone.stl", {"format": "stl", "layout": "assembly", "parts": ["tub"]})
     assert said["passed"] is False and said["problems"]
+
+
+# Names, sizes and solids that touch (review of Task 17)
+
+
+@pytest.mark.parametrize("name", ["lid top", "Lid.2", "tampa ção", "a(b)", "it's"])
+def test_step_keeps_a_name_with_a_space_a_dot_an_accent_or_a_bracket(tmp_path, name):
+    from build123d import Box
+
+    shapes = {f"assembly:{name}": Box(10, 10, 10), "assembly:other": Box(5, 5, 5)}
+    args = {"format": "step", "layout": "assembly", "parts": [name, "other"], "name": "caixa ção"}
+    _, data = made(shapes, args)
+    said = checked(shapes, written(tmp_path, "named.step", data), args)
+    assert said["passed"] is True, said["problems"]
+    assert [one["name"] for one in said["objects"]] == [name, "other"]
+    # Written as UTF-8, as OCC reads it.
+    assert f"PRODUCT('{name.replace(chr(39), chr(39) * 2)}'".encode() in data
+
+
+def test_3mf_keeps_such_names_too(tmp_path):
+    from build123d import Box, Pos
+
+    shapes = {"print:tampa ção": Box(10, 10, 10), "print:Lid.2": Pos(20, 0, 0) * Box(10, 10, 10)}
+    args = {"format": "3mf", "layout": "print", "parts": ["tampa ção", "Lid.2"]}
+    _, data = made(shapes, args)
+    said = checked(shapes, written(tmp_path, "named.3mf", data), args)
+    assert said["passed"] is True, said["problems"]
+
+
+def test_a_tolerance_that_would_make_too_many_triangles_is_refused_before_anything_is_meshed():
+    import time
+
+    from build123d import Sphere
+
+    shapes = {"assembly:ball": Sphere(150)}
+    start = time.monotonic()
+    kind, message = refused(shapes, "export", {"format": "3mf", "layout": "assembly", "parts": ["ball"], "tolerance": 0.001, "angle": 0.5})
+    # Meshed as asked it took 164 s; the refusal comes from a rough mesh.
+    assert time.monotonic() - start < 5
+    assert kind == "bad_request"
+    assert "ball would be about" in message and "500,000" in message and "take a coarser tolerance or angle" in message
+    # The estimate is never under what OCC makes, on a sphere, a block with holes and a torus.
+    from build123d import Box, Cylinder, Pos, Torus
+
+    for shape in (Sphere(50), Box(200, 100, 50) - Cylinder(3, 60) - Pos(50, 0, 0) * Cylinder(20, 60), Torus(30, 5)):
+        _, triangles = export.mesh(shape, 0.01, 5)
+        assert len(triangles) <= export.estimate(shape, 0.01, 5) <= 4 * len(triangles)
+
+
+def two_touching():
+    from build123d import Box, Compound, Pos
+
+    return Compound([Box(10, 10, 10), Pos(10, 0, 0) * Box(10, 10, 10)])
+
+
+def test_a_mesh_of_a_part_with_a_face_of_no_solid_is_refused():
+    from build123d import Box, Compound, Pos
+
+    shapes = {"assembly:flap": Compound([Box(10, 10, 10), Pos(30, 0, 0) * Box(10, 10, 10).faces()[0]])}
+    kind, message = refused(shapes, "export", {"format": "3mf", "layout": "assembly", "parts": ["flap"]})
+    assert (kind, message) == ("bad_request", "flap has 1 face of no solid: an STL or a 3MF is of solids")
+
+
+def test_an_stl_of_solids_that_touch_is_refused_saying_what_to_do():
+    kind, message = refused({"assembly:lid": two_touching()}, "export", {"format": "stl", "layout": "assembly", "parts": ["lid"]})
+    assert (kind, message) == ("bad_request", "lid is 2 solids that touch: fuse them in the model, or export 3MF")
+
+
+def test_a_3mf_has_a_mesh_of_each_solid_of_a_part_and_checks_each(tmp_path):
+    from build123d import Box, Pos
+
+    shapes = {"print:lid": two_touching(), "print:base": Pos(40, 0, 0) * Box(10, 10, 10)}
+    args = {"format": "3mf", "layout": "print", "parts": ["lid", "base"], "colors": {"lid": "#3a7bd5"}}
+    result, data = made(shapes, args)
+    assert result["parts"][0]["solids"] == 2
+    with zipfile.ZipFile(written(tmp_path, "touching.3mf", data)) as zipped:
+        model = zipped.read("3D/3dmodel.model").decode()
+    # The part is an object of its name made of its two solids, each a mesh of its own.
+    assert 'name="lid 1"' in model and 'name="lid 2"' in model and "<components>" in model
+    said = checked(shapes, tmp_path / "touching.3mf", args)
+    assert said["passed"] is True, said["problems"]
+    assert [one["name"] for one in said["objects"]] == ["lid, solid 1", "lid, solid 2", "base"]
+    assert all(one["volume"] == pytest.approx(1000, rel=1e-6) for one in said["objects"])
+    # Solids apart are one mesh in an STL, in as many pieces.
+    from build123d import Compound
+
+    apart = {"assembly:pair": Compound([Box(10, 10, 10), Pos(30, 0, 0) * Box(10, 10, 10)])}
+    stl = {"format": "stl", "layout": "assembly", "parts": ["pair"]}
+    _, data = made(apart, stl)
+    said = checked(apart, written(tmp_path, "pair.stl", data), stl)
+    assert said["passed"] is True and said["objects"][0]["pieces"] == 2

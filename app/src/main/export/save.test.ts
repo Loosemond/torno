@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, expect, it } from 'vitest'
-import { defaultExportPath, exportPath, prepareExports, writeExport } from './save'
+import { QUIT_MID_EXPORT, defaultExportPath, exportPath, exportsUnderWay, prepareExports, stopExports, writeExport } from './save'
 
 const root = mkdtempSync(join(tmpdir(), 'torno-export-save-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -95,4 +95,27 @@ it('gives a file its name only once its check has passed, and leaves nothing whe
   await expect(writeExport(join(out, 'a.stl'), Uint8Array.from([9]), async () => { throw new Error('not closed') })).rejects.toThrow('not closed')
   expect(readFileSync(join(out, 'a.stl'))).toEqual(Buffer.from(bytes))
   expect(readdirSync(out)).toEqual(['a.stl'])
+})
+
+it('gives up a write torno quits in the middle of, and is waited for until what it made is gone', async () => {
+  const out = join(root, 'quitting')
+  mkdirSync(out)
+  expect(exportsUnderWay()).toBeNull()
+  let checking = (): void => {}
+  const asked = new Promise<void>((resolve) => (checking = resolve))
+  // A check that never ends, as a kernel busy for minutes would be.
+  const writing = writeExport(join(out, 'plate.3mf'), Uint8Array.from([1, 2, 3]), () => {
+    checking()
+    return new Promise<void>(() => {})
+  })
+  await asked
+  expect(readdirSync(out)).toHaveLength(1)
+  const waited = exportsUnderWay()
+  expect(waited).not.toBeNull()
+  stopExports()
+  await expect(writing).rejects.toThrow(QUIT_MID_EXPORT)
+  await waited
+  // Nothing under the chosen name, nothing beside it, and nothing left to wait for.
+  expect(readdirSync(out)).toEqual([])
+  expect(exportsUnderWay()).toBeNull()
 })

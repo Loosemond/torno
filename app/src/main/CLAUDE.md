@@ -608,10 +608,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`partColors`): STEP the assembly unless asked, a mesh the `print` layout, an STL one part with a solid. The
   window sends names and two numbers, never a path (`exportAsked`). It is made by the kernel's live worker of the
   last good build (`Builds.query` of `export` with `blob`, `KernelClient.query`'s `{ result, blob }`), before
-  the dialog is up; `writeExport` is given a `check`, run on the `.tmp` once it is whole and closed and before
+  the dialog is up, of the revision there was when it was asked for (`NEW_BUILD` if another landed while it was
+  made); `writeExport` is given a `check`, run on the `.tmp` once it is whole and closed and before
   the rename: `checkModelFile` has the same worker read that file back (`export_check`) and throws, with every
   problem it found (`FAILED_CHECK`), when it did not pass, or when another build of the object landed since the
-  file was made (`NEW_BUILD`). A file that fails is never named and the `.tmp` is removed. The sheet is told what
+  file was made (`NEW_BUILD`). A write under way is in `exportsUnderWay` until it ends; `will-quit` gives each up
+  (`stopExports`: the check is not waited for, nothing is named) and waits, with the stores' writes, until its
+  `.tmp` is removed. A file that fails is never named and the `.tmp` is removed. The sheet is told what
   was checked (`ExportSaved.checked`). A 3MF asked to be opened (`ExportRequest.open`, the sheet's tick) is
   handed to the system once it is named (`shell.openPath`; under test the path is put in
   `__tornoMain.openedFiles` and nothing is opened). The plan of such a file weighs nothing (`exportPlan`: each

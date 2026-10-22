@@ -122,7 +122,7 @@ is the detail of this folder, under the headings it has there.
   and build123d are the workspace's, and ocp-tessellate is resolved afresh within the kernel's `>=3.5,<4`
   (3.6.2 beside OCP 8.0.1.1 in the owner's), not the 3.5.3 the tests run with. 3.6 no longer hands on OCP's
   names from `ocp_utils`, so a name of OCP is imported from OCP (`torno_kernel/ocp.py` for the TopTools maps
-  that some builds moved to `OCP.collections`, and `downcast`), and from ocp-tessellate only its own functions:
+  and the label sequence that some builds moved to `OCP.collections`, `IFSelect_RetDone`, and `downcast`), and from ocp-tessellate only its own functions:
   `tests/test_ocp_names.py` holds the list.
 - **Workers never fork.** One worker is forked per build. For each object
   folder, the last one that succeeded stays alive to answer queries about that
@@ -154,16 +154,24 @@ is the detail of this folder, under the headings it has there.
 - **Files of a build are made by its worker and never written by the kernel** (`export.py`). `export` (`format`
   `step`, `stl` or `3mf`, `layout`, `parts`, `tolerance` mm and `angle` degrees for a mesh, `colors`, `name`)
   answers with the file's bytes as the reply's blob (`queries.WithBlob`, sent by `worker._serve`; every other
-  reply's blob is empty): STEP the B-rep, each part a child named and coloured; STL one part; 3MF a plate, each
-  part a named object in millimetres where the layout has it, coloured. A mesh is OCC's of a copy of the part, at
-  the tolerance and angle asked, absolute (0.01 mm and 5° unless asked; 0.001 to 1 mm, 0.5 to 45°), never the
-  screen's, welded as `checks.welded` welds, no triangle with two corners in one place; more than
-  `MOST_TRIANGLES` is refused. `export_check`, with the same arguments and `path`, reads that one file back
-  and holds it against the shapes: of STEP the same parts by name, the same solid counts, volumes within 1e-6
-  (or their doubt) and the same boxes; of STL and 3MF, each object closed once welded (no side of one triangle
-  or of three, none gone along twice the same way), no triangle of no area, as many pieces as the part has
-  shells, what it encloses positive and within `MESH_SLACK` tolerances over its area of the B-rep's volume, and
-  the part's box. It answers `passed` and `problems`, a sentence each; it never throws for a bad file.
+  reply's blob is empty): STEP the B-rep, each part a component named and coloured, written and read through OCC's
+  XCAF document with names as UTF-8 (`_step`, `_read_step`; never build123d's `export_step`/`import_step`, which
+  turn `ção` into mojibake and a space, a dot or a bracket into `_`); STL one part; 3MF a plate, each part a
+  named object in millimetres where the layout has it, coloured, and a part of several solids an object made of a
+  mesh of each solid (`<name> 1`, `<name> 2`, components). An STL of a part whose solids touch or overlap is
+  refused (`<part> is N solids that touch: fuse them in the model, or export 3MF`), and a mesh of a part with a
+  face of no solid. A mesh is OCC's of a copy of the part (or of the solid), at the tolerance and angle asked,
+  absolute (0.01 mm and 5° unless asked; 0.001 to 1 mm, 0.5 to 45°), never the screen's, welded as
+  `checks.welded` welds, no triangle with two corners in one place. OCC's meshing cannot be stopped, so what it
+  would make is estimated first (`estimate`: a rough mesh at a 500th of the diagonal and 15°, scaled face by face;
+  never under the count on the parts tried, up to about three times over), and more than `MOST_TRIANGLES`
+  (500,000: a torus of that many took 57 s, a sphere 22 s) is refused before anything is meshed, as is a count
+  over it after. `export_check`, with the same arguments and `path`, reads that one file back and holds it
+  against the shapes: of STEP the same parts by name, the same solid counts, volumes within 1e-6 (or their doubt)
+  and the same boxes; of STL and 3MF, each mesh (of a part, or of each solid of one) closed once welded (no side
+  of one triangle or of three, none gone along twice the same way), no triangle of no area, as many pieces as it
+  has shells, what it encloses positive and within `MESH_SLACK` tolerances over its area of the B-rep's volume,
+  and its box. It answers `passed` and `problems`, a sentence each; it never throws for a bad file.
 - **prctl.** Each worker sets `PR_SET_PDEATHSIG` to SIGKILL, so it dies with
   the supervisor even when that is killed, and `PR_SET_DUMPABLE` to 0, so a
   crashing model does not wait seconds on a core dump. macOS has no prctl: there a worker sets
