@@ -46,7 +46,13 @@ is the detail of this folder, under the headings it has there.
 
 ## Exactness
 
-- Areas, volumes and boxes are measured in one place, `kernel/src/torno_kernel/extent.py`. A volume is exact
+- Areas, volumes and boxes are measured in one place, `kernel/src/torno_kernel/extent.py`. A volume is taken of
+  each solid on its own, with OCC's sign: a solid turned inside out integrates as negative while `is_valid` stays
+  true, and the sign is the one thing that says it is broken. `Volume.value` is the sum of the solids' sizes
+  (never negative) and `Volume.reversed` the indexes, 0-based among `topo.solids` (as faces are numbered, never
+  `S<n>`, which is a scan's id), of the negative ones; `abs` is taken only there, never where a verdict is wanted.
+  The scene (`Part.reversed`), `describe`, `measure volume` and `mass` and `check overlap` carry it, only when there
+  is a reversed solid; torno never mends the shape (`Solid.fix()`). A volume is exact
   only of a part all planes, cylinders, cones, spheres and tori that end in lines and circles. Of any other part
   the volume is integrated by Gauss-Kronrod, never to 1e-9: at finer and finer tolerances for
   as long as the looser ones together took under 0.1 s of processor time (`VOLUME_TOLERANCES`, `_SPARE`), once

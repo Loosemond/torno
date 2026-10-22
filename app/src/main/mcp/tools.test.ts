@@ -12,7 +12,7 @@ import type { NearestAnchor } from '../marks/reanchor'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
 import { TOOLS, refusedKeys } from './schemas'
 import { describeTool, marksTool, type ToolDeps } from './tools'
-import { explodeAsked, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import { REVERSED_NOTE, explodeAsked, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 const STAND: ObjectInfo = { id: 'helmet-stand', name: 'helmet-stand', dir: '/ws/helmet-stand', model: 'stand.py' }
@@ -235,6 +235,15 @@ describe('scene', () => {
     expect(TOOLS.scene.description).not.toContain('whenever you need dimensions')
     expect(TOOLS.scene.description).toContain('Sizes and volumes here are for orientation (sizeExact and volumeExact say which are exact): call measure for a number to rely on.')
     expect(TOOLS.check.description).not.toContain('Overlap and clearance are exact')
+  })
+
+  it('names the solids of a part that are inside out, with a note, and says nothing of a sound part', () => {
+    const inside = part('assembly', 'cap', [0, 0, 0], [10, 10, 10], { volume: 1125, reversed: [1] })
+    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: { ...SCENE, parts: [SCENE.parts[0], inside] } }) }), 'bracket')))
+    expect(scene.parts[1]).toMatchObject({ name: 'cap', volume: 1125, reversed: [1] })
+    expect('reversed' in scene.parts[0]).toBe(false)
+    expect(scene.note).toContain(REVERSED_NOTE)
+    expect(JSON.parse(textOf(sceneTool(fake(), 'bracket'))).note ?? '').not.toContain(REVERSED_NOTE)
   })
 
   it("lists the model's Params as the kernel read them, and none from a kernel that read none", () => {

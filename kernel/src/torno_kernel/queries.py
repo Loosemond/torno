@@ -525,6 +525,8 @@ def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[st
         "faceCount": len(topo.faces(shape)),
         "edgeCount": len(topo.edges(shape)),
         "valid": valid_of(shape, key, kept),
+        # Which solids are inside out: absent of a sound part.
+        **({"reversed": list(volume.reversed)} if volume.reversed else {}),
     }
     return {**facts, "descriptor": descriptor("part", facts)}
 

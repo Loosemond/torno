@@ -218,7 +218,7 @@ def _part(
         box, boxed, exact = {"min": low, "max": high}, True, extent.boxed_exactly(shape)
     except extent.TookTooLong:
         box, boxed, exact = drawn, False, False
-    return {
+    told = {
         "key": key,
         "name": name,
         "layout": layout,
@@ -226,7 +226,8 @@ def _part(
         "bbox": box,
         "bboxExact": exact,
         "boxed": boxed,
-        # Above 0 of a solid: the window cuts a part with a volume as a closed one.
+        # Above 0 of a solid: the window cuts a part with a volume as a closed one. A size even
+        # of a solid turned inside out, which ``reversed`` then names.
         "volume": volume.value,
         "volumeExact": volume.exact,
         "faceCount": len(arrays["trianglesPerFace"]),
@@ -236,6 +237,10 @@ def _part(
         "hash": cache_id or hashlib.sha256(vertices.tobytes()).hexdigest(),
         "mesh": {scene_key: _append(blob, array) for scene_key, array in arrays.items()},
     }
+    if volume.reversed:
+        # Which solids of the part are inside out, 0-based in OCC's order: absent of a sound part.
+        told["reversed"] = list(volume.reversed)
+    return told
 
 
 def _append(blob: bytearray, array: np.ndarray) -> dict[str, int]:

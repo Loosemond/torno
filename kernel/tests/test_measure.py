@@ -999,7 +999,7 @@ def test_the_digits_said_of_a_volume_are_one_fewer_than_two_integrals_that_diffe
 def campaign() -> dict:
     """Freeform solids of the kinds the review of the volumes went over, its two lofts among them."""
     from build123d import (
-        Align, Axis, Box, Cylinder, Edge, Ellipse, Face, Pos, Rectangle, Rot, Sphere, Vector, Wire,
+        Align, Axis, Box, Cylinder, Edge, Ellipse, Face, Pos, Rectangle, Rot, Solid, Sphere, Vector, Wire,
         extrude, fillet, loft, scale,
     )
 
@@ -1011,6 +1011,10 @@ def campaign() -> dict:
             for i in range(6)
         ]
     )
+    if body.volume < 0:
+        # OCC lofts these ellipses inside out (torno tells it: `reversed`), and a boolean of such a
+        # solid is no solid to measure: the bores are cut from a sound one.
+        body = Solid(body.wrapped.Reversed())
     bored = body
     for k in range(6):
         bored -= Pos(0, 0, 8 + k * 8) * Rot(0, 90, k * 25) * Cylinder(2.5, 90)
@@ -1052,7 +1056,8 @@ def test_a_volume_whose_first_integral_took_all_it_has_is_held_against_the_fixed
         del asked[:]
         true = reference_volume(shape)
         volume = extent.volume(shape)
-        assert asked == [extent.VOLUME_TOLERANCES[0]], name
+        # One integral of each solid: the loft with bores is cut in two.
+        assert asked == [extent.VOLUME_TOLERANCES[0]] * len(topo.solids(shape)), name
         # Rough, and says so: a percentage or few digits, and never more than are true.
         assert volume.exact is False and volume.spread > 0, name
         if volume.digits is not None:

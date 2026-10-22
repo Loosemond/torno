@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 
 from . import extent, tess, topo
-from .describe import number
+from .describe import number, reversed_text
 from .queries import (
     QueryError,
     area_of,
@@ -498,8 +498,14 @@ def _extent(kind: str, target: _Target, kept: dict[Any, Any] | None) -> dict[str
             raise QueryError("bad_request", f"volume is measured of a part; {target.what}")
         need_solid(target.shape, target.key)
         volume = volume_of(target.shape, target.key, kept)
-        how = "of the solid" + volume_doubt(volume)
-        return {"value": volume.value, "unit": "mm3", "how": how, "exact": volume.exact}
+        how = "of the solid" + volume_doubt(volume) + volume_reversed(volume)
+        return {
+            "value": volume.value,
+            "unit": "mm3",
+            "how": how,
+            "exact": volume.exact,
+            **({"reversed": list(volume.reversed)} if volume.reversed else {}),
+        }
     if target.kind not in ("part", "face"):
         raise QueryError("bad_request", f"area is measured of a part or a face; {target.what}")
     if target.kind == "part":
@@ -537,6 +543,13 @@ def volume_doubt(volume: extent.Volume) -> str:
     return f", approximate: in doubt by {number(percent)} %"
 
 
+def volume_reversed(volume: extent.Volume) -> str:
+    """What follows ``how`` of a volume with solids inside out: nothing of a sound one."""
+    if not volume.reversed:
+        return ""
+    return f"; {reversed_text(volume.reversed)} (faces point inward), counted as the material enclosed"
+
+
 def _mass(
     target: _Target, density: Any, default: bool, kept: dict[Any, Any] | None
 ) -> dict[str, Any]:
@@ -560,6 +573,7 @@ def _mass(
     if not volume.exact:
         # No more exact than the volume it is of.
         how += f"; volume{volume_doubt(volume)[1:]}"
+    how += volume_reversed(volume)
     return {
         # mm³ to cm³.
         "value": volume.value / 1000 * density,
@@ -568,6 +582,7 @@ def _mass(
         "density": float(density),
         "volume": volume.value,
         "exact": volume.exact,
+        **({"reversed": list(volume.reversed)} if volume.reversed else {}),
     }
 
 

@@ -1119,6 +1119,16 @@ and says `approximate`, and `how` says why.
   volume (`…; volume approximate, good to about N significant digits`), and
   so does what two parts share (`check overlap`: `of what the two share,
   approximate, …`).
+- A solid turned inside out (its faces point inward, which OCC integrates as
+  a negative volume and still calls valid) is told for what it is. Each solid
+  of a part is measured alone, with its sign: the volume is the sum of their
+  sizes, and `reversed` lists the solids that were negative, their numbers
+  counted from 0 among the part's solids, in the order faces are numbered
+  (`reversed: [2]` in `scene` and `describe`, with `solid 2 reversed` in the
+  descriptor; `measure volume` and `mass` say so in `how`; `check overlap`
+  names the parts). A sound part has no `reversed`. torno never mends the
+  shape: the volume of a part with a reversed solid is the material it
+  encloses, not a sign that the part is sound, and the model is to be fixed.
 - An area is exact for planes, cylinders, cones, spheres and tori, and for a
   curve extruded straight. The area of any other face (a loft, a B-spline
   surface, an offset) is never said to be exact: `how` says `approximate, good

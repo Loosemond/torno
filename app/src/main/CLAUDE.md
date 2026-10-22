@@ -543,6 +543,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `volumeExact` (true only where the kernel's flag is) and a note when one is false; `state.md` writes `≈`
   before such a size; `measureReading` and `checkReading` (`mcp/readTools.ts`) write `≈` and the kernel's `how`.
   `scene`'s sizes are for orientation: its description sends the agent to `measure` for a number to rely on.
+  A part with solids turned inside out (`Part.reversed`, indexes 0-based in the kernel's order) lists them in `scene`
+  with a note (`REVERSED_NOTE`), and `checkReading` of an overlap names the parts the kernel says have one.
 - A `print` layout that was spread (`arrange.py`) has its parts where torno
   put them. Between two parts of which either was moved, `check overlap`,
   `check clearance` and `measure distance` are refused in main

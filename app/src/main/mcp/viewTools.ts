@@ -19,6 +19,7 @@ import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, cl
 // view the agent proposes. `look` and `show` take the name of a saved view (`namedView`).
 
 /** Said in `scene` when a part's size or volume is not exact. */
+export const REVERSED_NOTE = 'A part with reversed lists solids turned inside out (their faces point inward; the index counts its solids from 0): its volume is a size only and it is broken, so say so and mend the model.'
 export const APPROXIMATE_NOTE = 'A size (and bbox) with sizeExact false, or a volume with volumeExact false, is approximate: call measure for a number to rely on.'
 
 /** What is said of a view that is neither a name nor a camera. */
@@ -79,6 +80,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   const explode = view && isExploded(view.explode) ? view.explode : null
   if (explode) notes.push(`The user's view is ${explodeText(explode)}: ${EXPLODED_NOTE}.`)
   if (scene.parts.some((p) => p.bboxExact !== true || p.volumeExact !== true)) notes.push(APPROXIMATE_NOTE)
+  if (scene.parts.some((p) => p.reversed && p.reversed.length > 0)) notes.push(REVERSED_NOTE)
   // The model's groups of parts, in the layout shown (or the first): each with its parts there, and how many are on.
   const groupLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
   const groups = groupLayout === undefined ? [] : groupsIn(scene, groupLayout).map((group) => ({
@@ -117,6 +119,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
       faces: p.faceCount,
       edges: p.edgeCount,
       valid: p.valid,
+      ...(p.reversed && p.reversed.length > 0 ? { reversed: p.reversed } : {}),
       ...(p.arranged ? { arranged: p.arranged.map(round) } : {})
     })),
     camera: view

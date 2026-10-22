@@ -98,10 +98,18 @@ def _part(facts: dict[str, Any]) -> str:
     # A size and a volume that are not exact are said as about that much.
     boxed = "≈ " if facts.get("bboxExact") is False else ""
     about = "≈ " if facts.get("volumeExact") is False else ""
+    inside_out = facts.get("reversed")
     return (
         f"part, {boxed}{size} mm, {about}{number(facts['volume'])} mm³, "
         f"{faces} face{'' if faces == 1 else 's'}"
+        # A solid turned inside out has a volume that is a size only: said where the number is.
+        + (f", {reversed_text(inside_out)}" if inside_out else "")
     )
+
+
+def reversed_text(indexes: Sequence[int]) -> str:
+    """Which solids of a part are inside out: ``solid 2 reversed``, ``solids 0, 2 reversed``."""
+    return f"solid{'' if len(indexes) == 1 else 's'} {', '.join(str(i) for i in indexes)} reversed"
 
 
 def _axis_index(direction: Sequence[float]) -> int | None:

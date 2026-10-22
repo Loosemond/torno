@@ -290,13 +290,16 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
   const pair = `between ${args.a} and ${args.b}`
   if (args.kind === 'overlap') {
     const { volume, bbox } = checked as Partial<CheckedOverlap>
-    const { volumeExact, bboxExact, how } = checked as { volumeExact?: unknown; bboxExact?: unknown; how?: unknown }
+    const { volumeExact, bboxExact, how, reversed } = checked as { volumeExact?: unknown; bboxExact?: unknown; how?: unknown; reversed?: unknown }
     if (!finite(volume)) return null
     if (!bbox || !isVec(bbox.min) || !isVec(bbox.max)) return `no overlap ${pair}`
     // The common volume of freeform parts is integrated: told with ≈ and how good the kernel says it is.
     const rough = volumeExact === false
     const good = rough ? ` (${typeof how === 'string' && how.includes('approximate') ? how.slice(how.indexOf('approximate')) : 'approximate'})` : ''
-    return `overlap ${rough ? '≈ ' : about}${number(volume)} mm³ ${pair}${good}${roughly}, within ${bboxExact === false ? '≈ ' : ''}${vector(bbox.min)} to ${vector(bbox.max)}`
+    // A boolean of a part with a solid turned inside out is no answer to rely on: the kernel names the parts.
+    const inside = Array.isArray(reversed) ? reversed.filter((name): name is string => typeof name === 'string') : []
+    const broken = inside.length > 0 ? `; ${inside.join(' and ')} ${inside.length === 1 ? 'has' : 'have'} a solid turned inside out (reversed), so this is not to be relied on` : ''
+    return `overlap ${rough ? '≈ ' : about}${number(volume)} mm³ ${pair}${good}${roughly}, within ${bboxExact === false ? '≈ ' : ''}${vector(bbox.min)} to ${vector(bbox.max)}${broken}`
   }
   if (args.kind === 'clearance') {
     const { distance, overlapping, how } = checked as Partial<CheckedClearance>

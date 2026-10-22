@@ -14,6 +14,12 @@ the fourth digit on a face that ends in a spline, and still said as if exact.
   digits of it are good by what the last agrees to with the last before it
   that gave another number, or, when there is none, with the quick form.
   That is no proof: on that part, integrals 1e-6 apart were 2e-5 out.
+- A volume is taken of each solid on its own, with its sign. OCC integrates a
+  solid whose faces point inward as negative however valid ``is_valid`` calls
+  it, and the sign is the one thing that says it is broken. The part's volume
+  is the sum of the solids' sizes (never a reversed one taken from the
+  others'), and ``reversed`` says which solids are inside out: their indexes
+  among the part's solids, 0-based, in OCC's order as faces are numbered.
 - An area is the sum of the areas of the faces, each taken as its surface
   allows, and says whether it is exact (``Area``). It is exact of a plane, a
   cylinder, a cone, a sphere and a torus, and of a curve extruded straight
@@ -104,12 +110,16 @@ class Volume(NamedTuple):
     As an ``Area``: ``digits`` is about how many significant digits of it are
     good, None of an exact one and of one too much in doubt to say; then
     ``spread``, mm³, how much of it is in doubt, is what there is to tell.
+    ``value`` is a size, never negative: ``reversed`` holds the indexes, among
+    the solids of the shape (``topo.solids``), of those OCC integrates as
+    negative, which is what ``value`` leaves out.
     """
 
     value: float
     exact: bool
     digits: int | None = None
     spread: float = 0.0
+    reversed: tuple[int, ...] = ()
 
 
 def volume(shape: Any, known: list[tuple[Any, "Volume"]] | None = None) -> Volume:
@@ -144,22 +154,51 @@ def volume_and_centre(shape: Any, centre: bool = True) -> tuple[Volume, Any]:
 
     Taken of the shape itself, however its solids are nested in compounds. A
     shape with no solid has no volume: what the integral gives of an open
-    shell is not one.
+    shell is not one. Each solid is integrated alone and keeps its sign: the
+    volume is the sum of their sizes and the negative ones are in
+    ``reversed``. The centre is of the material, a reversed solid weighing as
+    much as it encloses.
     """
-    # OCP comes from the user's workspace, so it is imported only when used.
+    solids = topo.solids(_topods(shape))
+    if not solids:
+        return Volume(0.0, True), None
+    each = [_solid_volume(solid, centre) for solid in solids]
+    inverted = tuple(i for i, (signed, *_) in enumerate(each) if signed < 0)
+    value = math.fsum(abs(signed) for signed, *_ in each)
+    at = _centre_of([(abs(signed), point) for signed, _, _, point in each]) if centre else None
+    if all(exact for _, exact, _, _ in each):
+        return Volume(value, True, reversed=inverted), at
+    spread = math.fsum(doubt for _, _, doubt, _ in each)
+    return Volume(value, False, _digits(spread, value), spread, inverted), at
+
+
+def _centre_of(weighed: list[tuple[float, Any]]) -> Any:
+    """The centre of mass of points that weigh what they are paired with, a ``gp_Pnt``."""
+    from OCP.gp import gp_Pnt
+
+    if len(weighed) == 1:
+        return weighed[0][1]
+    total = math.fsum(weight for weight, _ in weighed)
+    if total <= 0:
+        return weighed[0][1]
+    return gp_Pnt(
+        *(math.fsum(weight * getattr(point, axis)() for weight, point in weighed) / total for axis in "XYZ")
+    )
+
+
+def _solid_volume(wrapped: Any, centre: bool) -> tuple[float, bool, float, Any]:
+    """The volume of one solid with OCC's sign (negative when its faces point inward), whether it
+    is exact, how far it is in doubt (its spread) and, if wanted, its centre of mass."""
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
 
-    wrapped = _topods(shape)
-    if not topo.solids(wrapped):
-        return Volume(0.0, True), None
     if round_and_straight(wrapped):
         # The quick integral is exact of these (1e-15 wherever it was checked),
         # and Gauss-Kronrod takes 2 ms more of every torus: 0.9 s against
         # 0.07 s on a block with 289 filleted holes, at every build.
         measured = GProp_GProps()
         BRepGProp.VolumeProperties_s(wrapped, measured)
-        return Volume(abs(float(measured.Mass())), True), measured.CentreOfMass() if centre else None
+        return float(measured.Mass()), True, 0.0, measured.CentreOfMass() if centre else None
     # Gauss-Kronrod: the quick integral is 0.02 % out on a prism with a spline
     # for its outline and 0.6 % on a loft, and the form of it that takes an
     # epsilon does not converge there (0.7 % out at 1e-9).
@@ -183,13 +222,12 @@ def volume_and_centre(shape: Any, centre: bool = True) -> tuple[Volume, Any]:
     other = next((earlier for earlier in reversed(taken) if earlier != value), None)
     if other is None:
         other = _fixed_order(wrapped)
-    spread = abs(value - other)
-    return Volume(value, False, _digits(spread, value), spread), at
+    return value, False, abs(value - other), at
 
 
 def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float, Any]:
-    """A volume integrated by Gauss-Kronrod to a tolerance, as a part of it, and the centre
-    of mass if wanted.
+    """A volume integrated by Gauss-Kronrod to a tolerance, as a part of it, with its sign, and
+    the centre of mass if wanted.
 
     What OCC returns with it, the error it says it has left, is no estimate
     and is not used: 1.1e-3 of a loft right to 1e-15, 3.4e-7 of a part 2e-6 out.
@@ -199,17 +237,17 @@ def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float,
 
     measured = GProp_GProps()
     BRepGProp.VolumePropertiesGK_s(wrapped, measured, tolerance, False, False, centre)
-    return abs(float(measured.Mass())), measured.CentreOfMass() if centre else None
+    return float(measured.Mass()), measured.CentreOfMass() if centre else None
 
 
 def _fixed_order(wrapped: Any) -> float:
-    """A volume by the quick integral, at a fixed order: 0.25 s of a part of 92 freeform faces."""
+    """A volume by the quick integral, at a fixed order, with its sign: 0.25 s of a part of 92 freeform faces."""
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
 
     measured = GProp_GProps()
     BRepGProp.VolumeProperties_s(wrapped, measured)
-    return abs(float(measured.Mass()))
+    return float(measured.Mass())
 
 
 class TookTooLong(Exception):

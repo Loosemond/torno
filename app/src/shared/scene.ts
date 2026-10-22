@@ -20,6 +20,8 @@ export interface Part {
   volume: number         // mm³; above 0 of a closed solid, which is how the window knows one
   /** Whether the volume is exact: only of a part all planes, cylinders, cones, spheres and tori. Of any other it is integrated, approximate. */
   volumeExact?: boolean
+  /** The solids of the part that are inside out (their faces point inward), 0-based among its solids in the kernel's order, as faces are numbered; absent of a sound part. `volume` is then the size of the material and not a verdict: a build's sanity pass and `check` read this. */
+  reversed?: number[]
   faceCount: number
   edgeCount: number
   triangleCount: number

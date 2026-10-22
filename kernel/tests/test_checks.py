@@ -124,7 +124,8 @@ def test_what_the_two_share_is_worked_out_once_for_overlap_and_clearance():
     kept: dict = {}
     first = check(shapes, "overlap", "a", "b", kept=kept)
     held = dict(kept)
-    assert len(held) == 1
+    # What the two share, once; and the volume of each part, which it looks at for a solid turned inside out.
+    assert [key for key in held if key[0] == "shared"] == [("shared", "assembly", "a", "b")]
     assert check(shapes, "overlap", "b", "a", kept=kept) == first
     assert check(shapes, "clearance", "a", "b", kept=kept)["overlapping"] is True
     assert kept == held and all(kept[k] is held[k] for k in held)

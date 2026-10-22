@@ -12,7 +12,7 @@ import numpy as np
 
 from . import extent, printable, tess, topo
 from .measure import volume_doubt
-from .queries import QueryError, need_part, need_solid
+from .queries import QueryError, need_part, need_solid, volume_of
 
 KINDS = ("overlap", "clearance", "mesh", "overhang", "thin", "bed")
 # Vertices of the mesh within this of each other are one, mm: the rule slicers and viewers weld by.
@@ -34,7 +34,8 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
       exact (``volumeExact``: as of a part, only of planes and round faces;
       ``how`` says how far any other can be relied on) and its ``bbox``,
       with whether that is exact (``bboxExact``), both null when they share none. Both are solids: a shell or a face has no
-      volume to share, and is refused.
+      volume to share, and is refused. ``reversed`` names, when there are any, the parts that have a solid turned inside
+      out (``extent.Volume.reversed``): what they share is not to be relied on.
     - ``clearance``: the least ``distance`` between the two, mm, and the
       ``points`` of each it is between. Parts that touch are 0 apart. Parts
       that share volume, one inside the other included, are 0 apart and
@@ -93,7 +94,12 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
     if kind == "overlap":
         need_solid(first, a)
         need_solid(second, b)
-        return {key: shared()[key] for key in ("volume", "volumeExact", "how", "bbox", "bboxExact")}
+        told = {key: shared()[key] for key in ("volume", "volumeExact", "how", "bbox", "bboxExact")}
+        # A part with a solid turned inside out is cut by the boolean as no sound one is: said by name.
+        inside_out = [
+            name for name, shape in ((a, first), (b, second)) if volume_of(shape, f"{layout}:{name}", held).reversed
+        ]
+        return {**told, "reversed": inside_out} if inside_out else told
     not_solid = [name for name, shape in ((a, first), (b, second)) if not topo.solids(shape)]
     return _clearance(_topods(first), _topods(second), f"{a} and {b}", shared, not_solid)
 
