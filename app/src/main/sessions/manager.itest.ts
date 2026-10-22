@@ -12,7 +12,9 @@ import type { ChatItem, ChatMeta } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
 import type { BuildState } from '../../shared/build'
 import type { ViewDrawing } from '../../shared/drawing'
-import { contextFor, type PromptContext } from '../context'
+import { buildContextFor, contextFor, type ContextDeps, type PromptContext } from '../context'
+import { startKernel } from '../kernel/client'
+import type { Scene } from '../../shared/scene'
 import { listReferences } from './reference'
 
 // The session manager with a real PTY and a real HTTP server; only the agent is
@@ -1764,7 +1766,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     states.set(state.objectId, state)
     made.built(state)
   }
-  async function begun(opts: { wait?: number; grace?: number } = {}) {
+  async function begun(opts: { wait?: number; grace?: number; context?: (id: string) => PromptContext } = {}) {
     states = new Map()
     own = await startHttp()
     const server = own
@@ -1774,7 +1776,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       viewFor: () => 'terminal',
       contextFor: () => ({ text: '', sentMarkIds: [] }),
       build: (id) => states.get(id),
-      buildContextFor: (id) => told(id),
+      buildContextFor: (id) => (opts.context ?? told)(id),
       editTiming: { answerMs: opts.wait ?? 5000, graceMs: opts.grace ?? 1500 },
       systemPromptFor: () => '',
       mcpUrlFor: (id) => server.url(`/mcp/${id}`)
@@ -1877,4 +1879,46 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     expect(await post('PostToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
     expect(await post('Stop', {})).toEqual({})
   })
+
+  it('tells what the model printed, as the real kernel returns it: after a good build and after a failed one', async () => {
+    const ws = mkdtempSync(join(realpathSync(tmpdir()), 'torno-printed-'))
+    const kernel = startKernel({ workspaceRoot: ws, hasProject: false, kernelDir: resolve(__dirname, '../../../../kernel') })
+    try {
+      const model = (name: string, body: string): string => {
+        mkdirSync(join(ws, name), { recursive: true })
+        writeFileSync(join(ws, name, `${name}.py`), `from dataclasses import dataclass\n\nfrom build123d import Box\n\n\n@dataclass(frozen=True)\nclass Params:\n    pass\n\n\ndef assembly(p):\n${body}\n`)
+        return join(ws, name)
+      }
+      const good = model('printer', '    print("solids: 2")\n    print("volume: 3040.5")\n    return {"plate": Box(20, 20, 2)}')
+      const bad = model('asserter', '    print("solids: 2")\n    assert False, "one solid expected"\n    return {"plate": Box(20, 20, 2)}')
+      const built = await kernel.build(good, 'printer.py')
+      const refused = await kernel.build(bad, 'asserter.py')
+      if (!built.ok) throw new Error(`${built.error.kind}: ${built.error.message}`)
+      if (refused.ok) throw new Error('the model with a failed assert built')
+      let current: BuildState | undefined
+      const deps = (id: string): ContextDeps => ({
+        object: () => ({ id, name: id, dir: join(ws, id), model: `${id}.py` }),
+        openObjectId: () => id,
+        build: () => current,
+        scene: () => (built.ok ? { revision: 1, scene: built.scene as Scene } : undefined),
+        view: () => undefined
+      })
+      const { obj, edit } = await begun({ context: (id) => buildContextFor(deps(id), id) })
+      const answer = edit()
+      setTimeout(() => land(building(obj.id, 0)), 50)
+      setTimeout(() => land((current = { objectId: obj.id, status: 'ok', revision: 1, seconds: 0.2, stale: false })), 200)
+      const good1 = (await answer) as { hookSpecificOutput: { additionalContext: string } }
+      expect(good1.hookSpecificOutput.additionalContext).toMatch(/\nModel printed \(last 2 lines\):\nsolids: 2\nvolume: 3040\.5$/)
+      const next = edit()
+      setTimeout(() => land(building(obj.id, 1)), 50)
+      setTimeout(() => land((current = { objectId: obj.id, status: 'failed', revision: 1, stale: true, error: refused.error })), 200)
+      const bad1 = (await next) as { hookSpecificOutput: { additionalContext: string } }
+      expect(bad1.hookSpecificOutput.additionalContext).toContain('BUILD FAILED')
+      expect(bad1.hookSpecificOutput.additionalContext).toContain('one solid expected')
+      expect(bad1.hookSpecificOutput.additionalContext).toMatch(/\nModel printed \(last 1 line\):\nsolids: 2$/)
+    } finally {
+      await kernel.dispose()
+      rmSync(ws, { recursive: true, force: true })
+    }
+  }, 60_000)
 })

@@ -5,7 +5,7 @@ import type { ViewState } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import type { Mark } from '../shared/marks'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
-import { buildContextFor, CONTEXT_LIMIT, contextFor, type ContextDeps } from './context'
+import { buildContextFor, CONTEXT_LIMIT, contextFor, modelOutput, type ContextDeps } from './context'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 
@@ -798,5 +798,96 @@ describe('scans', () => {
     expect(text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
     expect(text).toContain('\nScans: S1 S1.glb, aligned in assembly by 4 pairs')
     expect(text).toMatch(/… and \d+ more: call mcp__torno__marks/)
+  })
+})
+
+describe('what the model printed', () => {
+  const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 4, seconds: 0.5, stale: false }
+  const FAILED: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'AssertionError: 2 solids', traceback: 'Traceback (most recent call last):\n  File "bracket.py", line 9\nAssertionError: 2 solids', output: 'solids: 2\nvolume: 3040.5' } }
+  const printing = (output: string): Scene => ({ ...SCENE, output })
+  const lines = (n: number, from = 1): string => Array.from({ length: n }, (_, i) => `row ${from + i}`).join('\n')
+
+  it('is told after a build that worked, last, with the number of lines', () => {
+    const told = buildContextFor(deps({ build: OK, scene: printing('solids: 2\nvolume: 3040.5\n') }), 'bracket')
+    expect(told.text).toBe('[torno] bracket · build ok · r4 (0.5 s) · layout assembly · parts: base, post.\nModel printed (last 2 lines):\nsolids: 2\nvolume: 3040.5')
+    expect(told).toMatchObject({ sentMarkIds: [], revision: 4, buildState: 'ok' })
+  })
+
+  it('is told after a build that failed, after its traceback', () => {
+    const text = buildContextFor(deps({ build: FAILED, scene: SCENE }), 'bracket').text
+    expect(text).toContain('BUILD FAILED')
+    expect(text).toContain('AssertionError: 2 solids')
+    expect(text.endsWith('\nModel printed (last 2 lines):\nsolids: 2\nvolume: 3040.5')).toBe(true)
+  })
+
+  it('is the last 15 lines, and says that the rest was cut', () => {
+    const text = buildContextFor(deps({ build: OK, scene: printing(lines(40)) }), 'bracket').text
+    expect(text.split('\n').slice(-16)).toEqual(['Model printed (last 15 lines, earlier output cut):', ...lines(15, 26).split('\n')])
+    expect(text).not.toContain('row 25\n')
+    expect(text.endsWith('row 40')).toBe(true)
+  })
+
+  it('is the last 1,000 characters at most, the end kept', () => {
+    const text = buildContextFor(deps({ build: OK, scene: printing(`${'a'.repeat(3000)}\nthe end`) }), 'bracket').text
+    const [, head, ...rest] = text.split('\n')
+    expect(head).toBe('Model printed (last 2 lines, earlier output cut):')
+    const tail = rest.join('\n')
+    expect(tail.length).toBeLessThanOrEqual(1000)
+    expect(tail.startsWith('…')).toBe(true)
+    expect(tail.endsWith('\nthe end')).toBe(true)
+    expect(modelOutput(deps({ build: OK, scene: printing('x'.repeat(5000)) }), 'bracket')?.text.length).toBe(1000)
+  })
+
+  it('is not said when the model printed nothing, or only blank lines', () => {
+    expect(buildContextFor(deps({ build: OK, scene: printing('') }), 'bracket').text).not.toContain('Model printed')
+    expect(buildContextFor(deps({ build: OK, scene: printing('\n  \n') }), 'bracket').text).not.toContain('Model printed')
+    expect(buildContextFor(deps({ build: { ...FAILED, error: { kind: 'exception', message: 'no' } }, scene: SCENE }), 'bracket').text).not.toContain('Model printed')
+  })
+
+  it('is told of the build that ended last: not while one runs, and not for a kernel that stopped', () => {
+    const building: BuildState = { objectId: 'bracket', status: 'building', revision: 4, startedAt: 0, stale: true }
+    expect(buildContextFor(deps({ build: building, scene: printing('old') }), 'bracket').text).not.toContain('Model printed')
+    // The output of a crash is the kernel's stderr, not the model's.
+    const crashed: BuildState = { objectId: 'bracket', status: 'failed', revision: 4, stale: true, error: { kind: 'crash', message: 'kernel stopped', output: 'Traceback in the kernel' } }
+    expect(buildContextFor(deps({ build: crashed, scene: printing('old') }), 'bracket').text).not.toContain('Model printed')
+    // Nor is the output of the build before a failed one.
+    expect(buildContextFor(deps({ build: { ...FAILED, error: { kind: 'exception', message: 'no' } }, scene: printing('from r3') }), 'bracket').text).not.toContain('from r3')
+  })
+
+  it('is not part of what goes with a prompt', () => {
+    expect(contextFor(deps({ build: OK, scene: printing('solids: 2') }), 'bracket').text).not.toContain('Model printed')
+  })
+
+  it('comes after the dimensions and keeps the whole to CONTEXT_LIMIT, the dimensions first', () => {
+    const dim = (n: number, note = ''): Mark =>
+      ({ id: `M${n}`, kind: 'dimension', author: 'user', note, status: 'sent', sentBefore: true, anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4, measure: 'diameter', a: { point: [n, 0, 5], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 4, expected: 8.5, tolerance: 0.05, verdict: 'fail' }) as unknown as Mark
+    const dims = Array.from({ length: 12 }, (_, n) => dim(n + 1))
+    const without = buildContextFor(deps({ build: OK, scene: SCENE }), 'bracket', dims).text
+    const text = buildContextFor(deps({ build: OK, scene: printing(lines(15)) }), 'bracket', dims).text
+    expect(text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+    expect(text.startsWith(without)).toBe(true)
+    // Whatever room is left holds the end of it, or says there is output.
+    expect(text.slice(without.length)).toMatch(/^\nModel printed/)
+    // No room at all: the dimensions are not given up for it.
+    // As the dimensions take the room, less of it is told, then a line that there is some, then nothing: never over the limit.
+    const endings = new Set<string>()
+    for (let count = 1; count <= 130; count += 1) {
+      const crowded = buildContextFor(deps({ build: OK, scene: printing(lines(15)) }), 'bracket', Array.from({ length: count }, (_, n) => dim(n + 1))).text
+      expect(crowded.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+      endings.add(crowded.includes('\nModel printed (') ? 'tail' : crowded.endsWith('call mcp__torno__scene to read it.') ? 'pointer' : 'nothing')
+    }
+    expect([...endings].sort()).toEqual(['nothing', 'pointer', 'tail'])
+  })
+
+  it('keeps the traceback whole when the output is long', () => {
+    const text = buildContextFor(deps({ build: { ...FAILED, error: { ...FAILED.error!, output: lines(100) } }, scene: SCENE }), 'bracket').text
+    expect(text).toContain('File "bracket.py", line 9\nAssertionError: 2 solids\nModel printed (last 15 lines, earlier output cut):')
+  })
+
+  it('goes through the redaction of whatever is logged, before it is cut', () => {
+    const redact = (t: string): string => t.split('s3cret').join('[redacted]')
+    const text = buildContextFor({ ...deps({ build: OK, scene: printing('key s3cret\nmore') }), redact }, 'bracket').text
+    expect(text).toContain('key [redacted]')
+    expect(text).not.toContain('s3cret')
   })
 })

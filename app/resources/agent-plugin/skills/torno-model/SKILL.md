@@ -8,6 +8,13 @@ description: The contract of a torno model file (Params, assembly, printables, m
 torno imports the model file of the object folder and rebuilds it on every save. Do not run it yourself to
 preview it: check the build with `mcp__torno__scene` and look with `mcp__torno__look`.
 
+## Seeing a value while building
+
+You cannot run the model, but torno gives back what it prints. To see a value, `print()` it in the model (or
+`assert` it: a failed assert fails the build and comes back with its traceback). The last 15 lines of what the build
+printed come with the answer to your edit, and in `output` of `mcp__torno__scene`, whether the build worked or failed;
+build123d's own warnings are among them. Remove the `print` once it has served.
+
 ## Which file
 
 - The object folder holds one model file: a top-level `*.py` that is not a test (`test_*.py`, `*_test.py`,

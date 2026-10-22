@@ -316,8 +316,12 @@ const referencesOf = (id: string): string[] => {
   return obj ? listReferences(obj.dir) : []
 }
 
+/** The run's `HttpRouter.redact`, once the server is up: what the model printed is run through it. */
+let redactAddresses = (text: string): string => text
+
 /** What the MCP tools are made from: the open workspace and the window. */
 const toolDeps: ToolDeps = {
+  redact: (text) => redactAddresses(text),
   object: findObject,
   build: buildState,
   scene: lastScene,
@@ -428,6 +432,7 @@ void app.whenReady().then(async () => {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(windowIcon())
   // What the agent's CLI talks to: its hooks, and the MCP server through which it sees what the window shows.
   const http = await startHttp()
+  redactAddresses = http.redact
   const mcpUrlFor = (id: string): string => http.url(`/mcp/${encodeURIComponent(id)}`)
   mountMcp(http, toolDeps)
   sessions = new Sessions({

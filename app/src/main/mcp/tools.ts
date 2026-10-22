@@ -36,6 +36,8 @@ import { lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
+  /** Takes out of what the model printed what must not be told (the run's secret). */
+  redact?(text: string): string
   object(objectId: string): ObjectInfo | undefined
   build(objectId: string): BuildState | undefined
   /** The last successful build. */

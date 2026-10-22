@@ -625,6 +625,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `PostToolUse` a 60 s timeout). A `Stop` is held back (`decision: block`) when the turn (since its
   `UserPromptSubmit`) saw a build end and the latest failed, or edited the model and no `look` came after;
   never with `stop_hook_active`, never for a failing dimension. A Stop held back moves no status and ends no turn.
+- **What the model printed reaches the agent** (`modelOutput` of `context.ts`; the kernel returns it as `output` of
+  the scene of a good build and of the error of a failed one). The model's own text, run through `HttpRouter.redact`
+  (`ContextDeps.redact`, `ToolDeps.redact`) before it is cut. It is told in two places and in no other (not with a
+  prompt, not in `state.md`): the last block of `buildContextFor`, `Model printed (last N lines):` and the tail
+  (`OUTPUT_LINES` 15, `OUTPUT_CHARS` 1,000, the end kept; `, earlier output cut` when anything was left out), and
+  `output` (with `outputCut`) of `scene`, which also gives it after a first build that failed, with no scene. It is
+  of the build that ended last: a failed build's is its error's, never the output of the good build before; none
+  while a build runs; none for `kind: 'crash'`, whose `output` is the kernel's stderr and not the model's. It takes
+  what is left of `CONTEXT_LIMIT` after the status, the dimensions and the count of those that pass, so a traceback
+  and a dimension outrank it; with less than `MIN_OUTPUT_CHARS` left it is a line that there is output and that
+  `scene` has it, or nothing.
 - A `Notification` hook is a question (`needs_input`) unless its body says it is none (`reduceStatus` in
   `sessions/status.ts`: `notification_type` `idle_prompt` or `auth_success`, or, without a type, a message that
   it is waiting for input): Claude Code also posts one when it has only been idle at its prompt for a while.

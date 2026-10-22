@@ -12,6 +12,7 @@ import { alignmentSaid } from '../scans/said'
 import { unknownKeys } from './keys'
 import { NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanColourFor, scanIds } from './scanTools'
 import { type CameraArg, type LookArgs, type SaveViewArgs, type ShowArgs, CAMERA_KEYS, FOV, VIEW_NAMES, explodeHelp } from './schemas'
+import { modelOutput } from '../context'
 import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
 
 // The tools of the view: `scene`, which says what the object is and what the user sees of it, `look`, a picture
@@ -53,7 +54,11 @@ export const cameraKeys = (view: unknown): string | null => {
  */
 export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[]): ToolResult {
   const found = built(deps, objectId)
-  if ('content' in found) return found
+  if ('content' in found) {
+    // The first build failed: nothing was built, and what the model printed is all there is besides the error.
+    const printed = modelOutput(deps, objectId)
+    return printed ? { ...found, content: [...found.content, { type: 'text', text: `output of the model${printed.cut ? ' (earlier output cut)' : ''}:\n${printed.text}` }] } : found
+  }
   const { obj, build, scene, revision } = found
   const checks = (marks ?? []).filter((m): m is DimensionMark => m.kind === 'dimension' && m.status !== 'resolved').map((m) => standingOf(m, revision)).filter((stands) => stands !== 'measured')
   const count = (...of: DimensionStanding[]): number => checks.filter((stands) => of.includes(stands)).length
@@ -69,6 +74,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     message: build.error.message,
     ...(build.error.traceback ? { traceback: lastLines(build.error.traceback, TRACEBACK_LINES) } : {})
   }
+  // What the model printed in the build that ended last (the failed one when the last failed): its tail, as `buildContextFor` tells it.
+  const printed = modelOutput(deps, objectId)
   const notes: string[] = []
   if (!open) notes.push(`${notOpen(obj, deps.openObjectId())}, so what is visible, the camera and the section are not known.`)
   const letGo = letGoText(build)
@@ -99,6 +106,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
       ...(build.letGo ? { letGo: build.letGo } : {}),
       ...(error ? { error } : {})
     },
+    ...(printed ? { output: printed.text, ...(printed.cut ? { outputCut: true } : {}) } : {}),
     layout: view?.layout ?? null,
     layouts: scene.layouts,
     // The model's Params as the kernel read them from the source: read only, the model file is the user's.

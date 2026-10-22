@@ -17,6 +17,12 @@ const STATUS_LIMIT = 2000
 const OPEN_LIMIT = 300
 
 const TRACEBACK_LINES = 12
+/** The most of what the model printed that is told: the last lines, and of them the last characters. */
+export const OUTPUT_LINES = 15
+export const OUTPUT_CHARS = 1000
+/** Less than this of the output is not told in place of the line that says there is some. */
+const MIN_OUTPUT_CHARS = 60
+const OUTPUT_HEAD = (lines: number, cut: boolean): string => `Model printed (last ${lines} line${lines === 1 ? '' : 's'}${cut ? ', earlier output cut' : ''}):`
 const MESSAGE_LIMIT = 400
 /** The most of it that says what is selected, and of that the most that is said of one ref. */
 const SELECTION_LIMIT = 1000
@@ -71,6 +77,8 @@ export interface ContextDeps {
   /** The files of the object's `reference/` (`photo-1.jpg`), photos then doodles: told to a new conversation. None when it has none or cannot be read. */
   references?(objectId: string): string[]
   now?(): number
+  /** Takes out of text that is not torno's own what must not be told or logged (the run's secret): applied to what the model printed. */
+  redact?(text: string): string
 }
 
 /** The most references a new conversation is told the names of; the rest are counted. */
@@ -141,7 +149,8 @@ export function contextFor(deps: ContextDeps, objectId: string, marks: readonly 
  * What the agent is told of the build after it edited the model (the answer to a `PostToolUse`): the first lines of
  * `contextFor` (how the build stands, the error and the end of its traceback when it failed) and its dimensions, in
  * the same words; nothing of the selection, the scans or the other marks. No mark is told by it: `sentMarkIds` is
- * always empty, and drafts are left for the next prompt.
+ * always empty, and drafts are left for the next prompt. It ends with what the model printed in the build that
+ * ended last (`modelOutput`), should that fit in what is left of CONTEXT_LIMIT after all the rest.
  */
 export function buildContextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { toolName?: (tool: string) => string } = {}): PromptContext {
   const dimensions = marks.filter((m) => m.kind === 'dimension' && m.status !== 'draft' && m.status !== 'resolved')
@@ -246,7 +255,9 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // A new conversation is told which references there are, last, and only when the line fits: it is no mark.
   const referred = (opts.fresh || opts.newConversation) && !opts.buildOnly ? referencesLine(deps.references?.(objectId) ?? []) : ''
   const joined = lines.join('\n')
-  const text = referred && joined.length + 1 + referred.length <= CONTEXT_LIMIT ? `${joined}\n${referred}` : joined
+  // Last, so that nothing above it is given up for it: it takes the room that is left.
+  const printed = opts.buildOnly ? printedBlock(deps, objectId, toolName, CONTEXT_LIMIT - joined.length - 1) : ''
+  const text = printed ? `${joined}\n${printed}` : referred && joined.length + 1 + referred.length <= CONTEXT_LIMIT ? `${joined}\n${referred}` : joined
   if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id) }
   // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is
   // the end, and no mark whose line may be among it is said to have been told.
@@ -437,6 +448,36 @@ function someOf(names: string[], room: number): string {
     text = next
   }
   return text
+}
+
+/**
+ * What the model printed in the build that ended last, as far as it is told: the last `OUTPUT_LINES` lines of it, and
+ * of those the last `chars` characters (the end is what a `print` meant to say), with whether anything was left out.
+ * Null when it printed nothing, when a build is running or there is none, and for a kernel that stopped (its `output`
+ * is then the kernel's own stderr). A failed build's is its error's; a good build's, its scene's. `deps.redact` is
+ * applied before the cut, so that no part of a secret is left standing at it.
+ */
+export function modelOutput(deps: Pick<ContextDeps, 'build' | 'scene' | 'redact'>, objectId: string, chars = OUTPUT_CHARS): { text: string; lines: number; cut: boolean } | null {
+  const build = deps.build(objectId)
+  const given = build?.status === 'failed' ? (build.error?.kind === 'crash' ? '' : build.error?.output) : build?.status === 'ok' ? deps.scene(objectId)?.scene.output : ''
+  if (!given || given.trim() === '') return null
+  const whole = (deps.redact?.(given) ?? given).trimEnd()
+  const all = whole.split('\n')
+  const last = all.slice(-OUTPUT_LINES).join('\n')
+  const text = cutStart(last, Math.max(chars, 1))
+  return { text, lines: text.split('\n').length, cut: all.length > OUTPUT_LINES || text !== last }
+}
+
+/**
+ * What the model printed as the last block of the answer to an edit, in at most `room` characters (the head, and the
+ * tail that fits under it); where not even a little of it fits, a line that says there is some and where to read it, if that fits; else ''.
+ */
+function printedBlock(deps: ContextDeps, objectId: string, toolName: ToolName, room: number): string {
+  const widest = OUTPUT_HEAD(OUTPUT_LINES, true).length + 1
+  const printed = modelOutput(deps, objectId, Math.min(OUTPUT_CHARS, room - widest))
+  if (printed && room - widest >= MIN_OUTPUT_CHARS) return `${OUTPUT_HEAD(printed.lines, printed.cut)}\n${printed.text}`
+  const pointer = `The model printed output; call ${toolName('scene')} to read it.`
+  return modelOutput(deps, objectId, 1) && pointer.length <= room ? pointer : ''
 }
 
 function lastLines(text: string, count: number): string {

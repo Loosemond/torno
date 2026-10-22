@@ -519,6 +519,16 @@ Open marks: M2 (moved), M6 (unchecked)
   after `/clear`) ends with a line naming the files in `reference/` (twelve at
   most, then how many more), to read when they matter.
 
+When Claude Code has edited the model, the answer to that edit says how the
+build ended, the same first lines and the dimensions, and ends with what the
+model printed: `Model printed (last 2 lines):` and the end of it, fifteen
+lines and a thousand characters at most, with a note when earlier output was
+cut, and nothing when the model printed nothing. It is the output of the
+build that ended last, failed or good, and build123d's own warnings are in it.
+So a `print()` in the model is how the agent sees a value, since it may not run
+the model itself; `scene` gives the same as `output`. `state.md` does not
+carry it.
+
 `.torno/state.md` says the same as text, for an agent without torno's tools:
 the build, the layouts and parts, the saved views, the scans and every open
 mark. Its first line says when it was written: nothing keeps it current once
@@ -535,7 +545,7 @@ naming the keys it takes.
 
 | Tool | What it gives |
 |---|---|
-| `mcp__torno__scene` | The build status and error, the layouts, every part with its size, bounding box, volume and whether it is visible, the model's groups of parts, your camera, section and explode, the saved views, the scans, and how many dimensions pass, fail and are not measured. It notes when the parts of the print layout were spread along X. |
+| `mcp__torno__scene` | The build status and error, what the model printed in the last build (`output`), the layouts, every part with its size, bounding box, volume and whether it is visible, the model's groups of parts, your camera, section and explode, the saved views, the scans, and how many dimensions pass, fail and are not measured. It notes when the parts of the print layout were spread along X. |
 | `mcp__torno__look` | A picture from the renderer you are looking at, with the marks drawn. With no arguments it is your view, cut by your section or drawn apart as you have it. It takes `view` (`iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, the name of a saved view, or a camera), `layout`, `parts`, `size` (long edge, 1280 by default, 2000 at most), `marks` (false leaves them out), `section` (`'current'`, `null`, or a plane), `explode` (0 to 1, or `{amount, axis, scale}`; `null` together), `scans`, `scanColour` and `frame`. The caption says what was drawn. Also saved under `.torno/views/`. |
 | `mcp__torno__marks` | Your marks and the agent's as data, each with a line of text. |
 | `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`), or of a group of parts by its name: the box of its parts and their volume. |

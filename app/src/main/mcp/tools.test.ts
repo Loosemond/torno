@@ -323,6 +323,56 @@ describe('scene', () => {
     expect(scene.parts).toHaveLength(4)
   })
 
+  describe('what the model printed', () => {
+    const printing = (output: string) => ({ scene: () => ({ revision: 3, scene: { ...SCENE, output } }) })
+    const lines = (n: number): string => Array.from({ length: n }, (_, i) => `row ${i + 1}`).join('\n')
+    const failed = (output: string | undefined, kind = 'exception'): BuildState => ({ objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind, message: 'AssertionError: 2 solids', ...(output === undefined ? {} : { output }) } })
+
+    it('is told after a build that worked: its tail, and that it is one when it is', () => {
+      const told = JSON.parse(textOf(sceneTool(fake(printing('solids: 2\nvolume: 3040.5\n')), 'bracket')))
+      expect(told.output).toBe('solids: 2\nvolume: 3040.5')
+      expect(told).not.toHaveProperty('outputCut')
+      const long = JSON.parse(textOf(sceneTool(fake(printing(lines(40))), 'bracket')))
+      expect(long.output).toBe(lines(40).split('\n').slice(-15).join('\n'))
+      expect(long.outputCut).toBe(true)
+      const wide = JSON.parse(textOf(sceneTool(fake(printing('x'.repeat(3000))), 'bracket')))
+      expect(wide.output).toHaveLength(1000)
+      expect(wide.outputCut).toBe(true)
+    })
+
+    it('is told of the build that ended last, the failed one too, with the parts of the last good one still shown', () => {
+      const told = JSON.parse(textOf(sceneTool(fake({ state: failed('solids: 2'), ...printing('from r3') }), 'bracket')))
+      expect(told.output).toBe('solids: 2')
+      expect(told.parts).toHaveLength(4)
+      // A failed build that printed nothing does not leave the build before it in its place.
+      expect(JSON.parse(textOf(sceneTool(fake({ state: failed(undefined), ...printing('from r3') }), 'bracket')))).not.toHaveProperty('output')
+      // The output of a crash is the kernel's own.
+      expect(JSON.parse(textOf(sceneTool(fake({ state: failed('kernel stderr', 'crash') }), 'bracket')))).not.toHaveProperty('output')
+    })
+
+    it('is given with the error of a first build that failed, when there is no scene to put it in', () => {
+      const result = sceneTool(fake({ state: failed('solids: 2'), noScene: true }), 'bracket')
+      expect(textOf(result)).toContain('no build yet: failed')
+      expect(textOf(result)).toMatch(/\noutput of the model:\nsolids: 2$/)
+      expect(textOf(sceneTool(fake({ state: failed(undefined), noScene: true }), 'bracket'))).not.toContain('output of the model')
+    })
+
+    it('is not there when the model printed nothing, or while a build runs', () => {
+      expect(JSON.parse(textOf(sceneTool(fake(printing('')), 'bracket')))).not.toHaveProperty('output')
+      const running: BuildState = { objectId: 'bracket', status: 'building', revision: 3, startedAt: 0, stale: true }
+      expect(JSON.parse(textOf(sceneTool(fake({ state: running, ...printing('old') }), 'bracket')))).not.toHaveProperty('output')
+    })
+
+    it('goes through the redaction of whatever is logged', () => {
+      const redact = (t: string): string => t.split('s3cret').join('[redacted]')
+      expect(JSON.parse(textOf(sceneTool(fake({ ...printing('key s3cret'), redact }), 'bracket'))).output).toBe('key [redacted]')
+    })
+
+    it('is named in the tool description', () => {
+      expect(TOOLS.scene.description).toContain('output')
+    })
+  })
+
   it('for an object that is not the one open: its build and parts, no camera, no visibility, and a note saying so', () => {
     const scene = JSON.parse(textOf(sceneTool(fake({ openObjectId: () => 'helmet-stand' }), 'bracket')))
     expect(scene.camera).toBeNull()
