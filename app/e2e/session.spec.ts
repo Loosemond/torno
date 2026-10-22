@@ -141,6 +141,9 @@ test('an agent that paints a ground of its own has it to the edges of the pane, 
 })
 
 test('the status follows the hooks the agent posts', async () => {
+  // The build that opening the object began has ended before the turn does: a build that ends in the turn, and was not
+  // looked at, is a reason for main to hold the Stop back (`unlooked`), and the status would stay where it was.
+  await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: 'bracket', status: 'ok' })
   await typeLine('hook')
   // The prompt is answered with where the object's build stands.
   await expect.poll(text).toContain('context: [torno] bracket · ')
