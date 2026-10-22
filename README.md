@@ -449,7 +449,8 @@ file of torno's own that holds no secret.
   sends in the `X-Torno-Session` header of every request to torno. It is never
   on the command line (see "Limits and exactness").
 - Torno's instructions: `--append-system-prompt`, and torno's skills with
-  `--plugin-dir`.
+  `--plugin-dir`. They give the loop: after an edit, numbers first
+  (`measure`, `check`, `section`, `diff`), then one look with the marks drawn.
 - Hooks: `--settings`; it posts them to torno, which follows its status by
   them (idle, working, needs input, ended) and adds to its prompts.
 - What you marked goes with your next prompt, by itself, and counts as sent

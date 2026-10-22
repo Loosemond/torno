@@ -13,8 +13,9 @@ describe('the system prompt', () => {
   })
 
   it('says the build comes back with an edit, and still to look', () => {
-    expect(SYSTEM_PROMPT).toContain('The build result of an edit of the model comes back with the edit, with what it did to the parts')
-    expect(SYSTEM_PROMPT).toContain('mend it or say why. Look at the result before saying it is done.')
+    expect(SYSTEM_PROMPT).toContain('The build result of an edit comes back with what it did to the parts')
+    expect(SYSTEM_PROMPT).toContain('mend it or say why.')
+    expect(SYSTEM_PROMPT).not.toContain('Look at the result before saying it is done')
     expect(SYSTEM_PROMPT).not.toContain('After every edit, always check the build status with scene')
   })
 
@@ -91,10 +92,27 @@ describe('the system prompt', () => {
 
   it('says how to read the digest that comes back with an edit: numbers of the B-rep, to be held to what was meant', () => {
     expect(FULL_PROMPT).toContain('("Changed since rN")')
-    expect(FULL_PROMPT).toContain('("Check:"), from the B-rep, which a picture is not: adding material must raise a volume and a cut lower it; a change in a part your edit did not mean to touch is a defect, and so is a part Check calls not valid, inside out, open or of more solids than meant: mend it or say why.')
+    expect(FULL_PROMPT).toContain('("Check:"), from the B-rep, which a picture is not: adding material must raise a volume and a cut lower it; a part your edit did not mean to touch changing is a defect, and so is a part Check calls not valid, inside out, open or of more solids than meant: mend it or say why.')
     // What Check lists of an edit (faces renumbered, a part come or gone) is told, never called a defect.
     expect(FULL_PROMPT).not.toContain('anything under Check')
     expect(SYSTEM_PROMPT).toContain('Check:')
+  })
+
+  it('states the loop: numbers first with the tools that settle them, then one look with the marks, and the window and not a terminal', () => {
+    for (const prompt of [SYSTEM_PROMPT, FULL_PROMPT]) {
+      expect(prompt).toContain('After an edit, settle with numbers what they can settle (measure, check, section, diff): the size you changed, a wall, a clearance, a hole through. Then look once, at the view or saved view that shows the change, marks drawn; look again only for what it could not show.')
+      expect(prompt).not.toContain('terminal')
+      expect(prompt.indexOf('settle with numbers')).toBeLessThan(prompt.indexOf('Then look once'))
+    }
+    expect(SYSTEM_PROMPT).toContain('in torno’s window.')
+    expect(SYSTEM_PROMPT).toContain('thin, overhang; bed is of the layout')
+  })
+
+  it('has /review look once or twice at all the open marks, not once at each', () => {
+    const text = PROMPTS.review.text((tool) => `mcp__torno__${tool}`)
+    expect(text).toContain('once or twice, at views that show all the open marks')
+    expect(text).toContain('only where the numbers cannot settle it')
+    expect(text).not.toContain('each mark points at')
   })
 
   it('says that explode is for display, right after what show is for', () => {
@@ -102,7 +120,7 @@ describe('the system prompt', () => {
   })
 
   it('says that scene lists the saved views, that look and show take one by its name, and how to propose one, as JSON that parses', () => {
-    expect(FULL_PROMPT).toContain('ever of an exploded part. scene lists the views saved by name: look {"view": "Hinge side"} draws one and show {"view": "Hinge side"} puts it on the user\'s screen; they are the angles the user checks, so after a change look at those that show it. mcp__torno__save_view {"name": "Wall at the latch", "view": "front", "parts": ["tray"]} proposes a view of your own for them to keep. Measure before you state a size')
+    expect(FULL_PROMPT).toContain('ever of an exploded part. scene lists the views saved by name: look {"view": "Hinge side"} draws one and show {"view": "Hinge side"} puts it on the user\'s screen; they are the angles the user checks: for your look, take the one that shows the change. mcp__torno__save_view {"name": "Wall at the latch", "view": "front", "parts": ["tray"]} proposes a view of your own for them to keep. Measure before you state a size')
     const calls = [...FULL_PROMPT.matchAll(/(look|show|mcp__torno__save_view) (\{"(?:view|name)": [^}]*\})/g)].map((m) => [m[1], JSON.parse(m[2])])
     expect(calls).toEqual([
       ['look', { view: 'Hinge side' }],

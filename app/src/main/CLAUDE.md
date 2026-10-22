@@ -603,7 +603,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `marks`, `measure`, `check`, `section`, `describe` and `Read`, never one that edits, resolves, adds a mark or
   changes the view; its prompt checks the build against what was asked, every open mark and every dimension, with
   numbers from the tools. Claude Code's prompt says to use it after a change of several steps, before saying it
-  is done. `contextFor` names tools through `opts.toolName` likewise.
+  is done. The prompt states the verify loop in one paragraph: after an edit, numbers first (`measure`, `check`,
+  `section`, `diff`), then one `look` with the marks drawn, a second only for what the first could not show; `review`
+  asks the same (one or two looks at all the open marks, a look at one mark alone only where numbers cannot settle
+  it). It is appended with `--append-system-prompt`, not an agent definition or an output style. `contextFor`
+  names tools through `opts.toolName` likewise.
 - The view of an object's sessions, chat or terminal, is chosen under the session header and kept in
   `<object>/.torno/agent.json` (`{ "agent": "claude", "view": "terminal" }`; `sessions/choice.ts`, main's alone,
   atomic; `agent` is written still, so that the file is one an older torno reads). No file is the chat. A file
