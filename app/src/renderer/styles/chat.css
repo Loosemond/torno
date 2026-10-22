@@ -150,6 +150,68 @@
   overflow-wrap: anywhere;
 }
 
+/* An edit of the model as lines removed and added (ui/chat/Diff.tsx): the sign and the strike say which; the wash only groups. */
+.diff {
+  max-height: 260px;
+  overflow: auto;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.diff-hunk + .diff-hunk {
+  border-top: var(--divider);
+}
+
+.diff-title,
+.diff-note {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--muted);
+}
+
+.diff-row {
+  display: flex;
+  min-width: max-content;
+  padding-right: var(--space-2);
+}
+
+.diff-row[data-kind='removed'] {
+  background: var(--diff-removed-wash);
+}
+
+.diff-row[data-kind='added'] {
+  background: var(--diff-added-wash);
+}
+
+.diff-row[data-kind='gap'] {
+  padding-left: 1.5em;
+  color: var(--muted);
+}
+
+.diff-sign {
+  flex: none;
+  width: 1.5em;
+  color: var(--muted);
+  text-align: center;
+  user-select: none;
+}
+
+.diff-row > del,
+.diff-row > ins,
+.diff-row > span:not(.diff-sign) {
+  text-decoration: none;
+  white-space: pre;
+}
+
+.diff-row > del {
+  text-decoration: line-through;
+}
+
 /* The agent's words: plain on the panel. */
 .chat-text {
   color: var(--ink);

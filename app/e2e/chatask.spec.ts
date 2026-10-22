@@ -113,11 +113,30 @@ test('a request to use a tool is a card with the input, answered with Allow, All
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: not there, please')
 
-  // Deny with nothing typed says so in a sentence of its own.
-  await say('ask Edit {"file_path":"b.txt","old_string":"a","new_string":"b"}')
-  await asks().last().getByRole('button', { name: 'Deny', exact: true }).click()
+  // Deny with nothing typed says so in a sentence of its own. An Edit is the line removed and the line added.
+  await say('ask Edit {"file_path":"b.txt","old_string":"WALL = 2\\nLID = 1","new_string":"WALL = 3\\nLID = 1"}')
+  const edit = asks().last()
+  await expect(edit).toContainText('Claude Code asks to use Edit')
+  await expect(edit.locator('.chat-ask-input .diff del')).toHaveText('WALL = 2')
+  await expect(edit.locator('.chat-ask-input .diff ins')).toHaveText('WALL = 3')
+  await expect(edit.locator('.chat-ask-input .diff-sign')).toHaveText(['−', '+', ''])
+  await edit.getByRole('button', { name: 'Deny', exact: true }).click()
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: The person denied this.')
+  // The tool card, opened, shows the same lines in place of the JSON.
+  const denied = chat().locator('.chat-tool').last()
+  await expect(denied.locator('.diff del')).toHaveText('WALL = 2')
+  await expect(denied.locator('.diff ins')).toHaveText('WALL = 3')
+  await expect(denied).not.toContainText('old_string')
+
+  // A MultiEdit is one block for each of its edits, numbered.
+  await say('ask MultiEdit {"file_path":"b.txt","edits":[{"old_string":"WALL = 2","new_string":"WALL = 3"},{"old_string":"LID = 1","new_string":"LID = 2"}]}')
+  const multi = asks().last()
+  await expect(multi.locator('.diff-title')).toHaveText(['Edit 1 of 2', 'Edit 2 of 2'])
+  await expect(multi.locator('.diff del')).toHaveText(['WALL = 2', 'LID = 1'])
+  await expect(multi.locator('.diff ins')).toHaveText(['WALL = 3', 'LID = 2'])
+  await multi.getByRole('button', { name: 'Deny', exact: true }).click()
+  await finished()
 
   // Allow for this session passes on the rule the CLI suggested, as a rule of the session. Of the three kinds it suggests
   // (a rule for the settings of the folder, a directory, a mode) the others are not passed on.

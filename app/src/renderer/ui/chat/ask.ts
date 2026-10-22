@@ -1,6 +1,7 @@
 // What a card that asks the person shows of a request, and how the questions of `AskUserQuestion` are answered.
 // The pure part of `AskCard.tsx`.
 import { type ChatWhere, shownPath } from '../../../shared/chat'
+import { CHANGE_LINES, editHunks, type Hunk, limitHunks } from './diff'
 
 /** How many lines of what a file will hold a card shows. */
 const FILE_LINES = 6
@@ -15,15 +16,21 @@ const record = (value: unknown): Record<string, unknown> | undefined => (typeof 
 
 /**
  * The input of a request in plain words, to set in the monospace face: a command as it is; a file by its path
- * (`lead`) and the first lines of what goes in it (`more` is how many are left out, none with `all`); anything else as
+ * (`lead`) and the first lines of what goes in it; an edit of a file (`Edit`, `MultiEdit`) by its path and `hunks`,
+ * the lines it removes and adds (`more` is how many lines are left out, none with `all`); anything else as
  * compact JSON.
  */
-export function describeInput(tool: string, input: unknown, all = false, where?: ChatWhere): { lead: string | undefined; body: string; more: number; full?: string } {
+export function describeInput(tool: string, input: unknown, all = false, where?: ChatWhere): { lead: string | undefined; body: string; more: number; full?: string; hunks?: Hunk[] } {
   const fields = record(input)
   if (tool === 'Bash' && fields) return { lead: undefined, body: text(fields.command) ?? '', more: 0 }
   if (FILE_TOOLS.has(tool) && fields) {
     const full = text(fields.file_path) ?? text(fields.notebook_path)
     const lead = full === undefined ? undefined : shownPath(full, where)
+    const edits = editHunks(tool, input)
+    if (edits) {
+      const cut = limitHunks(edits, CHANGE_LINES, all)
+      return { lead, ...(full !== lead ? { full } : {}), body: '', more: cut.more, hunks: cut.hunks }
+    }
     const held = text(fields.content) ?? text(fields.new_string) ?? text(fields.new_source) ?? ''
     const lines = held === '' ? [] : held.split('\n')
     const shown = all ? lines : lines.slice(0, FILE_LINES)

@@ -390,7 +390,10 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
 - **When it asks.** A permission is a card in the conversation: "Allow",
   "Allow for this session" (offered when Claude Code suggests a rule; the rule
   holds for this session only and is never written to any settings file) and
-  "Deny", with a reason if you give one. A question of the agent's is a card with
+  "Deny", with a reason if you give one. A change to a file (`Edit`, `MultiEdit`)
+  is shown as lines removed (struck through, with a "−") and lines added (with a
+  "+"), the first six of them and "Show all"; the same lines are in its tool card
+  when you open it. A `Write` shows the first lines of what it will hold. A question of the agent's is a card with
   its options and an "Other" line; a plan is shown to be approved or kept
   planning. The session reads "Needs input" while a card is open. "Stop" with a
   card open ends the turn and the card reads "Cancelled: the turn was stopped";

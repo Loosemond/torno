@@ -4,6 +4,7 @@ import { pressed } from '../../../shared/keys'
 import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
 import { type Question, answerFor, describeInput, questionsOf } from './ask'
+import { Diff } from './Diff'
 import { Markdown } from './markdown'
 import { useChatPlace } from './place'
 
@@ -94,13 +95,14 @@ function Permission({ item }: { item: Ask }) {
         Claude Code {open ? 'asks' : 'asked'} to use <span className="num">{toolName(item.toolName)}</span>
       </h4>
       {item.description !== undefined && <p className="chat-ask-why selectable">{numbered(item.description)}</p>}
-      {(shown.lead !== undefined || shown.body !== '') && (
+      {(shown.lead !== undefined || shown.body !== '' || shown.hunks !== undefined) && (
         <div className="chat-ask-input selectable">
           {shown.lead !== undefined && <p className="chat-ask-lead" title={shown.full}>{shown.lead}</p>}
+          {shown.hunks !== undefined && <Diff hunks={shown.hunks} />}
           {shown.body !== '' && <pre>{shown.body}</pre>}
           {shown.more > 0 && (
             <button type="button" className="chat-more" onClick={() => setAll(true)}>
-              Show all {numbered(`${shown.more} more lines`)}
+              Show all {numbered(shown.hunks !== undefined ? `${shown.more} more changed lines` : `${shown.more} more lines`)}
             </button>
           )}
         </div>

@@ -69,6 +69,23 @@ describe.each([['light', tokens(css.slice(0, dark))], ['dark', { ...tokens(css.s
   it('reads on the wash of the row that is chosen or pointed at: muted words and the three verdicts', () => {
     for (const name of ['--muted', '--ok', '--warn', '--fail']) expect([name, contrast(t[name], t['--accent-wash']) >= 4.5]).toEqual([name, true])
   })
+  it('reads an edit as a diff: ink and the signs on both washes, and the washes are no mark\'s colour and no verdict\'s', () => {
+    // Removed lines are struck through in ink beside a "−" in the muted colour; added ones have a "+": the sign and the strike
+    // carry the meaning, the wash only groups. A step of the hairline on the panel, and the accent's wash.
+    for (const wash of ['--diff-removed-wash', '--diff-added-wash']) {
+      expect([wash, contrast(t['--ink'], t[wash]) >= 7]).toEqual([wash, true])
+      expect([wash, contrast(t['--muted'], t[wash]) >= 4.5]).toEqual([wash, true])
+    }
+    expect(t['--diff-added-wash']).toBe(t['--accent-wash'])
+    expect(t['--diff-removed-wash']).not.toBe(t['--panel'])
+    // The removed wash lies between the panel and the hairline, as a grey: no hue to take for a mark or a verdict.
+    const between = contrast(t['--panel'], t['--diff-removed-wash']) < contrast(t['--panel'], t['--hairline'])
+    expect(between).toBe(true)
+    const chroma = (hex: string): number => Math.max(...[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))) - Math.min(...[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)))
+    expect(chroma(t['--diff-removed-wash'])).toBeLessThanOrEqual(16)
+    // The added wash is the accent's blue, 60 degrees from the red and the green of the marks, and from the verdicts.
+    for (const other of ['--user-mark', '--agent-mark', '--ok', '--fail']) expect([other, hueApart(t['--diff-added-wash'], t[other]) >= 60]).toEqual([other, true])
+  })
   it('draws a mark\'s line on a casing in the panel\'s colour, against which it reads, and which stands off every part', () => {
     // The pair that is adjacent: the line and its casing.
     for (const mark of ['--user-mark', '--agent-mark']) expect([mark, contrast(t[mark], t['--panel']) >= 3]).toEqual([mark, true])

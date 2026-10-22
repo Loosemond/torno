@@ -7,7 +7,8 @@ it('shows a command as the command, and a file as its path and a few lines of wh
   expect(describeInput('Write', { file_path: 'a/b.py', content })).toEqual({ lead: 'a/b.py', body: 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6', more: 4 })
   // Every line, when asked for.
   expect(describeInput('Write', { file_path: 'a/b.py', content }, true)).toEqual({ lead: 'a/b.py', body: content, more: 0 })
-  expect(describeInput('Edit', { file_path: 'a.py', old_string: 'x', new_string: 'y\nz' })).toEqual({ lead: 'a.py', body: 'y\nz', more: 0 })
+  // An edit with nothing to compare is the new text, as a file is.
+  expect(describeInput('Edit', { file_path: 'a.py', new_string: 'y\nz' })).toEqual({ lead: 'a.py', body: 'y\nz', more: 0 })
   expect(describeInput('Write', { file_path: 'empty.txt', content: '' })).toEqual({ lead: 'empty.txt', body: '', more: 0 })
 })
 
@@ -49,4 +50,26 @@ it('shows a file path on a card relative to the object folder, with the full pat
   const shown = describeInput('Write', { file_path: '/w/obj/parts/lid.py', content: 'x' }, false, { dir: '/w/obj' })
   expect(shown.lead).toBe('parts/lid.py')
   expect(shown.full).toBe('/w/obj/parts/lid.py')
+})
+
+it('shows an Edit as the lines removed and added, a MultiEdit as one block for each edit, and a Write as what it will hold', () => {
+  const edit = describeInput('Edit', { file_path: '/w/obj/m.py', old_string: 'WALL = 2', new_string: 'WALL = 3' }, false, { dir: '/w/obj' })
+  expect(edit).toEqual({ lead: 'm.py', full: '/w/obj/m.py', body: '', more: 0, hunks: [{ rows: [{ kind: 'removed', text: 'WALL = 2' }, { kind: 'added', text: 'WALL = 3' }] }] })
+
+  const multi = describeInput('MultiEdit', { file_path: 'm.py', edits: [{ old_string: 'WALL = 2', new_string: 'WALL = 3' }, { old_string: 'LID = 1', new_string: 'LID = 2' }] })
+  expect(multi.lead).toBe('m.py')
+  expect(multi.body).toBe('')
+  expect(multi.hunks?.map((h) => h.title)).toEqual(['Edit 1 of 2', 'Edit 2 of 2'])
+  expect(multi.hunks?.[1].rows).toEqual([{ kind: 'removed', text: 'LID = 1' }, { kind: 'added', text: 'LID = 2' }])
+
+  // Six lines removed and added at first; the rest with `all`.
+  const edits = [{ old_string: '1\n2\n3\n4\n5', new_string: 'a\nb\nc\nd\ne' }]
+  const cut = describeInput('MultiEdit', { file_path: 'm.py', edits })
+  expect(cut.more).toBe(4)
+  expect(cut.hunks?.[0].rows).toHaveLength(6)
+  expect(describeInput('MultiEdit', { file_path: 'm.py', edits }, true)).toMatchObject({ more: 0, hunks: [{ rows: expect.arrayContaining([{ kind: 'added', text: 'e' }]) }] })
+
+  // A Write has no old text to compare with: it stays the first lines of what it holds.
+  expect(describeInput('Write', { file_path: 'm.py', content: 'WALL = 3' })).toEqual({ lead: 'm.py', body: 'WALL = 3', more: 0 })
+  expect(describeInput('Write', { file_path: 'm.py', content: 'WALL = 3' }).hunks).toBeUndefined()
 })

@@ -1,6 +1,8 @@
 import { memo, useMemo, useState } from 'react'
-import { type ChatItem, toolLabel } from '../../../shared/chat'
+import { type ChatItem, type ChatWhere, shownPath, toolLabel } from '../../../shared/chat'
 import { numbered } from '../numbered'
+import { Diff } from './Diff'
+import { editHunks, type Hunk, limitHunks } from './diff'
 import { Pictures } from './Pictures'
 import { useChatPlace } from './place'
 import { RefText } from './RefText'
@@ -45,6 +47,29 @@ function Lines({ label, text }: { label: string; text: string }) {
   )
 }
 
+/** What an `Edit` or a `MultiEdit` changed, as lines removed and added: the first few, with a way to see them all. */
+function Changes({ hunks, input, where }: { hunks: Hunk[]; input: unknown; where: ChatWhere }) {
+  const [all, setAll] = useState(false)
+  const path = typeof (input as { file_path?: unknown }).file_path === 'string' ? (input as { file_path: string }).file_path : undefined
+  const shown = limitHunks(hunks, SHOWN_LINES, all)
+  return (
+    <div className="chat-lines">
+      <p className="chat-lines-label">Input</p>
+      {path !== undefined && (
+        <p className="chat-ask-lead selectable" title={path}>
+          {shownPath(path, where)}
+        </p>
+      )}
+      <Diff hunks={shown.hunks} />
+      {shown.more > 0 && (
+        <button type="button" className="chat-more" onClick={() => setAll(true)}>
+          Show all {numbered(`${shown.more} more changed lines`)}
+        </button>
+      )}
+    </div>
+  )
+}
+
 /**
  * A tool the agent used, on one line: what it did, and how it went. It opens to its input and its result. One of
  * torno's own has a thin rule in the accent colour, and its pictures under the line.
@@ -55,7 +80,8 @@ export const ToolCard = memo(function ToolCard({ item, beat }: { item: Tool; bea
   const label = useMemo(() => toolLabel(item.name, item.input, where), [item.name, item.input, where])
   const full = useMemo(() => toolLabel(item.name, item.input), [item.name, item.input])
   // Only an open card needs its input as text.
-  const input = useMemo(() => (open ? inputText(item.input) : ''), [open, item.input])
+  const hunks = useMemo(() => (open ? editHunks(item.name, item.input) : undefined), [open, item.name, item.input])
+  const input = useMemo(() => (open && !hunks ? inputText(item.input) : ''), [open, hunks, item.input])
   return (
     <div className="chat-item chat-tool" data-kind="tool" data-torno={item.torno ? '' : undefined} data-state={item.state}>
       <button type="button" className="chat-tool-line" title={full} aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -69,7 +95,7 @@ export const ToolCard = memo(function ToolCard({ item, beat }: { item: Tool; bea
       {item.images.length > 0 && <Pictures images={item.images} what={label} />}
       {open && (
         <div className="chat-tool-body">
-          <Lines label="Input" text={input} />
+          {hunks ? <Changes hunks={hunks} input={item.input} where={where} /> : <Lines label="Input" text={input} />}
           {item.inside !== undefined && item.inside.length > 0 && <Lines label="Inside" text={item.inside.join('\n')} />}
           <Lines label="Result" text={item.result ?? ''} />
           {item.result === undefined && item.state !== 'running' && <p className="chat-lines-label">No result</p>}

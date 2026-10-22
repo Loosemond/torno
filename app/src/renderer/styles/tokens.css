@@ -15,6 +15,10 @@
   --scroll-thumb: #84888E;  /* where a list is scrolled to: 3:1 on the panel and the ground, quieter than muted text */
   --accent: #1D46B8;       /* layout blue */
   --accent-wash: #E3E9F8;
+  /* An edit shown as a diff (the chat): a grey step from the panel toward the hairline for the lines removed, the accent's wash
+     for those added. No red and no green, which belong to marks and verdicts; a "−" and a "+" and the strike say which. */
+  --diff-removed-wash: #EAE8E2;
+  --diff-added-wash: #E3E9F8;
   --user-mark: #CF3F2C;    /* red pencil: marks made by the person */
   --agent-mark: #288156;   /* marks made by the agent */
   /* Verdicts are read as text, and are no mark's colour to the eye: darker than the two mark colours by 1.5:1
@@ -110,6 +114,8 @@
     --scroll-thumb: #72777E;
     --accent: #7C9BF7;
     --accent-wash: #252F4A;
+    --diff-removed-wash: #2B2E33;
+    --diff-added-wash: #252F4A;
     --user-mark: #F0705E;
     --agent-mark: #5CC492;
     --ok: #A9E6C8;
