@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Ready } from '../shared/ready'
+import { withoutSession } from './sessions/agentEnv'
 import { findCommand } from './sessions/choice'
 import { outside } from './sessions/transcript'
 
@@ -20,8 +21,11 @@ export type Run = { code: number | null; out: string } | null
 /** How a command is run for the check: the real one is `runCommand`; a test gives the stand-in's. */
 export type Runner = (file: string, args: string[], timeoutMs: number) => Promise<Run>
 
-/** Runs a command to its end within `timeoutMs`, its input closed; kills it after that and answers null. Its standard output is what is kept. */
-export function runCommand(file: string, args: string[], timeoutMs: number, env: NodeJS.ProcessEnv = process.env): Promise<Run> {
+/**
+ * Runs a command to its end within `timeoutMs`, its input closed; kills it after that and answers null. Its standard output is
+ * what is kept. Its environment is torno's without an outer torno's session (`withoutSession`), unless one is given.
+ */
+export function runCommand(file: string, args: string[], timeoutMs: number, env: Record<string, string | undefined> = withoutSession(process.env)): Promise<Run> {
   return new Promise((resolve) => {
     const child = execFile(file, args, { timeout: timeoutMs, killSignal: 'SIGKILL', env, maxBuffer: 1 << 20, windowsHide: true }, (error, stdout) => {
       if (error && (error as { killed?: boolean }).killed) return resolve(null)
@@ -165,7 +169,7 @@ export function makeEnvironment(opts: { command: string[]; env: Record<string, s
       if (tail.length > KEPT_LINES) tail.shift()
       opts.onLine(plain)
     }
-    const child = spawn(file, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env, NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(file, args, { cwd: opts.cwd, env: { ...withoutSession(process.env), ...opts.env, NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
     for (const stream of [child.stdout, child.stderr]) {
       let partial = ''
       stream.setEncoding('utf8')

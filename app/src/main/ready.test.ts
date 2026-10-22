@@ -109,6 +109,18 @@ describe('checkTools', () => {
   })
 })
 
+/** Runs `body` as torno started from inside a session of another torno, whose token is in the environment. */
+async function outerSession(body: () => Promise<void>): Promise<void> {
+  const before = process.env.TORNO_SESSION
+  process.env.TORNO_SESSION = 'outer-token'
+  try {
+    await body()
+  } finally {
+    if (before === undefined) delete process.env.TORNO_SESSION
+    else process.env.TORNO_SESSION = before
+  }
+}
+
 describe('runCommand', () => {
   it('kills what outlasts its time, and answers null', async () => {
     const script = join(binWith('slow', '#!/bin/sh\nsleep 30\n'), 'slow')
@@ -120,6 +132,12 @@ describe('runCommand', () => {
     expect(await runCommand(join(root, 'nothing-here'), [], 1000)).toBeNull()
     const bad = join(binWith('bad', '#!/bin/sh\necho hello\nexit 3\n'), 'bad')
     expect(await runCommand(bad, [], 1000)).toEqual({ code: 3, out: 'hello\n' })
+  })
+  it("gives the command torno's environment without what an outer torno's session gave it", async () => {
+    await outerSession(async () => {
+      const echo = join(binWith('echo-session', '#!/bin/sh\necho "${TORNO_SESSION:-none}"\n'), 'echo-session')
+      expect(await runCommand(echo, [], 1000)).toEqual({ code: 0, out: 'none\n' })
+    })
   })
 })
 
@@ -168,6 +186,14 @@ describe('makeEnvironment', () => {
 
   it('rejects saying uv could not be run when the command is not there', async () => {
     await expect(makeEnvironment({ command: [join(root, 'no-uv'), 'sync'], env: {}, cwd: root, onLine: () => {} })).rejects.toThrow(/could not run/)
+  })
+
+  it("has torno's environment without what an outer torno's session gave it", async () => {
+    await outerSession(async () => {
+      const lines: string[] = []
+      await makeEnvironment({ command: script("console.log(process.env.TORNO_SESSION ?? 'none')"), env: {}, cwd: root, onLine: (l) => lines.push(l) })
+      expect(lines).toEqual(['none'])
+    })
   })
 
   it('has the environment it is given in the process', async () => {

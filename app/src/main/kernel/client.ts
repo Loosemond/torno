@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { BuildError } from '../../shared/build'
 import type { Scene } from '../../shared/scene'
+import { withoutSession } from '../sessions/agentEnv'
 import { encodeFrame, FrameDecoder } from './frames'
 
 const STDERR_LINES = 200
@@ -239,7 +240,8 @@ class Kernel implements KernelClient {
     // would break its stderr too if the two shared one.
     // No bytecode: Python would write __pycache__ beside every model and common/
     // module it imports, and a workspace is only ever written under .torno/.
-    const env = { ...process.env, ...this.extraEnv, PYTHONDONTWRITEBYTECODE: '1' }
+    // Nothing of an outer torno's session: a model that prints its environment would have its token told.
+    const env = { ...withoutSession(process.env), ...this.extraEnv, PYTHONDONTWRITEBYTECODE: '1' }
     const proc = spawn(file, args, { cwd: this.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this.proc = proc
     const decoder = new FrameDecoder()

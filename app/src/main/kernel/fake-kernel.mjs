@@ -19,6 +19,7 @@ if (mode === 'die-at-start') {
   process.stderr.write('ModuleNotFoundError: no module named build123d\n')
   process.exit(1)
 }
+if (mode === 'env') process.stderr.write(`TORNO_SESSION=${process.env.TORNO_SESSION ?? 'none'} TORNO_KEEP_BUILDS=${process.env.TORNO_KEEP_BUILDS ?? 'none'}\n`)
 if (mode === 'noisy') {
   for (let i = 0; i < 500; i++) process.stderr.write(`line ${i}\n`)
   process.stderr.write('no newline at the end')

@@ -353,7 +353,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `starting` when it is started again, after one exit or by the build that follows a stop for good, `ready` when it answers,
   `failed` when it stops for good), so a kernel that failed and was mended by a rebuild is not said to have failed any
   longer; a kernel of a workspace that was left no longer speaks (`epoch`). The CLI and uv are asked with `agentEnv(process.env)`
-  (`sessions/agentEnv.ts`), the environment a session gets: without a parent Claude Code session's variables.
+  (`sessions/agentEnv.ts`), the environment a session gets: without a parent Claude Code session's variables, nor an
+  outer torno's session.
   `ReadyKeeper.makeNow` ("Make it now") runs `environmentCommand` (`uv sync --project <kernel dir>`, `--frozen` and
   `UV_PROJECT_ENVIRONMENT` when packaged) on torno's own kernel project, never on a workspace: it refuses a folder
   with its own project, no `uv`, and a kernel that is starting (it makes the environment itself); it tells uv's lines as
@@ -662,7 +663,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   command line, in its environment, or in a config file of torno's that holds no secret (the `--mcp-config` file,
   `<userData>/agent/<session id>.mcp.json`, written before the agent starts and removed when it has gone; the folder
   is cleared at start). The session's token (`LaunchContext.token`) is in its environment alone, as `TORNO_SESSION`:
-  never in an argument or a file. Nothing of the person's configuration of it is written, and none of its settings is
+  never in an argument or a file. A `TORNO_SESSION`, `TORNO_OBJECT` or `TORNO_SESSION_ID` torno itself was started with
+  (from inside a session of another torno) reaches no process it starts: `withoutSession` of `sessions/agentEnv.ts`
+  takes them out of the environment of the kernel, the import of a scan, `runCommand` and `makeEnvironment` of
+  `ready.ts`, and `agentEnv` of the agent's, whose own the session then sets; an outer token would otherwise reach a
+  model that prints its environment, and from its output a chat log that `redact` does not know it for. Nothing of the person's configuration of it is written, and none of its settings is
   read (the instruction files Claude Code reads are listed by path and size, below, and never read), and nothing is
   written in the object folder outside `.torno/`. The MCP address given is of that object alone, and the session's
   token opens that object's MCP server and that session's hooks, nothing else.

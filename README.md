@@ -1682,7 +1682,10 @@ The agent inherits torno's environment without these, and without the variables
 a parent Claude Code session exports (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` and
 the like), so torno can be started from inside one. Variables you set yourself,
 such as `CLAUDE_CODE_USE_BEDROCK`, are passed on. It is given `TORNO_SESSION`,
-its session's token, which no address and no argument holds.
+its session's token, which no address and no argument holds. A torno started
+from inside a session of another torno passes that session's `TORNO_SESSION`,
+`TORNO_OBJECT` and `TORNO_SESSION_ID` to nothing it starts: not to the agent,
+the kernel, the import of a scan or the checks of what torno needs.
 
 ## Not yet verified on a visible screen
 

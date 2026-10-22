@@ -3,6 +3,7 @@ import { number } from '../../shared/format'
 import type { Vec3 } from '../../shared/marks'
 import type { ScanUnit, ScanUp } from '../../shared/scans'
 import { cannotStart, scanCommand } from '../kernel/client'
+import { withoutSession } from '../sessions/agentEnv'
 
 /** What the import process says it wrote (`kernel/src/torno_kernel/scans.py`): its last line on stdout. */
 export interface ImportReply { unit: ScanUnit; up: ScanUp; assumed: { unit: boolean; up: boolean }; vertices: number; triangles: number; colours: 'texture' | 'vertex' | 'none'; bbox: { min: Vec3; max: Vec3 }; area: number; reduced: { from: number; cell: number } | null; source?: { bytes: number; sha256: string } }
@@ -120,8 +121,8 @@ export function commandIn(workspaceRoot: string, hasProject: () => boolean, kern
 function once(command: string[], cwd: string, timeoutMs: number, extraEnv: Record<string, string>, onStage: ((stage: string) => void) | undefined, ender: (end: (reason: string) => void) => void): Promise<ImportReply> {
   return new Promise((resolve, reject) => {
     const [file, ...args] = command
-    // No bytecode, as for the kernel: a workspace is only ever written under .torno/.
-    const env = { ...process.env, ...extraEnv, PYTHONDONTWRITEBYTECODE: '1' }
+    // No bytecode, as for the kernel: a workspace is only ever written under .torno/. Nor an outer torno's session, as for the kernel.
+    const env = { ...withoutSession(process.env), ...extraEnv, PYTHONDONTWRITEBYTECODE: '1' }
     const proc = spawn(file, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
     let stdout = ''
     let stderr = ''

@@ -250,6 +250,19 @@ describe('kernel client', () => {
     expect(kernel.stderrTail()).toContain('could not run /nonexistent/torno-uv')
   })
 
+  it("gives the kernel torno's environment without what an outer torno's session gave it, and with torno's switches", async () => {
+    const before = process.env.TORNO_SESSION
+    process.env.TORNO_SESSION = 'outer-token'
+    try {
+      const k = start('env')
+      await k.ready
+      expect(k.stderrTail()).toContain('TORNO_SESSION=none TORNO_KEEP_BUILDS=1')
+    } finally {
+      if (before === undefined) delete process.env.TORNO_SESSION
+      else process.env.TORNO_SESSION = before
+    }
+  })
+
   it('keeps the last 200 lines of stderr', async () => {
     const k = start('noisy')
     await k.ready

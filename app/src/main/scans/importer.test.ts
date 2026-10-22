@@ -43,6 +43,20 @@ describe('the import process', () => {
     expect(stages).toEqual(['reading', 'writing'])
   })
 
+  it("gives the process torno's environment without what an outer torno's session gave it", async () => {
+    const before = process.env.TORNO_SESSION
+    process.env.TORNO_SESSION = 'outer-token'
+    try {
+      const stages: string[] = []
+      const script = "console.error('stage: ' + (process.env.TORNO_SESSION ?? 'none')); console.log(JSON.stringify({ ok: true, unit: 'mm' }))"
+      await processImporter(() => ['node', '-e', script], process.cwd()).import('/a.stl', '/out.bin', {}, (stage) => stages.push(stage))
+      expect(stages).toEqual(['none'])
+    } finally {
+      if (before === undefined) delete process.env.TORNO_SESSION
+      else process.env.TORNO_SESSION = before
+    }
+  })
+
   // Beyond the brief's tests.
 
   it('ends what the process started with it: nothing is written once it was given up on', async () => {
