@@ -1,47 +1,15 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
+import type { AgentAsk, AgentEvents, AgentMessage, AgentTransport, AskAnswer, PromptBlock } from './transport'
+
+/** The stream's own names of the messages and asks of `transport.ts`, which the tests of the stream know them by. */
+export type { AgentMessage as StreamMessage, AgentAsk as StreamAsk, AskAnswer, PromptBlock } from './transport'
 
 /** A line over this many characters is dropped: a tool result of megabytes is welcome, a runaway is not. */
 const MAX_LINE = 16 * 1024 * 1024
 const CONTROL_TIMEOUT_MS = 10_000
 /** How much of a line that is not JSON, or of the CLI's stderr, is kept in a note. */
 const NOTE_CHARS = 300
-
-/** One line the CLI printed, typed loosely: what torno does not know of it is carried along, never refused. */
-export interface StreamMessage {
-  type: string
-  [key: string]: unknown
-}
-
-/** A request of the CLI's that waits for the person: it may use a tool (`can_use_tool`). Answered by `answer`. */
-export interface StreamAsk {
-  requestId: string
-  toolName: string
-  input: unknown
-  toolUseId?: string
-  suggestions?: unknown[]
-  /** What the CLI says in words of what it asks (`description`), and the path it is blocked on (`blocked_path`). */
-  description?: string
-  blockedPath?: string
-}
-
-export type PromptBlock =
-  | { type: 'text'; text: string }
-  | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg'; data: string } }
-
-/** What to answer a `can_use_tool` request with. */
-export type AskAnswer =
-  | { behavior: 'allow'; updatedInput: unknown; updatedPermissions?: unknown[] }
-  | { behavior: 'deny'; message: string }
-
-interface Events {
-  message: (m: StreamMessage) => void
-  ask: (req: StreamAsk) => void
-  note: (text: string) => void
-  /** What the CLI wrote on its stderr, as it came. */
-  stderr: (text: string) => void
-  exit: (code: number | null, signal: string | null) => void
-}
 
 interface Waiting {
   resolve: (response: unknown) => void
@@ -53,16 +21,16 @@ interface Waiting {
  * Claude Code in its headless mode, through pipes (`claude.ts` in view `chat`): a prompt is a line of JSON on its
  * stdin and everything it does is a line of JSON on its stdout (app/test/fixtures/claude-stream.jsonl is a
  * recording). This frames those lines and speaks the requests both ways, and knows nothing of what the messages
- * mean: that is the transcript's.
+ * mean: that is the transcript's. The one `AgentTransport` there is (`claudeAdapter`'s `chat`).
  *
  * What the CLI prints that torno does not know is never an error. A line that is not JSON, or an object without
  * a `type`, is a `note`; a line over `maxLine` is dropped, with a `note`, and the next one is read. The process
  * leads a group of its own (`detached`), which `killGroup` can end.
  */
-export class ClaudeStream {
+export class ClaudeStream implements AgentTransport {
   readonly pid: number
   private readonly child: ChildProcess
-  private readonly listeners: { [E in keyof Events]: Events[E][] } = { message: [], ask: [], note: [], stderr: [], exit: [] }
+  private readonly listeners: { [E in keyof AgentEvents]: AgentEvents[E][] } = { message: [], ask: [], note: [], stderr: [], exit: [] }
   private readonly waiting = new Map<string, Waiting>()
   private readonly maxLine: number
   private requests = 0
@@ -102,7 +70,7 @@ export class ClaudeStream {
     })
   }
 
-  on<E extends keyof Events>(event: E, cb: Events[E]): void {
+  on<E extends keyof AgentEvents>(event: E, cb: AgentEvents[E]): void {
     this.listeners[event].push(cb)
   }
 
@@ -130,6 +98,11 @@ export class ClaudeStream {
     })
   }
 
+  /** An `interrupt` request: the CLI stops the turn at work and answers with the prompts it keeps (`still_queued`). */
+  interrupt(timeoutMs = CONTROL_TIMEOUT_MS): Promise<unknown> {
+    return this.control({ subtype: 'interrupt' }, timeoutMs)
+  }
+
   /** The answer to a `can_use_tool` request the CLI made. */
   answer(requestId: string, response: AskAnswer): void {
     this.send({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } })
@@ -146,11 +119,11 @@ export class ClaudeStream {
     stdin.write(`${JSON.stringify(message)}\n`)
   }
 
-  private emit<E extends keyof Events>(event: E, ...args: Parameters<Events[E]>): void {
+  private emit<E extends keyof AgentEvents>(event: E, ...args: Parameters<AgentEvents[E]>): void {
     // A listener that throws must not stop the reading: it is a note (and a note's own listener is let be).
     for (const cb of this.listeners[event]) {
       try {
-        ;(cb as (...a: Parameters<Events[E]>) => void)(...args)
+        ;(cb as (...a: Parameters<AgentEvents[E]>) => void)(...args)
       } catch (e) {
         if (event !== 'note') this.emit('note', `a listener of ${event} threw: ${e instanceof Error ? e.message : String(e)}`)
       }
@@ -197,14 +170,14 @@ export class ClaudeStream {
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed) || typeof (parsed as { type?: unknown }).type !== 'string') {
       return this.emit('note', `not a message: ${trimmed.slice(0, NOTE_CHARS)}`)
     }
-    const message = parsed as StreamMessage
+    const message = parsed as AgentMessage
     if (message.type === 'control_response' && this.answered(message)) return
     if (message.type === 'control_request' && this.asked(message)) return
     this.emit('message', message)
   }
 
   /** Whether a control_response was the answer to a request of ours, which it then settles. */
-  private answered(message: StreamMessage): boolean {
+  private answered(message: AgentMessage): boolean {
     const response = message.response as { subtype?: unknown; request_id?: unknown; response?: unknown; error?: unknown } | undefined
     const id = response?.request_id
     const wait = typeof id === 'string' ? this.waiting.get(id) : undefined
@@ -217,7 +190,7 @@ export class ClaudeStream {
   }
 
   /** A request of the CLI's: a `can_use_tool` is an ask, anything else is refused. Whether it was one of those. */
-  private asked(message: StreamMessage): boolean {
+  private asked(message: AgentMessage): boolean {
     const id = message.request_id
     const request = message.request as { subtype?: unknown; tool_name?: unknown; input?: unknown; tool_use_id?: unknown; permission_suggestions?: unknown; description?: unknown; blocked_path?: unknown } | undefined
     if (typeof id !== 'string') return false
@@ -225,7 +198,7 @@ export class ClaudeStream {
       this.send({ type: 'control_response', response: { subtype: 'error', request_id: id, error: 'not supported' } })
       return true
     }
-    this.emit('ask', {
+    const ask: AgentAsk = {
       requestId: id,
       toolName: request.tool_name,
       input: request.input,
@@ -233,7 +206,8 @@ export class ClaudeStream {
       ...(Array.isArray(request.permission_suggestions) ? { suggestions: request.permission_suggestions } : {}),
       ...(typeof request.description === 'string' && request.description !== '' ? { description: request.description } : {}),
       ...(typeof request.blocked_path === 'string' && request.blocked_path !== '' ? { blockedPath: request.blocked_path } : {})
-    })
+    }
+    this.emit('ask', ask)
     return true
   }
 }

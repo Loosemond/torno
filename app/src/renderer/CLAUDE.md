@@ -618,7 +618,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   What the CLI says of itself comes as notes and as meta: the header's status word gains ", retrying (attempt 3)"
   while `meta.retrying` is set and the session works (the status itself is still the hooks'), and while
   `meta.pluginLoaded` is false a line above the box offers "Restart with the whole prompt" (disabled while the agent
-  works), which starts the session again, resumed, with `session.start(…, { skills: false })`.
+  works), which starts the session again, resumed, with `session.start(…, { skills: false })`. A note with `action:
+  'terminal'` (the chat could not use the login) has "Use the terminal" beside it (`ChatOffer` of `chat/offers.ts`,
+  given by `ChatPane` to the session's own items only, never to "Earlier in this conversation"), which is the view
+  switch's `chooseView('terminal')`: asked about first while the session is busy, else the session ends and the same
+  conversation is resumed in the terminal.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
   (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is

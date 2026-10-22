@@ -2,7 +2,7 @@ import { type ChatImage, type ChatItem, type ChatMeta, MAX_ITEMS, TORNO_TOOL_PRE
 import type { DrawnOver } from '../../shared/drawing'
 import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
-import type { PromptBlock, StreamAsk, StreamMessage } from './stream'
+import type { AgentAsk, AgentMessage, PromptBlock } from './transport'
 
 // The transcript of one chat session: the CLI's stream (`stream.ts`) and torno's own records (a prompt sent, a hook
 // answered, a permission asked, the session ended) reduced to the items the window draws (`shared/chat.ts`). It
@@ -29,6 +29,14 @@ const MAX_DETAIL = 20_000
 const REMEMBERED_MESSAGES = 20
 /** How many tool calls of a subagent are listed on its card. */
 const MAX_INSIDE = 50
+
+/**
+ * Said once a session when the CLI marks an assistant message `error: "authentication_failed"` (the Agent SDK's
+ * `SDKAssistantMessage.error`): as under `--bare`, which reads no OAuth token, or a login that ran out. torno cannot
+ * know which, so it says what failed and offers the terminal, where the CLI runs as the person runs it. Only that
+ * typed field is read, never the words of the message or of the result.
+ */
+export const LOGIN_FAILED = "Claude Code's chat could not use your login: it said the request was not authenticated. The terminal runs Claude Code as you would."
 
 type Record_ = Record<string, unknown>
 const obj = (v: unknown): Record_ | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record_) : null)
@@ -74,6 +82,7 @@ export class Transcript {
   /** Said once for the session: the key that bills the chat, the version outside the range. */
   private keyNoted = false
   private versionNoted = false
+  private loginNoted = false
   /** The tool calls whose permission denial was already read, so a result that lists them again says nothing more. */
   private readonly denied = new Set<string>()
 
@@ -236,7 +245,7 @@ export class Transcript {
    * The CLI says a prompt of ours began (`command_lifecycle`, `started`, naming the uuid torno gave it): it is taken up
    * whatever else has or has not happened, and the `init` that follows is its own. A prompt already taken up (by its hook, or an `init`) is not taken twice.
    */
-  private lifecycle(m: StreamMessage): void {
+  private lifecycle(m: AgentMessage): void {
     if (m.state !== 'started') return
     const uuid = str(m.command_uuid)
     if (uuid === undefined) return
@@ -273,7 +282,7 @@ export class Transcript {
   }
 
   /** The agent asks the person. Not stored once the session has ended. */
-  asked(a: Pick<StreamAsk, 'requestId' | 'toolName' | 'input' | 'suggestions' | 'description' | 'blockedPath'> & { toolUseId?: string }): ChatItem {
+  asked(a: Pick<AgentAsk, 'requestId' | 'toolName' | 'input' | 'suggestions' | 'description' | 'blockedPath'> & { toolUseId?: string }): ChatItem {
     const item: ChatItem = {
       kind: 'ask',
       id: this.newId('i'),
@@ -388,7 +397,7 @@ export class Transcript {
   // --- what the CLI says -----------------------------------------------------------------------------------
 
   /** Items added or changed by one message of the CLI. A message this does not know changes nothing. */
-  message(m: StreamMessage): ChatItem[] {
+  message(m: AgentMessage): ChatItem[] {
     if (this.closed) return []
     return this.run(() => {
       try {
@@ -399,7 +408,7 @@ export class Transcript {
     })
   }
 
-  private read(m: StreamMessage): void {
+  private read(m: AgentMessage): void {
     // The API answered: what the model streams, a tool's result, the end of the turn.
     if (this.info.retrying && (m.type === 'stream_event' || m.type === 'assistant' || m.type === 'user' || m.type === 'result')) {
       const { retrying: _retrying, ...rest } = this.info
@@ -412,7 +421,9 @@ export class Transcript {
         // A subagent's blocks would collide with ours by index: its whole messages are what is shown.
         return obj(m)?.parent_tool_use_id ? undefined : this.streamEvent(obj(m.event))
       case 'assistant':
-        return obj(m)?.parent_tool_use_id ? this.subagent(m) : this.assistant(obj(m.message))
+        if (obj(m)?.parent_tool_use_id) this.subagent(m)
+        else this.assistant(obj(m.message))
+        return this.loginFailed(m)
       case 'user':
         // What a subagent's tools answered is its own.
         return obj(m)?.parent_tool_use_id ? undefined : this.user(m)
@@ -425,7 +436,14 @@ export class Transcript {
     }
   }
 
-  private system(m: StreamMessage): void {
+  /** The turn could not authenticate, by the message's typed `error`: said once, after what the CLI said, with the offer of the terminal. */
+  private loginFailed(m: AgentMessage): void {
+    if (m.error !== 'authentication_failed' || this.loginNoted) return
+    this.loginNoted = true
+    this.put({ kind: 'note', id: this.newId('i'), text: LOGIN_FAILED, tone: 'warn', action: 'terminal' })
+  }
+
+  private system(m: AgentMessage): void {
     if (m.subtype === 'init') {
       // A hook has said what this `init` starts, or it is a command's (which has no hook): the oldest prompt not
       // taken up, if it begins with a slash.
@@ -489,7 +507,7 @@ export class Transcript {
    * `<plugin>:` namespace): the CLI (2.1.300, 2.1.301) lists its loaded plugins and, in `skills`, none of theirs, so
    * a list without any is "not known" and never a warning.
    */
-  private pluginState(m: StreamMessage): { loaded?: boolean; why?: string } {
+  private pluginState(m: AgentMessage): { loaded?: boolean; why?: string } {
     const want = this.plugin
     if (!want) return {}
     const why = errorText(m.plugin_errors, want.name)
@@ -603,7 +621,7 @@ export class Transcript {
   }
 
   /** A message of a subagent: a step on the card of the `Task` that started it, and a line for each tool it used. Its words are not the agent's. */
-  private subagent(m: StreamMessage): void {
+  private subagent(m: AgentMessage): void {
     const parent = str(m.parent_tool_use_id)
     const known = parent ? this.tools.get(parent) : undefined
     const card = known ? this.byId.get(known) : undefined
@@ -634,7 +652,7 @@ export class Transcript {
     return id
   }
 
-  private user(m: StreamMessage): void {
+  private user(m: AgentMessage): void {
     const message = obj(m.message)
     const content = message?.content
     // The compaction summary is the CLI talking to the model, not to the person.
@@ -695,7 +713,7 @@ export class Transcript {
     }
   }
 
-  private finished(m: StreamMessage): void {
+  private finished(m: AgentMessage): void {
     const ok = m.subtype === 'success' && m.is_error !== true
     // Stopped: the CLI said so in words, or torno asked it to and the turn ended in error (it need not say so, as when it only thought).
     const stopped = this.interrupted || (this.interruptWanted && !ok && m.subtype === 'error_during_execution')
@@ -742,7 +760,7 @@ export class Transcript {
   }
 
   /** What the session has cost so far, and the tokens the last request held against the window of the model. */
-  private spent(m: StreamMessage): void {
+  private spent(m: AgentMessage): void {
     const next: ChatMeta = { ...this.info }
     const cost = num(m.total_cost_usd)
     if (cost !== undefined) next.costUsd = cost

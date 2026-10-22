@@ -812,8 +812,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `CLOSE_ANSWER_MS` (1.5 s), or is loading or crashed, is closed without one; a quit that does not come through
   the window (`before-quit`, as `app.close()` of a test) is not held. Under test the question is answered by
   clicking it (`e2e/session.spec.ts`).
-- **The chat session** (Claude Code with `view` `chat`; `sessions/stream.ts`, `transcript.ts`, `chatlog.ts`,
-  `permissions.ts`, `Sessions` in `manager.ts`). The adapter adds `HEADLESS` to the same arguments as a terminal
+- **The chat session** (Claude Code with `view` `chat`; `sessions/transport.ts`, `stream.ts`, `transcript.ts`,
+  `chatlog.ts`, `permissions.ts`, `Sessions` in `manager.ts`). `Sessions` drives a chat through `AgentTransport`
+  (`transport.ts`: `prompt`, `control` for `initialize` and `set_model`, `interrupt`, `answer` to an ask, `end`, the
+  `pid` it signals, and the events `message`, `ask`, `note`, `stderr`, `exit`) and never through a class of its own:
+  the adapter makes it (`AgentAdapter.chat`), and `ClaudeStream` (`stream.ts`) is the one there is. Another
+  transport (the Agent SDK's) would be another `chat` of an adapter, with the messages in the CLI's shapes, the
+  transcript unchanged. The adapter adds `HEADLESS` to the same arguments as a terminal
   session (`claude.ts`); the CLI is spawned on pipes, detached, in the object's folder, with the terminal
   session's environment. There is no PTY. The stream is framed by line and a line that is no JSON, or a message
   of a type nobody knows, is passed over: what the CLI prints changes between versions, and nothing here throws
@@ -866,7 +871,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   missing or is not the shape expected is "not known", never a warning,** and nothing here throws. `Sessions.start`
   takes `skills: false` (the window's "Restart with the whole prompt", which stops the session and starts it again
   resumed): the system prompt is then the whole text (`systemPromptFor` is given the adapter with `skills` false) and
-  `--plugin-dir` is left out (`LaunchContext.skills`). What is known before any session (`main/ready.ts`, The first screen) is the one place torno
+  `--plugin-dir` is left out (`LaunchContext.skills`). **A turn that could not authenticate** (#117: `-p` under `--bare` reads no login, and the CLI says `--bare` will become its default) is known by one typed field alone, an assistant message's `error: "authentication_failed"` (the Agent SDK's `SDKAssistantMessage.error`; not yet seen from a real CLI), never by the words of the message or of the `result`, and never by `apiKeySource` `none`, which a login reports too: a `warn` note once a session after what the CLI said, `LOGIN_FAILED` ("Claude Code's chat could not use your login: …"), with `action: 'terminal'`, the window's button that writes `view` `terminal` as the view switch does. It moves no status. What is known before any session (`main/ready.ts`, The first screen) is the one place torno
   runs `claude --version` and `claude auth status`; a session says what it can of itself through its `init`. Nothing
   of the person's settings is read, and of the instruction files Claude Code reads only the paths and sizes are.
 - Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and

@@ -138,7 +138,9 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   chat is the CLI's own headless mode (`-p --input-format stream-json --output-format stream-json`) on pipes,
   under the person's own login, never run by a test. Hooks stay the one source of status and of the marks sent;
   the stream adds only that a request waiting for the person is `needs_input`; what the CLI says of itself (its `init`,
-  `api_retry`, the denials of a `result`) is shown as notes and meta, and never changes the status. `.torno/chat/` holds text only:
+  `api_retry`, the denials of a `result`, a turn it marks `authentication_failed`) is shown as notes and meta, and never
+  changes the status. `Sessions` drives the chat through `AgentTransport` (`sessions/transport.ts`); the CLI on pipes
+  (`ClaudeStream`) is the one transport. `.torno/chat/` holds text only:
   no address, no secret, no picture data; a reference picture is recorded by its path in `reference/` and shown from
   that file again. A permission answer never writes the person's settings: "Allow for
   this session" sends only `addRules` suggestions, rewritten to `destination: "session"`.

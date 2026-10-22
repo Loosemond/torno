@@ -84,6 +84,11 @@
 // read as empty. With FAKE_AGENT_NO_EXPAND=1 it sends the MCP headers as written, as a CLI that expands nothing would.
 // With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
 // (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
+// With FAKE_AGENT_AUTH_ERROR=<text> in stream mode its first turn cannot authenticate, as under `--bare` or a login that ran
+// out: after the hook and the `init`, an assistant message of the CLI's own (`model` `<synthetic>`) whose text is <text>,
+// marked `error: "authentication_failed"` (the Agent SDK's typed field on assistant messages), a `StopFailure` posted
+// in place of the `Stop`, and a `result` with `is_error: true` and <text> as its `result`; the prompt's script is not run.
+// The turns after it run as ever. (The shape is the SDK's, not yet seen from a real CLI.)
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -181,6 +186,8 @@ async function streamMode() {
     if (!stubborn) process.exit(0)
   })
   let model = 'fake-model'
+  /** FAKE_AGENT_AUTH_ERROR: what the CLI says when its first turn cannot authenticate; none once said. */
+  let unauthenticated = process.env.FAKE_AGENT_AUTH_ERROR || undefined
   /** FAKE_AGENT_INIT: fields of the CLI's own account of itself, put in every `init`. */
   const account = {
     // As the recordings are (2.1.300): the plugins loaded are listed (torno's when it was given a folder), `skills` holds only the person's own.
@@ -443,6 +450,17 @@ async function streamMode() {
     }
     out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...account, ...base, uuid: next('uuid') })
     for (const context of contexts) if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: context, ...base, uuid: next('uuid') })
+    // A first turn that could not authenticate: the CLI's own message, typed, in place of the model's; `StopFailure` in place of `Stop`.
+    if (unauthenticated !== undefined) {
+      const said = unauthenticated
+      unauthenticated = undefined
+      out({ type: 'assistant', message: { id: next('msg'), type: 'message', role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: said }] }, error: 'authentication_failed', ...base, uuid: next('uuid') })
+      await post('StopFailure', { error: 'authentication_failed', last_assistant_message: said })
+      out({ type: 'result', subtype: 'success', is_error: true, result: said, duration_ms: Date.now() - started, duration_api_ms: 0, num_turns: 1, stop_reason: 'stop_sequence', total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, permission_denials: [], ...base, uuid: next('uuid') })
+      for (const uuid of turn.taken) life(uuid, 'completed')
+      turn = null
+      return
+    }
     await script(text)
     await takeFolded()
     const stopped = turn.aborted

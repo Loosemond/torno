@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { SESSION_HEADER } from '../http'
 import type { AgentAdapter } from './adapter'
+import { ClaudeStream } from './stream'
 import { HOOK_EVENTS } from './status'
 
 export { HOOK_EVENTS }
@@ -128,6 +129,8 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
       if (pluginDir && ctx.skills !== false) args.push('--plugin-dir', pluginDir)
       if (ctx.systemPrompt) args.push('--append-system-prompt', ctx.systemPrompt)
       return { command, args, env: { [TOKEN_VARIABLE]: ctx.token }, files: [{ path: mcpFile, text: `${JSON.stringify(mcp, null, 2)}\n` }] }
-    }
+    },
+    // Its headless mode on pipes (`HEADLESS` above).
+    chat: (run) => new ClaudeStream(run)
   }
 }

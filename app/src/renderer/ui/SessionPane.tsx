@@ -820,7 +820,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
         <div className="session-term" ref={host} data-shown={session && !chatting && !drafting ? '' : undefined} />
-        {session && chatting && !drafting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} dir={objectDir} onWholePrompt={() => void start(true, false)} />}
+        {session && chatting && !drafting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} dir={objectDir} onWholePrompt={() => void start(true, false)} onUseTerminal={() => chooseView('terminal')} />}
         {drafting ? (
           <DraftPaneLive />
         ) : !objectId ? (

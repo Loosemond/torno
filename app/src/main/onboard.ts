@@ -11,7 +11,7 @@ import { FOLDER } from './own'
 import { MOST, oneLine } from './objects/create'
 import { THUMB_MAX_BYTES, THUMB_PNG } from './show/cards'
 import type { Sessions } from './sessions/manager'
-import type { PromptBlock } from './sessions/stream'
+import type { PromptBlock } from './sessions/transport'
 import { type ImageBytes, checkedImage } from './images'
 // The rule of a picture main attaches (`images.ts`), named here too, where it was first.
 export { type ImageBytes, MAX_EDGE, MAX_IMAGE_BYTES, checkedImage } from './images'

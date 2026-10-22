@@ -35,8 +35,8 @@ export type ChatItem =
   | { kind: 'ask'; id: string; requestId: string; toolName: string; input: unknown; suggestions: boolean; description?: string; blockedPath?: string; state: 'open' | 'allowed' | 'denied' | 'ended'; answer?: string; why?: string }
   /** The end of a turn, with what was pulled from torno in it (`pulledFromTorno`). */
   | { kind: 'turn'; id: string; ok: boolean; stopped: boolean; seconds: number; pulled: Record<string, number>; error?: string }
-  /** Something torno says about the conversation: the model changed, torno's tools are not connected, the session ended. */
-  | { kind: 'note'; id: string; text: string; tone: 'quiet' | 'warn' }
+  /** Something torno says about the conversation: the model changed, torno's tools are not connected, the session ended. `action`: a button beside it, `terminal` to run this object's sessions in Claude Code's own terminal (the chat could not use the login). */
+  | { kind: 'note'; id: string; text: string; tone: 'quiet' | 'warn'; action?: 'terminal' }
 
 /** What is known of the session as a whole, apart from the items. */
 export interface ChatMeta {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '../../shared/chat'
 import type { StreamMessage } from './stream'
 import { onboardPrompt } from '../onboard'
-import { Transcript } from './transcript'
+import { LOGIN_FAILED, Transcript } from './transcript'
 
 // The reducer, fed what Claude Code 2.1.300 printed (app/test/fixtures/claude-stream.jsonl) and what torno itself
 // records (a prompt sent, a hook answered, a permission asked, a session ended).
@@ -748,6 +748,43 @@ describe('what the CLI says of itself (#116)', () => {
     t.message(init({ apiKeySource: 'user' }))
     expect(t.meta().apiKeySource).toBe('user')
     expect(of(t, 'note')).toMatchObject([{ tone: 'quiet', text: "This chat is billed to an API key (Claude Code names its source: `project`), not to your Claude login: you pay per token. An `ANTHROPIC_API_KEY` in torno's environment, for example, does this." }])
+  })
+
+  // What Claude Code says when a turn could not authenticate (`--bare`, which reads no OAuth token, or a login that
+  // ran out): the assistant message's typed `error` (the Agent SDK's `SDKAssistantMessage.error`), a message of its
+  // own words, and a result marked as an error. Only the typed field is read.
+  const loginFailed = (extra: object = {}): StreamMessage => ({ type: 'assistant', message: { id: 'msg_auth', role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: 'Not logged in · Please run /login' }] }, parent_tool_use_id: null, error: 'authentication_failed', ...extra })
+
+  it('says once a session, after the words the CLI said, that the chat could not use the login, and offers the terminal (#117)', () => {
+    const t = new Transcript()
+    t.message(init({ apiKeySource: 'none' }))
+    t.message(loginFailed())
+    t.message(result({ is_error: true, result: 'Not logged in · Please run /login' }))
+    expect(t.items().map((i) => i.kind)).toEqual(['text', 'note', 'turn'])
+    expect(of(t, 'note')).toEqual([{ kind: 'note', id: expect.any(String), text: LOGIN_FAILED, tone: 'warn', action: 'terminal' }])
+    expect(LOGIN_FAILED).toBe("Claude Code's chat could not use your login: it said the request was not authenticated. The terminal runs Claude Code as you would.")
+    expect(of(t, 'turn')).toMatchObject([{ ok: false, error: 'Not logged in · Please run /login' }])
+    // A second turn that fails the same way says nothing more.
+    t.message(init())
+    t.message(loginFailed())
+    t.message(result({ is_error: true }))
+    expect(of(t, 'note')).toHaveLength(1)
+    // It is kept in the log as any note is: text, and the action by name.
+    expect(t.toLog().filter((i) => i.kind === 'note')).toEqual([of(t, 'note')[0]])
+  })
+
+  it('takes no words for an authentication failure: not the text, not a result, not a retry, not another error, not apiKeySource none', () => {
+    const t = new Transcript()
+    t.message(init({ apiKeySource: 'none' }))
+    t.message(assistant([{ type: 'text', text: 'Invalid API key · Please run /login' }]))
+    t.message(result({ is_error: true, result: 'authentication_failed: Not logged in · Please run /login' }))
+    t.message({ type: 'system', subtype: 'api_retry', attempt: 1, error_status: 401, error: 'authentication_failed' })
+    t.message(loginFailed({ error: 'rate_limit' }))
+    t.message(loginFailed({ error: 'billing_error' }))
+    t.message(loginFailed({ error: 'oauth_org_not_allowed' }))
+    t.message(loginFailed({ error: { type: 'authentication_failed' } }))
+    t.message({ ...loginFailed(), message: { ...(loginFailed().message as object), error: 'authentication_failed' }, error: undefined })
+    expect(of(t, 'note')).toEqual([])
   })
 
   it('says once that the CLI is older or of a newer minor than torno was checked with, and keeps its version', () => {

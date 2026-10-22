@@ -4,6 +4,7 @@ import { ChatItems } from './Items'
 import { AskSession } from './AskCard'
 import { Composer } from './Composer'
 import { ChatPlace } from './place'
+import { ChatOffer, type ChatOffers } from './offers'
 
 /** Within this many pixels of its end, a transcript is at its end. */
 const AT_END_PX = 24
@@ -26,11 +27,17 @@ function useBeat(active: boolean): boolean {
  *
  * What the agent asks is a card in the transcript (`AskCard`, which answers to this session); "Attach view", the
  * commands offered while a `/` is typed and the rate line are in the foot, with the box (`Composer`). When the CLI said
- * torno's skills did not load, a line above the box offers the session again on the whole prompt (`onWholePrompt`).
+ * torno's skills did not load, a line above the box offers the session again on the whole prompt (`onWholePrompt`). A note
+ * of this session's that the chat could not use the login has a button that runs the object's sessions in the terminal
+ * (`onUseTerminal`).
  */
-export function ChatPane({ sessionId, live, working, dir, onWholePrompt }: { sessionId: string; live: boolean; working: boolean; dir?: string; onWholePrompt: () => void }) {
+export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTerminal }: { sessionId: string; live: boolean; working: boolean; dir?: string; onWholePrompt: () => void; onUseTerminal: () => void }) {
   const chat = useChat(sessionId)
   const place = useMemo(() => ({ dir, home: window.torno.home || undefined }), [dir])
+  // One value for the pane's life, so that the notes are not drawn again for a new callback: it calls the latest.
+  const toTerminal = useRef(onUseTerminal)
+  toTerminal.current = onUseTerminal
+  const offers = useMemo<ChatOffers>(() => ({ terminal: () => toTerminal.current() }), [])
   useEffect(() => {
     void chatActions.load(sessionId)
     // Once no pane shows it, a session lets go of its pictures: they are asked for again when it is shown.
@@ -101,7 +108,11 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt }: { ses
               <ChatItems items={earlier} beat={false} />
             </section>
           )}
-          {items && <ChatItems items={items} beat={beat} />}
+          {items && (
+            <ChatOffer.Provider value={offers}>
+              <ChatItems items={items} beat={beat} />
+            </ChatOffer.Provider>
+          )}
           {chat && !chat.loading && items!.length === 0 && (!earlier || earlier.length === 0) && (
             <p className="chat-empty">Say what to change, or ask about the part. The marks you leave go with your prompt.</p>
           )}

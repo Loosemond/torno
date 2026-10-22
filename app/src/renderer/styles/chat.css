@@ -539,6 +539,14 @@ button.ref-chip {
   color: var(--warn);
 }
 
+/* A note with a button beside it (the chat could not use the login: the terminal). */
+.chat-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 /* The offer to restart on the whole prompt, above the box. */
 .chat-restart {
   display: flex;

@@ -26,7 +26,7 @@ import { agentEnv } from './agentEnv'
 import { findCommand } from './choice'
 import { SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
-import { type AskAnswer, ClaudeStream, type PromptBlock, type StreamAsk, type StreamMessage } from './stream'
+import type { AgentAsk, AgentMessage, AgentTransport, AskAnswer, PromptBlock } from './transport'
 import { Transcript } from './transcript'
 
 const HOOK_BODY_LIMIT = 1024 * 1024
@@ -64,17 +64,17 @@ interface Session {
   status: SessionStatus
   cols: number
   rows: number
-  /** How it is shown: a chat session has a `stream` and no `pty`, a terminal session the other way round. */
+  /** How it is shown: a chat session has an `agent` (its transport) and no `pty`, a terminal session the other way round. */
   view: AgentView
   pty: pty.IPty | null
-  stream: ClaudeStream | null
+  agent: AgentTransport | null
   /** A chat session: what it said and did, as the window draws it; kept after the session ends (`Sessions.history`). */
   chat: ChatRecord | null
   /** A chat session: what was written to the log, one write after another; and whether a write failed, after which none is tried. */
   logging: Promise<void>
   logFailed: boolean
   /** A chat session: the requests of the CLI's that wait for the person. */
-  asks: Map<string, StreamAsk>
+  asks: Map<string, AgentAsk>
   /** A chat session: what the CLI printed or posted last (it grows with every line and hook), to tell a moment of quiet from a change. */
   activity: number
   /** A chat session: waits a moment after a `result` that left prompts untaken, to see whether the CLI begins on them. */
@@ -194,9 +194,9 @@ interface Events {
   // `stream`, `ask`, `asked` and `context` have no listener in the app: they are the probe the integration tests
   // (`manager.itest.ts`) watch the CLI's stand-in through. `stream` is made only while somebody listens.
   /** A chat session: a line the CLI printed, as the stream read it. Never for a terminal session. */
-  stream: { sessionId: string; objectId: string; message: StreamMessage }
+  stream: { sessionId: string; objectId: string; message: AgentMessage }
   /** A chat session: the CLI asks for permission to use a tool, or a question, and waits for `answer`. */
-  ask: { sessionId: string; objectId: string } & StreamAsk
+  ask: { sessionId: string; objectId: string } & AgentAsk
   /** A chat session: a request of the CLI's was answered (`answered`), or is given up because the session ended. */
   asked: { sessionId: string; requestId: string; answered: boolean }
   /** A chat session: an item of its transcript was added or changed. `seq` grows with every item and meta told of the session. */
@@ -346,7 +346,7 @@ export class Sessions {
     })
     const files = launch.files.map((file) => file.path)
     let child: pty.IPty | null
-    let stream: ClaudeStream | null
+    let agent: AgentTransport | null
     let earlier: ChatItem[]
     const cols = size(opts.cols, 80)
     const rows = size(opts.rows, 24)
@@ -365,7 +365,7 @@ export class Sessions {
       mkdirSync(this.deps.configDir, { recursive: true, mode: 0o700 })
       for (const file of launch.files) writeFileSync(file.path, file.text, { mode: 0o600 })
       child = view === 'terminal' ? pty.spawn(launch.command, launch.args, { name: 'xterm-256color', cols, rows, cwd: obj.dir, env }) : null
-      stream = view === 'chat' ? new ClaudeStream({ command: launch.command, args: launch.args, cwd: obj.dir, env }) : null
+      agent = view === 'chat' ? adapter.chat({ command: launch.command, args: launch.args, cwd: obj.dir, env }) : null
     } catch (e) {
       this.release({ token, files })
       throw e
@@ -409,7 +409,7 @@ export class Sessions {
       rows,
       view,
       pty: child,
-      stream,
+      agent,
       chat,
       logging: Promise.resolve(),
       logFailed: false,
@@ -440,7 +440,7 @@ export class Sessions {
       this.advance(session, 'exit')
       ended()
     })
-    if (stream) this.follow(session, stream, ended)
+    if (agent) this.follow(session, agent, ended)
     return started(session)
   }
 
@@ -457,7 +457,7 @@ export class Sessions {
   /** The session running in an object's folder. */
   current(objectId: string): SessionInfo | null {
     const s = this.of(objectId)
-    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: (s.pty ?? s.stream)?.pid ?? 0, view: s.view } : null
+    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: (s.pty ?? s.agent)?.pid ?? 0, view: s.view } : null
   }
 
   /** Whether a session is being started in an object's folder and is not there yet. */
@@ -675,13 +675,13 @@ export class Sessions {
    */
   prompt(sessionId: string, content: PromptBlock[], drawing?: DrawnOver): void {
     const s = this.chat(sessionId, 'prompt')
-    if (!s?.stream || !s.chat) return
+    if (!s?.agent || !s.chat) return
     // It waits when the agent is at work, or has been sent a prompt it has not taken up yet (its hook has not moved the status).
     const queued = s.status === 'working' || s.status === 'needs_input' || s.chat.transcript.untakenCount() > 0
     // Its own id: the CLI says in `command_lifecycle` when it queues, begins and ends the prompt it names.
     const uuid = randomUUID()
     s.chat.transcript.userSent(content, queued, uuid, drawing)
-    s.stream.prompt(content, s.conversationId, uuid)
+    s.agent.prompt(content, s.conversationId, uuid)
   }
 
   /**
@@ -691,7 +691,7 @@ export class Sessions {
    */
   began(sessionId: string, within = 10_000): Promise<Began> {
     const s = this.sessions.get(sessionId)
-    if (!s?.stream) return Promise.resolve({ began: false, why: 'The session ended before its first prompt was taken up.' })
+    if (!s?.agent) return Promise.resolve({ began: false, why: 'The session ended before its first prompt was taken up.' })
     if (s.heard) return Promise.resolve({ began: true })
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -713,7 +713,7 @@ export class Sessions {
    */
   async send(sessionId: string, prompt: { text: string; attachView?: boolean; attachedView?: Uint8Array; drawing?: ViewDrawing }): Promise<void> {
     const s = this.chat(sessionId, 'send')
-    if (!s?.stream) throw new Error('This session has ended')
+    if (!s?.agent) throw new Error('This session has ended')
     // One after another: a prompt that waits for its picture is not overtaken by the one sent after it.
     const before = s.sending
     const mine = before.then(() => this.sendOne(sessionId, s, prompt))
@@ -773,10 +773,10 @@ export class Sessions {
   /** A chat session: the answer to a request of the agent's that waits for the person (an `ask`). */
   answer(sessionId: string, requestId: string, response: AskAnswer): void {
     const s = this.chat(sessionId, 'answer')
-    if (!s?.stream) return
+    if (!s?.agent) return
     // Only a request that is open: one that was answered, or never made, writes nothing.
     if (!s.asks.delete(requestId)) return console.error(`session ${sessionId} has no open request ${requestId}`)
-    s.stream.answer(requestId, response)
+    s.agent.answer(requestId, response)
     s.chat?.transcript.answered(requestId, response.behavior === 'allow' ? 'allowed' : 'denied', response.behavior === 'allow' ? answersText(response.updatedInput) : response.message)
     this.emit('asked', { sessionId, requestId, answered: true })
     if (s.asks.size === 0) this.advance(s, 'answered')
@@ -785,8 +785,8 @@ export class Sessions {
   /** A chat session: a request of ours to its agent (`interrupt`, `set_model`, `initialize`), resolved with its answer. */
   control(sessionId: string, request: { subtype: string; [key: string]: unknown }): Promise<unknown> {
     const s = this.chat(sessionId, 'control')
-    if (!s?.stream) return Promise.reject(new Error('This is not a chat session, or it has ended'))
-    const answer = s.stream.control(request)
+    if (!s?.agent) return Promise.reject(new Error('This is not a chat session, or it has ended'))
+    const answer = request.subtype === 'interrupt' ? s.agent.interrupt() : s.agent.control(request)
     // An interrupt does not drop the prompts queued behind the turn (`still_queued`): the CLI runs them after it, and
     // says so (`command_lifecycle`). They end "not sent" only with the session.
     if (request.subtype === 'interrupt') {
@@ -829,7 +829,7 @@ export class Sessions {
   /** A chat session that is live, or none: said to the log when a call meant for one found another. */
   private chat(sessionId: string, call: string): Session | undefined {
     const s = this.sessions.get(sessionId)
-    if (s?.stream && !s.killTimer) return s
+    if (s?.agent && !s.killTimer) return s
     console.error(`${call}: session ${sessionId} is not a chat session that is running`)
     return undefined
   }
@@ -840,10 +840,10 @@ export class Sessions {
     for (const file of session.files) rmSync(file, { force: true })
   }
 
-  /** The stream of a chat session: what it says moves the status, and goes to whoever listens. */
-  private follow(session: Session, stream: ClaudeStream, ended: () => void): void {
+  /** What the agent of a chat session tells: it moves the status, and goes to whoever listens. */
+  private follow(session: Session, agent: AgentTransport, ended: () => void): void {
     const redact = this.deps.http.redact
-    stream.on('message', (message) => {
+    agent.on('message', (message) => {
       session.activity += 1
       session.heard = true
       for (const watcher of session.watchers.splice(0)) watcher({ began: true })
@@ -860,22 +860,22 @@ export class Sessions {
       session.chat?.transcript.message(message)
       if (this.listeners.stream.length > 0) this.emit('stream', { sessionId: session.id, objectId: session.object.id, message })
     })
-    stream.on('ask', (request) => {
+    agent.on('ask', (request) => {
       session.activity += 1
       session.asks.set(request.requestId, request)
       session.chat?.transcript.asked(request)
       this.advance(session, 'ask')
       this.emit('ask', { sessionId: session.id, objectId: session.object.id, ...request })
     })
-    stream.on('stderr', (text) => {
+    agent.on('stderr', (text) => {
       // What the CLI says about itself, for the person should it stop: the last lines, with no address in them.
       session.stderr.push(...text.split('\n').map((line) => redact(line.trim()).slice(0, 500)).filter((line) => line !== ''))
       if (session.stderr.length > STDERR_LINES) session.stderr.splice(0, session.stderr.length - STDERR_LINES)
     })
-    stream.on('note', (text) => {
+    agent.on('note', (text) => {
       if (this.deps.debug) console.error(redact(`[torno] session ${session.id} stream: ${text}`))
     })
-    stream.on('exit', (code, signal) => {
+    agent.on('exit', (code, signal) => {
       // Asked for by torno (`stop`), or not: told before the transcript closes, so that it reads before "The session ended".
       const asked = session.killTimer !== undefined
       clearTimeout(session.killTimer)
@@ -894,7 +894,7 @@ export class Sessions {
       void session.logging.then(ended)
     })
     // Ready for a prompt once it has said what it can do; an agent that cannot say is still one that works.
-    stream
+    agent
       .control({ subtype: 'initialize' })
       .then((answer) => {
         const capabilities = capabilitiesOf(answer)
@@ -981,12 +981,12 @@ export class Sessions {
       const child = s.pty
       signal(child, 'SIGHUP')
       s.killTimer = setTimeout(() => killGroup(child.pid), KILL_AFTER_MS)
-    } else if (!s.killTimer && s.stream) {
+    } else if (!s.killTimer && s.agent) {
       // Its stdin ends and it leaves by itself; one that does not is asked to, then killed, with what it started.
-      const { pid } = s.stream
+      const { pid } = s.agent
       // One at work is interrupted first, so that it does not run its turn out (or its tools) before it goes.
-      if (s.status === 'working' || s.status === 'needs_input') s.stream.control({ subtype: 'interrupt' }, 1000).catch(() => undefined)
-      s.stream.end()
+      if (s.status === 'working' || s.status === 'needs_input') s.agent.interrupt(1000).catch(() => undefined)
+      s.agent.end()
       s.termTimer = setTimeout(() => signalGroup(pid, 'SIGTERM'), TERM_AFTER_MS)
       s.killTimer = setTimeout(() => killGroup(pid), 2 * TERM_AFTER_MS)
     }

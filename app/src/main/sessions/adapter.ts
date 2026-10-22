@@ -1,4 +1,5 @@
 import type { AgentView } from '../../shared/bridge'
+import type { AgentTransport } from './transport'
 
 /** What to run for a session: the command, its arguments, variables to add to its environment, and files of torno's it is given by path. */
 export interface AgentLaunch {
@@ -61,4 +62,6 @@ export interface AgentAdapter {
   /** How this agent's client names a tool of torno's to the model: `mcp__torno__scene`. */
   toolName(tool: string): string
   launch(ctx: LaunchContext): AgentLaunch
+  /** What a chat session (`view` `chat`) speaks to the agent through, once launched: the agent started as `launch` said, in the object's folder. */
+  chat(run: { command: string; args: string[]; cwd: string; env: Record<string, string> }): AgentTransport
 }
