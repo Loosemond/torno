@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dockToggleLabel, rowLabel, signOf, waitingObjects } from './sessionSign'
+import { dockToggleName, dockToggleSaid, rowSaid, signOf, waitingObjects } from './sessionSign'
 
 const objects = [
   { id: 'bracket', name: 'bracket' },
@@ -37,16 +37,18 @@ describe('waitingObjects', () => {
 })
 
 describe('what is said, for a screen reader and for a title', () => {
-  it('names the object and the state of a row, and says nothing more of one with no sign', () => {
-    expect(rowLabel('bracket', 'needs_input')).toBe('bracket, session needs you')
-    expect(rowLabel('bracket', 'working')).toBe('bracket, session is working')
-    expect(rowLabel('bracket', null)).toBeUndefined()
+  it('describes a row by its session, and says nothing of one with no sign; the name is never changed', () => {
+    expect(rowSaid('needs_input')).toBe('session needs you')
+    expect(rowSaid('working')).toBe('session is working')
+    expect(rowSaid(null)).toBeUndefined()
   })
 
-  it('tells the toggle of a dock that is shown or hidden, and of a hidden one whose session has a sign', () => {
-    expect(dockToggleLabel(true, 'needs_input')).toBe('Hide session')
-    expect(dockToggleLabel(false, null)).toBe('Show session')
-    expect(dockToggleLabel(false, 'needs_input')).toBe('Show session: Claude Code needs you')
-    expect(dockToggleLabel(false, 'working')).toBe('Show session: Claude Code is working')
+  it('names the toggle of the dock the same with or without a sign, and describes a hidden one whose session has a sign', () => {
+    expect(dockToggleName(true)).toBe('Hide session')
+    expect(dockToggleName(false)).toBe('Show session')
+    expect(dockToggleSaid(true, 'needs_input')).toBeUndefined()
+    expect(dockToggleSaid(false, null)).toBeUndefined()
+    expect(dockToggleSaid(false, 'needs_input')).toBe('Claude Code needs you')
+    expect(dockToggleSaid(false, 'working')).toBe('Claude Code is working')
   })
 })

@@ -2,7 +2,7 @@ import { actions, useStore } from '../state/store'
 import { openNewObject } from './onboard/NewObject'
 import { PAGE_KEY } from './ShowPage'
 import { SessionDot } from './SessionDot'
-import { rowLabel, signOf } from './sessionSign'
+import { rowSaid, signOf } from './sessionSign'
 
 /** The objects of the workspace. One that cannot be built is muted, with the reason as its tooltip. */
 export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
@@ -36,17 +36,17 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
           {objects.map((o) => {
             // The session of an object that is not the one open still asks for the person, or works: said where the eye is.
             const sign = signOf(sessions[o.id]?.status)
-            const said = rowLabel(o.name, sign)
+            const said = rowSaid(sign)
             return (
               <li key={o.id}>
                 <button
                   type="button"
                   className="row object-row"
                   aria-current={o.id === openId && !creating ? 'true' : undefined}
-                  aria-label={said}
+                  aria-description={said}
                   data-problem={o.problem ? '' : undefined}
                   data-session={sign ?? undefined}
-                  title={o.problem ?? said}
+                  title={o.problem ?? (said && `${o.name}, ${said}`)}
                   onClick={() => onOpen(o.id)}
                 >
                   <span className="row-name">{o.name}</span>

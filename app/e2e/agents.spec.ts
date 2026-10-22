@@ -46,8 +46,7 @@ const status = () => page.locator('.session-status')
 const onDisk = (object: string): unknown => existsSync(join(root, object, '.torno', 'agent.json')) && JSON.parse(readFileSync(join(root, object, '.torno', 'agent.json'), 'utf8'))
 
 async function open(name: string): Promise<void> {
-  // A row says what its session does after the name (`measures, session needs you`).
-  await page.getByRole('button', { name: new RegExp(`^${name}(,|$)`) }).click()
+  await page.getByRole('button', { name, exact: true }).click()
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: name, status: 'ok' })
 }
 
@@ -133,7 +132,7 @@ test('a session at work or waiting for the answer shows on its object\'s row and
   await expect(status()).toHaveText('Working')
   await open('bracket')
   await expect(row('measures')).toHaveAttribute('data-session', 'working')
-  await expect(row('measures')).toHaveAttribute('aria-label', 'measures, session is working')
+  await expect(row('measures')).toHaveAttribute('aria-description', 'session is working')
   await expect(row('measures').locator('.session-sign-word')).toHaveCount(0)
   await expect(needs()).toHaveCount(0)
   await expect(row('bracket')).not.toHaveAttribute('data-session', /./)
@@ -144,7 +143,9 @@ test('a session at work or waiting for the answer shows on its object\'s row and
   await expect(status()).toHaveText('Needs input')
   await open('bracket')
   await expect(row('measures')).toHaveAttribute('data-session', 'needs_input')
-  await expect(row('measures')).toHaveAttribute('aria-label', 'measures, session needs you')
+  await expect(row('measures')).toHaveAttribute('aria-description', 'session needs you')
+  // Still found by its name alone: the state is the row's description, not part of its name.
+  await expect(page.getByRole('button', { name: 'measures', exact: true, description: 'session needs you' })).toHaveCount(1)
   await expect(row('measures').locator('.session-sign-word')).toHaveText('needs you')
   await expect(needs()).toContainText('measures needs you')
   // The button opens it and shows the dock, hidden or not.

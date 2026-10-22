@@ -532,11 +532,14 @@ test('a request that waits for the person shows on the dock\'s toggle when the d
   // The dock hidden: the dot is on the toggle, and its name says what it is.
   await toggle().click()
   await expect(dock()).toBeHidden()
-  await expect(toggle()).toHaveAttribute('aria-label', 'Show session: Claude Code needs you')
+  await expect(toggle()).toHaveAttribute('aria-label', 'Show session')
+  await expect(toggle()).toHaveAttribute('aria-description', 'Claude Code needs you')
   await expect(toggle()).toHaveAttribute('title', 'Show session: Claude Code needs you')
   await expect(toggle().locator('.session-sign[data-sign="needs_input"]')).toBeVisible()
   // The row of the open object says it as well, in words, and the status line has the button.
-  await expect(row('bracket')).toHaveAttribute('aria-label', 'bracket, session needs you')
+  await expect(row('bracket')).toHaveAttribute('aria-description', 'session needs you')
+  // Its name is the object's: found by it exactly, state or none.
+  await expect(page.getByRole('button', { name: 'bracket', exact: true })).toHaveCount(1)
   await expect(row('bracket').locator('.session-sign-word')).toHaveText('needs you')
   await expect(needs()).toContainText('bracket needs you')
 
@@ -561,9 +564,10 @@ test('a request that waits for the person shows on the dock\'s toggle when the d
   await expect(status()).toHaveText('Idle')
   await expect(needs()).toHaveCount(0)
   await expect(row('bracket')).not.toHaveAttribute('data-session', /./)
-  await expect(row('bracket')).not.toHaveAttribute('aria-label', /./)
+  await expect(row('bracket')).not.toHaveAttribute('aria-description', /./)
   await toggle().click()
   await expect(toggle()).toHaveAttribute('aria-label', 'Show session')
+  await expect(toggle()).not.toHaveAttribute('aria-description', /./)
   await expect(toggle().locator('.session-sign')).toHaveCount(0)
   await toggle().click()
   await expect(dock()).toBeVisible()

@@ -15,7 +15,7 @@ import { ObjectList } from './ui/ObjectList'
 import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
 import { SessionDot } from './ui/SessionDot'
-import { dockToggleLabel, signOf } from './ui/sessionSign'
+import { dockToggleName, dockToggleSaid, signOf } from './ui/sessionSign'
 import { ExportSheet } from './ui/ExportSheet'
 import { ViewBoard } from './ui/drawing/ViewBoard'
 import { FolderMenu } from './ui/FolderMenu'
@@ -405,9 +405,10 @@ export function App() {
       <button
         type="button"
         className="dock-toggle"
-        aria-label={dockToggleLabel(dockOpen, dockSign)}
+        aria-label={dockToggleName(dockOpen)}
+        aria-description={dockToggleSaid(dockOpen, dockSign)}
         aria-expanded={dockOpen}
-        title={dockToggleLabel(dockOpen, dockSign)}
+        title={dockToggleSaid(dockOpen, dockSign) ? `${dockToggleName(dockOpen)}: ${dockToggleSaid(dockOpen, dockSign)}` : dockToggleName(dockOpen)}
         data-session={!dockOpen && dockSign !== null ? dockSign : undefined}
         onClick={() => actions.setDockOpen(!dockOpen)}
       >

@@ -263,7 +263,7 @@ for (const theme of ['light', 'dark'] as const) {
           await page.keyboard.press('Enter')
           await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
           await open(page, 'hollow')
-          await expect(page.locator('.object-row[data-session="needs_input"]')).toHaveAttribute('aria-label', 'bracket, session needs you')
+          await expect(page.locator('.object-row[data-session="needs_input"]')).toHaveAttribute('aria-description', 'session needs you')
           await expect(page.locator('.status-needs')).toContainText('bracket needs you')
           // A mark's row opened, as when it is being read.
           await page.locator('.mark-row').first().click()

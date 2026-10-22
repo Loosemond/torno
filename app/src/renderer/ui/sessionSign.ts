@@ -16,15 +16,22 @@ export function signOf(status: SessionStatus | undefined): Sign | null {
 /** How a sign reads, after "session" or after the agent's name. */
 export const SIGN_SAID: Record<Sign, string> = { needs_input: 'needs you', working: 'is working' }
 
-/** A row's accessible name when its session has a sign: `bracket, session needs you`; undefined for none (the name is the text). */
-export function rowLabel(name: string, sign: Sign | null): string | undefined {
-  return sign === null ? undefined : `${name}, session ${SIGN_SAID[sign]}`
+/**
+ * What a row says of its session, as its description and in its title (`bracket, session needs you`): undefined for
+ * none. A row's accessible name stays the object's name, which is its identity: the state is never part of it.
+ */
+export function rowSaid(sign: Sign | null): string | undefined {
+  return sign === null ? undefined : `session ${SIGN_SAID[sign]}`
 }
 
-/** What the dock's toggle says, and what a hidden dock's session is doing in it. */
-export function dockToggleLabel(open: boolean, sign: Sign | null): string {
-  if (open) return 'Hide session'
-  return sign === null ? 'Show session' : `Show session: ${AGENT_LABEL} ${SIGN_SAID[sign]}`
+/** The dock's toggle: its name, which is the same with or without a sign. */
+export function dockToggleName(open: boolean): string {
+  return open ? 'Hide session' : 'Show session'
+}
+
+/** What a hidden dock's session is doing, as the toggle's description: undefined when the dock is shown or there is no sign. */
+export function dockToggleSaid(open: boolean, sign: Sign | null): string | undefined {
+  return open || sign === null ? undefined : `${AGENT_LABEL} ${SIGN_SAID[sign]}`
 }
 
 /** The objects whose session waits for the person, in the order of the list of objects. */
