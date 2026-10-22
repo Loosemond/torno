@@ -256,9 +256,9 @@ describe('what is sent', () => {
   it('keeps what the ink of a drawing lies over on the user item, as data, and the caption it came with out of its text', () => {
     const t = new Transcript({ redact: (x) => x.replaceAll('secret-token', '[redacted]') })
     const img = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_1X1 } } as const
-    const over = { revision: 3, over: { faces: ['tub/F3', 'secret-token/F1'], cuts: ['lid'], scans: [], bare: [2], strokes: 2 } }
+    const over = { revision: 3, over: { faces: ['tub/F3', 'secret-token/F1'], cuts: ['lid'], scans: [], bare: [2], partly: [1], strokes: 2 } }
     const item = t.userSent([...text('thicker'), ...text('Picture: the view as the person saw it when they drew on it, on r3 (...)'), img], false, undefined, over)
-    expect(item).toMatchObject({ kind: 'user', text: 'thicker', drawing: { revision: 3, over: { faces: ['tub/F3', '[redacted]/F1'], cuts: ['lid'], bare: [2], strokes: 2 } } })
+    expect(item).toMatchObject({ kind: 'user', text: 'thicker', drawing: { revision: 3, over: { faces: ['tub/F3', '[redacted]/F1'], cuts: ['lid'], bare: [2], partly: [1], strokes: 2 } } })
     expect(JSON.stringify(item)).not.toContain('Picture: the view')
     // A prompt with none has no field.
     expect(t.userSent(text('plain'), false)).not.toHaveProperty('drawing')

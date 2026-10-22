@@ -19,6 +19,7 @@ import { trustQuestion } from '../../shared/agents'
 import type { Trust } from '../trust'
 import type { AgentAdapter } from './adapter'
 import { appendItems, readLog, trimLog } from './chatlog'
+import { checkedImage } from '../images'
 import { drawingText } from './drawing'
 import { sessionRules } from './permissions'
 import { findCommand } from './choice'
@@ -702,10 +703,10 @@ export class Sessions {
 
   /**
    * A chat session: what the person typed, then the person's drawing on the view after its caption when `drawing`,
-   * then a picture of the viewport as it is now when `attachView` (made through the window: `deps.picture`). Rejects,
+   * then the picture of the view the person was shown when `attachedView` (checked here), or else a picture of the viewport as it is now when `attachView` (made through the window: `deps.picture`). Rejects,
    * sending nothing, when the picture cannot be made, the drawing is of another object, or the session has ended.
    */
-  async send(sessionId: string, prompt: { text: string; attachView?: boolean; drawing?: ViewDrawing }): Promise<void> {
+  async send(sessionId: string, prompt: { text: string; attachView?: boolean; attachedView?: Uint8Array; drawing?: ViewDrawing }): Promise<void> {
     const s = this.chat(sessionId, 'send')
     if (!s?.stream) throw new Error('This session has ended')
     // One after another: a prompt that waits for its picture is not overtaken by the one sent after it.
@@ -718,7 +719,7 @@ export class Sessions {
     return mine
   }
 
-  private async sendOne(sessionId: string, s: Session, prompt: { text: string; attachView?: boolean; drawing?: ViewDrawing }): Promise<void> {
+  private async sendOne(sessionId: string, s: Session, prompt: { text: string; attachView?: boolean; attachedView?: Uint8Array; drawing?: ViewDrawing }): Promise<void> {
     const content: PromptBlock[] = []
     let over: DrawnOver | undefined
     if (prompt.text !== '') content.push({ type: 'text', text: prompt.text })
@@ -732,7 +733,12 @@ export class Sessions {
       over = drawnOver(prompt.drawing, latest)
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(prompt.drawing.png).toString('base64') } })
     }
-    if (prompt.attachView === true) {
+    if (prompt.attachedView !== undefined) {
+      // The picture the person was shown before sending, and no other: held to the rule for any picture the agent is given.
+      const shown = checkedImage(prompt.attachedView)
+      if (!shown) throw new Error('The picture of the view is not a PNG or a JPEG of at most 2000 px and 3.75 MB')
+      content.push({ type: 'image', source: { type: 'base64', media_type: shown.mediaType, data: Buffer.from(shown.bytes).toString('base64') } })
+    } else if (prompt.attachView === true) {
       if (!this.deps.picture) throw new Error('No view can be attached here')
       const png = await this.deps.picture(s.object)
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(png).toString('base64') } })

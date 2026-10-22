@@ -12,7 +12,7 @@ function commas(pieces: ReactNode[]): ReactNode[] {
 
 /**
  * What the ink of a drawing on the view lies over, as the agent is told it, in refs that are live chips (the pointer
- * on one lights its face in the view): `Over tub/F3, tub/F1, the cut face of lid · stroke 2 over no part`. Above the
+ * on one lights its face in the view): `Over tub/F3, tub/F1, the cut face of lid · stroke 1 partly over no part · stroke 2 over no part`. Above the
  * box before the drawing is sent, under its picture once it is. A drawing the view moved under says it was not worked
  * out (`children`: what the person may do about it, in the box). One drawn on an earlier build says the faces are of that one.
  */
@@ -48,10 +48,13 @@ export function DrawnOverLine({ drawn, children }: { drawn: DrawnOver; children?
     ))
   ]
   const none = over.strokes === 0 ? 'No ink is left on the picture' : named.length === 0 ? 'Over no part' : null
-  const bare = named.length > 0 && over.bare.length > 0 ? numbered(`${over.bare.length === 1 ? 'stroke' : 'strokes'} ${over.bare.join(', ')} over no part`) : null
+  const strokes = (list: number[]): string => `${list.length === 1 ? 'stroke' : 'strokes'} ${list.join(', ')}`
+  const bare = named.length > 0 && over.bare.length > 0 ? numbered(`${strokes(over.bare)} over no part`) : null
+  const partly = over.partly.length > 0 ? numbered(`${strokes(over.partly)} partly over no part`) : null
   return (
     <span className="over" data-over="known">
       {none ?? <>Over {commas(named)}</>}
+      {partly && <span className="over-note">{partly}</span>}
       {bare && <span className="over-note">{bare}</span>}
       {over.moreStrokes ? <span className="over-note">{numbered(`${counted(over.moreStrokes, 'more stroke', 'more strokes')}, not told`)}</span> : null}
       {build}

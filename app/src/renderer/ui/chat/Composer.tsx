@@ -125,6 +125,8 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const [attached, setAttached] = useState<string | null>(null)
   /** Which press of "Attach view" the picture being made is for: an answer for an earlier one is let go. */
   const pressing = useRef(0)
+  /** The picture of the view the preview shows (it may still be coming): what goes with the prompt. */
+  const shown = useRef<Promise<{ png: Uint8Array; objectId: string }> | null>(null)
   const drawn = useDrawing((s) => s.drawn[sessionId])
   const revision = useStore((s) => s.revision)
   const opening = useDrawing((s) => s.opening === sessionId)
@@ -181,6 +183,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   /** Lets go of the preview of "Attach view", and of the picture being made for it. */
   function unattach(): void {
     pressing.current++
+    shown.current = null
     setAttach(false)
     setAttached((url) => {
       if (url !== null) URL.revokeObjectURL(url)
@@ -188,22 +191,29 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     })
   }
 
-  /** "Attach view" pressed: the picture the send would take, made now, to look at before it goes. */
-  function attachView(): void {
-    const press = ++pressing.current
-    setProblem(null)
-    setAttach(true)
-    picture({ view: 'current' }).then(
-      (look) => {
+  /** The preview of `made`, for the press `press`; an answer for an earlier press is let go. */
+  function preview(press: number, made: Promise<{ png: Uint8Array; objectId: string }>): void {
+    shown.current = made
+    made.then(
+      ({ png }) => {
         if (press !== pressing.current) return
-        setAttached(URL.createObjectURL(new Blob([look.png as BlobPart], { type: 'image/png' })))
+        setAttached(URL.createObjectURL(new Blob([png as BlobPart], { type: 'image/png' })))
       },
       (e: unknown) => {
         if (press !== pressing.current) return
+        shown.current = null
         setAttach(false)
         setProblem(reason(e))
       }
     )
+  }
+
+  /** "Attach view" pressed: the picture the send would take, made now. It is this picture that is sent, not another. */
+  function attachView(): void {
+    const press = ++pressing.current
+    setProblem(null)
+    setAttach(true)
+    preview(press, picture({ view: 'current' }).then((look) => ({ png: look.png, objectId: look.objectId })))
   }
   // The preview is let go of with the composer.
   const attachedUrl = useRef<string | null>(null)
@@ -215,7 +225,25 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   async function send(): Promise<void> {
     const prompt = text.trim()
     if (prompt === '' || !live) return
-    const withView = attach
+    // The picture shown for "Attach view" is the one that goes; one still coming is waited for.
+    const withView = attach ? shown.current : null
+    let viewPng: Uint8Array | undefined
+    let objectId = ''
+    if (withView) {
+      try {
+        const made = await withView
+        // Of the object this chat is of: the window may show another one by now.
+        if (store.getState().sessions[made.objectId]?.sessionId !== sessionId) {
+          unattach()
+          setProblem('The view shown was of another object: attach it again')
+          return
+        }
+        viewPng = made.png
+        objectId = made.objectId
+      } catch {
+        return
+      }
+    }
     // The drawing goes with this prompt and with no other; given back if the prompt is not sent.
     const drawing = drawingActions.taken(sessionId)
     setText('')
@@ -223,12 +251,17 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     setProblem(null)
     onSent()
     try {
-      await window.torno.chat.send(sessionId, { text: prompt, attachView: withView, ...(drawing ? { drawing: drawing.drawing } : {}) })
+      await window.torno.chat.send(sessionId, { text: prompt, ...(viewPng ? { attachedView: viewPng } : {}), ...(drawing ? { drawing: drawing.drawing } : {}) })
       if (drawing) drawingActions.spent(drawing)
     } catch (e) {
       // Nothing was sent: what was written is given back, unless more has been written since.
       setText((now) => (now === '' ? prompt : now))
-      if (withView) attachView()
+      if (withView && viewPng) {
+        // Shown again, as it was.
+        const press = ++pressing.current
+        setAttach(true)
+        preview(press, Promise.resolve({ png: viewPng, objectId }))
+      }
       if (drawing) drawingActions.giveBack(sessionId, drawing)
       setProblem(reason(e))
     }
@@ -278,7 +311,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
           {attach && (
             <div className="chat-attached" role="group" aria-label="View attached">
               {attached !== null ? <img src={attached} alt="The view as it is now" draggable={false} /> : <span className="chat-attached-wait" aria-hidden="true" />}
-              <span className="chat-with-what" title="The picture is taken again, as the view is, when the prompt is sent">
+              <span className="chat-with-what" title="This is the picture that goes with your prompt">
                 <span>The view goes with your next prompt</span>
               </span>
               <button type="button" className="button button-quiet" onClick={unattach}>

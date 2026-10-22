@@ -851,7 +851,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `projectSettings`, `userSettings`, `setMode` and `addDirectories` are never passed on, because the first three
   would write `.claude/` in the object's folder or the person's settings. A deny with no reason says "The person
   denied this."
-- **A drawing on the view** (`sessions/drawing.ts`). `chat:send` takes `drawing` (`ViewDrawing`, `shared/drawing.ts`):
+- **A drawing on the view** (`sessions/drawing.ts`). `chat:send` takes `attachedView` (the bytes of the picture "Attach view" showed, checked by `Sessions.sendOne` as any picture for the agent and attached in place of a fresh `deps.picture`) and `drawing` (`ViewDrawing`, `shared/drawing.ts`):
   the window's data, checked field by field by `drawingOf` before anything is sent (a `Refusal` with its reason
   otherwise): one-line names and caption, a build above 0, a camera within ±1e9 mm, the picture a PNG main may attach
   (`checkedImage`, now `main/images.ts`: at most 2000 px and 3.75 MB) of the size it says, the ink `#rrggbb`, at most
@@ -864,7 +864,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   to `look` from it, a line per stroke of what it lies over, and that the model was built again since when it was),
   the picture, then the picture "Attach view" asks for. No line of the caption begins with a word the stand-in agent
   takes for a command. The picture is written nowhere. What the ink lies over goes on the prompt's user item as
-  `drawing` (`drawnOver`, `shared/drawing.ts`: the faces once each, the cut faces, the scans, the strokes over no part,
+  `drawing` (`drawnOver`, `shared/drawing.ts`: the faces once each, the cut faces, the scans, the strokes over no part and those partly over none,
   the build it was drawn on and the latest when that is another; refs and counts only, no kernel line, no box, no
   camera, each ref through `redact`), which the window shows under the picture and the chat's log keeps as text. The
   caption's words are not the item's text.

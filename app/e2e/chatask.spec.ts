@@ -288,6 +288,18 @@ test('a request still open when the session is ended is closed: ending interrupt
   await expect(card.getByRole('button')).toHaveCount(0)
 })
 
+/** Waits until the camera has stopped (a view the agent showed is flown to): a drawing made on a camera on its way is not worked out. */
+async function cameraSettled(): Promise<void> {
+  let last = ''
+  await expect.poll(async () => {
+    const now = JSON.stringify(await page.evaluate(() => window.__tornoTest!.camera()))
+    const same = now === last
+    last = now
+    await page.waitForTimeout(250)
+    return same
+  }, { timeout: 15_000 }).toBe(true)
+}
+
 test('Attach view adds a picture of the viewport at 1280 px to the next prompt only, and the prompt shows it', async () => {
   await newSession()
   const attach = dock().getByRole('button', { name: 'Attach view' })
@@ -303,10 +315,18 @@ test('Attach view adds a picture of the viewport at 1280 px to the next prompt o
   await expect(attach).toHaveAttribute('aria-pressed', 'false')
   await attach.click()
   await expect(attached.locator('img')).toBeVisible()
+  // The view moves after the press (the agent's `show`): the picture shown is still the one that goes.
+  const before = await attached.locator('img').getAttribute('src')
+  await app.evaluate(({ BrowserWindow }, req) => BrowserWindow.getAllWindows()[0].webContents.send('view:show', { id: 987700, request: req }), { objectId: 'bracket', view: 'top' })
+  await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.camera())).position[2]).toBeGreaterThan(0)
+  expect(await attached.locator('img').getAttribute('src')).toBe(before)
   await say('images')
   // Off after each send, the preview with it.
   await expect(attach).toHaveAttribute('aria-pressed', 'false')
   await expect(attached).toHaveCount(0)
+  // The standard view again, for what follows.
+  await app.evaluate(({ BrowserWindow }, req) => BrowserWindow.getAllWindows()[0].webContents.send('view:show', { id: 987702, request: req }), { objectId: 'bracket', view: 'iso' })
+  await cameraSettled()
   const user = chat().locator('.chat-user').first()
   await expect(user.locator('.chat-thumb')).toHaveCount(1, { timeout: 20_000 })
   await expect(chat().locator('.chat-text').first()).toContainText(/images: 1 (1280x\d+|\d+x1280)/, { timeout: 20_000 })
@@ -399,6 +419,24 @@ test('Draw on view: a board over the agent\'s picture of the view; the drawing g
   await finished()
 })
 
+test('a stroke across a part and bare ground says it is partly over no part, before it is sent and under the prompt', async () => {
+  const fy = await page.evaluate(() => {
+    for (const fy of [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65]) if (window.__tornoTest!.pickAt(0.5, fy, { edges: false })) return fy
+    return null
+  })
+  expect(fy).not.toBeNull()
+  ended = await turns().count()
+  await drawButton().click()
+  await expect(drawingBoard()).toBeVisible()
+  // From the edge of the picture, where nothing is, across the part.
+  await line(drawingBoard(), [0.01, fy!], [0.5, fy!])
+  await drawingBoard().getByRole('button', { name: 'Done' }).click()
+  await expect(waiting().locator('.over[data-over="known"]')).toContainText('stroke 1 partly over no part')
+  await say('images')
+  await expect(chat().locator('.chat-user').last().locator('.chat-user-drawing')).toContainText('stroke 1 partly over no part', { timeout: 20_000 })
+  await finished()
+})
+
 test('a drawing made while the camera moved says that what its ink lies over was not worked out, and "Draw again" starts anew', async () => {
   await drawButton().click()
   await expect(drawingBoard()).toBeVisible()
@@ -429,6 +467,7 @@ test('a drawing made while the camera moved says that what its ink lies over was
   await page.keyboard.press('Escape')
   await expect(drawingBoard()).toHaveCount(0)
   await show({ objectId: 'bracket', view: 'iso' })
+  await cameraSettled()
 })
 
 test('a drawing waits in the composer: Edit opens it with its strokes, Remove takes it away, and a board discarded keeps nothing', async () => {

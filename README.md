@@ -457,7 +457,8 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
 - **"Attach view"** adds a picture of the viewport as you see it to the next
   prompt only. Pressed, it shows a small picture of the view as it is now above
   the box, with "Remove", beside the drawing's row when there is one; the
-  picture that goes is taken again as the prompt is sent.
+  picture that goes with the prompt is the one shown, whatever the view does
+  meanwhile.
 - **"Draw on view"** opens a board over a picture of the view: the very picture
   the agent's `look` makes of it, with the axes, the scale bar and the marks
   numbered. Draw on it as on the doodle board (two pens, an eraser that takes
@@ -466,7 +467,7 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   box, with "Edit" and "Remove", and the box has the keys again, for the prompt
   it goes with; it goes with your next prompt only. The row says what the ink
   lies over, before anything is sent: `Over tub/F3, tub/F1, the cut face of lid
-  · stroke 2 over no part`, the refs as chips that light their face in the view
+  · stroke 1 partly over no part · stroke 2 over no part`, the refs as chips that light their face in the view
   when the pointer is on them. If the view moved while you drew, it says in
   amber that this was not worked out, with "Draw again"; if the model has been
   built again since, it says the faces are of the build you drew on. The prompt,

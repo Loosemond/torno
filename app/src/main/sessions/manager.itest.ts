@@ -1281,7 +1281,7 @@ describe('the transcript of a chat session', () => {
       id,
       items,
       kinds: () => items().map((i) => i.kind),
-      send: (text: string, extra: { attachView?: boolean; drawing?: ViewDrawing } = {}) => tSessions.send(id, { text, ...extra }),
+      send: (text: string, extra: { attachView?: boolean; attachedView?: Uint8Array; drawing?: ViewDrawing } = {}) => tSessions.send(id, { text, ...extra }),
       turns: () => items().filter((i) => i.kind === 'turn').length,
       logFile: () => {
         const folder = join(obj.dir, '.torno', 'chat')
@@ -1441,6 +1441,25 @@ describe('the transcript of a chat session', () => {
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
   })
 
+  it('sends the picture the person was shown, not a fresh one, and checks it like any picture for the agent', async () => {
+    const c = await start()
+    const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')
+    // The view has moved since: a picture made now would be another one.
+    picture = async () => {
+      throw new Error('a fresh picture was asked for')
+    }
+    await c.send('images', { attachedView: new Uint8Array(PNG_1X1) })
+    const image = (c.items()[0] as { images: Array<{ mediaType: string; data?: string; width?: number; height?: number }> }).images[0]
+    expect(image).toMatchObject({ mediaType: 'image/png', width: 1, height: 1 })
+    expect(Buffer.from(image.data!, 'base64').equals(PNG_1X1)).toBe(true)
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().filter((i) => i.kind === 'text').map((i) => (i as { text: string }).text)).toContain('images: 1 1x1')
+    // Anything that is no picture the agent may be given is refused, sending nothing.
+    const before = c.items().length
+    await expect(c.send('say nothing', { attachedView: new Uint8Array([1, 2, 3]) })).rejects.toThrow('The picture of the view is not a PNG or a JPEG')
+    expect(c.items()).toHaveLength(before)
+  })
+
   it('sends nothing, and says why, when the picture cannot be made', async () => {
     const c = await start()
     picture = () => Promise.reject(new Error('the window shows another object'))
@@ -1463,7 +1482,7 @@ describe('the transcript of a chat session', () => {
     expect(user).toMatchObject({ kind: 'user', text: 'images' })
     expect(user.images).toEqual([expect.objectContaining({ width: 4, height: 4 })])
     // What the ink lies over stays on the item as data (refs), not the caption's words, no pixel and no kernel line.
-    expect(user.drawing).toEqual({ revision: 1, over: { faces: ['a/F1'], cuts: [], scans: [], bare: [], strokes: 1 } })
+    expect(user.drawing).toEqual({ revision: 1, over: { faces: ['a/F1'], cuts: [], scans: [], bare: [], partly: [1], strokes: 1 } })
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
     // The stand-in says what came: one picture, and each line of the caption (a line that is no command is said).
     const said = c.items().filter((i) => i.kind === 'text').map((i) => (i as { text: string }).text)

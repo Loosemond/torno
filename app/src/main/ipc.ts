@@ -629,13 +629,15 @@ export function registerIpc(
     return readReference(chat.dir, String(file))
   })
 
-  handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown; drawing?: unknown }) => {
+  handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown; attachedView?: unknown; drawing?: unknown }) => {
     if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
     if (typeof prompt?.text !== 'string' || prompt.text.length > MAX_PROMPT_CHARS) throw new Refusal('Nothing to send')
     // The window's drawing is taken only once it is what one is: main words what the agent reads of it.
     const drawing = prompt.drawing === undefined ? undefined : drawingOf(prompt.drawing)
     if (typeof drawing === 'string') throw new Refusal(drawing)
-    await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true, ...(drawing ? { drawing } : {}) })
+    // The picture the window showed for "Attach view": the sessions check it as any picture for the agent.
+    if (prompt.attachedView !== undefined && !(prompt.attachedView instanceof Uint8Array)) throw new Refusal('The picture of the view is not one')
+    await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true, ...(prompt.attachedView ? { attachedView: prompt.attachedView } : {}), ...(drawing ? { drawing } : {}) })
   })
 
   ipcMain.on('chat:answer', (_event, sessionId: string, requestId: string, answer: ChatAnswer) => {

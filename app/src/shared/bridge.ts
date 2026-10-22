@@ -243,11 +243,11 @@ export interface TornoBridge {
     /** The slash commands and models the session's CLI has, told when it has said them (a history had earlier may lack them). */
     onCapabilities(cb: (m: { sessionId: string; commands: ChatCommand[]; models: ChatModel[]; seq: number }) => void): () => void
     /**
-     * Sends a prompt; with `attachView`, main adds a picture of the viewport as the person sees it now; with `drawing`,
+     * Sends a prompt; with `attachedView`, main adds that picture (the one "Attach view" showed, checked as any picture for the agent) and no other; with `attachView` alone, a picture of the viewport as it is now; with `drawing`,
      * the person's drawing on the view, after a caption main writes. Rejects, sending nothing, when a picture cannot be
      * made or the drawing is not one.
      */
-    send(sessionId: string, prompt: { text: string; attachView?: boolean; drawing?: ViewDrawing }): Promise<void>
+    send(sessionId: string, prompt: { text: string; attachView?: boolean; attachedView?: Uint8Array; drawing?: ViewDrawing }): Promise<void>
     /** Answers a request of the agent's. The tool runs with the input it asked with; only the answers of `AskUserQuestion` are taken from the window. */
     answer(sessionId: string, requestId: string, answer: ChatAnswer): void
     interrupt(sessionId: string): Promise<void>

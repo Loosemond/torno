@@ -7,18 +7,20 @@ const faces = (...refs: string[]): StrokeUnder['refs'] => refs.map((ref) => ({ r
 describe('drawnOver', () => {
   it('is the faces the strokes lie over, once each in the order they are first crossed, with no kernel line and no pixel', () => {
     const d = drawnOver({ revision: 3, moreStrokes: undefined, under: [stroke({ refs: faces('tub/F3', 'tub/F1') }), stroke({ refs: faces('tub/F1', 'lid/F2') })] })
-    expect(d).toEqual({ revision: 3, over: { faces: ['tub/F3', 'tub/F1', 'lid/F2'], cuts: [], scans: [], bare: [], strokes: 2 } })
+    expect(d).toEqual({ revision: 3, over: { faces: ['tub/F3', 'tub/F1', 'lid/F2'], cuts: [], scans: [], bare: [], partly: [], strokes: 2 } })
     expect(JSON.stringify(d)).not.toContain('plane')
     expect(JSON.stringify(d)).not.toContain('box')
   })
 
   it('names the cut faces and the scans, once each, and the strokes that lie over no part, by their number', () => {
     const d = drawnOver({ revision: 1, under: [stroke({ cuts: ['lid'] }), stroke({ bare: true }), stroke({ scans: ['S1'] }), stroke({ cuts: ['lid', 'base'], scans: ['S1', 'S2'] }), stroke({ bare: true })] })
-    expect(d.over).toEqual({ faces: [], cuts: ['lid', 'base'], scans: ['S1', 'S2'], bare: [2, 5], strokes: 5 })
+    expect(d.over).toEqual({ faces: [], cuts: ['lid', 'base'], scans: ['S1', 'S2'], bare: [2, 5], partly: [], strokes: 5 })
   })
 
-  it('a stroke that is partly over a part is a stroke over that part', () => {
-    expect(drawnOver({ revision: 1, under: [stroke({ refs: faces('a/F1'), bare: true })] }).over).toMatchObject({ faces: ['a/F1'], bare: [] })
+  it('a stroke that is over a part and partly over none is named by its number as partly over no part, and is not one over no part', () => {
+    const d = drawnOver({ revision: 1, under: [stroke({ refs: faces('a/F1'), bare: true }), stroke({ refs: faces('a/F2') }), stroke({ cuts: ['lid'], bare: true }), stroke({ scans: ['S1'], bare: true }), stroke({ bare: true })] })
+    expect(d.over).toMatchObject({ faces: ['a/F1', 'a/F2'], bare: [5], partly: [1, 3, 4] })
+    expect(JSON.stringify(d)).not.toContain('box')
   })
 
   it('counts the faces beyond the most it lists, the faces a stroke said it had more of, and the strokes not told', () => {
@@ -31,7 +33,7 @@ describe('drawnOver', () => {
 
   it('is no `over` when it was not worked out, and no strokes when no ink is left', () => {
     expect(drawnOver({ revision: 2, under: null })).toEqual({ revision: 2, over: null })
-    expect(drawnOver({ revision: 2, under: [] }).over).toEqual({ faces: [], cuts: [], scans: [], bare: [], strokes: 0 })
+    expect(drawnOver({ revision: 2, under: [] }).over).toEqual({ faces: [], cuts: [], scans: [], bare: [], partly: [], strokes: 0 })
   })
 
   it('says the latest build when it is another than the one drawn on', () => {

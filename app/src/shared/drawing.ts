@@ -74,6 +74,8 @@ export interface DrawnOver {
     scans: string[]
     /** The strokes, by number from 1, that lie over no part and no scan. */
     bare: number[]
+    /** The strokes, by number from 1, that lie over a part (or a cut face, or a scan) and partly over none: the ring that half misses a wall. */
+    partly: number[]
     /** How many strokes have ink left. */
     strokes: number
     moreStrokes?: number
@@ -81,6 +83,8 @@ export interface DrawnOver {
 }
 
 const once = (all: string[]): string[] => [...new Set(all)]
+/** Whether a stroke lies over something the line names: a face, a cut face or a scan. */
+const named = (s: StrokeUnder): boolean => s.refs.length > 0 || s.cuts.length > 0 || s.scans.length > 0
 
 /** What the ink of a drawing lies over, as `DrawnOver`; `latest` is the object's last build now. */
 export function drawnOver(d: Pick<ViewDrawing, 'revision' | 'under' | 'moreStrokes'>, latest?: number): DrawnOver {
@@ -97,7 +101,8 @@ export function drawnOver(d: Pick<ViewDrawing, 'revision' | 'under' | 'moreStrok
       ...(moreFaces > 0 ? { moreFaces } : {}),
       cuts: once(d.under.flatMap((s) => s.cuts)),
       scans: once(d.under.flatMap((s) => s.scans)),
-      bare: d.under.flatMap((s, i) => (s.refs.length === 0 && s.cuts.length === 0 && s.scans.length === 0 ? [i + 1] : [])),
+      bare: d.under.flatMap((s, i) => (named(s) ? [] : [i + 1])),
+      partly: d.under.flatMap((s, i) => (named(s) && s.bare ? [i + 1] : [])),
       strokes: d.under.length,
       ...(d.moreStrokes ? { moreStrokes: d.moreStrokes } : {})
     }
