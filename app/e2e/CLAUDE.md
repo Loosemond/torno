@@ -111,7 +111,7 @@ stand-in says the reason as a `hook_response` of the `Stop` and posts it again w
 at once; `FAKE_AGENT_INIT_ERROR=<text>` makes it answer `initialize` with that error; `FAKE_AGENT_AUTH_ERROR=<text>` makes its first
 turn one that could not authenticate (after the hook and the `init`, an assistant message of `<synthetic>` whose text is
 <text>, marked `error: "authentication_failed"`, a `StopFailure` posted in place of the `Stop`, and a `result` with
-`is_error: true`), the next turns running as ever (`e2e/login.spec.ts`; the shape is the Agent SDK's, not yet seen from a
+`is_error: true`), the next turns running as ever, or, with `FAKE_AGENT_AUTH_EXIT=1`, exits 1 after that `result` (`e2e/login.spec.ts`; the shape is the Agent SDK's, not yet seen from a
 real CLI). Its permission suggestions are the three kinds the real CLI sends, so a test
 proves that only the session rule is passed on. Specs that drive a terminal call `inTerminal` (`e2e/terminal.ts`),
 which writes `view: 'terminal'` into their temporary copy's `.torno/agent.json`. Give the run a HOME of its own

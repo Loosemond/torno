@@ -29,15 +29,15 @@ function useBeat(active: boolean): boolean {
  * commands offered while a `/` is typed and the rate line are in the foot, with the box (`Composer`). When the CLI said
  * torno's skills did not load, a line above the box offers the session again on the whole prompt (`onWholePrompt`). A note
  * of this session's that the chat could not use the login has a button that runs the object's sessions in the terminal
- * (`onUseTerminal`).
+ * (`onUseTerminal`; `terminalDisabled` while the pane asks or switches).
  */
-export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTerminal }: { sessionId: string; live: boolean; working: boolean; dir?: string; onWholePrompt: () => void; onUseTerminal: () => void }) {
+export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTerminal, terminalDisabled }: { sessionId: string; live: boolean; working: boolean; dir?: string; onWholePrompt: () => void; onUseTerminal: () => void; terminalDisabled: boolean }) {
   const chat = useChat(sessionId)
   const place = useMemo(() => ({ dir, home: window.torno.home || undefined }), [dir])
-  // One value for the pane's life, so that the notes are not drawn again for a new callback: it calls the latest.
+  // A new value only when the button is enabled or disabled, so that the notes are not drawn again for a new callback: it calls the latest.
   const toTerminal = useRef(onUseTerminal)
   toTerminal.current = onUseTerminal
-  const offers = useMemo<ChatOffers>(() => ({ terminal: () => toTerminal.current() }), [])
+  const offers = useMemo<ChatOffers>(() => ({ terminal: { take: () => toTerminal.current(), disabled: terminalDisabled } }), [terminalDisabled])
   useEffect(() => {
     void chatActions.load(sessionId)
     // Once no pane shows it, a session lets go of its pictures: they are asked for again when it is shown.

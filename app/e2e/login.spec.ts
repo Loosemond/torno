@@ -52,8 +52,20 @@ test('a first turn that could not authenticate says the chat could not use the l
   await expect(dock().locator('.session-status')).toHaveAttribute('data-status', 'idle')
   await expect(views().getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true')
 
+  // Taken while the agent works, it is asked about first, as a view picked is; and while asked it cannot be pressed again.
+  const offer = note.getByRole('button', { name: 'Use the terminal' })
+  await composer().focus()
+  await page.keyboard.type('work 30')
+  await page.keyboard.press('Enter')
+  await expect(dock().locator('.session-status')).toHaveAttribute('data-status', 'working')
+  await offer.click()
+  const asked = dock().getByRole('alertdialog', { name: 'End the running session?' })
+  await expect(asked).toBeVisible()
+  await expect(offer).toBeDisabled()
+  await expect(views().getByRole('button', { name: 'Terminal' })).toBeDisabled()
+
   // The offer: the chat ends, the view is the terminal in `agent.json`, and the conversation goes on there.
-  await note.getByRole('button', { name: 'Use the terminal' }).click()
+  await asked.getByRole('button', { name: 'End it and go on in the terminal' }).click()
   await expect(views().getByRole('button', { name: 'Terminal' })).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => onDisk('bracket')).toEqual({ agent: 'claude', view: 'terminal' })
   await expect(chat()).toHaveCount(0)

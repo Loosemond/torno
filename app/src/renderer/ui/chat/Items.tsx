@@ -141,8 +141,8 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
     case 'turn':
       return <Turn item={item} />
     case 'note':
-      return item.action ? (
-        <Offer item={item} />
+      return item.action === 'terminal' ? (
+        <TerminalOffer item={item} />
       ) : (
         <p className="chat-item chat-note" data-kind="note" data-tone={item.tone}>
           {numbered(item.text)}
@@ -151,15 +151,14 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
   }
 })
 
-/** A note with a button beside it, when the pane offers what it does (`useChatOffers`); the words alone otherwise. */
-function Offer({ item }: { item: Of<'note'> }) {
-  const offers = useChatOffers()
-  const take = item.action === 'terminal' ? offers.terminal : undefined
+/** A note with "Use the terminal" beside it, when the pane offers it (`useChatOffers`); the words alone otherwise. */
+function TerminalOffer({ item }: { item: Of<'note'> }) {
+  const { terminal } = useChatOffers()
   return (
     <p className="chat-item chat-note chat-offer" data-kind="note" data-tone={item.tone}>
       <span>{numbered(item.text)}</span>
-      {take && (
-        <button type="button" className="button button-quiet" title="Run this object's sessions in Claude Code's own terminal. The same conversation goes on" onClick={take}>
+      {terminal && (
+        <button type="button" className="button button-quiet" disabled={terminal.disabled} title="Run this object's sessions in Claude Code's own terminal. The same conversation goes on." onClick={terminal.take}>
           Use the terminal
         </button>
       )}

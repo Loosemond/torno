@@ -32,8 +32,8 @@ const MAX_INSIDE = 50
 
 /**
  * Said once a session when the CLI marks an assistant message `error: "authentication_failed"` (the Agent SDK's
- * `SDKAssistantMessage.error`): as under `--bare`, which reads no OAuth token, or a login that ran out. torno cannot
- * know which, so it says what failed and offers the terminal, where the CLI runs as the person runs it. Only that
+ * `SDKAssistantMessage.error`): as under `--bare`, which reads no OAuth token (and perhaps a login that ran out, not
+ * yet seen). torno cannot know which, so it says what failed and offers the terminal, where the CLI runs as the person runs it. Only that
  * typed field is read, never the words of the message or of the result.
  */
 export const LOGIN_FAILED = "Claude Code's chat could not use your login: it said the request was not authenticated. The terminal runs Claude Code as you would."

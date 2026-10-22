@@ -56,6 +56,16 @@ describe('the log of a conversation', () => {
     expect((await readLog(dir, CONVERSATION)).map((i) => i.id)).toEqual(['n1', 'n2', 'n3', 'n4', 'n5', 'n6'])
   })
 
+  it('keeps a note\'s action only when it is one torno knows: a hand-edited log names no other (#117)', async () => {
+    await appendItems(dir, CONVERSATION, [{ kind: 'note', id: 'n1', text: 'could not use the login', tone: 'warn', action: 'terminal' }])
+    const odd = [{ action: 'shell' }, { action: 'Terminal' }, { action: 1 }, { action: null }, { action: { run: 'terminal' } }]
+    writeFileSync(file(), `${readFileSync(file(), 'utf8')}${odd.map((extra, i) => JSON.stringify({ kind: 'note', id: `n${i + 2}`, text: 'edited', tone: 'warn', ...extra })).join('\n')}\n`)
+    const read = await readLog(dir, CONVERSATION)
+    expect(read.map((i) => i.id)).toEqual(['n1', 'n2', 'n3', 'n4', 'n5', 'n6'])
+    expect(read[0]).toEqual({ kind: 'note', id: 'n1', text: 'could not use the login', tone: 'warn', action: 'terminal' })
+    for (const item of read.slice(1)) expect(item).toEqual({ kind: 'note', id: item.id, text: 'edited', tone: 'warn' })
+  })
+
   it('reads nothing of a conversation that has no file', async () => {
     expect(await readLog(dir, CONVERSATION)).toEqual([])
   })

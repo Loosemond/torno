@@ -88,7 +88,8 @@
 // out: after the hook and the `init`, an assistant message of the CLI's own (`model` `<synthetic>`) whose text is <text>,
 // marked `error: "authentication_failed"` (the Agent SDK's typed field on assistant messages), a `StopFailure` posted
 // in place of the `Stop`, and a `result` with `is_error: true` and <text> as its `result`; the prompt's script is not run.
-// The turns after it run as ever. (The shape is the SDK's, not yet seen from a real CLI.)
+// The turns after it run as ever; with FAKE_AGENT_AUTH_EXIT=1 too it exits 1 after that `result` instead. (The shape is the
+// SDK's, not yet seen from a real CLI.)
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -459,6 +460,8 @@ async function streamMode() {
       out({ type: 'result', subtype: 'success', is_error: true, result: said, duration_ms: Date.now() - started, duration_api_ms: 0, num_turns: 1, stop_reason: 'stop_sequence', total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, permission_denials: [], ...base, uuid: next('uuid') })
       for (const uuid of turn.taken) life(uuid, 'completed')
       turn = null
+      // As a CLI might that gives up on a login it cannot use.
+      if (process.env.FAKE_AGENT_AUTH_EXIT === '1') process.exit(1)
       return
     }
     await script(text)

@@ -6,7 +6,8 @@ import { createContext, useContext } from 'react'
  * resumed: an offer of an older session is not one any more.
  */
 export interface ChatOffers {
-  terminal?: () => void
+  /** `disabled` while the pane asks or switches, as the view switch is. */
+  terminal?: { take: () => void; disabled: boolean }
 }
 
 export const ChatOffer = createContext<ChatOffers>({})

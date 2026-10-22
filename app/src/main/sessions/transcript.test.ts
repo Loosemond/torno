@@ -2,22 +2,22 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '../../shared/chat'
-import type { StreamMessage } from './stream'
+import type { AgentMessage } from './transport'
 import { onboardPrompt } from '../onboard'
 import { LOGIN_FAILED, Transcript } from './transcript'
 
 // The reducer, fed what Claude Code 2.1.300 printed (app/test/fixtures/claude-stream.jsonl) and what torno itself
 // records (a prompt sent, a hook answered, a permission asked, a session ended).
-const FIXTURE: StreamMessage[] = readFileSync(join(__dirname, '../../../test/fixtures/claude-stream.jsonl'), 'utf8')
+const FIXTURE: AgentMessage[] = readFileSync(join(__dirname, '../../../test/fixtures/claude-stream.jsonl'), 'utf8')
   .trim()
   .split('\n')
-  .map((line) => JSON.parse(line) as StreamMessage)
+  .map((line) => JSON.parse(line) as AgentMessage)
 
 const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 const text = (t: string) => [{ type: 'text' as const, text: t }]
 
 /** The lines of the fixture, with a prompt sent before each of its three `init`s, as the manager would have. */
-function playFixture(t: Transcript, lines: StreamMessage[] = FIXTURE): void {
+function playFixture(t: Transcript, lines: AgentMessage[] = FIXTURE): void {
   const prompts = ['read note.txt', 'write probe.txt', 'count to 200']
   for (const line of lines) {
     if (line.type === 'system' && line.subtype === 'init') {
@@ -28,15 +28,15 @@ function playFixture(t: Transcript, lines: StreamMessage[] = FIXTURE): void {
   }
 }
 
-const stream = (event: object): StreamMessage => ({ type: 'stream_event', event, session_id: 's', parent_tool_use_id: null })
-const start = (index: number, block: object): StreamMessage => stream({ type: 'content_block_start', index, content_block: block })
-const delta = (index: number, d: object): StreamMessage => stream({ type: 'content_block_delta', index, delta: d })
-const stop = (index: number): StreamMessage => stream({ type: 'content_block_stop', index })
-const assistant = (content: object[], id = 'msg_1'): StreamMessage => ({ type: 'assistant', message: { id, role: 'assistant', content }, parent_tool_use_id: null })
-const toolUse = (id: string, name: string, input: unknown = {}): StreamMessage => assistant([{ type: 'tool_use', id, name, input }])
-const toolResult = (id: string, content: unknown, extra: object = {}): StreamMessage => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, ...extra }] }, parent_tool_use_id: null })
-const init = (extra: object = {}): StreamMessage => ({ type: 'system', subtype: 'init', model: 'm1', mcp_servers: [{ name: 'torno', status: 'connected' }], ...extra })
-const result = (extra: object = {}): StreamMessage => ({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1500, ...extra })
+const stream = (event: object): AgentMessage => ({ type: 'stream_event', event, session_id: 's', parent_tool_use_id: null })
+const start = (index: number, block: object): AgentMessage => stream({ type: 'content_block_start', index, content_block: block })
+const delta = (index: number, d: object): AgentMessage => stream({ type: 'content_block_delta', index, delta: d })
+const stop = (index: number): AgentMessage => stream({ type: 'content_block_stop', index })
+const assistant = (content: object[], id = 'msg_1'): AgentMessage => ({ type: 'assistant', message: { id, role: 'assistant', content }, parent_tool_use_id: null })
+const toolUse = (id: string, name: string, input: unknown = {}): AgentMessage => assistant([{ type: 'tool_use', id, name, input }])
+const toolResult = (id: string, content: unknown, extra: object = {}): AgentMessage => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, ...extra }] }, parent_tool_use_id: null })
+const init = (extra: object = {}): AgentMessage => ({ type: 'system', subtype: 'init', model: 'm1', mcp_servers: [{ name: 'torno', status: 'connected' }], ...extra })
+const result = (extra: object = {}): AgentMessage => ({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1500, ...extra })
 
 const of = <K extends ChatItem['kind']>(t: Transcript, kind: K): Array<Extract<ChatItem, { kind: K }>> => t.items().filter((i): i is Extract<ChatItem, { kind: K }> => i.kind === kind)
 
@@ -76,9 +76,9 @@ describe('a recorded conversation', () => {
   })
 
   it('is the same with types and fields it does not know spliced in', () => {
-    const spliced: StreamMessage[] = []
+    const spliced: AgentMessage[] = []
     FIXTURE.forEach((line, n) => {
-      const clone = JSON.parse(JSON.stringify(line)) as StreamMessage
+      const clone = JSON.parse(JSON.stringify(line)) as AgentMessage
       clone.from_the_future = { deeper: [1, 2, { x: null }] }
       if (clone.type === 'stream_event') (clone.event as Record<string, unknown>).novelty = true
       spliced.push(clone)
@@ -109,7 +109,7 @@ describe('a recorded conversation', () => {
   it('does not throw for lines that are not what they should be', () => {
     const t = new Transcript()
     const odd: unknown[] = [{ type: 'assistant', message: null }, { type: 'assistant', message: { content: 'text' } }, { type: 'user', message: { content: null } }, { type: 'user', message: { content: [null, 3, 'x', { type: 'tool_result' }] } }, { type: 'stream_event' }, { type: 'stream_event', event: null }, { type: 'stream_event', event: { type: 'content_block_delta' } }, { type: 'stream_event', event: { type: 'content_block_delta', index: 'a', delta: 4 } }, { type: 'system' }, { type: 'result', usage: 5 }, { type: 'rate_limit_event', rate_limit_info: 4 }, { type: 'system', subtype: 'init', mcp_servers: 'x', model: 4 }]
-    for (const line of odd) expect(() => t.message(line as StreamMessage)).not.toThrow()
+    for (const line of odd) expect(() => t.message(line as AgentMessage)).not.toThrow()
   })
 })
 
@@ -301,7 +301,7 @@ describe('what is sent', () => {
   it('keeps the prompts queued through an interrupt: the CLI runs them afterwards, together, and says so', () => {
     const U1 = 'aaaaaaaa-0000-4000-8000-000000000001'
     const U2 = 'aaaaaaaa-0000-4000-8000-000000000002'
-    const life = (command_uuid: string, state: string): StreamMessage => ({ type: 'command_lifecycle', command_uuid, state, uuid: `ev-${command_uuid}-${state}`, session_id: 's' })
+    const life = (command_uuid: string, state: string): AgentMessage => ({ type: 'command_lifecycle', command_uuid, state, uuid: `ev-${command_uuid}-${state}`, session_id: 's' })
     const t = new Transcript()
     t.userSent(text('A'), false, 'a0')
     t.message(life('a0', 'started'))
@@ -753,7 +753,7 @@ describe('what the CLI says of itself (#116)', () => {
   // What Claude Code says when a turn could not authenticate (`--bare`, which reads no OAuth token, or a login that
   // ran out): the assistant message's typed `error` (the Agent SDK's `SDKAssistantMessage.error`), a message of its
   // own words, and a result marked as an error. Only the typed field is read.
-  const loginFailed = (extra: object = {}): StreamMessage => ({ type: 'assistant', message: { id: 'msg_auth', role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: 'Not logged in · Please run /login' }] }, parent_tool_use_id: null, error: 'authentication_failed', ...extra })
+  const loginFailed = (extra: object = {}): AgentMessage => ({ type: 'assistant', message: { id: 'msg_auth', role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: 'Not logged in · Please run /login' }] }, parent_tool_use_id: null, error: 'authentication_failed', ...extra })
 
   it('says once a session, after the words the CLI said, that the chat could not use the login, and offers the terminal (#117)', () => {
     const t = new Transcript()
@@ -996,10 +996,10 @@ describe('fix round 1', () => {
 })
 
 // What Claude Code 2.1.301 printed for a permission, a question and a /compact (app/test/fixtures/claude-stream-asks.jsonl).
-const ASKS: StreamMessage[] = readFileSync(join(__dirname, '../../../test/fixtures/claude-stream-asks.jsonl'), 'utf8')
+const ASKS: AgentMessage[] = readFileSync(join(__dirname, '../../../test/fixtures/claude-stream-asks.jsonl'), 'utf8')
   .split('\n')
   .filter((line) => line !== '')
-  .map((line) => JSON.parse(line) as StreamMessage)
+  .map((line) => JSON.parse(line) as AgentMessage)
 
 describe('what the CLI printed for a permission and for /compact', () => {
   it('makes of /compact its prompt sent at the init, a quiet note with the tokens, and a turn that is ok', () => {
@@ -1016,7 +1016,7 @@ describe('what the CLI printed for a permission and for /compact', () => {
 
   it('draws no note for the compaction summary, and shows what a local command printed as a quiet note', () => {
     const t = new Transcript({ now: () => 1000 })
-    const local = (content: string): StreamMessage => ({ type: 'user', message: { role: 'user', content } })
+    const local = (content: string): AgentMessage => ({ type: 'user', message: { role: 'user', content } })
     t.message(local('<local-command-stdout>Total cost: $0.01\n</local-command-stdout>'))
     t.message(local('<local-command-stdout>  </local-command-stdout>'))
     t.message({ type: 'user', isSynthetic: true, message: { role: 'user', content: 'This session is being continued from a previous conversation' } })
@@ -1197,7 +1197,7 @@ describe('a subagent (M4)', () => {
   it('is not the main agent: its text is not drawn, its steps are counted on the Task card and its tool calls listed there', () => {
     const t = new Transcript()
     t.message(toolUse('task1', 'Task', { description: 'explore', prompt: 'look' }))
-    const inner = (content: object[], id: string): StreamMessage => ({ ...assistant(content, id), parent_tool_use_id: 'task1' })
+    const inner = (content: object[], id: string): AgentMessage => ({ ...assistant(content, id), parent_tool_use_id: 'task1' })
     t.message(inner([{ type: 'text', text: 'inner thought' }], 'i1'))
     t.message(inner([{ type: 'tool_use', id: 'in1', name: 'Read', input: { file_path: '/a/b.py' } }], 'i2'))
     t.message({ ...toolResult('in1', 'x'), parent_tool_use_id: 'task1' })

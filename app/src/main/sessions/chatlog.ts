@@ -83,12 +83,19 @@ export async function readLog(dir: string, conversationId: string, limit = 500):
     if (!line.trim()) continue
     try {
       const item: unknown = JSON.parse(line)
-      if (typeof item === 'object' && item !== null && !Array.isArray(item) && typeof (item as { kind?: unknown }).kind === 'string' && typeof (item as { id?: unknown }).id === 'string') items.push(item as ChatItem)
+      if (typeof item === 'object' && item !== null && !Array.isArray(item) && typeof (item as { kind?: unknown }).kind === 'string' && typeof (item as { id?: unknown }).id === 'string') items.push(known(item as ChatItem))
     } catch {
       // A line cut short by a crash.
     }
   }
   return items.slice(-limit)
+}
+
+/** An item as read back, without what the window would act on and torno never wrote: a note's `action` other than `terminal`. */
+function known(item: ChatItem): ChatItem {
+  if (item.kind !== 'note' || !('action' in item) || item.action === 'terminal') return item
+  const { action: _action, ...rest } = item
+  return rest
 }
 
 async function readTail(path: string): Promise<string> {

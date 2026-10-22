@@ -263,6 +263,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const [chosen, setChosen] = useState(0)
   /** The view chosen while a busy session runs, waiting for a yes: choosing it ends that session and resumes it in the other view. */
   const [switching, setSwitching] = useState<AgentView | null>(null)
+  /** The view being asked about was the chat's offer of the terminal, not a view picked. */
+  const offered = useRef(false)
   /** The chat was refused for this folder's own Claude Code settings: main's question, and whether the start was to resume. */
   const [trusting, setTrusting] = useState<{ question: string; resume: boolean } | null>(null)
   /** The instruction files Claude Code reads for the object (paths and sizes), as main last listed them. */
@@ -395,6 +397,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     setAsking(false)
     setEnding(false)
     setSwitching(null)
+    offered.current = false
     setTrusting(null)
     setChoice({ view: 'chat' })
     if (!objectId) return
@@ -625,9 +628,10 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
 
   /**
    * Another view for the object's sessions, Claude Code's chat or its terminal. With no session it changes what the next
-   * one runs; with one, that session is ended and the same conversation is resumed in the other view.
+   * one runs; with one, that session is ended and the same conversation is resumed in the other view. `always`: a session
+   * is started in it even when none runs (the chat's offer of the terminal, on a chat that has ended).
    */
-  async function applyView(next: AgentView): Promise<void> {
+  async function applyView(next: AgentView, always = false): Promise<void> {
     if (!objectId) return
     setProblem(null)
     try {
@@ -636,7 +640,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       if (running) await window.torno.session.stop(live.sessionId)
       await window.torno.session.chooseView(objectId, next)
       if (store.getState().objectId === objectId) setChoice((was) => ({ ...was, view: next }))
-      if (running) {
+      if (running || always) {
         // Whether there is a conversation to resume is asked of main now, once the one that ran has put itself on file.
         const info = await window.torno.session.current(objectId)
         await start(info.resumable)
@@ -655,6 +659,18 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     else void applyView(next)
   }
 
+  /**
+   * "Use the terminal" of a note in the chat (it could not use the login): the terminal comes up whatever the chat is
+   * doing, live, ended, or shown though the choice already is the terminal. Asked about first while the session is busy,
+   * as a view picked is.
+   */
+  function offerTerminal(): void {
+    if (session && !ended && busy) {
+      offered.current = true
+      setSwitching('terminal')
+    } else void applyView('terminal', true)
+  }
+
   /** "End": asked about first if the session is in the middle of something. */
   function end(): void {
     if (busy) setEnding(true)
@@ -662,6 +678,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   }
 
   function keepSession(): void {
+    offered.current = false
     setAsking(false)
     setEnding(false)
     setSwitching(null)
@@ -812,7 +829,9 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
             onAccept={() => {
               const next = switching
               setSwitching(null)
-              void applyView(next)
+              // The offer's terminal comes up even should the session have ended while it was asked.
+              void applyView(next, offered.current)
+              offered.current = false
             }}
           >
             {AGENT_LABEL} {busy ?? 'is running'}. Changing the view ends this session and goes on with the same conversation in the {switching}.
@@ -820,7 +839,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
         <div className="session-term" ref={host} data-shown={session && !chatting && !drafting ? '' : undefined} />
-        {session && chatting && !drafting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} dir={objectDir} onWholePrompt={() => void start(true, false)} onUseTerminal={() => chooseView('terminal')} />}
+        {session && chatting && !drafting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} dir={objectDir} onWholePrompt={() => void start(true, false)} onUseTerminal={offerTerminal} terminalDisabled={starting || asking || ending || switching !== null} />}
         {drafting ? (
           <DraftPaneLive />
         ) : !objectId ? (
