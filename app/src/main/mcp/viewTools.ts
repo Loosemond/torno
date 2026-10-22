@@ -7,13 +7,15 @@ import type { Scene } from '../../shared/scene'
 import { type Camera, type LookRequest, type LookResult, type SaveViewRequest, type SaveViewResult, type SectionPlane, type ShowRequest, type ShowResult, type ViewName, axisForm, planeText } from '../../shared/view'
 import { type SavedView, MAX_PROPOSALS, VIEW_NOT_BOTH, cleanViewName, findView, viewGone, viewNameRefusal, viewSummary } from '../../shared/views'
 import { number } from '../../shared/format'
+import { FOCUS_NOT_EXPLODED } from '../../shared/focus'
 import { groupOf, groupsIn, groupVisibility, partsNamed } from '../../shared/groups'
 import { alignmentSaid } from '../scans/said'
+import { type Focused, MARGIN_NEEDS_FOCUS, NO_SAVED_FRAME, focusOf, hiddenText, marginShare, notDrawn } from './focus'
 import { unknownKeys } from './keys'
 import { NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanColourFor, scanIds } from './scanTools'
 import { type CameraArg, type LookArgs, type SaveViewArgs, type ShowArgs, CAMERA_KEYS, FOV, VIEW_NAMES, explodeHelp } from './schemas'
 import { modelOutput } from '../context'
-import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
+import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, layoutFor, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
 
 // The tools of the view: `scene`, which says what the object is and what the user sees of it, `look`, a picture
 // from the window, `show`, which changes what the window shows for now, and `save_view`, which leaves the user a
@@ -178,6 +180,8 @@ export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs
   // which is meant: asked for another, it would answer with the wrong one.
   const elsewhere = (open: string | null) => failure(`${notOpen(obj, open)}. Ask the user to open it.`)
   if (deps.openObjectId() !== objectId) return elsewhere(deps.openObjectId())
+  if (given.margin !== undefined && given.focus === undefined) return failure(MARGIN_NEEDS_FOCUS)
+  if (given.focus !== undefined && isSavedName(given.view)) return failure(NO_SAVED_FRAME)
 
   // The name of a saved view: the picture is of that view, whatever is on screen, but for what is given beside it.
   let args = given
@@ -231,6 +235,16 @@ export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs
     if (args.frame !== 'parts' && args.frame !== 'all') return failure('frame is "parts" (the default: a named view is fitted to the parts drawn) or "all" (to the scans drawn with them)')
     request.frame = args.frame
   }
+  // A focus: the box the picture is framed on, worked out here against the last build. It is where the parts are built, so they are drawn together.
+  let focused: Focused | undefined
+  if (given.focus !== undefined) {
+    if (isExploded(explode)) return failure(FOCUS_NOT_EXPLODED)
+    const got = await focusing(deps, objectId, found, args, request.parts)
+    if ('content' in got) return got
+    focused = got
+    request.focus = got.focus
+    request.explode = null
+  }
 
   let picture: LookResult
   try {
@@ -252,10 +266,23 @@ export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs
   return {
     content: [
       { type: 'image', data: Buffer.from(picture.png).toString('base64'), mimeType: 'image/png' },
-      { type: 'text', text: `${picture.caption}${named ? passedOver(named, given, { picture: true, cut: Boolean(deps.view(objectId)?.section) }) : ''}${spreadBesideScans(scene, picture)}${await undrawnScans(deps, objectId, args.scans === false ? [] : Array.isArray(args.scans) ? args.scans : undefined)}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
+      { type: 'text', text: `${picture.caption}${named ? passedOver(named, given, { picture: true, cut: Boolean(deps.view(objectId)?.section) }) : ''}${spreadBesideScans(scene, picture)}${await undrawnScans(deps, objectId, args.scans === false ? [] : Array.isArray(args.scans) ? args.scans : undefined)}${focused ? `${focusSaid(focused)}${hiddenText(picture.hiddenBy)}${given.explode === undefined && isExploded(deps.view(objectId)?.explode) ? "\nThe user's screen draws the parts apart; this picture draws them together, as a focus is where they are built." : ''}` : ''}\nrevision r${picture.revision}${staleNote(deps, objectId, picture)}\n${saved}` }
     ]
   }
 }
+
+/** The focus checked against the last build, and the layout it is in: its box, or why it cannot be framed. For `look` and `show`; `drawn` is the parts the call names, if it does. */
+async function focusing(deps: ToolDeps, objectId: string, found: { scene: Scene; revision: number }, args: { focus?: unknown; margin?: unknown; layout?: string }, drawn: string[] | undefined): Promise<Focused | ToolResult> {
+  const share = marginShare(args.margin)
+  if (typeof share !== 'number') return share
+  const layout = layoutFor(deps, objectId, found.scene, args.layout)
+  if (typeof layout !== 'string') return layout
+  const screen = deps.view(objectId)
+  return focusOf(deps, objectId, found, layout, args.focus, share, (parts) => notDrawn(parts, layout, drawn, screen ? { layout: screen.layout, visible: screen.visible } : undefined))
+}
+
+/** What a reply says of the focus, after the caption: what was framed and how, and what torno moved. */
+const focusSaid = (focused: Focused): string => `\n${focused.said}.${focused.moved ? `\n${focused.moved}` : ''}`
 
 /**
  * Said once after the caption of a picture, or of what the window shows, that draws a scan in a layout whose
@@ -334,7 +361,9 @@ export async function showTool(deps: ToolDeps, objectId: string, given: ShowArgs
   const found = onScreen(deps, objectId)
   if ('content' in found) return found
   const { obj, scene } = found
-  if (given.view === undefined && given.layout === undefined && given.parts === undefined && given.section === undefined && given.scans === undefined && given.scanOpacity === undefined && given.explode === undefined) return failure('nothing to show: give a view, a layout, parts, a section, an explode or scans')
+  if (given.margin !== undefined && given.focus === undefined) return failure(MARGIN_NEEDS_FOCUS)
+  if (given.view === undefined && given.focus === undefined && given.layout === undefined && given.parts === undefined && given.section === undefined && given.scans === undefined && given.scanOpacity === undefined && given.explode === undefined) return failure('nothing to show: give a view, a focus, a layout, parts, a section, an explode or scans')
+  if (given.focus !== undefined && isSavedName(given.view)) return failure(NO_SAVED_FRAME)
   if (given.layout !== undefined && !scene.layouts.includes(given.layout)) return failure(`no layout '${given.layout}'; layouts: ${scene.layouts.join(', ')}`)
   if (given.parts?.length === 0) return failure('parts is empty: name the parts to leave switched on')
   if (given.view === 'current') return failure(`view "current" is the camera the user has, which stays unless you give another: ${STANDARD_VIEWS}, the name of a saved view, or a camera`)
@@ -379,6 +408,15 @@ export async function showTool(deps: ToolDeps, objectId: string, given: ShowArgs
   if (isExploded(explode) && (args.section === undefined ? deps.view(objectId)?.section : args.section)) return failure(NOT_EXPLODED_AND_CUT)
   const nothing = drawsNothingApart(scene, args.layout ?? deps.view(objectId)?.layout, explode)
   if (nothing !== null) return failure(nothing)
+  // A focus is where the parts are built: not where they are drawn apart, by this call or as the user has them.
+  let focused: Focused | undefined
+  if (given.focus !== undefined) {
+    if (explode === undefined ? isExploded(deps.view(objectId)?.explode) : isExploded(explode)) return failure(FOCUS_NOT_EXPLODED)
+    const got = await focusing(deps, objectId, found, args, request.parts)
+    if ('content' in got) return got
+    focused = got
+    request.focus = got.focus
+  }
   if (args.scans !== undefined) {
     const ids = await scanIds(deps, objectId, args.scans, NO_SHOW_SCANS)
     if ('content' in ids) return ids
@@ -396,7 +434,7 @@ export async function showTool(deps: ToolDeps, objectId: string, given: ShowArgs
     return failure(messageOf(e))
   }
   if (shown.objectId !== objectId) return failure(`${notOpen(obj, shown.objectId)}. Ask the user to open it.`)
-  return { content: [{ type: 'text', text: `${shown.caption}${named ? passedOver(named, given) : ''}${spreadBesideScans(scene, shown)}${await undrawnScans(deps, objectId, args.scans)}\nrevision r${shown.revision}${staleNote(deps, objectId, shown)}\nThe user's viewport now shows this.` }] }
+  return { content: [{ type: 'text', text: `${shown.caption}${named ? passedOver(named, given) : ''}${spreadBesideScans(scene, shown)}${await undrawnScans(deps, objectId, args.scans)}${focused ? focusSaid(focused) : ''}\nrevision r${shown.revision}${staleNote(deps, objectId, shown)}\nThe user's viewport now shows this.` }] }
 }
 
 const STANDARD_VIEWS = 'iso, front, back, left, right, top, bottom'

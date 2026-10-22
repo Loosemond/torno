@@ -173,6 +173,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     does not say is: `≈` and `approximate` otherwise. A query that took its
     30 s is told as that; the answer of a worker still busy with one is told
     in the kernel's words (`refusal` in `mcp/readTools.ts`).
+  - **`focus`** of `look` and `show` (`mcp/focus.ts`, `FocusBox` in `shared/focus.ts`) frames the picture, or their
+    camera, on a ref, a group, a mark or a box, and `margin` is a share of the box's longest side (0 to 5, default
+    0.3, the side counted as 20 mm at the least so that a pin has room round it). Main works the box out in the
+    frame of the layout, against the last build, before the window is asked: a part's is the scene's, a group's the
+    box round its parts', a face's or an edge's the kernel's (`measure` bbox: exact or `≈` as it says), a mark's the
+    box round the points it is drawn at (`markPoints`; a region of a scan has none and is refused), a box as given.
+    What names nothing is refused with what a focus can be (`FORMS`); a part the picture leaves out (`parts`, or the
+    user's switched-off parts) is refused before the kernel is asked (`notDrawn`). The parts are drawn together
+    (`explode: null`): the box is where they are built, so an explode beside it, or on the screen for `show`, is
+    refused (`FOCUS_NOT_EXPLODED`). A saved view frames its own picture and is refused with `focus`. A part torno
+    moved for display is framed where it is shown, and the reply says so. The window says what stands between the
+    camera and the middle of the focus (`LookResult.hiddenBy`) and the reply tells the agent how to see it
+    (`hiddenText`).
   - The picture `section` returns is a 2D drawing of the kernel's outlines
     (`src/renderer/viewport/sectionDrawing.ts`), made by the window on a
     canvas of its own whichever object it shows, on the light sheet whatever

@@ -232,6 +232,41 @@ describe('show', () => {
     expect(store.getState().section).toBeNull()
   })
 
+  describe('with a focus', () => {
+    const FOCUS = { min: [10, -2, 4], max: [30, 2, 4], margin: 5 } as ShowRequest['focus']
+    const caption = (): string => (replies.at(-1)!.result as { caption: string }).caption
+
+    it('puts the camera on the box, from the side a standard view names, and says so', () => {
+      show({ view: 'front', focus: FOCUS })
+      expect(views).toHaveLength(1)
+      expect(views[0]).toMatchObject({ target: [20, 0, 4], ortho: true, up: [0, 0, 1] })
+      expect((views[0] as Camera).position[1]).toBeLessThan(0)
+      expect(caption()).toBe('view front · layout assembly · parts base, post · framed on the focus · orthographic')
+    })
+
+    it('keeps the way the camera looks and its projection when no view is named', () => {
+      show({ focus: FOCUS })
+      const camera = views[0] as Camera
+      expect(camera.ortho).toBe(false)
+      expect(camera.target).toEqual([20, 0, 4])
+      const along = camera.target.map((c, i) => c - camera.position[i])
+      const was = CAMERA.target.map((c, i) => c - CAMERA.position[i])
+      const cosine = along.reduce((sum, c, i) => sum + c * was[i], 0) / (Math.hypot(...along) * Math.hypot(...was))
+      expect(cosine).toBeCloseTo(1, 9)
+      expect(caption()).toContain('view current')
+    })
+
+    it('is not asked of parts drawn apart: the box is where they are built', () => {
+      actions.showForAgent('assembly', {}, undefined, undefined, { amount: 0.5, scale: 1, axis: 'z' })
+      show({ focus: FOCUS })
+      expect(replies.at(-1)!.result).toEqual({ error: 'a focus is a place on the parts as built: draw them together (explode null) to frame it' })
+      expect(views).toEqual([])
+      show({ focus: FOCUS, explode: null })
+      expect(views).toHaveLength(1)
+      expect(explodeNow(store.getState())).toBeNull()
+    })
+  })
+
   describe('with an explode', () => {
     const NOTE = 'the parts are drawn apart for display: every position, ref and number told is of the parts as assembled'
     const NOT_BOTH = 'a section is not drawn exploded: give explode or section, not both (explode: null draws the parts together, section: null draws them whole)'

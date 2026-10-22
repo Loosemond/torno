@@ -613,6 +613,97 @@ test('add_mark by a face whose centre is not on it puts the pin on the face unde
   expect(listed.line).toBe(describeMark(kept))
 })
 
+/** The box round the pixels of a PNG that are within `near` (summed over the channels) of a colour, as shares of its width and height, and how many there are. */
+function inkBox(base64: string, rgb: [number, number, number], near = 40): Promise<{ left: number; right: number; top: number; bottom: number; count: number }> {
+  return page.evaluate(
+    async ({ data, rgb, near }) => {
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const { data: pixels } = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      let [left, right, top, bottom, count] = [bitmap.width, 0, bitmap.height, 0, 0]
+      for (let i = 0; i < pixels.length; i += 4) {
+        if (Math.abs(pixels[i] - rgb[0]) + Math.abs(pixels[i + 1] - rgb[1]) + Math.abs(pixels[i + 2] - rgb[2]) > near) continue
+        const [x, y] = [(i / 4) % bitmap.width, Math.floor(i / 4 / bitmap.width)]
+        left = Math.min(left, x)
+        right = Math.max(right, x)
+        top = Math.min(top, y)
+        bottom = Math.max(bottom, y)
+        count += 1
+      }
+      return { left: left / bitmap.width, right: right / bitmap.width, top: top / bitmap.height, bottom: bottom / bitmap.height, count }
+    },
+    { data: base64, rgb, near }
+  )
+}
+
+// Set TORNO_SHOTS=<dir> to write the pictures of a focus there (look-focus-*.png).
+test('look at a focus frames a mark, a face or a box up close, says what it framed and what hides it, and show puts the camera there', async () => {
+  const pocket = await connect('pocket')
+  const shot = (name: string, base64: string): void => {
+    if (!process.env.TORNO_SHOTS) return
+    mkdirSync(process.env.TORNO_SHOTS, { recursive: true })
+    writeFileSync(join(process.env.TORNO_SHOTS, name), Buffer.from(base64, 'base64'))
+  }
+  // The agent's own arrow across the top of the plate, from (-8, -6) to (8, 6): green in the picture.
+  const placed = await call(pocket, 'add_mark', { kind: 'arrow', note: 'run the lead this way', point: [-8, -6, 2.5], by: [16, 12, 0] })
+  expect(placed.isError, placed.text).toBe(false)
+  const AGENT: [number, number, number] = [40, 129, 86]
+  const whole = await call(pocket, 'look', { view: 'top' })
+  const wholeInk = await inkBox(whole.content[0].data!, AGENT)
+  // Seen from above with little round it, the arrow fills most of the picture; in the whole view it is small.
+  const near = await call(pocket, 'look', { focus: 'M2', view: 'top', margin: 0.1 })
+  expect(near.isError, near.text).toBe(false)
+  shot('look-focus-mark-top.png', near.content[0].data!)
+  shot('look-whole-top.png', whole.content[0].data!)
+  const ink = await inkBox(near.content[0].data!, AGENT)
+  expect(ink.right - ink.left).toBeGreaterThan(0.6)
+  expect(ink.bottom - ink.top).toBeGreaterThan(0.6)
+  expect(wholeInk.right - wholeInk.left).toBeLessThan(0.45)
+  expect(near.text).toContain('view top · layout main · parts plate')
+  expect(near.text).toContain('framed on the focus')
+  expect(near.text).toContain('\nfocus M2 (arrow): box (-8, -6, 2.5) to (8, 6, 2.5) mm, framed with 2 mm round it.\n')
+  // Nothing is between the camera and the middle of it.
+  expect(near.text).not.toContain('hidden')
+
+  // A face is framed by the kernel's box of it, exactly, and the picture has the size asked for.
+  const faces = await Promise.all(Array.from({ length: 11 }, async (_, i) => ({ ref: `plate/F${i}`, descriptor: (JSON.parse((await call(pocket, 'describe', { ref: `plate/F${i}` })).text) as { descriptor: string }).descriptor })))
+  const floor = faces.find((f) => /^plane, normal \+Z, z = 0\.5, 100 mm²/.test(f.descriptor))!
+  const floored = await call(pocket, 'look', { focus: floor.ref, view: 'top', size: 640 })
+  expect(floored.isError, floored.text).toBe(false)
+  shot('look-focus-face-top.png', floored.content[0].data!)
+  expect(floored.text).toContain(`focus ${floor.ref}: box (-5, -5, 0.5) to (5, 5, 0.5) mm, exact, framed with 6 mm round it.`)
+  expect(floored.text).toContain('640×480')
+  expect(floored.text).not.toContain('hidden')
+  // From the front the wall of the plate stands between the camera and the floor of the pocket, and the caption says so.
+  const front = await call(pocket, 'look', { focus: floor.ref, view: 'front' })
+  expect(front.text).toContain('The middle of the focus is hidden from this side: plate stands between it and the camera.')
+  shot('look-focus-face-front.png', front.content[0].data!)
+
+  // What names nothing is refused with the way out, and no picture is made.
+  expect(await call(pocket, 'look', { focus: 'lid/F1' })).toMatchObject({ isError: true, text: expect.stringContaining("no part 'lid' in layout main (parts: plate); a focus is a part, part/F<n>, part/E<n>, a group, a mark (M3) or a box") })
+  expect(await call(pocket, 'look', { focus: 'M9' })).toMatchObject({ isError: true, text: 'no mark M9; marks: M1, M2' })
+
+  // A box as given; and show puts the user's camera there, from the side asked for, so that the arrow fills their view.
+  const boxed = await call(pocket, 'look', { focus: { min: [-20, -15, -2.5], max: [-10, -5, 2.5] }, view: 'right', margin: 0 })
+  expect(boxed.text).toContain('focus box: (-20, -15, -2.5) to (-10, -5, 2.5) mm, as you gave it, framed with 0 mm round it.')
+  const shown = await call(pocket, 'show', { focus: 'M2', view: 'top', margin: 0.1 })
+  expect(shown.isError, shown.text).toBe(false)
+  expect(shown.text).toContain('framed on the focus')
+  await expect
+    .poll(async () => {
+      const c = await camera()
+      return Math.hypot(c.target[0], c.target[1], c.target[2] - 2.5) < 0.05 && c.position[2] > c.target[2] && Math.hypot(c.position[0] - c.target[0], c.position[1] - c.target[1]) < 0.5
+    })
+    .toBe(true)
+  // Where the ends of the arrow are drawn on their screen: well inside it, and far apart.
+  const [a, b] = await page.evaluate(() => [window.__tornoTest!.project([-8, -6, 2.5]), window.__tornoTest!.project([8, 6, 2.5])])
+  expect(Math.abs(b[0] - a[0])).toBeGreaterThan(0.4)
+  for (const [x, y] of [a, b]) expect([x > 0.05, x < 0.95, y > 0.05, y < 0.95]).toEqual([true, true, true, true])
+})
+
 /** The colour of one pixel of a PNG, at fractions of its width and height, and its size. */
 function pixelAt(base64: string, fx: number, fy: number): Promise<{ width: number; height: number; rgb: [number, number, number] }> {
   return page.evaluate(

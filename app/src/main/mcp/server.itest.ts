@@ -183,7 +183,7 @@ describe('the MCP server', () => {
     expect(inputs('marks').required ?? []).toEqual([])
     for (const tool of tools) expect(tool.description).toMatch(/^Returns /)
     const look = tools.find((t) => t.name === 'look')!
-    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['explode', 'frame', 'layout', 'marks', 'parts', 'scanColour', 'scans', 'section', 'size', 'view'])
+    expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['explode', 'focus', 'frame', 'layout', 'margin', 'marks', 'parts', 'scanColour', 'scans', 'section', 'size', 'view'])
     expect(look.inputSchema.required ?? []).toEqual([])
   })
 
@@ -220,7 +220,7 @@ describe('the MCP server', () => {
       expect(of(name).description, name).toMatch(/^Returns JSON and a reading /)
       for (const [arg, schema] of Object.entries(of(name).inputSchema.properties ?? {})) expect((schema as { description?: string }).description, `${name}.${arg}`).toBeTruthy()
     }
-    expect(Object.keys(of('show').inputSchema.properties ?? {}).sort()).toEqual(['explode', 'layout', 'parts', 'scanOpacity', 'scans', 'section', 'view'])
+    expect(Object.keys(of('show').inputSchema.properties ?? {}).sort()).toEqual(['explode', 'focus', 'layout', 'margin', 'parts', 'scanOpacity', 'scans', 'section', 'view'])
     expect(Object.keys(of('save_view').inputSchema.properties ?? {}).sort()).toEqual(['explode', 'layout', 'name', 'note', 'parts', 'section', 'view'])
     expect(of('save_view').inputSchema.required ?? []).toEqual([])
     for (const [arg, schema] of Object.entries(of('save_view').inputSchema.properties ?? {})) expect((schema as { description?: string }).description, `save_view.${arg}`).toBeTruthy()

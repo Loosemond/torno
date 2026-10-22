@@ -590,6 +590,201 @@ describe('look', () => {
   })
 })
 
+describe('look and show at a focus', () => {
+  const BOX_REPLY = { kind: 'bbox', min: [-20, -15, 2.5], max: [20, 15, 2.5], size: [40, 30, 0], unit: 'mm', how: 'axis-aligned box', exact: true }
+  /** The kernel, asked for the box of a face or an edge: what it was asked is kept. */
+  function measuring(reply: object = BOX_REPLY): { query: ToolDeps['query']; asked: Array<{ name: string; args: object }> } {
+    const asked: Array<{ name: string; args: object }> = []
+    return { asked, query: (async (_objectId: string, name: string, args: object) => (asked.push({ name, args }), reply)) as ToolDeps['query'] }
+  }
+
+  it('takes the box of a face from the kernel and gives the window that box, with a margin of 30 % of its longest side', async () => {
+    const kernel = measuring()
+    const deps = fake({ query: kernel.query })
+    const result = await lookTool(deps, 'bracket', { focus: 'base/F5', view: 'front' })
+    expect(result.isError).toBeUndefined()
+    expect(kernel.asked).toEqual([{ name: 'measure', args: { kind: 'bbox', a: { ref: 'assembly:base/F5' } } }])
+    expect(deps.looks).toHaveLength(1)
+    expect(deps.looks[0].req).toEqual({ view: 'front', size: 1280, explode: null, focus: { min: [-20, -15, 2.5], max: [20, 15, 2.5], margin: 12 } })
+    // The caption says what was framed, and how.
+    expect(textOf(result)).toContain('\nfocus base/F5: box (-20, -15, 2.5) to (20, 15, 2.5) mm, exact, framed with 12 mm round it.\n')
+  })
+
+  it('says a box that is not exact is approximate', async () => {
+    const deps = fake({ query: measuring({ ...BOX_REPLY, exact: false, how: 'axis-aligned box, approximate' }).query })
+    expect(textOf(await lookTool(deps, 'bracket', { focus: 'base/E7' }))).toContain('focus base/E7: box ≈ (-20, -15, 2.5) to (20, 15, 2.5) mm, approximate, framed with 12 mm round it')
+  })
+
+  it('takes the box of a part from the scene, asking the kernel nothing, and says when it is not exact', async () => {
+    const kernel = measuring()
+    const deps = fake({ query: kernel.query })
+    const result = await lookTool(deps, 'bracket', { focus: 'base' })
+    expect(kernel.asked).toEqual([])
+    expect(deps.looks[0].req.focus).toEqual({ min: [-20, -15, -2.5], max: [20, 15, 2.5], margin: 12 })
+    expect(textOf(result)).toContain('focus base: box (-20, -15, -2.5) to (20, 15, 2.5) mm, exact')
+    const loft = part('assembly', 'base', [-20, -15, -2.5], [20, 15, 2.5], { bboxExact: false })
+    const rough = fake({ scene: () => ({ revision: 3, scene: { ...SCENE, parts: [loft, SCENE.parts[1], SCENE.parts[2], SCENE.parts[3]] } }) })
+    expect(textOf(await lookTool(rough, 'bracket', { focus: 'base' }))).toContain('focus base: box ≈ (-20, -15, -2.5) to (20, 15, 2.5) mm, approximate')
+  })
+
+  it('takes the box round the parts of a group', async () => {
+    const GROUPED: Scene = { ...SCENE, parts: [part('assembly', 'flat-a', [-5, -5, -1], [5, 5, 1]), part('assembly', 'flat-b', [15, -5, -1], [25, 5, 1])], groups: [{ name: 'flat', parts: ['flat-a', 'flat-b'] }] }
+    const deps = fake({ scene: () => ({ revision: 3, scene: GROUPED }), view: () => ({ ...VIEW, visible: ['assembly:flat-a', 'assembly:flat-b'] }) })
+    const result = await lookTool(deps, 'bracket', { focus: 'flat', margin: 0.5 })
+    expect(deps.looks[0].req.focus).toEqual({ min: [-5, -5, -1], max: [25, 5, 1], margin: 15 })
+    expect(textOf(result)).toContain('focus flat (a group of 2 parts): box (-5, -5, -1) to (25, 5, 1) mm, exact, framed with 15 mm round it')
+  })
+
+  it('takes the points of a mark, and frames a mark at a point with room round it', async () => {
+    const deps = fake()
+    const pin = await lookTool(deps, 'bracket', { focus: 'M1', view: 'front' })
+    expect(deps.looks[0].req.focus).toEqual({ min: [1, 2, 2.5], max: [1, 2, 2.5], margin: 6 })
+    expect(textOf(pin)).toContain('focus M1 (pin): at (1, 2, 2.5) mm, framed with 6 mm round it')
+    await lookTool(deps, 'bracket', { focus: 'M2' })
+    expect(deps.looks[1].req.focus).toEqual({ min: [0, 40, 0], max: [10, 40, 5], margin: 6 })
+  })
+
+  it('takes a box as it is given, with no kernel in it', async () => {
+    const kernel = measuring()
+    const deps = fake({ query: kernel.query })
+    const result = await lookTool(deps, 'bracket', { focus: { min: [0, 0, 0], max: [10, 4, 2] }, margin: 0 })
+    expect(kernel.asked).toEqual([])
+    expect(deps.looks[0].req.focus).toEqual({ min: [0, 0, 0], max: [10, 4, 2], margin: 0 })
+    expect(textOf(result)).toContain('focus box: (0, 0, 0) to (10, 4, 2) mm, as you gave it, framed with 0 mm round it')
+  })
+
+  it('refuses a ref that names nothing, with what a focus can be, and asks no one', async () => {
+    const kernel = measuring()
+    const deps = fake({ query: kernel.query })
+    const part = await lookTool(deps, 'bracket', { focus: 'lid/F12' })
+    expect(part.isError).toBe(true)
+    expect(textOf(part)).toBe("no part 'lid' in layout assembly (parts: base, post); a focus is a part, part/F<n>, part/E<n>, a group, a mark (M3) or a box {\"min\": [x, y, z], \"max\": [x, y, z]}")
+    const face = await lookTool(deps, 'bracket', { focus: 'base/F9' })
+    expect(textOf(face)).toBe('base has 6 faces, F0 to F5: there is no F9; a focus is a part, part/F<n>, part/E<n>, a group, a mark (M3) or a box {"min": [x, y, z], "max": [x, y, z]}')
+    expect(deps.looks).toEqual([])
+    expect(kernel.asked).toEqual([])
+  })
+
+  it('refuses a mark there is not, one in another layout, and a region of a scan, naming the way out', async () => {
+    const deps = fake()
+    expect(textOf(await lookTool(deps, 'bracket', { focus: 'M9' }))).toBe('no mark M9; marks: M1, M2, M3, M4')
+    expect(textOf(await lookTool(deps, 'bracket', { focus: 'M3' }))).toBe('M3 is in layout print, not assembly: give layout "print", or a ref')
+    const region = { ...MARK_BASE, id: 'M5', kind: 'region', scan: 'S1', note: '', local: {} } as unknown as Mark
+    const withRegion = fake({ marks: async () => [region] })
+    expect(textOf(await lookTool(withRegion, 'bracket', { focus: 'M5' }))).toBe('M5 is a region of a scan, which has no place in the model\'s frame: give a box {"min": [x, y, z], "max": [x, y, z]} or a ref')
+    expect(deps.looks).toEqual([])
+  })
+
+  it.each([
+    [{ min: [0, 0, 0] }, 'a focus box takes min and max'],
+    [{ min: [0, 0, 0], max: [1, 2] }, 'a focus box takes min and max'],
+    [{ min: [0, 0, 'x'], max: [1, 2, 3] }, 'a focus box takes min and max'],
+    [{ min: [5, 0, 0], max: [1, 2, 3] }, 'a focus box has its min below its max in x, y and z'],
+    [{ min: [0, 0, 0], max: [1, 2, 3], centre: [1, 1, 1] }, 'the focus takes no "centre". An unknown key is not ignored: nothing was done. It takes: min, max.'],
+    [12, 'a focus is a part, part/F<n>, part/E<n>, a group, a mark (M3) or a box {"min": [x, y, z], "max": [x, y, z]}'],
+    ['', 'a focus is a part, part/F<n>, part/E<n>, a group, a mark (M3) or a box {"min": [x, y, z], "max": [x, y, z]}']
+  ])('refuses the focus %j', async (focus, text) => {
+    const deps = fake()
+    const result = await lookTool(deps, 'bracket', { focus } as never)
+    expect(result.isError).toBe(true)
+    expect(textOf(result).startsWith(text)).toBe(true)
+    expect(deps.looks).toEqual([])
+  })
+
+  it.each([[-1], [6], ['wide'], [Number.NaN]])('refuses a margin of %j: a share of the box, 0 to 5', async (margin) => {
+    const deps = fake()
+    const result = await lookTool(deps, 'bracket', { focus: 'base', margin } as never)
+    expect(textOf(result)).toBe('margin is a share of the focus box\'s longest side added on every side, 0 to 5 (default 0.3)')
+    expect(deps.looks).toEqual([])
+  })
+
+  it('refuses a margin with no focus: it would change nothing', async () => {
+    const deps = fake()
+    expect(textOf(await lookTool(deps, 'bracket', { margin: 0.5 }))).toBe('margin goes with focus: give the ref, mark or box to frame')
+    expect(textOf(await showTool(deps, 'bracket', { margin: 0.5 }))).toBe('margin goes with focus: give the ref, mark or box to frame')
+  })
+
+  it('looks the way the user does when no view is named, and from a standard view or a camera otherwise; a saved view frames its own picture and is refused', async () => {
+    const deps = fake({ views: async () => [{ name: 'Hinge', author: 'user', layout: 'assembly', camera: CAMERA, hidden: [], at: '' }] })
+    await lookTool(deps, 'bracket', { focus: 'base' })
+    await lookTool(deps, 'bracket', { focus: 'base', view: 'top' })
+    await lookTool(deps, 'bracket', { focus: 'base', view: { position: [0, 0, 100], target: [0, 0, 0] } })
+    expect(deps.looks.map((l) => l.req.view)).toEqual(['current', 'top', { position: [0, 0, 100], target: [0, 0, 0], up: [0, 1, 0], ortho: false, fov: 35, zoom: 1 }])
+    const saved = await lookTool(deps, 'bracket', { focus: 'base', view: 'Hinge' })
+    expect(textOf(saved)).toBe('a saved view frames its own picture: give focus with front, iso, … or a camera, or the view without focus')
+    expect(deps.looks).toHaveLength(3)
+  })
+
+  it('draws the parts together, and refuses an explode beside a focus: its box is where the parts are built', async () => {
+    const onScreen = { amount: 0.5, scale: 1, axis: 'centre' as const }
+    const deps = fake({ view: () => ({ ...VIEW, explode: onScreen }) })
+    await lookTool(deps, 'bracket', { focus: 'base' })
+    expect(deps.looks[0].req.explode).toBeNull()
+    expect(textOf(await lookTool(deps, 'bracket', { focus: 'base', explode: 0.4 }))).toBe('a focus is a place on the parts as built: draw them together (explode null) to frame it')
+    await lookTool(deps, 'bracket', { focus: 'base', explode: null })
+    expect(deps.looks).toHaveLength(2)
+    // The caption of a picture the user's screen would have drawn apart says it was drawn together.
+    expect(textOf(await lookTool(deps, 'bracket', { focus: 'base' }))).toContain('The user\'s screen draws the parts apart; this picture draws them together, as a focus is where they are built.')
+  })
+
+  it('refuses a focus on a part the picture leaves out, and says how to put it in', async () => {
+    const deps = fake({ view: () => ({ ...VIEW, visible: ['assembly:base'] }) })
+    expect(textOf(await lookTool(deps, 'bracket', { focus: 'post' }))).toBe('post is not drawn: the user has it switched off. Name it in parts to draw it, e.g. "parts": ["post"]')
+    expect(textOf(await lookTool(deps, 'bracket', { focus: 'base/F5', parts: ['post'] }))).toBe('base is not drawn: parts leaves it out. Add it to parts')
+    expect(deps.looks).toEqual([])
+    // Named in parts, a part is drawn whatever the screen has.
+    expect((await lookTool(deps, 'bracket', { focus: 'post', parts: ['post'] })).isError).toBeUndefined()
+  })
+
+  it('says the focus is hidden when the window found parts in front of it, and how to see it', async () => {
+    const deps = fake({ look: async () => ({ ...PICTURE, hiddenBy: ['post', 'base'] }) })
+    const text = textOf(await lookTool(deps, 'bracket', { focus: 'M1', view: 'front' }))
+    expect(text).toContain('The middle of the focus is hidden from this side: post and base stand between it and the camera. Look with parts that leave them out, with a section, or from another side.')
+    // In plain sight nothing is said.
+    expect(textOf(await lookTool(fake({ look: async () => ({ ...PICTURE, hiddenBy: [] }) }), 'bracket', { focus: 'M1' }))).not.toContain('hidden')
+  })
+
+  it('says a part torno moved for display is framed where it is shown', async () => {
+    const moved = part('print', 'post', [56, -10, 0], [64, 10, 8], { arranged: [60, 0, 0] })
+    const scene = { ...SCENE, parts: [SCENE.parts[0], SCENE.parts[1], SCENE.parts[2], moved] }
+    const deps = fake({ scene: () => ({ revision: 3, scene }), view: () => ({ ...VIEW, layout: 'print', visible: ['print:post'] }) })
+    const result = await lookTool(deps, 'bracket', { focus: 'post', layout: 'print' })
+    expect(deps.looks[0].req.focus).toEqual({ min: [56, -10, 0], max: [64, 10, 8], margin: 6 })
+    expect(textOf(result)).toContain('post was moved by torno for display in layout print: it is framed where it is shown, not where the model places it.')
+  })
+
+  it('is refused while a build has the kernel let go, with the kernel’s own words', async () => {
+    const deps = fake({ query: (async () => Promise.reject(new Error('no build to answer from: build again'))) as ToolDeps['query'] })
+    const result = await lookTool(deps, 'bracket', { focus: 'base/F5' })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe('no build to answer from: build again')
+    expect(deps.looks).toEqual([])
+  })
+
+  it('show puts the camera on the focus the same way, and not when the screen draws the parts apart', async () => {
+    const kernel = measuring()
+    const deps = fake({ query: kernel.query })
+    const result = await showTool(deps, 'bracket', { focus: 'base/F5', view: 'front' })
+    expect(result.isError).toBeUndefined()
+    expect(deps.w.shows).toEqual([{ objectId: 'bracket', view: 'front', focus: { min: [-20, -15, 2.5], max: [20, 15, 2.5], margin: 12 } }])
+    expect(textOf(result)).toContain('focus base/F5: box (-20, -15, 2.5) to (20, 15, 2.5) mm, exact, framed with 12 mm round it')
+    const apart = fake({ view: () => ({ ...VIEW, explode: { amount: 0.5, scale: 1, axis: 'centre' } }) })
+    expect(textOf(await showTool(apart, 'bracket', { focus: 'base' }))).toBe('a focus is a place on the parts as built: draw them together (explode null) to frame it')
+    expect(apart.w.shows).toEqual([])
+    // The window is not asked for a saved view's own frame either.
+    const named = fake({ views: async () => [{ name: 'Hinge', author: 'user', layout: 'assembly', camera: CAMERA, hidden: [], at: '' }] })
+    expect(textOf(await showTool(named, 'bracket', { focus: 'base', view: 'Hinge' }))).toBe('a saved view frames its own picture: give focus with front, iso, … or a camera, or the view without focus')
+  })
+
+  it('names focus and margin in the schemas and the descriptions', () => {
+    expect(Object.keys(TOOLS.look.inputSchema)).toEqual(expect.arrayContaining(['focus', 'margin']))
+    expect(Object.keys(TOOLS.show.inputSchema)).toEqual(expect.arrayContaining(['focus', 'margin']))
+    expect(TOOLS.look.description).toContain('focus')
+    expect(refusedKeys('look', { focus: 'M1', margin: 0.3 })).toBeNull()
+    expect(refusedKeys('show', { focus: 'M1', margin: 0.3 })).toBeNull()
+  })
+})
+
 /** What a tool that places a mark says, without the line that says which build it was placed on. */
 const said = (result: { content: Array<{ type: string; text?: string }> }): string => textOf(result).replace(/\nrevision r\d+.*$/, '')
 
@@ -884,7 +1079,7 @@ describe('show', () => {
   })
 
   it.each([
-    [{}, 'nothing to show: give a view, a layout, parts, a section, an explode or scans'],
+    [{}, 'nothing to show: give a view, a focus, a layout, parts, a section, an explode or scans'],
     [{ layout: 'exploded' }, "no layout 'exploded'; layouts: assembly, print"],
     [{ parts: [] }, 'parts is empty: name the parts to leave switched on'],
     [{ view: { position: [1, 1, 1], target: [1, 1, 1] } }, 'position and target are the same']
@@ -1401,7 +1596,7 @@ describe('scans in scene, look and show', () => {
     expect(await said(showTool(deps, 'bracket', { scanOpacity: '0.5' as never }))).toBe(OPACITY)
     expect(await said(showTool(deps, 'bracket', { scans: ['S7'] }))).toBe('no scan S7; scans: S1, S2')
     expect(await said(showTool(deps, 'bracket', { scans: 'S1' as never }))).toBe('scans is a list of the numbers of the scans to leave switched on, [] to hide them all: {"scans": ["S1"]}')
-    expect(await said(showTool(deps, 'bracket', {}))).toBe('nothing to show: give a view, a layout, parts, a section, an explode or scans')
+    expect(await said(showTool(deps, 'bracket', {}))).toBe('nothing to show: give a view, a focus, a layout, parts, a section, an explode or scans')
     expect(deps.w.shows).toHaveLength(3)
   })
 })
@@ -1471,7 +1666,7 @@ describe('explode', () => {
     ])
     expect(textOf(await showTool(d, 'bracket', { explode: 0.5, section: { axis: 'z', at: 3 } }))).toBe(NOT_BOTH)
     expect(textOf(await showTool(d, 'bracket', { explode: [1] as never }))).toContain('explode is a number from 0 to 1')
-    expect(textOf(await showTool(d, 'bracket', {}))).toBe('nothing to show: give a view, a layout, parts, a section, an explode or scans')
+    expect(textOf(await showTool(d, 'bracket', {}))).toBe('nothing to show: give a view, a focus, a layout, parts, a section, an explode or scans')
     const cut = exploded({ section: { origin: [0, 0, 3], normal: [0, 0, 1] } })
     expect(textOf(await showTool(cut, 'bracket', { explode: 0.5 }))).toBe(NOT_BOTH)
     expect((await showTool(cut, 'bracket', { explode: 0.5, section: null })).isError).toBeUndefined()

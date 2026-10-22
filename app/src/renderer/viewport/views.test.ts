@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ViewName } from '../../shared/view'
-import { fitBelow, fitCamera, gridStep, lockedViewOf, scaleBarLength, viewDirection, visibleHeight } from './views'
+import type { Camera, ViewName } from '../../shared/view'
+import { fitBelow, fitCamera, focusCamera, gridStep, lockedViewOf, scaleBarLength, viewDirection, visibleHeight } from './views'
 
 const NAMES: ViewName[] = ['iso', 'front', 'back', 'left', 'right', 'top', 'bottom']
 const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -124,6 +124,52 @@ describe('fitBelow', () => {
 
   it('never takes more than half of the view for the bars', () => {
     expect(fitBelow(BOX, [0, 1, 0], [0, 0, 1], 800, 600, 500, 35, true)).toEqual(fitBelow(BOX, [0, 1, 0], [0, 0, 1], 800, 600, 300, 35, true))
+  })
+})
+
+describe('focusCamera', () => {
+  const FOCUS = { min: [10, -2, 4] as [number, number, number], max: [30, 2, 4] as [number, number, number], margin: 5 }
+  const USER = { position: [100, -80, 60], target: [20, 0, 4], up: [0, 0, 1], ortho: false, fov: 50, zoom: 1 } satisfies Camera
+
+  it('looks from the side a standard view names, orthographic, at the middle of the box, and takes in the box and its margin', () => {
+    const cam = focusCamera(FOCUS, 'front', USER, 4 / 3)
+    expect(cam.ortho).toBe(true)
+    expect(cam.target).toEqual([20, 0, 4])
+    expect(cam.position[0]).toBeCloseTo(20, 9)
+    expect(cam.position[1]).toBeLessThan(0)
+    expect(cam.position[2]).toBeCloseTo(4, 9)
+    // 20 mm and a margin of 5 on each side across, with the fit's own 10 %.
+    const width = visibleHeight(cam) * (4 / 3)
+    expect(width).toBeGreaterThanOrEqual(30 * 1.05)
+    expect(width).toBeLessThanOrEqual(30 * 1.2)
+  })
+
+  it('looks the way the user’s camera does when no view is named, and keeps its projection and its field of view', () => {
+    const cam = focusCamera(FOCUS, 'current', USER, 1.5)
+    const along = sub(cam.target, cam.position)
+    const want = sub(USER.target, USER.position)
+    expect(dot(along, want) / (len(along) * len(want))).toBeCloseTo(1, 9)
+    expect(cam.ortho).toBe(false)
+    expect(cam.fov).toBe(50)
+    expect(cam.target).toEqual([20, 0, 4])
+  })
+
+  it('looks the way a camera of the agent’s does', () => {
+    const own = { position: [0, 0, 50], target: [0, 0, 0], up: [0, 1, 0], ortho: true, fov: 35, zoom: 3 } satisfies Camera
+    const cam = focusCamera(FOCUS, own, USER, 4 / 3)
+    expect(cam.ortho).toBe(true)
+    expect(cam.position[0]).toBeCloseTo(20, 9)
+    expect(cam.position[1]).toBeCloseTo(0, 9)
+    expect(cam.position[2]).toBeGreaterThan(4)
+    // Zoom is the fit's to make: the camera it was given does not keep its own.
+    expect(visibleHeight(cam)).toBeLessThanOrEqual(30 * 1.2)
+  })
+
+  it('frames a point with the margin round it', () => {
+    const cam = focusCamera({ min: [1, 2, 3], max: [1, 2, 3], margin: 6 }, 'top', USER, 1)
+    expect(cam.target).toEqual([1, 2, 3])
+    expect(visibleHeight(cam)).toBeGreaterThanOrEqual(12)
+    expect(visibleHeight(cam)).toBeLessThanOrEqual(12 * 1.2)
   })
 })
 

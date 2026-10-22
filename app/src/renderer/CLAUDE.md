@@ -210,6 +210,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   cleared, and what the view does not set is as the person had it
   (`sceneFileOf`). The caller then moves the camera
   (`viewport.setView(view.camera, true)`).
+- **A focus** (`FocusBox`, `focusCamera` in `viewport/views.ts`): a picture for the agent, or `show`, is framed on
+  a box and its margin by `fitCamera`, looking the way a standard view does (orthographic, as a picture of one is),
+  or the way the camera on screen or the agent's own camera looks, with its projection kept. A picture says
+  `framed on the focus` and which parts stand between the camera and the middle of the box (`hiddenBehind` in
+  `viewport/focus.ts`: a line cast at the meshes of the parts drawn, both faces, what a cut takes away left out,
+  the box's own surface not in the way). Parts are drawn together unless the picture says otherwise; `show`
+  refuses a focus while the screen is exploded. All of it is synchronous once started, like the rest of a picture.
 - **The strip** (`ui/ViewsStrip.tsx`, the last child of `.viewbars`,
   `role="toolbar"`): a chip per view (`button.view-chip[data-view]`), the
   one that is on marked (`aria-pressed`: `activeView`, while the screen

@@ -1,6 +1,7 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import {
+  type Camera,
   type HighlightRequest,
   type HighlightResult,
   type LookRequest,
@@ -17,7 +18,8 @@ import {
 import { NOT_EXPLODED_AND_CUT, explodeOf, explodeOffsets, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
 import { VIEW_NOT_BOTH, findView, proposalToDrop, savedViewOf, viewNameRefusal } from '../../shared/views'
 import { drawnBox } from '../viewport/explode'
-import { DEFAULT_FOV, fitCamera, viewDirection } from '../viewport/views'
+import { DEFAULT_FOV, fitCamera, focusCamera, viewDirection } from '../viewport/views'
+import { FOCUS_NOT_EXPLODED } from '../../shared/focus'
 import { spanningMarks } from '../viewport/marks/apart'
 import { tenth } from '../../shared/format'
 import { partsNamed } from '../../shared/groups'
@@ -76,7 +78,7 @@ export function dismissHighlight(): void {
  * it is not what the scene file keeps. The answer says what is shown then, as
  * the caption of a picture would.
  */
-export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointerBusy'> & Partial<Pick<Viewport, 'scanState'>>, req: ShowRequest): ShowResult {
+export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointerBusy'> & Partial<Pick<Viewport, 'scanState' | 'cameraGoal' | 'canvas'>>, req: ShowRequest): ShowResult {
   const s = openObject(req.objectId)
   // The view is the person's while they are doing something in it: it is not pulled from under a stroke or a drag.
   if (viewport.pointerBusy()) throw new Error('the user is in the middle of a stroke or drag; try again')
@@ -117,11 +119,18 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // Asked apart where nothing can be: said, and nothing is changed.
   const nothing = explode ? nothingApart(explode, parts) : null
   if (nothing !== null) throw new Error(nothingApartText(nothing, layout))
+  // A focus is where the parts are built: not where they are drawn apart, by this or as they are on screen.
+  if (req.focus && (explode === undefined ? explodeNow(s, layout) : explode)) throw new Error(FOCUS_NOT_EXPLODED)
 
   // The viewport follows the store as this is set, so the camera below is fitted to what it leaves on.
   // For now only: what the person had chosen stays what their scene file says.
   actions.showForAgent(layout, shownParts ? Object.fromEntries(parts.map((part) => [part.name, shownParts.includes(part.name)])) : {}, section, scans, explode)
-  if (req.view !== undefined) viewport.setView(req.view, true)
+  // Framed on a focus, from the way the view looks (a standard view, or the camera there is) at the canvas's shape.
+  let framed: Camera | undefined
+  if (req.focus) {
+    framed = focusCamera(req.focus, req.view ?? 'current', viewport.cameraGoal?.() ?? viewport.getCamera(), (viewport.canvas ? viewport.canvas.clientWidth / viewport.canvas.clientHeight : 0) || 4 / 3)
+    viewport.setView(framed, true)
+  } else if (req.view !== undefined) viewport.setView(req.view, true)
   // A saved view put on screen is the one that is on in the strip, while the screen shows what it holds.
   if (req.viewName !== undefined) actions.viewShown(req.viewName)
 
@@ -132,7 +141,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // A saved view is said by its name, as the caption of a picture of it says it.
   const view = viewSaid(req.view, req.viewName)
   // Where the camera is going, not where it is on the way: a named view keeps the projection there is.
-  const ortho = typeof req.view === 'object' ? req.view.ortho : viewport.getCamera().ortho
+  const ortho = framed ? framed.ortho : typeof req.view === 'object' ? req.view.ortho : viewport.getCamera().ortho
   // The scans left on, as a picture's caption says them: from what main keeps of each, in the layout now shown.
   // Those the window draws: one whose mesh has not come to it is not on the screen, and is not said to be.
   const loaded = viewport.scanState?.()
@@ -142,7 +151,7 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
   // Drawn apart now, by this or as they were: said as the caption of a picture says it, with what that means of the scans.
   const apart = explodeNow(after, layout)
   return {
-    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''}${explodedNote(apart, shown.length > 0, spanningMarks(after.marks, layout, partsInLayout(after, layout), apart, new Set(partsInLayout(after, layout).filter((p) => layerOf(after.layers, p.name)?.visible === false).map((p) => p.name))))} · ${ortho ? 'orthographic' : 'perspective'}`,
+    caption: `view ${view} · layout ${layout} · parts ${names.join(', ') || 'none'}${scansNote(shown, layout)}${after.section ? ` · ${describeSection(after.section)}` : ''}${explodedNote(apart, shown.length > 0, spanningMarks(after.marks, layout, partsInLayout(after, layout), apart, new Set(partsInLayout(after, layout).filter((p) => layerOf(after.layers, p.name)?.visible === false).map((p) => p.name))))}${req.focus ? ' · framed on the focus' : ''} · ${ortho ? 'orthographic' : 'perspective'}`,
     objectId: req.objectId,
     revision: after.revision,
     stale: after.build?.stale ?? false,

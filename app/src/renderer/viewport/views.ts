@@ -1,3 +1,4 @@
+import { type FocusBox, focusFrame } from '../../shared/focus'
 import type { Camera, ViewName } from '../../shared/view'
 
 type Vec3 = [number, number, number]
@@ -112,6 +113,23 @@ export function fitCamera(
     fov: fovDeg,
     zoom
   }
+}
+
+/**
+ * The camera of a picture, or of the screen, framed on a focus (the box and its margin, `focusFrame`): looking the
+ * way `view` does, which is a standard view (orthographic, as a picture of one is), the camera on screen (`current`,
+ * with its projection and its field of view) or a camera of the agent's (the same). Only the way it looks and its
+ * projection are taken of a camera: where it stands and how far it is zoomed are the fit's to say.
+ */
+export function focusCamera(focus: FocusBox, view: ViewName | Camera | 'current', current: Camera, aspect: number): Camera {
+  const frame = focusFrame(focus)
+  if (typeof view === 'string' && view !== 'current') {
+    const { dir, up } = viewDirection(view)
+    return fitCamera(frame, dir, up, aspect, DEFAULT_FOV, true)
+  }
+  const from = view === 'current' ? current : view
+  const dir = [from.target[0] - from.position[0], from.target[1] - from.position[1], from.target[2] - from.position[2]]
+  return fitCamera(frame, dir, from.up, aspect, from.fov, from.ortho)
 }
 
 /**

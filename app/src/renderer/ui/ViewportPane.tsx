@@ -73,7 +73,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       keys = parts.filter((part) => named.includes(part.name)).map((part) => part.key)
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}), ...(typeof req.viewName === 'string' ? { viewName: req.viewName } : {}) }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}), ...(req.focus ? { focus: req.focus } : {}), ...(typeof req.viewName === 'string' ? { viewName: req.viewName } : {}) }
   })
   return { ...picture, ...drawn! }
 }

@@ -46,6 +46,12 @@ const scanText = 'The number of a scan (S1), as listed by scans. Default: the on
 export const cameraInput = z.looseObject({ position: vec3, target: vec3, up: vec3.optional(), ortho: z.boolean().optional(), fov: z.number().optional(), zoom: z.number().optional() })
 export const CAMERA_KEYS = ['position', 'target', 'up', 'ortho', 'fov', 'zoom']
 
+// Loose: what is neither a ref nor a box reaches the tool, which says what a focus is (`focusOf`, ./focus).
+const focusInput = loose(z.union([z.string(), z.strictObject({ min: vec3, max: vec3 })]))
+const focusHelp = 'A place to frame on, for a detail: a ref (lid/F12, lid/E3, lid), a group, the number of a mark (M4), or a box {"min": [x, y, z], "max": [x, y, z]} in mm in the frame of the layout.'
+const marginInput = loose(z.number())
+const marginHelp = "With focus: how far round it the picture reaches, as a share of the focus box's longest side (counted as 20 mm at the least), 0 to 5. Default 0.3."
+
 const lookInput = {
   view: loose(z.union([z.string(), cameraInput]))
     .optional()
@@ -73,7 +79,9 @@ const lookInput = {
   explode: explodeInput
     .nullable()
     .optional()
-    .describe(`How far apart the parts are drawn in the picture: ${explodeHelp} The caption says when a picture is exploded. null or 0 draws them together. Default: as on the user's screen. Not with a section.`)
+    .describe(`How far apart the parts are drawn in the picture: ${explodeHelp} The caption says when a picture is exploded. null or 0 draws them together. Default: as on the user's screen. Not with a section.`),
+  focus: focusInput.optional().describe(`${focusHelp} The camera looks at it from the side that view names (front, iso, …, or a camera's direction; default: the way the user's camera looks) and stands where it takes in the box and its margin: a detail with the picture's whole resolution. The caption says what was framed, and when the middle of it is hidden behind other parts. The parts are drawn together. Not with the name of a saved view.`),
+  margin: marginInput.optional().describe(marginHelp)
 }
 
 export type PlaneArg = SectionPlane | AxisPlane
@@ -93,7 +101,12 @@ export interface LookArgs {
   scanColour?: { part: string; scan?: string; range?: number }
   frame?: 'parts' | 'all'
   explode?: ExplodeArg | null
+  focus?: FocusArg
+  margin?: number
 }
+
+/** A focus as the agent gives one: a ref, a group, a mark, or a box. */
+export type FocusArg = string | { min: Vec3; max: Vec3 }
 
 /** An explode as the agent gives one: the amount alone, or with an axis and a scale. */
 export type ExplodeArg = number | (Pick<ExplodeState, 'amount'> & Partial<ExplodeState>)
@@ -137,7 +150,9 @@ const showInput = {
   explode: explodeInput
     .nullable()
     .optional()
-    .describe(`How far apart the parts are drawn on the user's screen, for now only: ${explodeHelp} null or 0 puts them together. Default: as they are. Not with a section: pass section null with it when their view is cut.`)
+    .describe(`How far apart the parts are drawn on the user's screen, for now only: ${explodeHelp} null or 0 puts them together. Default: as they are. Not with a section: pass section null with it when their view is cut.`),
+  focus: focusInput.optional().describe(`${focusHelp} Their camera goes to it from the side that view names (front, iso, …, or a camera's direction; default: the way their camera looks), standing where it takes in the box and its margin. Not with the name of a saved view, and not while their parts are drawn apart (explode null).`),
+  margin: marginInput.optional().describe(marginHelp)
 }
 
 const saveViewInput = {
@@ -284,6 +299,8 @@ export interface ShowArgs {
   scans?: string[]
   scanOpacity?: number
   explode?: ExplodeArg | null
+  focus?: FocusArg
+  margin?: number
 }
 export interface AddMarkArgs {
   kind: 'pin' | 'pick' | 'arrow' | 'shape' | 'dimension'
@@ -339,7 +356,7 @@ export const TOOLS = {
     annotations: READ_ONLY,
     meta: ALWAYS_LOADED,
     description:
-      "Returns a PNG of the object drawn by the same viewport the user is looking at, with a caption naming the view, layout, parts, the scans drawn with them (and of each whether it is aligned there), revision and whether the parts are stale. Call it with no arguments to see exactly what the user sees, or with a named view, a camera, a layout or a list of parts to check the shape after a change.",
+      "Returns a PNG of the object drawn by the same viewport the user is looking at, with a caption naming the view, layout, parts, the scans drawn with them (and of each whether it is aligned there), revision and whether the parts are stale. Call it with no arguments to see exactly what the user sees, or with a named view, a camera, a layout or a list of parts to check the shape after a change, or with focus (a ref, a mark or a box) to see one detail up close.",
     inputSchema: lookInput
   },
   marks: {
@@ -369,7 +386,7 @@ export const TOOLS = {
     title: 'Change the view',
     annotations: CHANGES_VIEW_OR_MARKS,
     description:
-      "Returns a caption of what the user's viewport shows after it was changed to the view, layout, parts, section, explode or scans you gave. It moves the user's own camera, hides the parts and the scans you leave out and cuts their view or draws its parts apart, so use it only to show them something, and say that you did; to see for yourself, call look.",
+      "Returns a caption of what the user's viewport shows after it was changed to the view, layout, parts, section, explode or scans you gave. It moves the user's own camera, hides the parts and the scans you leave out and cuts their view or draws its parts apart, so use it only to show them something, and say that you did; to see for yourself, call look. Give focus to put their camera on a ref, a mark or a box.",
     inputSchema: showInput
   },
   save_view: {
@@ -455,7 +472,7 @@ export const INSTRUCTIONS_LIMIT = 4096
 export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD part of the object this session works on, and shows things to the person looking at it in the torno window. Every answer is from the last build that worked, says which revision that is, and says so when a newer build is running or has failed. Numbers from measure, check, section and diff are the B-rep's and say whether they are exact; scene's sizes are for orientation. Check an edit by numbers first, then one look. The tools that only read may be called together.
 
 - scene: the build status and error, what the model printed, layouts, parts with size and volume, groups, params, saved views, the person's camera, section and explode. Start here.
-- look: a picture of the part as the person's viewport draws it, with the marks, from any view, camera, layout, section or explode.
+- look: a picture of the part as the person's viewport draws it, with the marks, from any view, camera, layout, section or explode, or framed close on one face, edge, mark or box.
 - marks: the person's marks (pins, picks, arrows, strokes, shapes, dimensions, regions of a scan) and yours, with notes, status and what each is on.
 - describe: the exact geometry of a part, a face, an edge, a group of parts or a mark: area, centre, normal, radius, volume, box.
 - measure: one exact number: distance or angle between two ends, radius, diameter, wall thickness, area, volume, mass, bounding box.
@@ -466,7 +483,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - scan_clash: what of a scan is inside a part, as clusters with their depth.
 - scan_deviation: how far a part, or some of its faces, lie from a scan (min, mean, max, percentiles).
 - highlight: tint faces or edges in the person's viewport with a note, to ask "this one?" before a costly change.
-- show: change the person's camera, layout, visible parts, section, explode or scans, or put a saved view on screen.
+- show: change the person's camera, layout, visible parts, section, explode or scans, put a saved view on screen, or point their camera at a ref, mark or box.
 - save_view: propose a saved view to the person's strip, for them to keep or discard.
 - add_mark: leave a mark of yours (pin, pick, arrow, shape, or a dimension measured on every build).
 - resolve_mark: resolve a mark of the person's with a line on what was done, for them to confirm or reopen.`

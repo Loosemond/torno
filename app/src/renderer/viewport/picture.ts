@@ -3,6 +3,8 @@ import { type ExplodePart, type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CU
 import type { Part } from '../../shared/scene'
 import { number } from '../../shared/format'
 import type { Camera, ScanColouring, SectionPlane, ViewName } from '../../shared/view'
+import type { FocusBox } from '../../shared/focus'
+import { hiddenBehind } from './focus'
 import { MARK_LAYERS, type Highlights } from './highlight'
 import type { MarkLayer } from './marks/MarkLayer'
 import { PERSPECTIVE_NOTE, chipSize, drawDeviationLegend, drawLabels, drawOverlay, overlayFonts, overlayUnit, type LabelStyle } from './overlay'
@@ -10,7 +12,7 @@ import type { BuiltPart } from './partMesh'
 import { deviationColours, storedColour, type Rgb } from './scanDeviation'
 import { reaching, type ScanLayer, type ShownScan } from './scans'
 import { describeSection } from './section'
-import { visibleHeight } from './views'
+import { focusCamera, visibleHeight } from './views'
 
 /** What to draw for a picture: a view, a layout and the keys of the parts to show. `size` is the long edge in pixels. */
 export interface ImageRequest {
@@ -32,6 +34,8 @@ export interface ImageRequest {
   explode?: ExplodeState | 'current' | null
   /** The saved view the picture is of, by its name: what its caption calls the view. */
   viewName?: string
+  /** A place to frame the picture on: the camera looks the way `view` does and stands where it takes in the box and its margin. The parts are drawn together unless the picture says how far apart: the box is where they are built. */
+  focus?: FocusBox
 }
 
 /** The view as a caption names it: a saved view by its name in quotes, a standard view by its own, `current` for the camera on screen, `custom` for a camera given. */
@@ -50,6 +54,8 @@ export interface Picture {
   scans: string[]
   /** The parts are drawn apart in it, and its caption says so: nothing in it is where it is. */
   exploded: boolean
+  /** Of a picture framed on a focus: the parts drawn that stand between the camera and the middle of the focus, nearest first. */
+  hiddenBy?: string[]
 }
 
 /** Long edge of a picture for the agent, in pixels. */
@@ -357,7 +363,9 @@ export class PictureMaker {
     const everything = req.frame === 'all' && scanBoxes.length > 0 ? scanBoxes.reduce((all, one) => all.union(one.box), new THREE.Box3()) : null
 
     const section = req.section === undefined || req.section === 'current' ? host.section() : req.section
-    const { explode, said: together } = pictureExplode(req.explode, { layout: req.layout, onScreen: host.layout(), current: host.explode(), section, parts: [...host.parts()].filter((p) => p.part.layout === req.layout).map((p) => p.part), coloured: colouring !== undefined })
+    // A focus is a place of the parts as built: drawn apart, they would not be there. Together unless the picture says otherwise.
+    const apart = req.focus && (req.explode === undefined || req.explode === 'current') ? null : req.explode
+    const { explode, said: together } = pictureExplode(apart, { layout: req.layout, onScreen: host.layout(), current: host.explode(), section, parts: [...host.parts()].filter((p) => p.part.layout === req.layout).map((p) => p.part), coloured: colouring !== undefined })
     // From here on the parts are where the picture draws them, until `together` puts the screen back: nothing
     // in between waits, so no frame on screen sees it.
     const back = host.explodeFor(explode, req.layout)
@@ -378,7 +386,8 @@ export class PictureMaker {
     const wanted = new Set(req.visibleKeys)
     const colouring = req.scanColour
     let view: Camera
-    if (req.view === 'current') view = host.currentView()
+    if (req.focus) view = focusCamera(req.focus, req.view, host.currentView(), aspect)
+    else if (req.view === 'current') view = host.currentView()
     else if (typeof req.view === 'string') view = host.namedView(req.view, shown.map((p) => p.part), aspect, everything)
     else view = req.view
     const viewName = viewSaid(req.view, req.viewName)
@@ -451,15 +460,17 @@ export class PictureMaker {
     // Read now, while the parts are as the picture has them: the marks that span parts it draws apart.
     const split = withMarks ? host.marks.split(req.layout, notDrawn) : []
 
+    // Whatever the picture was framed on, and what stands in front of it: read with the parts where the picture has them.
+    const hiddenBy = req.focus ? hiddenBehind(shown.map((p) => ({ name: p.part.name, mesh: (p.built as Partial<Pick<BuiltPart, 'mesh'>>).mesh })), view, req.focus, section) : undefined
     const names = shown.map((p) => p.part.name).join(', ') || 'none'
     const projection = view.ortho ? 'orthographic' : PERSPECTIVE_NOTE
     const cutNote = section ? ` · ${describeSection(section)}` : ''
     // A scan is the surroundings: a view fitted to the parts shows a corner of it. That is said, with what takes all of it in.
     const beyond = scanBoxes.filter((one) => drawn.some((scan) => scan.id === one.id) && reachesBeyond(camera, one.box)).map((one) => one.id)
-    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${beyondNote(beyond, typeof req.view === 'string' && req.view !== 'current' && req.frame !== 'all')}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote}${explodedNote(explode, drawn.length > 0, split)}${together} · ${projection} · ${width}×${height}`
+    const caption = `view ${viewName} · layout ${req.layout} · parts ${names}${scansNote(drawn, req.layout)}${beyondNote(beyond, !req.focus && typeof req.view === 'string' && req.view !== 'current' && req.frame !== 'all')}${colouring ? colouringNote(colouring, tokens, solid) : ''}${cutNote}${explodedNote(explode, drawn.length > 0, split)}${together}${req.focus ? ' · framed on the focus' : ''} · ${projection} · ${width}×${height}`
     const layout = req.layout
     const encoded = async (): Promise<Picture> => {
-      return { png: pngBytes(picture), width, height, caption, layout, scans: drawn.map((scan) => scan.id), exploded: explode !== null }
+      return { png: pngBytes(picture), width, height, caption, layout, scans: drawn.map((scan) => scan.id), exploded: explode !== null, ...(hiddenBy ? { hiddenBy } : {}) }
     }
     return encoded()
   }
