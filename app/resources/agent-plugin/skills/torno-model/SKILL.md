@@ -8,6 +8,20 @@ description: The contract of a torno model file (Params, assembly, printables, m
 torno imports the model file of the object folder and rebuilds it on every save. Do not run it yourself to
 preview it: check the build with `mcp__torno__scene` and look with `mcp__torno__look`.
 
+## Before the first model
+
+Before the first build of a new object, and before a new feature whose key size is not given, settle the sizes:
+
+1. List the sizes that decide fit or function: overall size, wall, the sizes of the parts it mates with, hole and
+   fastener sizes, clearances. For each, say where it comes from: `brief.md`, a reference picture's note, a scan
+   (≈, to a few mm), another object, or nowhere.
+2. For those from nowhere, ask in one round, before you build, with `AskUserQuestion`: at most 4 questions, each with
+   2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm
+   nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet
+   radius, a chamfer). If every size has a source, ask nothing. Never ask more than one round for a change.
+3. Build with the answers. A size still unknown is built as assumed: a field of `Params` commented "assumed", and your
+   reply lists the assumptions.
+
 ## Seeing a value while building
 
 You cannot run the model, but torno gives back what it prints. To see a value, `print()` it in the model (or

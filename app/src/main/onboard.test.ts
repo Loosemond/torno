@@ -27,6 +27,16 @@ function jpeg(w: number, h: number): Uint8Array {
 }
 const image = (bytes: Uint8Array): ImageBytes => checkedImage(bytes)!
 
+/** What the first prompt asks of the agent after the placeholder's line (#111), for a module named `m`. */
+const ASK_FIRST = (m: string): string =>
+  [
+    `${m}.py is torno's placeholder (a 20 mm cube). Read brief.md and look at what was given. Then:`,
+    '',
+    '1. List the sizes that decide fit or function (overall size, wall, the sizes of the parts it mates with, hole and fastener sizes, clearances), and say where each comes from: brief.md, a reference picture\'s note, a scan (≈, to a few mm), another object, or nowhere.',
+    '2. For those from nowhere, ask in one round, before you build, with AskUserQuestion: at most 4 questions, each with 2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet radius, a chamfer). If every size has a source, ask nothing.',
+    '3. Replace the placeholder with the real model, built with the answers. A size still unknown is built as assumed (a field of Params commented "assumed"), and your reply lists the assumptions.'
+  ].join('\n')
+
 describe('checkedImage', () => {
   it('takes a PNG or a JPEG whose long edge is at most 2000, and says which', () => {
     expect(checkedImage(png(1280, 720))).toMatchObject({ mediaType: 'image/png', width: 1280, height: 720 })
@@ -116,7 +126,7 @@ describe('onboardPrompt', () => {
         '- ../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3): mounts on this',
         '- ../base/ (another object of this workspace: not built in this run)',
         '',
-        'cable_clip.py is torno\'s placeholder (a 20 mm cube). Read brief.md, look at what was given, ask what you need to know, then replace the placeholder with the real model.'
+        ASK_FIRST('cable_clip')
       ].join('\n')
     )
     expect(blocks).toHaveLength(7)
@@ -187,8 +197,17 @@ describe('onboardPrompt', () => {
   it('leaves out the list of what they gave when they gave nothing', () => {
     const { text } = onboardPrompt({ name: 'x', description: 'A thing.', items: [], scans: [], objects: [] })
     expect(text).toBe(
-      'This is a new object, x, made in torno just now. What it is, in the person\'s words:\n\nA thing.\n\nx.py is torno\'s placeholder (a 20 mm cube). Read brief.md, look at what was given, ask what you need to know, then replace the placeholder with the real model.'
+      'This is a new object, x, made in torno just now. What it is, in the person\'s words:\n\nA thing.\n\n' + ASK_FIRST('x')
     )
+  })
+
+  it('asks for the missing sizes in one round before the first build', () => {
+    const { text, held } = onboardPrompt({ name: 'x', description: 'A thing.', items: [], scans: [], objects: [] })
+    for (const said of ['List the sizes that decide fit or function', 'or nowhere.', 'ask in one round, before you build, with AskUserQuestion', 'at most 4 questions, each with 2 to 4 options', 'labelled as typical', '"build with assumptions"', 'Do not ask about what you can choose freely', 'built as assumed']) {
+      expect(text).toContain(said)
+      expect(held).toContain(said)
+    }
+    expect(text).not.toContain('ask what you need to know')
   })
 })
 

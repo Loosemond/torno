@@ -887,6 +887,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   object itself). Then it imports each scan through `ScanStore.import` (one that fails does not stop the rest: the text
   says it could not be imported), starts the chat session (`Sessions.start`, the agent chosen for the object, which
   has no `agent.json`), and sends one prompt (`Sessions.prompt`): the text of `onboardPrompt`, then the pictures.
+  The text ends in three numbered steps (#111): list the sizes that decide fit or function with the source of each
+  (`brief.md`, a picture's note, a scan, another object, or nowhere); ask for those from nowhere in one round with
+  `AskUserQuestion` (at most 4 questions, each with 2 to 4 options, one a typical value labelled as such; "build
+  with assumptions" is an answer; nothing about what it can choose freely); build with the answers, a size still
+  unknown being "assumed" in `Params` and listed in the reply. The same rule is in the `torno-model` skill, "Before
+  the first model", which also applies it to a later feature whose key size is not given; the system prompt has no
+  room for it. Both are held by `onboard.test.ts` and `prompt.test.ts`. The window needs nothing new: the question
+  is the chat's card (or the CLI's own in a terminal).
 - The pictures are the window's. Main has no decoder (Electron's `nativeImage` has none for WebP, and the window already
   decodes), so the window scales to a long edge of 1280 px and sends PNG or JPEG bytes; main reads the size from the
   header (`checkedImage`) and attaches only a PNG or JPEG of at most 2000 px and 3.75 MB (`MAX_IMAGE_BYTES`; base64 of

@@ -123,7 +123,11 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
       input.description.trim(),
       '',
       ...(lines.length > 0 ? ['What they gave (all of it is also in brief.md; files are in reference/):', ...lines, ''] : []),
-      `${moduleName(input.name)}.py is torno's placeholder (a 20 mm cube). Read brief.md, look at what was given, ask what you need to know, then replace the placeholder with the real model.`
+      `${moduleName(input.name)}.py is torno's placeholder (a 20 mm cube). Read brief.md and look at what was given. Then:`,
+      '',
+      "1. List the sizes that decide fit or function (overall size, wall, the sizes of the parts it mates with, hole and fastener sizes, clearances), and say where each comes from: brief.md, a reference picture's note, a scan (≈, to a few mm), another object, or nowhere.",
+      '2. For those from nowhere, ask in one round, before you build, with AskUserQuestion: at most 4 questions, each with 2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet radius, a chamfer). If every size has a source, ask nothing.',
+      '3. Replace the placeholder with the real model, built with the answers. A size still unknown is built as assumed (a field of Params commented "assumed"), and your reply lists the assumptions.'
     ].join('\n')
   }
   const text = compose(false)

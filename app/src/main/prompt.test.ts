@@ -161,6 +161,13 @@ describe("Claude Code's prompt, with the skills", () => {
     for (const sentence of SCANS_TEXT) expect(skill('scans')).toContain(sentence)
     for (const sentence of DIMENSIONS_TEXT) expect(skill('dimensions')).toContain(sentence)
   })
+
+  // #111: the rule is in the skill and in the first prompt of a new object (`onboard.ts`), not in the prompt, which has no room.
+  it('whose model skill asks for the missing sizes once before the first model, and for a later feature', () => {
+    const model = skill('torno-model').replace(/\s+/g, ' ')
+    expect(model).toContain('## Before the first model')
+    for (const said of ['where it comes from', 'or nowhere', 'ask in one round, before you build, with `AskUserQuestion`', 'at most 4 questions, each with 2 to 4 options', 'labelled as typical', '"build with assumptions"', 'Do not ask about what you can choose freely', 'built as assumed', 'a new feature whose key size is not given']) expect(model).toContain(said)
+  })
 })
 
 // #119: every tool a prompt or a skill names is a tool torno has, so that a name that is not one (`scan_section` was) is caught here.
