@@ -739,7 +739,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       {/* What Claude Code reads of the folder by default, for both views: a quiet line, not a question. Paths and sizes; the text is never read. */}
       {objectId && !drafting && reads.objectId === objectId && reads.files.length > 0 && (
         <div className="session-reads" role="note" title={READS_TITLE}>
-          <span>Claude Code also reads</span>
+          <span>Claude Code also reads, by default</span>
           {reads.files.map((file, i) => (
             <span key={file.path} className="session-read">
               <button type="button" className="session-read-open" aria-description="Show in its folder" onClick={() => void showRead(i)}>

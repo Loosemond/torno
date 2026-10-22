@@ -590,7 +590,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   window draws what main's transcript says: `placed` and `drawn` in `state/chat.ts` reproduce main's order
   (an item keeps its place; a queued prompt is drawn after all the others; sent, it goes to the end), and items
   and metas are merged by `seq` with the history, so none is drawn twice or lost. Each `context` item is drawn
-  under its prompt, as chips from its fields (marks, build, selection), never from its text. One made for a tool's
+  under its prompt, as chips from its fields (marks, build, selection, and how many instruction files it named), never from its text. One made for a tool's
   card (`forTool`: the build an edit of the model started) is a build line under that card (`BuildLine`), drawn from
   its fields alone: `Built r2 · ok · 1.2 s`, or `Build after r2 failed: <the last line of the traceback>` in `--fail` (a revision names a build that worked, as
   `main/builds.ts` counts them: a failure has no number of its own and is the build after the one on show, `failedAfter`
@@ -640,10 +640,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   before taking the next prompt, so one sent meanwhile cannot overtake it.
 - **The instruction files Claude Code reads** are one quiet line under the view's row in `SessionPane`
   (`.session-reads`, `role="note"`, shown for both views and with no session, not while a new object is being made;
-  `session.instructions`, asked again when a session starts): "Claude Code also reads" and, for each file, its name
+  `session.instructions`, asked again when a session starts): "Claude Code also reads, by default" and, for each file, its name
   (`shared/instructions.ts` `named`, the home folder as `~`, a rules folder with its slash; a button that shows it in its
   folder by `session.revealInstruction` with the row's index, never a path) and what it weighs (`weighed`: sizes through
-  `shared/format.ts` `bytes`, `a link, not followed`, `3 files, 2.1 KB`), in the monospace face; its title says what the list
+  `shared/format.ts` `bytes`, `a link, not followed`, `up to 3 files, 2.1 KB` for a rules folder: at most that many load), in the monospace face; its title says what the list
   is (`READS_TITLE`: by default, paths and sizes only, never read or changed). It is no question and nothing of it is stored:
   there is no "seen" state, and it is there each time the pane is of an object that has some (`e2e/instructions.spec.ts`; the
   capture `instructions` of `themes.spec.ts`).

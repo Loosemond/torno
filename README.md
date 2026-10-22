@@ -590,11 +590,13 @@ instruction files Claude Code reads on its own, it lists the paths and sizes
   once the prompt's hook has been answered with it.
 - The instruction files Claude Code reads for the object are listed in the
   session pane, in a quiet line under the view's buttons ("Claude Code also
-  reads `~/objects/CLAUDE.md` 7 KB"), for the chat and for the terminal. It is
+  reads, by default, `~/objects/CLAUDE.md` 7 KB"), for the chat and for the terminal. It is
   what Claude Code loads by default when it starts in the object's folder:
   `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` in the folder and in
-  every folder above it, `.claude/rules/` there (one entry: the folder, how many
-  `.md` files, their size), your own `~/.claude/CLAUDE.md` and
+  every folder above it, `.claude/rules/` there (one entry: the folder, "up to"
+  how many `.md` files, their size: a rule that names `paths` in its frontmatter
+  loads only when matching files are used, which torno cannot tell without
+  reading it), your own `~/.claude/CLAUDE.md` and
   `~/.claude/rules/`, and an organisation's file (`/etc/claude-code/CLAUDE.md`
   on Linux, `/Library/Application Support/ClaudeCode/CLAUDE.md` on a Mac). An
   `AGENTS.md` or `.claude/AGENTS.md` is listed only when none of the first
@@ -605,7 +607,9 @@ instruction files Claude Code reads on its own, it lists the paths and sizes
   default: `@path` imports, files of subfolders (which it loads when it works
   there) and the settings that leave files out (`claudeMdExcludes`,
   `--setting-sources`, "Project instructions") are not followed. The first
-  prompt of every session says the same to the agent, with the paths and sizes,
+  prompt of every session, and the first after `/clear` (when Claude Code loads
+  the files again), says the same to the agent, with the paths and sizes (a
+  "torno added" line also says how many, without opening it),
   and that what torno's tools say of the build is current: a `CLAUDE.md` that
   names another viewer, report or export step is about another way of working,
   so its advice on how to model stands and its way of seeing the build does not.
@@ -703,8 +707,9 @@ Open marks: M2 (moved), M6 (unchecked)
 - The first prompt of a new conversation (a session that was not resumed, or
   after `/clear`) ends with a line naming the files in `reference/` (twelve at
   most, then how many more), to read when they matter.
-- The first prompt of every session, resumed or not, ends with a line naming
-  the instruction files Claude Code reads there (six at most, with their sizes;
+- The first prompt of every session, resumed or not, and the first after
+  `/clear`, ends with a line naming the instruction files Claude Code reads
+  there by default (six at most, with their sizes;
   see "What Claude Code is given") and saying which wins for seeing the build:
   torno's tools. It is under "Show text" in "torno added". Nothing is said when
   there are none.

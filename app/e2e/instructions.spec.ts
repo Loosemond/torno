@@ -1,6 +1,6 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { openListed } from './objects'
 import { inTerminal } from './terminal'
@@ -43,6 +43,14 @@ test.afterEach(async () => {
   rmSync(home, { recursive: true, force: true })
 })
 
+/** A CLAUDE file in a folder above `dir` (or `dir` itself, not counting the person's own, which the app's HOME holds apart): one Claude Code would read in place of an AGENTS.md. */
+function strayClaudeFile(dir: string): string | null {
+  for (let at = dirname(dir); ; at = dirname(at)) {
+    for (const name of ['CLAUDE.md', join('.claude', 'CLAUDE.md'), 'CLAUDE.local.md']) if (existsSync(join(at, name))) return join(at, name)
+    if (dirname(at) === at) return null
+  }
+}
+
 const dock = () => page.locator('[data-region="session"]')
 const reads = () => dock().locator('.session-reads')
 const revealed = (): Promise<string[]> => app!.evaluate(() => [...(globalThis as unknown as { __tornoMain: Main }).__tornoMain.revealedFiles])
@@ -61,7 +69,7 @@ test('a CLAUDE.md above the object and the person\'s own are listed with their s
 
   // One quiet line in the pane, before any session: not a question, not a dialog.
   await expect(reads()).toBeVisible()
-  await expect(reads()).toContainText('Claude Code also reads')
+  await expect(reads()).toContainText('Claude Code also reads, by default')
   const row = (path: string) => reads().locator('.session-read', { hasText: path })
   await expect(row('~/objects/CLAUDE.md')).toContainText('2.9 KB')
   await expect(row('~/.claude/CLAUDE.md')).toContainText('900 B')
@@ -89,8 +97,11 @@ test('a CLAUDE.md above the object and the person\'s own are listed with their s
   await expect(dock().locator('.chat-turn')).toHaveCount(1, { timeout: 30_000 })
   const added = dock().locator('.chat-added')
   await added.first().getByRole('button', { name: 'Show text' }).click()
+  // Named in the "torno added" line itself, with no need to open the text.
+  await expect(added.first().locator('.chat-added-instructions')).toHaveText('2 instruction files')
+  await expect(added.first().locator('.chat-added-instructions .num')).toHaveText('2')
   const told = added.first().locator('.chat-added-text')
-  await expect(told).toContainText('Claude Code loads these instruction files here:')
+  await expect(told).toContainText('Claude Code loads these instruction files here by default:')
   await expect(told).toContainText('~/objects/CLAUDE.md (2.9 KB)')
   await expect(told).toContainText('~/.claude/CLAUDE.md (900 B)')
   await expect(told).toContainText("What torno's tools say of the build is current")
@@ -101,6 +112,7 @@ test('a CLAUDE.md above the object and the person\'s own are listed with their s
   await expect(added).toHaveCount(2)
   await added.nth(1).getByRole('button', { name: 'Show text' }).click()
   await expect(added.nth(1).locator('.chat-added-text')).not.toContainText('instruction files')
+  await expect(added.nth(1).locator('.chat-added-instructions')).toHaveCount(0)
 
   // torno read nothing of the files' text and changed nothing: they are as they were, and nothing else is beside them.
   expect(readFileSync(above, 'utf8')).toBe('a'.repeat(3000))
@@ -116,10 +128,14 @@ test('with Claude Code\'s terminal the pane says it too, and an AGENTS.md is rea
   inTerminal(root)
   await launch()
   await openListed(page, 'bracket')
+  // A rules folder is one entry: the folder, its files (at most that many load) and their size.
+  await expect(reads().locator('.session-read', { hasText: 'bracket/.claude/rules/' })).toContainText('up to 1 file, 2 KB')
+  // Claude Code reads an AGENTS.md only where no CLAUDE file is in the folder or above it. The app looks up to `/` as Claude Code does, so
+  // a machine whose temporary folder lies under a folder with one cannot show it: that assertion is then skipped, and says why.
+  const stray = strayClaudeFile(home)
+  test.skip(stray !== null, `${stray} is above the temporary folder, so Claude Code would not read an AGENTS.md here`)
   await expect(reads()).toContainText('~/objects/AGENTS.md')
   await expect(reads()).toContainText('10 B')
-  // A rules folder is one entry: the folder, its files and their size.
-  await expect(reads().locator('.session-read', { hasText: 'bracket/.claude/rules/' })).toContainText('1 file, 2 KB')
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect.poll(() => page.evaluate(() => window.__tornoTerm!.text())).toContain('READY')
   await expect(reads()).toContainText('~/objects/AGENTS.md')

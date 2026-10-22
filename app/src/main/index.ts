@@ -12,7 +12,7 @@ import { menuTemplate } from './menu'
 import { copyExample, exampleSource, removeExample, sweepExamples } from './example'
 import { type Config, configOf, listed, recentWith, recentWithout } from './recent'
 import { startHttp } from './http'
-import { buildContextFor, contextFor } from './context'
+import { buildContextFor, contextFor, tellsInstructions } from './context'
 import { listReferences } from './sessions/reference'
 import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart, environmentCommand } from './kernel/client'
@@ -43,7 +43,7 @@ import { StateFiles } from './statefile'
 import { newestPython, sourceFolders } from './show/cards'
 import { Verdicts } from './verdicts'
 import { valueAgainstExpected } from '../shared/dimension'
-import { InstructionList } from './instructions'
+import { HOOK_DEADLINE_MS, InstructionList } from './instructions'
 import { Trust } from './trust'
 
 // Environment switches:
@@ -479,8 +479,9 @@ void app.whenReady().then(async () => {
     contextFor: async (id, opts) => {
       const scans = await listedScans(id).catch(() => undefined)
       // The first prompt of a session is told which instruction files Claude Code reads here: paths and sizes, found now.
-      const folder = opts.first ? findObject(id)?.dir : undefined
-      const instructions = folder === undefined ? undefined : await instructionFiles.look(folder)
+      // Told again after /clear (`fresh`): the CLI loads the CLAUDE.md files again then. The hook has 5 s in all: the lookup is given one.
+      const folder = tellsInstructions(opts) ? findObject(id)?.dir : undefined
+      const instructions = folder === undefined ? undefined : await instructionFiles.look(folder, HOOK_DEADLINE_MS)
       return contextFor(promptDeps, id, await marks.list(id).catch(() => []), { fresh: opts.fresh, newConversation: opts.newConversation, toolName: opts.toolName, ...(scans ? { scans } : {}), ...(instructions && instructions.length > 0 ? { instructions } : {}) })
     },
     // An edit of the model is answered with the build it started, and a Stop held back once over a build the turn left failed or unseen.
@@ -548,6 +549,7 @@ void app.whenReady().then(async () => {
     onSceneFile: (objectId) => stateFiles.changed(objectId),
     // What was waiting to be written was of objects of the workspace that is left.
     onWorkspaceClosed: () => {
+      instructionFiles.forget()
       stateFiles.forget()
       verdicts.forget()
       // An import still running there is ended, and its importer with it: its scan is not kept, and its id not given again.

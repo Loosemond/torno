@@ -60,7 +60,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions, ready:check, ready:make,
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
-//           session:current, session:start, session:trust, session:stop, session:chooseView,
+//           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
 //           chat:history, chat:reference, chat:send, chat:interrupt, chat:setModel,
 //           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
@@ -621,7 +621,9 @@ export function registerIpc(
 
   // A row of that list shown in its folder: never opened, never run, and never a path from the window.
   handle('session:revealInstruction', async (_event, objectId: string, index: number) => {
-    const file = opts.instructions?.at(String(objectId), index)
+    // An object of the open workspace only, and a row of the list main kept for it.
+    const obj = findObject(String(objectId))
+    const file = obj ? opts.instructions?.at(obj.id, index) : null
     if (!file) throw new Refusal('That file is no longer in the list')
     if (opts.revealFile) opts.revealFile(file.path)
     else shell.showItemInFolder(file.path)

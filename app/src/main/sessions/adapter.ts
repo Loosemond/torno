@@ -39,8 +39,10 @@ export interface LaunchContext {
  * server is, where to post its hooks, and what it is told of torno.
  * Everything goes on its command line, in its environment, or in a config file
  * of torno's that holds no secret; the session's token is in the environment
- * alone. Nothing of the person's configuration of that agent is read or
- * changed. Claude Code (./claude.ts) is the one there is.
+ * alone. Nothing of the person's configuration of that agent is changed, and
+ * none of its settings is read (the instruction files it reads are only
+ * listed, by path and size: ../instructions.ts). Claude Code (./claude.ts) is
+ * the one there is.
  */
 export interface AgentAdapter {
   /** The command looked for on PATH. */

@@ -111,6 +111,10 @@
   gap: 0 var(--space-1);
 }
 
+.chat-added-instructions {
+  color: var(--muted);
+}
+
 .chat-added-build [data-verdict='ok'] {
   color: var(--ok);
 }

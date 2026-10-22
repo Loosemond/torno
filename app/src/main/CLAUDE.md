@@ -917,16 +917,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   are what Claude Code reads by default. A link is `lstat`ed and listed by its own path, with no size, never followed
   (a link to a network path can hang a stat; `trust.ts` does the same), `.claude` being one included; the rules walk follows
   none, stops at `MOST_RULE_ENTRIES` entries and `MOST_RULE_DEPTH` levels (the counts are then "at least") and passes
-  over a folder it cannot read; the whole lookup is given `DEADLINE_MS` and finds nothing past it. `home` and the managed
-  path are parameters of the finder, so a test gives its own. `InstructionList` keeps, for each object, the list the
+  over a folder it cannot read; the whole lookup is given `DEADLINE_MS` (3 s for the pane, `HOOK_DEADLINE_MS`, 1 s, on the way to a prompt's hook, which has 5 s in all) and finds nothing past it. A `.claude/rules/` entry is an upper bound ("up to N files": a rule with `paths:` loads only for matching files, which is in its text). `home` and the managed
+  path are parameters of the finder, with `top` (default `/`, where the way up stops) so that a test is never read by a
+  `CLAUDE.md` of the machine above its temporary folder. `InstructionList` keeps, for each object, the list the
   pane last asked for (`session:instructions`); a row is shown in its folder by its index into that list
-  (`session:revealInstruction`, `shell.showItemInFolder`, never opened, never run, never a path from the window; under
+  (`session:revealInstruction`: an object of the open workspace, a row of the list kept for it, which is dropped when the workspace is left; `shell.showItemInFolder`, never opened, never run, never a path from the window; under
   `TORNO_TEST=1` the path goes into `__tornoMain.revealedFiles` and no file manager is started). The first prompt of
-  every session, resumed or not (`first` of `contextFor`'s opts, `Session.firstPrompt`), ends with `instructionsLine`:
-  the files with their sizes (six at most) and "What torno's tools say of the build is current: a file that names
+  every session, resumed or not (`first` of `contextFor`'s opts, `Session.firstPrompt`), and the first prompt of another
+  conversation (`fresh`, after `/clear`, when the CLI loads the files again: `tellsInstructions`), ends with `instructionsLine`:
+  the files Claude Code loads by default with their sizes (six at most, each path cut to `MOST_PATH_CHARS`, the line at most
+  `INSTRUCTIONS_LIMIT` characters, so the room it keeps never leaves the status a negative limit) and "What torno's tools say of the build is current: a file that names
   another viewer, report or export step is about another way of working, so take its advice on how to model, not on how
   to see the build", nothing when there are none; its room is kept before the marks are listed. The same rule is one line
-  in the `torno-model` skill (the system prompt has no room for it). Nothing is written or remembered of it: there is no
+  in the `torno-model` skill (the system prompt has no room for it). The context item carries how many files it named
+  (`instructions`, `PromptContext`), which the chat draws as "N instruction files" in the "torno added" line. Nothing is written or remembered of it: there is no
   "seen" state.
 - **Trust (`src/main/trust.ts`).** Headless (`-p`) Claude Code skips its workspace-trust question. Before a chat
   starts, `Trust.pending` looks for `.mcp.json`, `.claude/settings.json` and `.claude/settings.local.json` in the

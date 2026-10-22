@@ -106,6 +106,12 @@ export function referencesLine(files: readonly string[]): string {
   return `The person's references for this object are in reference/: ${named}${more}. Read them when they matter.`
 }
 
+/**
+ * Whether a prompt is told which instruction files Claude Code reads: the first of a session, resumed or not, and the
+ * first of another conversation (`fresh`: after `/clear` the CLI loads the `CLAUDE.md` files again).
+ */
+export const tellsInstructions = (opts: { first?: boolean; fresh?: boolean }): boolean => opts.first === true || opts.fresh === true
+
 /** What goes with a prompt, and the marks it tells of for the first time: sent, once the agent has it. */
 export interface PromptContext {
   text: string
@@ -117,6 +123,8 @@ export interface PromptContext {
   selection?: string[]
   /** What the build of an edit did to the parts, as data (`sanity`), of the answer to an edit whose build is the last that succeeded; its text, as far as it fitted, is in `text`. */
   digest?: BuildDigest
+  /** How many instruction files the text names (the first prompt of a session, and the first after `/clear`), as data for the chat's line. Absent when it names none. */
+  instructions?: number
 }
 
 /**
@@ -213,6 +221,7 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   const still = opts.fresh ? open.filter((m) => m.author === 'user' && !unmet.includes(m as DimensionMark)) : []
   const told = drafts.length > 0 || open.length > 0
   // The files Claude Code reads, told once, last: their room is kept before the status and the marks are given theirs.
+  // `instructionsLine` is at most INSTRUCTIONS_LIMIT, so the limit below is never short of room.
   const instructed = opts.buildOnly ? '' : (instructionsLine(opts.instructions ?? []) ?? '')
   const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - (instructed ? instructed.length + 1 : 0)
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
@@ -291,7 +300,7 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // The files Claude Code reads are the very last line; the references go before it, should they fit beside it.
   const tail = instructed ? 1 + instructed.length : 0
   const text = printed ? `${joined}\n${printed}` : `${joined}${referred && joined.length + 1 + referred.length + tail <= CONTEXT_LIMIT ? `\n${referred}` : ''}${instructed ? `\n${instructed}` : ''}`
-  if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id), ...(digest ? { digest } : {}) }
+  if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id), ...(digest ? { digest } : {}), ...(instructed ? { instructions: opts.instructions?.length ?? 0 } : {}) }
   // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is
   // the end, and no mark whose line may be among it is said to have been told.
   return { text: cutEnd(text, CONTEXT_LIMIT), sentMarkIds: [] }

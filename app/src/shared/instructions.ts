@@ -34,29 +34,39 @@ export const isRules = (file: InstructionFile): boolean => file.files !== undefi
 /** The most of a list that is told in words, the rest counted. */
 export const MOST_LISTED = 6
 
-/** What a file or folder weighs, as the pane and the prompt say it: `7.1 KB`, `3 files, 2.1 KB`, `a link, not followed`. */
+/** What a file or folder weighs, as the pane and the prompt say it: `7.1 KB`, `up to 3 files, 2.1 KB`, `a link, not followed`. */
 export function weighed(file: InstructionFile): string {
   if (file.link) return 'a link, not followed'
   const size = file.bytes === undefined ? '' : bytes(file.bytes)
   if (!isRules(file)) return size
   const count = file.files ?? 0
-  const parts = [`${file.partial ? 'at least ' : ''}${count} ${count === 1 ? 'file' : 'files'}`, ...(count > 0 ? [size] : []), ...(file.links ? [`${file.links} ${file.links === 1 ? 'link' : 'links'} not followed`] : [])]
+  // A rule with `paths:` in its frontmatter loads only when matching files are used, which is in the text: the count is the most there can be.
+  const parts = [`${file.partial ? 'at least' : 'up to'} ${count} ${count === 1 ? 'file' : 'files'}`, ...(count > 0 ? [size] : []), ...(file.links ? [`${file.links} ${file.links === 1 ? 'link' : 'links'} not followed`] : [])]
   return parts.join(', ')
 }
 
 /** The path as the pane and the prompt name it: a rules folder with its slash. */
 export const named = (file: InstructionFile): string => (isRules(file) && !file.shown.endsWith('/') ? `${file.shown}/` : file.shown)
 
+/** The longest a path is told in: a longer one keeps its end (`…/objects/CLAUDE.md`), which is what names it. */
+export const MOST_PATH_CHARS = 100
+
+/** The most `instructionsLine` is, whatever the paths. */
+export const INSTRUCTIONS_LIMIT = 1500
+
+const cutStart = (text: string, limit: number): string => (text.length <= limit ? text : `…${text.slice(text.length - limit + 1)}`)
+
 /**
- * What the agent is told with the first prompt of a session, when Claude Code reads instruction files for the
- * object: which, and which wins for seeing and measuring. Null when there are none.
+ * What the agent is told with the first prompt of a session, and again after `/clear`, when Claude Code reads
+ * instruction files for the object: which (the ones it loads by default), and which wins for seeing the build. Null
+ * when there are none. At most `INSTRUCTIONS_LIMIT` characters: `MOST_LISTED` files, each path cut to `MOST_PATH_CHARS`.
  */
 export function instructionsLine(files: readonly InstructionFile[]): string | null {
   if (files.length === 0) return null
-  const listed = files.slice(0, MOST_LISTED).map((file) => `${named(file)} (${weighed(file)})`)
+  const listed = files.slice(0, MOST_LISTED).map((file) => `${cutStart(named(file), MOST_PATH_CHARS)} (${weighed(file)})`)
   const more = files.length > MOST_LISTED ? ` and ${files.length - MOST_LISTED} more` : ''
-  return `Claude Code loads these instruction files here: ${listed.join(', ')}${more}. What torno's tools say of the build is current: a file that names another viewer, report or export step is about another way of working, so take its advice on how to model, not on how to see the build.`
+  return `Claude Code loads these instruction files here by default: ${listed.join(', ')}${more}. What torno's tools say of the build is current: a file that names another viewer, report or export step is about another way of working, so take its advice on how to model, not on how to see the build.`
 }
 
 /** What the pane says of them, in a title: what the list is, and what it is not. */
-export const READS_TITLE = "The instruction files Claude Code reads by default for this folder: the object's folder and every folder above it, and yours. torno lists their paths and sizes and never reads or changes them. Imports, files Claude Code loads later, and settings that leave files out are not followed. What torno's tools say of the build is current."
+export const READS_TITLE = "The instruction files Claude Code reads by default for this folder: the object's folder and every folder above it, and yours. torno lists their paths and sizes and never reads or changes them. Imports, files Claude Code loads later, and settings that leave files out are not followed. A rules folder counts every .md file in it; a rule that names paths in its frontmatter loads only when matching files are used, which torno cannot tell without reading it. What torno's tools say of the build is current."

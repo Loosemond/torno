@@ -27,9 +27,9 @@ const put = (path: string, text = 'x'): void => {
   writeFileSync(path, text)
 }
 
-/** What was found, as `kind path` with the tree's root left off: the folders above the temporary one are the machine's, not the test's. */
+/** What was found, the way up stopping at the test's own root: a CLAUDE.md of the machine above the temporary folder is never seen. */
 async function found(opts: { dir?: string } = {}): Promise<InstructionFile[]> {
-  const all = await findInstructions(opts.dir ?? object, { home, managed })
+  const all = await findInstructions(opts.dir ?? object, { home, managed, top: root })
   return all.filter((f) => f.path.startsWith(root))
 }
 const names = (files: InstructionFile[]): string[] => files.map((f) => `${f.kind} ${f.path.slice(root.length + 1)}`)
@@ -123,6 +123,18 @@ describe('AGENTS.md', () => {
     put(join(object, 'AGENTS.local.md'))
     put(join(object, 'AGENTS.override.md'))
     expect(await found()).toEqual([])
+  })
+})
+
+describe('the folder the way up stops at', () => {
+  it('is the filesystem root unless a test gives another: nothing above it is looked at', async () => {
+    put(join(root, 'CLAUDE.md'), 'above')
+    put(join(ws, 'AGENTS.md'))
+    // With the root of the tree as the top, the CLAUDE.md there is the last folder looked at.
+    expect(names(await found())).toEqual(['project CLAUDE.md'])
+    // With the object's own folder as the top, it is not seen, and an AGENTS.md of the folder above is not either.
+    const files = await findInstructions(object, { home, managed, top: object })
+    expect(files.filter((f) => f.path.startsWith(root))).toEqual([])
   })
 })
 
@@ -236,7 +248,7 @@ describe('the list main keeps for the window', () => {
   it('is what was last found for the object, and the window asks for a row by its place in it', async () => {
     put(join(ws, 'CLAUDE.md'))
     put(join(object, 'CLAUDE.md'))
-    const list = new InstructionList({ home, managed })
+    const list = new InstructionList({ home, managed, top: root })
     const files = (await list.find('box', object)).filter((f) => f.path.startsWith(root))
     expect(files).toHaveLength(2)
     const all = list.of('box')
@@ -245,5 +257,8 @@ describe('the list main keeps for the window', () => {
     expect(list.at('box', all.length)).toBeNull()
     expect(list.at('box', 0.5)).toBeNull()
     expect(list.at('other', 0)).toBeNull()
+    // The workspace was left: the list means nothing any more.
+    list.forget()
+    expect(list.at('box', 0)).toBeNull()
   })
 })

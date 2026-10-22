@@ -17,8 +17,10 @@ import type { InstructionFile, InstructionKind } from '../shared/instructions'
 export const MOST_RULE_ENTRIES = 500
 export const MOST_RULE_DEPTH = 5
 
-/** The longest the whole lookup may take; a lookup that does not come back finds nothing. */
+/** The longest the whole lookup may take for the pane; a lookup that does not come back finds nothing. */
 const DEADLINE_MS = 3000
+/** And on the way to a prompt's hook, which has 5 s in all. */
+export const HOOK_DEADLINE_MS = 1000
 
 /** Where an organisation's `CLAUDE.md` is on this system, or null where Claude Code has no such place that torno runs on. */
 export function managedPath(platform: NodeJS.Platform = process.platform): string | null {
@@ -141,12 +143,12 @@ class Finder {
   }
 }
 
-/** The folders from the filesystem root down to `dir`. */
-function chain(dir: string): string[] {
+/** The folders from `top` (the filesystem root unless a test gives another) down to `dir`. */
+function chain(dir: string, top: string): string[] {
   const folders: string[] = []
   for (let at = resolve(dir); ; at = dirname(at)) {
     folders.push(at)
-    if (dirname(at) === at) break
+    if (at === top || dirname(at) === at) break
   }
   return folders.reverse()
 }
@@ -160,9 +162,11 @@ function chain(dir: string): string[] {
  * `dir` or above it (the person's and the organisation's files do not count). The person's own `~/.claude` is
  * listed once, though the way up passes through their home folder. Paths and sizes only: no file is read. A link
  * is reported by its own path and not followed, and counts as a file that may be loaded.
- * `home` and `managed` (null: none) are parameters, so that a test gives its own.
+ * `home` and `managed` (null: none) are parameters, so that a test gives its own, and `top` (default `/`) is the folder the
+ * way up stops at, so that a test is not read by a `CLAUDE.md` of the machine above its temporary folder.
  */
-export async function findInstructions(dir: string, opts: { home?: string; managed?: string | null } = {}): Promise<InstructionFile[]> {
+export async function findInstructions(dir: string, opts: { home?: string; managed?: string | null; top?: string } = {}): Promise<InstructionFile[]> {
+  const top = resolve(opts.top ?? sep)
   const home = resolve(opts.home ?? homedir())
   const managed = opts.managed === undefined ? managedPath() : opts.managed
   const realHome = await realpath(home).catch(() => home)
@@ -179,7 +183,7 @@ export async function findInstructions(dir: string, opts: { home?: string; manag
   push(own.rules)
 
   const above: Finding[] = []
-  for (const at of chain(dir)) {
+  for (const at of chain(dir, top)) {
     const atHome = at === home || (await realpath(at).catch(() => at)) === realHome
     const found: Finding[] = []
     const add = (entry: InstructionFile | null, counts = false): void => {
@@ -212,11 +216,11 @@ export async function findInstructions(dir: string, opts: { home?: string; manag
 export class InstructionList {
   private readonly lists = new Map<string, InstructionFile[]>()
 
-  constructor(private readonly opts: { home?: string; managed?: string | null; deadlineMs?: number } = {}) {}
+  constructor(private readonly opts: { home?: string; managed?: string | null; top?: string; deadlineMs?: number } = {}) {}
 
   /** What there is for an object folder, bounded in time; nothing when the lookup does not come back. */
-  look(dir: string): Promise<InstructionFile[]> {
-    return withDeadline(findInstructions(dir, this.opts).catch(() => []), this.opts.deadlineMs ?? DEADLINE_MS, [])
+  look(dir: string, deadlineMs?: number): Promise<InstructionFile[]> {
+    return withDeadline(findInstructions(dir, this.opts).catch(() => []), deadlineMs ?? this.opts.deadlineMs ?? DEADLINE_MS, [])
   }
 
   /** What there is for an object, kept as the list its rows are numbered by. */
@@ -224,6 +228,11 @@ export class InstructionList {
     const files = await this.look(dir)
     this.lists.set(objectId, files)
     return files
+  }
+
+  /** The workspace was left: the objects' ids mean nothing any more. */
+  forget(): void {
+    this.lists.clear()
   }
 
   of(objectId: string): InstructionFile[] {

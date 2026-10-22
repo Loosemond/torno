@@ -384,6 +384,16 @@ describe('what is sent', () => {
     expect(of(t, 'context')[1]).not.toHaveProperty('selection')
   })
 
+  it('keeps how many instruction files the context named, as a field of the item', () => {
+    const t = new Transcript()
+    t.userSent(text('go'), false)
+    t.context({ text: 'ctx', sentMarkIds: [], instructions: 3 })
+    expect(of(t, 'context')[0]).toMatchObject({ instructions: 3 })
+    t.userSent(text('again'), false)
+    t.context({ text: 'ctx', sentMarkIds: [] })
+    expect(of(t, 'context')[1]).not.toHaveProperty('instructions')
+  })
+
   it('shows nothing for a prompt that nothing was added to, and that prompt is not waited for again', () => {
     const t = new Transcript()
     t.userSent(text('first'), false)

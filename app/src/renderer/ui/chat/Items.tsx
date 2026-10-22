@@ -60,6 +60,11 @@ const Added = memo(function Added({ item }: { item: Of<'context'> }) {
             ))}
           </span>
         )}
+        {item.instructions !== undefined && item.instructions > 0 && (
+          <span className="chat-added-instructions" title="The instruction files Claude Code reads here, named in the text below">
+            <span className="num">{item.instructions}</span> instruction {item.instructions === 1 ? 'file' : 'files'}
+          </span>
+        )}
         <button type="button" className="chat-more" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide text' : 'Show text'}
         </button>

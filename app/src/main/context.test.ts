@@ -8,7 +8,7 @@ import type { InstructionFile } from '../shared/instructions'
 import { instructionsLine } from '../shared/instructions'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import { probe } from '../test/diagnosisFixtures'
-import { buildContextFor, CONTEXT_LIMIT, contextFor, modelOutput, type ContextDeps } from './context'
+import { buildContextFor, CONTEXT_LIMIT, contextFor, modelOutput, tellsInstructions, type ContextDeps } from './context'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 
@@ -81,6 +81,31 @@ describe('the instruction files of a session', () => {
     expect(LINE).toContain('~/objects/CLAUDE.md (7.1 KB), ~/.claude/CLAUDE.md (900 B)')
     expect(LINE).toContain("What torno's tools say of the build is current")
     expect(told.sentMarkIds).toEqual([])
+  })
+
+  it('are told with the first prompt of a session and again after /clear (a fresh conversation), and no other', () => {
+    expect(tellsInstructions({ first: true })).toBe(true)
+    expect(tellsInstructions({ fresh: true })).toBe(true)
+    expect(tellsInstructions({ first: true, fresh: true })).toBe(true)
+    expect(tellsInstructions({})).toBe(false)
+    expect(tellsInstructions({ first: false, fresh: false })).toBe(false)
+  })
+
+  it('are counted as data for the chat\'s line: how many are named', () => {
+    const d = deps({ build: OK, scene: SCENE })
+    expect(contextFor(d, 'bracket', [], { instructions: FILES })).toMatchObject({ instructions: 2 })
+    expect(contextFor(d, 'bracket')).not.toHaveProperty('instructions')
+    expect(contextFor(d, 'bracket', [], { instructions: [] })).not.toHaveProperty('instructions')
+  })
+
+  it('cannot empty the context with long paths: the line is bounded, and the failed build is still told', () => {
+    const deep = `/${'a-very-long-folder-name/'.repeat(40)}`
+    const long = Array.from({ length: 6 }, (_, i) => ({ path: `${deep}${i}/CLAUDE.md`, shown: `${deep}${i}/CLAUDE.md`, kind: 'project', bytes: 1 }) as InstructionFile)
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 1, stale: true, error: { kind: 'exception', message: 'boom', traceback: 'x'.repeat(5000) } }
+    const told = contextFor(deps({ build: failed, scene: SCENE }), 'bracket', [], { instructions: long })
+    expect(told.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+    expect(told.text).toContain('BUILD FAILED')
+    expect(told.text.split('\n').at(-1)).toBe(instructionsLine(long))
   })
 
   it('are not said unless asked for: later prompts, and a session with none', () => {
