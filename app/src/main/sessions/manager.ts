@@ -94,8 +94,8 @@ interface Session {
  * What a turn did to the model, as its hooks said, for the `Stop` that ends it: when it began and the count of builds
  * ended before it began (`Sessions.finished`, so that a build of an earlier turn is not held against it), the count
  * at its last `look`, the last successful build and what the dimensions said of it when it began, the reasons a
- * `Stop` was held back for already and how many holds that makes, and the `PreToolUse` times of the edits under way,
- * by tool use.
+ * `Stop` was held back for already and how many holds that makes, the `PreToolUse` times of the edits under way, by
+ * tool use, and when the turn first changed a source (`changedAt`).
  */
 interface TurnState {
   since: number
@@ -110,6 +110,14 @@ interface TurnState {
   held: Set<StopReason>
   holds: number
   editing: Map<string, number>
+  /**
+   * When the turn first changed a source of the object (ms epoch): the `PreToolUse` of an edit of a `.py` of the
+   * object, or of a `Bash` after which the newest source was newer than before. A build begun at or after it is the
+   * turn's (`stopAnswer`); one begun before it, or in a turn with none, is not, and no `Stop` is held back for it.
+   */
+  changedAt?: number
+  /** The `Bash` tool uses under way, by tool use: when each began and when the newest source of the object was saved then. */
+  bashing: Map<string, { at: number; saved: number | null }>
   /** The tool use of the last edit answered: the chat's card its build is put on. */
   lastToolUse?: string
 }
@@ -268,6 +276,8 @@ export class Sessions {
       dimensionDetail?: (objectId: string, markId: string, revision: number) => Promise<string | undefined>
       /** Resolves once the marks of an object are checked against build `revision`, and its dimensions measured, or at `until` (ms epoch): the answer to an edit waits for it (`Verdicts.settled`). */
       settled?: (objectId: string, revision: number, until: number) => Promise<void>
+      /** When the newest `.py` of an object, and of the `common/` beside it, was saved (null: none): a `Bash` after which it is newer has rewritten the model. Absent: a `Bash` is taken for no change. */
+      sourcesSaved?: (objectDir: string) => Promise<number | null>
       /** Tests only: how long an edit's answer waits for its build, and for it to begin, and how long a `Stop` waits for a build. */
       editTiming?: { answerMs: number; graceMs: number; stopMs?: number }
       /** Print the command line of every session started, and every hook it posts. */
@@ -544,15 +554,18 @@ export class Sessions {
 
   /**
    * What a `Stop` is held back with: a reason the turn has not been held back for yet, and never a third hold in a
-   * turn. First it waits (up to `STOP_WAIT_MS`) for a build begun in the turn that is still running, and for the
-   * dimensions to be measured on it, then judges on the result, by the first of these:
-   * - the build is still running (`running`);
-   * - the latest build, built in the turn, failed (`failed`);
+   * turn. First it waits (up to `STOP_WAIT_MS`) for a build the turn caused that is still running, and for the
+   * dimensions to be measured on it, then judges on the result, by the first of these. A build is the turn's own
+   * (`caused`) only if it began after the turn first changed a source (`TurnState.changedAt`); the first build of an
+   * object just opened, a save of the person's before the agent's first edit, or any build in a turn with no edit
+   * is told to the agent but holds nothing back (the first, second and fifth reasons):
+   * - the build the turn caused is still running (`running`);
+   * - the latest build, caused by the turn and ended in it, failed (`failed`);
    * - the last successful build, built in the turn, has a hard defect (`hardDefects`: not valid, inside out, more
    *   solids than before, a mesh that disagrees with its volume) that the build the turn began with had not
    *   (`defect`), which the agent may answer is meant;
    * - a dimension that passed on the build the turn began with fails on the latest (`dimension`);
-   * - a build ended in the turn after its last `look`, however the file was written (`unlooked`), unless the digest
+   * - a build the turn caused ended after its last `look`, however the file was written (`unlooked`), unless the digest
    *   says nothing in the parts changed since the build the turn began with (`partsUnchanged`: the same shapes, by
    *   hash, in the same places; a volume or a count alone would miss a moved hole).
    * A hold for a defect or a dimension that finds the build unlooked says so, and counts for that reason too.
@@ -565,7 +578,9 @@ export class Sessions {
     const { build } = this.deps
     if (!turn || !build || turn.holds >= MOST_HOLDS) return null
     const deadline = Date.now() + (this.deps.editTiming?.stopMs ?? STOP_WAIT_MS)
-    const runs = (): boolean => build(objectId)?.status === 'building' && (this.buildStarts.get(objectId) ?? -Infinity) >= turn.startedAt
+    // The build there is is the turn's only if it began after the turn first changed a source: a first build, a save of the person's, a build of before the edit is not.
+    const caused = (): boolean => turn.changedAt !== undefined && (this.buildStarts.get(objectId) ?? -Infinity) >= turn.changedAt
+    const runs = (): boolean => build(objectId)?.status === 'building' && caused()
     // Nothing is waited for that a reason already held would have waited for: it was told, and the next Stop is let go at once.
     if (!turn.held.has('running')) while (runs() && Date.now() < deadline) await this.nextBuild(deadline)
     // Judged on the build there is once it has ended, with its dimensions measured as far as they are in the time left.
@@ -588,6 +603,7 @@ export class Sessions {
     const builtInTurn = (this.buildEnds.get(objectId) ?? 0) > turn.since
     if (!builtInTurn) return null
     if (state.status === 'failed') {
+      if (!caused()) return null
       return hold('failed', `The ${failedAfter(state.revision)} failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.`)
     }
     if (state.status !== 'ok') return null
@@ -596,7 +612,7 @@ export class Sessions {
     const defects = digest ? hardDefects(digest) : []
     // Nothing in the parts changed since the turn began (a comment, a rename: the same shapes in the same places): there is nothing to look at.
     const nothingChanged = last !== undefined && last.revision === state.revision && turn.before !== undefined && partsUnchanged(turn.before.scene, last.scene) && defects.length === 0
-    const unlooked = this.buildEnds.get(objectId)! > turn.lookedAt && !nothingChanged && !turn.held.has('unlooked')
+    const unlooked = caused() && this.buildEnds.get(objectId)! > turn.lookedAt && !nothingChanged && !turn.held.has('unlooked')
     // A look still lacking is said with a hold for something else, which the cap would leave no room to ask for after.
     const lacking = unlooked ? ` You have not looked at it either: call ${toolName('look')}.` : ''
     const alongside: StopReason[] = unlooked ? ['unlooked'] : []
@@ -1014,15 +1030,39 @@ export class Sessions {
       if (event === 'PostToolUse') turn.lookedAt = this.finished
       return {}
     }
+    if (name === 'Bash') return this.aroundBash(session, turn, event, useId)
     if (!EDIT_TOOLS.has(name) || !this.ofObject(session, body.tool_input)) return {}
     if (event === 'PreToolUse') {
-      turn.editing.set(useId, Date.now())
+      const at = Date.now()
+      turn.editing.set(useId, at)
+      turn.changedAt ??= at
       return {}
     }
     const since = turn.editing.get(useId) ?? Date.now()
     turn.editing.delete(useId)
+    turn.changedAt ??= since
     turn.lastToolUse = useId || undefined
     return this.afterEdit(session, since)
+  }
+
+  /**
+   * A `Bash` of the turn. It is a change of the model only if the newest source of the object (its `.py` files and
+   * those of `common/`) is newer after it than before: the command text says nothing sure, and a build begun while
+   * it ran may be the first build or a save of the person's.
+   */
+  private async aroundBash(session: Session, turn: TurnState, event: string, useId: string): Promise<unknown> {
+    const { sourcesSaved } = this.deps
+    if (!sourcesSaved) return {}
+    const at = Date.now()
+    const saved = await sourcesSaved(session.object.dir).catch(() => null)
+    if (event === 'PreToolUse') {
+      turn.bashing.set(useId, { at, saved })
+      return {}
+    }
+    const was = turn.bashing.get(useId)
+    turn.bashing.delete(useId)
+    if (was && saved !== null && (was.saved === null || saved > was.saved)) turn.changedAt ??= was.at
+    return {}
   }
 
   /** A turn begins: the builds ended so far are not its, and the build it begins with, and what its dimensions say of it, is what it is held to. */
@@ -1030,7 +1070,7 @@ export class Sessions {
     const objectId = session.object.id
     const before = this.deps.scene?.(objectId)
     const beforeVerdicts = before ? this.deps.verdicts?.(objectId, before.revision) : undefined
-    return { since: this.finished, startedAt: Date.now(), lookedAt: this.finished, ...(before ? { before } : {}), ...(beforeVerdicts ? { beforeVerdicts } : {}), held: new Set(), holds: 0, editing: new Map() }
+    return { since: this.finished, startedAt: Date.now(), lookedAt: this.finished, ...(before ? { before } : {}), ...(beforeVerdicts ? { beforeVerdicts } : {}), held: new Set(), holds: 0, editing: new Map(), bashing: new Map() }
   }
 
   /** Whether a tool's input names a `.py` inside the object's folder. */

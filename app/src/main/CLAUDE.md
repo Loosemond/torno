@@ -691,15 +691,22 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (rN); call scene …` (`claude.ts` gives `PostToolUse` a 60 s timeout).
   A `Stop` (`stopAnswer`, `claude.ts` gives it a 25 s timeout) is judged from what the turn did (`TurnState`, made at
   its `UserPromptSubmit` by `beginTurn`: the count of builds ended, the last successful build and what the dimensions
-  said of it, the last `look`, the reasons already held). First it waits, up to `STOP_WAIT_MS` (20 s), for a build
-  begun in the turn that is still running and, when a dimension passed when the turn began, for the dimensions to be
-  measured on the build that ended (`Verdicts.settled`, to the same deadline). Then it is held back (`decision:
-  block`) for the first of these five reasons: the build begun in the turn is still running; the latest build, ended
-  in the turn, failed (said as "The build after rN failed", `failedAfter`: a revision names a build that worked, and a
+  said of it, the last `look`, the reasons already held, when the turn first changed a source). A build is the turn's
+  (`caused` in `stopAnswer`) only if it began at or after `TurnState.changedAt`: the `PreToolUse` of an `Edit`, `Write`
+  or `MultiEdit` of a `.py` inside the object, or the start of a `Bash` after which the newest `.py` directly in the object's
+  folder or in `common/` is newer than before (`aroundBash`, `Sessions` dep `sourcesSaved`; the command's text is never read, and
+  a Bash that rewrites nothing is no change). The first build of an object just opened, a save of the person's before
+  the turn's first edit, and every build of a turn with no edit are told as ever (digest, context) and never hold a
+  Stop back, nor is waited for: the running, failed and unlooked reasons look only at a build the turn caused. The
+  hard-defect and dimension reasons are not gated so: they are judged against the build the turn began with. First it
+  waits, up to `STOP_WAIT_MS` (20 s), for a build the turn caused that is still running and, when a dimension passed
+  when the turn began, for the dimensions to be measured on the build that ended (`Verdicts.settled`, to the same
+  deadline). Then it is held back (`decision: block`) for the first of these five reasons: the build the turn caused is still running; the latest build, caused
+  and ended in the turn, failed (said as "The build after rN failed", `failedAfter`: a revision names a build that worked, and a
   failure has no number of its own); the last successful build, built in the turn, has a hard defect (`hardDefects`) that the
   last successful build when the turn began (`TurnState.before`) had not, and the reason says the agent may answer
   that it is meant; a dimension that passed on that build fails on the latest (`verdictChanges` of `verdicts.ts`,
-  kept `pass` to `fail`; the reason names it with `valueAgainstExpected`); a build of the object ended in the turn
+  kept `pass` to `fail`; the reason names it with `valueAgainstExpected`); a build the turn caused, ended
   after the turn's last `look` (`TurnState.lookedAt`, the count of builds ended at the `PostToolUse` of a `look`, one
   of a subagent too), however the model was written, unless nothing in the parts changed since the build the turn
   began with (`partsUnchanged` of `sanity.ts`: the same parts, each with the same `hash` and the same `loc` and

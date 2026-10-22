@@ -644,9 +644,14 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
   and `state.md` carries it under the build. It is not told with a prompt.
 
 When Claude Code would stop, torno holds it back for what the turn itself did:
-once for each reason, and twice in a turn at most. It first waits, up to twenty
-seconds, for a build begun in the turn that is still running and for its
-dimensions to be measured. Then, by the first that applies:
+once for each reason, and twice in a turn at most. The reasons that name a build
+(1, 2 and 5) are for a build the turn caused: one that began after the turn first
+changed a source, by an edit of a `.py` of the object or a Bash command after
+which one is newer. The first build of an object you have just opened, a save of
+yours in your own editor before the agent's first edit, and any build in a turn
+that changed no source are told to the agent as ever but never hold it back. It
+first waits, up to twenty seconds, for such a build that is still running and
+for the dimensions to be measured. Then, by the first that applies:
 
 1. The build is still running. It is asked to read the result with `scene` and
    to look.
@@ -657,9 +662,9 @@ dimensions to be measured. Then, by the first that applies:
    `M4 passed on r7 and fails on r9 (6 mm, expected 8 ± 0.05). Fix it, or say
    why it must change.` A dimension that already failed when the turn began
    never holds it back; the agent may rightly stop to ask about it.
-5. A build ended in the turn after its last `look`: `r9 was built during this
-   turn, and you have not looked at it since.` This is however the file was
-   written, by the agent's editing tool, through Bash or in your editor. A
+5. A build the turn caused ended after its last `look`: `r9 was built during
+   this turn, and you have not looked at it since.` This is however the file was
+   written, by the agent's editing tool or through Bash. A
    `look` by the reviewer counts. When nothing in the parts changed since the
    turn began (a comment, a rename: every part is the same shape, by the
    kernel's hash of it, in the same place), there is nothing to look at and it
@@ -1604,7 +1609,8 @@ With a real agent:
   no test has seen a real CLI read it.
 - **The holds of a `Stop` with the real Claude Code.** Have it edit the model and say it is done without a `look`
   (once through its editing tool, once with `cat > model.py` in Bash): the `Stop` is held with the reason about the
-  build "built during this turn", the agent looks, and the turn ends. Pin a dimension, then have it change the model
+  build "built during this turn", the agent looks, and the turn ends. Open an object and ask something that
+  changes nothing while its first build runs, then save the file in your editor in the middle of a turn: neither holds it. Pin a dimension, then have it change the model
   so that it fails: it is held once and names it. Let a build run for twenty seconds while it would stop: the `Stop`
   waits, and the hook's 25 s limit is enough (the stand-in cannot tell). Whether the second `Stop` of a turn that was
   held arrives with `stop_hook_active` and is held again for another reason is what the code assumes; the stand-in
