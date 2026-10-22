@@ -611,7 +611,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   to the letter in the skills `scans` and `dimensions`. Started without the plugin folder (`skills` false) it is
   told the whole text (`FULL_PROMPT`, under 8,000 characters). A change to what the prompt says of scans
   or dimensions is a change to the skill too (`prompt.test.ts` holds them together); the template of
-  `torno-model` is built by the kernel's `tests/test_skill_template.py`. Claude Code is also given a subagent on
+  `torno-model` is built by the kernel's `tests/test_skill_template.py`. The `build123d` skill carries files beside its `SKILL.md`, which `electron-builder.yml` ships with the plugin folder: an API reference of the pinned build123d, generated (`kernel/scripts/build123d_api.py`) and held to it by `tests/test_skill_api.py`, which also runs the skill's examples, and `reference/fasteners.md`. The skill sends the agent to grep the reference (`${CLAUDE_SKILL_DIR}`), never to run Python for it, and says `bd_warehouse` is not in torno's kernel. Claude Code is also given a subagent on
   its command line, `--agents` with `torno-reviewer` (`claude.ts` `reviewerAgents`): tools `scene`, `look`,
   `marks`, `measure`, `check`, `section`, `describe` and `Read`, never one that edits, resolves, adds a mark or
   changes the view; its prompt checks the build against what was asked, every open mark and every dimension, with

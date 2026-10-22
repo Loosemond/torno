@@ -67,6 +67,10 @@ test('builds an object with the kernel it carries, in an environment outside the
     expect(existsSync(join(userData, 'kernel-env'))).toBe(true)
     const resources = await app.evaluate(() => process.resourcesPath)
     expect(existsSync(join(resources, 'kernel', '.venv'))).toBe(false)
+    // The skills carry their reference files: the build123d skill's offline API reference is read from there.
+    const reference = join(resources, 'agent-plugin', 'skills', 'build123d', 'reference')
+    expect(readdirSync(reference).filter((name) => /^api-[\d.]+\.txt$/.test(name))).toHaveLength(1)
+    expect(existsSync(join(reference, 'fasteners.md'))).toBe(true)
     // The workspace is written only under .torno/.
     expect(existsSync(join(root, 'hollow', '.torno'))).toBe(true)
     expect(existsSync(join(root, '.venv'))).toBe(false)

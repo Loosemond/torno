@@ -190,3 +190,10 @@ is the detail of this folder, under the headings it has there.
   frame on and reads none of it.
 - The app starts the kernel with `PYTHONDONTWRITEBYTECODE=1`, so importing a
   model writes no `__pycache__` into the workspace.
+- **The build123d skill's API reference is made from the pinned build123d.** `app/resources/agent-plugin/skills/build123d/reference/api-<version>.txt`
+  lists every name `build123d` exports (and the bases of those classes) with its signature and the first line of its
+  docstring. `scripts/build123d_api.py` writes it (`cd kernel && uv run --no-sync python scripts/build123d_api.py`,
+  `--check` to compare) and `tests/test_skill_api.py` fails when it is stale, when the pin in `pyproject.toml` is
+  not the installed version, when the file is not named for the pin, or when it passes 150 KB. The same test
+  runs every `python` example of the skill and of `reference/fasteners.md`; change a pin, regenerate the file,
+  rename it in `SKILL.md`, and read the examples again.
