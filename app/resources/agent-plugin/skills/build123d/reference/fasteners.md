@@ -5,8 +5,9 @@ that imports it fails the build with `ModuleNotFoundError`. It works only where 
 (a `pyproject.toml` that lists it, with a `.venv`); if the model must be built by torno elsewhere, do not import it.
 Make the hole from the sizes below, each a field of `Params` with the source in a comment.
 
-All sizes are millimetres, for a metric ISO screw. The ISO columns are for the part made in metal; for a part that is
-printed (FDM) add an allowance of about 0.1 to 0.3 mm to a pocket (`slack` below) and test one print before the rest.
+All sizes are millimetres, for a metric ISO screw. The ISO columns are for the part made in metal. For a part that is
+printed (FDM) a pocket usually wants an allowance on top (`slack` below, 0.2 mm in the example): this is a practice
+and an assumption, no standard and no source, to be tuned on the printer; print one test piece before the rest.
 A thread is not modelled: the hole is the size the screw passes through, or the size a tap or a self-tapping screw
 starts from.
 
@@ -44,20 +45,21 @@ allowance, as deep as the head is high plus the allowance; a nut pocket is a hex
 
 ## Heat-set inserts
 
-There is no standard: the hole is the one the insert's maker gives, and it differs between makers. Typical values
-for the short brass inserts sold for 3D printing (hole in the printed part, for an insert pressed in with a
-soldering iron) are in the table; read the datasheet of the insert that will be bought and say which in a comment.
+**Assumed, with no source: these numbers are from memory and were not checked against any document.** There is no
+standard: the hole is the one the maker of the insert gives, and it differs between makers. Replace the table with the
+datasheet of the insert that will be bought, and say which in a comment; until then ask the person, or build the
+part with the guessed value as a field of `Params` named so (`insert_hole_assumed`).
 
-| Insert | Hole diameter | Depth (insert length plus about 1 mm) |
-|--------|------|------|
-| M2     | 3.2  | 4.0 to 5.0 |
-| M2.5   | 3.6  | 5.0 to 6.0 |
-| M3     | 4.0  | 6.0 to 7.0 |
-| M4     | 5.6  | 7.0 to 8.0 |
-| M5     | 6.4  | 8.0 to 9.0 |
+| Insert | Hole diameter (assumed) |
+|--------|------|
+| M2     | 3.2  |
+| M2.5   | 3.6  |
+| M3     | 4.0  |
+| M4     | 5.6  |
+| M5     | 6.4  |
 
-(Source: the hole sizes CNC Kitchen publishes for its inserts, https://www.cnckitchen.com; they are typical, not
-a standard. Check them against the insert bought.)
+The depth of the blind hole is the insert's length plus some room for the melted plastic it pushes down; how much
+is the maker's to say (also not sourced here).
 
 ## A screw hole with a head pocket and a nut pocket
 
@@ -76,7 +78,7 @@ class Params:
     head_h: float = 3.0
     nut_af: float = 5.5       # M3 hex nut across flats: ISO 4032
     nut_h: float = 2.4
-    slack: float = 0.2        # printed pockets: tune on the printer
+    slack: float = 0.2        # assumed, not a standard: tune on the printer
 
 
 def make_plate(p: Params):

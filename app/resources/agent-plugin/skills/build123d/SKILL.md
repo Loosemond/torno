@@ -230,9 +230,9 @@ not write files: it returns shapes and torno draws and exports them.
 ## Screws, nuts and inserts
 
 `bd_warehouse` is not in torno's kernel environment, so do not import it. The hole sizes of metric screws, their
-heads and nuts, and of heat-set inserts, with their sources, and an example that makes a hole with a head pocket and
+heads and nuts, with the standards they come from, the heat-set insert holes (assumed values: the insert's datasheet wins), and an example that makes a hole with a head pocket and
 a nut pocket from `Params`, are in `${CLAUDE_SKILL_DIR}/reference/fasteners.md`. Keep each size a field of
-`Params` with its source in a comment.
+`Params` with its source in a comment, or "assumed" where it has none.
 
 ## Text and threads
 
