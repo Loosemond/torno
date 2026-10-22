@@ -108,7 +108,7 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
       const after =
         scan.id === null
           ? `It could not be imported (${said(scan.problem ?? 'for a reason torno did not get')}); the file is the person's to give again.`
-          : `It is imported into this object and is not aligned: the person aligns it in torno, and ${toolName('scan_clash')} and ${toolName('scan_deviation')} need that. Read it with ${toolName('scans')} and ${toolName('scan_section')}.`
+          : `It is imported into this object and is not aligned yet: the person aligns it in torno. ${toolName('scans')} says how it stands; once it is aligned, ${toolName('section')} with "scan" cuts it, and ${toolName('scan_clash')} and ${toolName('scan_deviation')} measure against it.`
       lines.push(`- ${named}${note === '' ? '.' : `: ${note}.`} ${after}`)
     }
     input.objects.forEach((other, i) => {

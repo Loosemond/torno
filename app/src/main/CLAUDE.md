@@ -791,8 +791,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   which builds its prompt with `onboardPrompt`.
 - The answer has `prompt` (as sent, "attached: picture N" for a picture) and `held` (for the composer to hold: every picture
   "not attached: read reference/<file>", a referred object's as `../<name>/.torno/thumb.png`); the window holds
-  `held`. The prompt names the scan tools by the adapter's tool names (`scans`, `scan_section`, `scan_clash`,
-  `scan_deviation`) and says the person aligns a scan in torno.
+  `held`. The prompt names the scan tools by the adapter's tool names (`scans`, `section` with `scan`, `scan_clash`,
+  `scan_deviation`) and says the person aligns a scan in torno; every tool it names is a key of `TOOLS` (`onboard.test.ts`).
 - After the prompt is sent `Sessions.began` is awaited (the CLI said anything, or ended: then its exit note is the
   `problem`, and `held` is held again; a CLI silent for 10 s is taken to have begun). Tested with `FAKE_AGENT_FAIL`.
 - A session that cannot be started (the command is not on PATH, the trust question) is not a rejection: the answer is

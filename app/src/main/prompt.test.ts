@@ -3,6 +3,7 @@ import { TOOLS } from './mcp/schemas'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DIMENSIONS_TEXT, FULL_PROMPT, SCANS_TEXT, SYSTEM_PROMPT, systemPrompt } from './prompt'
+import { PROMPTS } from './mcp/prompts'
 
 // The whole text, as Claude Code is told it when it is not given torno's skills; with them, below.
 describe('the system prompt', () => {
@@ -132,5 +133,20 @@ describe("Claude Code's prompt, with the skills", () => {
   it('whose skills say, to the letter, what the prompt no longer does', () => {
     for (const sentence of SCANS_TEXT) expect(skill('scans')).toContain(sentence)
     for (const sentence of DIMENSIONS_TEXT) expect(skill('dimensions')).toContain(sentence)
+  })
+})
+
+// #119: every tool a prompt or a skill names is a tool torno has, so that a name that is not one (`scan_section` was) is caught here.
+describe('the tools the prompts and the skills name', () => {
+  const named = (text: string): string[] => [...text.matchAll(/mcp__torno__([A-Za-z_]+)/g)].map((m) => m[1])
+  const skillsDir = join(__dirname, '../../resources/agent-plugin/skills')
+  const skills = ['torno-model', 'scans', 'dimensions', 'build123d'].map((name) => readFileSync(join(skillsDir, name, 'SKILL.md'), 'utf8'))
+  const asClaude = (tool: string) => `mcp__torno__${tool}`
+
+  it('names only tools of TOOLS, in the system prompt, the prompts of MCP and the skills', () => {
+    const texts = [SYSTEM_PROMPT, FULL_PROMPT, systemPrompt((tool) => `torno.${tool}`), ...skills, ...Object.values(PROMPTS).map((p) => p.text(asClaude, '256x256x256'))]
+    const names = texts.flatMap(named)
+    expect(names.length).toBeGreaterThan(0)
+    expect(names.filter((name) => !(name in TOOLS))).toEqual([])
   })
 })

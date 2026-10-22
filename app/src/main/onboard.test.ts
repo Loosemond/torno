@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OnboardDraft } from '../shared/bridge'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
+import { TOOLS } from './mcp/schemas'
 import { type ImageBytes, MOST_IMAGES, checkedImage, objectSummary, onboardObject, onboardPrompt, readThumb, sessionRunning } from './onboard'
 
 /** A PNG with the header of a picture w x h (and not a picture after it). */
@@ -93,6 +94,12 @@ const full = () => ({
 })
 
 describe('onboardPrompt', () => {
+  it('names only tools torno has (TOOLS), so a tool that does not exist is caught here (#119)', () => {
+    const { text } = onboardPrompt(full())
+    const named = [...text.matchAll(/mcp__torno__([A-Za-z_]+)/g)].map((m) => m[1])
+    expect(named.filter((name) => !(name in TOOLS))).toEqual([])
+  })
+
   it('writes the text of the plan, with every kind of item', () => {
     const { text, blocks } = onboardPrompt(full())
     expect(text).toBe(
@@ -104,7 +111,7 @@ describe('onboardPrompt', () => {
         'What they gave (all of it is also in brief.md; files are in reference/):',
         '- reference/photo-1.jpg: the desk edge (attached: picture 1)',
         '- reference/doodle-1.png: the shape I want (attached: picture 2)',
-        '- Scan S1 "desk.stl": the edge, scanned. It is imported into this object and is not aligned: the person aligns it in torno, and mcp__torno__scan_clash and mcp__torno__scan_deviation need that. Read it with mcp__torno__scans and mcp__torno__scan_section.',
+        '- Scan S1 "desk.stl": the edge, scanned. It is imported into this object and is not aligned yet: the person aligns it in torno. mcp__torno__scans says how it stands; once it is aligned, mcp__torno__section with "scan" cuts it, and mcp__torno__scan_clash and mcp__torno__scan_deviation measure against it.',
         '- Scan "bad.stl": another try. It could not be imported (the file has no triangles); the file is the person\'s to give again.',
         '- ../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3): mounts on this',
         '- ../base/ (another object of this workspace: not built in this run)',
