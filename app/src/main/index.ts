@@ -37,6 +37,7 @@ import { exportsUnderWay, stopExports } from './export/save'
 import { readChoice } from './sessions/choice'
 import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
+import { Attention } from './attention'
 import { StateFiles } from './statefile'
 import { Verdicts } from './verdicts'
 import { valueAgainstExpected } from '../shared/dimension'
@@ -215,6 +216,8 @@ function createWindow(): BrowserWindow {
     unanswered = setTimeout(closeNow, CLOSE_ANSWER_MS)
     win.webContents.send('window:closeAsked')
   })
+  // The frame was flashed for a session that asked: the person is here now.
+  win.on('focus', () => win.flashFrame(false))
   win.on('closed', () => {
     if (unanswered) clearTimeout(unanswered)
     ipcMain.off('window:closeAnswer', onAnswer)
@@ -487,6 +490,16 @@ void app.whenReady().then(async () => {
     systemPromptFor: (adapter) => systemPrompt(adapter.toolName, adapter.skills),
     mcpUrlFor,
     debug: isDebug
+  })
+  // A session that asks while the window is not in use draws the eye to it, once for each ask (`Attention`).
+  const attention = new Attention()
+  sessions.on('status', (m) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (!win || win.isDestroyed() || !attention.moved(m.sessionId, m.status, win.isFocused())) return
+    // A hidden test window is not flashed: the rule is what is tested (`attention.test.ts`).
+    if (isTest) return
+    if (process.platform === 'darwin') app.dock?.bounce('informational')
+    else win.flashFrame(true)
   })
   registerIpc({
     onWorkspaceChosen: (root) => void rememberWorkspace(root),

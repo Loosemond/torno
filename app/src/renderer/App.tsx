@@ -14,6 +14,8 @@ import { MarksPanel } from './ui/MarksPanel'
 import { ObjectList } from './ui/ObjectList'
 import { ScansPanel } from './ui/ScansPanel'
 import { SessionPane } from './ui/SessionPane'
+import { SessionDot } from './ui/SessionDot'
+import { dockToggleLabel, signOf } from './ui/sessionSign'
 import { ExportSheet } from './ui/ExportSheet'
 import { ViewBoard } from './ui/drawing/ViewBoard'
 import { FolderMenu } from './ui/FolderMenu'
@@ -229,7 +231,9 @@ export function App() {
   const workspaceKnown = useStore((s) => s.workspaceKnown)
   const shell = useRef<HTMLDivElement>(null)
   const [dockWidth, setDockWidth] = useState(DOCK_DEFAULT)
-  const [dockOpen, setDockOpen] = useState(true)
+  const dockOpen = useStore((s) => s.dockOpen)
+  // The sign of the open object's session, for the dock's toggle while the dock is away.
+  const dockSign = useStore((s) => signOf(s.objectId === null ? undefined : s.sessions[s.objectId]?.status))
   // While the edge is dragged the width goes straight to the CSS variable, so
   // React renders once at the end rather than on every pointer move.
   const drag = useRef<{ startX: number; startWidth: number; width: number } | null>(null)
@@ -323,7 +327,7 @@ export function App() {
     else if (reason.page === 'new') openNewObject()
   }, [])
 
-  const revealDock = useCallback(() => setDockOpen(true), [])
+  const revealDock = useCallback(() => actions.setDockOpen(true), [])
 
   if (!workspaceKnown) return <div className="shell" />
   if (!workspace) {
@@ -401,12 +405,15 @@ export function App() {
       <button
         type="button"
         className="dock-toggle"
-        aria-label={dockOpen ? 'Hide session' : 'Show session'}
+        aria-label={dockToggleLabel(dockOpen, dockSign)}
         aria-expanded={dockOpen}
-        title={dockOpen ? 'Hide session' : 'Show session'}
-        onClick={() => setDockOpen((open) => !open)}
+        title={dockToggleLabel(dockOpen, dockSign)}
+        data-session={!dockOpen && dockSign !== null ? dockSign : undefined}
+        onClick={() => actions.setDockOpen(!dockOpen)}
       >
         <DockIcon />
+        {/* Hidden, the session of the open object still shows that it works, or waits for the answer. */}
+        {!dockOpen && dockSign !== null && <SessionDot sign={dockSign} />}
       </button>
 
       {/* Over everything but the keys: the window's own questions, closing torno and leaving the folder. */}
@@ -441,7 +448,7 @@ export function App() {
           onGo={showReason}
         />
       )}
-      <BuildStatus />
+      <BuildStatus onOpen={(id) => void openObject(id)} />
       {/* Over everything: the keys, asked for with ? or at the foot of the tools. */}
       <KeySheet />
     </div>

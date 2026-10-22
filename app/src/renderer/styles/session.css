@@ -42,6 +42,44 @@
   white-space: nowrap;
 }
 
+/* The sign of a session away from its pane (`ui/SessionDot.tsx`): on an object's row, on the toggle of a hidden dock.
+   Still, as the pane's dot is. Only the one that needs the person is in colour, and it says so in words where there is room. */
+.session-sign {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+}
+
+.session-sign[data-sign='needs_input'] {
+  color: var(--warn);
+  font-weight: 500;
+}
+
+.session-sign[data-sign='needs_input'] .status-dot {
+  background: var(--warn);
+}
+
+/* On the toggle: a dot over the icon's corner, ringed in the ground it lies on; the one that needs you is larger,
+   so that it is not told from the other by colour alone. */
+.dock-toggle .session-sign {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+}
+
+.dock-toggle .session-sign .status-dot {
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.dock-toggle .session-sign[data-sign='needs_input'] .status-dot {
+  width: 9px;
+  height: 9px;
+}
+
 /* Why the choice in agent.json was not followed, and the button that puts the file right. */
 .session-note {
   flex: none;

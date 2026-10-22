@@ -43,7 +43,8 @@ const focused = (): Promise<string> => page.evaluate(() => document.activeElemen
 const canvas = () => page.locator('[data-region="viewport"] canvas').first()
 
 async function open(id: string): Promise<void> {
-  await page.getByRole('button', { name: id, exact: true }).click()
+  // A row says what its session does after the name (`hollow, session is working`).
+  await page.getByRole('button', { name: new RegExp(`^${id}(,|$)`) }).click()
   await expect.poll(async () => ((await state()).objectId === id ? (await state()).build?.status : null), { timeout: 30_000 }).toBe('ok')
   await expect.poll(async () => (await state()).scene !== null).toBe(true)
 }

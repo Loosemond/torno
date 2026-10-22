@@ -255,6 +255,16 @@ for (const theme of ['light', 'dark'] as const) {
         if (shot === 'empty') await expect(page.locator('.show-empty')).toBeVisible()
         if (shot !== 'welcome' && shot !== 'empty' && shot !== 'error') await open(page, 'hollow')
         if (shot === 'main') {
+          // Another object whose session waits for an answer, while hollow is open: its row and the status line say so.
+          await open(page, 'bracket')
+          await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+          await expect(page.locator('[data-chat-composer]')).toBeFocused()
+          await page.keyboard.type('ask Bash {"command":"ls"}')
+          await page.keyboard.press('Enter')
+          await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
+          await open(page, 'hollow')
+          await expect(page.locator('.object-row[data-session="needs_input"]')).toHaveAttribute('aria-label', 'bracket, session needs you')
+          await expect(page.locator('.status-needs')).toContainText('bracket needs you')
           // A mark's row opened, as when it is being read.
           await page.locator('.mark-row').first().click()
         } else if (shot === 'section') {

@@ -46,7 +46,8 @@ const status = () => page.locator('.session-status')
 const onDisk = (object: string): unknown => existsSync(join(root, object, '.torno', 'agent.json')) && JSON.parse(readFileSync(join(root, object, '.torno', 'agent.json'), 'utf8'))
 
 async function open(name: string): Promise<void> {
-  await page.getByRole('button', { name, exact: true }).click()
+  // A row says what its session does after the name (`measures, session needs you`).
+  await page.getByRole('button', { name: new RegExp(`^${name}(,|$)`) }).click()
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: name, status: 'ok' })
 }
 
@@ -110,4 +111,65 @@ test('a file that names an agent torno does not know is said, and choosing a vie
   await dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Terminal' }).click()
   await expect.poll(() => onDisk('gauge')).toEqual({ agent: 'claude', view: 'terminal' })
   await expect(note()).toHaveCount(0)
+})
+
+test('a session at work or waiting for the answer shows on its object\'s row and in the status line while another object is open, with the dock shown or hidden; ended, it shows nothing', async () => {
+  const row = (name: string) => page.locator('.object-row', { hasText: name })
+  const needs = () => page.locator('.status-needs')
+  const toggle = () => page.locator('.dock-toggle')
+  // A session in its terminal, the stand-in posting the hooks the CLI would.
+  mkdirSync(join(root, 'measures', '.torno'), { recursive: true })
+  writeFileSync(join(root, 'measures', '.torno', 'agent.json'), '{"agent":"claude","view":"terminal"}')
+  await open('measures')
+  await page.locator('.session-actions .button-primary').click()
+  await expect(status()).toHaveText('Idle')
+  const typeLine = async (line: string): Promise<void> => {
+    await page.locator('.session-term textarea').focus()
+    await page.keyboard.type(line)
+    await page.keyboard.press('Enter')
+  }
+  // At work: a quiet dot, no words, and no button in the status line.
+  await typeLine('hook')
+  await expect(status()).toHaveText('Working')
+  await open('bracket')
+  await expect(row('measures')).toHaveAttribute('data-session', 'working')
+  await expect(row('measures')).toHaveAttribute('aria-label', 'measures, session is working')
+  await expect(row('measures').locator('.session-sign-word')).toHaveCount(0)
+  await expect(needs()).toHaveCount(0)
+  await expect(row('bracket')).not.toHaveAttribute('data-session', /./)
+
+  // Waiting: the Notification of the CLI posted for measures, bracket open.
+  await open('measures')
+  await typeLine('hook Notification')
+  await expect(status()).toHaveText('Needs input')
+  await open('bracket')
+  await expect(row('measures')).toHaveAttribute('data-session', 'needs_input')
+  await expect(row('measures')).toHaveAttribute('aria-label', 'measures, session needs you')
+  await expect(row('measures').locator('.session-sign-word')).toHaveText('needs you')
+  await expect(needs()).toContainText('measures needs you')
+  // The button opens it and shows the dock, hidden or not.
+  for (const hidden of [false, true]) {
+    await open('bracket')
+    if (hidden) {
+      await toggle().click()
+      await expect(dock()).toBeHidden()
+    }
+    await expect(needs()).toBeVisible()
+    await needs().click()
+    await expect.poll(async () => (await state()).objectId).toBe('measures')
+    await expect(dock()).toBeVisible()
+    await expect(page.locator('.session-term textarea')).toBeFocused()
+  }
+  // Answered, it is gone from both.
+  await typeLine('hook Stop')
+  await expect(status()).toHaveText('Idle')
+  await expect(needs()).toHaveCount(0)
+  await expect(row('measures')).not.toHaveAttribute('data-session', /./)
+  // An ended session shows nothing either.
+  await typeLine('hook Notification')
+  await expect(status()).toHaveText('Needs input')
+  await page.evaluate(() => window.torno.session.stop(window.__tornoTest!.state().sessions.measures.sessionId))
+  await expect(status()).toHaveText('Ended')
+  await expect(needs()).toHaveCount(0)
+  await expect(row('measures')).not.toHaveAttribute('data-session', /./)
 })

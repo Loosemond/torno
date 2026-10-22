@@ -762,6 +762,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - A `Notification` hook is a question (`needs_input`) unless its body says it is none (`reduceStatus` in
   `sessions/status.ts`: `notification_type` `idle_prompt` or `auth_success`, or, without a type, a message that
   it is waiting for input): Claude Code also posts one when it has only been idle at its prompt for a while.
+- A session that moves to `needs_input` while the window is not focused draws the eye once: `Attention.moved`
+  (`attention.ts`) is true for the move into `needs_input` only (not for the same status told again, nor for an ask
+  that came while the window was in use), and `index.ts` then flashes the frame (`flashFrame(true)`, put out on
+  `focus`) or, on macOS, bounces the dock icon (`informational`). There is no system notification: it would touch
+  the person's system, so it would have to be asked for. Under `TORNO_TEST=1` the rule runs and nothing is flashed.
 - **Closing the window ends torno and every session in it, so it is asked first.** Main holds the window's
   `close` (`createWindow` in `index.ts`) and sends `window:closeAsked`; the window answers `window:closeAnswer`
   at once (`App.tsx`, from `renderer/closing.ts` `closingWhy`): `true` when nothing would be cut short, and the

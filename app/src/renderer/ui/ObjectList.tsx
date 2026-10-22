@@ -1,6 +1,8 @@
 import { actions, useStore } from '../state/store'
 import { openNewObject } from './onboard/NewObject'
 import { PAGE_KEY } from './ShowPage'
+import { SessionDot } from './SessionDot'
+import { rowLabel, signOf } from './sessionSign'
 
 /** The objects of the workspace. One that cannot be built is muted, with the reason as its tooltip. */
 export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
@@ -8,6 +10,7 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
   const openId = useStore((s) => s.objectId)
   const paged = useStore((s) => s.page === 'objects')
   const creating = useStore((s) => s.page === 'new')
+  const sessions = useStore((s) => s.sessions)
 
   return (
     <nav className="section objects" aria-label="Objects">
@@ -30,20 +33,28 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
               <kbd aria-hidden="true">{PAGE_KEY}</kbd>
             </button>
           </li>
-          {objects.map((o) => (
-            <li key={o.id}>
-              <button
-                type="button"
-                className="row object-row"
-                aria-current={o.id === openId && !creating ? 'true' : undefined}
-                data-problem={o.problem ? '' : undefined}
-                title={o.problem}
-                onClick={() => onOpen(o.id)}
-              >
-                <span className="row-name">{o.name}</span>
-              </button>
-            </li>
-          ))}
+          {objects.map((o) => {
+            // The session of an object that is not the one open still asks for the person, or works: said where the eye is.
+            const sign = signOf(sessions[o.id]?.status)
+            const said = rowLabel(o.name, sign)
+            return (
+              <li key={o.id}>
+                <button
+                  type="button"
+                  className="row object-row"
+                  aria-current={o.id === openId && !creating ? 'true' : undefined}
+                  aria-label={said}
+                  data-problem={o.problem ? '' : undefined}
+                  data-session={sign ?? undefined}
+                  title={o.problem ?? said}
+                  onClick={() => onOpen(o.id)}
+                >
+                  <span className="row-name">{o.name}</span>
+                  {sign !== null && <SessionDot sign={sign} word />}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
       {/* The way to a new object: a page for what it is and what there is to give, then Claude Code starts with it. */}

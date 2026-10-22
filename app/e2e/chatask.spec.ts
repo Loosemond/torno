@@ -516,3 +516,55 @@ test('Stop with a request open: the card reads cancelled, has no buttons, and th
   await finished()
   await expect(status()).toHaveText('Idle')
 })
+
+test('a request that waits for the person shows on the dock\'s toggle when the dock is hidden, and on its row and in the status line when another object is open; the signs go when it is answered', async () => {
+  const toggle = () => page.locator('.dock-toggle')
+  const row = (name: string) => page.locator('.object-row', { hasText: name })
+  const needs = () => page.locator('.status-needs')
+  await newSession()
+  await say('ask Bash {"command":"ls"}')
+  const card = asks().last()
+  await expect(card).toHaveAttribute('data-state', 'open')
+  await expect(status()).toHaveText('Needs input')
+  // The dock shown: its pane says it, the toggle has no dot.
+  await expect(toggle().locator('.session-sign')).toHaveCount(0)
+
+  // The dock hidden: the dot is on the toggle, and its name says what it is.
+  await toggle().click()
+  await expect(dock()).toBeHidden()
+  await expect(toggle()).toHaveAttribute('aria-label', 'Show session: Claude Code needs you')
+  await expect(toggle()).toHaveAttribute('title', 'Show session: Claude Code needs you')
+  await expect(toggle().locator('.session-sign[data-sign="needs_input"]')).toBeVisible()
+  // The row of the open object says it as well, in words, and the status line has the button.
+  await expect(row('bracket')).toHaveAttribute('aria-label', 'bracket, session needs you')
+  await expect(row('bracket').locator('.session-sign-word')).toHaveText('needs you')
+  await expect(needs()).toContainText('bracket needs you')
+
+  // Another object shown: it is on the row of the one that asks, and the toggle (of an object with no session) has none.
+  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await expect.poll(async () => (await state()).objectId).toBe('hollow')
+  await expect(row('bracket')).toHaveAttribute('data-session', 'needs_input')
+  await expect(row('hollow')).not.toHaveAttribute('data-session', /./)
+  await expect(toggle()).toHaveAttribute('aria-label', 'Show session')
+  await expect(toggle().locator('.session-sign')).toHaveCount(0)
+  await expect(needs()).toContainText('bracket needs you')
+
+  // The button of the status line opens the object, shows the dock and goes to the card.
+  await needs().click()
+  await expect.poll(async () => (await state()).objectId).toBe('bracket')
+  await expect(dock()).toBeVisible()
+  await expect(card).toBeFocused()
+
+  // Answered: every sign goes.
+  await card.getByRole('button', { name: 'Allow', exact: true }).click()
+  await finished()
+  await expect(status()).toHaveText('Idle')
+  await expect(needs()).toHaveCount(0)
+  await expect(row('bracket')).not.toHaveAttribute('data-session', /./)
+  await expect(row('bracket')).not.toHaveAttribute('aria-label', /./)
+  await toggle().click()
+  await expect(toggle()).toHaveAttribute('aria-label', 'Show session')
+  await expect(toggle().locator('.session-sign')).toHaveCount(0)
+  await toggle().click()
+  await expect(dock()).toBeVisible()
+})

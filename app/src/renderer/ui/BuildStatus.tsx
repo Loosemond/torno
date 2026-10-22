@@ -7,6 +7,8 @@ import { partDefects } from '../../shared/sanity'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
+import { AGENT_LABEL } from '../../shared/agents'
+import { focusAsk, waitingObjects } from './sessionSign'
 
 /** `2 dimensions fail`, `1 dimension not measured`. */
 export function dimensionCount(count: number, what: 'fail' | 'not measured'): string {
@@ -58,8 +60,11 @@ export function seconds(s: number): string {
  * build on show fails, and how many have no value of it; either goes to the
  * first such in the marks panel. After the count of parts, how many of the
  * layout's parts the build says are broken (`partDefects`), each in the title.
+ * At the far right, before the export, the first object (in the list's order) whose
+ * session waits for the person: a button that opens it, shows the dock and goes to
+ * the card. It is there whichever object, page or state of the dock is shown.
  */
-export function BuildStatus() {
+export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   const errorOpen = useStore((s) => s.errorOpen)
   const name = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const build = useStore((s) => s.build)
@@ -81,6 +86,10 @@ export function BuildStatus() {
   const building = build?.status === 'building'
   const elapsed = useElapsed(building ? build.startedAt : undefined)
   const error = build?.status === 'failed' ? build.error : undefined
+  // Strings, so that the line is drawn again only when who waits changes.
+  const asking = useStore((s) => waitingObjects(s.workspace?.objects ?? [], s.sessions).map((o) => o.name).join('\n'))
+  const askingId = useStore((s) => waitingObjects(s.workspace?.objects ?? [], s.sessions)[0]?.id ?? null)
+  const askingNames = asking === '' ? [] : asking.split('\n')
 
   // The sheet shows the failure of the build it was opened for, no longer.
   useEffect(() => {
@@ -156,6 +165,28 @@ export function BuildStatus() {
         </>
       )}
       <span className="spacer" />
+      {/* Always there, so that a screen reader is told when it fills: a session somewhere waits for the answer. */}
+      <span className="status-asking" role="status">
+        {askingId !== null && (
+          <button
+            type="button"
+            className="status-needs"
+            title={`${AGENT_LABEL} waits for your answer in ${askingNames.join(', ')}. Go to ${askingNames[0]}`}
+            onClick={() => {
+              actions.setDockOpen(true)
+              // Its object is shown first, and from a page over it back to the object; the card is then there to be reached.
+              onOpen(askingId)
+              focusAsk(askingId)
+            }}
+          >
+            <span className="status-dot" aria-hidden="true" />
+            <span>
+              <span className="status-needs-name">{askingNames[0]}</span> needs you
+              {askingNames.length > 1 && <>, and <span className="num">{askingNames.length - 1}</span> more</>}
+            </span>
+          </button>
+        )}
+      </span>
       {/* The open object, as one HTML file or a file of the model. With the page of objects up, the page has the button for them all. */}
       {objectId !== null && !paged && !creating && (
         <button type="button" className="status-export" title="Export this object: one HTML file that opens by itself, or a STEP, STL or 3MF file" onClick={() => actions.exportSheet([objectId])}>

@@ -90,6 +90,31 @@
   color: var(--warn);
 }
 
+.status-asking {
+  display: contents;
+}
+
+/* A session somewhere waits for the person: the one place in the line that is a call to act, in the pane's colour for it. */
+.status-needs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--warn);
+  font-weight: 500;
+}
+
+.status-needs .status-dot {
+  background: var(--warn);
+}
+
+.status-needs:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .status-defects {
   color: var(--fail);
   font-weight: 500;

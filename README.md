@@ -367,7 +367,18 @@ does closing the window ("A new object is set up here and not made yet"). Nothin
 
 Each object has its own session: Claude Code running in the object's folder.
 It opens in a chat, a pane of torno's own, or in a terminal when you switch to
-it. It keeps running while another object is shown. "New session"
+it. It keeps running while another object is shown. A session that works or
+that waits for your answer (a permission, a question, a plan) says so wherever
+you are, not only in its own pane. In the list of objects its row has a dot
+after the name: a quiet one while it works, and, in the warning colour with the
+words "needs you", while it waits. Nothing is shown for a session that is idle
+or ended. When the session pane is hidden, its button has the same dot for the
+open object's session. And when any session of the folder waits for you, the
+status line has a button "*bracket* needs you" (with "and N more" if several do,
+the first in the list named): it opens that object, shows the pane and takes you
+to the card. If the window is not the one in use when a session starts to wait,
+its frame flashes (the dock icon bounces on a Mac), once for each question; torno
+posts no system notification. "New session"
 starts one, in place of the session running there, if any; torno asks first if
 that one is in the middle of its work. "End" ends the session and starts
 none, asking first in the same way. "Resume" continues the last
@@ -1536,6 +1547,7 @@ On the screen:
 - **Resizing.** `scripts/torno ~/objects` on Hyprland: drag the window wider and narrower, or retile it: it redraws without flicker. If the window does not come up right, `TORNO_OZONE=x11`, then `TORNO_OZONE=wayland`, and keep the one that works.
 - **Focus.** Start torno a second time with another folder: the window that is open comes to the front (on Hyprland only where `focus_on_activate` is on). Start dragging the section's arrow, switch workspace, come back: the plane is where it was before the drag, and the next drag turns the camera.
 - **Closing.** With a session working, close the window through the window manager: torno asks "Close torno?", "Keep it open" keeps everything as it was, "Close torno" ends torno and the session. With nothing under way it closes at once.
+- **A session that needs you, away from its pane.** In two objects, ask Claude Code in one for something that needs a permission, then open the other (and again with the session pane hidden): the first one's row has a dot and "needs you" in the warning colour, the status line has the button "*name* needs you", which opens it and brings you to the card, and a working session's dot is a quiet grey. In a window that is not in front (another window on top, or a workspace switched away) the frame should flash on Linux, and the dock icon bounce once on a Mac: no test shows a window, so only the rule is tested.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.

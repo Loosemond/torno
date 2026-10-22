@@ -43,6 +43,8 @@ export interface TornoState {
   build: BuildState | null
   /** Whether the sheet of the failed build is up (the status line's "Build failed" and the chat's "Show error" open it); it is of the open object, and goes when the build has no error. */
   errorOpen: boolean
+  /** Whether the session dock is shown. The window's, not an object's: another object or workspace leaves it as it is. */
+  dockOpen: boolean
   /** The last good scene of the open object, and the revision it is. */
   scene: Scene | null
   revision: number
@@ -168,6 +170,7 @@ export const store = createStore<TornoState>(() => ({
   lockedView: null,
   edits: 0,
   sessions: {},
+  dockOpen: true,
   page: 'object',
   exportOf: null
 }))
@@ -633,6 +636,11 @@ export const actions = {
   /** Close the note that is open; its mark stays the active one. */
   closeNote(): void {
     if (store.getState().noting !== null) store.setState({ noting: null })
+  },
+
+  /** The session dock is shown or hidden. */
+  setDockOpen(open: boolean): void {
+    if (store.getState().dockOpen !== open) store.setState({ dockOpen: open })
   },
 
   /** The sheet of the failed build is opened or put away. */

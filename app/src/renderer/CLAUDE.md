@@ -453,6 +453,16 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   bottom row decides (`ui/termGround.ts` `edgeGround`, after every write parsed); the terminal's own ground and
   the inset then take it, so that the agent's screen fills the pane (`window.__tornoTerm.ground()`; the
   stand-in's `ground r g b`).
+- A session away from its pane is told where the eye is (`ui/sessionSign.ts` the rule, `ui/SessionDot.tsx` the dot,
+  still, 6 px, the status line's `.status-dot`). Only `working` and `needs_input` have a sign: `working` is a
+  `--muted` dot with no words; `needs_input` is `--warn`, a larger dot on the dock's toggle and the words "needs you"
+  on a row, never colour alone: the row's `aria-label` and `title` read `bracket, session needs you` (`is working`),
+  the hidden dock's toggle reads `Show session: Claude Code needs you`, and the status line's button (`.status-needs`,
+  in a `role="status"` that is always there) names the first object of the list whose session waits, with "and N
+  more"; it opens that object, shows the dock (`dockOpen` and `actions.setDockOpen` are in the store, not in
+  `App.tsx`) and `focusAsk` takes the focus to the open card or the terminal once the pane is of that object. The
+  toggle's dot is of the open object's session and only while the dock is hidden. A row is named by its sign, so a
+  test finds it by `.object-row` or by `^name(,|$)`. The folded Objects switcher (Task 23) carries the same dot.
 - On the New object page the pane is of the object being made (`drafting` in `SessionPane`): no status, no End,
   New session or Resume, no view switch, no held prompt, and `DraftPane` in the body; `.session-term` stays laid out.
   A live session (any status but `exited`) of the object that was open stays as it is, with the note

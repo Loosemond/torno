@@ -1376,3 +1376,16 @@ describe('the sheet of the failed build', () => {
     expect(store.getState().errorOpen).toBe(false)
   })
 })
+
+describe('the session dock', () => {
+  it('is shown to begin with, and shown or hidden as it is asked; another object or workspace leaves it as it is', () => {
+    expect(store.getState().dockOpen).toBe(true)
+    actions.setDockOpen(false)
+    expect(store.getState().dockOpen).toBe(false)
+    actions.openObject('gear', { layers: {} })
+    actions.setWorkspace({ root: '/ws', hasProject: true, objects: [] })
+    expect(store.getState().dockOpen).toBe(false)
+    actions.setDockOpen(true)
+    expect(store.getState().dockOpen).toBe(true)
+  })
+})
