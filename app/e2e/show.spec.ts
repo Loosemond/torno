@@ -424,7 +424,12 @@ test('with an object open the list folds to a switcher, the marks start high, an
   await expect(fold('Layers').locator('.section-said')).toHaveText('2')
   await expect(fold('Scans')).toHaveAttribute('aria-description', '0')
   await expect(left.getByRole('region', { name: 'Layers' }).getByRole('listitem')).toHaveCount(0)
-  expect((await left.getByRole('region', { name: 'Marks' }).boundingBox())!.y).toBeLessThan(200)
+  // Marks starts where the last title row above it ends, whatever the sections above are: nothing is left between.
+  const box = async (name: string) => (await left.getByRole('region', { name }).boundingBox())!
+  const scansBox = await box('Scans')
+  expect((await box('Parameters')).y).toBeGreaterThan((await box('Layers')).y)
+  expect((await box('Marks')).y - (scansBox.y + scansBox.height)).toBeLessThan(6)
+  expect((await box('Parameters')).height).toBeLessThan(40)
   // The window keeps what is folded, in its own storage: nothing of it is in the workspace.
   expect(JSON.parse((await page.evaluate(() => localStorage.getItem('torno.column')))!)).toMatchObject({ folded: { objects: true, layers: true, params: true, scans: true } })
   expect(readdirSync(join(root, 'hollow', '.torno'))).not.toContain('column.json')

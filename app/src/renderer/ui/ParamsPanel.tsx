@@ -1,5 +1,6 @@
 import { actions, runningSession, useStore } from '../state/store'
 import { insertIntoSession } from './insertIntoSession'
+import { numbered } from './numbered'
 import { paramRow, type ParamRow } from './paramRows'
 import { SectionTitle } from './SectionTitle'
 
@@ -8,7 +9,9 @@ import { SectionTitle } from './SectionTitle'
  * its default in the monospace face, its comment as written, and, for a default that is not a literal, that it is
  * worked out in the model. Read only: torno never writes the model, and a row only puts `Params.<name>` at the
  * cursor of the open object's session (the way the selection's "Insert" puts a ref there), for the person to write
- * around ("make Params.wall 2.4"). With no session running the rows are text and say why. A model with no
+ * around ("make Params.wall 2.4"). With no session running the rows are text and say why. A row's name stays
+ * `Params.<name>`; what it holds (type, value whole, comment) and what a click does are its description, as a folded
+ * section's title does it. The comment is as written, its numbers in the monospace face. A model with no
  * fields, or a kernel that does not read them, has no section.
  */
 export function ParamsPanel() {
@@ -41,7 +44,7 @@ function ParamItem({ row, canInsert }: { row: ParamRow; canInsert: boolean }) {
           </span>
         )}
       </span>
-      {row.doc && <span className="param-doc">{row.doc}</span>}
+      {row.doc && <span className="param-doc">{numbered(row.doc)}</span>}
       {row.worked && <span className="param-worked">worked out in the model</span>}
     </>
   )
@@ -52,7 +55,7 @@ function ParamItem({ row, canInsert }: { row: ParamRow; canInsert: boolean }) {
           type="button"
           className="param-button"
           aria-label={row.text}
-          aria-description={`Put ${row.text} in the session's prompt`}
+          aria-description={`${row.title}. Put it in the session's prompt`}
           title={row.title}
           onClick={() => {
             // The dock may be away: the box takes no focus in a hidden one.
@@ -63,7 +66,7 @@ function ParamItem({ row, canInsert }: { row: ParamRow; canInsert: boolean }) {
           {body}
         </button>
       ) : (
-        <div className="param-button" aria-description={`Start a session to put ${row.text} in its prompt`} title={row.title}>
+        <div className="param-button" aria-description={`${row.title}. Start a session to put ${row.text} in its prompt`} title={row.title}>
           {body}
         </div>
       )}

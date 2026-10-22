@@ -27,7 +27,7 @@ test.beforeAll(async () => {
   const fields = [
     '    side: float = 40  # Outer width, mm',
     '    wall: float = 2',
-    '    # Room left round the post',
+    '    # Room left round the post, 0.2 mm at least',
     '    gap: float = 0.123456',
     '    inner: float = 40 - 2 * 2  # Worked out from side and wall',
     '    ribs: int = 4'
@@ -50,6 +50,7 @@ const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!
 const section = () => page.locator('.left .params')
 const dock = () => page.locator('[data-region="session"]')
 const composer = () => dock().locator('[data-chat-composer]')
+const face = (selector: string) => page.locator(selector).first().evaluate((el) => getComputedStyle(el).fontFamily)
 
 async function open(name: string): Promise<void> {
   await openListed(page, name)
@@ -81,9 +82,12 @@ test('a row has the name and the value in the monospace face, the comment as wri
   await expect(row('side').locator('.param-value')).toHaveText('40')
   await expect(row('side').locator('.param-doc')).toHaveText('Outer width, mm')
   // A comment above the field is the field's, a field with none shows none.
-  await expect(row('gap').locator('.param-doc')).toHaveText('Room left round the post')
+  await expect(row('gap').locator('.param-doc')).toHaveText('Room left round the post, 0.2 mm at least')
   await expect(row('wall').locator('.param-doc')).toHaveCount(0)
   await expect(row('ribs').locator('.param-value')).toHaveText('4')
+  // The numbers of a comment are in the monospace face too, the words round them are not.
+  await expect(row('gap').locator('.param-doc .num')).toHaveText(['0.2'])
+  expect(await face('.left .param-doc .num')).toBe(await face('.left .layer-row .row-name'))
   // Four digits at most, the whole value in the title.
   await expect(row('gap').locator('.param-value')).toHaveText('0.1235')
   await expect(row('gap').locator('.param-value')).toHaveAttribute('title', '0.123456')
@@ -92,7 +96,6 @@ test('a row has the name and the value in the monospace face, the comment as wri
   await expect(row('inner').locator('.param-value')).toHaveText('36')
   await expect(row('side').locator('.param-worked')).toHaveCount(0)
   // The face of the numbers, the one of the layers' names.
-  const face = (selector: string) => page.locator(selector).first().evaluate((el) => getComputedStyle(el).fontFamily)
   expect(await face('.left .param-value')).toBe(await face('.left .layer-row .row-name'))
   expect(await face('.left .param-name')).toBe(await face('.left .layer-row .row-name'))
   expect(await face('.left .param-doc')).not.toBe(await face('.left .param-value'))
@@ -100,7 +103,7 @@ test('a row has the name and the value in the monospace face, the comment as wri
 
 test('with no session running the rows are text, and say why', async () => {
   await expect(section().locator('button.param-button')).toHaveCount(0)
-  await expect(section().locator('[data-param="wall"] .param-button')).toHaveAttribute('aria-description', 'Start a session to put Params.wall in its prompt')
+  await expect(section().locator('[data-param="wall"] .param-button')).toHaveAttribute('aria-description', 'Params.wall: float = 2. Start a session to put Params.wall in its prompt')
 })
 
 test('with a session, a click puts Params.<name> at the cursor of the box and sends nothing', async () => {
@@ -109,7 +112,7 @@ test('with a session, a click puts Params.<name> at the cursor of the box and se
   await expect(composer()).toBeFocused()
   await composer().fill('make')
   const wall = section().getByRole('button', { name: 'Params.wall', exact: true })
-  await expect(wall).toHaveAttribute('aria-description', "Put Params.wall in the session's prompt")
+  await expect(wall).toHaveAttribute('aria-description', "Params.wall: float = 2. Put it in the session's prompt")
   await wall.click()
   await expect(composer()).toHaveValue('make Params.wall ')
   await expect(composer()).toBeFocused()

@@ -7,7 +7,7 @@ import { store } from '../state/store'
 import { ParamsPanel } from './ParamsPanel'
 
 const PARAMS: Param[] = [
-  { name: 'wall', type: 'float', default: 2.4, literal: true, doc: 'Wall thickness, mm' },
+  { name: 'wall', type: 'float', default: 2.4, literal: true, doc: 'Clearance 0.2 mm, M3' },
   { name: 'inner', type: 'float', default: 18.4, literal: false, doc: null },
   { name: 'ribs', type: 'int', default: 4, literal: true, doc: null },
   { name: 'label', type: 'str', default: 'M3', literal: true, doc: null }
@@ -56,8 +56,9 @@ describe('the Parameters section of the left column', () => {
   it('shows the comment as written, and says a default worked out in the model is', () => {
     store.setState({ scene: scene(PARAMS), column: open })
     const out = html()
-    expect(out).toContain('<span class="param-doc">Wall thickness, mm</span>')
-    expect(out.match(/worked out in the model/g)).toHaveLength(2)
+    // The comment is as written; the numbers in it are in the monospace face.
+    expect(out).toContain('<span class="param-doc">Clearance <span class="num">0.2</span> mm, <span class="num">M3</span></span>')
+    expect(out.match(/<span class="param-worked">worked out in the model<\/span>/g)).toHaveLength(1)
     const inner = out.slice(out.indexOf('data-param="inner"'), out.indexOf('data-param="ribs"'))
     expect(inner).toContain('param-worked')
     expect(inner).toContain('18.4')
@@ -68,7 +69,7 @@ describe('the Parameters section of the left column', () => {
     store.setState({ scene: scene(PARAMS), column: open, objectId: 'o', sessions: {} })
     const out = html()
     expect(out).not.toContain('<button type="button" class="param-button"')
-    expect(out).toContain('aria-description="Start a session to put Params.wall in its prompt"')
+    expect(out).toContain('aria-description="Params.wall: float = 2.4. Clearance 0.2 mm, M3. Start a session to put Params.wall in its prompt"')
   })
 
   it('has a button for each row, named for the text it puts in the prompt, while a session runs', () => {
@@ -76,6 +77,6 @@ describe('the Parameters section of the left column', () => {
     const out = html()
     expect(out.match(/<button type="button" class="param-button"/g)).toHaveLength(PARAMS.length)
     expect(out).toContain('aria-label="Params.wall"')
-    expect(out).toContain('aria-description="Put Params.wall in the session&#x27;s prompt"')
+    expect(out).toContain('aria-description="Params.wall: float = 2.4. Clearance 0.2 mm, M3. Put it in the session&#x27;s prompt"')
   })
 })

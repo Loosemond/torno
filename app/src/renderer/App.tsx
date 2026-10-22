@@ -384,7 +384,7 @@ export function App() {
           </p>
         )}
         <ObjectList onOpen={(id) => void openObject(id)} />
-        {/* While the page of objects is up, the layers and the scans act on a view that is not on screen: they give way. The marks stay: they say why a card has a failing chip. On the New object page the marks give way too: no tool works there. */}
+        {/* While the page of objects is up, the layers, the parameters and the scans act on a view that is not on screen: they give way. The marks stay: they say why a card has a failing chip. On the New object page the marks give way too: no tool works there. */}
         {page === 'object' && <Layers />}
         {page === 'object' && <ParamsPanel />}
         {page === 'object' && <ScansPanel />}

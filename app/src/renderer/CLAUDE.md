@@ -157,14 +157,16 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   not read them) has no section. A row (`paramRow` in `ui/paramRows.ts`, pure) is the name and the default in the
   monospace face (`shared/format.ts`, four digits at most, a list or a dict by its items, a bool as Python writes it;
   the whole value in the value's `title` where it differs, with the type as written in the row's), the comment (`doc`)
-  as written and cut to two lines (whole in the row's title), and, for a default that is not a literal, "worked out in the
+  as written, its numbers in the monospace face (`numbered`), cut to two lines (whole in the row's title), and, for a default that is not a literal, "worked out in the
   model" (its value too when the kernel has one). No unit is taken from a comment.
 - A click on a row puts `Params.<name>` at the cursor of the open object's session by `insertIntoSession`
   (`ui/insertIntoSession.ts`, also the selection's "Insert" and the build error sheet's ask: the box of the chat,
   `insertIntoComposer`, else a paste at the terminal's prompt, never sent; it says whether it went in), and shows the
   dock first (`later`: a box in a hidden dock takes no focus). `Params.x` names no geometry, so it is plain text in the
-  prompt: `refsIn` and `RefChip` do not see it. With no session running a row is text, not a button, and its
-  `aria-description` says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a fixture).
+  prompt: `refsIn` and `RefChip` do not see it. A row's accessible name stays `Params.<name>`; its `aria-description` holds
+  the row's title (type, value whole, comment) and then what a click does. With no session running a row is text, not a
+  button, and the description says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a
+  fixture).
 
 ## Section
 
@@ -413,7 +415,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   control, so the focus it had comes back to it.
 - **The left column gives the room to the marks** (`styles/panels.css`, `state/column.ts`). Objects, Layers,
   Parameters and Scans each have a title that folds them (`ui/SectionTitle.tsx`, `aria-expanded`; folded with the pointer, the
-  keys go back to the view); folded, a section is its title row, which says what matters (`ui/sectionSaid.ts`:
+  keys go back to the view); folded, a section is its title row, which says what matters (`ui/sectionSaid.ts`, and `ParamsPanel`'s own count:
   `Layers 12 · 3 hidden`, `Parameters 5`, `Scans 1 · unaligned`, `Objects 17`), and Scans keeps only what is said of an import
   and the question it asks. Parameters, under the layers, starts folded. Marks never folds: it keeps `--marks-floor` (`MARKS_FLOOR`: its title, a group's
   heading and five rows), and every section above gives way before it, each down to its title. The splitter
@@ -429,7 +431,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   object as the rows (the item's name is the object's; a muted one has its reason as a second line), then "New
   object". Chosen with the keys, the focus goes back to the switcher; with the pointer, the keys to the view.
   Unfolded, the list is as it always was and gives way first (a share of the column at most); with no object
-  open, or the page up, it is whole and has the room of the layers and the scans, every object in sight
+  open, or the page up, it is whole and has the room of the layers, the parameters and the scans, every object in sight
   (`e2e/show.spec.ts`).
 - **The keys on the page** are one capture-phase listener. Left alone: what is typed in a field or the
   terminal (`TYPING`), any `input` outside the page (a slider of the left column keeps its arrows), and
@@ -460,7 +462,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 ## A new object
 
 - `ui/onboard/NewObject.tsx` is a page in place of the viewport (`store.page`: `'new'`; the view is `covered` and
-  inert under it as under the page of objects, and the layers, scans and marks are hidden). No row of the list is
+  inert under it as under the page of objects, and the layers, parameters, scans and marks are hidden). No row of the list is
   current (the "New object" button is pressed; folded, the switcher reads "New object", pressed), and the status line is "New object" and the build123d version alone:
   no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (from `draftSummary`):
   what Claude Code will start with, live; unless the open object's session is live, which stays whole (see Agents).
