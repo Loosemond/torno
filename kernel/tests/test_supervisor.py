@@ -459,6 +459,49 @@ def test_scan_deviation_and_scan_section_over_the_protocol(fresh, ws, tmp_path):
     assert fresh.query(ws / "hollow", "describe", {"ref": "assembly:tub"})["ok"] is True
 
 
+def test_an_export_comes_as_the_reply_s_blob_and_is_read_back_from_the_path_given(fresh, ws, tmp_path):
+    bracket = ws / "bracket"
+    build_bracket(fresh, ws)
+    args = {"format": "3mf", "layout": "print", "parts": ["base", "post"], "tolerance": 0.02}
+    id = fresh.send("query", dir=str(bracket), name="export", args=args)
+    reply, blob = fresh.recv(30)
+    assert reply["id"] == id and reply["ok"] is True, reply
+    assert blob.startswith(b"PK") and reply["result"]["bytes"] == len(blob)
+    assert [part["name"] for part in reply["result"]["parts"]] == ["base", "post"]
+    # Main writes it; the worker reads it back from where it was written, and nothing else.
+    (tmp_path / "plate.3mf.tmp").write_bytes(blob)
+    said = fresh.query(bracket, "export_check", {**args, "path": str(tmp_path / "plate.3mf.tmp")})
+    assert said["ok"] is True and said["result"]["passed"] is True, said
+    assert said["result"]["triangles"] == reply["result"]["triangles"]
+    # Any other query's reply has no blob.
+    id = fresh.send("query", dir=str(bracket), name="describe", args={"ref": "assembly:base"})
+    reply, blob = fresh.recv(10)
+    assert reply["id"] == id and blob == b""
+
+
+def test_an_export_has_longer_than_a_query_to_be_answered():
+    from torno_kernel import supervisor
+
+    assert supervisor.query_seconds("export") == supervisor.query_seconds("export_check") == 120
+    assert supervisor.query_seconds("describe") == supervisor.QUERY_TIMEOUT == 30
+
+
+def test_an_export_past_its_time_is_told_its_own_time(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "EXPORT_TIMEOUT", 0.3)
+    sup = routed.supervisor
+    live, _ = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="file", op="query", dir="/object", name="export", args={})
+    sup._step()
+    sup._step()
+    assert routed.sent()[0]["error"] == {
+        "kind": "timeout",
+        "message": "the query was not answered within 0.3 s; the build it was sent to is still there",
+    }
+
+
 def test_section_over_the_protocol_for_the_object_asked(fresh, ws):
     plate, bracket = ws / "measures", ws / "bracket"
     reply, _ = fresh.build(plate, "measures.py")
@@ -1182,7 +1225,7 @@ def test_reply_already_received_is_passed_on_when_a_build_replaces_its_worker(ro
     building, building_end = routed.worker("/object", request_id="build")
     sup._live["/object"] = live
     sup._building = building
-    live.queries += [("answered", time.monotonic() + 30), ("unanswered", time.monotonic() + 30)]
+    live.queries += [("answered", time.monotonic() + 30, 30), ("unanswered", time.monotonic() + 30, 30)]
     # Both are there to read in the same round: the answer, and the result that retires its worker.
     live_end.sendall(frame({"id": "answered", "ok": True, "result": {"volume": 1}}))
     building_end.sendall(frame({"ok": True, "scene": {"model": "m.py", "layouts": [], "parts": []}}))
@@ -1268,7 +1311,7 @@ def test_after_a_timeout_later_queries_are_timeouts_at_once_until_the_worker_ans
     ]
     # It was not sent on, so nothing waits for an answer; another object's worker is asked as ever.
     assert live.queries == []
-    assert [id for id, _ in other.queries] == ["elsewhere"]
+    assert [id for id, *_ in other.queries] == ["elsewhere"]
     other_end.sendall(frame({"id": "elsewhere", "ok": True, "result": {"n": 2}}))
     sup._step()
     assert routed.sent() == [{"id": "elsewhere", "ok": True, "result": {"n": 2}}]
@@ -1279,7 +1322,7 @@ def test_after_a_timeout_later_queries_are_timeouts_at_once_until_the_worker_ans
     assert routed.sent() == []
     routed.request(id="third", op="query", dir="/object", name="describe", args={"ref": "a:b"})
     sup._step()
-    assert [id for id, _ in live.queries] == ["third"]
+    assert [id for id, *_ in live.queries] == ["third"]
     live_end.sendall(frame({"id": "third", "ok": True, "result": {"n": 3}}))
     sup._step()
     assert routed.sent() == [{"id": "third", "ok": True, "result": {"n": 3}}]
@@ -1351,7 +1394,7 @@ def test_the_clock_of_a_query_queued_behind_another_does_not_run_while_the_worke
     assert live.queries[0][1] is not None and live.queries[1][1] is None
     live_end.sendall(frame({"id": "first", "ok": True, "result": {}}))
     sup._step()
-    assert [(id, deadline is not None) for id, deadline in live.queries] == [("second", True)]
+    assert [(id, deadline is not None) for id, deadline, _ in live.queries] == [("second", True)]
 
 
 def test_the_wait_ends_at_the_earlier_of_the_build_and_query_deadlines(routed, monkeypatch):
@@ -1407,7 +1450,7 @@ def test_a_worker_is_busy_until_it_has_answered_every_query_that_was_given_up_on
     assert routed.sent() == []
     routed.request(id="fourth", op="query", dir="/object", name="describe", args={"ref": "a:b"})
     sup._step()
-    assert [id for id, _ in live.queries] == ["fourth"]
+    assert [id for id, *_ in live.queries] == ["fourth"]
     live_end.sendall(frame({"id": "fourth", "ok": True, "result": {"n": 4}}))
     sup._step()
     assert routed.sent() == [{"id": "fourth", "ok": True, "result": {"n": 4}}]
@@ -1425,7 +1468,7 @@ def test_a_reply_with_no_id_answers_the_query_the_worker_has_had_longest(routed)
     live_end.sendall(frame({"id": None, "ok": False, "error": unread}))
     sup._step()
     assert routed.sent() == [{"id": "first", "ok": False, "error": unread}]
-    assert [id for id, _ in live.queries] == ["second"]
+    assert [id for id, *_ in live.queries] == ["second"]
     live_end.sendall(frame({"id": "second", "ok": True, "result": {"n": 2}}))
     sup._step()
     assert routed.sent() == [{"id": "second", "ok": True, "result": {"n": 2}}]
@@ -1470,7 +1513,7 @@ def test_a_reply_with_no_id_to_a_query_given_up_on_frees_the_worker(routed, monk
     assert routed.sent() == [] and not live.stalled
     routed.request(id="next", op="query", dir="/object", name="describe", args={})
     sup._step()
-    assert [id for id, _ in live.queries] == ["next"]
+    assert [id for id, *_ in live.queries] == ["next"]
 
 
 @pytest.mark.parametrize("header", [b'{"id":"q","ok":true,"result":{"value":NaN}}', b'{"id":"q","ok":true,"result":"\\ud800"}'])
@@ -1527,7 +1570,7 @@ def test_a_build_with_memory_short_lets_the_folders_own_build_go_and_says_so(rou
     sup._live["/object"] = live
     # 11 GiB held by the live worker, 5 GiB free: 13 are wanted, and 16 are free without it.
     forked = memory(routed, monkeypatch, lambda pids: (5 if live.pid in pids else 16) * GIB, {live.pid: 11 * GIB})
-    live.queries.append(("waiting", time.monotonic() + 30))
+    live.queries.append(("waiting", time.monotonic() + 30, 30))
     routed.request(id="build", op="build", dir="/object", model="m.py")
     sup._step()
     [(building, building_end)] = forked
@@ -1554,7 +1597,7 @@ def test_a_build_with_memory_short_lets_the_folders_own_build_go_and_says_so(rou
     assert [(f["id"], f["ok"]) for f in routed.sent()] == [("build", True)]
     routed.request(id="after", op="query", dir="/object", name="describe", args={})
     sup._step()
-    assert routed.sent() == [] and [id for id, _ in building.queries] == ["after"]
+    assert routed.sent() == [] and [id for id, *_ in building.queries] == ["after"]
 
 
 def test_no_build_is_let_go_for_memory_when_torno_keep_builds_is_set(routed, monkeypatch):
@@ -1602,7 +1645,7 @@ def test_a_build_with_memory_short_lets_other_folders_go_first_the_least_recentl
     failed, b = routed.sent()
     assert (failed["id"], failed["ok"]) == ("build", False)
     assert b["error"]["reason"] == "memory" and "/b" in b["error"]["message"]
-    assert [id for id, _ in workers["/c"].queries] == ["c"]
+    assert [id for id, *_ in workers["/c"].queries] == ["c"]
 
 
 def test_a_build_with_memory_to_spare_leaves_every_build_answering(routed, monkeypatch):

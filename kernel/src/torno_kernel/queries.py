@@ -24,6 +24,14 @@ _INDEX_DIGITS = 6
 FARTHEST = 1e9
 
 
+class WithBlob:
+    """What a query answers with bytes beside its result (``export``): the worker sends them as the reply's blob."""
+
+    def __init__(self, result: dict[str, Any], blob: bytes) -> None:
+        self.result = result
+        self.blob = blob
+
+
 class QueryError(Exception):
     """A query could not be answered. ``kind`` is a protocol error kind."""
 
@@ -35,7 +43,7 @@ class QueryError(Exception):
 
 def run(
     shapes: dict[str, Any], name: str, args: Any, kept: dict[Any, Any] | None = None
-) -> dict[str, Any]:
+) -> "dict[str, Any] | WithBlob":
     """Answer the query ``name`` over the shapes of the last build, by part key.
 
     ``kept`` is where what was worked out of a part is kept from one query to
@@ -62,6 +70,10 @@ def run(
         from . import scanclash
 
         return scanclash.run(name, shapes, args, kept)
+    if name in ("export", "export_check"):
+        from . import export
+
+        return export.export(shapes, args, kept) if name == "export" else export.export_check(shapes, args, kept)
     if name == "describe":
         ref = args.get("ref")
         if not isinstance(ref, str):
@@ -77,7 +89,7 @@ def run(
     raise QueryError(
         "bad_request",
         f"unknown query {name!r}; the queries are describe, nearest, measure, section, check, "
-        "scan_clash, scan_deviation and scan_section",
+        "scan_clash, scan_deviation, scan_section, export and export_check",
     )
 
 

@@ -37,6 +37,9 @@ DEFAULT_TIMEOUT = 600.0
 MAX_TIMEOUT = 86400.0  # a day; a longer wait is also more than the event loop can sleep
 MAX_LIVE = 4  # object folders whose last good build is kept for queries
 QUERY_TIMEOUT = 30.0  # seconds a live worker has to answer a query
+# Seconds it has to make a file of the build, or read one back (``export``): a mesh at a print tolerance takes longer.
+EXPORT_TIMEOUT = 120.0
+_EXPORTS = ("export", "export_check")
 # Memory a build is taken to need, in bytes: what the folder's live worker holds, ROOM_LEAST
 # when that is less or there is none, and ROOM_SPARE on top.
 ROOM_LEAST = 2 << 30
@@ -190,10 +193,10 @@ class _Worker:
     capture: BinaryIO | None  # the model's stdout and stderr, until the build ends
     outbox: _Outbox  # queries on their way to it
     decoder: _Decoder = field(default_factory=_Decoder)
-    # Queries sent and not yet answered, oldest first: (id, when to give up on it). The worker answers
-    # one at a time, in order, so a query's time starts when the one ahead of it is answered, not when it was
-    # queued: None until then (``start_next``), so that a few read at once do not time each other out.
-    queries: list[tuple[Any, float | None]] = field(default_factory=list)
+    # Queries sent and not yet answered, oldest first: (id, when to give up on it, the seconds it has). The worker
+    # answers one at a time, in order, so a query's time starts when the one ahead of it is answered, not when it
+    # was queued: None until then (``start_next``), so that a few read at once do not time each other out.
+    queries: list[tuple[Any, float | None, float]] = field(default_factory=list)
     # Queries to it that timed out and that it has not answered yet: it answers one at a
     # time, so it is still busy with them, and with nothing else until it has sent as many frames.
     abandoned: int = 0
@@ -204,7 +207,7 @@ class _Worker:
 
     def answered(self, id: Any) -> bool:
         """Take the query ``id`` off the list. False if it was not waiting for an answer."""
-        for index, (waiting, _) in enumerate(self.queries):
+        for index, (waiting, *_) in enumerate(self.queries):
             if waiting == id:
                 del self.queries[index]
                 self.start_next()
@@ -214,7 +217,8 @@ class _Worker:
     def start_next(self) -> None:
         """Start the clock of the query the worker has now taken up: the oldest, once it has none to finish."""
         if self.queries and self.queries[0][1] is None and not self.stalled:
-            self.queries[0] = (self.queries[0][0], time.monotonic() + QUERY_TIMEOUT)
+            id, _, seconds = self.queries[0]
+            self.queries[0] = (id, time.monotonic() + seconds, seconds)
 
 
 class Supervisor:
@@ -408,7 +412,7 @@ class Supervisor:
             # app/src/main/kernel/client.ts, pinned by client.busy.test.ts): change both.
             self._fail(id, "timeout", _busy(dir))
             return
-        live.queries.append((id, None))
+        live.queries.append((id, None, query_seconds(request.get("name"))))
         live.start_next()
         try:
             live.outbox.push(query)
@@ -491,7 +495,7 @@ class Supervisor:
                 if worker.abandoned > 0:
                     worker.abandoned -= 1
                 elif worker.queries:
-                    id, _ = worker.queries.pop(0)
+                    id, *_ = worker.queries.pop(0)
                     self._send({**header, "id": id}, blob)
                     worker.start_next()
             else:
@@ -576,30 +580,30 @@ class Supervisor:
         deadline = worker.queries[0][1] if worker.queries else None
         if deadline is None or deadline > now:
             return
-        id, _ = worker.queries.pop(0)
+        id, _, seconds = worker.queries.pop(0)
         worker.abandoned += 1
         self._fail(
             id,
             "timeout",
-            f"the query was not answered within {QUERY_TIMEOUT:g} s; the build it was sent to is still there",
+            f"the query was not answered within {seconds:g} s; the build it was sent to is still there",
         )
         # The worker is stuck on that one, so those queued behind it would wait for it with no end:
         # they are told so as a new query would be. They were sent, and it answers them in their turn.
         while worker.queries:
-            behind, _ = worker.queries.pop(0)
+            behind, *_ = worker.queries.pop(0)
             worker.abandoned += 1
             self._fail(behind, "timeout", _busy(worker.dir))
 
     def _live_died(self, worker: _Worker) -> None:
         del self._live[worker.dir]
         self._stop(worker, signal.SIGKILL)
-        for id, _ in worker.queries:
+        for id, *_ in worker.queries:
             self._fail(id, "crash", "the process holding the built parts died; rebuild to query")
 
     def _retire(self, worker: _Worker, kind: str, message: str, **extra: str) -> None:
         """Stop a worker that is no longer live, answering its waiting queries with ``kind``."""
         self._stop(worker, signal.SIGTERM)
-        for id, _ in worker.queries:
+        for id, *_ in worker.queries:
             self._fail(id, kind, message, **extra)
 
     def _stop(self, worker: _Worker, sig: signal.Signals) -> None:
@@ -630,6 +634,11 @@ class Supervisor:
 
     def _fail(self, id: Any, kind: str, message: str, **extra: str) -> None:
         self._send({"id": id, "ok": False, "error": {"kind": kind, "message": message, **extra}})
+
+
+def query_seconds(name: Any) -> float:
+    """The seconds a query has once its worker takes it up: ``EXPORT_TIMEOUT`` to make a file or read one back."""
+    return EXPORT_TIMEOUT if name in _EXPORTS else QUERY_TIMEOUT
 
 
 def _busy(dir: str) -> str:

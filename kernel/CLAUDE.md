@@ -91,7 +91,8 @@ is the detail of this folder, under the headings it has there.
   1.3 s on boxes, where volumes to 1e-9 took 164 s. The whole area of a freeform part costs three
   integrals a face in `measure area` (1.5 s there, 10 s on the lid of
   `micra-intake` (2,635 faces) when it was last measured, when `describe` of the part cost the same) and one
-  integral a face in `describe` of the part, at a fixed order (not timed on those parts since). A query has 30 s.
+  integral a face in `describe` of the part, at a fixed order (not timed on those parts since). A query has 30 s
+  (an `export` or `export_check` 120 s).
 - `check overhang`, `thin` and `bed` (`printable.py`) are of the layout asked (the app asks `print`). An
   overhang of a plane is exact; a curved face is judged by its normals on a 9 × 9 grid of its parameters and
   told `exact: false`. `thin` is never exact: the wall along the inward normal at 5 × 5 points of each face, in
@@ -143,12 +144,26 @@ is the detail of this folder, under the headings it has there.
   worked out of each part it was asked about. A query names its folder (`dir`)
   and has 30 s from when the worker takes it up, not from when it was queued: it answers one at a time, in
   order, so the clock of a query starts when the one ahead of it is answered (`_Worker.start_next`), and a few
-  asked at once (read tools called together) do not time each other out. Past its 30 s a query is answered
+  asked at once (read tools called together) do not time each other out; an `export` or an `export_check` has
+  `EXPORT_TIMEOUT` (120 s) in place of the 30 (`supervisor.query_seconds`). Past its time a query is answered
   `timeout` and the worker left alone; those queued behind it are answered `timeout` at once, as busy (they were
   sent, and the worker answers them in their turn). Until that worker has answered every query that was given up
   on, new queries to it are answered `timeout` at once the same way: it answers one at a time, and is still
   busy with those.
   A worker leaves through `os._exit`.
+- **Files of a build are made by its worker and never written by the kernel** (`export.py`). `export` (`format`
+  `step`, `stl` or `3mf`, `layout`, `parts`, `tolerance` mm and `angle` degrees for a mesh, `colors`, `name`)
+  answers with the file's bytes as the reply's blob (`queries.WithBlob`, sent by `worker._serve`; every other
+  reply's blob is empty): STEP the B-rep, each part a child named and coloured; STL one part; 3MF a plate, each
+  part a named object in millimetres where the layout has it, coloured. A mesh is OCC's of a copy of the part, at
+  the tolerance and angle asked, absolute (0.01 mm and 5° unless asked; 0.001 to 1 mm, 0.5 to 45°), never the
+  screen's, welded as `checks.welded` welds, no triangle with two corners in one place; more than
+  `MOST_TRIANGLES` is refused. `export_check`, with the same arguments and `path`, reads that one file back
+  and holds it against the shapes: of STEP the same parts by name, the same solid counts, volumes within 1e-6
+  (or their doubt) and the same boxes; of STL and 3MF, each object closed once welded (no side of one triangle
+  or of three, none gone along twice the same way), no triangle of no area, as many pieces as the part has
+  shells, what it encloses positive and within `MESH_SLACK` tolerances over its area of the B-rep's volume, and
+  the part's box. It answers `passed` and `problems`, a sentence each; it never throws for a bad file.
 - **prctl.** Each worker sets `PR_SET_PDEATHSIG` to SIGKILL, so it dies with
   the supervisor even when that is killed, and `PR_SET_DUMPABLE` to 0, so a
   crashing model does not wait seconds on a core dump. macOS has no prctl: there a worker sets

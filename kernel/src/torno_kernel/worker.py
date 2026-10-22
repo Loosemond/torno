@@ -156,6 +156,8 @@ def _serve(channel: Any, shapes: dict[str, Any], kept: dict[Any, Any] | None = N
         if not isinstance(request, dict):
             _refuse_unread(channel, "a request must be a JSON object")
             continue
+        # A file made of the build (``export``) goes as the reply's blob, beside its result.
+        blob = b""
         try:
             result = queries.run(shapes, request.get("name"), request.get("args"), kept)
         except queries.QueryError as e:
@@ -163,9 +165,11 @@ def _serve(channel: Any, shapes: dict[str, Any], kept: dict[Any, Any] | None = N
         except Exception as e:
             reply = {"ok": False, "error": _exception(str(e) or type(e).__name__)}
         else:
+            if isinstance(result, queries.WithBlob):
+                result, blob = result.result, result.blob
             reply = {"ok": True, "result": result}
         try:
-            write_frame(channel, {"id": request.get("id"), **reply})
+            write_frame(channel, {"id": request.get("id"), **reply}, blob)
         except (ValueError, TypeError, RecursionError) as e:
             # A reply that is not JSON (an infinity, a NaN, a number of numpy's,
             # half a character) is refused before a byte of it is sent: the query

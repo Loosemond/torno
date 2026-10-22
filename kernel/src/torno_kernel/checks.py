@@ -233,7 +233,7 @@ def open_edges(vertices: np.ndarray, triangles: np.ndarray) -> tuple[int, np.nda
     """How many edges of a mesh are of one triangle only, and the middle of each.
 
     ``vertices`` are N × 3, ``triangles`` M × 3 indices into them. Vertices
-    are welded first (``_welded``). A mesh is drawn face by face, so its faces
+    are welded first (``welded``). A mesh is drawn face by face, so its faces
     share no vertex until then; and a triangle that welding leaves with two
     corners in one place has no area and no edges.
     """
@@ -241,8 +241,8 @@ def open_edges(vertices: np.ndarray, triangles: np.ndarray) -> tuple[int, np.nda
     triangles = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
     if len(vertices) == 0 or len(triangles) == 0:
         return 0, np.empty((0, 3))
-    _, first, welded = np.unique(_welded(vertices), return_index=True, return_inverse=True)
-    corners = welded.reshape(-1)[triangles]
+    _, first, one = np.unique(welded(vertices), return_index=True, return_inverse=True)
+    corners = one.reshape(-1)[triangles]
     a, b, c = corners[:, 0], corners[:, 1], corners[:, 2]
     corners = corners[(a != b) & (b != c) & (c != a)]
     sides = np.sort(np.concatenate([corners[:, [0, 1]], corners[:, [1, 2]], corners[:, [2, 0]]]), axis=1)
@@ -252,7 +252,7 @@ def open_edges(vertices: np.ndarray, triangles: np.ndarray) -> tuple[int, np.nda
     return len(open_ones), (points[open_ones[:, 0]] + points[open_ones[:, 1]]) / 2
 
 
-def _welded(vertices: np.ndarray) -> np.ndarray:
+def welded(vertices: np.ndarray) -> np.ndarray:
     """For each vertex a number, the same for vertices that are one.
 
     Two vertices within WELD of each other are always one. They are found by

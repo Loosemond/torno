@@ -35,6 +35,11 @@ def solids(shape: Any) -> list[Any]:
     return _subshapes(shape, TopAbs_SOLID)
 
 
+def shells(shape: Any) -> list[Any]:
+    """The shape's distinct shells as ``TopoDS_Shell``: of a solid with a void in it, two."""
+    return _subshapes(shape, TopAbs_SHELL)
+
+
 def wires(shape: Any) -> list[Any]:
     """The shape's distinct wires as ``TopoDS_Wire``: of a face, its outer one and its holes."""
     return _subshapes(shape, TopAbs_WIRE)
