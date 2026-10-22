@@ -212,8 +212,11 @@ export interface TornoBridge {
      * and whether a conversation can be resumed. `note` says so when the object's `agent.json` could not be followed.
      */
     current(objectId: string): Promise<{ running: { sessionId: string; status: SessionStatus; view: AgentView } | null; /** A chat that has ended and whose conversation main still holds: a window loaded after it ended can read it. Absent while one runs. */ ended?: { sessionId: string }; resumable: boolean; view: AgentView; note?: string }>
-    /** Starts Claude Code in the object's folder, at the terminal's size; returns the session already running there, if any. Either way with its status as it is then. */
-    start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }): Promise<{ sessionId: string; cols: number; rows: number; status: SessionStatus; view: AgentView }>
+    /**
+     * Starts Claude Code in the object's folder, at the terminal's size; returns the session already running there, if any. Either way with its status as it is then.
+     * `skills: false` starts it on the whole system prompt and without torno's plugin of skills (what the person asks for when the chat said the skills did not load).
+     */
+    start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number; skills?: false }): Promise<{ sessionId: string; cols: number; rows: number; status: SessionStatus; view: AgentView }>
     /** The person said to start the chat in the object's folder though it has Claude Code settings of its own (the question `start` refused with): remembered in torno's own data, for the real path of the folder. */
     trust(objectId: string): Promise<void>
     /** Keeps the view (`chat` or `terminal`) of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs there. */

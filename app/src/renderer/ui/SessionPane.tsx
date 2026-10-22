@@ -447,7 +447,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     terminals.get(objectId)?.term.focus()
   }, [objectId, sessionId])
 
-  async function start(resume: boolean): Promise<void> {
+  async function start(resume: boolean, skills?: false): Promise<void> {
     if (!objectId || starting) return
     setStarting(true)
     setProblem(null)
@@ -471,7 +471,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         if (shown) mount(t, shown)
         size = { cols: t.term.cols, rows: t.term.rows }
       }
-      const started = await window.torno.session.start(objectId, { resume, ...size })
+      const started = await window.torno.session.start(objectId, { resume, ...size, ...(skills === false ? { skills } : {}) })
       // A chat is not typed into a terminal; a terminal session found running where a chat was expected still is.
       if (started.view === 'terminal') {
         const t = terminalFor(objectId)
@@ -532,6 +532,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const chatting = session?.view === 'chat'
   const chatOf = useChat(chatting ? session.sessionId : undefined)
   const model = chatOf?.meta.model
+  const retrying = chatOf?.meta.retrying ? (chatOf.meta.retrying.attempt !== undefined ? `retrying (attempt ${chatOf.meta.retrying.attempt})` : 'retrying') : null
   /** The view of the session that runs, or, with none running, the one the next session starts in. */
   const view: AgentView = live ? session.view : choice.view
   const next = useMemo(() => (objectId && !(chatting && live) ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, marks, revision, live, chatting])
@@ -621,6 +622,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
           <span className="session-status" role="status" data-status={session.status}>
             <span className="status-dot" />
             {STATUS_WORD[session.status]}
+            {retrying !== null && session.status === 'working' && <span className="session-retry">, {numbered(retrying)}</span>}
           </span>
         )}
         <span className="spacer" />
@@ -749,7 +751,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         )}
         {/* Always laid out, so a terminal can be fitted before its session starts. */}
         <div className="session-term" ref={host} data-shown={session && !chatting && !drafting ? '' : undefined} />
-        {session && chatting && !drafting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} dir={objectDir} />}
+        {session && chatting && !drafting && <ChatPane key={session.sessionId} sessionId={session.sessionId} live={!ended} working={status === 'working' || status === 'needs_input'} dir={objectDir} onWholePrompt={() => void start(true, false)} />}
         {drafting ? (
           <DraftPaneLive />
         ) : !objectId ? (

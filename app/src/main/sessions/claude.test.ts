@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { claudeAdapter, HOOK_EVENTS, reviewerAgents } from './claude'
+import { claudeAdapter, HOOK_EVENTS, reviewerAgents, TESTED_CLAUDE, TORNO_PLUGIN } from './claude'
 
 const ctx = {
   sessionId: 's1',
@@ -117,6 +117,29 @@ describe('the Claude Code adapter', () => {
     expect(after(claudeAdapter(undefined, '/p').launch({ ...ctx, view: 'chat' }).args, '--plugin-dir')).toBe('/p')
     expect(claudeAdapter().launch(ctx).args).not.toContain('--plugin-dir')
     expect(claudeAdapter().skills).toBe(false)
+  })
+
+  // #116: what the chat reads of the CLI's init is held to what torno passed it.
+  it("names the plugin it passes and the versions it was checked with, and leaves the plugin out when asked", () => {
+    const adapter = claudeAdapter(undefined, '/p')
+    expect(adapter.plugin).toEqual(TORNO_PLUGIN)
+    expect(claudeAdapter().plugin).toBeUndefined()
+    // The skills the plugin holds are the folders under resources/agent-plugin/skills, and the manifest names it.
+    const root = join(__dirname, '../../../resources/agent-plugin')
+    expect(TORNO_PLUGIN.name).toBe(JSON.parse(readFileSync(join(root, '.claude-plugin/plugin.json'), 'utf8')).name)
+    expect([...TORNO_PLUGIN.skills].sort()).toEqual(readdirSync(join(root, 'skills')).sort())
+    // The fixtures are the CLI as torno was checked against it.
+    for (const file of ['claude-stream.jsonl', 'claude-stream-asks.jsonl']) {
+      const versions = readFileSync(join(__dirname, '../../../test/fixtures', file), 'utf8')
+        .split('\n')
+        .filter((line) => line.includes('claude_code_version'))
+        .map((line) => JSON.parse(line).claude_code_version as string)
+      for (const v of versions) expect(v >= TESTED_CLAUDE.min && v <= TESTED_CLAUDE.max, v).toBe(true)
+    }
+    expect(adapter.tested).toEqual(TESTED_CLAUDE)
+    // A session restarted on the full prompt is not given the plugin that did not load.
+    expect(adapter.launch({ ...ctx, view: 'chat', skills: false }).args).not.toContain('--plugin-dir')
+    expect(adapter.launch({ ...ctx, view: 'chat', skills: true }).args).toContain('--plugin-dir')
   })
 
   // #6: a second look with a fresh context and only the tools that read.

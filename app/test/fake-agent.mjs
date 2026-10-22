@@ -53,12 +53,21 @@
 //                                 size read from each PNG's header (a text, as `say` is)
 //       garbage                   a line that is no JSON, and an object of a type nobody knows
 //       work <seconds>            a tool (Bash) that takes that long
+//       argv                      says its own arguments as JSON (a text, as `say` is)
+//       retry <attempt> [<s>]     a `system`/`api_retry` at that attempt, as the CLI says while the API is retried, then
+//                                 nothing for that many seconds (the next thing it says is the API's answer)
+//       deny <name> <json input>  a permission the CLI denied by itself (no ask): it is in the `permission_denials` of the
+//                                 turn's `result`, with no tool card
 //   - a prompt that comes while a tool runs or an ask waits is FOLDED into the turn at work, as the real CLI does
 //     (seen 2026-10-15): after the tool's result the stand-in posts that prompt's `UserPromptSubmit` and runs its script
 //     in the same turn, with no `init` of its own and ONE `result` for both. A prompt that comes while text is being
 //     said (`slow`) or while the CLI is between commands waits for the turn to end and is a turn of its own;
 //   - an `interrupt` while an ask waits sends `control_cancel_request` for it first, then answers the interrupt, as the CLI does;
 //   - when stdin ends it posts `SessionEnd` and exits 0; on SIGTERM it exits 0.
+// With FAKE_AGENT_INIT=<json object> in stream mode its fields are put in every `init` after the usual ones, so a case of
+// the CLI's own account of itself is played: `{"plugins":[],"skills":[]}` (torno's plugin did not load),
+// `{"apiKeySource":"user"}`, `{"claude_code_version":"2.1.307"}`, `{"mcp_servers":[{"name":"torno","status":"failed"}],
+// "mcp_server_errors":[...]}`, `{"plugin_errors":[...]}`. Without it the `init` has none of those fields.
 // With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
 // (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
 import { spawn } from 'node:child_process'
@@ -108,6 +117,8 @@ async function streamMode() {
     if (!stubborn) process.exit(0)
   })
   let model = 'fake-model'
+  /** FAKE_AGENT_INIT: fields of the CLI's own account of itself, put in every `init`. */
+  const account = JSON.parse(process.env.FAKE_AGENT_INIT || '{}')
   let counter = 0
   const next = (prefix) => `${prefix}_${(counter += 1)}`
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -263,6 +274,15 @@ async function streamMode() {
       await say(`images: ${sizes.length} ${sizes.join(' ')}`.trim())
     } else if (command === 'rate') {
       out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: Math.floor(Date.now() / 1000) + 3600, rateLimitType: 'five_hour', unifiedWindows: { five_hour: { utilization: Number(rest) / 100, resetsAt: Math.floor(Date.now() / 1000) + 3600 } } }, ...base, uuid: next('uuid') })
+    } else if (command === 'argv') {
+      await say(JSON.stringify(argv))
+    } else if (command === 'retry') {
+      const [attempt, wait] = rest.split(' ')
+      out({ type: 'system', subtype: 'api_retry', attempt: Number(attempt), max_retries: 10, retry_delay_ms: 500, error_status: 529, error: 'overloaded', ...base, uuid: next('uuid') })
+      if (wait) await pause(Number(wait) * 1000)
+    } else if (command === 'deny') {
+      const space = rest.indexOf(' ')
+      turn.denials.push({ tool_name: space < 0 ? rest : rest.slice(0, space), tool_use_id: next('toolu'), tool_input: space < 0 ? {} : JSON.parse(rest.slice(space + 1)) })
     } else if (command === 'garbage') {
       process.stdout.write('this is not json, a warning the CLI printed\n')
       out({ type: 'from_the_future', something: [1, 2, 3], ...base })
@@ -278,7 +298,7 @@ async function streamMode() {
     const done = () => entries.forEach((e) => life(e.uuid, 'completed'))
     // A prompt that is no turn (a slash command that only does something): an init, no hooks, no result.
     if (text.trim() === '/noop') {
-      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [], fake_argv: argv, ...base, uuid: next('uuid') })
+      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [], fake_argv: argv, ...account, ...base, uuid: next('uuid') })
       return done()
     }
     // A command the CLI takes up with no `init`, no hook and no result: it only says something else (a rate limit).
@@ -287,7 +307,7 @@ async function streamMode() {
       return done()
     }
     if (text.trim() === '/compact') {
-      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...base, uuid: next('uuid') })
+      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...account, ...base, uuid: next('uuid') })
       out({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 29569, post_tokens: 3637 }, ...base, uuid: next('uuid') })
       out({ type: 'user', message: { role: 'user', content: '<local-command-stdout>Compacted </local-command-stdout>' }, isReplay: true, ...base, uuid: next('uuid') })
       out({ type: 'result', subtype: 'success', is_error: false, duration_ms: 0, num_turns: 0, stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 }, ...base, uuid: next('uuid') })
@@ -295,7 +315,7 @@ async function streamMode() {
     }
     let release
     const images = content.filter((b) => b?.type === 'image' && typeof b.source?.data === 'string').map((b) => b.source.data)
-    turn = { aborted: false, foldable: false, folded: [], taken: entries.map((e) => e.uuid), images, interrupted: new Promise((resolve) => (release = resolve)) }
+    turn = { aborted: false, foldable: false, denials: [], folded: [], taken: entries.map((e) => e.uuid), images, interrupted: new Promise((resolve) => (release = resolve)) }
     turn.interrupt = () => {
       turn.aborted = true
       release()
@@ -306,14 +326,14 @@ async function streamMode() {
       const submitted = await post('UserPromptSubmit', { prompt: entry.content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') })
       contexts.push(submitted?.hookSpecificOutput?.additionalContext)
     }
-    out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...base, uuid: next('uuid') })
+    out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...account, ...base, uuid: next('uuid') })
     for (const context of contexts) if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: context, ...base, uuid: next('uuid') })
     await script(text)
     await takeFolded()
     const stopped = turn.aborted
     if (stopped) out({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: turn.forTool ? '[Request interrupted by user for tool use]' : '[Request interrupted by user]' }] }, ...base, uuid: next('uuid') })
     else await post('Stop')
-    out({ type: 'result', subtype: stopped ? 'error_during_execution' : 'success', is_error: stopped, duration_ms: Date.now() - started, duration_api_ms: 1, num_turns: 1, stop_reason: stopped ? 'tool_use' : 'end_turn', total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, ...base, uuid: next('uuid') })
+    out({ type: 'result', subtype: stopped ? 'error_during_execution' : 'success', is_error: stopped, duration_ms: Date.now() - started, duration_api_ms: 1, num_turns: 1, stop_reason: stopped ? 'tool_use' : 'end_turn', total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, permission_denials: turn.denials, ...base, uuid: next('uuid') })
     for (const uuid of turn.taken) life(uuid, 'completed')
     turn = null
   }

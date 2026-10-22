@@ -244,7 +244,7 @@ export class Sessions {
    * chosen for the object, which is read from the disk: a second call for an
    * object while the first is still starting there is answered with the first.
    */
-  start(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number }): Promise<Started> {
+  start(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number; skills?: false }): Promise<Started> {
     const running = this.of(obj.id)
     // With where it stands: nothing more may be said of a session that is waiting, and the caller would take it for starting.
     if (running) return Promise.resolve(started(running))
@@ -255,7 +255,7 @@ export class Sessions {
     return begun
   }
 
-  private async begin(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number }): Promise<Started> {
+  private async begin(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number; skills?: false }): Promise<Started> {
     const { http, adapter } = this.deps
     const view = (await this.deps.viewFor?.(obj)) ?? 'terminal'
     // Before anything is written or started: the chat loads what the folder's settings name without asking.
@@ -267,6 +267,8 @@ export class Sessions {
     const stored = opts.resume ? storedConversation(obj.dir) : null
     const conversationId = stored ?? randomUUID()
     const person = agentEnv(process.env)
+    // `skills: false`: the person said to start on the whole prompt, since the plugin of skills did not load (the system prompt is fixed at the start).
+    const skills = adapter.skills && opts.skills !== false
     const launch = adapter.launch({
       sessionId: id,
       conversationId,
@@ -275,7 +277,8 @@ export class Sessions {
       cwd: obj.dir,
       mcpUrl: this.deps.mcpUrlFor(obj.id),
       hookUrl: (event) => http.url(`/hooks/${id}/${encodeURIComponent(event)}`),
-      systemPrompt: this.deps.systemPromptFor(adapter)
+      systemPrompt: this.deps.systemPromptFor({ ...adapter, skills }),
+      skills
     })
     // The arguments hold the addresses the agent is given: the run's secret in them is not for a log.
     if (this.deps.debug) console.error(http.redact(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`))
@@ -302,6 +305,8 @@ export class Sessions {
             transcript: new Transcript({
               prefix: `${id.slice(0, 6)}-`,
               redact: http.redact,
+              ...(skills && adapter.plugin ? { plugin: adapter.plugin } : {}),
+              ...(adapter.tested ? { tested: adapter.tested } : {}),
               emit: (item) => {
                 chat!.seq += 1
                 this.emit('item', { sessionId: id, objectId: obj.id, item, seq: chat!.seq })

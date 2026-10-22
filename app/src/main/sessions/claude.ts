@@ -41,6 +41,19 @@ export function reviewerAgents(toolName: (tool: string) => string) {
 }
 
 /**
+ * The plugin of skills torno passes (`resources/agent-plugin`): its name and its skills, which the CLI's `init` is read
+ * for (`transcript.ts`): the chat says when they are not there. `claude.test.ts` holds them to the folder.
+ */
+export const TORNO_PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d', 'scans', 'dimensions'] } as const
+
+/**
+ * The versions of Claude Code torno was checked against, inclusive: those of the recordings in `test/fixtures/`
+ * (`claude_code_version` of their `init`). One outside this range is said once in a chat, and nothing more is done
+ * about it. The range moves when a new stream is recorded (`test/fixtures/RECORDING.md`) and the README's line with it.
+ */
+export const TESTED_CLAUDE = { min: '2.1.300', max: '2.1.301' } as const
+
+/**
  * Claude Code. Everything torno adds is passed on the command line, so the
  * person's own settings and MCP servers are neither read nor changed
  * (no --strict-mcp-config: their servers keep working beside torno's).
@@ -58,6 +71,8 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
   return {
     command: 'claude',
     skills: Boolean(pluginDir),
+    ...(pluginDir ? { plugin: TORNO_PLUGIN } : {}),
+    tested: TESTED_CLAUDE,
     toolName,
     launch(ctx) {
       const hook = (event: string) => [{ hooks: [{ type: 'http', url: ctx.hookUrl(event), timeout: event === 'PostToolUse' ? EDIT_HOOK_TIMEOUT_S : HOOK_TIMEOUT_S }] }]
@@ -76,7 +91,7 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
         JSON.stringify(settings)
       ]
       args.push('--agents', JSON.stringify(reviewerAgents(toolName)))
-      if (pluginDir) args.push('--plugin-dir', pluginDir)
+      if (pluginDir && ctx.skills !== false) args.push('--plugin-dir', pluginDir)
       if (ctx.systemPrompt) args.push('--append-system-prompt', ctx.systemPrompt)
       return { command, args, env: {} }
     }

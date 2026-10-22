@@ -560,10 +560,10 @@ export function registerIpc(
     }
   })
 
-  handle('session:start', async (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number }) => {
+  handle('session:start', async (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number; skills?: false }) => {
     const obj = findObject(objectId)
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
-    return requireSessions().start(obj, { resume: opts?.resume === true, cols: opts?.cols, rows: opts?.rows })
+    return requireSessions().start(obj, { resume: opts?.resume === true, cols: opts?.cols, rows: opts?.rows, ...(opts?.skills === false ? { skills: false as const } : {}) })
   })
 
   // The person said to start the chat in a folder that has Claude Code settings of its own (the question `session:start` refused with).

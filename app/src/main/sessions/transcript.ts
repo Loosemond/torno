@@ -44,6 +44,10 @@ export interface TranscriptOptions {
   /** An item that changed (streaming text no oftener than every 50 ms). */
   emit?: (item: ChatItem) => void
   emitMeta?: (meta: ChatMeta) => void
+  /** The plugin of skills torno passed to the CLI: its `init` is then read for whether it loaded. Absent: none was passed, and nothing is expected. */
+  plugin?: { name: string; skills: readonly string[] }
+  /** The versions of the CLI torno was checked against, inclusive: one outside is said once. Absent: no version is judged. */
+  tested?: { min: string; max: string }
 }
 
 /** A block of the message being streamed, by its index. */
@@ -63,6 +67,13 @@ export class Transcript {
   private readonly redacting: boolean
   private readonly emitItem: (item: ChatItem) => void
   private readonly emitMeta: (meta: ChatMeta) => void
+  private readonly plugin: TranscriptOptions['plugin']
+  private readonly tested: TranscriptOptions['tested']
+  /** Said once for the session: the key that bills the chat, the version outside the range. */
+  private keyNoted = false
+  private versionNoted = false
+  /** The tool calls whose permission denial was already read, so a result that lists them again says nothing more. */
+  private readonly denied = new Set<string>()
 
   private readonly order: string[] = []
   private readonly byId = new Map<string, ChatItem>()
@@ -122,6 +133,8 @@ export class Transcript {
     this.redact = opts.redact ?? ((text) => text)
     this.emitItem = opts.emit ?? (() => {})
     this.emitMeta = opts.emitMeta ?? (() => {})
+    this.plugin = opts.plugin
+    this.tested = opts.tested
   }
 
   /** In order, except that the prompts still queued come last: they have not begun, whatever the turn at work is saying. */
@@ -379,6 +392,11 @@ export class Transcript {
   }
 
   private read(m: StreamMessage): void {
+    // The API answered: what the model streams, a tool's result, the end of the turn.
+    if (this.info.retrying && (m.type === 'stream_event' || m.type === 'assistant' || m.type === 'user' || m.type === 'result')) {
+      const { retrying: _retrying, ...rest } = this.info
+      this.setMeta(rest)
+    }
     switch (m.type) {
       case 'system':
         return this.system(m)
@@ -410,12 +428,40 @@ export class Transcript {
       const model = str(m.model)
       const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers.map(obj).filter((s): s is Record_ => s !== null) : null
       const connected = servers ? servers.some((s) => s.name === 'torno' && s.status === 'connected') : undefined
-      const next: ChatMeta = { ...this.info, ...(model ? { model } : {}), ...(connected !== undefined ? { tornoConnected: connected } : {}) }
+      const version = str(m.claude_code_version)
+      const keySource = str(m.apiKeySource)
+      const plugin = this.pluginState(m)
+      let next: ChatMeta = {
+        ...this.info,
+        ...(model ? { model } : {}),
+        ...(connected !== undefined ? { tornoConnected: connected } : {}),
+        ...(version ? { version } : {}),
+        ...(keySource !== undefined ? { apiKeySource: keySource } : {}),
+        ...(plugin.loaded !== undefined ? { pluginLoaded: plugin.loaded } : {})
+      }
       if (model && this.info.model !== undefined && this.info.model !== model) this.put({ kind: 'note', id: this.newId('i'), text: `Model: ${this.redact(model)}`, tone: 'quiet' })
       if (connected === false && this.info.tornoConnected !== false) {
-        this.put({ kind: 'note', id: this.newId('i'), text: "torno's tools are not connected to Claude Code: it cannot see the part.", tone: 'warn' })
+        const why = errorText(m.mcp_server_errors, 'torno')
+        this.put({ kind: 'note', id: this.newId('i'), text: `torno's tools are not connected to Claude Code: it cannot see the part.${why ? ` Claude Code said: ${this.redact(why)}` : ''}`, tone: 'warn' })
       }
+      if (plugin.loaded === false && this.info.pluginLoaded !== false) {
+        this.put({ kind: 'note', id: this.newId('i'), text: `torno's skills did not load: the agent is told to read skills it does not have${plugin.why ? `. Claude Code said: ${this.redact(plugin.why)}` : ''}`, tone: 'warn' })
+      }
+      // In `-p` an API key wins over the person's login, and bills per token: said once, whatever the key's source is called.
+      if (keySource !== undefined && keySource !== '' && keySource !== 'none' && keySource !== 'oauth' && !this.keyNoted) {
+        this.keyNoted = true
+        this.put({ kind: 'note', id: this.newId('i'), text: 'This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per token.', tone: 'quiet' })
+      }
+      if (version && this.tested && !this.versionNoted && outside(version, this.tested)) {
+        this.versionNoted = true
+        this.put({ kind: 'note', id: this.newId('i'), text: `Claude Code ${this.redact(version)} is outside the versions torno was checked with (${this.tested.min} to ${this.tested.max})`, tone: 'quiet' })
+      }
+      const { retrying: _retrying, ...settled } = next
+      next = settled
       this.setMeta(next)
+    } else if (m.subtype === 'api_retry') {
+      const attempt = num(m.attempt)
+      this.setMeta({ ...this.info, retrying: attempt !== undefined ? { attempt } : {} })
     } else if (m.subtype === 'compact_boundary') {
       const meta = obj(m.compact_metadata)
       const before = num(meta?.pre_tokens)
@@ -425,6 +471,24 @@ export class Transcript {
       this.put({ kind: 'note', id: this.newId('i'), text, tone: 'quiet' })
       this.compactNoted = true
     }
+  }
+
+  /**
+   * Whether torno's plugin loaded, by what an `init` lists: `loaded` is false when the plugin is not among the `plugins`,
+   * a skill of it is not among the `skills`, or an entry of `plugin_errors` names it; true when it is listed and nothing
+   * is missing; undefined when torno passed none or the CLI did not say (a field that is missing is not a warning).
+   */
+  private pluginState(m: StreamMessage): { loaded?: boolean; why?: string } {
+    const want = this.plugin
+    if (!want) return {}
+    const why = errorText(m.plugin_errors, want.name)
+    if (why !== undefined) return { loaded: false, why }
+    const plugins = Array.isArray(m.plugins) ? m.plugins.map((p) => str(obj(p)?.name) ?? str(p)) : null
+    const skills = Array.isArray(m.skills) ? m.skills.filter((s): s is string => typeof s === 'string') : null
+    if (plugins && !plugins.includes(want.name)) return { loaded: false }
+    // A skill of a plugin is named with it (`torno:scans`) or, as the CLI's own skills are, alone.
+    if (skills && want.skills.some((skill) => !skills.includes(skill) && !skills.includes(`${want.name}:${skill}`))) return { loaded: false }
+    return plugins ? { loaded: true } : {}
   }
 
   private streamEvent(event: Record_ | null): void {
@@ -635,6 +699,8 @@ export class Transcript {
     }
     this.put({ kind: 'turn', id: this.newId('i'), ok, stopped, seconds: seconds(took), pulled: this.pulled, ...(error !== undefined ? { error: this.redact(error) } : {}) })
     this.pulled = {}
+    this.denials(m.permission_denials)
+    this.spent(m)
     this.interrupted = false
     this.interruptWanted = false
     this.explained = 0
@@ -642,6 +708,42 @@ export class Transcript {
     this.turnStarted = null
     this.unconfirmed.clear()
     this.blocks.clear()
+  }
+
+  /** A permission the CLI denied that no card says so (a rule or the mode refused it, no one was asked): one note. */
+  private denials(raw: unknown): void {
+    if (!Array.isArray(raw)) return
+    for (const entry of raw) {
+      const denial = obj(entry)
+      const name = str(denial?.tool_name)
+      if (!denial || !name) continue
+      const toolUseId = str(denial.tool_use_id)
+      if (toolUseId !== undefined) {
+        if (this.denied.has(toolUseId)) continue
+        this.denied.add(toolUseId)
+        const card = this.tools.get(toolUseId)
+        const shown = card ? this.byId.get(card) : undefined
+        if (shown?.kind === 'tool' && (shown.state === 'denied' || shown.state === 'cancelled' || shown.state === 'stopped')) continue
+      }
+      this.put({ kind: 'note', id: this.newId('i'), text: `Permission denied: ${this.redact(toolLabel(name, this.scrub(denial.tool_input)))}`, tone: 'warn' })
+    }
+  }
+
+  /** What the session has cost so far, and the tokens the last request held against the window of the model. */
+  private spent(m: StreamMessage): void {
+    const next: ChatMeta = { ...this.info }
+    const cost = num(m.total_cost_usd)
+    if (cost !== undefined) next.costUsd = cost
+    const usage = obj(m.usage)
+    const iterations = Array.isArray(usage?.iterations) ? usage.iterations : []
+    const last = obj(iterations[iterations.length - 1]) ?? usage
+    const used = (num(last?.input_tokens) ?? 0) + (num(last?.cache_read_input_tokens) ?? 0) + (num(last?.cache_creation_input_tokens) ?? 0)
+    const models = obj(m.modelUsage)
+    const entries = models ? Object.entries(models) : []
+    const mine = (this.info.model !== undefined ? obj(models?.[this.info.model]) : null) ?? (entries.length === 1 ? obj(entries[0][1]) : null)
+    const window = num(mine?.contextWindow)
+    if (used > 0 && window !== undefined && window > 0) next.context = { used, window }
+    this.setMeta(next)
   }
 
   private rate(info: Record_ | null): void {
@@ -780,6 +882,32 @@ export class Transcript {
 }
 
 /** What the CLI answers for a tool the person stopped or refused. */
+/** The text of the first error in a list the CLI printed that names `who` (a string, or an object whose fields hold it); undefined when none does, '' when it names it but says nothing more. */
+function errorText(list: unknown, who: string): string | undefined {
+  if (!Array.isArray(list)) return undefined
+  for (const entry of list) {
+    const text = typeof entry === 'string' ? entry : obj(entry) ? (str(obj(entry)!.error) ?? str(obj(entry)!.message) ?? '') : ''
+    const names = typeof entry === 'string' ? entry.includes(who) : JSON.stringify(entry).includes(who)
+    if (names) return text.length > 300 ? text.slice(0, 300) : text
+  }
+  return undefined
+}
+
+const parts = (version: string): [number, number, number] | null => {
+  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
+  return found ? [Number(found[1]), Number(found[2]), Number(found[3])] : null
+}
+
+/** Whether a version is outside a range, both ends inclusive; false for one that cannot be read (not known). */
+function outside(version: string, range: { min: string; max: string }): boolean {
+  const v = parts(version)
+  const lo = parts(range.min)
+  const hi = parts(range.max)
+  if (!v || !lo || !hi) return false
+  const compare = (a: number[], b: number[]): number => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+  return compare(v, lo) < 0 || compare(v, hi) > 0
+}
+
 const REJECTED = /^The user doesn't want to proceed with this tool use/
 const INTERRUPTED = '[Request interrupted'
 

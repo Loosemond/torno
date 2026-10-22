@@ -1683,6 +1683,109 @@ describe('the transcript of a chat session', () => {
 
 })
 
+// #116: what Claude Code says of itself in its `init` and per turn, played by the stand-in (FAKE_AGENT_INIT).
+describe('what Claude Code says of itself', () => {
+  let ownHttp: HttpRouter
+  let own: Sessions
+  let count = 0
+  const metas: Array<{ sessionId: string; meta: ChatMeta }> = []
+  const prompts: string[] = []
+
+  beforeAll(async () => {
+    ownHttp = await startHttp()
+    // Given a folder for torno's plugin, as the app is: its skills are expected in the `init`.
+    own = new Sessions({
+      http: ownHttp,
+      adapter: claudeAdapter(`node ${FAKE}`, '/fake/agent-plugin'),
+      viewFor: () => 'chat',
+      contextFor: () => ({ text: '', sentMarkIds: [] }),
+      systemPromptFor: (adapter) => {
+        const text = adapter.skills ? 'WITH SKILLS' : 'FULL PROMPT'
+        prompts.push(text)
+        return text
+      },
+      mcpUrlFor: (id) => ownHttp.url(`/mcp/${id}`)
+    })
+    own.on('meta', (m) => metas.push({ sessionId: m.sessionId, meta: m.meta }))
+  })
+  afterEach(async () => {
+    await own.stopAll()
+    delete process.env.FAKE_AGENT_INIT
+    metas.length = 0
+    prompts.length = 0
+  })
+  afterAll(async () => {
+    await ownHttp.close()
+  })
+
+  async function chat(init: object | undefined, opts: { folder?: string; resume?: boolean; skills?: false } = {}) {
+    if (init) process.env.FAKE_AGENT_INIT = JSON.stringify(init)
+    else delete process.env.FAKE_AGENT_INIT
+    count += 1
+    const obj = object(opts.folder ?? `account-${count}`)
+    const { sessionId: id } = await own.start(obj, { resume: opts.resume, skills: opts.skills })
+    const items = (): ChatItem[] => own.history(id)!.items
+    return {
+      obj,
+      id,
+      items,
+      notes: () => items().filter((i): i is Extract<ChatItem, { kind: 'note' }> => i.kind === 'note'),
+      turns: () => items().filter((i) => i.kind === 'turn').length,
+      meta: () => own.history(id)!.meta,
+      send: (text: string) => own.send(id, { text })
+    }
+  }
+
+  it("warns when torno's plugin is not in the CLI's init, and a restart on the whole prompt leaves the plugin out and warns no more", async () => {
+    const c = await chat({ plugins: [], skills: ['humanizer'] })
+    await c.send('say hi')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.meta().pluginLoaded).toBe(false)
+    expect(c.notes()).toMatchObject([{ tone: 'warn', text: "torno's skills did not load: the agent is told to read skills it does not have" }])
+    await c.send('argv')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    const first = JSON.parse((c.items().filter((i) => i.kind === 'text').at(-1) as { text: string }).text) as string[]
+    expect(first).toContain('--plugin-dir')
+    expect(first[first.indexOf('--append-system-prompt') + 1]).toBe('WITH SKILLS')
+
+    // The person says to start on the whole prompt: the same conversation, without the plugin.
+    await own.stop(c.id)
+    const again = await chat({ plugins: [], skills: ['humanizer'] }, { folder: c.obj.id, resume: true, skills: false })
+    expect(again.id).not.toBe(c.id)
+    await again.send('argv')
+    await expect.poll(() => again.turns(), { timeout: 5000 }).toBe(1)
+    const second = JSON.parse((again.items().filter((i) => i.kind === 'text').at(-1) as { text: string }).text) as string[]
+    expect(second).not.toContain('--plugin-dir')
+    expect(second[second.indexOf('--append-system-prompt') + 1]).toBe('FULL PROMPT')
+    expect(second[second.indexOf('--resume') + 1]).toBe(first[first.indexOf('--session-id') + 1])
+    expect(again.meta().pluginLoaded).toBeUndefined()
+    expect(again.notes()).toEqual([])
+  })
+
+  it('says the API key and the version outside the tested range, once each, and keeps the cost', async () => {
+    const c = await chat({ plugins: [{ name: 'torno' }], skills: ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions'], apiKeySource: 'user', claude_code_version: '2.1.307' })
+    await c.send('say one')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    await c.send('say two')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    expect(c.meta()).toMatchObject({ pluginLoaded: true, apiKeySource: 'user', version: '2.1.307' })
+    expect(c.notes().map((n) => n.text)).toEqual([
+      'This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per token.',
+      'Claude Code 2.1.307 is outside the versions torno was checked with (2.1.300 to 2.1.301)'
+    ])
+    expect(c.notes().map((n) => n.tone)).toEqual(['quiet', 'quiet'])
+  })
+
+  it("says torno's tools are not connected with what the CLI said, and a retry and a denial no card shows", async () => {
+    const c = await chat({ mcp_servers: [{ name: 'torno', status: 'failed' }], mcp_server_errors: [{ name: 'torno', error: 'connection refused' }], plugins: [{ name: 'torno' }], skills: ['torno-model', 'build123d', 'scans', 'dimensions'] })
+    await c.send('retry 3\nslow 0.3\ndeny Write {"file_path":"/etc/x","content":"y"}')
+    await expect.poll(() => metas.some((m) => m.sessionId === c.id && m.meta.retrying?.attempt === 3), { timeout: 5000 }).toBe(true)
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.meta().retrying).toBeUndefined()
+    expect(c.notes().map((n) => n.text)).toEqual(["torno's tools are not connected to Claude Code: it cannot see the part. Claude Code said: connection refused", 'Permission denied: Write /etc/x'])
+  })
+})
+
 describe('the question before a chat in a folder with settings of its own', () => {
   let tHttp: HttpRouter
   let trustSessions: Sessions

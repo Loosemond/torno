@@ -680,6 +680,25 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   calls listed in `inside`. A thought's `seconds` run from its block's start to its stop. A `user` message that is the
   compaction summary (`isSynthetic`) is not drawn; one that is `<local-command-stdout>` (what `/cost` or
   `/context` print) is a quiet note, and the "Compacted" of `/compact` is not a second one.
+- **What the CLI says of itself** (`Transcript.system`, `finished`). From the `init`, the meta (`ChatMeta`) takes
+  `version` (`claude_code_version`), `apiKeySource` and `pluginLoaded`; `result` adds `costUsd` (`total_cost_usd`) and
+  `context` (the tokens of the last request, `usage.iterations`' last or else `usage`, against the `contextWindow` of
+  the session's model in `modelUsage`; unchanged when the result has no tokens, as a `/compact`'s has none);
+  `api_retry` sets `retrying` (`{ attempt }`) until a `stream_event`, an `assistant`, a `user` or a `result` comes.
+  Notes: a `warn` when torno's tools are `failed` (with the text of the entry of `mcp_server_errors` that names
+  `torno`), a `warn` when the plugin torno passed did not load, a `quiet` once a session when `apiKeySource` is
+  anything but `none` or `oauth` ("This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per
+  token."), a `quiet` once a session when the version is outside `TESTED_CLAUDE` (`claude.ts`: the versions of the
+  recordings in `test/fixtures/`, held to them by `claude.test.ts`), and a `warn` at a `result` for each
+  `permission_denials` entry no card shows (a tool card `denied`, `cancelled` or `stopped` is shown), once per
+  `tool_use_id`. The plugin did not load when it is not in `plugins`, a skill of it (`TORNO_PLUGIN`, named alone or
+  as `torno:<skill>`) is not in `skills`, or an entry of `plugin_errors` names `torno`; it is judged only when the
+  session was started with the plugin (`Transcript` `plugin`, from `adapter.plugin` and `skills`). **A field that is
+  missing or is not the shape expected is "not known", never a warning,** and nothing here throws. `Sessions.start`
+  takes `skills: false` (the window's "Restart with the whole prompt", which stops the session and starts it again
+  resumed): the system prompt is then the whole text (`systemPromptFor` is given the adapter with `skills` false) and
+  `--plugin-dir` is left out (`LaunchContext.skills`). Torno does not run `claude auth status` to learn the same
+  earlier: the `init` says it at no cost. Nothing of the person's settings is read.
 - Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and
   show the status `needs_input` while open. They end when the CLI cancels the request (`control_cancel_request`,
   which it sends right after an `interrupt`; the card reads "Cancelled: the turn was stopped", `why`), at any

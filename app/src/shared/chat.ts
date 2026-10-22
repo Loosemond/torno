@@ -40,6 +40,18 @@ export interface ChatMeta {
   model?: string
   /** Whether the CLI says the MCP server of torno is connected; absent until it has said. */
   tornoConnected?: boolean
+  /** The version of Claude Code (`claude_code_version` of its `init`); absent until it has said. */
+  version?: string
+  /** Where the CLI says its credentials come from (`none`: the person's login; anything else but `oauth`: an API key). */
+  apiKeySource?: string
+  /** Whether torno's plugin of skills loaded, by the CLI's `init`; absent when torno passed none or the CLI did not say. */
+  pluginLoaded?: boolean
+  /** The API is being retried (`api_retry`), at this attempt when the CLI said which; absent once it answers. */
+  retrying?: { attempt?: number }
+  /** What the session has cost so far, in US dollars, as the CLI estimates (`total_cost_usd` of its last `result`). */
+  costUsd?: number
+  /** The tokens the last request held, against the window of the model. */
+  context?: { used: number; window: number }
   /** The window of the CLI's rate limit that is the most used: its name (`five_hour`), the percent used, and when it resets (ms). */
   rate?: { window: string; used: number; resetsAt?: number }
 }

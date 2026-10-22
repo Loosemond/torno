@@ -127,7 +127,8 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
 - Claude Code is the one agent torno runs. It is shown as a chat by default (`view` in `.torno/agent.json`). The
   chat is the CLI's own headless mode (`-p --input-format stream-json --output-format stream-json`) on pipes,
   under the person's own login, never run by a test. Hooks stay the one source of status and of the marks sent;
-  the stream adds only that a request waiting for the person is `needs_input`. `.torno/chat/` holds text only:
+  the stream adds only that a request waiting for the person is `needs_input`; what the CLI says of itself (its `init`,
+  `api_retry`, the denials of a `result`) is shown as notes and meta, and never changes the status. `.torno/chat/` holds text only:
   no address, no secret, no picture data; a reference picture is recorded by its path in `reference/` and shown from
   that file again. A permission answer never writes the person's settings: "Allow for
   this session" sends only `addRules` suggestions, rewritten to `destination: "session"`.

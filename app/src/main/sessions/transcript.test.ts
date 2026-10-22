@@ -602,6 +602,169 @@ describe('meta', () => {
   })
 })
 
+describe('what the CLI says of itself (#116)', () => {
+  const PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d', 'scans', 'dimensions'] }
+  const TESTED = { min: '2.1.300', max: '2.1.301' }
+  const loaded = { plugins: [{ name: 'torno', path: '/p', source: 'torno@inline' }], skills: ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions', 'humanizer'] }
+
+  it('warns once when torno\'s plugin is not among the plugins, and says the skills are missing', () => {
+    const t = new Transcript({ plugin: PLUGIN })
+    t.message(init({ plugins: [{ name: 'superpowers' }], skills: ['humanizer'] }))
+    t.message(init({ plugins: [{ name: 'superpowers' }], skills: ['humanizer'] }))
+    expect(t.meta().pluginLoaded).toBe(false)
+    expect(of(t, 'note')).toMatchObject([{ tone: 'warn', text: "torno's skills did not load: the agent is told to read skills it does not have" }])
+  })
+
+  it('warns when the CLI lists an error of the plugin, with what it said', () => {
+    const t = new Transcript({ plugin: PLUGIN })
+    t.message(init({ ...loaded, plugin_errors: [{ plugin: 'torno', error: 'bad manifest' }] }))
+    expect(t.meta().pluginLoaded).toBe(false)
+    const [note] = of(t, 'note')
+    expect(note.tone).toBe('warn')
+    expect(note.text).toMatch(/^torno's skills did not load: the agent is told to read skills it does not have/)
+    expect(note.text).toContain('bad manifest')
+  })
+
+  it('warns when a skill of the plugin is missing from the skills, whether they are named with the plugin or not', () => {
+    const t = new Transcript({ plugin: PLUGIN })
+    t.message(init({ ...loaded, skills: ['torno:torno-model', 'build123d', 'scans'] }))
+    expect(t.meta().pluginLoaded).toBe(false)
+    const u = new Transcript({ plugin: PLUGIN })
+    u.message(init({ ...loaded, skills: ['torno-model', 'build123d', 'scans', 'dimensions'] }))
+    expect(u.meta().pluginLoaded).toBe(true)
+  })
+
+  it('is quiet when the plugin loaded, when torno passed none, and when the CLI did not say', () => {
+    const a = new Transcript({ plugin: PLUGIN })
+    a.message(init(loaded))
+    expect(a.meta().pluginLoaded).toBe(true)
+    expect(of(a, 'note')).toEqual([])
+    // torno passed no plugin folder: nothing is expected of the CLI.
+    const b = new Transcript()
+    b.message(init({ plugins: [], skills: [] }))
+    expect(b.meta().pluginLoaded).toBeUndefined()
+    expect(of(b, 'note')).toEqual([])
+    // A field that is missing, or is not a list, is "not known".
+    const c = new Transcript({ plugin: PLUGIN })
+    c.message(init())
+    c.message(init({ plugins: 'x', skills: 3, plugin_errors: 7 }))
+    expect(c.meta().pluginLoaded).toBeUndefined()
+    expect(of(c, 'note')).toEqual([])
+  })
+
+  it('says once that the chat is billed to an API key, and says nothing for the login or for no word', () => {
+    const t = new Transcript()
+    t.message(init({ apiKeySource: 'none' }))
+    t.message(init({ apiKeySource: 'oauth' }))
+    t.message(init())
+    expect(of(t, 'note')).toEqual([])
+    t.message(init({ apiKeySource: 'user' }))
+    t.message(init({ apiKeySource: 'user' }))
+    expect(t.meta().apiKeySource).toBe('user')
+    expect(of(t, 'note')).toMatchObject([{ tone: 'quiet', text: 'This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per token.' }])
+  })
+
+  it('says once that the CLI is outside the range torno was checked with, and keeps its version', () => {
+    const t = new Transcript({ tested: TESTED })
+    t.message(init({ claude_code_version: '2.1.300' }))
+    t.message(init({ claude_code_version: '2.1.301' }))
+    expect(of(t, 'note')).toEqual([])
+    t.message(init({ claude_code_version: '2.1.307' }))
+    t.message(init({ claude_code_version: '2.1.307' }))
+    expect(t.meta().version).toBe('2.1.307')
+    expect(of(t, 'note')).toMatchObject([{ tone: 'quiet', text: 'Claude Code 2.1.307 is outside the versions torno was checked with (2.1.300 to 2.1.301)' }])
+    const older = new Transcript({ tested: TESTED })
+    older.message(init({ claude_code_version: '2.0.9' }))
+    expect(of(older, 'note')).toHaveLength(1)
+    // A version it cannot read, or none, or no range: not known.
+    const odd = new Transcript({ tested: TESTED })
+    odd.message(init({ claude_code_version: 'next' }))
+    odd.message(init({ claude_code_version: 42 }))
+    new Transcript().message(init({ claude_code_version: '9.9.9' }))
+    expect(of(odd, 'note')).toEqual([])
+  })
+
+  it('adds what the CLI said of an MCP server that failed to connect, redacted', () => {
+    const t = new Transcript({ redact: (s) => s.split('SECRET').join('<secret>') })
+    t.message(init({ mcp_servers: [{ name: 'torno', status: 'failed' }], mcp_server_errors: [{ name: 'torno', error: 'refused http://127.0.0.1:1/mcp/SECRET/o' }] }))
+    const [note] = of(t, 'note')
+    expect(note).toMatchObject({ tone: 'warn' })
+    expect(note.text).toMatch(/^torno's tools are not connected to Claude Code: it cannot see the part\./)
+    expect(note.text).toContain('refused http://127.0.0.1:1/mcp/<secret>/o')
+    expect(note.text).not.toContain('SECRET')
+  })
+
+  it('sets retrying from api_retry, until the API answers', () => {
+    const metas: unknown[] = []
+    const t = new Transcript({ emitMeta: (m) => metas.push(m) })
+    t.message(init())
+    t.message({ type: 'system', subtype: 'api_retry', attempt: 3, max_retries: 10, retry_delay_ms: 2000, error_status: 529, error: 'overloaded' })
+    expect(t.meta().retrying).toEqual({ attempt: 3 })
+    t.message({ type: 'system', subtype: 'api_retry', attempt: 4 })
+    expect(t.meta().retrying).toEqual({ attempt: 4 })
+    t.message(start(0, { type: 'text', text: '' }))
+    expect(t.meta().retrying).toBeUndefined()
+    t.message({ type: 'system', subtype: 'api_retry', attempt: 1 })
+    t.message(result())
+    expect(t.meta().retrying).toBeUndefined()
+    // No number, or a wrong one: it still means a retry, with no attempt to name.
+    t.message({ type: 'system', subtype: 'api_retry', attempt: 'x' })
+    expect(t.meta().retrying).toEqual({})
+  })
+
+  it('makes a note of a permission denial that no card shows, and none of one a denied card shows', () => {
+    const t = new Transcript()
+    t.message(toolUse('shown', 'Bash', { command: 'rm x' }))
+    t.asked({ requestId: 'r1', toolName: 'Bash', input: { command: 'rm x' }, toolUseId: 'shown' })
+    t.answered('r1', 'denied', 'no')
+    t.message(
+      result({
+        permission_denials: [
+          { tool_name: 'Bash', tool_use_id: 'shown', tool_input: { command: 'rm x' } },
+          { tool_name: 'Write', tool_use_id: 'other', tool_input: { file_path: '/etc/x', content: 'y' } },
+          'junk'
+        ]
+      })
+    )
+    const notes = of(t, 'note')
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toMatchObject({ tone: 'warn' })
+    expect(notes[0].text).toBe('Permission denied: Write /etc/x')
+    // Nothing for a result with none, or with a value that is no list.
+    t.message(result({ permission_denials: [] }))
+    t.message(result({ permission_denials: 'x' }))
+    expect(of(t, 'note')).toHaveLength(1)
+  })
+
+  it('keeps the cost of the session and the context used, from the result', () => {
+    const t = new Transcript()
+    t.message(init({ model: 'claude-haiku-5-5' }))
+    t.message(
+      result({
+        total_cost_usd: 0.0047,
+        usage: { input_tokens: 4, cache_read_input_tokens: 58637, cache_creation_input_tokens: 605, iterations: [{ input_tokens: 2, cache_read_input_tokens: 29489, cache_creation_input_tokens: 264 }] },
+        modelUsage: { 'claude-haiku-5-5': { contextWindow: 1000000 } }
+      })
+    )
+    expect(t.meta()).toMatchObject({ costUsd: 0.0047, context: { used: 29755, window: 1000000 } })
+    // A result of no turns (a /compact) has no tokens: what was known stays.
+    t.message(result({ total_cost_usd: 0.005, usage: { input_tokens: 0, iterations: [] }, modelUsage: { 'claude-haiku-5-5': { contextWindow: 1000000 } } }))
+    expect(t.meta()).toMatchObject({ costUsd: 0.005, context: { used: 29755, window: 1000000 } })
+    // Without iterations, the usage of the turn.
+    t.message(result({ usage: { input_tokens: 10, cache_read_input_tokens: 100 }, modelUsage: { other: { contextWindow: 200000 } } }))
+    expect(t.meta().context).toEqual({ used: 110, window: 200000 })
+  })
+
+  it('never throws at what it does not know', () => {
+    const t = new Transcript({ plugin: PLUGIN, tested: TESTED })
+    expect(() => {
+      t.message(init({ plugins: [null, 3, { name: 4 }], skills: [1, null], plugin_errors: [null, {}], mcp_server_errors: 'x', apiKeySource: 7, claude_code_version: {} }))
+      t.message({ type: 'system', subtype: 'api_retry' })
+      t.message(result({ permission_denials: [null, 4, {}], total_cost_usd: 'x', usage: 'y', modelUsage: [1] }))
+    }).not.toThrow()
+  })
+})
+
 describe('what is told to the window', () => {
   it('is each item that changed, and the streaming text no more than once in 50 ms, with the last always going', () => {
     vi.useFakeTimers()

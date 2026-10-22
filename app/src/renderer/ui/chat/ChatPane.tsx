@@ -25,9 +25,10 @@ function useBeat(active: boolean): boolean {
  * scrolled up is left where they are, and a button brings them down.
  *
  * What the agent asks is a card in the transcript (`AskCard`, which answers to this session); "Attach view", the
- * commands offered while a `/` is typed and the rate line are in the foot, with the box (`Composer`).
+ * commands offered while a `/` is typed and the rate line are in the foot, with the box (`Composer`). When the CLI said
+ * torno's skills did not load, a line above the box offers the session again on the whole prompt (`onWholePrompt`).
  */
-export function ChatPane({ sessionId, live, working, dir }: { sessionId: string; live: boolean; working: boolean; dir?: string }) {
+export function ChatPane({ sessionId, live, working, dir, onWholePrompt }: { sessionId: string; live: boolean; working: boolean; dir?: string; onWholePrompt: () => void }) {
   const chat = useChat(sessionId)
   const place = useMemo(() => ({ dir, home: window.torno.home || undefined }), [dir])
   useEffect(() => {
@@ -112,6 +113,14 @@ export function ChatPane({ sessionId, live, working, dir }: { sessionId: string;
           </button>
         )}
       </div>
+      {live && chat?.meta.pluginLoaded === false && (
+        <p className="chat-note chat-restart">
+          <span>torno&apos;s skills did not load.</span>
+          <button type="button" className="button button-quiet" disabled={working} title={working ? 'Wait for the turn to end' : 'End this session and go on with the same conversation, told in the prompt what the skills would say'} onClick={onWholePrompt}>
+            Restart with the whole prompt
+          </button>
+        </p>
+      )}
       <Composer sessionId={sessionId} live={live} working={working} onSent={toEnd} />
     </div>
     </ChatPlace.Provider>

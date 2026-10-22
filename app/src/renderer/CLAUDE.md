@@ -433,6 +433,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   at most `MAX_ITEMS` (2,000) as main does, dropping the oldest, and says once, at the top, "Earlier items are not
   shown"; a session no pane shows takes in no picture data, also from a history that was on its way.
   The chat that ended before the window was loaded is shown from main's transcript (`session:current`'s `ended`).
+  What the CLI says of itself comes as notes and as meta: the header's status word gains ", retrying (attempt 3)"
+  while `meta.retrying` is set and the session works (the status itself is still the hooks'), and while
+  `meta.pluginLoaded` is false a line above the box offers "Restart with the whole prompt" (disabled while the agent
+  works), which starts the session again, resumed, with `session.start(…, { skills: false })`.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools); click focuses a mark or selects a face or edge, and
   a click with the pointer gives the keys back to the view (`giveKeysBack`), as every action on the view does. A

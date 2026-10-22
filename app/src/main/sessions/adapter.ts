@@ -21,6 +21,8 @@ export interface LaunchContext {
   hookUrl: (event: string) => string
   /** What to add to the agent's system prompt; '' or absent for nothing. */
   systemPrompt?: string
+  /** False: leave out the skills the adapter would give (a session started on the full prompt, since they did not load). Absent: as the adapter is. */
+  skills?: boolean
 }
 
 /**
@@ -35,6 +37,10 @@ export interface AgentAdapter {
   command: string
   /** It is given torno's skills (Claude Code's `--plugin-dir`): its system prompt leaves to them what they say. */
   skills: boolean
+  /** The plugin of skills it passes (when `skills`): the CLI's `init` is read for whether it loaded. */
+  plugin?: { name: string; skills: readonly string[] }
+  /** The versions of the agent torno was checked against, inclusive (`2.1.300`): one outside is said once. */
+  tested?: { min: string; max: string }
   /** How this agent's client names a tool of torno's to the model: `mcp__torno__scene`. */
   toolName(tool: string): string
   launch(ctx: LaunchContext): AgentLaunch
