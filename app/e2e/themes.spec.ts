@@ -9,7 +9,7 @@ import { contrast } from '../src/shared/contrast'
 import { png } from '../src/test/pngFixtures'
 import { grid, stl } from '../src/test/scanFixtures'
 import { SESSION_HEADER } from '../src/main/http'
-import { openListed, switcher } from './objects'
+import { newFromList, openListed, switcher } from './objects'
 
 // Light and dark. In each theme the window is held to the contrasts its tokens promise, as it computes them,
 // and pictures are made for someone to look at: of the parts, as the agent gets them, and of the window.
@@ -435,7 +435,7 @@ for (const theme of ['light', 'dark'] as const) {
         } else if (shot === 'onboard' || shot === 'onboard-board') {
           // The page of a new object with something of every kind given, and, for the second, the doodle board open on a drawing.
           const new_ = page.getByRole('region', { name: 'New object' })
-          await page.getByRole('navigation', { name: 'Objects' }).getByRole('button', { name: 'New object' }).click()
+          await newFromList(page)
           await page.getByLabel('Name', { exact: true }).fill('cable-clip')
           await page.getByLabel('What is it?').fill('A clip that holds a 6 mm cable to the edge of a desk, printed in PETG. The desk is 18 mm thick; the cable must come out downwards.')
           const photos = [join(root, 'desk.png'), join(root, 'cable.png')]
