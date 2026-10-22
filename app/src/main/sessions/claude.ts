@@ -18,6 +18,11 @@ const TOKEN_VARIABLE = 'TORNO_SESSION'
  */
 const EDIT_HOOK_TIMEOUT_S = 60
 /**
+ * The `Stop` waits for a build begun in the turn, and for its dimensions to be measured, up to 20 s
+ * (`STOP_WAIT_MS` in `manager.ts`) before it judges: the limit leaves room for that and for the answer.
+ */
+const STOP_HOOK_TIMEOUT_S = 25
+/**
  * What makes Claude Code speak JSON lines on its pipes instead of drawing a terminal: a prompt is a line of
  * stdin, everything it does a line of stdout, and what it would ask the person (a permission, a question) a
  * request on stdout that is answered on stdin.
@@ -96,7 +101,7 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
             {
               type: 'http',
               url: ctx.hookUrl(event),
-              timeout: event === 'PostToolUse' ? EDIT_HOOK_TIMEOUT_S : HOOK_TIMEOUT_S,
+              timeout: event === 'PostToolUse' ? EDIT_HOOK_TIMEOUT_S : event === 'Stop' ? STOP_HOOK_TIMEOUT_S : HOOK_TIMEOUT_S,
               headers: { [SESSION_HEADER]: `$${TOKEN_VARIABLE}` },
               allowedEnvVars: [TOKEN_VARIABLE]
             }

@@ -38,6 +38,7 @@ import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import { StateFiles } from './statefile'
 import { Verdicts } from './verdicts'
+import { valueAgainstExpected } from '../shared/dimension'
 import { Trust } from './trust'
 
 // Environment switches:
@@ -474,6 +475,12 @@ void app.whenReady().then(async () => {
     // A hard defect the turn's builds brought is held against its Stop, once; and an edit's dimensions are of its build.
     scene: lastScene,
     settled: (id, revision, until) => verdicts.settled(id, revision, until),
+    // A dimension that passed when the turn began and fails now holds a Stop back, once, with what it measures against what was expected.
+    verdicts: (id, revision) => verdicts.of(id, revision),
+    dimensionDetail: async (id, markId, revision) => {
+      const mark = (await marks.list(id).catch(() => [])).find((m) => m.id === markId)
+      return mark?.kind === 'dimension' ? valueAgainstExpected(mark, revision) : undefined
+    },
     // The agent has the prompt, and with it the drafts that were listed: they are sent.
     onDelivered: (id, sentMarkIds) => void marks.markSent(id, sentMarkIds).catch((e) => console.error(`cannot mark ${sentMarkIds.join(', ')} of ${id} as sent: ${e.message}`)),
     systemPromptFor: (adapter) => systemPrompt(adapter.toolName, adapter.skills),

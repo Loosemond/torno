@@ -577,12 +577,34 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
   and the tool to read it with. The first build of a run has only `Check`.
 - A part that is not valid, has a solid inside out, came apart into more solids
   or has a mesh that disagrees with it, where the build the turn began with did
-  not, holds Claude Code back once when it would stop, as a failed build or an
-  edit it has not looked at does:
-  it is asked to mend the model or to say why that is meant. A change of volume
-  alone never does.
+  not, holds Claude Code back once when it would stop (see below): it is asked
+  to mend the model or to say why that is meant. A change of volume alone never
+  does.
 - The chat shows it under the edit's card, behind "Show text", and
   `state.md` carries it under the build. It is not told with a prompt.
+
+When Claude Code would stop, torno holds it back for what the turn itself did:
+once for each reason, and twice in a turn at most. It first waits, up to twenty
+seconds, for a build begun in the turn that is still running and for its
+dimensions to be measured. Then, by the first that applies:
+
+1. The build is still running. It is asked to read the result with `scene` and
+   to look.
+2. The latest build failed, and it is asked to fix it or say it is still broken.
+3. A part has a defect the build the turn began with had not (above).
+4. A dimension that passed on the build the turn began with fails on the latest:
+   `M4 passed on r7 and fails on r9 (6 mm, expected 8 ± 0.05). Fix it, or say
+   why it must change.` A dimension that already failed when the turn began
+   never holds it back; the agent may rightly stop to ask about it.
+5. A build ended in the turn after its last `look`: `r9 was built during this
+   turn, and you have not looked at it since.` This is however the file was
+   written, by the agent's editing tool, through Bash or in your editor. A
+   `look` by the reviewer counts. When the digest says no part's volume, size or
+   faces changed since the turn began (a comment, a rename), there is nothing to
+   look at and it does not hold.
+
+A hold for a defect or a dimension that finds the build unlooked says so too, and
+counts for both. A hold is said to the agent and changes no status.
 
 The answer waits for the dimensions to be measured on the new build, ten
 seconds at most, and ends with what the model printed: `Model printed (last 2 lines):` and the end of it, fifteen
@@ -1455,4 +1477,12 @@ With a real agent:
   model or says why two solids are meant. Then ask for a pocket: the volume falls in `Changed since`, nothing is
   held, and it reads the line rather than asking for a picture first. Whether it heeds the line is the agent's;
   no test has seen a real CLI read it.
+- **The holds of a `Stop` with the real Claude Code.** Have it edit the model and say it is done without a `look`
+  (once through its editing tool, once with `cat > model.py` in Bash): the `Stop` is held with the reason about the
+  build "built during this turn", the agent looks, and the turn ends. Pin a dimension, then have it change the model
+  so that it fails: it is held once and names it. Let a build run for twenty seconds while it would stop: the `Stop`
+  waits, and the hook's 25 s limit is enough (the stand-in cannot tell). Whether the second `Stop` of a turn that was
+  held arrives with `stop_hook_active` and is held again for another reason is what the code assumes; the stand-in
+  plays it as the documentation says. Whether the hooks of a `torno-reviewer`'s `look` arrive on the session's
+  address (so that its look counts) has not been seen.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.

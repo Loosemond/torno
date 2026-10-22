@@ -206,6 +206,16 @@ export function expectedText(mark: Pick<DimensionMark, 'measure' | 'expected' | 
   return `${mark.expected} ± ${mark.tolerance ?? defaultTolerance(mark.measure)}`
 }
 
+/**
+ * What a dimension is worth on the build `revision`, with what was expected of it: `6 mm, expected 8 ± 0.05`
+ * (`⌀ 8 mm, expected 8.5 ± 0.05`). Nothing for one with no value of that build or nothing expected.
+ */
+export function valueAgainstExpected(mark: DimensionMark, revision: number | undefined): string | undefined {
+  const value = measuredValue(mark, revision)
+  if (value === undefined || mark.expected === undefined) return undefined
+  return `${valueText(mark.measure, value)}, expected ${expectedText(mark)}`
+}
+
 /** `0.5 under`, `0.2 over`: how far a value is from what was expected, and which way. */
 export function offBy(value: number, expected: number): string {
   const by = value - expected

@@ -54,6 +54,10 @@
 //       garbage                   a line that is no JSON, and an object of a type nobody knows
 //       work <seconds>            a tool (Bash) that takes that long
 //       argv                      says its own arguments as JSON (a text, as `say` is)
+//       write <file> <content>    a `Write` tool: `PreToolUse` and `PostToolUse` with `tool_use_id` and `tool_input`
+//                                 (`file_path`, absolute, and `content`), and between them the file really written (`file`
+//                                 is from the folder it runs in; a `\n` in the content is a new line). What the
+//                                 `PostToolUse` is answered with is said as a `system`/`hook_response`
 //       retry <attempt> [<s>]     a `system`/`api_retry` at that attempt, as the CLI says while the API is retried, then
 //                                 nothing for that many seconds (the next thing it says is the API's answer)
 //       deny <name> <json input>  a permission the CLI denied by itself (no ask): it is in the `permission_denials` of the
@@ -62,6 +66,8 @@
 //     (seen 2026-10-15): after the tool's result the stand-in posts that prompt's `UserPromptSubmit` and runs its script
 //     in the same turn, with no `init` of its own and ONE `result` for both. A prompt that comes while text is being
 //     said (`slow`) or while the CLI is between commands waits for the turn to end and is a turn of its own;
+//   - a `Stop` that is answered with `decision: block` is not the end: the reason is said as a `system`/`hook_response`
+//     of the `Stop` and the `Stop` is posted again with `stop_hook_active: true`, as the CLI does, until it is let go;
 //   - an `interrupt` while an ask waits sends `control_cancel_request` for it first, then answers the interrupt, as the CLI does;
 //   - when stdin ends it posts `SessionEnd` and exits 0; on SIGTERM it exits 0.
 // Every `init` has the CLI's account of itself as the recordings have it: `plugins` (torno's, when started with
@@ -76,7 +82,8 @@
 // With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
 // (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 
 const argv = process.argv.slice(2)
@@ -247,6 +254,24 @@ async function streamMode() {
     await takeFolded()
   }
 
+  /** A `Write` of a file, as the CLI makes one: the hooks name the tool use and its input, and the file is written between them. */
+  async function write(file, content) {
+    turn.foldable = true
+    const id = next('toolu')
+    const path = resolve(process.cwd(), file)
+    const input = { file_path: path, content }
+    out(message([{ type: 'tool_use', id, name: 'Write', input }]))
+    const hooked = { tool_name: 'Write', tool_use_id: id, tool_input: input }
+    await post('PreToolUse', hooked)
+    writeFileSync(path, content)
+    const answered = await post('PostToolUse', { ...hooked, tool_response: { type: 'create', filePath: path } })
+    const context = answered?.hookSpecificOutput?.additionalContext
+    if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'PostToolUse', output: context, ...base, uuid: next('uuid') })
+    out({ type: 'user', message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content: `wrote ${path}`, is_error: false }] }, ...base, uuid: next('uuid') })
+    turn.foldable = false
+    await takeFolded()
+  }
+
   /** The prompts that came while a tool ran, taken up now: their hook, then their script, in this turn. */
   async function takeFolded() {
     while (turn.folded.length > 0 && !turn.aborted) {
@@ -275,6 +300,9 @@ async function streamMode() {
       const space = rest.indexOf(' ')
       const name = space < 0 ? rest : rest.slice(0, space)
       await tool(name, space < 0 ? {} : JSON.parse(rest.slice(space + 1)), command === 'ask')
+    } else if (command === 'write') {
+      const space = rest.indexOf(' ')
+      await write(space < 0 ? rest : rest.slice(0, space), space < 0 ? '' : rest.slice(space + 1).replaceAll('\\n', '\n'))
     } else if (command === 'work') {
       await tool('Bash', { command: `sleep ${rest}` }, false, Number(rest) * 1000)
     } else if (command === 'slow') {
@@ -362,7 +390,14 @@ async function streamMode() {
     await takeFolded()
     const stopped = turn.aborted
     if (stopped) out({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: turn.forTool ? '[Request interrupted by user for tool use]' : '[Request interrupted by user]' }] }, ...base, uuid: next('uuid') })
-    else await post('Stop')
+    else {
+      // A Stop held back is not the end: the CLI goes on with the reason, and the turn ends with the next Stop.
+      let stop = await post('Stop')
+      for (let held = 0; stop?.decision === 'block' && held < 8; held += 1) {
+        out({ type: 'system', subtype: 'hook_response', hook_event: 'Stop', output: stop.reason, ...base, uuid: next('uuid') })
+        stop = await post('Stop', { stop_hook_active: true })
+      }
+    }
     out({ type: 'result', subtype: stopped ? 'error_during_execution' : 'success', is_error: stopped, duration_ms: Date.now() - started, duration_api_ms: 1, num_turns: 1, stop_reason: stopped ? 'tool_use' : 'end_turn', total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, permission_denials: turn.denials, ...base, uuid: next('uuid') })
     for (const uuid of turn.taken) life(uuid, 'completed')
     turn = null

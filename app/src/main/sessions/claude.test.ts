@@ -20,7 +20,7 @@ const ctx = {
 const hookOf = (url: string, event: string) => ({
   type: 'http',
   url,
-  timeout: event === 'PostToolUse' ? 60 : 5,
+  timeout: event === 'PostToolUse' ? 60 : event === 'Stop' ? 25 : 5,
   headers: { 'X-Torno-Session': '$TORNO_SESSION' },
   allowedEnvVars: ['TORNO_SESSION']
 })

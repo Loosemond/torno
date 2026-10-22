@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dimensionText, exactText, notMeasuredText, shownDimension, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
+import { valueAgainstExpected, dimensionText, exactText, notMeasuredText, shownDimension, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
 import type { DimensionMark, Mark } from './marks'
 
 const dim = (over: Partial<DimensionMark> = {}): DimensionMark =>
@@ -140,5 +140,18 @@ describe('an end that is off the edge it was put on', () => {
     expect(isOffEdge(offEdgeReason('plate/E7', 12))).toBe(true)
     expect(isOffEdge('plate/F9 is a plane face: it has no diameter')).toBe(false)
     expect(isOffEdge(undefined)).toBe(false)
+  })
+})
+
+describe('a dimension against what was expected', () => {
+  it('says its value on the build and what was expected, with the tolerance that applies', () => {
+    expect(valueAgainstExpected(dim({ measure: 'distance', value: 6, expected: 8, tolerance: 0.05, measuredRevision: 9 }), 9)).toBe('6 mm, expected 8 ± 0.05')
+    expect(valueAgainstExpected(dim({ measure: 'diameter', value: 8.3, expected: 8 }), 3)).toBe('⌀ 8.3 mm, expected 8 ± 0.05')
+    expect(valueAgainstExpected(dim({ measure: 'angle', value: 44, expected: 45 }), 3)).toBe('44°, expected 45 ± 0.1')
+  })
+
+  it('says nothing of a dimension with no value of that build, or nothing expected', () => {
+    expect(valueAgainstExpected(dim({ value: 6, expected: 8, measuredRevision: 3 }), 4)).toBeUndefined()
+    expect(valueAgainstExpected(dim({ value: 6 }), 3)).toBeUndefined()
   })
 })

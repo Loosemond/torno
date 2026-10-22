@@ -13,6 +13,7 @@ import type { ObjectInfo } from '../../shared/workspace'
 import { FOLDER } from '../own'
 import type { PromptContext } from '../context'
 import { hardDefects, sanity } from '../sanity'
+import { type BuildVerdicts, verdictChanges } from '../verdicts'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import { trustQuestion } from '../../shared/agents'
 import type { Trust } from '../trust'
@@ -90,20 +91,31 @@ interface Session {
 }
 
 /**
- * What a turn did to the model, as its hooks said, for the `Stop` that ends it: the count of builds ended before it
- * began (`Sessions.finished`, so that a build of an earlier turn is not held against it), whether the model was edited
- * and no `look` has come since, the last successful build when it began, and the `PreToolUse` times of the edits
- * under way, by tool use.
+ * What a turn did to the model, as its hooks said, for the `Stop` that ends it: when it began and the count of builds
+ * ended before it began (`Sessions.finished`, so that a build of an earlier turn is not held against it), the count
+ * at its last `look`, the last successful build and what the dimensions said of it when it began, the reasons a
+ * `Stop` was held back for already and how many holds that makes, and the `PreToolUse` times of the edits under way,
+ * by tool use.
  */
 interface TurnState {
   since: number
+  startedAt: number
+  /** The count of builds ended (`Sessions.finished`) when the turn last looked at the model: a build that ended after it was not looked at. */
+  lookedAt: number
   /** The last successful build of the object when the turn began: what a hard defect is new against. */
   before?: { revision: number; scene: Scene }
-  unlooked: boolean
+  /** What the dimensions said of that build: a dimension that passed there and fails now is the turn's. */
+  beforeVerdicts?: BuildVerdicts
+  /** The reasons a `Stop` has been held back for in this turn, each once, and how many holds that is (a hold may count two reasons). */
+  held: Set<StopReason>
+  holds: number
   editing: Map<string, number>
   /** The tool use of the last edit answered: the chat's card its build is put on. */
   lastToolUse?: string
 }
+
+/** Why a `Stop` is held back: a build still running, a build that failed, a part with a hard defect, a dimension the turn broke, a build nobody looked at. */
+type StopReason = 'running' | 'failed' | 'defect' | 'dimension' | 'unlooked'
 
 /** The tools whose `PostToolUse` of a `.py` of the object is answered with the build the save started. */
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
@@ -117,6 +129,12 @@ export const EDIT_ANSWER_MS = 55_000
 const EDIT_GRACE_MS = 3000
 /** The most the answer to an edit waits, once its build has ended, for the dimensions to be measured on it. */
 const EDIT_SETTLE_MS = 10_000
+/** The most a `Stop` waits, for a build begun in the turn to end and for its dimensions to be measured: under the timeout `claude.ts` gives the hook (`STOP_HOOK_TIMEOUT_S`). */
+export const STOP_WAIT_MS = 20_000
+/** The most a turn is held back at its `Stop`, whatever the reasons. */
+const MOST_HOLDS = 2
+/** The dimensions a hold names, of those the turn broke. */
+const MOST_BROKEN_NAMED = 4
 
 /** Whether a chat session's CLI took the prompt up (it said something) or ended without; `why` is the note the person reads. */
 export type Began = { began: true } | { began: false; why: string }
@@ -244,10 +262,14 @@ export class Sessions {
       buildContextFor?: (objectId: string, toolName: (tool: string) => string) => PromptContext | Promise<PromptContext>
       /** The last successful build of an object: a Stop is held back once for a hard defect it has that the build the turn began with had not (`sanity.ts`). Absent: none is. */
       scene?: (objectId: string) => { revision: number; scene: Scene } | undefined
+      /** What the dimensions of an object said of build `revision` (`Verdicts.of`): a `Stop` is held back for a dimension that passed when the turn began and fails now. Absent: none is. */
+      verdicts?: (objectId: string, revision: number | undefined) => BuildVerdicts | undefined
+      /** A dimension's value on build `revision` and what was expected of it, as `6 mm, expected 8 ± 0.05`, for the hold that names it. Absent or undefined: the hold says only that it fails. */
+      dimensionDetail?: (objectId: string, markId: string, revision: number) => Promise<string | undefined>
       /** Resolves once the marks of an object are checked against build `revision`, and its dimensions measured, or at `until` (ms epoch): the answer to an edit waits for it (`Verdicts.settled`). */
       settled?: (objectId: string, revision: number, until: number) => Promise<void>
-      /** Tests only: how long an edit's answer waits for its build, and for it to begin. */
-      editTiming?: { answerMs: number; graceMs: number }
+      /** Tests only: how long an edit's answer waits for its build, and for it to begin, and how long a `Stop` waits for a build. */
+      editTiming?: { answerMs: number; graceMs: number; stopMs?: number }
       /** Print the command line of every session started, and every hook it posts. */
       debug?: boolean
     }
@@ -509,38 +531,83 @@ export class Sessions {
       console.error(`no build context for the edit in ${objectId}: ${e instanceof Error ? e.message : String(e)}`)
       return {}
     }
-    if (session.turn) session.turn.unlooked = true
     if (!told.text) return {}
     session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(told.digest ? { digest: told.digest } : {}) })
     return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
   }
 
   /**
-   * What a `Stop` is held back with, once (a body with `stop_hook_active` is let go): the turn ran a build and the
-   * latest failed; or the last successful build, built in the turn, has a hard defect (`hardDefects`: not valid,
-   * inside out, more solids than before, a mesh that disagrees with its volume) that the build the turn began with
-   * had not, which the agent may answer is meant; or it edited the model and no `look` came after. Null to let it go.
-   * A dimension that fails holds nothing back: the agent may rightly stop to ask about it. Nor does a change of
-   * volume alone.
+   * What a `Stop` is held back with: a reason the turn has not been held back for yet, and never a third hold in a
+   * turn. First it waits (up to `STOP_WAIT_MS`) for a build begun in the turn that is still running, and for the
+   * dimensions to be measured on it, then judges on the result, by the first of these:
+   * - the build is still running (`running`);
+   * - the latest build, built in the turn, failed (`failed`);
+   * - the last successful build, built in the turn, has a hard defect (`hardDefects`: not valid, inside out, more
+   *   solids than before, a mesh that disagrees with its volume) that the build the turn began with had not
+   *   (`defect`), which the agent may answer is meant;
+   * - a dimension that passed on the build the turn began with fails on the latest (`dimension`);
+   * - a build ended in the turn after its last `look`, however the file was written (`unlooked`), unless the digest
+   *   says no part's volume, box or faces changed since the build the turn began with.
+   * A hold for a defect or a dimension that finds the build unlooked says so, and counts for that reason too.
+   * A dimension that failed when the turn began holds nothing back: the agent may rightly stop to ask about it. Nor
+   * does a change of volume alone. Null to let it go.
    */
-  private stopAnswer(session: Session, fields: Record<string, unknown>): { decision: 'block'; reason: string } | null {
+  private async stopAnswer(session: Session): Promise<{ decision: 'block'; reason: string } | null> {
     const turn = session.turn
-    const state = this.deps.build?.(session.object.id)
-    if (fields.stop_hook_active === true || !turn || !state) return null
-    const builtInTurn = (this.buildEnds.get(session.object.id) ?? 0) > turn.since
-    if (builtInTurn && state.status === 'failed') {
-      return { decision: 'block', reason: `The latest build (r${state.revision + 1}) failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.` }
+    const objectId = session.object.id
+    const { build } = this.deps
+    if (!turn || !build || turn.holds >= MOST_HOLDS) return null
+    const deadline = Date.now() + (this.deps.editTiming?.stopMs ?? STOP_WAIT_MS)
+    const runs = (): boolean => build(objectId)?.status === 'building' && (this.buildStarts.get(objectId) ?? -Infinity) >= turn.startedAt
+    while (runs() && Date.now() < deadline) await this.nextBuild(deadline)
+    // Judged on the build there is once it has ended, with its dimensions measured as far as they are in the time left.
+    const ended = build(objectId)
+    if (ended?.status === 'ok' && (this.buildEnds.get(objectId) ?? 0) > turn.since && turn.beforeVerdicts && [...turn.beforeVerdicts.values()].includes('pass')) {
+      await this.deps.settled?.(objectId, ended.revision, deadline)
     }
-    const last = state.status === 'ok' ? this.deps.scene?.(session.object.id) : undefined
-    const defects = builtInTurn && last && last.revision === state.revision ? hardDefects(sanity(turn.before, last)) : []
-    if (defects.length > 0) {
-      // One hold a turn: what it would have been held for besides is said with it.
-      const look = turn.unlooked ? ` You have not looked at it either: call ${this.deps.adapter.toolName('look')}.` : ''
-      return { decision: 'block', reason: `r${last!.revision}, built in this turn, has what a sound part never has: ${defects.map((d) => d.text).join('; ')}. Mend the model, or say why it is meant.${look}` }
+    const state = build(objectId)
+    if (!state || session.killTimer || session.turn !== turn) return null
+    const toolName = this.deps.adapter.toolName
+    const hold = (reason: StopReason, text: string, ...alongside: StopReason[]): { decision: 'block'; reason: string } | null => {
+      if (turn.held.has(reason)) return null
+      for (const r of [reason, ...alongside]) turn.held.add(r)
+      turn.holds += 1
+      return { decision: 'block', reason: text }
     }
-    if (turn.unlooked && state.status === 'ok') {
-      return { decision: 'block', reason: `You edited the model and have not looked at r${state.revision}. Call ${this.deps.adapter.toolName('look')} before finishing.` }
+    if (state.status === 'building' && runs()) {
+      return hold('running', `A build begun in this turn is still running (r${state.revision + 1}). Call ${toolName('scene')} for its result, then ${toolName('look')}, before finishing.`)
     }
+    const builtInTurn = (this.buildEnds.get(objectId) ?? 0) > turn.since
+    if (!builtInTurn) return null
+    if (state.status === 'failed') {
+      return hold('failed', `The latest build (r${state.revision + 1}) failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.`)
+    }
+    if (state.status !== 'ok') return null
+    const last = this.deps.scene?.(objectId)
+    const digest = last && last.revision === state.revision ? sanity(turn.before, last) : undefined
+    const defects = digest ? hardDefects(digest) : []
+    // No part's volume, box or faces changed since the turn began (a comment, a rename): there is nothing to look at.
+    const nothingChanged = digest !== undefined && turn.before !== undefined && !digest.changed && defects.length === 0
+    const unlooked = this.buildEnds.get(objectId)! > turn.lookedAt && !nothingChanged && !turn.held.has('unlooked')
+    // A look still lacking is said with a hold for something else, which the cap would leave no room to ask for after.
+    const lacking = unlooked ? ` You have not looked at it either: call ${toolName('look')}.` : ''
+    const alongside: StopReason[] = unlooked ? ['unlooked'] : []
+    if (defects.length > 0 && !turn.held.has('defect')) {
+      return hold('defect', `r${last!.revision}, built in this turn, has what a sound part never has: ${defects.map((d) => d.text).join('; ')}. Mend the model, or say why it is meant.${lacking}`, ...alongside)
+    }
+    const broken = verdictChanges(turn.beforeVerdicts, this.deps.verdicts?.(objectId, state.revision)).filter((c) => c.was === 'pass' && c.now === 'fail')
+    if (broken.length > 0 && !turn.held.has('dimension')) {
+      const named = await Promise.all(
+        broken.slice(0, MOST_BROKEN_NAMED).map(async (c) => {
+          const detail = await this.deps.dimensionDetail?.(objectId, c.id, state.revision).catch(() => undefined)
+          return `${c.id} passed on r${turn.before!.revision} and fails on r${state.revision}${detail ? ` (${detail})` : ''}`
+        })
+      )
+      const more = broken.length > named.length ? `; ${broken.length - named.length} more` : ''
+      const one = broken.length === 1
+      return hold('dimension', `${named.join('; ')}${more}. Fix ${one ? 'it' : 'them'}, or say why ${one ? 'it' : 'they'} must change.${lacking}`, ...alongside)
+    }
+    if (unlooked) return hold('unlooked', `r${state.revision} was built during this turn, and you have not looked at it since. Call ${toolName('look')} before finishing.`)
     return null
   }
 
@@ -933,9 +1000,10 @@ export class Sessions {
   private async toolHook(session: Session, event: string, body: Record<string, unknown>): Promise<unknown> {
     const name = typeof body.tool_name === 'string' ? body.tool_name : ''
     const useId = typeof body.tool_use_id === 'string' ? body.tool_use_id : ''
-    const turn: TurnState = (session.turn ??= { since: this.finished, unlooked: false, editing: new Map() })
+    const turn: TurnState = (session.turn ??= this.beginTurn(session))
     if (name === this.deps.adapter.toolName('look')) {
-      if (event === 'PostToolUse') turn.unlooked = false
+      // A subagent's look counts: its hooks are the session's. The builds that ended before it are the ones it saw.
+      if (event === 'PostToolUse') turn.lookedAt = this.finished
       return {}
     }
     if (!EDIT_TOOLS.has(name) || !this.ofObject(session, body.tool_input)) return {}
@@ -947,6 +1015,14 @@ export class Sessions {
     turn.editing.delete(useId)
     turn.lastToolUse = useId || undefined
     return this.afterEdit(session, since)
+  }
+
+  /** A turn begins: the builds ended so far are not its, and the build it begins with, and what its dimensions say of it, is what it is held to. */
+  private beginTurn(session: Session): TurnState {
+    const objectId = session.object.id
+    const before = this.deps.scene?.(objectId)
+    const beforeVerdicts = before ? this.deps.verdicts?.(objectId, before.revision) : undefined
+    return { since: this.finished, startedAt: Date.now(), lookedAt: this.finished, ...(before ? { before } : {}), ...(beforeVerdicts ? { beforeVerdicts } : {}), held: new Set(), holds: 0, editing: new Map() }
   }
 
   /** Whether a tool's input names a `.py` inside the object's folder. */
@@ -1011,17 +1087,14 @@ export class Sessions {
     // in another conversation, and when it does leave, the exit of its process
     // says so. Until then the session is still the one of its object.
     // A Stop held back is no end of the turn: the agent goes on, and so does its status.
-    const held = event === 'Stop' ? this.stopAnswer(session, fields) : null
+    const held = event === 'Stop' ? await this.stopAnswer(session) : null
     if (held) {
       if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}, held back: ${held.reason}`)
       return sendJson(res, 200, held)
     }
     if (event !== 'SessionEnd') this.advance(session, event, fields)
     if (event === 'Stop') session.turn = undefined
-    if (event === 'UserPromptSubmit') {
-      const before = this.deps.scene?.(session.object.id)
-      session.turn = { since: this.finished, ...(before ? { before } : {}), unlooked: false, editing: new Map() }
-    }
+    if (event === 'UserPromptSubmit') session.turn = this.beginTurn(session)
 
     if (event !== 'UserPromptSubmit') {
       if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}`)

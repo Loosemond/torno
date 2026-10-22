@@ -633,13 +633,26 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   dimensions of `contextFor`, in the same words, and between them the digest: The sanity pass, below) as
   `additionalContext`; the chat puts it under that tool's card (`Transcript.toolContext`), with the digest as data
   (`digest` of the `context` item). No build begun within 3 s: `{}`. Still running at 55 s: `A build is running
-  (rN); call scene …` (`claude.ts` gives `PostToolUse` a 60 s timeout). A `Stop` is held back (`decision: block`)
-  once, with one reason, the first of: the turn (since its `UserPromptSubmit`) saw a build end and the latest
-  failed; the last successful build, built in the turn, has a hard defect (`hardDefects`) that the last successful
-  build when the turn began had not (`TurnState.before`), and the reason says the agent may answer that it is
-  meant (and that it has not looked, when it has not); it edited the model and no `look` came after. Never with
-  `stop_hook_active`, never for a failing dimension, never for a change of volume alone. A Stop held back moves
-  no status and ends no turn.
+  (rN); call scene …` (`claude.ts` gives `PostToolUse` a 60 s timeout).
+  A `Stop` (`stopAnswer`, `claude.ts` gives it a 25 s timeout) is judged from what the turn did (`TurnState`, made at
+  its `UserPromptSubmit` by `beginTurn`: the count of builds ended, the last successful build and what the dimensions
+  said of it, the last `look`, the reasons already held). First it waits, up to `STOP_WAIT_MS` (20 s), for a build
+  begun in the turn that is still running and, when a dimension passed when the turn began, for the dimensions to be
+  measured on the build that ended (`Verdicts.settled`, to the same deadline). Then it is held back (`decision:
+  block`) for the first of these five reasons: the build begun in the turn is still running; the latest build, ended
+  in the turn, failed; the last successful build, built in the turn, has a hard defect (`hardDefects`) that the
+  last successful build when the turn began (`TurnState.before`) had not, and the reason says the agent may answer
+  that it is meant; a dimension that passed on that build fails on the latest (`verdictChanges` of `verdicts.ts`,
+  kept `pass` to `fail`; the reason names it with `valueAgainstExpected`); a build of the object ended in the turn
+  after the turn's last `look` (`TurnState.lookedAt`, the count of builds ended at the `PostToolUse` of a `look`, one
+  of a subagent too), however the model was written, unless the digest of that build against the one the turn began
+  with says nothing changed (`changed` false: no part's volume, box, face, edge or solid count, and no part come or
+  gone; the turn began with no build: it looks). A reason is held once
+  (`TurnState.held`) and a turn is held twice at most (`holds`): `stop_hook_active` is no guard of its own, the ledger
+  is. A hold for a defect or a dimension that finds the build unlooked says so, and counts for that reason too. The
+  reasons say "built during this turn", never "you edited": the person's own edit also ends a build. Never for a
+  dimension that failed when the turn began, never for a change of volume alone. A Stop held back moves no status
+  and ends no turn.
 - **The sanity pass** (`src/main/sanity.ts`, pure). After every successful build `sanity(previous, current,
   verdicts)` holds it against the successful build before (`Builds.scenes`, the data `diff` reads) from what the
   kernel sent with each (`solids`, `openShells`, `meshVolume`, `meshDisagrees`, `valid`, `reversed`): no query.

@@ -16,6 +16,7 @@ import { buildContextFor, contextFor, type ContextDeps, type PromptContext } fro
 import { startKernel } from '../kernel/client'
 import type { Scene } from '../../shared/scene'
 import { listReferences } from './reference'
+import type { BuildVerdicts } from '../verdicts'
 
 // The session manager with a real PTY and a real HTTP server; only the agent is
 // a stand-in (test/fake-agent.mjs), launched with Claude Code's arguments.
@@ -1972,7 +1973,19 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     states.set(state.objectId, state)
     made.built(state)
   }
-  async function begun(opts: { wait?: number; grace?: number; context?: (id: string) => PromptContext; scene?: (id: string) => { revision: number; scene: Scene } | undefined } = {}) {
+  async function begun(
+    opts: {
+      wait?: number
+      grace?: number
+      /** How long a Stop waits for a build that runs. */
+      stop?: number
+      context?: (id: string) => PromptContext
+      scene?: (id: string) => { revision: number; scene: Scene } | undefined
+      verdicts?: (id: string, revision: number | undefined) => BuildVerdicts | undefined
+      settled?: (id: string, revision: number, until: number) => Promise<void>
+      detail?: (id: string, markId: string, revision: number) => Promise<string | undefined>
+    } = {}
+  ) {
     states = new Map()
     own = recording(await startHttp())
     const server = own
@@ -1985,7 +1998,10 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       build: (id) => states.get(id),
       buildContextFor: (id) => (opts.context ?? told)(id),
       ...(opts.scene ? { scene: opts.scene } : {}),
-      editTiming: { answerMs: opts.wait ?? 5000, graceMs: opts.grace ?? 1500 },
+      ...(opts.verdicts ? { verdicts: opts.verdicts } : {}),
+      ...(opts.settled ? { settled: opts.settled } : {}),
+      ...(opts.detail ? { dimensionDetail: opts.detail } : {}),
+      editTiming: { answerMs: opts.wait ?? 5000, graceMs: opts.grace ?? 1500, ...(opts.stop === undefined ? {} : { stopMs: opts.stop }) },
       systemPromptFor: () => '',
       mcpUrlFor: (id) => server.url(`/mcp/${id}`)
     })
@@ -2006,6 +2022,27 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
   const building = (objectId: string, revision: number): BuildState => ({ objectId, status: 'building', revision, startedAt: Date.now(), stale: true })
   const failed = (objectId: string, revision: number): BuildState => ({ objectId, status: 'failed', revision, error: { kind: 'exception', message: 'NameError: x' }, stale: true })
   const context = (text: string) => ({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } })
+  /** The scene of a build of one plate, with what a test says is otherwise. */
+  const sceneOf = (more: object = {}): Scene =>
+    ({ model: 'part.py', layouts: ['assembly'], seconds: 0.1, output: '', parts: [{ key: 'assembly:plate', name: 'plate', layout: 'assembly', bbox: { min: [0, 0, 0], max: [20, 20, 2] }, volume: 800, faceCount: 6, edgeCount: 12, valid: true, solids: 1, volumeExact: true, bboxExact: true, ...more }] }) as unknown as Scene
+  /** The last successful build a test keeps: its revision, and a plate that is thinner after the first. */
+  const keptAs = (revision: number) => ({ revision, scene: sceneOf(revision > 7 ? { volume: 700, faceCount: 7 } : {}) })
+  /** What a Stop is held back with when a build of the turn was not looked at. */
+  const UNLOOKED = (revision: number): { decision: 'block'; reason: string } => ({ decision: 'block', reason: `r${revision} was built during this turn, and you have not looked at it since. Call mcp__torno__look before finishing.` })
+  /** The agent looks, as its hooks tell it. */
+  const looks = async (post: (event: string, body: unknown) => Promise<unknown>): Promise<void> => {
+    await post('PreToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })
+    await post('PostToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })
+  }
+  /** A build that begins and ends, as a save of the file makes it, whoever wrote the file. */
+  const builds = (objectId: string, from: number, to: number): void => {
+    land(building(objectId, from))
+    land(ok(objectId, to))
+  }
+  const REVISIONS = (verdicts: Array<[number, Array<[string, 'pass' | 'fail' | 'none']>]>) => {
+    const kept = new Map(verdicts.map(([revision, list]) => [revision, new Map(list)]))
+    return (_id: string, revision: number | undefined): BuildVerdicts | undefined => (revision === undefined ? undefined : kept.get(revision))
+  }
 
   it('answers an edit of the model with the build it started, once that build has ended', async () => {
     const { obj, edit } = await begun()
@@ -2076,7 +2113,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     setTimeout(() => land(building(obj.id, 8)), 50)
     setTimeout(() => land(ok(obj.id, 9)), 100)
     await answer
-    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'You edited the model and have not looked at r9. Call mcp__torno__look before finishing.' })
+    expect(await post('Stop', {})).toEqual(UNLOOKED(9))
 
     await post('UserPromptSubmit', { prompt: 'again' })
     answer = edit()
@@ -2086,6 +2123,238 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     expect(await post('PreToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
     expect(await post('PostToolUse', { tool_name: 'mcp__torno__look', tool_input: {} })).toEqual({})
     expect(await post('Stop', {})).toEqual({})
+  })
+
+  it('holds a Stop back for a model written some other way, such as through Bash: no hook saw the edit, a build ended', async () => {
+    const { obj, post } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    builds(obj.id, 8, 9)
+    expect(await post('Stop', {})).toEqual(UNLOOKED(9))
+    // The same reason is not held for twice.
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+  })
+
+  it('counts a look only if it came after the build that ended last, and a look of a subagent is a look', async () => {
+    const { obj, post } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    builds(obj.id, 8, 9)
+    await looks(post)
+    builds(obj.id, 9, 10)
+    expect(await post('Stop', {})).toEqual(UNLOOKED(10))
+    await post('UserPromptSubmit', { prompt: 'again' })
+    builds(obj.id, 10, 11)
+    // The hooks of a subagent's tools are posted by the same session, with the same tool names.
+    await post('PostToolUse', { tool_name: 'mcp__torno__look', tool_input: {}, agent_id: 'reviewer' })
+    expect(await post('Stop', {})).toEqual({})
+  })
+
+  it('holds no Stop back for a look when no build ended in the turn, nor for a build the turn found already ended', async () => {
+    const { obj, post } = await begun()
+    builds(obj.id, 7, 8)
+    await post('UserPromptSubmit', { prompt: 'what is it?' })
+    expect(await post('Stop', {})).toEqual({})
+  })
+
+  it('takes a digest that says no part changed for the look: only a change of a part’s volume, size or faces asks for one', async () => {
+    let kept = { revision: 3, scene: sceneOf() }
+    const { obj, post } = await begun({ scene: () => kept })
+    // A comment, a rename: the same parts.
+    await post('UserPromptSubmit', { prompt: 'comment it' })
+    kept = { revision: 4, scene: sceneOf() }
+    builds(obj.id, 3, 4)
+    expect(await post('Stop', {})).toEqual({})
+    // A hole: a volume and a face count.
+    await post('UserPromptSubmit', { prompt: 'drill it' })
+    kept = { revision: 5, scene: sceneOf({ volume: 700, faceCount: 7 }) }
+    builds(obj.id, 4, 5)
+    expect(await post('Stop', {})).toEqual(UNLOOKED(5))
+    // A turn that began with no build has nothing to compare to: it looks.
+    kept = undefined as never
+    await post('UserPromptSubmit', { prompt: 'first build' })
+    kept = { revision: 6, scene: sceneOf() }
+    builds(obj.id, 5, 6)
+    expect(await post('Stop', {})).toEqual(UNLOOKED(6))
+  })
+
+  it('holds a Stop back once for a good build after the failed one it was held for, and for no third reason', async () => {
+    let kept = { revision: 7, scene: sceneOf() }
+    const verdicts = REVISIONS([
+      [7, [['M4', 'pass']]],
+      [9, [['M4', 'fail']]]
+    ])
+    const { obj, post, seen } = await begun({ scene: () => kept, verdicts })
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    land(building(obj.id, 7))
+    land(failed(obj.id, 7))
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The latest build (r8) failed: NameError: x. Fix it, or say it is still broken.' })
+    // Fixed, with a part that came apart, a dimension broken and nobody looking: the second hold is the defect (and says so of the look),
+    // the third reason is not held for.
+    kept = { revision: 9, scene: sceneOf({ solids: 2 }) }
+    builds(obj.id, 7, 9)
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({
+      decision: 'block',
+      reason: 'r9, built in this turn, has what a sound part never has: plate is 2 solids (was 1). Mend the model, or say why it is meant. You have not looked at it either: call mcp__torno__look.'
+    })
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+    expect(seen.at(-1)).toBe('idle')
+  })
+
+  it('holds a Stop back once for a good build after a failed one the agent mended, which nobody looked at', async () => {
+    const { obj, post } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    land(building(obj.id, 7))
+    land(failed(obj.id, 7))
+    expect((await post('Stop', {})) as { reason: string }).toMatchObject({ reason: expect.stringContaining('failed') })
+    builds(obj.id, 7, 8)
+    expect(await post('Stop', { stop_hook_active: true })).toEqual(UNLOOKED(8))
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+  })
+
+  it('holds a Stop back for a dimension the turn broke, and for no other: not one that failed before, nor one that was not there', async () => {
+    const verdicts = REVISIONS([
+      [7, [['M4', 'pass'], ['M5', 'fail'], ['M6', 'pass'], ['M7', 'none']]],
+      [9, [['M4', 'fail'], ['M5', 'fail'], ['M6', 'pass'], ['M7', 'fail'], ['M8', 'fail']]]
+    ])
+    const detail = vi.fn(async (_id: string, _mark: string, _revision: number) => '6 mm, expected 8 ± 0.05')
+    const settled = vi.fn(async () => {})
+    let kept = keptAs(7)
+    const { obj, post } = await begun({ verdicts, detail, settled, scene: () => kept })
+    land(ok(obj.id, 7))
+    await post('UserPromptSubmit', { prompt: 'make it thinner' })
+    kept = keptAs(9)
+    builds(obj.id, 7, 9)
+    await looks(post)
+    expect(await post('Stop', {})).toEqual({
+      decision: 'block',
+      reason: 'M4 passed on r7 and fails on r9 (6 mm, expected 8 ± 0.05). Fix it, or say why it must change.'
+    })
+    expect(detail).toHaveBeenCalledWith(obj.id, 'M4', 9)
+    expect(detail).toHaveBeenCalledTimes(1)
+    // The dimensions are measured on the build before it is judged.
+    expect(settled).toHaveBeenCalledWith(obj.id, 9, expect.any(Number))
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+  })
+
+  it('names the dimensions the turn broke, several, in the plural; and without a value says only that it fails', async () => {
+    const verdicts = REVISIONS([
+      [7, [['M4', 'pass'], ['M5', 'pass']]],
+      [9, [['M4', 'fail'], ['M5', 'fail']]]
+    ])
+    let kept = keptAs(7)
+    const { obj, post } = await begun({ verdicts, detail: async (_id, mark) => (mark === 'M4' ? '6 mm, expected 8 ± 0.05' : undefined), scene: () => kept })
+    land(ok(obj.id, 7))
+    await post('UserPromptSubmit', { prompt: 'thinner' })
+    kept = keptAs(9)
+    builds(obj.id, 7, 9)
+    await looks(post)
+    expect(await post('Stop', {})).toEqual({
+      decision: 'block',
+      reason: 'M4 passed on r7 and fails on r9 (6 mm, expected 8 ± 0.05); M5 passed on r7 and fails on r9. Fix them, or say why they must change.'
+    })
+  })
+
+  it('holds a Stop back for the dimension with the look it still lacks, and counts both reasons as held', async () => {
+    const verdicts = REVISIONS([
+      [7, [['M4', 'pass']]],
+      [9, [['M4', 'fail']]]
+    ])
+    let kept = keptAs(7)
+    const { obj, post } = await begun({ verdicts, scene: () => kept })
+    land(ok(obj.id, 7))
+    await post('UserPromptSubmit', { prompt: 'thinner' })
+    kept = keptAs(9)
+    builds(obj.id, 7, 9)
+    expect(await post('Stop', {})).toEqual({
+      decision: 'block',
+      reason: 'M4 passed on r7 and fails on r9. Fix it, or say why it must change. You have not looked at it either: call mcp__torno__look.'
+    })
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+  })
+
+  it('does not wait for the dimensions when none passed when the turn began', async () => {
+    const settled = vi.fn(async () => {})
+    let kept = keptAs(7)
+    const { obj, post } = await begun({ verdicts: REVISIONS([[7, [['M4', 'fail']]]]), settled, scene: () => kept })
+    land(ok(obj.id, 7))
+    await post('UserPromptSubmit', { prompt: 'thinner' })
+    kept = keptAs(9)
+    builds(obj.id, 7, 9)
+    await looks(post)
+    expect(await post('Stop', {})).toEqual({})
+    expect(settled).not.toHaveBeenCalled()
+  })
+
+  it('waits for a build that runs, then judges its result', async () => {
+    const { obj, post } = await begun({ stop: 3000 })
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    land(building(obj.id, 7))
+    setTimeout(() => land(failed(obj.id, 7)), 150)
+    const begunAt = Date.now()
+    expect(await post('Stop', {})).toEqual({ decision: 'block', reason: 'The latest build (r8) failed: NameError: x. Fix it, or say it is still broken.' })
+    expect(Date.now() - begunAt).toBeGreaterThanOrEqual(140)
+    expect(Date.now() - begunAt).toBeLessThan(2500)
+  })
+
+  it('holds a Stop back once for a build still running after the wait, and lets the next go', async () => {
+    const { obj, post } = await begun({ stop: 250 })
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    land(building(obj.id, 7))
+    expect(await post('Stop', {})).toEqual({
+      decision: 'block',
+      reason: 'A build begun in this turn is still running (r8). Call mcp__torno__scene for its result, then mcp__torno__look, before finishing.'
+    })
+    expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+  })
+
+  it('does not wait for a build that began before the turn', async () => {
+    const { obj, post } = await begun({ stop: 5000 })
+    land(building(obj.id, 7))
+    await new Promise((done) => setTimeout(done, 20))
+    await post('UserPromptSubmit', { prompt: 'what is it?' })
+    const begunAt = Date.now()
+    expect(await post('Stop', {})).toEqual({})
+    expect(Date.now() - begunAt).toBeLessThan(1000)
+  })
+
+  it('reads a Write of the stand-in: the file is written between the hooks, the build is told, and a Stop it ends the turn with is held for a look', async () => {
+    states = new Map()
+    own = recording(await startHttp())
+    const server = own
+    made = new Sessions({
+      configDir,
+      http: server,
+      adapter: claudeAdapter(`node ${FAKE}`),
+      viewFor: () => 'chat',
+      contextFor: () => ({ text: '', sentMarkIds: [] }),
+      build: (id) => states.get(id),
+      buildContextFor: (id) => told(id),
+      editTiming: { answerMs: 5000, graceMs: 1500 },
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => server.url(`/mcp/${id}`)
+    })
+    others.push(made)
+    n += 1
+    const obj = { ...object(`written-${n}`), model: 'part.py' }
+    const messages: StreamMessage[] = []
+    made.on('stream', (m) => messages.push(m.message))
+    const { sessionId } = await made.start(obj, {})
+    // The watcher: the save begins a build and the build ends.
+    let seenFile = false
+    const timer = setInterval(() => {
+      if (seenFile || !existsSync(join(obj.dir, 'part.py'))) return
+      seenFile = true
+      land(building(obj.id, 2))
+      setTimeout(() => land(ok(obj.id, 3)), 100)
+    }, 10)
+    try {
+      made.prompt(sessionId, [{ type: 'text', text: 'write part.py x = 1\\ny = 2' }])
+      await expect.poll(() => messages.filter((m) => m.type === 'result').length, { timeout: 10_000 }).toBe(1)
+    } finally {
+      clearInterval(timer)
+    }
+    expect(readFileSync(join(obj.dir, 'part.py'), 'utf8')).toBe('x = 1\ny = 2')
+    const hooked = messages.filter((m) => m.type === 'system' && m.subtype === 'hook_response' && m.hook_event !== 'UserPromptSubmit').map((m) => `${m.hook_event}: ${m.output}`)
+    expect(hooked).toEqual(['PostToolUse: r3 ok', `Stop: ${UNLOOKED(3).reason}`])
   })
 
   it('tells what the build did to the parts, from the real kernel, and holds a Stop back once for a part that came apart', async () => {
@@ -2147,15 +2416,15 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     const { obj, post } = await begun({ scene: () => kept })
     await post('UserPromptSubmit', { prompt: 'thinner' })
     kept = { revision: 4, scene: sound({ volume: 200 }) }
-    land(building(obj.id, 3))
-    land(ok(obj.id, 4))
+    builds(obj.id, 3, 4)
+    await looks(post)
     expect(await post('Stop', {})).toEqual({})
 
     kept = { revision: 5, scene: sound({ valid: false }) }
     await post('UserPromptSubmit', { prompt: 'what is wrong?' })
-    land(building(obj.id, 4))
-    land(ok(obj.id, 6))
+    builds(obj.id, 4, 6)
     kept = { revision: 6, scene: sound({ valid: false, volume: 700 }) }
+    await looks(post)
     expect(await post('Stop', {})).toEqual({})
   })
 

@@ -89,7 +89,11 @@ therefore never "Not sent" after a Stop. Every `init` has what the CLI says of i
 with torno's when `--plugin-dir` was given, `skills` of the person's only, `apiKeySource` `none`,
 `claude_code_version` 2.1.300), and `FAKE_AGENT_INIT=<json>` replaces fields of it or adds `mcp_servers` with
 `mcp_server_errors` or `plugin_errors` (`e2e/account.spec.ts`), and the commands `retry <attempt> [<s>]` (`api_retry`), `deny <tool> <json>` (a permission
-denial in the turn's `result`) and `argv` play the rest. `FAKE_AGENT_FAIL=<text>` makes it write that to stderr and exit 1
+denial in the turn's `result`) and `argv` play the rest. `write <file> <content>` plays a `Write`: its `PreToolUse` and
+`PostToolUse` carry `tool_use_id` and `tool_input` (`file_path`, absolute, and `content`), the file is really written
+between them (`file` from the folder it runs in, a `\n` in the content a new line), and the answer of the `PostToolUse`
+is said as a `system`/`hook_response`. A `Stop` torno answers with `decision: block` is not the end of the turn: the
+stand-in says the reason as a `hook_response` of the `Stop` and posts it again with `stop_hook_active`, as the CLI does. `FAKE_AGENT_FAIL=<text>` makes it write that to stderr and exit 1
 at once; `FAKE_AGENT_INIT_ERROR=<text>` makes it answer `initialize` with that error. Its permission suggestions are the three kinds the real CLI sends, so a test
 proves that only the session rule is passed on. Specs that drive a terminal call `inTerminal` (`e2e/terminal.ts`),
 which writes `view: 'terminal'` into their temporary copy's `.torno/agent.json`. Give the run a HOME of its own
