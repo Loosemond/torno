@@ -317,6 +317,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.layout !== prev.layout || s.layers !== prev.layers || s.section !== prev.section || apart !== wasApart) report()
     // After the layout: a mark of another layout is gone to once that layout is shown.
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
+    else if (s.markReveal !== prev.markReveal && s.activeMark) viewport.revealMark(s.activeMark)
     if (s.scanFramed !== prev.scanFramed && s.scanFramed) viewport.frameScan(s.scanFramed.id)
   })
 

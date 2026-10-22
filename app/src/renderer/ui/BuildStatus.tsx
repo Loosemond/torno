@@ -25,12 +25,13 @@ export function defectsSaid(parts: readonly Part[]): string {
 }
 
 /**
- * Goes to a mark as its row does (`focusMark`: its layout is shown when it is
- * of another, and it is the active one), and brings its row into view in the
- * marks panel. One of a layout the build no longer has is only made active.
+ * Goes to a mark as its row does (`selectMark`: its layout is shown when it is
+ * of another, it is the active one, and the camera moves only when it is not in
+ * view), and brings its row into view in the marks panel. One of a layout the
+ * build no longer has is only made active.
  */
 export function goToRow(id: string): void {
-  actions.focusMark(id)
+  actions.selectMark(id)
   actions.setActiveMark(id)
   // Its row is there already, whichever layout is shown: an open mark is never folded away.
   document.querySelector(`.mark-row[data-mark="${id}"]`)?.scrollIntoView({ block: 'nearest' })

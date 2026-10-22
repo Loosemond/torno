@@ -171,7 +171,7 @@ export function MarkRow({
       aria-current={active ? 'true' : undefined}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
-      onClick={() => actions.focusMark(mark.id)}
+      onClick={() => actions.selectMark(mark.id)}
     >
       <span className="mark-chip num" data-author={mark.author} title={[mark.author === 'user' ? 'Your mark' : "The agent's mark", resolved ? '' : anchorNote].filter(Boolean).join('. ')}>
         {label}

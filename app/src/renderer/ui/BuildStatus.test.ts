@@ -20,7 +20,7 @@ describe('the click on the count of failing dimensions', () => {
   beforeEach(() => {
     scrolled = []
     vi.stubGlobal('document', { querySelector: (selector: string) => ({ scrollIntoView: () => void scrolled.push(selector) }) })
-    store.setState({ objectId: 'bracket', scene: SCENE, revision: 3, layout: 'assembly', marks: [dim('M2', { layout: 'print' }), dim('M5')] as Mark[], activeMark: 'M5', markFocus: 0 })
+    store.setState({ objectId: 'bracket', scene: SCENE, revision: 3, layout: 'assembly', marks: [dim('M2', { layout: 'print' }), dim('M5')] as Mark[], activeMark: 'M5', markFocus: 0, markReveal: 0 })
   })
 
   afterEach(() => {
@@ -32,8 +32,9 @@ describe('the click on the count of failing dimensions', () => {
     const s = store.getState()
     expect(s.layout).toBe('print')
     expect(s.activeMark).toBe('M2')
-    // The view goes to it, as on a click on the row.
-    expect(s.markFocus).toBe(1)
+    // Brought into view as on a click on the row: the camera moves only when it is not in view.
+    expect(s.markReveal).toBe(1)
+    expect(s.markFocus).toBe(0)
     expect(scrolled).toEqual(['.mark-row[data-mark="M2"]'])
   })
 
@@ -45,7 +46,7 @@ describe('the click on the count of failing dimensions', () => {
   it('makes a mark of a layout the build no longer has the active one, and shows no other layout for it', () => {
     store.setState({ marks: [dim('M2', { layout: 'gone' }), dim('M5')] as Mark[] })
     goToRow('M2')
-    expect(store.getState()).toMatchObject({ layout: 'assembly', activeMark: 'M2', markFocus: 0 })
+    expect(store.getState()).toMatchObject({ layout: 'assembly', activeMark: 'M2', markFocus: 0, markReveal: 0 })
     expect(scrolled).toEqual(['.mark-row[data-mark="M2"]'])
   })
 })

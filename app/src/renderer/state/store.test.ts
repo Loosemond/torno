@@ -452,6 +452,24 @@ describe('marks', () => {
     expect(store.getState()).toMatchObject({ activeMark: 'M2', markFocus: asked + 3 })
   })
 
+  it('selecting a mark makes it the active one and shows its layout, and asks for the camera only where it is not in view', () => {
+    actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
+    actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), { ...pin('M2', 'on the bed'), layout: 'print' }] })
+    const { markFocus, markReveal } = store.getState()
+    actions.selectMark('M1')
+    // The view it was placed from is not asked for: the viewport brings it into view only when it is not.
+    expect(store.getState()).toMatchObject({ activeMark: 'M1', layout: 'assembly', markFocus, markReveal: markReveal + 1 })
+    actions.selectMark('M2')
+    expect(store.getState()).toMatchObject({ activeMark: 'M2', layout: 'print', markFocus, markReveal: markReveal + 2 })
+    actions.selectMark('M9')
+    expect(store.getState()).toMatchObject({ activeMark: 'M2', markReveal: markReveal + 2 })
+    // A mark whose layout the build no longer has is not selected either.
+    actions.applyScene({ objectId: 'bracket', revision: 2, scene: scene({ assembly: ['base', 'post'] }) })
+    actions.selectMark('M1')
+    actions.selectMark('M2')
+    expect(store.getState()).toMatchObject({ activeMark: 'M1', layout: 'assembly', markReveal: markReveal + 3 })
+  })
+
   it('going to a mark whose layout the build no longer has does nothing: it is not made active, and the camera is not asked for', () => {
     actions.applyScene({ objectId: 'bracket', revision: 1, scene: BRACKET })
     actions.setMarks({ objectId: 'bracket', marks: [pin('M1', 'here'), { ...pin('M2', 'on the bed'), layout: 'print' }] })

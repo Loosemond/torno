@@ -62,6 +62,17 @@ const row = (id: string, p: Page = page) => p.locator(`.mark-row[data-mark="${id
 const rows = (p: Page = page) => p.locator('.mark-row')
 const markScreen = (id: string, p: Page = page) => p.evaluate((mark) => window.__tornoTest!.markScreen(mark), id)
 
+/** The camera once it has come to rest: the same twice, a moment apart. */
+async function resting(p: Page = page): Promise<Camera> {
+  let last = JSON.stringify(await camera(p))
+  for (;;) {
+    await p.waitForTimeout(250)
+    const now = JSON.stringify(await camera(p))
+    if (now === last) return JSON.parse(now) as Camera
+    last = now
+  }
+}
+
 async function openObject(name: string, p: Page = page): Promise<void> {
   await openListed(p, name)
   await expect.poll(async () => (await state(p)).build?.status, { timeout: 30_000 }).toBe('ok')
@@ -220,20 +231,39 @@ test('a note is written in the panel and kept in .torno/marks.json; the view key
   await page.evaluate(() => window.torno.marks.update('bracket', 'M2', { note: 'move it up' }))
 })
 
-test('clicking a row makes its mark the active one and goes to the view it was placed from', async () => {
+test('clicking a row makes its mark the active one; the camera moves only for a mark out of view, and "Go to" always goes', async () => {
   const placedFrom = marksOnDisk().marks[1].camera
+  const from = async (c: Camera): Promise<number> => {
+    const now = await camera()
+    return Math.max(...now.position.map((v, i) => Math.abs(v - c.position[i])), ...now.target.map((v, i) => Math.abs(v - c.target[i])))
+  }
   await page.getByRole('button', { name: 'Top', exact: true }).click()
   await expect.poll(async () => (await camera()).position[2]).toBeGreaterThan(placedFrom.position[2] + 1)
+  const top = await resting()
+  expect((await markScreen('M2'))?.visible).toBe(true)
   await row('M2').locator('.mark-chip').click()
   await expect(row('M2')).toHaveAttribute('aria-current', 'true')
   await expect(row('M1')).not.toHaveAttribute('aria-current', 'true')
   expect((await state()).activeMark).toBe('M2')
-  await expect
-    .poll(async () => {
-      const c = await camera()
-      return Math.max(...c.position.map((v, i) => Math.abs(v - placedFrom.position[i])), ...c.target.map((v, i) => Math.abs(v - placedFrom.target[i])))
-    })
-    .toBeLessThan(1e-6)
+  // In view already: the view the person set up stays.
+  expect(await resting()).toEqual(top)
+
+  // The reticle at the end of the row goes to the view it was placed from, in view or not.
+  await page.getByRole('button', { name: 'Go to M2', exact: true }).click()
+  await expect.poll(() => from(placedFrom)).toBeLessThan(1e-6)
+
+  // Close in on M1, far from M2: M2 is out of view, and a click on its row goes to where it was placed from.
+  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await resting()
+  const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
+  const one = (await markScreen('M1'))!
+  await page.mouse.move(canvas.x + one.x * canvas.width, canvas.y + one.y * canvas.height)
+  for (let i = 0; i < 16; i++) await page.mouse.wheel(0, -400)
+  await expect.poll(async () => (await markScreen('M2'))?.visible).toBe(false)
+  await resting()
+  await row('M2').locator('.mark-chip').click()
+  await expect.poll(() => from(placedFrom)).toBeLessThan(1e-6)
+  await expect.poll(async () => (await markScreen('M2'))?.visible).toBe(true)
 })
 
 test('the mark being worked on is drawn like any other in the picture the agent gets', async () => {

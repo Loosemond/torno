@@ -114,6 +114,8 @@ export interface TornoState {
   noting: string | null
   /** Counts the times the camera was asked to go to the active mark's view. */
   markFocus: number
+  /** Counts the times the active mark was asked to be brought into view: the camera goes to its view only when it is not in view. */
+  markReveal: number
   /** The scan to bring into view with the parts, and a count of the times that was asked: "Frame" on its row. Null until it is. */
   scanFramed: { id: string; n: number } | null
   /**
@@ -175,6 +177,7 @@ export const store = createStore<TornoState>(() => ({
   versions: {},
   ...NO_OBJECT,
   markFocus: 0,
+  markReveal: 0,
   scanFramed: null,
   ortho: false,
   lockedView: null,
@@ -696,14 +699,16 @@ export const actions = {
    * build no longer has.
    */
   focusMark(id: string): void {
-    const before = store.getState()
-    const mark = before.marks.find((m) => m.id === id)
-    // A mark of a layout the build no longer has cannot be shown: nothing is made of it, and the row says why.
-    // A region is of its scan in every layout: it is gone to where the person is.
-    if (!mark || (mark.kind !== 'region' && before.scene !== null && !before.scene.layouts.includes(mark.layout))) return
-    if (mark.kind !== 'region') actions.setLayout(mark.layout)
-    const s = store.getState()
-    store.setState({ activeMark: id, markFocus: s.markFocus + 1, noting: s.noting === id ? id : null })
+    goToMark(id, 'markFocus')
+  },
+
+  /**
+   * Make a mark the active one, in its own layout, as a click on its row does: the layout is switched first when it
+   * is another. The camera stays where it is unless the mark is not in view (`markReveal`): a view the person set
+   * up is not thrown away to read a note. "Go to its view" is `focusMark`.
+   */
+  selectMark(id: string): void {
+    goToMark(id, 'markReveal')
   },
 
   /** Main said what was wrong with an object's marks file. It stays until it is dismissed or another object is opened. */
@@ -884,6 +889,21 @@ function withoutScans(shown: TornoState['shownByAgent'], gone: (id: string) => b
 export function samePlane(a: SectionPlane | null, b: SectionPlane | null): boolean {
   if (a === null || b === null) return a === b
   return a.origin.every((c, i) => c === b.origin[i]) && a.normal.every((c, i) => c === b.normal[i])
+}
+
+/**
+ * Make a mark the active one in its own layout and ask the viewport for the camera: to go to its view (`markFocus`),
+ * or to bring it into view only when it is not (`markReveal`). Nothing for a mark whose layout the build no longer has.
+ */
+function goToMark(id: string, ask: 'markFocus' | 'markReveal'): void {
+  const before = store.getState()
+  const mark = before.marks.find((m) => m.id === id)
+  // A mark of a layout the build no longer has cannot be shown: nothing is made of it, and the row says why.
+  // A region is of its scan in every layout: it is gone to where the person is.
+  if (!mark || (mark.kind !== 'region' && before.scene !== null && !before.scene.layouts.includes(mark.layout))) return
+  if (mark.kind !== 'region') actions.setLayout(mark.layout)
+  const s = store.getState()
+  store.setState({ activeMark: id, [ask]: s[ask] + 1, noting: s.noting === id ? id : null })
 }
 
 /** What changes with the layout shown: the selection and the note go, and the active mark unless it is of that layout. */

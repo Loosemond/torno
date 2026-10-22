@@ -81,6 +81,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`hoverMark` of `ui/markHover.ts`, called as the pointer goes on and off, never per move): the row has its hover
   background (`data-hovered`), the chip a fainter ring than the active one's (`drawLabels`'s `hovered`), and the
   faces the mark is on are lit by `peek`, as a ref chip of the chat lights them: no agent line, no locked tools.
+  A click on a row is `actions.selectMark` (the mark active, its layout shown): the camera moves to the view it was
+  placed from only when its label is not in view (`markReveal`, `Viewport.revealMark`, `needsCamera`). "Go to its
+  view", the reticle of the row, and a mark's chip in the chat are `actions.focusMark`, which always goes there.
 - The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts), "With the agent"
   (sent), "To review" and the fold "Resolved"; a heading only for a group that has marks, and the heading says
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is

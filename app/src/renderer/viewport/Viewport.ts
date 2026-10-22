@@ -11,7 +11,7 @@ import { CameraMove, standingAt } from './cameraMoves'
 import { PartsApart, asBuilt, drawnAt, drawnBox, reachingApart, leavesView } from './explode'
 import { groundOf } from './ground'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
-import { mmPerPx } from './marks/labels'
+import { mmPerPx, needsCamera } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
@@ -418,6 +418,11 @@ export class Viewport {
   focusMark(id: string): void {
     const mark = this.allMarks.find((m) => m.id === id)
     if (mark) this.setView(mark.camera, true)
+  }
+
+  /** Brings a mark of the layout shown into view: to the view it was placed from, only when its label is not in view now (`needsCamera`). */
+  revealMark(id: string): void {
+    if (needsCamera(this.markLabel(id))) this.focusMark(id)
   }
 
   /** Where the label of a mark of the layout shown is on the canvas, in client pixels, and whether it is in view; null for a mark that is not drawn. */

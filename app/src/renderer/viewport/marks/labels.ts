@@ -66,6 +66,14 @@ const POINT_PX = 5
 const TURNS = [0, 45, -45, 90, -90, 135, -135, 180].map((d) => (d * Math.PI) / 180)
 const RINGS = 5
 
+/**
+ * Whether bringing a selected mark into view moves the camera to the view it was placed from: only when its label
+ * is not in view now. One that is not drawn (null: resolved, on a part switched off) has no place on screen but there.
+ */
+export function needsCamera(label: Pick<Label, 'visible'> | null): boolean {
+  return label?.visible !== true
+}
+
 /** What a mark is called on screen and in pictures. */
 export function labelText(mark: Pick<Mark, 'id' | 'anchorState'>): string {
   return mark.id + (mark.anchorState === 'drifted' ? '~' : mark.anchorState === 'orphaned' ? '?' : '')
