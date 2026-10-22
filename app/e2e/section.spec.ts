@@ -673,33 +673,51 @@ for (const shot of [
 }
 
 test('the bar stays clear of the triad bottom left and the scale bottom right, in a wide view and in a narrow one', async () => {
+  test.setTimeout(90_000)
   await open('bracket')
-  if ((await section()) === null) await page.keyboard.press('x')
+  if ((await section()) === null) {
+    if ((await page.locator('.tool-button[data-tool="section"]').getAttribute('aria-pressed')) !== 'true') await page.keyboard.press('x')
+    await bar().getByRole('button', { name: 'Cut across Z' }).click()
+  }
+  expect(await section()).not.toBeNull()
   await expect(bar()).toBeVisible()
   const was = await page.evaluate(() => [window.innerWidth, window.innerHeight])
   const widths: number[] = []
   try {
-    // The window narrows the view with it: the pane is the window less the left column and the dock.
-    for (const width of [1100, 1300, 1440, 1700, 2000, 2600]) {
-      await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, 900])
-      await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width)
-      // The attribute follows the view's width, set when the observer is told.
-      await expect
-        .poll(async () => {
-          const pane = (await page.locator('.viewport-pane').boundingBox())!
-          return (await page.locator('.viewport-pane').getAttribute('data-narrow')) === null === pane.width >= 560 + 2 * BAR_SIDE
-        })
-        .toBe(true)
-      const pane = (await page.locator('.viewport-pane').boundingBox())!
-      const box = (await bar().boundingBox())!
-      widths.push(Math.round(pane.width))
-      const bottom = pane.y + pane.height
-      // The corners as the overlay draws them: the triad's reach (its corner, arms and letters) and the scale bar or the grid's step at its longest.
-      const triad = { left: pane.x, right: pane.x + Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT), top: bottom - TRIAD_CLEAR }
-      const scale = { left: pane.x + pane.width - Math.ceil(26 * SCREEN_UNIT + SCALE_BAR_MAX), right: pane.x + pane.width, top: bottom - Math.ceil(26 * SCREEN_UNIT + 20) }
-      const meets = (corner: { left: number; right: number; top: number }): boolean => box.x < corner.right && box.x + box.width > corner.left && box.y + box.height > corner.top && box.y < bottom
-      expect([width, 'triad', meets(triad)]).toEqual([width, 'triad', false])
-      expect([width, 'scale', meets(scale)]).toEqual([width, 'scale', false])
+    for (const tool of ['section', 'measure'] as const) {
+      // The strip of the Measure tool is in the corner too: with it in hand the bar, which stays while a plane is cut, must clear it as well.
+      const hand = page.locator(`.tool-button[data-tool="${tool}"]`)
+      if ((await hand.getAttribute('aria-pressed')) !== 'true') await hand.click()
+      await expect(hand).toHaveAttribute('aria-pressed', 'true')
+      await expect(page.locator('.measure-choice')).toHaveCount(tool === 'measure' ? 1 : 0)
+      // The window narrows the view with it: the pane is the window less the left column and the dock.
+      for (const width of [1100, 1300, 1440, 1700, 2000, 2600]) {
+        await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, 900])
+        await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width)
+        // The attribute follows the view's width, set when the observer is told.
+        await expect
+          .poll(async () => {
+            const pane = (await page.locator('.viewport-pane').boundingBox())!
+            return (await page.locator('.viewport-pane').getAttribute('data-narrow')) === null === pane.width >= 560 + 2 * BAR_SIDE
+          })
+          .toBe(true)
+        const pane = (await page.locator('.viewport-pane').boundingBox())!
+        const box = (await bar().boundingBox())!
+        widths.push(Math.round(pane.width))
+        const bottom = pane.y + pane.height
+        // The corners as the overlay draws them: the triad's reach (its corner, arms and letters) and the scale bar or the grid's step at its longest.
+        const triad = { left: pane.x, right: pane.x + Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT), top: bottom - TRIAD_CLEAR }
+        const scale = { left: pane.x + pane.width - Math.ceil(26 * SCREEN_UNIT + SCALE_BAR_MAX), right: pane.x + pane.width, top: bottom - Math.ceil(26 * SCREEN_UNIT + 20) }
+        const meets = (corner: { left: number; right: number; top: number }): boolean => box.x < corner.right && box.x + box.width > corner.left && box.y + box.height > corner.top && box.y < bottom
+        expect([width, 'triad', meets(triad)]).toEqual([width, 'triad', false])
+        expect([width, 'scale', meets(scale)]).toEqual([width, 'scale', false])
+        if (tool === 'measure') {
+          const strip = (await page.locator('.measure-choice').boundingBox())!
+          // Above the triad, and not under the bar: one of them is wholly above the other.
+          expect([width, 'strip over the triad', strip.y + strip.height <= triad.top]).toEqual([width, 'strip over the triad', true])
+          expect([width, 'strip clear of the bar', strip.y + strip.height <= box.y || box.y + box.height <= strip.y || strip.x + strip.width <= box.x || box.x + box.width <= strip.x]).toEqual([width, 'strip clear of the bar', true])
+        }
+      }
     }
     // The widths cover both the lifted bar and the one between the corners.
     expect(Math.min(...widths)).toBeLessThan(560 + 2 * BAR_SIDE)
@@ -707,5 +725,7 @@ test('the bar stays clear of the triad bottom left and the scale bottom right, i
   } finally {
     await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), was)
     await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(was[0])
+    const section = page.locator('.tool-button[data-tool="section"]')
+    if ((await section.getAttribute('aria-pressed')) !== 'true') await section.click()
   }
 })

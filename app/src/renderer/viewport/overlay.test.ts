@@ -259,6 +259,8 @@ describe('the axes and the scale on the person’s screen', () => {
       expect(css, sheet).not.toContain('2 * var(--space-3)')
     }
     expect(layout).toMatch(/\.viewport-pane\[data-narrow\] \{[^}]*--bar-lift: calc\(var\(--triad-clear\) \+ var\(--space-1\)\)/)
+    // With the Measure tool in hand the bars stand above its strip (36 px: its height and a gap), which is above the triad.
+    expect(layout).toMatch(/\.viewport-pane\[data-narrow\]:has\(\.measure-choice\) \{[^}]*--bar-lift: calc\(var\(--triad-clear\) \+ var\(--space-1\) \+ 36px\)/)
     // Where the view is as wide as the widest bar and both sides, the bars are not lifted.
     expect(NARROW_BELOW).toBe(560 + 2 * BAR_SIDE)
   })

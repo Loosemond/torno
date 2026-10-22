@@ -102,6 +102,11 @@ button {
   --bar-lift: calc(var(--triad-clear) + var(--space-1));
 }
 
+/* The strip of the Measure tool stands above the triad too, at the left, and a bar is centred: with the tool in hand the bars stand above the strip (36px: its height and a gap), so the two never meet. */
+.viewport-pane[data-narrow]:has(.measure-choice) {
+  --bar-lift: calc(var(--triad-clear) + var(--space-1) + 36px);
+}
+
 .viewport-canvas,
 .viewport-canvas canvas {
   position: absolute;
