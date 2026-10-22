@@ -2,6 +2,7 @@ import type { BuildState } from './build'
 import type { ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel } from './chat'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
+import type { InstructionFile } from './instructions'
 import type { Mark, MarkPatch, NewMark, NewRegion, Replacement } from './marks'
 import type { Scene } from './scene'
 import type { AlignMade, NewAlignment, Reimported, ScanInfo, ScanUnit, ScanUp } from './scans'
@@ -228,6 +229,10 @@ export interface TornoBridge {
     start(objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number; skills?: false }): Promise<{ sessionId: string; cols: number; rows: number; status: SessionStatus; view: AgentView }>
     /** The person said to start the chat in the object's folder though it has Claude Code settings of its own (the question `start` refused with): remembered in torno's own data, for the real path of the folder. */
     trust(objectId: string): Promise<void>
+    /** The instruction files Claude Code reads by default for the object (its folder, every folder above it, the person's own): paths and sizes, never their text. Main keeps the list its rows are numbered by. */
+    instructions(objectId: string): Promise<InstructionFile[]>
+    /** Shows the file at that place of the list last given for the object in its folder. Never opens or runs it; rejects when the place is not in the list. */
+    revealInstruction(objectId: string, index: number): Promise<void>
     /** Keeps the view (`chat` or `terminal`) of an object's sessions to come in its `.torno/agent.json`. Rejects while a session runs there. */
     chooseView(objectId: string, view: AgentView): Promise<void>
     write(sessionId: string, data: string): void

@@ -18,6 +18,7 @@ import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './ex
 import { loadAssets } from './export/html'
 import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
 import { defaultExportPath, exportPath, prepareExports, writeExport } from './export/save'
+import { type InstructionList } from './instructions'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
@@ -461,6 +462,10 @@ export function registerIpc(
     confirmReplace?: (path: string) => Promise<boolean>
     /** Stands in for having the system open a file an export wrote (a 3MF, in the person's slicer). */
     openFile?: (path: string) => Promise<void>
+    /** The instruction files Claude Code reads for an object, as the session pane lists them. */
+    instructions?: InstructionList
+    /** Stands in for showing a file in its folder (`shell.showItemInFolder`), which tests must never do. */
+    revealFile?: (path: string) => void
   } = {}
 ): void {
   sessions = opts.sessions ?? null
@@ -605,6 +610,21 @@ export function registerIpc(
     const obj = findObject(objectId)
     if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
     await requireSessions().trust(obj)
+  })
+
+  // The instruction files Claude Code reads for an object (`main/instructions.ts`): paths and sizes, never their text. The list is kept, so that a row is named by its place in it.
+  handle('session:instructions', async (_event, objectId: string) => {
+    const obj = findObject(String(objectId))
+    if (!obj || !opts.instructions) return []
+    return opts.instructions.find(obj.id, obj.dir)
+  })
+
+  // A row of that list shown in its folder: never opened, never run, and never a path from the window.
+  handle('session:revealInstruction', async (_event, objectId: string, index: number) => {
+    const file = opts.instructions?.at(String(objectId), index)
+    if (!file) throw new Refusal('That file is no longer in the list')
+    if (opts.revealFile) opts.revealFile(file.path)
+    else shell.showItemInFolder(file.path)
   })
 
   // The view is of the sessions to come: the one that runs is of the view it was started in, and is ended first.

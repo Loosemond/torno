@@ -218,7 +218,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys', 'instructions'] as const
 
 /** Shots of a window with no folder open, or an empty one, where no object is opened. */
 const FIRST_SCREEN = ['welcome-first', 'welcome-first-ready', 'welcome-first-open'] as const
@@ -231,8 +231,25 @@ for (const theme of ['light', 'dark'] as const) {
     test(`capture of the window, ${shot}, ${theme}`, async () => {
       test.skip(!process.env.TORNO_SHOTS, 'TORNO_SHOTS is not set')
       test.setTimeout(120_000)
-      const root = ['empty', 'welcome', 'ready-sheet', 'onboard-missing', ...FIRST_SCREEN].includes(shot) ? temp('bare') : workspace()
+      let root = ['empty', 'welcome', 'ready-sheet', 'onboard-missing', ...FIRST_SCREEN].includes(shot) ? temp('bare') : workspace()
       const env: Record<string, string> = {}
+      // The instruction files Claude Code reads: the workspace is `~/objects` of a home of this test's own (so that the person's real
+      // ~/.claude/CLAUDE.md is never listed), with a CLAUDE.md above the object, one of the person's own, and a rules folder in the object.
+      let home: string | null = null
+      if (shot === 'instructions') {
+        home = temp('home')
+        cpSync(root, join(home, 'objects'), { recursive: true })
+        rmSync(root, { recursive: true, force: true })
+        root = join(home, 'objects')
+        env.HOME = home
+        writeFileSync(join(root, 'CLAUDE.md'), 'x'.repeat(7168))
+        mkdirSync(join(home, '.claude'))
+        writeFileSync(join(home, '.claude', 'CLAUDE.md'), 'y'.repeat(1229))
+        for (const name of ['style.md', 'tests.md']) {
+          mkdirSync(join(root, 'hollow', '.claude', 'rules'), { recursive: true })
+          writeFileSync(join(root, 'hollow', '.claude', 'rules', name), 'z'.repeat(1100))
+        }
+      }
       if (shot === 'welcome') {
         // The first screen with folders opened lately, one of them gone. The file is this test's own.
         for (const name of ['objects', 'printer-parts']) mkdirSync(join(root, name))
@@ -292,6 +309,15 @@ for (const theme of ['light', 'dark'] as const) {
           await page.mouse.move(view.x + at.x * view.width, view.y + at.y * view.height)
           await expect(page.locator('.pick-readout')).toContainText('2 under')
           await expect(page.locator('.mark-row[data-mark="M3"]')).toHaveAttribute('data-hovered', '')
+        } else if (shot === 'instructions') {
+          // The quiet line in the session pane, with a chat running under it.
+          await expect(page.locator('.session-reads')).toContainText('~/objects/CLAUDE.md')
+          await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
+          await expect(page.locator('[data-chat-composer]')).toBeFocused()
+          await page.keyboard.type('say hello there')
+          await page.keyboard.press('Enter')
+          await expect(page.locator('.chat-turn')).toBeVisible({ timeout: 30_000 })
+          await page.locator('.chat-added').first().getByRole('button', { name: 'Show text' }).click()
         } else if (shot === 'tools') {
           // A tool in hand, its step in the line at the foot of the view, and the tip of a scan's tool with no scan beside the palette.
           await page.keyboard.press('a')
@@ -520,7 +546,7 @@ for (const theme of ['light', 'dark'] as const) {
       } finally {
         await client?.close()
         await app.close()
-        rmSync(root, { recursive: true, force: true })
+        rmSync(home ?? root, { recursive: true, force: true })
       }
     })
   }

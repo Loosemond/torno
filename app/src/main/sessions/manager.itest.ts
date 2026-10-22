@@ -49,13 +49,13 @@ let context = (id: string) => `context for ${id}`
 let drafts = new Map<string, string[]>()
 let delivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
 /** Each time the context of a prompt was asked for: of which object, and whether in a conversation that had not been given one. */
-let asked: Array<{ objectId: string; fresh: boolean; newConversation: boolean }> = []
+let asked: Array<{ objectId: string; fresh: boolean; newConversation: boolean; first: boolean }> = []
 /** What the context waits for before it is given, and what is told when it is asked for. */
 let gate: Promise<void> = Promise.resolve()
 let asking: (() => void) | null = null
 let output = new Map<string, string>()
 /** When a test sets it, the context a prompt is answered with. */
-let answer: ((id: string, opts: { fresh: boolean; newConversation: boolean }) => PromptContext) | null = null
+let answer: ((id: string, opts: { fresh: boolean; newConversation: boolean; first: boolean }) => PromptContext) | null = null
 let statuses = new Map<string, SessionStatus[]>()
 
 function object(id: string): ObjectInfo {
@@ -75,7 +75,7 @@ function make(command = `node ${FAKE}`): Sessions {
     viewFor: (obj) => views.get(obj.id) ?? 'terminal',
     contextFor: async (id, opts) => {
       asking?.()
-      asked.push({ objectId: id, fresh: opts.fresh, newConversation: opts.newConversation })
+      asked.push({ objectId: id, fresh: opts.fresh, newConversation: opts.newConversation, first: opts.first })
       await gate
       if (answer) return answer(id, opts)
       return { text: context(id), sentMarkIds: drafts.get(id) ?? [] }
@@ -393,6 +393,29 @@ describe('a session', () => {
     await expect.poll(() => out).toContain('context: ')
     expect(out).not.toContain('reference/')
     listening = false
+  })
+
+  // #50: what Claude Code reads of the folder is told with the first prompt of a session, a resumed one too, and once.
+  it('says the first prompt of a session is the first, resumed or not, and no other', async () => {
+    const obj = object('first')
+    const fresh = await sessions.start(obj, {})
+    await expect.poll(() => said(fresh.sessionId)).toContain('READY')
+    asked = []
+    for (let i = 1; i <= 3; i += 1) {
+      sessions.write(fresh.sessionId, 'hook\r')
+      await expect.poll(() => asked.length).toBe(i)
+    }
+    expect(asked.map((a) => a.first)).toEqual([true, false, false])
+    await sessions.stop(fresh.sessionId)
+    const resumed = await sessions.start(obj, { resume: true })
+    await expect.poll(() => said(resumed.sessionId)).toContain('READY')
+    asked = []
+    for (let i = 1; i <= 2; i += 1) {
+      sessions.write(resumed.sessionId, 'hook\r')
+      await expect.poll(() => asked.length).toBe(i)
+    }
+    // A conversation resumed is not a new one, yet its first prompt is the session's first.
+    expect(asked.map((a) => [a.newConversation, a.first])).toEqual([[false, true], [false, false]])
   })
 
   it('is the one session of its object: starting again returns it', async () => {

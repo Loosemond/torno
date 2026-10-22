@@ -638,6 +638,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   only when the composer is empty and not focused. An unsent prompt in a chat that is not over is among what closing
   the window asks about (`closingWhy`'s `unsent`). "Attach view" is sent in order: main waits for the picture
   before taking the next prompt, so one sent meanwhile cannot overtake it.
+- **The instruction files Claude Code reads** are one quiet line under the view's row in `SessionPane`
+  (`.session-reads`, `role="note"`, shown for both views and with no session, not while a new object is being made;
+  `session.instructions`, asked again when a session starts): "Claude Code also reads" and, for each file, its name
+  (`shared/instructions.ts` `named`, the home folder as `~`, a rules folder with its slash; a button that shows it in its
+  folder by `session.revealInstruction` with the row's index, never a path) and what it weighs (`weighed`: sizes through
+  `shared/format.ts` `bytes`, `a link, not followed`, `3 files, 2.1 KB`), in the monospace face; its title says what the list
+  is (`READS_TITLE`: by default, paths and sizes only, never read or changed). It is no question and nothing of it is stored:
+  there is no "seen" state, and it is there each time the pane is of an object that has some (`e2e/instructions.spec.ts`; the
+  capture `instructions` of `themes.spec.ts`).
 - The chat is refused, with a question, for a folder that has Claude Code settings of its own and has not been let
   (`SessionPane`: `trusting`; main's refusal is `trustQuestion` of `shared/agents.ts`): "Start the chat" asks main
   to remember the folder and starts again, "Use the terminal" chooses that view and starts it.

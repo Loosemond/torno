@@ -66,7 +66,10 @@ window on it.
   same holds for "Import scan…": `pickFile` and `filePicks`, and for "Add photos…" of a new object: `pickPhotos` (a list of paths) and `photoPicks`. Main's `objects:readPhoto` serves only paths its dialog (or this hook) gave, so a test sets `pickPhotos`, clicks the button, and the paths are offered; a test that asks for another path gets the refusal.
 - The save dialog of an export is answered by `__tornoMain.pickSave` (the path to write, or null; `savePicks`,
   `saveOffered`), the question before a replace by `replace` (`replaceAsked`), and a 3MF asked to be opened once
-  saved is never opened: its path goes into `openedFiles`. No test opens a slicer or a CAD program.
+  saved is never opened: its path goes into `openedFiles`. No test opens a slicer or a CAD program. A row of the session
+  pane's instruction files is never shown in a file manager: its path goes into `revealedFiles`
+  (`e2e/instructions.spec.ts`, which gives the app a HOME of its own so that the person's `~/.claude/CLAUDE.md` is never
+  listed, and asserts only the files it made: a machine may have an organisation's `/etc/claude-code/CLAUDE.md`).
 - What torno needs (the first screen's "Ready to work") is found under `TORNO_TEST=1` by looking on the `PATH` alone: `claude`
   is never run, so there is no version and no account to see (`welcome.spec.ts`). A test that points `TORNO_AGENT_CMD` at a
   file that is not there sees "Not found on PATH"; one that takes `uv` off the `PATH` gives the app a folder of links to every

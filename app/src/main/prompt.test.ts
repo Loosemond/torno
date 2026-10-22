@@ -170,6 +170,20 @@ describe("Claude Code's prompt, with the skills", () => {
   })
 })
 
+// #50: which wins for seeing the build is one line of the skill and one of the first prompt of a session (`instructionsLine`); the system prompt has no room for it.
+describe('the model skill and a CLAUDE.md that names another way to see the build', () => {
+  const model = readFileSync(join(__dirname, '../../resources/agent-plugin/skills/torno-model/SKILL.md'), 'utf8').replace(/\s+/g, ' ')
+
+  it('says torno\'s tools are current for the build, and a CLAUDE.md is followed on how to model', () => {
+    for (const said of ['## A CLAUDE.md that names another way to see the build', 'What torno\'s tools say of the build is current', 'names another viewer, report or export step', 'Follow its advice on how to model, not on how to see the build']) expect(model).toContain(said)
+  })
+
+  it('has it in the first prompt of a session, not in the system prompt', () => {
+    expect(SYSTEM_PROMPT).not.toContain('CLAUDE.md')
+    expect(FULL_PROMPT).not.toContain('CLAUDE.md')
+  })
+})
+
 // #119: every tool a prompt or a skill names is a tool torno has, so that a name that is not one (`scan_section` was) is caught here.
 describe('the tools the prompts and the skills name', () => {
   const named = (text: string): string[] => [...text.matchAll(/mcp__torno__([A-Za-z_]+)/g)].map((m) => m[1])

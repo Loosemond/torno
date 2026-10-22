@@ -80,3 +80,12 @@ const NAMED = /(\br\d+\b|[\w.-]+\/[FE]\d+\b)/
 export function namedPieces(text: string): string[] {
   return text.split(NAMED)
 }
+
+/** What a file weighs: bytes under a kilobyte, then kilobytes (1024 bytes) and megabytes to a tenth under ten, whole above. `812 B`, `7.1 KB`, `12 KB`. */
+export function bytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return String(n)
+  if (n < 1024) return `${Math.round(n)} B`
+  const unit = n < 1024 * 1024 ? { size: 1024, name: 'KB' } : { size: 1024 * 1024, name: 'MB' }
+  const value = n / unit.size
+  return `${number(value < 10 ? Math.round(value * 10) / 10 : Math.round(value))} ${unit.name}`
+}

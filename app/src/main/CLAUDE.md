@@ -662,7 +662,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   command line, in its environment, or in a config file of torno's that holds no secret (the `--mcp-config` file,
   `<userData>/agent/<session id>.mcp.json`, written before the agent starts and removed when it has gone; the folder
   is cleared at start). The session's token (`LaunchContext.token`) is in its environment alone, as `TORNO_SESSION`:
-  never in an argument or a file. Nothing of the person's configuration of it is read or written, and nothing is
+  never in an argument or a file. Nothing of the person's configuration of it is written, and none of its settings is
+  read (the instruction files Claude Code reads are listed by path and size, below, and never read), and nothing is
   written in the object folder outside `.torno/`. The MCP address given is of that object alone, and the session's
   token opens that object's MCP server and that session's hooks, nothing else.
 - The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName, skills)`). Claude Code is
@@ -867,7 +868,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   resumed): the system prompt is then the whole text (`systemPromptFor` is given the adapter with `skills` false) and
   `--plugin-dir` is left out (`LaunchContext.skills`). What is known before any session (`main/ready.ts`, The first screen) is the one place torno
   runs `claude --version` and `claude auth status`; a session says what it can of itself through its `init`. Nothing
-  of the person's settings is read.
+  of the person's settings is read, and of the instruction files Claude Code reads only the paths and sizes are.
 - Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and
   show the status `needs_input` while open. They end when the CLI cancels the request (`control_cancel_request`,
   which it sends right after an `interrupt`; the card reads "Cancelled: the turn was stopped", `why`), at any
@@ -902,6 +903,31 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the workspace lets go of the transcripts of sessions that have ended (`forgetEnded`); `endedChat` names the one an
   object still has, for a window loaded since. `Sessions` events `stream`, `ask`, `asked` and `context` have no
   listener in the app: they are the probe the integration tests watch the stand-in through.
+- **The instruction files Claude Code reads** (`src/main/instructions.ts` `findInstructions`, the types and words in
+  `shared/instructions.ts`; paths and sizes only: **no file's text is ever read**, not for the pane and not for the
+  agent). What Claude Code loads at launch by default, as its documentation says ("How Claude remembers your project"),
+  in its load order: the organisation's `CLAUDE.md` (`/etc/claude-code/` on Linux, `/Library/Application
+  Support/ClaudeCode/` on macOS: `managedPath`), the person's `~/.claude/CLAUDE.md` and `~/.claude/rules/`, then from `/`
+  down to the object's folder, in each `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/` (one entry: the folder, the
+  `.md` files under it and their size) and `CLAUDE.local.md`; the person's own `~/.claude` is one entry though the way up
+  passes through their home. `AGENTS.md` and `.claude/AGENTS.md` (Claude Code 2.1.277 or later) are listed in each of those
+  folders only when none of `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` is in the object's folder or above it
+  (the person's file, the organisation's and rules do not count; a link counts, as it may be loaded). `@path` imports, a
+  subfolder's files (loaded on demand) and the settings that leave files out are not followed, and the pane says these
+  are what Claude Code reads by default. A link is `lstat`ed and listed by its own path, with no size, never followed
+  (a link to a network path can hang a stat; `trust.ts` does the same), `.claude` being one included; the rules walk follows
+  none, stops at `MOST_RULE_ENTRIES` entries and `MOST_RULE_DEPTH` levels (the counts are then "at least") and passes
+  over a folder it cannot read; the whole lookup is given `DEADLINE_MS` and finds nothing past it. `home` and the managed
+  path are parameters of the finder, so a test gives its own. `InstructionList` keeps, for each object, the list the
+  pane last asked for (`session:instructions`); a row is shown in its folder by its index into that list
+  (`session:revealInstruction`, `shell.showItemInFolder`, never opened, never run, never a path from the window; under
+  `TORNO_TEST=1` the path goes into `__tornoMain.revealedFiles` and no file manager is started). The first prompt of
+  every session, resumed or not (`first` of `contextFor`'s opts, `Session.firstPrompt`), ends with `instructionsLine`:
+  the files with their sizes (six at most) and "What torno's tools say of the build is current: a file that names
+  another viewer, report or export step is about another way of working, so take its advice on how to model, not on how
+  to see the build", nothing when there are none; its room is kept before the marks are listed. The same rule is one line
+  in the `torno-model` skill (the system prompt has no room for it). Nothing is written or remembered of it: there is no
+  "seen" state.
 - **Trust (`src/main/trust.ts`).** Headless (`-p`) Claude Code skips its workspace-trust question. Before a chat
   starts, `Trust.pending` looks for `.mcp.json`, `.claude/settings.json` and `.claude/settings.local.json` in the
   object folder and each parent up to, not including, the person's home (a link is reported by its own path, not

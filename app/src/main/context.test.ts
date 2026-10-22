@@ -4,6 +4,8 @@ import type { Part, Scene } from '../shared/scene'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import type { Mark } from '../shared/marks'
+import type { InstructionFile } from '../shared/instructions'
+import { instructionsLine } from '../shared/instructions'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import { probe } from '../test/diagnosisFixtures'
 import { buildContextFor, CONTEXT_LIMIT, contextFor, modelOutput, type ContextDeps } from './context'
@@ -59,6 +61,61 @@ describe('the references of a new conversation', () => {
     const text = contextFor(deps({ build: OK, scene: SCENE, references: many }), 'bracket', [], { fresh: true }).text
     expect(text).toContain(`reference/: ${many.slice(0, 12).join(', ')} and 2 more. Read them when they matter`)
     expect(text).not.toContain('photo-13.jpg')
+  })
+})
+
+// #50: the first prompt of a session names the instruction files Claude Code reads, and says what wins for seeing the build.
+describe('the instruction files of a session', () => {
+  const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 1, seconds: 0.5, stale: false }
+  const FILES: InstructionFile[] = [
+    { path: '/home/me/objects/CLAUDE.md', shown: '~/objects/CLAUDE.md', kind: 'project', bytes: 7300 },
+    { path: '/home/me/.claude/CLAUDE.md', shown: '~/.claude/CLAUDE.md', kind: 'user', bytes: 900 }
+  ]
+  const LINE = instructionsLine(FILES)!
+  const pin = (id: string): Mark => ({ id, kind: 'pin', author: 'user', note: 'n'.repeat(60), status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera: CAMERA, createdAt: '', checkedRevision: 1, anchor: { point: [0, 0, 0] } }) as Mark
+
+  it('are named in the last line, with their sizes and which wins', () => {
+    const d = deps({ build: OK, scene: SCENE })
+    const told = contextFor(d, 'bracket', [], { instructions: FILES })
+    expect(told.text.split('\n').at(-1)).toBe(LINE)
+    expect(LINE).toContain('~/objects/CLAUDE.md (7.1 KB), ~/.claude/CLAUDE.md (900 B)')
+    expect(LINE).toContain("What torno's tools say of the build is current")
+    expect(told.sentMarkIds).toEqual([])
+  })
+
+  it('are not said unless asked for: later prompts, and a session with none', () => {
+    const d = deps({ build: OK, scene: SCENE })
+    expect(contextFor(d, 'bracket').text).not.toContain('instruction files')
+    expect(contextFor(d, 'bracket', [], { instructions: [] }).text).not.toContain('instruction files')
+    // Nor with the answer to an edit.
+    expect(buildContextFor(d, 'bracket', [], {}).text).not.toContain('instruction files')
+  })
+
+  it('are said also when the build failed or nothing is built: the prompt is the first of the session all the same', () => {
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 1, stale: true, error: { kind: 'exception', message: 'boom' } }
+    expect(contextFor(deps({ build: failed, scene: SCENE }), 'bracket', [], { instructions: FILES }).text.split('\n').at(-1)).toBe(LINE)
+    expect(contextFor(deps({}), 'bracket', [], { instructions: FILES }).text.split('\n').at(-1)).toBe(LINE)
+  })
+
+  it('keep their room against the traceback of a failed build', () => {
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 1, stale: true, error: { kind: 'exception', message: 'boom', traceback: Array.from({ length: 200 }, (_, i) => `  File "x.py", line ${i}, in f${i}: ${'y'.repeat(60)}`).join('\n') } }
+    const told = contextFor(deps({ build: failed, scene: SCENE }), 'bracket', [], { instructions: FILES })
+    expect(told.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+    expect(told.text.split('\n').at(-1)).toBe(LINE)
+    expect(told.text).toContain('BUILD FAILED')
+  })
+
+  it('come after the references of a new conversation, and keep their room against the marks', () => {
+    const d = deps({ build: OK, scene: SCENE, references: ['photo-1.jpg'] })
+    const lines = contextFor(d, 'bracket', [], { newConversation: true, instructions: FILES }).text.split('\n')
+    expect(lines.at(-2)).toContain('reference/: photo-1.jpg')
+    expect(lines.at(-1)).toBe(LINE)
+    // Drafts that would fill the context to its limit leave the line its room.
+    const many = Array.from({ length: 200 }, (_, i) => pin(`M${i + 1}`))
+    const full = contextFor(d, 'bracket', many, { newConversation: true, instructions: FILES })
+    expect(full.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+    expect(full.text.split('\n').at(-1)).toBe(LINE)
+    expect(full.sentMarkIds.length).toBeGreaterThan(0)
   })
 })
 

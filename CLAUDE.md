@@ -130,6 +130,10 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   pending (`≈`), which the kernel's value replaces. What is taken from a scan
   is the other, and is never said to be exact (see Scans).
 
+- The instruction files Claude Code reads on its own for an object (`CLAUDE.md` and the rest, in the object's folder, above
+  it, and the person's own) are listed by path and size and never read (`app/src/main/instructions.ts`): the session pane
+  shows them, and the first prompt of a session names them and says that what torno's tools say of the build is
+  current. torno reads none of Claude Code's settings and changes nothing of its configuration.
 - Claude Code is the one agent torno runs. It is shown as a chat by default (`view` in `.torno/agent.json`). The
   chat is the CLI's own headless mode (`-p --input-format stream-json --output-format stream-json`) on pipes,
   under the person's own login, never run by a test. Hooks stay the one source of status and of the marks sent;

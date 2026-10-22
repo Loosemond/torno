@@ -457,7 +457,7 @@ the viewport. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
 
 The chat is your own `claude`, under your own login, started in its headless
 mode (JSON on pipes instead of a screen). Torno draws what it says and does;
-nothing of Claude Code's settings is read or changed. `Enter` sends, `Shift+Enter`
+nothing of Claude Code's settings is read or changed (torno lists the paths and sizes of the instruction files Claude Code reads, never their text). `Enter` sends, `Shift+Enter`
 is a new line, and a prompt sent while the agent is at work waits its turn
 ("Queued"; "Stop" interrupts the turn, and what was queued still runs after it).
 
@@ -570,9 +570,11 @@ and any other "Picture not kept".
 
 ### What Claude Code is given
 
-Torno runs Claude Code, and reads and changes nothing of its settings:
-everything it gives it is on the command line, in the environment, or in a
-file of torno's own that holds no secret.
+Torno runs Claude Code, and changes nothing of its settings: everything it
+gives it is on the command line, in the environment, or in a file of torno's
+own that holds no secret. It reads none of its settings either. Of the
+instruction files Claude Code reads on its own, it lists the paths and sizes
+(next paragraphs) and never their text.
 
 - Torno's tools: `--mcp-config` (the path of a file under torno's own data
   folder that names torno's MCP server), `--allowedTools mcp__torno__*`.
@@ -586,6 +588,27 @@ file of torno's own that holds no secret.
   them (idle, working, needs input, ended) and adds to its prompts.
 - What you marked goes with your next prompt, by itself, and counts as sent
   once the prompt's hook has been answered with it.
+- The instruction files Claude Code reads for the object are listed in the
+  session pane, in a quiet line under the view's buttons ("Claude Code also
+  reads `~/objects/CLAUDE.md` 7 KB"), for the chat and for the terminal. It is
+  what Claude Code loads by default when it starts in the object's folder:
+  `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` in the folder and in
+  every folder above it, `.claude/rules/` there (one entry: the folder, how many
+  `.md` files, their size), your own `~/.claude/CLAUDE.md` and
+  `~/.claude/rules/`, and an organisation's file (`/etc/claude-code/CLAUDE.md`
+  on Linux, `/Library/Application Support/ClaudeCode/CLAUDE.md` on a Mac). An
+  `AGENTS.md` or `.claude/AGENTS.md` is listed only when none of the first
+  three is in the folder or above it, as Claude Code reads it only then. Only
+  paths and sizes are looked at, never a file's text, and a link is listed by
+  its own name and not followed. A name is a button that shows the file in its
+  folder in your file manager. It is a list of what Claude Code reads by
+  default: `@path` imports, files of subfolders (which it loads when it works
+  there) and the settings that leave files out (`claudeMdExcludes`,
+  `--setting-sources`, "Project instructions") are not followed. The first
+  prompt of every session says the same to the agent, with the paths and sizes,
+  and that what torno's tools say of the build is current: a `CLAUDE.md` that
+  names another viewer, report or export step is about another way of working,
+  so its advice on how to model stands and its way of seeing the build does not.
 
 `.torno/agent.json` keeps the view, chat or terminal, with `"agent":
 "claude"`. A file that names another agent is not followed: Claude Code is
@@ -632,7 +655,7 @@ the pane names those files and asks "Start the chat anyway?". "Start the chat"
 remembers the folder (its real path, in torno's own data beside the recent folders,
 never in the workspace) and does not ask again, whatever those files later say;
 "Use the terminal" starts Claude Code in the terminal view, which asks its own
-question. Your own `~/.claude` is never one of the files looked at.
+question. Your own `~/.claude` is never one of the settings files looked at for it.
 
 `/model` typed in a terminal session of torno's changes the model of that
 session and also your default for every Claude Code session from then on:
@@ -680,6 +703,11 @@ Open marks: M2 (moved), M6 (unchecked)
 - The first prompt of a new conversation (a session that was not resumed, or
   after `/clear`) ends with a line naming the files in `reference/` (twelve at
   most, then how many more), to read when they matter.
+- The first prompt of every session, resumed or not, ends with a line naming
+  the instruction files Claude Code reads there (six at most, with their sizes;
+  see "What Claude Code is given") and saying which wins for seeing the build:
+  torno's tools. It is under "Show text" in "torno added". Nothing is said when
+  there are none.
 
 When Claude Code has edited the model, the answer to that edit says how the
 build ended, the same first lines and the dimensions. Between them, of a build
@@ -1725,6 +1753,7 @@ On the screen:
 With a real agent:
 
 - **Claude Code and the trust question.** In a folder never opened before, with a `.claude/settings.json` that holds a hook (or a `.mcp.json`), either in the object or in a folder above it: "New session" asks "Start the chat anyway?" and starts nothing; "Start the chat" starts it (and the hook runs, as Claude Code's documentation says it does without a question when run non-interactively), and the next session there is not asked; "Use the terminal" shows Claude Code's own trust question. The measuring on 2026-10-15 (Claude Code 2.1.300) only read the documentation for this.
+- **The instruction files, with the real Claude Code.** In an object whose workspace folder holds a `CLAUDE.md` (the person's real `~/objects` has one that names `out/nerv/report.json`), the session pane lists it with its size and your own `~/.claude/CLAUDE.md`, in the chat and in the terminal view, and a click on a name shows the file in your file manager (nothing is opened or run); `/memory` in a terminal session lists the same files and no others (an `AGENTS.md` only where no `CLAUDE.md` is above the object). After the first prompt, ask what it reads of the build: the real CLI in `~/objects` no longer reads `out/nerv/report.json` to see the shape but uses `scene`, `look` and `measure`, while it still follows the file's advice on how to model (caliper numbers first, blockouts first). The stand-in agent cannot show what the model chooses.
 - **The prompts in the command menu.** In a chat, type `/mcp`: `/mcp__torno__review`, `/mcp__torno__printable` and `/mcp__torno__explain` are offered, and choosing one sends it; the stand-in names none of them, so no test has seen them in Claude Code's own list.
 - **A failed or old Claude Code in the chat.** A `claude` that does not know one of the chat's flags, or is signed out: the pane says "Claude Code stopped (exit code 1)" with the last line it wrote, and "It did not start: is `claude` up to date and signed in?". Not yet seen with a real old CLI; the stand-in prints to stderr and exits 1.
 - **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.

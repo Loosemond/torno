@@ -6,6 +6,7 @@ import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { AGENT_LABEL, busyWith, isTrustQuestion, nextCarries, nextPromptLine } from '../../shared/agents'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
+import { type InstructionFile, READS_TITLE, named, weighed } from '../../shared/instructions'
 import { chatActions, connectChat, useChat } from '../state/chat'
 import { onboarding, useOnboard } from '../state/onboard'
 import { actions, store, useStore } from '../state/store'
@@ -264,6 +265,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const [switching, setSwitching] = useState<AgentView | null>(null)
   /** The chat was refused for this folder's own Claude Code settings: main's question, and whether the start was to resume. */
   const [trusting, setTrusting] = useState<{ question: string; resume: boolean } | null>(null)
+  /** The instruction files Claude Code reads for the object (paths and sizes), as main last listed them. */
+  const [reads, setReads] = useState<{ objectId: string; files: InstructionFile[] }>({ objectId: '', files: [] })
   const host = useRef<HTMLDivElement>(null)
   const reveal = useRef(onReveal)
   reveal.current = onReveal
@@ -433,6 +436,20 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     }
   }, [objectId, root, status, chosen])
 
+  // The instruction files Claude Code reads here, asked again when a session starts: a file may have been added meanwhile.
+  const startedSession = session?.sessionId
+  useEffect(() => {
+    if (!objectId) return
+    let live = true
+    void window.torno.session.instructions(objectId).then(
+      (files) => live && setReads({ objectId, files }),
+      () => live && setReads({ objectId, files: [] })
+    )
+    return () => {
+      live = false
+    }
+  }, [objectId, root, startedSession])
+
   // A session just started takes the keyboard, once its terminal is no longer hidden.
   const focusWanted = useRef(false)
   const sessionId = session?.sessionId
@@ -564,6 +581,16 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       actions.setFixRequest(null)
     }
   }, [fix, objectId, starting, trusting, live, session?.view, session?.sessionId, status, resumable])
+
+  /** A row of the instruction files shown in its folder: main names the file by the row's place in its list. */
+  async function showRead(index: number): Promise<void> {
+    if (!objectId) return
+    try {
+      await window.torno.session.revealInstruction(objectId, index)
+    } catch (e) {
+      setProblem(reason(e))
+    }
+  }
 
   /** "Use Claude Code" beside the note: `agent.json` is written anew as torno reads it, and the note is gone. */
   async function keepChoice(): Promise<void> {
@@ -708,6 +735,20 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         <p className="session-next" role="status">
           {numbered(next)}
         </p>
+      )}
+      {/* What Claude Code reads of the folder by default, for both views: a quiet line, not a question. Paths and sizes; the text is never read. */}
+      {objectId && !drafting && reads.objectId === objectId && reads.files.length > 0 && (
+        <div className="session-reads" role="note" title={READS_TITLE}>
+          <span>Claude Code also reads</span>
+          {reads.files.map((file, i) => (
+            <span key={file.path} className="session-read">
+              <button type="button" className="session-read-open" aria-description="Show in its folder" onClick={() => void showRead(i)}>
+                {named(file)}
+              </button>
+              <span className="session-read-size">{weighed(file)}</span>
+            </span>
+          ))}
+        </div>
       )}
       {choice.note && objectId && !drafting && (
         <div className="session-note">

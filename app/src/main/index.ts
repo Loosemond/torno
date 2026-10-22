@@ -43,6 +43,7 @@ import { StateFiles } from './statefile'
 import { newestPython, sourceFolders } from './show/cards'
 import { Verdicts } from './verdicts'
 import { valueAgainstExpected } from '../shared/dimension'
+import { InstructionList } from './instructions'
 import { Trust } from './trust'
 
 // Environment switches:
@@ -381,6 +382,9 @@ const toolDeps: ToolDeps = {
 }
 const promptDeps = { ...toolDeps, references: referencesOf }
 
+/** The instruction files Claude Code reads for an object (the person's home, and the organisation's file, are the machine's): found for the session pane and for the first prompt of a session. */
+const instructionFiles = new InstructionList()
+
 /** Each build's verdicts on the dimensions, in memory: the digest of an edit's build, and the Stop, compare two. */
 const verdicts = new Verdicts()
 /** What the answer to an edit is made from: the tools' deps, and the verdicts of the builds it compares. */
@@ -406,12 +410,12 @@ scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
  * store of the scans; `pickFile` is what "Import scan" is answered with, and
  * `filePicks` counts how often it was asked; `pickPhotos` (a list of paths) and `photoPicks` are the same for the photo dialog of a new object; `pickSave` is what the save dialog of
  * an export is answered with (the path to write, or null), `savePicks` counts
- * how often it was asked and `saveOffered` is the path it would have opened on; `replace` answers the question asked before an export replaces a file the dialog did not ask about, and `replaceAsked` counts it; `openedFiles` are the files an export would have had the system open (a 3MF, when asked). `letGo` has an object's status
+ * how often it was asked and `saveOffered` is the path it would have opened on; `replace` answers the question asked before an export replaces a file the dialog did not ask about, and `replaceAsked` counts it; `openedFiles` are the files an export would have had the system open (a 3MF, when asked); `revealedFiles` are the instruction files the session pane's rows would have had shown in the file manager. `letGo` has an object's status
  * say that the kernel let its build go, which no test's kernel does. `opened`
  * are the objects opened in this run: those that are watched and built. `mcpFor` gives the address of an
  * object's MCP server and a token that opens it, to send in `X-Torno-Session`.
  */
-const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpFor: (_id: string): { url: string; token: string } => ({ url: '', token: '' }), pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickPhotos: [] as string[], photoPicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0, openedFiles: [] as string[] }
+const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpFor: (_id: string): { url: string; token: string } => ({ url: '', token: '' }), pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickPhotos: [] as string[], photoPicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0, openedFiles: [] as string[], revealedFiles: [] as string[] }
 
 /** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
 let requested: string | null = null
@@ -474,7 +478,10 @@ void app.whenReady().then(async () => {
     // Nor are scans that cannot be read: they are then not known, which is not the same as there being none.
     contextFor: async (id, opts) => {
       const scans = await listedScans(id).catch(() => undefined)
-      return contextFor(promptDeps, id, await marks.list(id).catch(() => []), { ...opts, ...(scans ? { scans } : {}) })
+      // The first prompt of a session is told which instruction files Claude Code reads here: paths and sizes, found now.
+      const folder = opts.first ? findObject(id)?.dir : undefined
+      const instructions = folder === undefined ? undefined : await instructionFiles.look(folder)
+      return contextFor(promptDeps, id, await marks.list(id).catch(() => []), { fresh: opts.fresh, newConversation: opts.newConversation, toolName: opts.toolName, ...(scans ? { scans } : {}), ...(instructions && instructions.length > 0 ? { instructions } : {}) })
     },
     // An edit of the model is answered with the build it started, and a Stop held back once over a build the turn left failed or unseen.
     build: buildState,
@@ -589,7 +596,11 @@ void app.whenReady().then(async () => {
       ? async (path) => {
           testHooks.openedFiles.push(path)
         }
-      : undefined
+      : undefined,
+    // The instruction files Claude Code reads for an object, listed for the session pane.
+    instructions: instructionFiles,
+    // Nor a file manager.
+    revealFile: isTest ? (path) => void testHooks.revealedFiles.push(path) : undefined
   })
   // Under test only: an object's MCP address and a token that opens it, as a session of that object has one.
   if (isTest) testHooks.mcpFor = (id) => ({ url: mcpUrlFor(id), token: http.grant([new URL(mcpUrlFor(id)).pathname]) })

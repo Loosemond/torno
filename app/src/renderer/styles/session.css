@@ -172,3 +172,40 @@
   color: var(--fail);
   overflow-wrap: anywhere;
 }
+
+/* The instruction files Claude Code reads for the object: paths and sizes in the face of numbers, one quiet line that wraps. */
+.session-reads {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.session-read {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-read-open {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.session-read-open:hover {
+  text-decoration: underline;
+}

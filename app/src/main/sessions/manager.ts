@@ -59,6 +59,8 @@ interface Session {
   promptedIn: string
   /** A conversation begun with this session (not one resumed) that no prompt has been in yet: the next is told what is new to it. */
   unprompted: boolean
+  /** No prompt has been in this session yet, resumed or not: the next is told what Claude Code reads of the object's folder. */
+  firstPrompt: boolean
   status: SessionStatus
   cols: number
   rows: number
@@ -242,9 +244,10 @@ export class Sessions {
        * `fresh` says the prompt is the first in a conversation other than the
        * last one: the agent started another (/clear), which has seen nothing.
        * `newConversation` says it is the first in a conversation: one begun with the session (not resumed) or on
-       * /clear (`fresh`).
+       * /clear (`fresh`). `first` says it is the first prompt of this session, resumed or not (the instruction files
+       * Claude Code reads are told then).
        */
-      contextFor: (objectId: string, opts: { fresh: boolean; newConversation: boolean; toolName: (tool: string) => string }) => PromptContext | Promise<PromptContext>
+      contextFor: (objectId: string, opts: { fresh: boolean; newConversation: boolean; first: boolean; toolName: (tool: string) => string }) => PromptContext | Promise<PromptContext>
       /**
        * The answer to a prompt's hook has left for the agent of that object,
        * and these marks were in it. Only ever for a UserPromptSubmit of a
@@ -400,6 +403,7 @@ export class Sessions {
       conversationId,
       promptedIn: conversationId,
       unprompted: stored === null,
+      firstPrompt: true,
       status: 'starting',
       cols,
       rows,
@@ -1166,9 +1170,11 @@ export class Sessions {
     if (named !== undefined) session.promptedIn = named
     const newConversation = fresh || session.unprompted
     session.unprompted = false
+    const first = session.firstPrompt
+    session.firstPrompt = false
     let context: PromptContext
     try {
-      context = await this.deps.contextFor(objectId, { fresh, newConversation, toolName: this.deps.adapter.toolName })
+      context = await this.deps.contextFor(objectId, { fresh, newConversation, first, toolName: this.deps.adapter.toolName })
     } catch (e) {
       // The prompt goes ahead without it rather than wait for the hook to time out.
       console.error(`no context for the prompt in ${objectId}: ${e instanceof Error ? e.message : String(e)}`)

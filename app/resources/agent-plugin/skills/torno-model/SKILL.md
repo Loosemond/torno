@@ -29,6 +29,13 @@ You cannot run the model, but torno gives back what it prints. To see a value, `
 printed come with the answer to your edit, and in `output` of `mcp__torno__scene`, whether the build worked or failed;
 build123d's own warnings are among them. Remove the `print` once it has served.
 
+## A CLAUDE.md that names another way to see the build
+
+Claude Code also reads the `CLAUDE.md` files of the workspace and of the person; torno's first prompt of a session
+lists them. What torno's tools say of the build is current: a file that names another viewer, report or export step
+is about another way of working. Follow its advice on how to model, not on how to see the build, which is
+`mcp__torno__scene`, `mcp__torno__look` and `mcp__torno__measure`.
+
 ## Which file
 
 - The object folder holds one model file: a top-level `*.py` that is not a test (`test_*.py`, `*_test.py`,

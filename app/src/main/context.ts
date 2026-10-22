@@ -2,6 +2,7 @@ import type { BuildState } from '../shared/build'
 import { diagnosisText } from '../shared/diagnosis'
 import { standingOf, unmetDimensions } from '../shared/dimension'
 import { explodeText, isExploded } from '../shared/explode'
+import { type InstructionFile, instructionsLine } from '../shared/instructions'
 import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
 import type { ScanInfo } from '../shared/scans'
 import type { BuildDigest } from '../shared/sanity'
@@ -151,12 +152,17 @@ export interface PromptContext {
  * A new conversation (`newConversation`: the first prompt of a session not resumed, or `fresh`) is also told, in a last line, the files of the object's `reference/` (`referencesLine`),
  * to read when they matter. It says nothing of whether they are attached: the first prompt of a new object attaches them.
  *
+ * The first prompt of a session, resumed or not, is given the instruction files Claude Code reads for the object
+ * (`opts.instructions`, found by `main/instructions.ts`: paths and sizes, never their text) and which wins for seeing
+ * the build (`instructionsLine`), in the very last line. Its room is kept before any mark is listed, and it outranks
+ * the references. None of it is told with the answer to an edit.
+ *
  * A tool of torno's is named as the agent's client names it to its model
  * (`opts.toolName`; as Claude Code does when nothing says).
  *
  * It changes nothing: whoever delivers the text turns `sentMarkIds` into sent.
  */
-export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean; newConversation?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string } = {}): PromptContext {
+export function contextFor(deps: ContextDeps, objectId: string, marks: readonly Mark[] = [], opts: { fresh?: boolean; newConversation?: boolean; scans?: readonly ScanInfo[]; instructions?: readonly InstructionFile[]; toolName?: (tool: string) => string } = {}): PromptContext {
   return withBuild(deps, objectId, contextText(deps, objectId, marks, opts))
 }
 
@@ -189,7 +195,7 @@ function withBuild(deps: ContextDeps, objectId: string, told: PromptContext): Pr
   }
 }
 
-function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[], opts: { fresh?: boolean; newConversation?: boolean; scans?: readonly ScanInfo[]; toolName?: (tool: string) => string; buildOnly?: boolean }): PromptContext {
+function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[], opts: { fresh?: boolean; newConversation?: boolean; scans?: readonly ScanInfo[]; instructions?: readonly InstructionFile[]; toolName?: (tool: string) => string; buildOnly?: boolean }): PromptContext {
   const toolName = opts.toolName ?? CLAUDE_TOOL
   const moreMarks = moreMarksBy(toolName)
   const moreDimensions = moreDimensionsBy(toolName)
@@ -206,7 +212,9 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // Under `Dimensions:` they are listed with every prompt: not once more among the marks this conversation has not seen.
   const still = opts.fresh ? open.filter((m) => m.author === 'user' && !unmet.includes(m as DimensionMark)) : []
   const told = drafts.length > 0 || open.length > 0
-  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT
+  // The files Claude Code reads, told once, last: their room is kept before the status and the marks are given theirs.
+  const instructed = opts.buildOnly ? '' : (instructionsLine(opts.instructions ?? []) ?? '')
+  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - (instructed ? instructed.length + 1 : 0)
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
   // foresaw, such as a very long name.
   const lines = [cutEnd(status(deps, objectId, limit), limit)]
@@ -224,7 +232,7 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   const digest = opts.buildOnly ? buildDigest(deps, objectId) : undefined
   const digestLines = digest ? digestText(digest, CONTEXT_LIMIT - lines.join('\n').length - floor - 1, toolName) : ''
   if (digestLines) lines.push(digestLines)
-  let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor
+  let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor + (instructed ? instructed.length + 1 : 0)
   /**
    * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
    * Nothing at all when there is no room for the head and that count: the marks are still among the open ones.
@@ -280,7 +288,9 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   const joined = lines.join('\n')
   // Last, so that nothing above it is given up for it: it takes the room that is left.
   const printed = opts.buildOnly ? printedBlock(deps, objectId, toolName, CONTEXT_LIMIT - joined.length - 1) : ''
-  const text = printed ? `${joined}\n${printed}` : referred && joined.length + 1 + referred.length <= CONTEXT_LIMIT ? `${joined}\n${referred}` : joined
+  // The files Claude Code reads are the very last line; the references go before it, should they fit beside it.
+  const tail = instructed ? 1 + instructed.length : 0
+  const text = printed ? `${joined}\n${printed}` : `${joined}${referred && joined.length + 1 + referred.length + tail <= CONTEXT_LIMIT ? `\n${referred}` : ''}${instructed ? `\n${instructed}` : ''}`
   if (text.length <= CONTEXT_LIMIT) return { text, sentMarkIds: listedDrafts.map((m) => m.id), ...(digest ? { digest } : {}) }
   // Every part above keeps to the room it has; this holds for what none of them foresaw. What is cut is
   // the end, and no mark whose line may be among it is said to have been told.
