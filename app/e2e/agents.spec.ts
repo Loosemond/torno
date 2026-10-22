@@ -174,3 +174,24 @@ test('a session at work or waiting for the answer shows on its object\'s row and
   await expect(needs()).toHaveCount(0)
   await expect(row('measures')).not.toHaveAttribute('data-session', /./)
 })
+
+test('the error sheet starts a session in the terminal and leaves the request at its prompt, unsent', async () => {
+  await open('plain')
+  await dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Terminal' }).click()
+  await expect.poll(() => onDisk('plain')).toEqual({ agent: 'claude', view: 'terminal' })
+  const model = join(root, 'plain', 'plain.py')
+  const good = readFileSync(model, 'utf8')
+  try {
+    writeFileSync(model, `${good}\nraise ValueError("too tall")\n`)
+    await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('failed')
+    await page.getByRole('button', { name: 'Build failed' }).click()
+    const sheet = page.getByRole('dialog', { name: 'Build error' })
+    await sheet.getByRole('button', { name: 'Start a session to fix it' }).click()
+    // Once its CLI is ready the words are at its prompt, and it has not been sent a line.
+    await expect.poll(term, { timeout: 30_000 }).toContain('Fix the build of plain: see the error.')
+    await expect(status()).toHaveText('Idle')
+    await expect(sheet.locator('[data-part="told"]')).toHaveText('Claude Code is told this with your next prompt.')
+  } finally {
+    writeFileSync(model, good)
+  }
+})

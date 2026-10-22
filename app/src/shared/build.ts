@@ -58,3 +58,43 @@ export function errorLine(error: Pick<BuildError, 'message' | 'traceback'>): str
 export function failedAfter(revision: number): string {
   return revision > 0 ? `build after r${revision}` : 'first build'
 }
+
+/** The kinds of failure that come of something other than the model, so that building the same sources again may work. */
+const OUTSIDE_THE_MODEL: readonly string[] = ['crash', 'timeout', 'cancelled']
+
+/** A failed build said in words, for the person: what happened, and the kernel's word for it only where torno has no better. */
+export function kindWords(kind: string | undefined): string {
+  switch (kind) {
+    case undefined: return 'The build failed'
+    case 'exception': return 'Python error in the model'
+    case 'timeout': return 'The build took too long (timeout)'
+    case 'crash': return 'The build process stopped (crash)'
+    case 'cancelled': return 'The build was cancelled'
+    case 'no_model': return 'The folder has no model file'
+    default: return `The build failed (${kind})`
+  }
+}
+
+/**
+ * Whether building the sources again is what may help, so that "Rebuild" is the primary button: after a failure outside
+ * the model (a crash, a timeout, a cancel), or when the kernel let the build go for memory and nothing failed since.
+ * After an error in the model it gives the same error, and the model is what is to be changed.
+ */
+export function rebuildHelps(build: Pick<BuildState, 'status' | 'error' | 'letGo'>): boolean {
+  if (build.status === 'failed') return build.error !== undefined && OUTSIDE_THE_MODEL.includes(build.error.kind)
+  return build.letGo === 'memory'
+}
+
+/** What "Ask Claude Code to fix it" puts in the message box: the error itself is not in it, Claude Code has been told it. */
+export function fixPrompt(objectName: string): string {
+  return `Fix the build of ${objectName}: see the error.`
+}
+
+/**
+ * Whether the latest build is the failure a line of the chat tells of (`ChatItem` `context` of a build): the same
+ * revision on show and the same last line of the error. Only then does the line open the sheet of it.
+ */
+export function stillLatest(build: Pick<BuildState, 'status' | 'revision' | 'error'> | null, item: { revision?: number; error?: string }): boolean {
+  if (build?.status !== 'failed' || build.error === undefined || item.error === undefined) return false
+  return build.revision === (item.revision ?? 0) && errorLine(build.error) === item.error
+}

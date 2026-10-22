@@ -1,6 +1,6 @@
 import { memo, useState } from 'react'
 import type { ChatItem } from '../../../shared/chat'
-import { type BuildState, errorLine } from '../../../shared/build'
+import { stillLatest } from '../../../shared/build'
 import type { Verdict } from '../../../shared/sanity'
 import { actions, useStore } from '../../state/store'
 import { numbered } from '../numbered'
@@ -17,11 +17,7 @@ export function verdictWord(now: Verdict): string {
   return now === 'pass' ? 'now passes' : now === 'fail' ? 'now fails' : 'is no longer measured'
 }
 
-/** Whether the latest build is the failure this line tells of: only then does "Show error" open the sheet of it. */
-export function stillLatest(build: Pick<BuildState, 'status' | 'revision' | 'error'> | null, item: Pick<Context, 'revision' | 'error'>): boolean {
-  if (build?.status !== 'failed' || build.error === undefined || item.error === undefined) return false
-  return build.revision === (item.revision ?? 0) && errorLine(build.error) === item.error
-}
+export { stillLatest }
 
 /**
  * The build an edit started, under the card of the edit: that it worked and how long it took, or why it failed in a

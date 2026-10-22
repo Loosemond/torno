@@ -111,6 +111,36 @@ describe('a build the kernel let go to make room', () => {
   })
 })
 
+describe('the Rebuild button of the status line', () => {
+  afterEach(() => store.setState({ page: 'object', objectId: null, build: null, scene: null, revision: 0 }))
+  const line = (): string => {
+    const now = vi.spyOn(store, 'getInitialState').mockReturnValue(store.getState())
+    try {
+      return renderToStaticMarkup(createElement(BuildStatus, { onOpen: () => {} }))
+    } finally {
+      now.mockRestore()
+    }
+  }
+  const failed = (kind: string, more: object = {}): void =>
+    store.setState({ page: 'object', objectId: 'bracket', build: { objectId: 'bracket', status: 'failed', revision: 2, stale: true, error: { kind, message: 'x' }, ...more } })
+
+  it('is the primary one only after a failure outside the model, or a build let go for memory with nothing failed since', () => {
+    const primary = (): boolean => /<button[^>]*status-rebuild[^>]*data-primary/.test(line())
+    failed('exception')
+    expect(primary()).toBe(false)
+    for (const kind of ['crash', 'timeout', 'cancelled']) {
+      failed(kind)
+      expect(primary()).toBe(true)
+    }
+    failed('exception', { letGo: 'memory' })
+    expect(primary()).toBe(false)
+    store.setState({ build: { objectId: 'bracket', status: 'ok', revision: 2, stale: false, letGo: 'memory' } })
+    expect(primary()).toBe(true)
+    store.setState({ build: { objectId: 'bracket', status: 'ok', revision: 2, stale: false } })
+    expect(primary()).toBe(false)
+  })
+})
+
 describe('the status line on the New object page', () => {
   afterEach(() => store.setState({ page: 'object', objectId: null, build: null, scene: null, revision: 0 }))
   // A static render reads the store's first state (zustand's server snapshot): it is made the state there is now.

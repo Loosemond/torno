@@ -359,6 +359,11 @@ test('the build an edit started is a build under the edit: that it worked and ho
   await expect(failed.locator('.chat-build-head')).toHaveAttribute('data-verdict', 'failed')
   await failed.getByRole('button', { name: 'Show error' }).click()
   await expect(page.getByRole('dialog', { name: 'Build error' })).toContainText("name 'WAL' is not defined")
+  // The session ran this edit: the sheet says it was told, and hands over without sending.
+  await expect(page.getByRole('dialog', { name: 'Build error' }).locator('[data-part="told"]')).toContainText('Claude Code was told after its edit')
+  await page.getByRole('dialog', { name: 'Build error' }).getByRole('button', { name: 'Ask Claude Code to fix it' }).click()
+  await expect(composer()).toHaveValue('Fix the build of hollow: see the error. ')
+  await composer().fill('')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Build error' })).toHaveCount(0)
   // The build on show is live now, and says why in a click; an older one is not.

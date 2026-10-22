@@ -281,9 +281,24 @@ the folder's name, and the workspace stays as it was.
 
 "Rebuild", in the line at the bottom beside how the build stands, builds the
 open object again from its sources as they are (`Ctrl+Shift+B` from anywhere).
-It is always there, and is the thing to press when the last build failed for a
-reason outside the model, or was let go to make room. While a build runs it
-reads "Building…" and takes no press: that build is of the sources as they are.
+It is always there, and it is the main button when the last build failed for a
+reason outside the model (the build took too long, stopped, or was cancelled) or
+was let go to make room: building the same sources again may work. After an error
+in the model it stays quiet, since the same sources give the same error. While a
+build runs it reads "Building…" and takes no press: that build is of the sources
+as they are.
+
+"Build failed" opens the error: what happened in words ("Python error in the
+model", "The build took too long (timeout)", "The build process stopped
+(crash)"), the message, why a fillet or a chamfer failed, the traceback and what
+the model printed. It says who is told: Claude Code is told this with your next
+prompt, or was told after its own edit, so there is no need to paste it into the
+chat. "Ask Claude Code to fix it" puts a short request in the message box, opens
+the session pane if it was away, and never sends it: you read it and press Enter.
+With no session running it reads "Start a session to fix it" and starts one with
+the request waiting in its box. After a failure outside the model "Rebuild" is the
+main button of the sheet instead. "Copy" takes the whole error as text. The line
+above the box of the chat says "build failed" among what goes with the next prompt.
 
 A part the build says is broken (not valid, inside out, not closed, or with a
 mesh that disagrees with its volume) has the word beside its name in the
@@ -1430,9 +1445,11 @@ build is not built again until a source changes.
   workspace once, then open it again.
 - **A build fails.** The last good parts stay on screen, the pointer says
   that picks wait for a build that works, and "Build failed" at the bottom
-  opens the error with the traceback. The agent is told the same with its next
-  prompt, and its tools answer from the last build that worked, saying so.
-  Save the model again once it is mended: every save is built.
+  opens the error with the traceback. The agent is told the same, after its own
+  edit and with your next prompt, and its tools answer from the last build that
+  worked, saying so. "Ask Claude Code to fix it" in that sheet puts the request in
+  the box for you to send. Save the model again once it is mended: every save is
+  built.
 - **The chat says "This chat is billed to an API key".** The CLI reported a key
   as the source of its credentials, and names the source (`user`, `project`, `org`,
   `temporary`); a key is billed per token and not to your Claude login. In the
@@ -1566,6 +1583,13 @@ On the screen:
   through it, its eight vertical edges at R6): the status line says the build failed, and the error sheet shows, under
   the message, a "Why" section with the line and a line for each edge, in the face of numbers, legible in light and
   dark and in a narrow window; Copy takes it with the rest.
+- **"Ask Claude Code to fix it" with the real Claude Code.** Break the model in a chat, open "Build failed" and press
+  the button: the dock opens if it was hidden, the box holds "Fix the build of *name*: see the error." and nothing is
+  sent; Enter sends it, and Claude Code answers from the error it was told (the sheet says whether after its edit or
+  with the next prompt). Again in the terminal view: the words are at the CLI's prompt, unsent. With no session, "Start
+  a session to fix it" starts one and leaves the words in its box. Tests used the stand-in agent. After a crash or a
+  timeout of the build (stop the kernel's process, or lower `TORNO_BUILD_TIMEOUT`) "Rebuild" is the main button in the
+  status line and in the sheet; after a Python error it is not.
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.

@@ -14,6 +14,7 @@ import type { Camera, LookRequest, LookResult, ViewState } from '../src/shared/v
 // are made by __tornoTest.look(), which does not depend on frames.
 const appDir = resolve(__dirname, '..')
 const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
+const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
 
 test.describe.configure({ mode: 'serial' })
 
@@ -34,7 +35,8 @@ function launch(env: Record<string, string>): Promise<ElectronApplication> {
 
 test.beforeAll(async () => {
   root = copyFixtures()
-  app = await launch({ TORNO_WORKSPACE: root })
+  // The stand-in agent, for the one test that starts a session: no test here runs `claude`.
+  app = await launch({ TORNO_WORKSPACE: root, TORNO_AGENT_CMD: `node ${fakeAgent}` })
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
 })
@@ -324,6 +326,13 @@ test('a broken save fails the build and keeps the last good parts, dimmed; the e
   expect(style.face).toContain('IBM Plex Mono')
   expect(style.select).toBe('text')
   await expect(sheet.getByRole('button', { name: 'Copy' })).toBeVisible()
+  // What happened, in words and not as the kernel's word; who is told; and the one thing to press after an error in the model.
+  await expect(sheet.locator('[data-part="kind"]')).toHaveText('Build after r2 failed · Python error in the model')
+  await expect(sheet.locator('[data-part="told"]')).toHaveText('No session is running. Start one, and it is told with your first prompt.')
+  await expect(sheet.getByRole('button', { name: 'Start a session to fix it' })).toHaveClass(/button-primary/)
+  await expect(sheet.getByRole('button', { name: 'Rebuild' })).toHaveCount(0)
+  // The same sources would give the same error: the status line's Rebuild is quiet.
+  await expect(status(page).locator('.status-rebuild')).not.toHaveAttribute('data-primary', '')
   // The sheet lies over the viewport, between the left column and the session dock.
   const box = (await sheet.boundingBox())!
   expect(box.x).toBe(248)
@@ -347,6 +356,39 @@ test('a fillet that fails says why in the error sheet, under the message', async
   expect(order).toEqual(['message', 'diagnosis', 'traceback'])
   expect(await why.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('IBM Plex Mono')
   await expect(sheet.getByRole('heading', { name: 'Why' })).toBeVisible()
+})
+
+test('the error sheet hands the error to Claude Code without sending it: it starts a session when none runs, and fills the box of the one that does', async () => {
+  const ASK = 'Fix the build of bracket: see the error.'
+  const sheet = page.getByRole('dialog', { name: 'Build error' })
+  if ((await sheet.count()) === 0) await page.getByRole('button', { name: 'Build failed' }).click()
+  const dock = page.locator('[data-region="session"]')
+  const box = dock.locator('[data-chat-composer]')
+  // The dock is put away: asking shows it.
+  await page.getByRole('button', { name: 'Hide session' }).click()
+  await expect(dock).toBeHidden()
+  await sheet.getByRole('button', { name: 'Start a session to fix it' }).click()
+  await expect(dock).toBeVisible()
+  await expect(box).toHaveValue(ASK, { timeout: 30_000 })
+  // It fills the box and goes no further: nothing is sent, and the session waits.
+  await expect(dock.locator('.chat-user')).toHaveCount(0)
+  await expect.poll(async () => (await state()).sessions.bracket?.status).toBe('idle')
+  await expect(sheet.locator('[data-part="told"]')).toHaveText('Claude Code is told this with your next prompt.')
+  // A session runs: the same button now asks, and puts the words in the box again, after the person's own.
+  await box.fill('')
+  await page.getByRole('button', { name: 'Hide session' }).click()
+  await expect(dock).toBeHidden()
+  const ask = sheet.getByRole('button', { name: 'Ask Claude Code to fix it' })
+  await expect(ask).toHaveClass(/button-primary/)
+  await ask.click()
+  await expect(dock).toBeVisible()
+  await expect(box).toHaveValue(`${ASK} `)
+  await expect(box).toBeFocused()
+  await expect(dock.locator('.chat-user')).toHaveCount(0)
+  await expect.poll(async () => (await state()).sessions.bracket?.status).toBe('idle')
+  // The next prompt carries the failure, and the line above the box says so.
+  await expect(dock.locator('.chat-next [data-part="build-failed"]')).toHaveText('build failed')
+  await box.fill('')
 })
 
 test('mending the model builds the next revision and clears the failure', async () => {

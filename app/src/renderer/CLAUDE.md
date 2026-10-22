@@ -37,7 +37,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `Ctrl+Shift+B` is "Rebuild" (`rebuild`, heard everywhere; while a build runs the button reads
   "Building…" and neither it nor the key nor `Builds.rebuild` starts one over; the button is in
   the status line, `ui/BuildStatus.tsx`); main's sentences name it by
-  `REBUILD_HOW` in `shared/build.ts`. A tool in hand is offered a key before the viewport is, so the
+  `REBUILD_HOW` in `shared/build.ts`. The button is the primary one (`data-primary`) only when `rebuildHelps`
+  says building again may help: a failure outside the model (`crash`, `timeout`, `cancelled`) or a build let go
+  for memory with nothing failed since; after an error in the model the same sources give the same error and it
+  stays quiet. The build error sheet (`ui/BuildErrorSheet.tsx`) says what failed in words (`kindWords`, with
+  the build as the chat's line names it: `Build after r2 failed`, `First build failed`, never the kernel's word
+  alone) and who is told (`toldLine`: after the session's edit, found by the chat's build line that is still the
+  latest, or with the next prompt, or no session). Its one primary button is "Ask Claude Code to fix it"
+  (`fixPrompt`), which opens the dock, puts the text in the box of the chat (`insertIntoComposer`) or at the
+  prompt of a terminal (`session.insert`, a paste, never Enter) and never sends; with no session it reads "Start a
+  session to fix it" and asks the session pane to start one (`fixRequest` in the store), which leaves the text in
+  the new chat's box (`holdDraft`) or types it at a terminal's prompt once its status is idle. After a failure
+  outside the model "Rebuild" is the sheet's primary button and the ask is quiet; Copy is always quiet. The
+  Composer's "Goes with your next prompt:" has a "build failed" chip while the build has failed. A tool in hand is offered a key before the viewport is, so the
   Region tool's `E` stays its own and explode's is the viewport's. Shift with
   a key is that key unless Shift with it has a row of its own in that scope.
   A slider is no field to type in (`ui/typing.ts`): the keys work with one in

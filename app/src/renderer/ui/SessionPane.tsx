@@ -11,7 +11,7 @@ import { onboarding, useOnboard } from '../state/onboard'
 import { actions, store, useStore } from '../state/store'
 import { ChatPane } from './chat/ChatPane'
 import { DraftPaneLive } from './onboard/DraftPane'
-import { clearDrafts } from './chat/Composer'
+import { clearDrafts, holdDraft } from './chat/Composer'
 import { ModelMenu } from './chat/ModelMenu'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
@@ -481,12 +481,21 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       // As main has it: a session that was already running here is not starting, and may say nothing more for a while.
       actions.setSession(objectId, { sessionId: started.sessionId, status: started.status, view: started.view })
       setChoice((was) => ({ ...was, view: started.view }))
+      // The build sheet's "Start a session to fix it": the words wait in the box of the chat, unsent. A terminal's CLI takes them once it is ready (below).
+      const fix = store.getState().fixRequest
+      if (fix !== null && started.view === 'chat' && store.getState().objectId === objectId) {
+        holdDraft(started.sessionId, fix)
+        actions.setFixRequest(null)
+      }
       focusWanted.current = true
     } catch (e) {
       const said = reason(e)
       // Main asks, rather than start a chat that loads the folder's own settings without the question the terminal asks.
       if (isTrustQuestion(said)) setTrusting({ question: said, resume })
-      else setProblem(said)
+      else {
+        setProblem(said)
+        actions.setFixRequest(null)
+      }
     } finally {
       setStarting(false)
     }
@@ -536,6 +545,25 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   /** The view of the session that runs, or, with none running, the one the next session starts in. */
   const view: AgentView = live ? session.view : choice.view
   const next = useMemo(() => (objectId && !(chatting && live) ? nextPromptLine(nextCarries(marks, revision > 0 ? revision : undefined), live) : null), [objectId, marks, revision, live, chatting])
+
+  // The build sheet asked for a session to fix the build in: one is started, once; the words go in its box (`start`), or are typed into a terminal when its CLI is ready.
+  const fix = useStore((s) => s.fixRequest)
+  const fixTried = useRef<string | null>(null)
+  useEffect(() => {
+    if (fix === null) {
+      fixTried.current = null
+      return
+    }
+    if (!objectId || starting || trusting !== null) return
+    if (!live || !session) {
+      if (fixTried.current === fix) return
+      fixTried.current = fix
+      void start(resumable)
+    } else if (session.view === 'terminal' && status === 'idle') {
+      window.torno.session.insert(session.sessionId, fix)
+      actions.setFixRequest(null)
+    }
+  }, [fix, objectId, starting, trusting, live, session?.view, session?.sessionId, status, resumable])
 
   /** "Use Claude Code" beside the note: `agent.json` is written anew as torno reads it, and the note is gone. */
   async function keepChoice(): Promise<void> {

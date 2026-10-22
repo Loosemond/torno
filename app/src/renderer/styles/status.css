@@ -158,6 +158,21 @@
   color: var(--fail);
 }
 
+/* Who is told of the failure, under the head: two quiet lines that do not scroll away. */
+.sheet-lead {
+  flex: none;
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.sheet-lead p {
+  max-width: 90ch;
+  margin: 0;
+}
+
+.sheet-lead p + p {
+  margin-top: var(--space-1);
+}
+
 .sheet-body {
   min-height: 0;
   padding: 0 0 var(--space-4);

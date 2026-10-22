@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { letGoText } from '../../shared/build'
+import { letGoText, rebuildHelps } from '../../shared/build'
 import { hint } from '../../shared/keys'
 import { unmetDimensions } from '../../shared/dimension'
 import type { Part } from '../../shared/scene'
@@ -123,11 +123,11 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
             )}
             {build.status === 'idle' && <span>Not built yet</span>}
           </span>
-          {/* Always there: the one way to build again by hand. The thing to press when the last build failed or was let go. */}
+          {/* Always there: the one way to build again by hand. The thing to press when the last build was let go, or failed outside the model (a crash, a timeout, a cancel); after an error in the model the sources are what is to change. */}
           <button
             type="button"
             className="status-rebuild"
-            data-primary={build.status === 'failed' || letGoText(build) ? '' : undefined}
+            data-primary={rebuildHelps(build) ? '' : undefined}
             title={building ? 'A build is running: it is of the sources as they are' : `Build ${name} again from its sources as they are (${hint('rebuild')})`}
             // While a build runs there is nothing to start over: it says so, and takes no press.
             disabled={building}

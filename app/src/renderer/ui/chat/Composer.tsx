@@ -28,6 +28,11 @@ export function clearDrafts(): void {
   drawingActions.clear()
 }
 
+/** Leaves text in the box of a session whose composer is not drawn yet; the box shows it when it is. */
+export function holdDraft(sessionId: string, text: string): void {
+  drafts.set(sessionId, text)
+}
+
 /** The composer in the pane now, for what is inserted from outside (the selection's "Insert"). */
 let current: { insert(text: string): void } | null = null
 
@@ -49,15 +54,22 @@ function Next() {
     marks.filter((m) => m.status === 'sent'),
     revision > 0 ? revision : undefined
   )
+  // The failed build goes too: the next prompt carries its error, so the person need not paste it.
+  const buildFailed = useStore((s) => s.build?.status === 'failed')
   const things = [
     ...marks.filter((m) => m.status === 'draft').map((m) => ({ id: m.id, word: '' })),
     ...failing.map((m) => ({ id: m.id, word: 'fails' })),
     ...unmeasured.map((m) => ({ id: m.id, word: 'no value' }))
   ]
-  if (things.length === 0) return null
+  if (things.length === 0 && !buildFailed) return null
   return (
     <p className="chat-next" role="status">
       <span>Goes with your next prompt:</span>
+      {buildFailed && (
+        <span className="chat-next-one" data-part="build-failed">
+          <span className="chat-next-word">build failed</span>
+        </span>
+      )}
       {things.slice(0, MOST_CHIPS).map((one) => (
         <span key={`${one.id}${one.word}`} className="chat-next-one">
           <RefChip value={one.id} />

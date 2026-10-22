@@ -43,6 +43,8 @@ export interface TornoState {
   build: BuildState | null
   /** Whether the sheet of the failed build is up (the status line's "Build failed" and the chat's "Show error" open it); it is of the open object, and goes when the build has no error. */
   errorOpen: boolean
+  /** What the sheet's "Start a session to fix it" asked for: the session pane starts one and puts this text in its box, never sends it. Of the open object; gone when another is opened. */
+  fixRequest: string | null
   /** Whether the session dock is shown. The window's, not an object's: another object or workspace leaves it as it is. */
   dockOpen: boolean
   /** The last good scene of the open object, and the revision it is. */
@@ -157,7 +159,7 @@ const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
 const NO_VIEWS: SavedView[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, errorOpen: false, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -641,6 +643,11 @@ export const actions = {
   /** The session dock is shown or hidden. */
   setDockOpen(open: boolean): void {
     if (store.getState().dockOpen !== open) store.setState({ dockOpen: open })
+  },
+
+  /** A session is wanted for the open object, with this text waiting in its box (`fixRequest`); null takes the request back. */
+  setFixRequest(text: string | null): void {
+    if (store.getState().fixRequest !== text) store.setState({ fixRequest: text })
   },
 
   /** The sheet of the failed build is opened or put away. */
