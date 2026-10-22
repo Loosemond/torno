@@ -783,7 +783,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         {drafting ? (
           <DraftPaneLive />
         ) : !objectId ? (
-          <p className="panel-note">Open an object to work on it with the agent.</p>
+          <p className="panel-note">Claude Code works here, one session per object. Make or open an object to start.</p>
         ) : (
           !session && (
             <div className="session-empty">

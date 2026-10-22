@@ -92,6 +92,12 @@ test('the first run shows what to open and how a folder of objects is laid out, 
     expect(await bare.evaluate(() => (globalThis as unknown as { __tornoMain: Main }).__tornoMain.picks)).toBe(1)
     const name = empty.split('/').pop()!
     await expect(says).toContainText(`No objects in ${name} yet`)
+    await expect(says.getByRole('heading', { name: 'Make your first object' })).toBeVisible()
+    // New object leads and the example is offered beside it; the manual route and the pyproject note are in a closed fold.
+    await expect(says.getByRole('button').first()).toHaveText('New object')
+    await expect(says.getByRole('button', { name: 'open the example to look around' })).toBeVisible()
+    await expect(says.getByText('part/part.py')).toBeHidden()
+    await says.getByText('Already have build123d models?').click()
     await expect(says).toContainText(`Make a folder with a Python model in it, for example part/part.py, and it appears here.`)
     await expect(says).toContainText('This folder has no pyproject.toml: models are built with torno\'s own build123d.')
     // Nothing was made in it for the opening.

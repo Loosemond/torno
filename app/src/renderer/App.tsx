@@ -355,7 +355,7 @@ export function App() {
     >
       <main className="viewport" data-region="viewport">
         <ViewportPane />
-        {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} />}
+        {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} onExample={() => leave(EXAMPLE)} />}
         {page === 'new' && <NewObject onOpen={openObject} />}
         {/* Over either: what goes into an export, asked before anything is written. */}
         <ExportSheet />

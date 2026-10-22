@@ -307,15 +307,18 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the monospace face, and a note in the muted face under it. When every line is ready it folds to one quiet line ("Claude
   Code and build123d 0.13.0 are ready") that a click opens; a kernel that is only starting, its environment there, does
   not keep it open. Nothing is claimed until main has said. It is under the tagline of the first screen, in the empty
-  workspace above "New object", on the page of a new object above Create in the `missing` form (only the lines that
+  workspace below "New object" and the example, on the page of a new object above Create in the `missing` form (only the lines that
   say something is amiss, none when none does, and for Claude Code a failure adds that the object will be made but the agent
   cannot start in it), and in the sheet of the folder menu ("Check what torno needs", a dialog over the window asked afresh,
   with "Check again"). "Make it now" is on the kernel's line when torno's own environment is not made, no workspace's kernel is
   starting and uv is there, and "Try again" when it failed. The status line says "Making torno's Python environment, first
   time only" in place of `Building N s` while the kernel is starting over an environment that was not made.
-- A workspace with no object says what to make (`ui/ShowPage.tsx`), and one
-  without a `pyproject.toml` that its models are built with torno's own
-  build123d. torno runs no `uv` command there.
+- A workspace with no object leads with making one (`ui/EmptyWorkspace.tsx`, in `ui/ShowPage.tsx`): "Make your first
+  object" and a line on what it takes, "New object" (primary), under it "or open the example to look around" (only
+  where `hasExample`), the readiness block, a line on scope (printed parts and small assemblies), and a fold,
+  "Already have build123d models?", closed, which holds the folder rule (`part/part.py`) and, for a folder without a
+  `pyproject.toml`, that its models are built with torno's own build123d. torno runs no `uv` command there: the note
+  names them for the person to run. The session pane in that state says that Claude Code works there, one session per object.
 
 ## Light and dark
 

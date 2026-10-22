@@ -349,7 +349,9 @@ failed) nothing is picked, and the pointer says why.
 ### Making a new object
 
 "New object" starts one from what you have. It is at the foot of the list of objects (of the switcher's menu when the list is folded), in the header of the page
-of objects and in its empty state. The page asks for a name and "What is it?" (what it is for, what it must fit or
+of objects and in its empty state: a folder with no object in it leads with "Make your first object", "New object" and,
+where torno runs from its repository, "open the example to look around". The way for models you already have (a folder
+such as `part/part.py`, and the note on `pyproject.toml` and `uv`) is in a fold, "Already have build123d models?". The page asks for a name and "What is it?" (what it is for, what it must fit or
 hold, sizes you know, how it will be made), and then for what you have, each with a note for Claude:
 
 - **Photos** ("Add photos…", or dropped on the page): PNG, JPEG or WebP, at most 12, 25 MB each and 50 megapixels

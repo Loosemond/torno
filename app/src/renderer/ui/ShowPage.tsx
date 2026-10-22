@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { ObjectCard } from '../../shared/show'
 import { actions, store, useStore } from '../state/store'
 import { BEHIND, buildLine, cardChips, matching, pictureLine, stepCard } from './cards'
+import { EmptyWorkspace } from './EmptyWorkspace'
 import { Logo } from './Logo'
-import { Readiness } from './Readiness'
 import { numbered } from './numbered'
 import { openNewObject } from './onboard/NewObject'
 import { TYPING } from './typing'
@@ -64,7 +64,7 @@ function columnsOf(cards: HTMLElement[]): number {
  * By the keys: the arrows go from card to card, Enter opens the one in focus, `/` or any letter filters by name,
  * Escape empties the filter and then goes back to the object that was open.
  */
-export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
+export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; onExample: () => void }) {
   const workspace = useStore((s) => s.workspace)
   const openId = useStore((s) => s.objectId)
   const [cards, setCards] = useState<ObjectCard[] | null>(null)
@@ -75,6 +75,17 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
   filter.current = typed
   const root = workspace?.root
   const hasProject = workspace?.hasProject ?? true
+  const [hasExample, setHasExample] = useState(false)
+  useEffect(() => {
+    let live = true
+    void window.torno.workspace.hasExample().then(
+      (has) => live && setHasExample(has),
+      () => {}
+    )
+    return () => {
+      live = false
+    }
+  }, [])
 
   // The cards, asked for again whenever main says one may say something else.
   useEffect(() => {
@@ -218,24 +229,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
           </label>
         )}
       </header>
-      {cards && cards.length === 0 && (
-        <div className="show-empty">
-          <Logo />
-          <h3>No objects in {name} yet</h3>
-          <p>
-            Make a folder with a Python model in it, for example <span className="num">part/part.py</span>, and it appears here.
-          </p>
-          <Readiness variant="block" />
-          <button type="button" className="button button-primary show-empty-new" onClick={openNewObject}>
-            New object
-          </button>
-          {!hasProject && (
-            <p>
-              This folder has no <span className="num">pyproject.toml</span>: models are built with torno's own build123d. For your own packages, make it a uv project (<span className="num">uv init</span>, <span className="num">uv add build123d</span>, <span className="num">uv sync</span>) and open it again.
-            </p>
-          )}
-        </div>
-      )}
+      {cards && cards.length === 0 && <EmptyWorkspace name={name} hasProject={hasProject} hasExample={hasExample} onNew={openNewObject} onExample={onExample} />}
       {cards && cards.length > 0 && shown.length === 0 && (
         <p className="show-none">
           No object is named like <span className="show-typed">{typed.trim()}</span>. Escape shows them all.
