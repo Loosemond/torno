@@ -531,3 +531,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   modal (`aria-modal`, Tab stays in it, nothing behind it takes a click). `Ctrl+Shift+E` (the row `export` of
   `shared/keys.ts`, heard everywhere, the terminal included) brings it up: for the open object, or from the page
   of objects for any. There is no agent tool for it.
+- Its format buttons (`HTML page`, `STEP`, `STL`, `3MF`) choose what is written; the HTML page is the default
+  and its sheet is as it was. A file of the model is of one object (the objects are then radio buttons), one
+  layout (`defaultLayout`: `assembly` for STEP, `print` for a mesh) and the parts ticked (one, by radio, for an
+  STL; a part with no solid cannot be ticked for a mesh), each from the plan's `layoutParts`; a mesh has a
+  tolerance and an angle typed in, and Export is off while either is out of its range. A 3MF has "Open it once
+  saved", off by default. The window sends names and numbers and never a path; once saved, the sheet says where,
+  of which build, and what the read-back checked (`ExportSaved.checked`), every number in the monospace face.

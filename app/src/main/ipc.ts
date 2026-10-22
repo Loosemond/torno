@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { BuildState } from '../shared/build'
 import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ModelFormat } from '../shared/exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from '../shared/geometry'
@@ -451,6 +451,8 @@ export function registerIpc(
     pickSave?: (defaultPath: string) => Promise<string | null>
     /** Stands in for the question asked before an export replaces a file the save dialog did not ask about: yes or no. */
     confirmReplace?: (path: string) => Promise<boolean>
+    /** Stands in for having the system open a file an export wrote (a 3MF, in the person's slicer). */
+    openFile?: (path: string) => Promise<void>
   } = {}
 ): void {
   sessions = opts.sessions ?? null
@@ -865,8 +867,9 @@ export function registerIpc(
   })
 
   // An export: one HTML file of the last build of this run of each object named, made in main from what it
-  // holds. Nothing is built for it. A plan writes nothing. A save writes one file, to the path the save dialog
-  // answered with and no other: the window names objects, never a path, and no agent has a tool for this.
+  // holds, or a STEP, STL or 3MF file of one object, made by the kernel's worker of that build. Nothing is built
+  // for it. A plan writes nothing. A save writes one file, to the path the save dialog answered with and no other:
+  // the window names objects, never a path, and no agent has a tool for this.
   const exportDeps = (): ExportDeps => {
     const ws = requireWorkspace()
     return {
@@ -888,7 +891,7 @@ export function registerIpc(
    * of a file of the model a layout, names of parts and two numbers; nothing else, and never a path.
    */
   const exportAsked = (given: unknown): ExportRequest => {
-    const said = Object(given) as { objects?: unknown; marks?: unknown; scans?: unknown; hidden?: unknown; resolved?: unknown; format?: unknown; layout?: unknown; parts?: unknown; tolerance?: unknown; angle?: unknown }
+    const said = Object(given) as { objects?: unknown; marks?: unknown; scans?: unknown; hidden?: unknown; resolved?: unknown; format?: unknown; layout?: unknown; parts?: unknown; tolerance?: unknown; angle?: unknown; open?: unknown }
     const names = (list: unknown): string[] => (Array.isArray(list) ? [...new Set(list.filter((one): one is string => typeof one === 'string' && one !== ''))].slice(0, 1000) : [])
     const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
     const format = EXPORT_FORMATS.find((one) => one === said.format) ?? 'html'
@@ -896,7 +899,7 @@ export function registerIpc(
     if (format === 'html') return req
     const tolerance = finite(said.tolerance)
     const angle = finite(said.angle)
-    return { ...req, format, ...(typeof said.layout === 'string' ? { layout: said.layout } : {}), ...(Array.isArray(said.parts) ? { parts: names(said.parts) } : {}), ...(tolerance === undefined ? {} : { tolerance }), ...(angle === undefined ? {} : { angle }) }
+    return { ...req, format, ...(typeof said.layout === 'string' ? { layout: said.layout } : {}), ...(Array.isArray(said.parts) ? { parts: names(said.parts) } : {}), ...(tolerance === undefined ? {} : { tolerance }), ...(angle === undefined ? {} : { angle }), ...(format === '3mf' && said.open === true ? { open: true } : {}) }
   }
   const modelDeps = (): ModelDeps => {
     const ws = requireWorkspace()
@@ -971,7 +974,13 @@ export function registerIpc(
     if (path === null) return null
     let checked: ExportSaved['checked']
     await writeExport(path, file.bytes, async (beside) => void (checked = await checkModelFile(deps, file, beside)))
-    return { path, bytes: file.bytes.length, dropped: [], checked, revision: file.revision }
+    // A plate handed to the person's slicer, when they ticked it: the file that passed, at the path they chose.
+    let opened: string | undefined
+    if (req.open === true && req.format === '3mf') {
+      if (opts.openFile) await opts.openFile(path)
+      else opened = (await shell.openPath(path)) || undefined
+    }
+    return { path, bytes: file.bytes.length, dropped: [], checked, revision: file.revision, ...(opened ? { notOpened: opened } : {}) }
   }
 
   // The sheet was put away: what was reduced for it is let go.

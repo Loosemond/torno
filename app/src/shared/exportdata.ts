@@ -311,6 +311,8 @@ export interface ExportSaved {
   dropped: string[]
   checked?: ExportChecked
   revision?: number
+  /** Why the system could not open a 3MF it was asked to open, in its words. */
+  notOpened?: string
 }
 
 export interface ExportRequest {
@@ -322,6 +324,8 @@ export interface ExportRequest {
   parts?: string[]
   tolerance?: number
   angle?: number
+  /** Of a 3MF: have the system open it once it is saved (in the person's slicer). Off unless ticked. */
+  open?: boolean
   marks: boolean
   /** `<objectId>/<scanId>` of each scan the person ticked. */
   scans: string[]
@@ -356,7 +360,7 @@ export interface ExportPlan {
     /** The scans that can be ticked: those with a mesh, aligned in a layout of the build. */
     scans: Array<{ id: string; name: string; triangles: number }>
     /** What a file of the model can hold, layout by layout: each part, whether it has a solid (an STL or a 3MF is of solids alone) and whether it is switched off in torno. */
-    layoutParts?: Array<{ layout: string; parts: Array<{ name: string; solid: boolean; off?: true }> }>
+    layoutParts?: Array<{ layout: string; parts: Array<{ name: string; solid: boolean; off?: true; arranged?: true }> }>
   }>
   /** What the file would weigh, and what was cut or left out to keep it under the budget, a sentence each. */
   bytes: number

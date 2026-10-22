@@ -1,7 +1,8 @@
 import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
-import { type ExportPlan, type ExportRequest, SCAN_WARNING, megabytes } from '../../shared/exportdata'
-import { count } from '../../shared/format'
+import { type ExportChecked, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, EXPORT_FORMATS, FORMAT_NAMES, MESH_ANGLE, MESH_ANGLES, MESH_TOLERANCE, MESH_TOLERANCES, type ModelFormat, SCAN_WARNING, defaultLayout, megabytes } from '../../shared/exportdata'
+import { count, number } from '../../shared/format'
+import { typed } from './typed'
 import { setExporting } from '../closing'
 import { actions, sceneFileOf, store, useStore } from '../state/store'
 
@@ -16,6 +17,51 @@ function Count({ n, one, many = `${one}s` }: { n: number; one: string; many?: st
 
 /** What can take the focus in the sheet, in order. */
 const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), [tabindex="0"]'
+
+/** What each format is, said on its button and above what it holds. */
+const FORMATS: Record<ExportFormat, { label: string; title: string; heading: string; lead: string }> = {
+  html: { label: 'HTML page', title: 'One page that opens by itself in a browser', heading: 'Export to one HTML file', lead: 'A page that opens by itself in a browser, for someone who has no torno: the parts of the last build, to turn, take apart and cut. It asks nothing of the network. What is ticked here is what is in it.' },
+  step: { label: 'STEP', title: 'The exact shape, for a CAD program', heading: 'Export a STEP file', lead: 'The exact shape of the last build, for a CAD program: each part a named body in its colour, where the layout has it, in millimetres.' },
+  stl: { label: 'STL', title: 'One part as triangles, for a slicer', heading: 'Export an STL file', lead: 'One part of the last build as triangles, for a slicer, in millimetres: STL has no unit of its own. A plate of several parts is a 3MF.' },
+  '3mf': { label: '3MF', title: 'A plate for a slicer: each part a named object', heading: 'Export a 3MF file', lead: 'A plate for a slicer: each part of the last build a named object in its colour, in millimetres, where the layout has it.' }
+}
+
+type LayoutParts = NonNullable<ExportPlan['objects'][number]['layoutParts']>[number]['parts']
+
+/** The parts a file of the model holds unless the person ticks others: those switched on, of solids alone for a mesh, one for an STL. */
+function partsByDefault(format: ModelFormat, parts: LayoutParts): string[] {
+  const going = parts.filter((part) => !part.off && (format === 'step' || part.solid)).map((part) => part.name)
+  return format === 'stl' ? going.slice(0, 1) : going
+}
+
+/** A tolerance or an angle as typed, or null for one that is no number within its range. */
+function within(text: string, [least, most]: readonly [number, number]): number | null {
+  const n = typed(text)
+  return Number.isFinite(n) && n >= least && n <= most ? n : null
+}
+
+/** What the read-back of a file of the model found, in a line: checked, not printed. */
+function Checked({ checked }: { checked: ExportChecked }) {
+  const n = checked.parts.length
+  if (checked.format === 'step') {
+    return (
+      <p className="export-checked">
+        Checked: STEP read back, <Count n={n} one="part" /> by name, <Count n={checked.solids ?? 0} one="solid" />, each volume and box as the model's.
+      </p>
+    )
+  }
+  return (
+    <p className="export-checked">
+      Checked: {FORMAT_NAMES[checked.format]}, <Count n={n} one={checked.format === '3mf' ? 'object' : 'part'} />, <Count n={checked.triangles ?? 0} one="triangle" />, closed
+      {checked.volumeDeviation !== null && (
+        <>
+          , volume within <span className="num">{number(checked.volumeDeviation)} %</span> of the model
+        </>
+      )}
+      . Checked, not printed.
+    </p>
+  )
+}
 
 /**
  * What goes into an export, said before anything is written: the objects, whether their marks and notes go with
@@ -38,7 +84,14 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   const [scans, setScans] = useState<string[]>([])
   const [plan, setPlan] = useState<ExportPlan | null>(null)
   const [busy, setBusy] = useState<'planning' | 'saving' | null>('planning')
-  const [said, setSaid] = useState<{ saved?: { path: string; bytes: number }; nothing?: true; error?: string } | null>(null)
+  const [said, setSaid] = useState<{ saved?: ExportSaved; nothing?: true; error?: string } | null>(null)
+  // A file of the model: its format, layout and parts (null until the person picks: the format's defaults), the tolerance and angle of a mesh as typed, and whether a 3MF is opened once saved.
+  const [format, setFormat] = useState<ExportFormat>('html')
+  const [layout, setLayout] = useState<string | null>(null)
+  const [parts, setParts] = useState<string[] | null>(null)
+  const [tolerance, setTolerance] = useState(String(MESH_TOLERANCE))
+  const [angle, setAngle] = useState(String(MESH_ANGLE))
+  const [openAfter, setOpenAfter] = useState(false)
   const sheet = useRef<HTMLElement>(null)
   const asked = useRef(0)
   const saving = useRef(false)
@@ -59,7 +112,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   useEffect(() => {
     const mine = ++asked.current
     setBusy((was) => (was === 'saving' ? was : 'planning'))
-    window.torno.export.plan({ objects: objects ?? [], marks, scans, hidden, resolved }).then(
+    window.torno.export.plan({ objects: objects ?? [], marks, scans, hidden, resolved, ...(format === 'html' ? {} : { format }) }).then(
       (found) => {
         if (mine !== asked.current) return
         if (objects === null) return setObjects(found.objects.filter((object) => object.exportable).map((object) => object.id))
@@ -72,7 +125,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
         setBusy((was) => (was === 'saving' ? was : null))
       }
     )
-  }, [objects, marks, scans, hidden, resolved])
+  }, [objects, marks, scans, hidden, resolved, format])
 
   // The keys are the sheet's while it is up, and the focus comes back to where it was when it goes.
   useEffect(() => {
@@ -93,7 +146,28 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   }, [])
 
   const ticked = objects ?? []
-  const request = (): ExportRequest => ({ objects: ticked, marks, scans: scans.filter((key) => ticked.some((id) => key.startsWith(`${id}/`))), hidden, resolved })
+  const model = format === 'html' ? null : format
+  // Of a file of the model: the one object, its layouts, the layout and the parts that go, and the mesh's tolerances.
+  const modelEntry = model ? plan?.objects.find((object) => object.exportable && object.id === ticked[0]) : undefined
+  const layouts = modelEntry?.layoutParts ?? []
+  const layoutNow = model ? (layout !== null && layouts.some((one) => one.layout === layout) ? layout : defaultLayout(model, layouts.map((one) => one.layout))) : undefined
+  const layoutParts = layouts.find((one) => one.layout === layoutNow)?.parts ?? []
+  const partsNow = model ? (parts ?? partsByDefault(model, layoutParts)).filter((name) => layoutParts.some((part) => part.name === name)) : []
+  const toleranceNow = within(tolerance, MESH_TOLERANCES)
+  const angleNow = within(angle, MESH_ANGLES)
+  const meshOk = model === 'step' || (toleranceNow !== null && angleNow !== null)
+  const request = (): ExportRequest =>
+    model
+      ? { objects: ticked.slice(0, 1), marks: false, scans: [], format: model, layout: layoutNow, parts: partsNow, ...(model === 'step' ? {} : { tolerance: toleranceNow!, angle: angleNow! }), ...(model === '3mf' && openAfter ? { open: true } : {}) }
+      : { objects: ticked, marks, scans: scans.filter((key) => ticked.some((id) => key.startsWith(`${id}/`))), hidden, resolved }
+  const chooseFormat = (next: ExportFormat): void => {
+    changed()
+    setFormat(next)
+    setLayout(null)
+    setParts(null)
+    // A file of the model is of one object.
+    if (next !== 'html' && ticked.length > 1) setObjects(ticked.slice(0, 1))
+  }
   const tick = (list: string[], key: string, on: boolean): string[] => (on ? [...new Set([...list, key])] : list.filter((one) => one !== key))
   const changed = (): void => setSaid(null)
 
@@ -150,7 +224,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
         }}
       >
         <header className="export-head">
-          <h2>Export to one HTML file</h2>
+          <h2>{FORMATS[format].heading}</h2>
           <button type="button" className="icon-button" aria-label="Close" title={`Close (${hint('sheet.close')})`} disabled={busy === 'saving'} onClick={() => actions.exportSheet(null)}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
               <path d="m4 4 8 8M12 4l-8 8" />
@@ -158,20 +232,30 @@ function Sheet({ of }: { of: string[] | 'all' }) {
           </button>
         </header>
         <div className="export-body">
-          <p className="export-lead">A page that opens by itself in a browser, for someone who has no torno: the parts of the last build, to turn, take apart and cut. It asks nothing of the network. What is ticked here is what is in it.</p>
+          <div className="segmented export-formats" role="group" aria-label="Format">
+            {EXPORT_FORMATS.map((one) => (
+              <button key={one} type="button" title={FORMATS[one].title} aria-pressed={one === format} disabled={busy === 'saving'} onClick={() => chooseFormat(one)}>
+                {FORMATS[one].label}
+              </button>
+            ))}
+          </div>
+          <p className="export-lead">{FORMATS[format].lead}</p>
 
-          <h3 className="section-title">Objects</h3>
+          <h3 className="section-title">{model ? 'Object' : 'Objects'}</h3>
           <ul className="export-list">
             {can.map((object) => (
               <li key={object.id}>
                 <label className="export-row">
                   <input
-                    type="checkbox"
+                    type={model ? 'radio' : 'checkbox'}
+                    name={model ? 'export-object' : undefined}
                     checked={ticked.includes(object.id)}
                     disabled={busy === 'saving'}
                     onChange={(e) => {
                       changed()
-                      setObjects(tick(ticked, object.id, e.target.checked))
+                      setLayout(null)
+                      setParts(null)
+                      setObjects(model ? [object.id] : tick(ticked, object.id, e.target.checked))
                     }}
                   />
                   <span className="export-name">{nameOf(object.id)}</span>
@@ -188,8 +272,14 @@ function Sheet({ of }: { of: string[] | 'all' }) {
                         {' '}
                         · <Count n={object.views!.length} one="saved view" />
                       </>
-                    )}{' '}
-                    · <Count n={object.triangles ?? 0} one="triangle" />
+                    )}
+                    {/* The triangles the page would hold: a file of the model is meshed for itself. */}
+                    {!model && (
+                      <>
+                        {' '}
+                        · <Count n={object.triangles ?? 0} one="triangle" />
+                      </>
+                    )}
                   </span>
                   {object.failed && (
                     <span className="export-what" data-tone="warn">
@@ -208,7 +298,44 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             </p>
           ))}
 
-          {off > 0 && (
+          {model && modelEntry && (
+            <ModelChoices
+              format={model}
+              layouts={layouts.map((one) => one.layout)}
+              layout={layoutNow}
+              parts={layoutParts}
+              chosen={partsNow}
+              tolerance={tolerance}
+              angle={angle}
+              toleranceOk={toleranceNow !== null}
+              angleOk={angleNow !== null}
+              openAfter={openAfter}
+              disabled={busy === 'saving'}
+              setLayout={(next) => {
+                changed()
+                setLayout(next)
+                setParts(null)
+              }}
+              setParts={(next) => {
+                changed()
+                setParts(next)
+              }}
+              setTolerance={(next) => {
+                changed()
+                setTolerance(next)
+              }}
+              setAngle={(next) => {
+                changed()
+                setAngle(next)
+              }}
+              setOpenAfter={(next) => {
+                changed()
+                setOpenAfter(next)
+              }}
+            />
+          )}
+
+          {!model && off > 0 && (
             <>
               <h3 className="section-title">Parts</h3>
               <label className="export-row">
@@ -229,6 +356,8 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             </>
           )}
 
+          {!model && (
+          <>
           <h3 className="section-title">Marks</h3>
           <label className="export-row">
             <input
@@ -275,7 +404,10 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             </label>
           )}
 
-          {withScans.length > 0 && (
+          </>
+          )}
+
+          {!model && withScans.length > 0 && (
             <>
               <h3 className="section-title">Scans</h3>
               <p className="export-warning">{SCAN_WARNING} What was painted on a scan is never in the file.</p>
@@ -310,12 +442,18 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             </>
           )}
 
-          <p className="export-never">Never in the file: where anything is on this computer, the session with the agent, what a model printed, a view the agent proposed and you did not keep.</p>
+          <p className="export-never">
+            {model
+              ? 'Never in the file: where anything is on this computer, the marks, the scans, the views, the session with the agent. It is read back and checked before it takes the name you give it: a file that fails is not saved.'
+              : 'Never in the file: where anything is on this computer, the session with the agent, what a model printed, a view the agent proposed and you did not keep.'}
+          </p>
         </div>
         <footer className="export-foot">
           <div className="export-size" aria-live="polite" data-bytes={plan && !plan.refusal ? plan.bytes : undefined}>
             {plan?.refusal ? (
               <p data-tone={plan.bytes > 0 ? 'fail' : undefined}>{plan.refusal}</p>
+            ) : model ? (
+              !said?.saved && <p>{busy === 'saving' ? 'Making the file and reading it back…' : 'Made by the kernel when you export, then read back and checked'}</p>
             ) : plan ? (
               <p>
                 {busy === 'planning' ? 'Weighing… ' : ''}about <span className="num">{megabytes(plan.bytes)}</span>
@@ -334,8 +472,22 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             {said?.saved && (
               <p className="export-saved">
                 Saved to <span className="export-path">{said.saved.path}</span>
+                {said.saved.checked && (
+                  <>
+                    {' '}
+                    · <span className="num">{megabytes(said.saved.bytes)}</span>
+                    {said.saved.revision !== undefined && (
+                      <>
+                        {' '}
+                        of <span className="num">r{said.saved.revision}</span>
+                      </>
+                    )}
+                  </>
+                )}
               </p>
             )}
+            {said?.saved?.checked && <Checked checked={said.saved.checked} />}
+            {said?.saved?.notOpened && <p data-tone="warn">It could not be opened: {said.saved.notOpened}</p>}
             {said?.nothing && <p>Nothing was saved</p>}
             {said?.error && <p data-tone="fail">{said.error}</p>}
           </div>
@@ -343,7 +495,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             <button type="button" className="button" disabled={busy === 'saving'} onClick={() => actions.exportSheet(null)}>
               {said?.saved ? 'Done' : 'Cancel'}
             </button>
-            <button type="button" className="button button-primary" disabled={busy !== null || plan === null || plan.refusal !== undefined} onClick={() => void save()}>
+            <button type="button" className="button button-primary" disabled={busy !== null || plan === null || plan.refusal !== undefined || (model !== null && (partsNow.length === 0 || !meshOk))} onClick={() => void save()}>
               {busy === 'saving' ? 'Exporting…' : 'Export'}
             </button>
           </div>
@@ -354,3 +506,100 @@ function Sheet({ of }: { of: string[] | 'all' }) {
 }
 
 const NONE: never[] = []
+
+/** Of a file of the model: the layout, its parts, and of a mesh the tolerance and angle it is made at. */
+function ModelChoices(props: {
+  format: ModelFormat
+  layouts: string[]
+  layout: string | undefined
+  parts: LayoutParts
+  chosen: string[]
+  tolerance: string
+  angle: string
+  toleranceOk: boolean
+  angleOk: boolean
+  openAfter: boolean
+  disabled: boolean
+  setLayout(layout: string): void
+  setParts(parts: string[]): void
+  setTolerance(text: string): void
+  setAngle(text: string): void
+  setOpenAfter(on: boolean): void
+}) {
+  const { format, layouts, layout, parts, chosen, disabled } = props
+  const one = format === 'stl'
+  const spread = parts.some((part) => part.arranged)
+  return (
+    <>
+      {layouts.length > 1 && (
+        <>
+          <h3 className="section-title">Layout</h3>
+          <div className="segmented export-layouts" role="group" aria-label="Layout">
+            {layouts.map((name) => (
+              <button key={name} type="button" aria-pressed={name === layout} disabled={disabled} onClick={() => props.setLayout(name)}>
+                {name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <h3 className="section-title">{one ? 'Part' : 'Parts'}</h3>
+      <ul className="export-list">
+        {parts.map((part) => {
+          const cannot = format !== 'step' && !part.solid
+          return (
+            <li key={part.name}>
+              <label className="export-row">
+                <input
+                  type={one ? 'radio' : 'checkbox'}
+                  name={one ? 'export-part' : undefined}
+                  checked={chosen.includes(part.name)}
+                  disabled={disabled || cannot}
+                  onChange={(e) => props.setParts(one ? [part.name] : e.target.checked ? [...chosen, part.name] : chosen.filter((name) => name !== part.name))}
+                />
+                <span className="export-name">{part.name}</span>
+                {(cannot || part.off) && <span className="export-what">{cannot ? 'No solid: a mesh is of solids alone' : 'Switched off here'}</span>}
+              </label>
+            </li>
+          )
+        })}
+      </ul>
+      {spread && <p className="export-what">Parts torno set apart so that they do not overlap are where it put them, as on screen.</p>}
+      {format !== 'step' && (
+        <>
+          <h3 className="section-title">Triangles</h3>
+          <div className="export-mesh">
+            <label className="export-number">
+              Tolerance
+              <input className="num" type="text" inputMode="decimal" spellCheck={false} autoComplete="off" aria-label="Tolerance" value={props.tolerance} disabled={disabled} aria-invalid={!props.toleranceOk} onChange={(e) => props.setTolerance(e.target.value)} />
+              <span className="num">mm</span>
+            </label>
+            <label className="export-number">
+              Angle
+              <input className="num" type="text" inputMode="decimal" spellCheck={false} autoComplete="off" aria-label="Angle" value={props.angle} disabled={disabled} aria-invalid={!props.angleOk} onChange={(e) => props.setAngle(e.target.value)} />
+              <span className="num">°</span>
+            </label>
+          </div>
+          <p className="export-what" data-tone={props.toleranceOk && props.angleOk ? undefined : 'warn'}>
+            No triangle further than the tolerance from the faces it stands for (
+            <span className="num">
+              {number(MESH_TOLERANCES[0])} to {number(MESH_TOLERANCES[1])} mm
+            </span>
+            ), nor turning more than the angle (
+            <span className="num">
+              {number(MESH_ANGLES[0])} to {number(MESH_ANGLES[1])}°
+            </span>
+            ). Made for the file, not taken from the screen.
+          </p>
+        </>
+      )}
+      {format === '3mf' && (
+        <label className="export-row export-open">
+          <input type="checkbox" checked={props.openAfter} disabled={disabled} onChange={(e) => props.setOpenAfter(e.target.checked)} />
+          <span className="export-name">Open it once saved</span>
+          <span className="export-what">In the program your system opens 3MF files with: your slicer</span>
+        </label>
+      )}
+    </>
+  )
+}

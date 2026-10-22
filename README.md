@@ -1086,9 +1086,10 @@ Looking at the page builds nothing, opens nothing and writes nothing.
 
 "Export…" in the line at the bottom (the open object), in the head of the page
 of objects (any of them), on a card, or `Ctrl+Shift+E`, writes **one HTML
-file** for someone who has no torno. It is made from the last build of this
-run, so an object must have been opened first. Nothing is uploaded: the file
-goes where the save dialog says, which opens in `.torno/exports/`.
+file** for someone who has no torno, or a **STEP, STL or 3MF** file of one
+object (below). It is made from the last build of this run, so an object must
+have been opened first. Nothing is uploaded: the file goes where the save
+dialog says, which opens in `.torno/exports/`.
 
 The sheet lists what would go, with counts and the size, and what is ticked is
 what is in the file:
@@ -1113,6 +1114,40 @@ the largest scan is reduced further, then left out, and the sheet says so;
 above 64 MB nothing is written. The file is written whole or not at all, and a
 name without `.html` gets it.
 
+### STEP, STL and 3MF
+
+The sheet's format buttons write a file of the model instead, of one object:
+
+| Format | What is in it | Layout unless you pick another |
+|---|---|---|
+| STEP | the exact shape, each part a named body in its colour | `assembly` |
+| STL | one part, as triangles | `print` |
+| 3MF | a plate: each part a named object in its colour | `print` |
+
+Every file is in millimetres, with the parts where the layout has them: a
+plate's parts are where torno set them apart, as on screen. You tick the parts
+that go; an STL or a 3MF is of solids alone. Their triangles are made for the
+file, not taken from the screen: none further than the tolerance from the
+faces (0.01 mm unless you type another, 0.001 to 1 mm), nor turning more than
+the angle (5°, 0.5 to 45°).
+
+The kernel makes the file from the last build, and torno writes it beside the
+name you chose. Before the file takes that name, the kernel reads it back and
+checks it:
+
+- **STEP**: the same parts by name, each with as many solids, a volume within
+  a millionth of the model's, and the same box.
+- **STL and 3MF**: each object closed (every edge of two triangles, wound
+  one way), no triangle without area, in as many pieces as the part has
+  shells, facing out, its box the part's, and its volume within what the
+  tolerance can cut off the model's.
+
+A file that fails is not saved, and the sheet says why. One that passes is
+named, and the sheet says what was checked: `Checked: 3MF, 2 objects, 184,220
+triangles, closed, volume within 0.04 % of the model`. Checked, not printed. A
+3MF can be opened once saved in the program your system opens 3MF files with,
+your slicer, when "Open it once saved" is ticked.
+
 ## Keys
 
 `?` shows this table in the window, and searches it.
@@ -1122,7 +1157,7 @@ name without `.html` gets it.
 |---|---|---|
 | Everywhere | `?` | This sheet of keys, outside a field and the terminal |
 | Everywhere | `` Ctrl+` `` | To the session, and from it back to the view |
-| Everywhere | `Ctrl+Shift+E` | Export to one HTML file: the open object, or from the page of objects any of them |
+| Everywhere | `Ctrl+Shift+E` | Export to one HTML file, or to STEP, STL or 3MF: the open object, or from the page of objects any of them |
 | Everywhere | `Ctrl+Shift+B` | Rebuild: build the open object again, as the button in the status line does |
 | Viewport | `V` | Select: click a face, an edge or a part |
 | Viewport | `M` | Measure: two clicks, or a double click on a round thing; nothing is kept unless you keep it |
@@ -1488,6 +1523,8 @@ On the screen:
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
+- **A 3MF opened in a slicer.** Export a 3MF of a plate of two parts or more and open it in PrusaSlicer, Bambu Studio, OrcaSlicer and Cura: each part is an object of its name, in millimetres, where torno set it; it slices with no repair asked for. "Open it once saved" opens it in the slicer the system gives `.3mf` files to. Tests read the file back with lib3mf only.
+- **An STL in a slicer, a STEP in a CAD program.** Open an STL of a round part in a slicer: no facets you can see on its holes at 0.01 mm. Open a STEP in FreeCAD and in Fusion or Onshape: the parts are named bodies in their colours, in millimetres, and a volume measured there is the one torno told. Tests read it back with OCC only.
 - **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large object it did; with a session working nobody has watched it.
 - **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
 - **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. With `claude` only on the `PATH` of a login shell, "New session" says it was not found there: start torno from a terminal, or put the command on the launcher's `PATH`.

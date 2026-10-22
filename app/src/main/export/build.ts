@@ -397,7 +397,7 @@ export async function exportPlan(deps: ExportDeps, req: ExportRequest, assets: P
       scans: placedScans(scans, scene.layouts).map(({ scan }) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles })),
       layoutParts: scene.layouts.map((layout) => ({
         layout,
-        parts: scene.parts.filter((part) => part.layout === layout).map((part) => ({ name: part.name, solid: hasSolid(part), ...(off.has(part.name) ? { off: true as const } : {}) }))
+        parts: scene.parts.filter((part) => part.layout === layout).map((part) => ({ name: part.name, solid: hasSolid(part), ...(off.has(part.name) ? { off: true as const } : {}), ...(part.arranged?.some((d) => d !== 0) ? { arranged: true as const } : {}) }))
       }))
     })
   }

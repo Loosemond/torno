@@ -88,7 +88,7 @@ export function capsOf(keys: readonly string[]): string[] {
 const ROWS = [
   row('keys', ['?'], 'This sheet of keys, outside a field and the terminal', 'Everywhere', 'window'),
   row('session.focus', ['Ctrl+`'], 'To the session, and from it back to the view', 'Everywhere', 'global'),
-  row('export', ['Ctrl+Shift+E'], 'Export to one HTML file: the open object, or from the page of objects any of them', 'Everywhere', 'global'),
+  row('export', ['Ctrl+Shift+E'], 'Export to one HTML file, or to STEP, STL or 3MF: the open object, or from the page of objects any of them', 'Everywhere', 'global'),
   row('rebuild', ['Ctrl+Shift+B'], 'Rebuild: build the open object again, as the button in the status line does', 'Everywhere', 'global'),
   row('reload', ['F5', 'Ctrl+R'], 'Reload the window, under the dev server only', 'Everywhere', 'dev', true),
 

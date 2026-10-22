@@ -178,7 +178,7 @@ test('? shows every key of the one table; what is typed searches it, and no tool
   await page.keyboard.press('?')
   await expect(sheet()).toBeVisible()
   await expect(sheet()).toHaveAttribute('aria-modal', 'true')
-  for (const line of ['Pin: click a point and leave a note', 'Draw the parts apart, or together again', 'Region: undo the last stroke', 'Export to one HTML file']) await expect(sheet()).toContainText(line)
+  for (const line of ['Pin: click a point and leave a note', 'Draw the parts apart, or together again', 'Region: undo the last stroke', 'Export to one HTML file, or to STEP, STL or 3MF']) await expect(sheet()).toContainText(line)
   await expect(sheet().locator('kbd', { hasText: /^P$/ })).toHaveCount(1)
   // Every row that is shown is there, under where it is listened to, its keys in the monospace face.
   await expect(sheet().locator('li')).toHaveCount(KEYS.filter((row) => !row.hidden).length)

@@ -141,6 +141,54 @@
   color: var(--muted);
 }
 
+.export-formats,
+.export-layouts {
+  width: fit-content;
+  margin-bottom: var(--space-2);
+}
+
+.export-formats button,
+.export-layouts button {
+  padding: 0 var(--space-2);
+}
+
+/* The tolerance and the angle of a mesh, side by side. */
+.export-mesh {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.export-number {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.export-number input {
+  width: 7ch;
+  height: 24px;
+  padding: 0 6px;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: right;
+}
+
+.export-number input[aria-invalid='true'] {
+  border-color: var(--warn);
+}
+
+.export-open {
+  margin-top: var(--space-3);
+}
+
+.export-checked {
+  max-width: 62ch;
+}
+
 .export-list {
   margin: 0;
   padding: 0;

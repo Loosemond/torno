@@ -206,7 +206,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
           </button>
         )}
         {cards && cards.length > 0 && (
-          <button type="button" className="button show-export" title="Export objects to one HTML file that opens by itself" onClick={() => actions.exportSheet('all')}>
+          <button type="button" className="button show-export" title="Export objects to one HTML file that opens by itself, or one of them to a STEP, STL or 3MF file" onClick={() => actions.exportSheet('all')}>
             Export…
           </button>
         )}
@@ -310,7 +310,7 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
       </span>
     </button>
     {exportable && (
-      <button type="button" className="card-export" aria-label={`Export ${card.name} to one HTML file`} title={`Export ${card.name} to one HTML file`} onClick={() => actions.exportSheet([card.id])}>
+      <button type="button" className="card-export" aria-label={`Export ${card.name}`} title={`Export ${card.name}: one HTML file, or a STEP, STL or 3MF file`} onClick={() => actions.exportSheet([card.id])}>
         Export
       </button>
     )}

@@ -62,6 +62,9 @@ window on it.
   the folder dialog replaced by `globalThis.__tornoMain.pickFolder` (the folder
   to answer with, or null), and `picks` counts the times it was asked. The
   same holds for "Import scan…": `pickFile` and `filePicks`, and for "Add photos…" of a new object: `pickPhotos` (a list of paths) and `photoPicks`. Main's `objects:readPhoto` serves only paths its dialog (or this hook) gave, so a test sets `pickPhotos`, clicks the button, and the paths are offered; a test that asks for another path gets the refusal.
+- The save dialog of an export is answered by `__tornoMain.pickSave` (the path to write, or null; `savePicks`,
+  `saveOffered`), the question before a replace by `replace` (`replaceAsked`), and a 3MF asked to be opened once
+  saved is never opened: its path goes into `openedFiles`. No test opens a slicer or a CAD program.
 - `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
   side by side.
 

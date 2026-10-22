@@ -156,9 +156,9 @@ export function BuildStatus() {
         </>
       )}
       <span className="spacer" />
-      {/* The open object, as one HTML file. With the page of objects up, the page has the button for them all. */}
+      {/* The open object, as one HTML file or a file of the model. With the page of objects up, the page has the button for them all. */}
       {objectId !== null && !paged && !creating && (
-        <button type="button" className="status-export" title="Export this object to one HTML file that opens by itself" onClick={() => actions.exportSheet([objectId])}>
+        <button type="button" className="status-export" title="Export this object: one HTML file that opens by itself, or a STEP, STL or 3MF file" onClick={() => actions.exportSheet([objectId])}>
           Export…
         </button>
       )}

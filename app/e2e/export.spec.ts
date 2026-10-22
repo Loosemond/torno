@@ -8,7 +8,7 @@ import { type ExportData, SCAN_WARNING } from '../src/shared/exportdata'
 import type { Mark } from '../src/shared/marks'
 import { box, stl } from '../src/test/scanFixtures'
 
-// Export: one HTML file of an object, or of several, that opens by itself. The file is written where the save
+// Export: one HTML file of an object, or of several, that opens by itself; or a STEP, STL or 3MF file of one. The file is written where the save
 // dialog says (under test, where `__tornoMain.pickSave` says: no dialog is ever shown), and is then opened in a
 // second window that is never shown, with every request but the file itself refused and counted.
 const appDir = resolve(__dirname, '..')
@@ -562,9 +562,9 @@ test('one object is exported from its card on the page of objects', async () => 
   await page.getByRole('button', { name: 'All objects' }).click()
   await expect.poll(async () => (await state()).page).toBe('objects')
   // Only an object with a build of this run has the action; it is there for the keyboard as for the pointer.
-  await expect(page.getByRole('button', { name: 'Export plain to one HTML file' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Export plain', exact: true })).toHaveCount(0)
   await page.locator('.card[data-object="hollow"]').hover()
-  await page.getByRole('button', { name: 'Export hollow to one HTML file' }).click()
+  await page.getByRole('button', { name: 'Export hollow', exact: true }).click()
   await expect(sheet().getByRole('checkbox', { name: /^hollow/ })).toBeChecked()
   await expect(sheet().getByRole('checkbox', { name: /^bracket/ })).not.toBeChecked()
   await page.keyboard.press('Escape')
@@ -606,11 +606,82 @@ test('a browser that gives the page no WebGL is told so in words, and nothing br
   }
 })
 
+// A file of the model: made by the kernel's worker of the last build, written beside the path chosen, read back by
+// that worker and checked, and only then given the name. Never a slicer opened: `openedFiles` stands in for it.
+test('a 3MF of the bed, a STEP of the whole and an STL of one part are each read back and checked before they take their names', async () => {
+  test.setTimeout(180_000)
+  await open('bracket')
+  const opened = (): Promise<string[]> => app.evaluate(() => [...(globalThis as unknown as { __tornoMain: { openedFiles: string[] } }).__tornoMain.openedFiles])
+  const formats = sheet().getByRole('group', { name: 'Format' })
+  const exportButton = sheet().getByRole('button', { name: 'Export', exact: true })
+  const mine = (): string[] => readdirSync(outDir).filter((name) => name.startsWith('bracket')).sort()
+
+  // A plate: the bed unless another layout is picked, every part of it, at the print tolerance.
+  await setSave(join(outDir, 'bracket-plate'))
+  await page.getByRole('button', { name: 'Export…' }).click()
+  await formats.getByRole('button', { name: '3MF' }).click()
+  await expect(sheet().getByRole('heading', { name: 'Export a 3MF file' })).toBeVisible()
+  await expect(sheet().getByRole('radio', { name: /^bracket/ })).toBeChecked()
+  await expect(sheet().getByRole('group', { name: 'Layout' }).getByRole('button', { name: 'print' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(sheet().getByRole('checkbox', { name: 'base', exact: true })).toBeChecked()
+  await expect(sheet().getByRole('checkbox', { name: 'post', exact: true })).toBeChecked()
+  await expect(sheet().getByRole('textbox', { name: 'Tolerance' })).toHaveValue('0.01')
+  await expect(sheet().getByRole('checkbox', { name: /Open it once saved/ })).not.toBeChecked()
+  await sheet().getByRole('checkbox', { name: /Open it once saved/ }).check()
+  await exportButton.click()
+  const plate = join(outDir, 'bracket-plate.3mf')
+  await expect(sheet().getByText(`Saved to ${plate}`)).toBeVisible({ timeout: 60_000 })
+  await expect(sheet()).toContainText(/Checked: 3MF, 2 objects, [\d,]+ triangles, closed, volume within [\d.]+ % of the model\. Checked, not printed\./)
+  expect(await hooks()).toMatchObject({ saveOffered: join(root, 'bracket', '.torno', 'exports', 'bracket-r1.3mf') })
+  expect(await opened()).toEqual([plate])
+  // The file and nothing beside it: no .tmp, no folder.
+  expect(mine()).toEqual(['bracket-plate.3mf'])
+  expect(readFileSync(plate).subarray(0, 2).toString()).toBe('PK')
+
+  // The whole, exact: the assembly unless another is picked, every part of it.
+  await setSave(join(outDir, 'bracket.step'))
+  await formats.getByRole('button', { name: 'STEP' }).click()
+  await expect(sheet().getByRole('group', { name: 'Layout' }).getByRole('button', { name: 'assembly' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(sheet().getByRole('textbox', { name: 'Tolerance' })).toHaveCount(0)
+  await exportButton.click()
+  const step = join(outDir, 'bracket.step')
+  await expect(sheet().getByText(`Saved to ${step}`)).toBeVisible({ timeout: 60_000 })
+  await expect(sheet()).toContainText("Checked: STEP read back, 2 parts by name, 2 solids, each volume and box as the model's.")
+  const text = readFileSync(step, 'utf8')
+  expect(text.startsWith('ISO-10303-21;')).toBe(true)
+  for (const name of ["'base'", "'post'"]) expect(text).toContain(name)
+  expect(text).not.toContain(root)
+  expect(text).not.toContain(homedir())
+  expect(mine()).toEqual(['bracket-plate.3mf', 'bracket.step'])
+
+  // One part, for a slicer: picked by its own button, at a coarser tolerance; one out of range cannot be exported.
+  await setSave(join(outDir, 'bracket-post'))
+  await formats.getByRole('button', { name: 'STL' }).click()
+  await sheet().getByRole('radio', { name: 'post', exact: true }).check()
+  await sheet().getByRole('textbox', { name: 'Tolerance' }).fill('5')
+  await expect(exportButton).toBeDisabled()
+  await sheet().getByRole('textbox', { name: 'Tolerance' }).fill('0.05')
+  await expect(exportButton).toBeEnabled()
+  await exportButton.click()
+  const stl = join(outDir, 'bracket-post.stl')
+  await expect(sheet().getByText(`Saved to ${stl}`)).toBeVisible({ timeout: 60_000 })
+  await expect(sheet()).toContainText(/Checked: STL, 1 part, [\d,]+ triangles, closed, volume within [\d.]+ % of the model/)
+  expect(await hooks()).toMatchObject({ saveOffered: join(root, 'bracket', '.torno', 'exports', 'bracket-post-r1.stl') })
+  const bytes = readFileSync(stl)
+  expect(bytes.length).toBe(84 + 50 * bytes.readUInt32LE(80))
+  expect(mine()).toEqual(['bracket-plate.3mf', 'bracket-post.stl', 'bracket.step'])
+  // Only the 3MF that was asked to be opened was.
+  expect(await opened()).toEqual([plate])
+  expect(readdirSync(join(root, 'bracket', '.torno', 'exports'))).toEqual([])
+  await page.keyboard.press('Escape')
+  await expect(sheet()).toHaveCount(0)
+})
+
 // Set TORNO_SHOTS=<dir> to write export-light.png, export-dark.png, export-narrow.png, export-cut.png and
-// export-sheet.png there: an exported file of `hollow` with its marks, its saved view applied (the lid drawn
+// export-sheet.png and export-sheet-3mf.png there: an exported file of `hollow` with its marks, its saved view applied (the lid drawn
 // apart), open in the second hidden window, also 420 px wide with its drawer up, and cut; and the sheet over the view. Each picture needs its own launch: on a hidden window capturePage() delivers one image
 // and hangs on the next call, and page.screenshot() never returns.
-for (const shot of ['light', 'dark', 'narrow', 'cut', 'sheet'] as const) {
+for (const shot of ['light', 'dark', 'narrow', 'cut', 'sheet', 'sheet-3mf'] as const) {
   test(`screenshot of an exported page, ${shot}`, async () => {
     const dir = process.env.TORNO_SHOTS
     test.skip(!dir, 'TORNO_SHOTS is not set')
@@ -635,10 +706,11 @@ for (const shot of ['light', 'dark', 'narrow', 'cut', 'sheet'] as const) {
       await shotPage.getByRole('button', { name: 'Export…' }).click()
       await shotPage.getByRole('dialog', { name: 'Export' }).getByRole('checkbox', { name: /Include marks and their notes/ }).check()
       await expect(shotPage.getByRole('dialog', { name: 'Export' })).toContainText('about')
-      if (shot === 'sheet') {
+      if (shot === 'sheet' || shot === 'sheet-3mf') {
+        if (shot === 'sheet-3mf') await shotPage.getByRole('dialog', { name: 'Export' }).getByRole('group', { name: 'Format' }).getByRole('button', { name: '3MF' }).click()
         await shotPage.waitForTimeout(600)
         const png = await shotApp.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'))
-        writeFileSync(join(dir!, 'export-sheet.png'), Buffer.from(png, 'base64'))
+        writeFileSync(join(dir!, `export-${shot}.png`), Buffer.from(png, 'base64'))
         return
       }
       await shotPage.getByRole('dialog', { name: 'Export' }).getByRole('button', { name: 'Export', exact: true }).click()

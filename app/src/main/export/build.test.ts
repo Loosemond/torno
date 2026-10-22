@@ -206,7 +206,7 @@ describe('exportFile and exportPlan', () => {
         // What a file of the model could hold, layout by layout, the switched-off part said as such.
         layoutParts: [
           { layout: 'assembly', parts: [{ name: 'tray', solid: true }, { name: 'lid', solid: true, off: true }] },
-          { layout: 'print', parts: [{ name: 'tray', solid: true }, { name: 'lid', solid: true, off: true }] }
+          { layout: 'print', parts: [{ name: 'tray', solid: true }, { name: 'lid', solid: true, off: true, arranged: true }] }
         ]
       },
       { id: 'never-built', exportable: false, why: 'Open it first: torno exports the last build of this run', scans: [] },

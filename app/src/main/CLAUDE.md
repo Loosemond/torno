@@ -612,8 +612,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the rename: `checkModelFile` has the same worker read that file back (`export_check`) and throws, with every
   problem it found (`FAILED_CHECK`), when it did not pass, or when another build of the object landed since the
   file was made (`NEW_BUILD`). A file that fails is never named and the `.tmp` is removed. The sheet is told what
-  was checked (`ExportSaved.checked`). The plan of such a file weighs nothing (`exportPlan`: each object's
-  `layoutParts`, and `ONE_OBJECT` when several are ticked).
+  was checked (`ExportSaved.checked`). A 3MF asked to be opened (`ExportRequest.open`, the sheet's tick) is
+  handed to the system once it is named (`shell.openPath`; under test the path is put in
+  `__tornoMain.openedFiles` and nothing is opened). The plan of such a file weighs nothing (`exportPlan`: each
+  object's `layoutParts`, and `ONE_OBJECT` when several are ticked).
 
 ## Agents
 
