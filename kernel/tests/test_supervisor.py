@@ -502,6 +502,28 @@ def test_an_export_past_its_time_is_told_its_own_time(routed, monkeypatch):
     }
 
 
+def test_a_worker_stuck_on_an_export_says_the_export_s_time_to_the_queries_after_it(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "EXPORT_TIMEOUT", 0.3)
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 5.0)
+    sup = routed.supervisor
+    live, _ = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="file", op="query", dir="/object", name="export", args={})
+    routed.request(id="behind", op="query", dir="/object", name="nearest", args={})
+    sup._step()
+    sup._step()  # the export's deadline passes: the query behind it is told at once
+    routed.request(id="later", op="query", dir="/object", name="describe", args={"ref": "a:b"})
+    sup._step()
+    busy = "the build of /object is still busy with a query it did not answer within 0.3 s; ask again when it has"
+    assert {f["id"]: f["error"]["message"] for f in routed.sent()} == {
+        "file": "the query was not answered within 0.3 s; the build it was sent to is still there",
+        "behind": busy,
+        "later": busy,
+    }
+
+
 def test_section_over_the_protocol_for_the_object_asked(fresh, ws):
     plate, bracket = ws / "measures", ws / "bracket"
     reply, _ = fresh.build(plate, "measures.py")

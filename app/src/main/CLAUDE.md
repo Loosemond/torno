@@ -783,8 +783,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   of the build that ended last: a failed build's is its error's, never the output of the good build before; none
   while a build runs; none for the error main makes when the kernel process stopped (`kernelStderr`, whose `output` is the kernel's stderr and
   not the model's); a build process the supervisor reports as a `crash` (killed, a garbled result) keeps its prints. It takes
-  what is left of `CONTEXT_LIMIT` after the status, the dimensions and the count of those that pass, so a traceback
-  and a dimension outrank it; with less than `MIN_OUTPUT_CHARS` left it is a line that there is output and that
+  what is left of `CONTEXT_LIMIT` after the status, the digest, the dimensions and the count of those that pass, so a
+  traceback, the digest and a dimension outrank it; with less than `MIN_OUTPUT_CHARS` left it is a line that there is output and that
   `scene` has it, or nothing.
 - **Why a fillet or a chamfer failed** (`BuildError.diagnosis`, the kernel's `diagnose.py`; the words are
   `diagnosisText` of `shared/diagnosis.ts`, numbers through `shared/format.ts`, a bisected size by `thousandth`).

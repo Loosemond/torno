@@ -200,6 +200,8 @@ class _Worker:
     # Queries to it that timed out and that it has not answered yet: it answers one at a
     # time, so it is still busy with them, and with nothing else until it has sent as many frames.
     abandoned: int = 0
+    # The seconds the query it was last given up on had (``query_seconds``): what it is said to be stuck past.
+    stuck: float = 0.0
 
     @property
     def stalled(self) -> bool:
@@ -410,7 +412,7 @@ class Supervisor:
             # It answers one query at a time: this one would only wait its own 30 s behind
             # the one that was given up on. The app knows this answer by its words (isBusy in
             # app/src/main/kernel/client.ts, pinned by client.busy.test.ts): change both.
-            self._fail(id, "timeout", _busy(dir))
+            self._fail(id, "timeout", _busy(dir, live.stuck))
             return
         live.queries.append((id, None, query_seconds(request.get("name"))))
         live.start_next()
@@ -583,6 +585,7 @@ class Supervisor:
             return
         id, _, seconds = worker.queries.pop(0)
         worker.abandoned += 1
+        worker.stuck = seconds
         self._fail(
             id,
             "timeout",
@@ -593,7 +596,7 @@ class Supervisor:
         while worker.queries:
             behind, *_ = worker.queries.pop(0)
             worker.abandoned += 1
-            self._fail(behind, "timeout", _busy(worker.dir))
+            self._fail(behind, "timeout", _busy(worker.dir, seconds))
 
     def _live_died(self, worker: _Worker) -> None:
         del self._live[worker.dir]
@@ -642,15 +645,17 @@ def query_seconds(name: Any) -> float:
     return EXPORT_TIMEOUT if name in _EXPORTS else QUERY_TIMEOUT
 
 
-def _busy(dir: str) -> str:
+def _busy(dir: str, seconds: float) -> str:
     """What a query is told when its worker is past the time of a query it was given: busy with it still.
+
+    ``seconds`` is the time that query had: 30 s of most, 120 s of an export (``query_seconds``).
 
     The app knows this answer by its words (isBusy in app/src/main/kernel/client.ts, pinned by
     client.busy.test.ts): change both.
     """
     return (
         f"the build of {dir} is still busy with a query it did not answer "
-        f"within {QUERY_TIMEOUT:g} s; ask again when it has"
+        f"within {seconds:g} s; ask again when it has"
     )
 
 

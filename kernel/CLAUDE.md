@@ -149,7 +149,8 @@ is the detail of this folder, under the headings it has there.
   `timeout` and the worker left alone; those queued behind it are answered `timeout` at once, as busy (they were
   sent, and the worker answers them in their turn). Until that worker has answered every query that was given up
   on, new queries to it are answered `timeout` at once the same way: it answers one at a time, and is still
-  busy with those.
+  busy with those. The busy answer names the time the query it was given up on had (`_Worker.stuck`): 30 s, or
+  120 s behind an export.
   A worker leaves through `os._exit`.
 - **Files of a build are made by its worker and never written by the kernel** (`export.py`). `export` (`format`
   `step`, `stl` or `3mf`, `layout`, `parts`, `tolerance` mm and `angle` degrees for a mesh, `colors`, `name`)

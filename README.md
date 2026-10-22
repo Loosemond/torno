@@ -1310,7 +1310,8 @@ name you chose. Before the file takes that name, the kernel reads it back and
 checks it:
 
 - **STEP**: the same parts by name, each with as many solids, a volume within
-  a millionth of the model's, and the same box.
+  a millionth of the model's or twice what the two volumes are in doubt,
+  whichever is more, and the same box.
 - **STL and 3MF**: each object closed (every edge of two triangles, wound
   one way), no triangle without area, in as many pieces as the part has
   shells, facing out, its box the part's, and its volume within what the
