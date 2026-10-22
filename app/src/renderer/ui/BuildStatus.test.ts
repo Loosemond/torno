@@ -117,7 +117,7 @@ describe('the status line on the New object page', () => {
   const line = (): string => {
     const now = vi.spyOn(store, 'getInitialState').mockReturnValue(store.getState())
     try {
-      return renderToStaticMarkup(createElement(BuildStatus, { errorOpen: false, onErrorOpen: () => {} }))
+      return renderToStaticMarkup(createElement(BuildStatus))
     } finally {
       now.mockRestore()
     }
@@ -139,7 +139,7 @@ describe('the parts the build says are broken', () => {
   const line = (): string => {
     const now = vi.spyOn(store, 'getInitialState').mockReturnValue(store.getState())
     try {
-      return renderToStaticMarkup(createElement(BuildStatus, { errorOpen: false, onErrorOpen: () => {} }))
+      return renderToStaticMarkup(createElement(BuildStatus))
     } finally {
       now.mockRestore()
     }

@@ -58,6 +58,9 @@
 //                                 (`file_path`, absolute, and `content`), and between them the file really written (`file`
 //                                 is from the folder it runs in; a `\n` in the content is a new line). What the
 //                                 `PostToolUse` is answered with is said as a `system`/`hook_response`
+//       edit <file> <old> <new>   an `Edit` tool, the same way: `tool_input` has `file_path` (absolute), `old_string` and
+//                                 `new_string`, and between the hooks `old` is replaced by `new` in the file, once (the
+//                                 words are bare, or JSON strings when they hold a space: `edit part.py "W = 2" "W = 3"`)
 //       retry <attempt> [<s>]     a `system`/`api_retry` at that attempt, as the CLI says while the API is retried, then
 //                                 nothing for that many seconds (the next thing it says is the API's answer)
 //       deny <name> <json input>  a permission the CLI denied by itself (no ask): it is in the `permission_denials` of the
@@ -88,6 +91,8 @@ import { createInterface } from 'node:readline'
 
 const argv = process.argv.slice(2)
 const after = (flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined)
+/** The words of a command's rest: bare ones, or JSON strings (which may hold spaces); a `\n` of a bare one is a new line. */
+const words = (rest) => (rest.match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((w) => (w.startsWith('"') ? JSON.parse(w) : w.replaceAll('\\n', '\n')))
 /** A flag's JSON, given as a text or as the path of a file that holds it, as the CLI takes `--settings` and `--mcp-config`. */
 const jsonOf = (value) => (value === undefined ? {} : JSON.parse(value.trimStart().startsWith('{') ? value : readFileSync(value, 'utf8')))
 const settings = jsonOf(after('--settings'))
@@ -254,22 +259,43 @@ async function streamMode() {
     await takeFolded()
   }
 
-  /** A `Write` of a file, as the CLI makes one: the hooks name the tool use and its input, and the file is written between them. */
-  async function write(file, content) {
+  /**
+   * A tool that changes a file, as the CLI makes one: the hooks name the tool use and its input, and the file is changed
+   * between them. `change` does it (it gets the path) and gives the tool's response and the text of its result.
+   */
+  async function fileTool(name, input, change) {
     turn.foldable = true
     const id = next('toolu')
-    const path = resolve(process.cwd(), file)
-    const input = { file_path: path, content }
-    out(message([{ type: 'tool_use', id, name: 'Write', input }]))
-    const hooked = { tool_name: 'Write', tool_use_id: id, tool_input: input }
+    out(message([{ type: 'tool_use', id, name, input }]))
+    const hooked = { tool_name: name, tool_use_id: id, tool_input: input }
     await post('PreToolUse', hooked)
-    writeFileSync(path, content)
-    const answered = await post('PostToolUse', { ...hooked, tool_response: { type: 'create', filePath: path } })
+    const { response, result, isError } = change(input.file_path)
+    const answered = await post('PostToolUse', { ...hooked, tool_response: response })
     const context = answered?.hookSpecificOutput?.additionalContext
     if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'PostToolUse', output: context, ...base, uuid: next('uuid') })
-    out({ type: 'user', message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content: `wrote ${path}`, is_error: false }] }, ...base, uuid: next('uuid') })
+    out({ type: 'user', message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content: result, is_error: isError === true }] }, ...base, uuid: next('uuid') })
     turn.foldable = false
     await takeFolded()
+  }
+
+  /** A `Write` of a file. */
+  async function write(file, content) {
+    const path = resolve(process.cwd(), file)
+    await fileTool('Write', { file_path: path, content }, () => {
+      writeFileSync(path, content)
+      return { response: { type: 'create', filePath: path }, result: `wrote ${path}` }
+    })
+  }
+
+  /** An `Edit` of a file: `old` is replaced by `new` where the file has it, once. A file without it is the CLI's own error, and nothing is written. */
+  async function edit(file, old, replacement) {
+    const path = resolve(process.cwd(), file)
+    await fileTool('Edit', { file_path: path, old_string: old, new_string: replacement }, () => {
+      const text = readFileSync(path, 'utf8')
+      if (!text.includes(old)) return { response: {}, result: `String to replace not found in file.\nString: ${old}`, isError: true }
+      writeFileSync(path, text.replace(old, () => replacement))
+      return { response: { filePath: path, oldString: old, newString: replacement }, result: `The file ${path} has been updated successfully.` }
+    })
   }
 
   /** The prompts that came while a tool ran, taken up now: their hook, then their script, in this turn. */
@@ -303,6 +329,9 @@ async function streamMode() {
     } else if (command === 'write') {
       const space = rest.indexOf(' ')
       await write(space < 0 ? rest : rest.slice(0, space), space < 0 ? '' : rest.slice(space + 1).replaceAll('\\n', '\n'))
+    } else if (command === 'edit') {
+      const [file, old, replacement] = words(rest)
+      await edit(file ?? '', old ?? '', replacement ?? '')
     } else if (command === 'work') {
       await tool('Bash', { command: `sleep ${rest}` }, false, Number(rest) * 1000)
     } else if (command === 'slow') {

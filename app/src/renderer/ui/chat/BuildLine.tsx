@@ -1,0 +1,85 @@
+import { memo, useState } from 'react'
+import type { ChatItem } from '../../../shared/chat'
+import { type BuildState, errorLine } from '../../../shared/build'
+import type { Verdict } from '../../../shared/sanity'
+import { actions, useStore } from '../../state/store'
+import { numbered } from '../numbered'
+import { seconds } from '../BuildStatus'
+import { RefChip } from './RefChip'
+
+type Context = Extract<ChatItem, { kind: 'context' }>
+
+/** The parts that changed said one to a line; more than this are counted (the agent's `diff` has them all). */
+export const MOST_PARTS = 4
+
+/** What a dimension's verdict became, in a word. */
+export function verdictWord(now: Verdict): string {
+  return now === 'pass' ? 'now passes' : now === 'fail' ? 'now fails' : 'is no longer measured'
+}
+
+/** The build that failed after `revision`, the last good one: the number it would have been given (a failure has none of its own). */
+export const failedAs = (item: Pick<Context, 'revision'>): string => `r${(item.revision ?? 0) + 1}`
+
+/** Whether the latest build is the failure this line tells of: only then does "Show error" open the sheet of it. */
+export function stillLatest(build: Pick<BuildState, 'status' | 'revision' | 'error'> | null, item: Pick<Context, 'revision' | 'error'>): boolean {
+  if (build?.status !== 'failed' || build.error === undefined || item.error === undefined) return false
+  return build.revision === (item.revision ?? 0) && errorLine(build.error) === item.error
+}
+
+/**
+ * The build an edit started, under the card of the edit: that it worked and how long it took, or why it failed in a
+ * line; the dimensions whose verdict it changed, as chips with the word; the parts it changed, a line each, as the
+ * kernel said them (exact or approximate); and the exact text the agent was given, to open out. Drawn from the
+ * fields of the item and nothing else: the text is not read.
+ */
+export const BuildLine = memo(function BuildLine({ item }: { item: Context }) {
+  const [open, setOpen] = useState(false)
+  const latest = useStore((s) => stillLatest(s.build, item))
+  const errorShown = useStore((s) => s.errorOpen)
+  const digest = item.digest
+  const parts = digest?.parts ?? []
+  return (
+    <div className="chat-item chat-build" data-kind="context" data-build={item.buildState}>
+      <div className="chat-build-line">
+        {item.buildState === 'ok' && item.revision !== undefined && (
+          <span className="chat-build-head" data-verdict="ok">
+            Built <RefChip value={`r${item.revision}`} /> · ok{item.seconds !== undefined && <> · <span className="num">{seconds(item.seconds)}</span> s</>}
+          </span>
+        )}
+        {item.buildState === 'failed' && (
+          <span className="chat-build-head" data-verdict="failed">
+            <span className="num">{failedAs(item)}</span> failed{item.error ? <>: {numbered(item.error)}</> : ''}
+          </span>
+        )}
+        {item.buildState === 'building' && <span className="chat-build-head">Build running</span>}
+        {item.buildState === undefined && <span className="chat-build-head">Build</span>}
+        {item.buildState === 'failed' && latest && (
+          <button type="button" className="chat-more" aria-expanded={errorShown} onClick={() => actions.setErrorOpen(!errorShown)}>
+            {errorShown ? 'Hide error' : 'Show error'}
+          </button>
+        )}
+        <button type="button" className="chat-more" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide text' : 'Show text'}
+        </button>
+      </div>
+      {digest && digest.dimensions.length > 0 && (
+        <ul className="chat-build-dimensions">
+          {digest.dimensions.map((change) => (
+            <li key={change.id}>
+              <RefChip value={change.id} /> <span data-verdict={change.now === 'none' ? undefined : change.now === 'pass' ? 'ok' : 'failed'}>{verdictWord(change.now)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {parts.length > 0 && (
+        <ul className="chat-build-parts">
+          {parts.slice(0, MOST_PARTS).map((part) => (
+            <li key={`${part.layout}/${part.name}`}>{numbered(part.text)}</li>
+          ))}
+          {parts.length > MOST_PARTS && <li className="muted">{numbered(`${parts.length - MOST_PARTS} more changed`)}</li>}
+        </ul>
+      )}
+      {open && <pre className="chat-pre chat-added-text selectable">{item.text}</pre>}
+    </div>
+  )
+})

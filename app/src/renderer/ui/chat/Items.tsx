@@ -3,6 +3,7 @@ import { type ChatItem, pulledFromTorno } from '../../../shared/chat'
 import { drawn } from '../../state/chat'
 import { numbered } from '../numbered'
 import { AskCard } from './AskCard'
+import { BuildLine } from './BuildLine'
 import { Markdown } from './markdown'
 import { YOUR_MESSAGE } from './gone'
 import { Pictures } from './Pictures'
@@ -91,7 +92,7 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
     case 'user':
       return <User item={item} />
     case 'context':
-      return <Added item={item} />
+      return item.forTool ? <BuildLine item={item} /> : <Added item={item} />
     case 'text':
       return (
         <div className="chat-item chat-text" data-kind="text">
@@ -131,7 +132,7 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
 /** Whether an item is something under way, which shows a dot that beats. */
 const underWay = (item: ChatItem): boolean => ((item.kind === 'text' || item.kind === 'thinking') && item.streaming) || (item.kind === 'tool' && item.state === 'running')
 
-/** The items in the order they are drawn, with each `context` under the prompt, or the tool card, it was made for. */
+/** The items in the order they are drawn, with each `context` under the prompt, or the tool card, it was made for: a prompt's as what torno added to it, a tool's as the build it started. */
 export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean }) {
   const order = useMemo(() => drawn(items), [items])
   const under = useMemo(() => {
@@ -148,7 +149,7 @@ export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean })
         return (
           <div key={item.id} className="chat-group" data-id={item.id}>
             <ItemView item={item} beat={underWay(item) ? beat : true} />
-            {under.get(item.id)?.map((context) => <Added key={context.id} item={context} />)}
+            {under.get(item.id)?.map((context) => (context.forTool ? <BuildLine key={context.id} item={context} /> : <Added key={context.id} item={context} />))}
           </div>
         )
       })}

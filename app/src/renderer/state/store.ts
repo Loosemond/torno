@@ -41,6 +41,8 @@ export interface TornoState {
   objectId: string | null
   /** Build state of the open object. */
   build: BuildState | null
+  /** Whether the sheet of the failed build is up (the status line's "Build failed" and the chat's "Show error" open it); it is of the open object, and goes when the build has no error. */
+  errorOpen: boolean
   /** The last good scene of the open object, and the revision it is. */
   scene: Scene | null
   revision: number
@@ -153,7 +155,7 @@ const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
 const NO_VIEWS: SavedView[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, errorOpen: false, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -631,6 +633,11 @@ export const actions = {
   /** Close the note that is open; its mark stays the active one. */
   closeNote(): void {
     if (store.getState().noting !== null) store.setState({ noting: null })
+  },
+
+  /** The sheet of the failed build is opened or put away. */
+  setErrorOpen(open: boolean): void {
+    if (store.getState().errorOpen !== open) store.setState({ errorOpen: open })
   },
 
   /**

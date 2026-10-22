@@ -47,7 +47,7 @@ function useElapsed(startedAt: number | undefined): number {
 }
 
 /** A duration to a tenth of a second, to whole seconds from ten up; never shown as nothing. */
-function seconds(s: number): string {
+export function seconds(s: number): string {
   return s < 10 ? Math.max(s, 0.1).toFixed(1) : String(Math.round(s))
 }
 
@@ -59,7 +59,8 @@ function seconds(s: number): string {
  * first such in the marks panel. After the count of parts, how many of the
  * layout's parts the build says are broken (`partDefects`), each in the title.
  */
-export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; onErrorOpen: (open: boolean) => void }) {
+export function BuildStatus() {
+  const errorOpen = useStore((s) => s.errorOpen)
   const name = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const build = useStore((s) => s.build)
   const hasScene = useStore((s) => s.scene !== null)
@@ -83,8 +84,8 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
 
   // The sheet shows the failure of the build it was opened for, no longer.
   useEffect(() => {
-    if (errorOpen && !error) onErrorOpen(false)
-  }, [errorOpen, error, onErrorOpen])
+    if (errorOpen && !error) actions.setErrorOpen(false)
+  }, [errorOpen, error])
 
   return (
     <footer className="status" data-region="status">
@@ -107,7 +108,7 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
               <span>Built{build.seconds !== undefined && <> in <span className="num">{seconds(build.seconds)}</span> s</>}</span>
             )}
             {build.status === 'failed' && (
-              <button type="button" className="status-fail" aria-expanded={errorOpen} onClick={() => onErrorOpen(!errorOpen)}>
+              <button type="button" className="status-fail" aria-expanded={errorOpen} onClick={() => actions.setErrorOpen(!errorOpen)}>
                 Build failed
               </button>
             )}
@@ -163,7 +164,7 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
       )}
       {build123d && <span className="num">build123d {build123d}</span>}
       {errorOpen && error && name !== null && (
-        <BuildErrorSheet objectName={name} error={error} onClose={() => onErrorOpen(false)} />
+        <BuildErrorSheet objectName={name} error={error} onClose={() => actions.setErrorOpen(false)} />
       )}
     </footer>
   )

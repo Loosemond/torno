@@ -8,8 +8,8 @@ export interface RefInfo {
   live: boolean
   /** The refs of the layout shown to light in the viewport while the pointer is on the chip. */
   lights: string[]
-  /** What a click does: go to the mark, or select the face or edge. */
-  act?: 'focus' | 'select'
+  /** What a click does: go to the mark, select the face or edge, or open the sheet of the failed build. */
+  act?: 'focus' | 'select' | 'build'
   /** For a mark, who made it: its chip is in its colour. */
   author?: 'user' | 'agent'
   /** The tooltip: what it is, or why it does nothing. */
@@ -22,7 +22,7 @@ const NOTE_WORDS = 80
 
 /** What a ref (`M4`, `r12`, `lid/F12`, `lid/E3`) is among what the window shows now. */
 /** The parts of the state a ref depends on: the rest of it (the selection, the camera) cannot change what a chip says. */
-export type RefState = Pick<TornoState, 'marks' | 'scene' | 'layers' | 'layout' | 'revision'>
+export type RefState = Pick<TornoState, 'marks' | 'scene' | 'layers' | 'layout' | 'revision' | 'build'>
 
 export function refInfo(s: RefState, value: string): RefInfo {
   if (/^M\d+$/.test(value)) {
@@ -38,7 +38,11 @@ export function refInfo(s: RefState, value: string): RefInfo {
   }
   if (/^r\d+$/.test(value)) {
     const n = Number(value.slice(1))
-    return { kind: 'build', live: false, lights: [], plain: n < 1 || n > s.revision, title: s.scene !== null && `r${s.revision}` === value ? `Build ${value}, the one on show` : `Build ${value}` }
+    const shown = s.scene !== null && n === s.revision
+    // The build on show is live while the build after it has failed: a click says why. An older build stays inert.
+    const failed = shown && s.build?.status === 'failed' && s.build.error !== undefined
+    const title = shown ? `Build ${value}, the one on show${failed ? '; the build after it failed: show why' : ''}` : `Build ${value}`
+    return { kind: 'build', live: failed, lights: [], plain: n < 1 || n > s.revision, ...(failed ? { act: 'build' as const } : {}), title }
   }
   const sub = /^(.*)\/([FE])(\d+)$/.exec(value)
   if (!sub) return { kind: 'none', live: false, lights: [], plain: true, title: value }

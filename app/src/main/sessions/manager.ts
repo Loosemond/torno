@@ -6,7 +6,7 @@ import { isInsideFolder } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
-import type { BuildState } from '../../shared/build'
+import { type BuildState, errorLine } from '../../shared/build'
 import type { ViewDrawing } from '../../shared/drawing'
 import type { Scene } from '../../shared/scene'
 import type { ObjectInfo } from '../../shared/workspace'
@@ -532,7 +532,11 @@ export class Sessions {
       return {}
     }
     if (!told.text) return {}
-    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(told.digest ? { digest: told.digest } : {}) })
+    // How long it took and what it said, as data: the window draws a build line from these and the digest, never from the text.
+    const state = build(objectId)
+    const took = told.buildState === 'ok' && state?.status === 'ok' && state.revision === told.revision ? state.seconds : undefined
+    const error = told.buildState === 'failed' && state?.status === 'failed' ? state.error ? errorLine(state.error) : undefined : undefined
+    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}) })
     return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
   }
 

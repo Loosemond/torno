@@ -442,7 +442,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   window draws what main's transcript says: `placed` and `drawn` in `state/chat.ts` reproduce main's order
   (an item keeps its place; a queued prompt is drawn after all the others; sent, it goes to the end), and items
   and metas are merged by `seq` with the history, so none is drawn twice or lost. Each `context` item is drawn
-  under its prompt, as chips from its fields (marks, build, selection), never from its text. A tool card reads "denied" (the person refused its ask) or "cancelled" (its ask ended with the turn stopped) in the muted colour; "failed", in the fail colour, only for an error the person did not cause. Nothing is per frame
+  under its prompt, as chips from its fields (marks, build, selection), never from its text. One made for a tool's
+  card (`forTool`: the build an edit of the model started) is a build line under that card (`BuildLine`), drawn from
+  its fields alone: `Built r2 · ok · 1.2 s`, or `r3 failed: <the last line of the traceback>` in `--fail` (a failure
+  has no revision of its own: it is named as the one after the last good build, as the Stop hook names it), "Show
+  error" while that failure is still the latest build, the dimensions whose verdict it changed (`digest.dimensions`,
+  from `verdictChanges`, never worked out again here) as chips with `now passes` / `now fails`, and the parts it
+  changed (`digest.parts[].text`, four at most, the rest counted), then "Show text". The sheet of a failed build is
+  `errorOpen` in the store (`actions.setErrorOpen`): the status line, the viewport's "Show error" and the chat open
+  it. A tool card reads "denied" (the person refused its ask) or "cancelled" (its ask ended with the turn stopped) in the muted colour; "failed", in the fail colour, only for an error the person did not cause. Nothing is per frame
   in React, and there is no endless animation in it: a working indication is still, toggled once a second by
   `useBeat`, and only while something streams or runs (`styles.test.ts` fails for an endless one). The window holds
   at most `MAX_ITEMS` (2,000) as main does, dropping the oldest, and says once, at the top, "Earlier items are not
@@ -453,7 +461,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `meta.pluginLoaded` is false a line above the box offers "Restart with the whole prompt" (disabled while the agent
   works), which starts the session again, resumed, with `session.start(…, { skills: false })`.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
-  is not an agent highlight (no agent line, no locked tools); click focuses a mark or selects a face or edge, and
+  is not an agent highlight (no agent line, no locked tools); click focuses a mark or selects a face or edge (the
+  chip of the build on show, once the build after it has failed, opens the sheet of that failure; an older build
+  is an inert chip), and
   a click with the pointer gives the keys back to the view (`giveKeysBack`), as every action on the view does. A
   ref that names nothing now is an inert span with the reason as its title. A ref in prose that names nothing the
   object has is not a chip at all (`RefInfo.plain`: a mark it has not, `M3` the screw; a build above the current or

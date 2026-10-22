@@ -50,6 +50,18 @@ describe('what a ref in the chat can do', () => {
     expect(refInfo(store.getState(), 'r2')).toMatchObject({ kind: 'build', live: false, title: 'Build r2' })
   })
 
+  it('makes the build on show live when the build after it failed, to say why, and an older build never', () => {
+    const failed = { objectId: 'box', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'NameError: x' } } as never
+    store.setState({ build: failed })
+    expect(refInfo(store.getState(), 'r3')).toMatchObject({ kind: 'build', live: true, act: 'build', lights: [] })
+    expect(refInfo(store.getState(), 'r3').title).toBe('Build r3, the one on show; the build after it failed: show why')
+    expect(refInfo(store.getState(), 'r2')).toMatchObject({ live: false, title: 'Build r2' })
+    // No error to show, nothing to open: the chip does nothing, as before.
+    store.setState({ build: { ...(failed as object), status: 'ok', stale: false } as never })
+    expect(refInfo(store.getState(), 'r3')).toMatchObject({ live: false, title: 'Build r3, the one on show' })
+    store.setState({ build: null })
+  })
+
   it('is no ref for anything else', () => {
     expect(refInfo(store.getState(), 'lid')).toMatchObject({ kind: 'none', live: false })
   })

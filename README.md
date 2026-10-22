@@ -363,6 +363,17 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   with it: the marks sent, as chips in their colours, the build (`r12 ok`), and
   the selection; "Show text" opens the exact text the agent was given. Above the
   box, "Goes with your next prompt" says what will go.
+- **The build an edit started.** When the agent edits the model, the build that
+  follows is a line of its own under the edit's card: `Built r2 · ok · 1.2 s`,
+  or `r3 failed: NameError: name 'WAL' is not defined` in the fail colour (the
+  last line of the traceback), with "Show error" opening the sheet of that
+  failure while it is the latest build. Under it, the dimensions whose verdict
+  that build changed (`M3 now passes`, `M2 now fails`) and the parts it changed,
+  a line each as the kernel said them (`tub: volume 14710 → 20460 mm³ (+5752, +39
+  %)`, with `≈` where the number is not exact), four at most. "Show text" opens
+  the exact text the agent was given. A failed build is named as the revision
+  after the last good one, as it would be numbered; once a build has failed, the
+  chip of the build still on show opens the same sheet.
 - **What the agent pulled from torno.** Every tool of torno's it calls is a card
   of its own, with its input, its result and its pictures as thumbnails that
   open large; the turn ends with a line such as "Pulled from torno: scene, 2
@@ -581,8 +592,9 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
   not, holds Claude Code back once when it would stop (see below): it is asked
   to mend the model or to say why that is meant. A change of volume alone never
   does.
-- The chat shows it under the edit's card, behind "Show text", and
-  `state.md` carries it under the build. It is not told with a prompt.
+- The chat shows it under the edit's card (the build line: the parts that
+  changed, the dimensions that changed verdict), the whole text behind "Show text",
+  and `state.md` carries it under the build. It is not told with a prompt.
 
 When Claude Code would stop, torno holds it back for what the turn itself did:
 once for each reason, and twice in a turn at most. It first waits, up to twenty

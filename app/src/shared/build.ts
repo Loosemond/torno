@@ -32,3 +32,16 @@ export function letGoText(state: Pick<BuildState, 'status' | 'letGo'>): string |
   // Let go for another object's build, with none of its own on the way: one is started when a tool or the person asks something of it.
   return 'This build was let go to make room (memory): it is built again when something is asked of it.'
 }
+
+/** The most of a failed build's error that a line of the chat keeps, in characters. */
+export const ERROR_LINE = 300
+
+/**
+ * What the build line of the chat shows of a failure: the last line of its traceback, which names the kind
+ * (`NameError: name 'WAL' is not defined`), or of its message where it has no traceback; cut to what a line holds.
+ */
+export function errorLine(error: Pick<BuildError, 'message' | 'traceback'>): string {
+  const lastOf = (text: string | undefined): string => (text ?? '').split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? ''
+  const line = lastOf(error.traceback) || lastOf(error.message)
+  return line.length > ERROR_LINE ? `${line.slice(0, ERROR_LINE - 1)}…` : line
+}

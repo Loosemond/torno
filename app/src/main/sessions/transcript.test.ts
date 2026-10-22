@@ -133,6 +133,35 @@ describe('the build after an edit', () => {
   })
 })
 
+describe('the build after an edit, as data for the window', () => {
+  const edited = (): Transcript => {
+    const t = new Transcript({ now: () => 1000 })
+    t.message(toolUse('toolu_9', 'Edit', { file_path: '/ws/part/part.py' }))
+    return t
+  }
+
+  it('says it is under a tool, how long a good build took and what a failed one said, and keeps a prompt\'s context as it was', () => {
+    const t = edited()
+    expect(t.toolContext({ toolUseId: 'toolu_9', text: 'r4 ok', revision: 4, buildState: 'ok', seconds: 1.25 })).toMatchObject({ forTool: true, revision: 4, buildState: 'ok', seconds: 1.25 })
+    expect(of(t, 'context')[0]).not.toHaveProperty('error')
+    const failed = edited().toolContext({ toolUseId: 'toolu_9', text: 'BUILD FAILED', revision: 3, buildState: 'failed', error: "NameError: name 'WAL' is not defined" })
+    expect(failed).toMatchObject({ forTool: true, buildState: 'failed', error: "NameError: name 'WAL' is not defined" })
+    expect(failed).not.toHaveProperty('seconds')
+    // A prompt's context is not a tool's.
+    const u = new Transcript({ now: () => 1000 })
+    u.userSent(text('go'), false)
+    u.context({ text: '[torno] part', sentMarkIds: [], revision: 2, buildState: 'ok', prompt: 'go' })
+    expect(of(u, 'context')).toHaveLength(1)
+    expect(of(u, 'context')[0]).not.toHaveProperty('forTool')
+  })
+
+  it('does not write the secret an error line holds', () => {
+    const t = new Transcript({ now: () => 1000, redact: (text) => text.replaceAll('hunter2', '[secret]') })
+    t.message(toolUse('toolu_9', 'Edit', { file_path: '/ws/part/part.py' }))
+    expect(t.toolContext({ toolUseId: 'toolu_9', text: 'BUILD FAILED', buildState: 'failed', error: 'ValueError: hunter2' })).toMatchObject({ error: 'ValueError: [secret]' })
+  })
+})
+
 describe('streaming', () => {
   it('has the text as soon as its first word comes, growing, and whole when the block ends', () => {
     const t = new Transcript()

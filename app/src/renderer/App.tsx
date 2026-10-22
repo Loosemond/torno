@@ -227,7 +227,6 @@ export function App() {
   const workspace = useStore((s) => s.workspace)
   const page = useStore((s) => s.page)
   const workspaceKnown = useStore((s) => s.workspaceKnown)
-  const [errorOpen, setErrorOpen] = useState(false)
   const shell = useRef<HTMLDivElement>(null)
   const [dockWidth, setDockWidth] = useState(DOCK_DEFAULT)
   const [dockOpen, setDockOpen] = useState(true)
@@ -324,7 +323,6 @@ export function App() {
     else if (reason.page === 'new') openNewObject()
   }, [])
 
-  const errorOpened = useCallback((open: boolean) => setErrorOpen(open), [])
   const revealDock = useCallback(() => setDockOpen(true), [])
 
   if (!workspaceKnown) return <div className="shell" />
@@ -347,7 +345,7 @@ export function App() {
       style={{ '--dock-w': `${dockWidth}px` } as CSSProperties}
     >
       <main className="viewport" data-region="viewport">
-        <ViewportPane onShowError={() => setErrorOpen(true)} />
+        <ViewportPane />
         {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} />}
         {page === 'new' && <NewObject onOpen={openObject} />}
         {/* Over either: what goes into an export, asked before anything is written. */}
@@ -443,7 +441,7 @@ export function App() {
           onGo={showReason}
         />
       )}
-      <BuildStatus errorOpen={errorOpen} onErrorOpen={errorOpened} />
+      <BuildStatus />
       {/* Over everything: the keys, asked for with ? or at the foot of the tools. */}
       <KeySheet />
     </div>

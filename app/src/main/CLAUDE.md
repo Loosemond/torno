@@ -635,8 +635,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   that worked, for its marks to be checked against it and its dimensions measured (`Verdicts.settled`, 10 s at
   most, `EDIT_SETTLE_MS`), and is answered with `buildContextFor` of `context.ts` (the first lines and the
   dimensions of `contextFor`, in the same words, and between them the digest: The sanity pass, below) as
-  `additionalContext`; the chat puts it under that tool's card (`Transcript.toolContext`), with the digest as data
-  (`digest` of the `context` item). No build begun within 3 s: `{}`. Still running at 55 s: `A build is running
+  `additionalContext`; the chat puts it under that tool's card (`Transcript.toolContext`: `forTool`), with the digest as data
+  (`digest` of the `context` item), how long a build that worked took (`seconds`) and the last line of what one that
+  failed said (`error`, `errorLine` of `shared/build.ts`: the traceback's last line), which the window draws the
+  build line from. No build begun within 3 s: `{}`. Still running at 55 s: `A build is running
   (rN); call scene …` (`claude.ts` gives `PostToolUse` a 60 s timeout).
   A `Stop` (`stopAnswer`, `claude.ts` gives it a 25 s timeout) is judged from what the turn did (`TurnState`, made at
   its `UserPromptSubmit` by `beginTurn`: the count of builds ended, the last successful build and what the dimensions

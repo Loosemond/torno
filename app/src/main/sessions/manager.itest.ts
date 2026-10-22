@@ -2369,6 +2369,64 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     expect(hooked).toEqual(['PostToolUse: r3 ok', `Stop: ${UNLOOKED(3).reason}`])
   })
 
+  it('reads an Edit of the stand-in, and puts the build it started under the edit as data: how long a good one took, the last line of what a failed one said', async () => {
+    states = new Map()
+    own = recording(await startHttp())
+    const server = own
+    made = new Sessions({
+      configDir,
+      http: server,
+      adapter: claudeAdapter(`node ${FAKE}`),
+      viewFor: () => 'chat',
+      contextFor: () => ({ text: '', sentMarkIds: [] }),
+      build: (id) => states.get(id),
+      buildContextFor: (id) => told(id),
+      editTiming: { answerMs: 5000, graceMs: 1500 },
+      systemPromptFor: () => '',
+      mcpUrlFor: (id) => server.url(`/mcp/${id}`)
+    })
+    others.push(made)
+    n += 1
+    const obj = { ...object(`edited-${n}`), model: 'part.py' }
+    mkdirSync(obj.dir, { recursive: true })
+    writeFileSync(join(obj.dir, 'part.py'), 'W = 1\nH = 2\n')
+    const messages: StreamMessage[] = []
+    made.on('stream', (m) => messages.push(m.message))
+    const { sessionId } = await made.start(obj, {})
+    // The watcher: a save of the file begins a build, which ends as the next of `outcomes` says.
+    const outcomes: BuildState[] = [{ ...ok(obj.id, 2), seconds: 1.5 }, { ...failed(obj.id, 2), error: { kind: 'exception', message: "name 'WAL' is not defined", traceback: 'Traceback (most recent call last):\n  File "part.py", line 1\nNameError: name \'WAL\' is not defined\n' } }]
+    let last = ''
+    const timer = setInterval(() => {
+      const now = existsSync(join(obj.dir, 'part.py')) ? readFileSync(join(obj.dir, 'part.py'), 'utf8') : ''
+      if (now === last) return
+      last = now
+      if (now === 'W = 1\nH = 2\n') return
+      land(building(obj.id, 1))
+      const outcome = outcomes.shift()!
+      setTimeout(() => land(outcome), 100)
+    }, 10)
+    try {
+      made.prompt(sessionId, [{ type: 'text', text: 'edit part.py "W = 1" "W = 2"' }])
+      await expect.poll(() => messages.filter((m) => m.type === 'result').length, { timeout: 10_000 }).toBe(1)
+      made.prompt(sessionId, [{ type: 'text', text: 'edit part.py "W = 2" "W = WAL"' }])
+      await expect.poll(() => messages.filter((m) => m.type === 'result').length, { timeout: 10_000 }).toBe(2)
+    } finally {
+      clearInterval(timer)
+    }
+    expect(readFileSync(join(obj.dir, 'part.py'), 'utf8')).toBe('W = WAL\nH = 2\n')
+    const items = made.history(sessionId)!.items
+    const cards = items.filter((i) => i.kind === 'tool')
+    expect(cards).toMatchObject([{ name: 'Edit', input: { old_string: 'W = 1', new_string: 'W = 2' } }, { name: 'Edit' }])
+    expect(items.filter((i) => i.kind === 'context')).toMatchObject([
+      { forTool: true, forUser: cards[0].id, buildState: 'ok', revision: 2, seconds: 1.5 },
+      { forTool: true, forUser: cards[1].id, buildState: 'failed', revision: 2, error: "NameError: name 'WAL' is not defined" }
+    ])
+    // Only a good build has the time, and only a failed one the error.
+    const [good, bad] = items.filter((i) => i.kind === 'context')
+    expect(good).not.toHaveProperty('error')
+    expect(bad).not.toHaveProperty('seconds')
+  })
+
   it('tells what the build did to the parts, from the real kernel, and holds a Stop back once for a part that came apart', async () => {
     const ws = mkdtempSync(join(realpathSync(tmpdir()), 'torno-sanity-'))
     const kernel = startKernel({ workspaceRoot: ws, hasProject: false, kernelDir: resolve(__dirname, '../../../../kernel') })

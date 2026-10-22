@@ -92,7 +92,9 @@ with torno's when `--plugin-dir` was given, `skills` of the person's only, `apiK
 denial in the turn's `result`) and `argv` play the rest. `write <file> <content>` plays a `Write`: its `PreToolUse` and
 `PostToolUse` carry `tool_use_id` and `tool_input` (`file_path`, absolute, and `content`), the file is really written
 between them (`file` from the folder it runs in, a `\n` in the content a new line), and the answer of the `PostToolUse`
-is said as a `system`/`hook_response`. A `Stop` torno answers with `decision: block` is not the end of the turn: the
+is said as a `system`/`hook_response`; `edit <file> <old> <new>` plays an `Edit` the same way (`old_string`,
+`new_string`; the words are bare or JSON strings, `edit part.py "W = 2" "W = 3"`), replacing `old` by `new` in the
+file between the hooks. A `Stop` torno answers with `decision: block` is not the end of the turn: the
 stand-in says the reason as a `hook_response` of the `Stop` and posts it again with `stop_hook_active`, as the CLI does. `FAKE_AGENT_FAIL=<text>` makes it write that to stderr and exit 1
 at once; `FAKE_AGENT_INIT_ERROR=<text>` makes it answer `initialize` with that error. Its permission suggestions are the three kinds the real CLI sends, so a test
 proves that only the session rule is passed on. Specs that drive a terminal call `inTerminal` (`e2e/terminal.ts`),

@@ -27,7 +27,7 @@ const temp = (name: string): string => mkdtempSync(join(realpathSync(tmpdir()), 
 
 const CAMERA = { position: [120, -90, 60], target: [0, 0, 6], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 
-/** A copy of the fixtures in which `hollow` has marks of both authors, a dimension that passes and one that fails. */
+/** A copy of the fixtures in which `hollow` has marks of both authors, a dimension that passes and two that fail. */
 function workspace(): string {
   const root = temp('ws')
   cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
@@ -36,12 +36,13 @@ function workspace(): string {
   writeFileSync(
     join(root, 'hollow', '.torno', 'marks.json'),
     JSON.stringify({
-      next: 5,
+      next: 6,
       marks: [
         { ...base, id: 'M1', kind: 'pin', status: 'draft', note: 'too thin here', anchor: { point: [20, 0, 20], normal: [1, 0, 0], part: 'tub' } },
         { ...base, id: 'M2', kind: 'dimension', note: 'outer width', measure: 'distance', a: { point: [-20, 0, 10], normal: [-1, 0, 0], part: 'tub' }, b: { point: [20, 0, 10], normal: [1, 0, 0], part: 'tub' }, expected: 40 },
         { ...base, id: 'M3', kind: 'dimension', note: 'height with the lid', measure: 'distance', a: { point: [0, 0, 0], normal: [0, 0, -1], part: 'tub' }, b: { point: [0, 0, 40], normal: [0, 0, 1], part: 'lid' }, expected: 42 },
-        { ...base, id: 'M4', kind: 'pin', author: 'agent', note: 'I thickened this wall to 2 mm', anchor: { point: [0, -20, 20], normal: [0, -1, 0], part: 'tub' } }
+        { ...base, id: 'M4', kind: 'pin', author: 'agent', note: 'I thickened this wall to 2 mm', anchor: { point: [0, -20, 20], normal: [0, -1, 0], part: 'tub' } },
+        { ...base, id: 'M5', kind: 'dimension', note: 'wall', measure: 'thickness', a: { point: [-20, 0, 20], normal: [-1, 0, 0], part: 'tub' }, expected: 3 }
       ]
     })
   )
@@ -105,7 +106,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('textbox', { name: 'Name of the view' }).fill('From the front')
       await page.keyboard.press('Enter')
       await expect(page.locator('.view-chip[data-view="From the front"]')).toBeVisible()
-      await expect.poll(async () => (await state(page)).marks.length).toBe(5)
+      await expect.poll(async () => (await state(page)).marks.length).toBe(6)
 
       // The tokens as the window computes them, each a colour written #rrggbb.
       const tokens = await page.evaluate((names) => Object.fromEntries(names.map((name) => [name, getComputedStyle(document.documentElement).getPropertyValue(name).trim()])), [...TOKENS])
@@ -289,13 +290,16 @@ for (const theme of ['light', 'dark'] as const) {
           await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
           const box = page.locator('[data-chat-composer]')
           await expect(box).toBeFocused()
-          const script = ['say The tub wall at **M1** is 2 mm, thinner than the 3 mm in `hollow.py`. Looking at tub/F3 and tub/E1:', 'tool mcp__torno__look {"view":"iso"}', 'tool Read {"file_path":"hollow.py"}', 'say I will `widen` the wall to 3 mm and rebuild: r2 should pass the check.']
+          const script = ['say The tub wall at **M1** is 2 mm, thinner than the 3 mm in `hollow.py`. Looking at tub/F3 and tub/E1:', 'tool mcp__torno__look {"view":"iso"}', 'tool Read {"file_path":"hollow.py"}', 'say I will `widen` the wall to 3 mm and rebuild: r2 should pass the check.', 'edit hollow.py "wall: float = 2" "wall: float = 3"', 'edit hollow.py "return {" "return WAL, {"']
           for (const [n, line] of script.entries()) {
             if (n > 0) await page.keyboard.press('Shift+Enter')
             await page.keyboard.type(line)
           }
           await page.keyboard.press('Enter')
           await expect(page.locator('.chat-turn')).toContainText('Pulled from torno: look, 1 picture', { timeout: 30_000 })
+          // The two edits each started a build, under the edit: one that worked and mended a dimension, one that failed.
+          await expect(page.locator('.chat-build').first()).toContainText('Built r2 · ok')
+          await expect(page.locator('.chat-build').last()).toContainText('r3 failed: NameError')
           // Then a request to use a tool, waiting for the person, and a window of the rate limit half used.
           await page.keyboard.type('rate 72')
           await page.keyboard.press('Shift+Enter')

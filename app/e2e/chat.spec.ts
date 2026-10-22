@@ -28,9 +28,10 @@ test.beforeAll(async () => {
   writeFileSync(
     join(root, 'hollow', '.torno', 'marks.json'),
     JSON.stringify({
-      next: 4,
+      next: 5,
       marks: [
         { ...base, id: 'M1', kind: 'pin', status: 'draft', note: 'too thin here', anchor: { point: [20, 0, 20], normal: [1, 0, 0], part: 'tub' } },
+        { ...base, id: 'M4', kind: 'dimension', status: 'sent', note: 'wall', measure: 'thickness', a: { point: [-20, 0, 20], normal: [-1, 0, 0], part: 'tub' }, expected: 3 },
         { ...base, id: 'M3', kind: 'dimension', status: 'sent', note: 'height with the lid', measure: 'distance', a: { point: [0, 0, 0], normal: [0, 0, -1], part: 'tub' }, b: { point: [0, 0, 40], normal: [0, 0, 1], part: 'lid' }, expected: 42 }
       ]
     })
@@ -330,4 +331,44 @@ test('what goes with the next prompt is chips of the marks themselves: the draft
   // A chip is live: the pointer on M3 lights what it is anchored to.
   await next.locator('.ref-chip[data-ref="M3"]').hover()
   await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.peeked())).length).toBeGreaterThan(0)
+})
+
+test('the build an edit started is a build under the edit: that it worked and how long, what it did to a dimension and to the parts; a failed one says why, and opens its sheet', async () => {
+  // hollow is open, with a session: its dimension M4 (a wall of 3 mm) fails on r1, where the wall is 2.
+  await expect(composer()).toBeEnabled()
+  await say('edit hollow.py "wall: float = 2" "wall: float = 3"')
+  const built = chat().locator('.chat-build').first()
+  await expect(built).toContainText('Built r2 · ok', { timeout: 30_000 })
+  await expect(built.locator('.chat-build-head')).toContainText(/\d s$/)
+  // Not what torno adds to a prompt: a build, under the card of the edit.
+  await expect(built).not.toContainText('torno added')
+  await expect(chat().locator('.chat-group', { has: page.locator('.chat-tool') }).last().locator('.chat-build')).toHaveCount(1)
+  // The dimension the edit mended, as a chip and a word; the part it changed, as the kernel said it.
+  await expect(built.locator('.chat-build-dimensions li', { hasText: 'M4' })).toContainText('now passes', { timeout: 15_000 })
+  await expect(built.locator('.chat-build-parts li').first()).toContainText('tub: ')
+  // Nothing of the text the agent got is drawn until it is asked for, and then it is whole.
+  await expect(built.locator('.chat-added-text')).toHaveCount(0)
+  await built.getByRole('button', { name: 'Show text' }).click()
+  await expect(built.locator('.chat-added-text')).toContainText('[torno] hollow')
+  // The chip of a build that worked does nothing while the build after it did not fail.
+  await expect(built.locator('.ref-chip[data-ref="r2"]')).not.toHaveAttribute('data-live', '')
+
+  await say('edit hollow.py "return {" "return WAL, {"')
+  const failed = chat().locator('.chat-build').last()
+  await expect(failed).toContainText("r3 failed: NameError: name 'WAL' is not defined", { timeout: 30_000 })
+  await expect(failed.locator('.chat-build-head')).toHaveAttribute('data-verdict', 'failed')
+  await failed.getByRole('button', { name: 'Show error' }).click()
+  await expect(page.getByRole('dialog', { name: 'Build error' })).toContainText("name 'WAL' is not defined")
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Build error' })).toHaveCount(0)
+  // The build on show is live now, and says why in a click; an older one is not.
+  const chip = built.locator('.ref-chip[data-ref="r2"]')
+  await expect(chip).toHaveAttribute('data-live', '')
+  await chip.click()
+  await expect(page.getByRole('dialog', { name: 'Build error' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Mended: the failure's line has no sheet to open any more.
+  await say('edit hollow.py "return WAL, {" "return {"')
+  await expect(chat().locator('.chat-build').last()).toContainText('Built r3 · ok', { timeout: 30_000 })
+  await expect(failed.getByRole('button', { name: 'Show error' })).toHaveCount(0)
 })

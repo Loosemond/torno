@@ -505,7 +505,7 @@ function canvasBox(viewport: Viewport): DOMRect {
  * with the view bar floating on it. What to say when there is nothing to draw
  * is here too.
  */
-export function ViewportPane({ onShowError }: { onShowError: () => void }) {
+export function ViewportPane() {
   const host = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState<Viewport | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -581,7 +581,7 @@ export function ViewportPane({ onShowError }: { onShowError: () => void }) {
               <h2>{name} did not build</h2>
               <p className="selectable" data-part="reason">{error.message}</p>
               {hasDetails && (
-                <button type="button" className="button" onClick={onShowError}>
+                <button type="button" className="button" onClick={() => actions.setErrorOpen(true)}>
                   Show the error
                 </button>
               )}

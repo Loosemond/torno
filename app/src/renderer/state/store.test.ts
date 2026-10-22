@@ -1363,3 +1363,16 @@ describe('the page of objects', () => {
     expect(store.getState().page).toBe('object')
   })
 })
+
+describe('the sheet of the failed build', () => {
+  it('is up or away as it is asked, is of the open object, and goes with it', () => {
+    expect(store.getState().errorOpen).toBe(false)
+    actions.setErrorOpen(true)
+    expect(store.getState().errorOpen).toBe(true)
+    actions.setErrorOpen(false)
+    expect(store.getState().errorOpen).toBe(false)
+    actions.setErrorOpen(true)
+    actions.openObject('gear', { layers: {} })
+    expect(store.getState().errorOpen).toBe(false)
+  })
+})
