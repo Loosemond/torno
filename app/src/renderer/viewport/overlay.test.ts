@@ -28,7 +28,10 @@ function recorder() {
     roundRect: () => {},
     fill: () => void fills.push({ colour: ctx.fillStyle, alpha: ctx.globalAlpha }),
     stroke: () => void strokes.push({ colour: ctx.strokeStyle, moves, lines }),
-    fillText: (text: string) => void texts.push({ text, alpha: ctx.globalAlpha })
+    fillText: (text: string) => {
+      texts.push({ text, alpha: ctx.globalAlpha })
+      fills.push({ colour: ctx.fillStyle, alpha: ctx.globalAlpha })
+    }
   }
   return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, strokes, fills }
 }
@@ -67,6 +70,20 @@ describe('the chip of a dimension’s value', () => {
     expect(size('M1', { text: '⌀ 8 mm', verdict: 'pass' }).w).toBe(plain + 13)
     expect(size('M1', { text: '⌀ 8 mm', verdict: 'fail' }).w).toBe(plain + 11)
     expect(size('M1', { text: '⌀ 8 mm', stale: true }).w).toBe(plain)
+  })
+
+  it('has room for how far a failing one misses, after its cross', () => {
+    const size = chipSize(recorder().ctx, 1)
+    const failing = size('M3', { text: '40 mm', verdict: 'fail' }).w
+    // Seven letters of 7 px, and the gap after the cross.
+    expect(size('M3', { text: '40 mm', verdict: 'fail', off: '2 under' }).w).toBe(failing + 7 * 7 + 4)
+  })
+
+  it('writes how far a failing one misses after its cross, in the colour of failure', () => {
+    const { ctx, texts, fills } = recorder()
+    drawLabels(ctx, [label({ text: '40 mm', verdict: 'fail', off: '2 under' })], STYLE, 1)
+    expect(texts.map((t) => t.text)).toEqual(['M1', '40 mm', '2 under'])
+    expect(fills.at(-1)).toEqual({ colour: STYLE.fail, alpha: 1 })
   })
 
   it('one that fails has a cross after it, in the colour of failure: the ring alone is the colour of the person’s marks', () => {

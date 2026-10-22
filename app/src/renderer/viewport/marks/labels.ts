@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { NO_VALUE, shownDimension } from '../../../shared/dimension'
+import { NO_VALUE, offBy, shownDimension } from '../../../shared/dimension'
 import type { DimensionMark, Mark, RegionMark, Vec3 } from '../../../shared/marks'
 import { LEADER_PX, labelAnchor } from './markObjects'
 
@@ -28,6 +28,8 @@ export interface Label {
 export interface LabelValue {
   text: string
   verdict?: 'pass' | 'fail'
+  /** Of one that fails: by how much it misses, and which way (`2 under`, `offBy`). */
+  off?: string
   /** The value is of another build than the one drawn: it is written faint, and has no verdict. */
   stale?: true
 }
@@ -37,12 +39,16 @@ export interface LabelValue {
  * rule of its row (`shownDimension`): the value measured on that build, with
  * its verdict; the last one it had, with the build it is of after it
  * (`6 mm (r11)`) and marked stale, when it has not been measured on that
- * build; `—` when it has none, or only one its file holds from a run before. The same on screen and in a picture for the
+ * build; `—` when it has none, or only one its file holds from a run before. One that fails says by how much it
+ * misses (`off`), as its row does. The same on screen and in a picture for the
  * agent, where a value that was only fainter would be read as the part's.
  */
 export function labelValue(mark: DimensionMark, revision: number | undefined): LabelValue {
   const shown = shownDimension(mark, revision)
-  if (shown.value !== undefined) return { text: shown.text, ...(shown.verdict ? { verdict: shown.verdict } : {}) }
+  if (shown.value !== undefined) {
+    const off = shown.verdict === 'fail' && mark.expected !== undefined ? { off: offBy(shown.value, mark.expected) } : {}
+    return { text: shown.text, ...(shown.verdict ? { verdict: shown.verdict } : {}), ...off }
+  }
   if (!shown.stale) return { text: NO_VALUE }
   return { text: `${shown.text} (${shown.of === undefined ? 'earlier' : `r${shown.of}`})`, stale: true }
 }

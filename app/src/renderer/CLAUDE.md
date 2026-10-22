@@ -91,7 +91,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `chipSays` (a note in the face of the UI, `Readout.note`, one line cut to its width; a dimension's numbers as a
   ref's). A click opens it whatever tool is in hand (the head ruling of #74): `goToRow` (active, row in view, the
   camera stays as it is in view) and, for a draft of the person's, `actions.openNote`. A drag that starts on a chip
-  is the orbit's; a press that began beside one is the tool's to the end.
+  is the orbit's; a press that began beside one is the tool's to the end. A failing dimension's chip says by how
+  much it misses after its cross, in `--fail` (`40 mm ✗ 2 under`: `labelValue`'s `off`, from `offBy`), on screen
+  and in a picture for the agent alike.
 - The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts), "With the agent"
   (sent), "To review" and the fold "Resolved"; a heading only for a group that has marks, and the heading says
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is

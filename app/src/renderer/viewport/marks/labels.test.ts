@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { chipAt, needsCamera, type Placed } from './labels'
+import type { DimensionMark } from '../../../shared/marks'
+import { chipAt, labelValue, needsCamera, type Placed } from './labels'
 
 describe('bringing a selected mark into view', () => {
   it('moves the camera only for a mark whose label is not in view, or is not drawn at all', () => {
@@ -28,5 +29,20 @@ describe('the chip under the pointer', () => {
   it('is never one that is not drawn', () => {
     expect(chipAt(placed, 305, 305)).toBeNull()
     expect(chipAt([], 0, 0)).toBeNull()
+  })
+})
+
+describe('the value on a failing dimension\'s chip', () => {
+  const camera = { position: [100, -100, 80] as [number, number, number], target: [0, 0, 0] as [number, number, number], up: [0, 0, 1] as [number, number, number], ortho: false, fov: 35, zoom: 1 }
+  const height: DimensionMark = { id: 'M3', kind: 'dimension', author: 'user', note: '', status: 'sent', anchorState: 'ok', layout: 'assembly', revision: 1, camera, createdAt: '2026-10-22T10:00:00.000Z', measure: 'distance', a: { point: [0, 0, 0] }, b: { point: [0, 0, 40] }, expected: 42, value: 40, verdict: 'fail', measuredRevision: 2 }
+
+  it('says by how much it misses, and which way, as its row does', () => {
+    expect(labelValue(height, 2)).toEqual({ text: '40 mm', verdict: 'fail', off: '2 under' })
+    expect(labelValue({ ...height, value: 42.25 }, 2)).toEqual({ text: '42.25 mm', verdict: 'fail', off: '0.25 over' })
+  })
+
+  it('says nothing more of one that passes, or of a value of another build', () => {
+    expect(labelValue({ ...height, value: 42, verdict: 'pass' }, 2)).toEqual({ text: '42 mm', verdict: 'pass' })
+    expect(labelValue(height, 3)).toEqual({ text: '40 mm (r2)', stale: true })
   })
 })

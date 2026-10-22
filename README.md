@@ -890,7 +890,8 @@ what is expected (`=`) and the tolerance (`±`), in mm or degrees. With an
 expected value the dimension is a check: it passes when the value is within
 the tolerance of it (0.05 mm, or 0.1° for an angle, when you give none) and
 fails otherwise, and the row says `Passes` or `Fails: 2 under`. A failing one
-is ringed on the part and in the agent's pictures, and the line at the bottom
+is ringed on the part and in the agent's pictures, its chip saying by how much
+it misses after the cross (`40 mm ✗ 2 under`), and the line at the bottom
 counts those that fail and those with no value.
 
 - Once sent, its row says **pinned**: it is one of the checks the agent is

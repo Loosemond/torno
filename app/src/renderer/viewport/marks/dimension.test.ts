@@ -158,7 +158,8 @@ describe('the label of a dimension', () => {
 
   it('a value of another build than the one drawn is what it was: stale, and without its verdict', () => {
     const failing = diameter({ expected: 8.5, verdict: 'fail' })
-    expect(labelValue(failing, 1)).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
+    // A failing one says by how much it misses.
+    expect(labelValue(failing, 1)).toEqual({ text: '⌀ 8 mm', verdict: 'fail', off: '0.5 under' })
     // It says which build it is of: faint alone is easily missed in a picture.
     expect(labelValue(failing, 2)).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
     // What its file holds from a run before this one is of no build that can be named: it has no value until it is measured.
@@ -172,12 +173,12 @@ describe('the label of a dimension', () => {
     const chip = () => ({ w: 40, h: 17 })
     marks.setMarks([failing], 1)
     marks.show('assembly')
-    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
+    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail', off: '0.5 under' })
     marks.setMarks([failing], 2)
     expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm (r1)', stale: true })
     // Told of the marks alone, it keeps the build it knew.
     marks.setMarks([{ ...failing, measuredRevision: 2 }])
-    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail' })
+    expect(marks.labels('assembly', camera, SIZE, 1, chip)[0].value).toEqual({ text: '⌀ 8 mm', verdict: 'fail', off: '0.5 under' })
   })
 
   it('is drawn dimmed, its line and its arc, while its value is not of the build drawn: as its chip says', () => {

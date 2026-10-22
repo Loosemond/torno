@@ -218,7 +218,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'confirm-close'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'confirm-close'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -270,6 +270,13 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(page.locator('.status-needs')).toContainText('bracket needs you')
           // A mark's row opened, as when it is being read.
           await page.locator('.mark-row').first().click()
+        } else if (shot === 'mark-chip') {
+          // The pointer on a failing dimension's chip: the hand, its row lit, the chip ringed and its numbers at the pointer.
+          const at = (await page.evaluate(() => window.__tornoTest!.markScreen('M3')))!
+          const view = (await canvas.boundingBox())!
+          await page.mouse.move(view.x + at.x * view.width, view.y + at.y * view.height)
+          await expect(page.locator('.pick-readout')).toContainText('2 under')
+          await expect(page.locator('.mark-row[data-mark="M3"]')).toHaveAttribute('data-hovered', '')
         } else if (shot === 'section') {
           await page.keyboard.press('x')
           await page.getByRole('button', { name: 'Cut across Y' }).click()

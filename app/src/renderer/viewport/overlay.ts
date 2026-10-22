@@ -279,7 +279,7 @@ const CHIP = { height: 17, pad: 5, radius: 4, font: 11.5, border: 1.5, leader: 1
 const VALUE = { gap: 3, pad: 5, border: 1, hairline: 0.45, failBorder: 2, check: 9, cross: 7, checkGap: 4, weight: 500, stale: 0.45 }
 
 /** A value as its chip is given it (`LabelValue`). */
-type ChipValue = { text: string; verdict?: 'pass' | 'fail'; stale?: true }
+type ChipValue = { text: string; verdict?: 'pass' | 'fail'; stale?: true; off?: string }
 
 /** How wide the glyph of a verdict is: a tick, a cross, or nothing. */
 const glyphWidth = (value: ChipValue): number => (value.verdict === 'pass' ? VALUE.check : value.verdict === 'fail' ? VALUE.cross : 0)
@@ -289,9 +289,12 @@ function numberWidth(advance: number, text: string, unit: number): number {
   return Math.ceil(advance * text.length + 2 * CHIP.pad * unit)
 }
 
-/** How wide the value of a dimension is, with the tick of one that passes or the cross of one that fails. */
+/** How wide what is written after the cross of one that fails is: by how much it misses. */
+const offWidth = (advance: number, value: ChipValue, unit: number): number => (value.off ? advance * value.off.length + VALUE.checkGap * unit : 0)
+
+/** How wide the value of a dimension is, with the tick of one that passes or the cross of one that fails, and how far that one misses. */
 function valueWidth(advance: number, value: ChipValue, unit: number): number {
-  return Math.ceil(advance * value.text.length + 2 * VALUE.pad * unit + (value.verdict ? (glyphWidth(value) + VALUE.checkGap) * unit : 0))
+  return Math.ceil(advance * value.text.length + 2 * VALUE.pad * unit + (value.verdict ? (glyphWidth(value) + VALUE.checkGap) * unit : 0) + offWidth(advance, value, unit))
 }
 
 /** How wide one letter of a chip is: the face is monospaced, so every label is as wide as its letters are many. */
@@ -417,7 +420,7 @@ export function drawLabels(
     ctx.fillText(value.text, x + VALUE.pad * unit, whole.y + whole.h / 2 + 0.5 * unit)
     ctx.globalAlpha = 1
     if (value.verdict === 'fail') {
-      const left = x + w - (VALUE.pad + VALUE.cross) * unit
+      const left = x + w - (VALUE.pad + VALUE.cross) * unit - offWidth(advance, value, unit)
       const mid = whole.y + whole.h / 2
       const half = (VALUE.cross * unit) / 2
       ctx.beginPath()
@@ -428,6 +431,11 @@ export function drawLabels(
       ctx.strokeStyle = verdicts?.fail ?? style.user
       ctx.lineWidth = 1.5 * unit
       ctx.stroke()
+      // By how much it misses, after the cross and in its colour: what it should be is one look away, not one click.
+      if (value.off) {
+        ctx.fillStyle = verdicts?.fail ?? style.user
+        ctx.fillText(value.off, left + (VALUE.cross + VALUE.checkGap) * unit, whole.y + whole.h / 2 + 0.5 * unit)
+      }
     }
     if (value.verdict === 'pass') {
       const left = x + w - (VALUE.pad + VALUE.check) * unit
