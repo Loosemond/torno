@@ -2024,7 +2024,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
   const context = (text: string) => ({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } })
   /** The scene of a build of one plate, with what a test says is otherwise. */
   const sceneOf = (more: object = {}): Scene =>
-    ({ model: 'part.py', layouts: ['assembly'], seconds: 0.1, output: '', parts: [{ key: 'assembly:plate', name: 'plate', layout: 'assembly', bbox: { min: [0, 0, 0], max: [20, 20, 2] }, volume: 800, faceCount: 6, edgeCount: 12, valid: true, solids: 1, volumeExact: true, bboxExact: true, ...more }] }) as unknown as Scene
+    ({ model: 'part.py', layouts: ['assembly'], seconds: 0.1, output: '', parts: [{ key: 'assembly:plate', name: 'plate', layout: 'assembly', bbox: { min: [0, 0, 0], max: [20, 20, 2] }, volume: 800, faceCount: 6, edgeCount: 12, valid: true, solids: 1, volumeExact: true, bboxExact: true, hash: `shape${JSON.stringify(more)}`, loc: { t: [0, 0, 0], q: [0, 0, 0, 1] }, ...more }] }) as unknown as Scene
   /** The last successful build a test keeps: its revision, and a plate that is thinner after the first. */
   const keptAs = (revision: number) => ({ revision, scene: sceneOf(revision > 7 ? { volume: 700, faceCount: 7 } : {}) })
   /** What a Stop is held back with when a build of the turn was not looked at. */
@@ -2155,7 +2155,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     expect(await post('Stop', {})).toEqual({})
   })
 
-  it('takes a digest that says no part changed for the look: only a change of a part’s volume, size or faces asks for one', async () => {
+  it('takes the same shapes in the same places for the look: a change in any part asks for one, a moved hole too', async () => {
     let kept = { revision: 3, scene: sceneOf() }
     const { obj, post } = await begun({ scene: () => kept })
     // A comment, a rename: the same parts.
@@ -2168,12 +2168,21 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     kept = { revision: 5, scene: sceneOf({ volume: 700, faceCount: 7 }) }
     builds(obj.id, 4, 5)
     expect(await post('Stop', {})).toEqual(UNLOOKED(5))
+    // A hole moved: the same volume, box and counts, another shape. A part moved without changing is no different.
+    await post('UserPromptSubmit', { prompt: 'move the hole' })
+    kept = { revision: 6, scene: sceneOf({ volume: 700, faceCount: 7, hash: 'hole moved' }) }
+    builds(obj.id, 5, 6)
+    expect(await post('Stop', {})).toEqual(UNLOOKED(6))
+    await post('UserPromptSubmit', { prompt: 'move the part' })
+    kept = { revision: 7, scene: sceneOf({ volume: 700, faceCount: 7, hash: 'hole moved', loc: { t: [5, 0, 0], q: [0, 0, 0, 1] } }) }
+    builds(obj.id, 6, 7)
+    expect(await post('Stop', {})).toEqual(UNLOOKED(7))
     // A turn that began with no build has nothing to compare to: it looks.
     kept = undefined as never
     await post('UserPromptSubmit', { prompt: 'first build' })
-    kept = { revision: 6, scene: sceneOf() }
-    builds(obj.id, 5, 6)
-    expect(await post('Stop', {})).toEqual(UNLOOKED(6))
+    kept = { revision: 8, scene: sceneOf() }
+    builds(obj.id, 7, 8)
+    expect(await post('Stop', {})).toEqual(UNLOOKED(8))
   })
 
   it('holds a Stop back once for a good build after the failed one it was held for, and for no third reason', async () => {
@@ -2303,7 +2312,10 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       decision: 'block',
       reason: 'A build begun in this turn is still running (r8). Call mcp__torno__scene for its result, then mcp__torno__look, before finishing.'
     })
+    // Told once: the next does not wait the wait again.
+    const again = Date.now()
     expect(await post('Stop', { stop_hook_active: true })).toEqual({})
+    expect(Date.now() - again).toBeLessThan(150)
   })
 
   it('does not wait for a build that began before the turn', async () => {

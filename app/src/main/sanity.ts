@@ -218,6 +218,20 @@ export function sanity(previous: Kept | undefined, current: Kept, verdicts: read
   }
 }
 
+/**
+ * Whether nothing in the parts changed between two builds: the same parts (by key), each with the same `hash` (the
+ * kernel's hash of the part's shape) and the same place (`loc` and `arranged`). The digest's `changed` is not this:
+ * it knows a volume, a box and counts, which a moved hole or a mirrored feature leaves as they were.
+ */
+export function partsUnchanged(before: Scene, now: Scene): boolean {
+  if (before.parts.length !== now.parts.length) return false
+  const was = new Map(before.parts.map((p) => [p.key, p]))
+  return now.parts.every((p) => {
+    const q = was.get(p.key)
+    return q !== undefined && q.hash === p.hash && JSON.stringify(q.loc) === JSON.stringify(p.loc) && JSON.stringify(q.arranged) === JSON.stringify(p.arranged)
+  })
+}
+
 /** The hard defects of a digest: those that hold a Stop back. */
 export function hardDefects(digest: BuildDigest): DigestFlag[] {
   return digest.flags.filter((f) => f.hard)

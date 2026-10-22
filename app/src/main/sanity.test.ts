@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Part, Scene } from '../shared/scene'
-import { DIGEST_LIMIT, type Kept, digestText, hardDefects, sanity } from './sanity'
+import { DIGEST_LIMIT, type Kept, digestText, hardDefects, partsUnchanged, sanity } from './sanity'
 
 /** A sound, exact part of one solid: 40 × 30 × 6 mm, 6000 mm³, 12 faces. */
 const part = (layout: string, name: string, more: Partial<Part> = {}): Part =>
@@ -159,5 +159,30 @@ describe('the digest of a build', () => {
     // And within less room, less of it: never more than it is given.
     for (const room of [100, 300, 600]) expect(digestText(sanity(before, after), room).length).toBeLessThanOrEqual(room)
     expect(digestText(sanity(before, after), 10)).toBe('')
+  })
+})
+
+describe('whether nothing in the parts changed', () => {
+  const a = scene([part('assembly', 'tub', { hash: 'h1', loc: { t: [0, 0, 0], q: [0, 0, 0, 1] } }), part('assembly', 'lid', { hash: 'h2', loc: { t: [0, 0, 5], q: [0, 0, 0, 1] } })])
+  const same = (): Part[] => a.parts.map((p) => ({ ...p, loc: { t: [...p.loc.t], q: [...p.loc.q] } as Part['loc'] }))
+
+  it('is so for the same shapes in the same places, and the same counts and box say nothing else', () => {
+    expect(partsUnchanged(a, scene(same()))).toBe(true)
+  })
+
+  it('is not so when a shape changed with the same volume, box and counts: a hole moved', () => {
+    const moved = same()
+    moved[0] = { ...moved[0], hash: 'h1 moved' }
+    expect(sanity({ revision: 1, scene: a }, { revision: 2, scene: scene(moved) }).changed).toBe(false)
+    expect(partsUnchanged(a, scene(moved))).toBe(false)
+  })
+
+  it('is not so when a part moved, came or went', () => {
+    const shifted = same()
+    shifted[1] = { ...shifted[1], loc: { t: [0, 0, 6], q: [0, 0, 0, 1] } }
+    expect(partsUnchanged(a, scene(shifted))).toBe(false)
+    expect(partsUnchanged(a, scene(same().slice(0, 1)))).toBe(false)
+    expect(partsUnchanged(a, scene([...same(), part('assembly', 'cap')]))).toBe(false)
+    expect(partsUnchanged(a, scene(same().map((p) => ({ ...p, arranged: [1, 0, 0] as [number, number, number] }))))).toBe(false)
   })
 })

@@ -12,7 +12,7 @@ import type { Scene } from '../../shared/scene'
 import type { ObjectInfo } from '../../shared/workspace'
 import { FOLDER } from '../own'
 import type { PromptContext } from '../context'
-import { hardDefects, sanity } from '../sanity'
+import { hardDefects, partsUnchanged, sanity } from '../sanity'
 import { type BuildVerdicts, verdictChanges } from '../verdicts'
 import { BodyTooLarge, type HttpRouter, readBody, sendJson } from '../http'
 import { trustQuestion } from '../../shared/agents'
@@ -547,7 +547,8 @@ export class Sessions {
    *   (`defect`), which the agent may answer is meant;
    * - a dimension that passed on the build the turn began with fails on the latest (`dimension`);
    * - a build ended in the turn after its last `look`, however the file was written (`unlooked`), unless the digest
-   *   says no part's volume, box or faces changed since the build the turn began with.
+   *   says nothing in the parts changed since the build the turn began with (`partsUnchanged`: the same shapes, by
+   *   hash, in the same places; a volume or a count alone would miss a moved hole).
    * A hold for a defect or a dimension that finds the build unlooked says so, and counts for that reason too.
    * A dimension that failed when the turn began holds nothing back: the agent may rightly stop to ask about it. Nor
    * does a change of volume alone. Null to let it go.
@@ -559,10 +560,11 @@ export class Sessions {
     if (!turn || !build || turn.holds >= MOST_HOLDS) return null
     const deadline = Date.now() + (this.deps.editTiming?.stopMs ?? STOP_WAIT_MS)
     const runs = (): boolean => build(objectId)?.status === 'building' && (this.buildStarts.get(objectId) ?? -Infinity) >= turn.startedAt
-    while (runs() && Date.now() < deadline) await this.nextBuild(deadline)
+    // Nothing is waited for that a reason already held would have waited for: it was told, and the next Stop is let go at once.
+    if (!turn.held.has('running')) while (runs() && Date.now() < deadline) await this.nextBuild(deadline)
     // Judged on the build there is once it has ended, with its dimensions measured as far as they are in the time left.
     const ended = build(objectId)
-    if (ended?.status === 'ok' && (this.buildEnds.get(objectId) ?? 0) > turn.since && turn.beforeVerdicts && [...turn.beforeVerdicts.values()].includes('pass')) {
+    if (!turn.held.has('dimension') && ended?.status === 'ok' && (this.buildEnds.get(objectId) ?? 0) > turn.since && turn.beforeVerdicts && [...turn.beforeVerdicts.values()].includes('pass')) {
       await this.deps.settled?.(objectId, ended.revision, deadline)
     }
     const state = build(objectId)
@@ -586,8 +588,8 @@ export class Sessions {
     const last = this.deps.scene?.(objectId)
     const digest = last && last.revision === state.revision ? sanity(turn.before, last) : undefined
     const defects = digest ? hardDefects(digest) : []
-    // No part's volume, box or faces changed since the turn began (a comment, a rename): there is nothing to look at.
-    const nothingChanged = digest !== undefined && turn.before !== undefined && !digest.changed && defects.length === 0
+    // Nothing in the parts changed since the turn began (a comment, a rename: the same shapes in the same places): there is nothing to look at.
+    const nothingChanged = last !== undefined && last.revision === state.revision && turn.before !== undefined && partsUnchanged(turn.before.scene, last.scene) && defects.length === 0
     const unlooked = this.buildEnds.get(objectId)! > turn.lookedAt && !nothingChanged && !turn.held.has('unlooked')
     // A look still lacking is said with a hold for something else, which the cap would leave no room to ask for after.
     const lacking = unlooked ? ` You have not looked at it either: call ${toolName('look')}.` : ''

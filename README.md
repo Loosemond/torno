@@ -599,9 +599,14 @@ dimensions to be measured. Then, by the first that applies:
 5. A build ended in the turn after its last `look`: `r9 was built during this
    turn, and you have not looked at it since.` This is however the file was
    written, by the agent's editing tool, through Bash or in your editor. A
-   `look` by the reviewer counts. When the digest says no part's volume, size or
-   faces changed since the turn began (a comment, a rename), there is nothing to
-   look at and it does not hold.
+   `look` by the reviewer counts. When nothing in the parts changed since the
+   turn began (a comment, a rename: every part is the same shape, by the
+   kernel's hash of it, in the same place), there is nothing to look at and it
+   does not hold. A volume, size and count that stayed as they were do not
+   say so: a hole moved is another shape.
+
+A reason already held is not waited for again: a `Stop` after one that was held for a running build
+does not wait again.
 
 A hold for a defect or a dimension that finds the build unlooked says so too, and
 counts for both. A hold is said to the agent and changes no status.

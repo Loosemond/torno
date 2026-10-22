@@ -645,9 +645,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   that it is meant; a dimension that passed on that build fails on the latest (`verdictChanges` of `verdicts.ts`,
   kept `pass` to `fail`; the reason names it with `valueAgainstExpected`); a build of the object ended in the turn
   after the turn's last `look` (`TurnState.lookedAt`, the count of builds ended at the `PostToolUse` of a `look`, one
-  of a subagent too), however the model was written, unless the digest of that build against the one the turn began
-  with says nothing changed (`changed` false: no part's volume, box, face, edge or solid count, and no part come or
-  gone; the turn began with no build: it looks). A reason is held once
+  of a subagent too), however the model was written, unless nothing in the parts changed since the build the turn
+  began with (`partsUnchanged` of `sanity.ts`: the same parts, each with the same `hash` and the same `loc` and
+  `arranged`; the digest's `changed` is not enough, a moved hole keeps every count and size; the turn began with no
+  build, or a scene that is not the latest's: it looks). A reason already held is not waited for again: a Stop after
+  one held for a running build does not wait for the build, one after a dimension hold does not wait for the
+  measuring. A reason is held once
   (`TurnState.held`) and a turn is held twice at most (`holds`): `stop_hook_active` is no guard of its own, the ledger
   is. A hold for a defect or a dimension that finds the build unlooked says so, and counts for that reason too. The
   reasons say "built during this turn", never "you edited": the person's own edit also ends a build. Never for a
