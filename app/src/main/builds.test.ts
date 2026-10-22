@@ -550,6 +550,19 @@ describe('Builds', () => {
       expect(asked).toMatchObject({ dir: '/ws/bracket', args: { edges: [{ type: 'line', start: [-6, -6, -2.5], end: [-6, -6, 2.5], length: 5 }, {}, {}, {}] } })
     })
 
+    it('names none where the edge is of two parts at once (a lid and a base built at the origin), and one part in two layouts as that part', async () => {
+      const { kernel, builds } = setup()
+      kernel.answers.set('match_edges', () => ({ matches: [['assembly:base/E7', 'assembly:lid/E7'], ['assembly:lid/E2', 'print:lid/E2'], [], []] }))
+      builds.open(bracket)
+      kernel.succeed(0)
+      await flush()
+      builds.changed('bracket', ['/ws/bracket/bracket.py'])
+      kernel.fail(1, failing())
+      await flush()
+      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      expect(edges.map((e) => e.sameAs)).toEqual([undefined, { ref: 'lid/E2', layout: 'assembly', revision: 1 }, undefined, undefined])
+    })
+
     it('names none when there is no good build to match against, or the kernel cannot say', async () => {
       const first = setup()
       first.builds.open(bracket)

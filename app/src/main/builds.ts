@@ -443,14 +443,15 @@ export class Builds {
   /**
    * A failed fillet's diagnosis names the edges of a shape that has no place in the scene, by their place in the
    * call and their ends in its own frame (`local`). Where one of them is, exactly, an edge of the last good build
-   * (the same curve, ends and length, `match_edges` of its live worker), it is named by that ref too, as of that
-   * build (`sameAs`); else by nothing more. Waited for `MATCH_MS` at most; whatever goes wrong leaves it as it was.
+   * (the same curve, ends and length, and every point sampled along it on that edge: `match_edges` of its live
+   * worker) of one part only, it is named by that ref too, as of that build (`sameAs`); else by nothing more: an
+   * edge two parts share is either's, and the agent is never handed the wrong part's. Waited for `MATCH_MS` at most; whatever goes wrong leaves it as it was.
    */
   private async withRefs(entry: Entry, result: BuildResult): Promise<BuildResult> {
     const diagnosis = !result.ok ? result.error.diagnosis : undefined
     const good = entry.lastGood
     if (result.ok || !diagnosis || diagnosis.edges.length === 0 || !good || entry.letGo) return result
-    const edges = diagnosis.edges.map(({ type, start, end, length }) => ({ type, start, end, length }))
+    const edges = diagnosis.edges.map(({ type, start, end, length, samples }) => ({ type, start, end, length, samples }))
     let timer: NodeJS.Timeout | undefined
     const late = new Promise<null>((resolve) => {
       timer = setTimeout(() => resolve(null), MATCH_MS)
@@ -460,7 +461,10 @@ export class Builds {
       const matches = (await Promise.race([asked, late]))?.matches
       if (!Array.isArray(matches)) return result
       const named = diagnosis.edges.map((edge, i) => {
-        const first = Array.isArray(matches[i]) ? matches[i].find((ref: unknown): ref is string => typeof ref === 'string' && ref.includes(':')) : undefined
+        const refs: string[] = Array.isArray(matches[i]) ? matches[i].filter((ref: unknown): ref is string => typeof ref === 'string' && ref.includes(':') && ref.includes('/')) : []
+        // The same edge in two layouts of one part is that part's; an edge two parts share is either's, and named as neither.
+        const parts = new Set(refs.map((ref) => ref.slice(ref.indexOf(':') + 1, ref.lastIndexOf('/'))))
+        const first = parts.size === 1 ? refs[0] : undefined
         if (!first) return edge
         const [layout, ref] = [first.slice(0, first.indexOf(':')), first.slice(first.indexOf(':') + 1)]
         return { ...edge, sameAs: { ref, layout, revision: good.revision } }

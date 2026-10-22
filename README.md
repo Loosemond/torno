@@ -257,8 +257,8 @@ adjacent edges fail (edges 4-5, 4-6, 5-7, 6-7: 12 mm apart, two R6 need more);
 the 8 together work up to R5.999`, then a line for each edge of the failures.
 The shape being filleted is not a part on screen, so its edges are numbered by
 their place in the call, from 0, and their ends are in its own frame (`local`);
-one that is exactly an edge of the last good build is also named by that ref, as
-of that build. Nothing is retried in the model. The agent is told the same with
+one that is exactly an edge of one part of the last good build (its ends, its
+length and the points along it) is also named by that ref, as of that build. Nothing is retried in the model. The agent is told the same with
 the result of its edit and in `scene`, and can try a fillet on the last good
 build with `try_fillet` before it edits the model again.
 

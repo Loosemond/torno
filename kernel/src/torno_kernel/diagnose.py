@@ -27,8 +27,13 @@ from typing import Any
 BUDGET = 5.0
 # Seconds of the build's timeout that are left alone: the reply has to be written before it runs out.
 MARGIN = 1.0
+# An edge is sampled at each 1/SAMPLES of its length, its ends left out: what tells it from another with the same ends.
+SAMPLES = 8
 # How finely the largest size that works is bisected, mm.
 STEP = 0.001
+# No try is started with less time left than this many times the longest try so far: a try cannot be stopped,
+# and one that runs past the build's timeout would cost the build its error.
+SLACK = 2.0
 # The most edges described in a diagnosis: those of the failures, in the order of the call.
 MOST_EDGES_TOLD = 24
 # A line this close to an axis runs along it (as `describe` names a direction).
@@ -303,12 +308,21 @@ class _Trier:
         self._vertex_edges = TopTools_IndexedDataMapOfShapeListOfShape()
         TopExp.MapShapesAndAncestors_s(call.shape, TopAbs_VERTEX, TopAbs_EDGE, self._vertex_edges)
         self._face_sets: dict[int, list[Any]] = {}
+        self._longest = 0.0  # the longest try so far, s
 
     def out_of_time(self) -> bool:
-        return self._clock() >= self.deadline
+        """Whether the next try might not end in time: less is left than ``SLACK`` times the longest so far."""
+        return self._clock() + SLACK * self._longest >= self.deadline
 
     def works(self, indexes: list[int], size: float) -> bool:
-        """Whether OCC makes a valid shape of the fillet or chamfer of these edges at ``size``."""
+        """Whether OCC makes a valid shape of the fillet or chamfer of these edges at ``size``. Timed."""
+        started = self._clock()
+        try:
+            return self._works(indexes, size)
+        finally:
+            self._longest = max(self._longest, self._clock() - started)
+
+    def _works(self, indexes: list[int], size: float) -> bool:
         from OCP.BRepCheck import BRepCheck_Analyzer
         from OCP.BRepFilletAPI import BRepFilletAPI_MakeChamfer, BRepFilletAPI_MakeFillet
 
@@ -376,29 +390,13 @@ class _Trier:
         return min(lengths) if lengths else None
 
     def describe(self, index: int, names: Sequence[str] | None) -> dict[str, Any]:
-        """An edge: its number (or ref), curve, length, direction, ends, and what faces meet at it."""
-        from build123d import Edge, Face
+        """An edge: its number (or ref), what it is (``describe_edge``), and what faces meet at it."""
+        from build123d import Face
 
-        edge = Edge(self.call.edges[index])
-        curve = _curve(self.call.edges[index])
         facts: dict[str, Any] = {"index": index}
         if names is not None:
             facts["ref"] = names[index]
-        facts["type"] = curve
-        length = _length(self.call.edges[index])
-        if length is not None:
-            facts["length"] = length
-            facts["lengthExact"] = curve in _EXACT_LENGTH
-        start, end = ends(self.call.edges[index])
-        if start is not None:
-            facts["start"], facts["end"] = start, end
-        if curve == "line" and start is not None and end is not None:
-            facts.update(_direction(start, end))
-        if curve == "circle":
-            try:
-                facts["radius"] = float(edge.radius)
-            except Exception:
-                pass
+        facts.update(describe_edge(self.call.edges[index]))
         between = []
         for face in self.faces(index):
             try:
@@ -407,6 +405,40 @@ class _Trier:
                 between.append("face")
         facts["between"] = between
         return facts
+
+
+def describe_edge(topods_edge: Any) -> dict[str, Any]:
+    """What an edge is: its curve, length, ends, direction or radius, and ``samples``, points along it at each
+    eighth of its length, by which it is told from another edge with the same ends and length (an arc bulging the
+    other way, a circle in another plane through the same seam: ``queries.match_edges``)."""
+    from build123d import Edge, PositionMode
+
+    edge = Edge(topods_edge)
+    curve = _curve(topods_edge)
+    facts: dict[str, Any] = {"type": curve}
+    length = _length(topods_edge)
+    if length is not None:
+        facts["length"] = length
+        facts["lengthExact"] = curve in _EXACT_LENGTH
+    start, end = ends(topods_edge)
+    if start is not None:
+        facts["start"], facts["end"] = start, end
+    if curve == "line" and start is not None and end is not None:
+        facts.update(_direction(start, end))
+    if curve == "circle":
+        try:
+            facts["radius"] = float(edge.radius)
+        except Exception:
+            pass
+    try:
+        facts["samples"] = [_xyz_of(edge.position_at(k / SAMPLES, PositionMode.LENGTH)) for k in range(1, SAMPLES)]
+    except Exception:
+        pass
+    return facts
+
+
+def _xyz_of(vector: Any) -> list[float]:
+    return [float(vector.X) + 0.0, float(vector.Y) + 0.0, float(vector.Z) + 0.0]
 
 
 def _curve(edge: Any) -> str:

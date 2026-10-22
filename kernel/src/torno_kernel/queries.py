@@ -159,17 +159,20 @@ def try_fillet(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
 
 def match_edges(shapes: dict[str, Any], edges: Any, kept: dict[Any, Any] | None = None) -> dict[str, Any]:
     """Which edges of the last good build are, exactly, the edges given: for each, the refs (``layout:name/E<i>``)
-    of the edges of the same curve whose ends are within ``SAME_EDGE`` of its own (either way round) and whose
-    length is as close. ``edges`` are as a diagnosis tells them (``type``, ``start``, ``end``, ``length``). An edge
-    of a shape the build moved or changed matches none."""
-    from . import diagnose
-
+    of the edges of the same curve whose ends are within ``SAME_EDGE`` of its own (either way round), whose length is
+    as close, and on which every one of its ``samples`` lies within ``SAME_EDGE`` (an arc bulging the other way, a
+    circle in another plane through the same seam, is none). ``edges`` are as a diagnosis tells them
+    (``diagnose.describe_edge``); one told without samples matches none. An edge of a shape the build moved or
+    changed matches none. Every part's edges are looked at: two parts that share an edge are both named, and
+    whoever asks says which, if either, it is."""
     if not isinstance(edges, list) or not all(isinstance(e, dict) for e in edges):
         raise QueryError("bad_request", "match_edges needs args.edges, a list of edges as a diagnosis tells them")
     matches: list[list[str]] = []
     for wanted in edges:
         start, end, length = as_point(wanted.get("start")), as_point(wanted.get("end")), wanted.get("length")
-        if start is None or end is None or not _is_coordinate(length):
+        samples = wanted.get("samples")
+        points = [as_point(p) for p in samples] if isinstance(samples, list) else []
+        if start is None or end is None or not _is_coordinate(length) or not points or any(p is None for p in points):
             matches.append([])
             continue
         found = []
@@ -177,11 +180,28 @@ def match_edges(shapes: dict[str, Any], edges: Any, kept: dict[Any, Any] | None 
             for index, (a, b, edge) in enumerate(_held(kept, "edge ends", key, lambda shape=shape: _edge_ends(shape))):
                 if a is None or not (_near(a, start) and _near(b, end) or _near(a, end) and _near(b, start)):
                     continue
-                measured = diagnose._length(edge)
-                if measured is not None and abs(measured - length) <= SAME_EDGE and diagnose._curve(edge) == wanted.get("type"):
+                if _same_edge(edge, wanted.get("type"), length, points):
                     found.append(f"{key}/E{index}")
         matches.append(found)
     return {"matches": matches}
+
+
+def _same_edge(edge: Any, curve: Any, length: float, points: list[list[float]]) -> bool:
+    """Whether an edge whose ends are those wanted is the curve, of the length, that every point lies on."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.gp import gp_Pnt
+
+    from . import diagnose
+
+    measured = diagnose._length(edge)
+    if measured is None or abs(measured - length) > SAME_EDGE or diagnose._curve(edge) != curve:
+        return False
+    for point in points:
+        extrema = BRepExtrema_DistShapeShape(BRepBuilderAPI_MakeVertex(gp_Pnt(*point)).Vertex(), edge)
+        if not extrema.IsDone() or extrema.NbSolution() < 1 or extrema.Value() > SAME_EDGE:
+            return False
+    return True
 
 
 def _edge_ends(shape: Any) -> list[tuple[Any, Any, Any]]:

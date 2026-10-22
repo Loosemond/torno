@@ -749,8 +749,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `diagnosisText` of `shared/diagnosis.ts`, numbers through `shared/format.ts`, a bisected size by `thousandth`).
   Before a failed build that carries one is told, `Builds.withRefs` asks the live worker of the last good build
   (`match_edges`, `MATCH_MS`, 2 s at most; nothing when there is none, it was let go, or the kernel cannot say) which
-  of its edges are exactly those of the diagnosis, and sets `sameAs` (`{ ref, layout, revision }`) on those: a ref
-  only where an edge matches exactly, said as of that build; the rest are known by their number in the call and their
+  of its edges are exactly those of the diagnosis (ends, length, curve and the points sampled along it), and sets
+  `sameAs` (`{ ref, layout, revision }`) on those: a ref only where an edge matches exactly and of one part (the
+  same part in two layouts is that part; an edge two parts share, as a lid and a base built at the origin, is named
+  by neither, never the first), said as of that build; the rest are known by their number in the call and their
   ends in the frame of the shape filleted (`local`). It is told under the error's message, before the traceback,
   wherever the error is: the status lines of `contextFor` and `buildContextFor` (in `DIAGNOSIS_LIMIT`, 1,000
   characters, leaving `TRACEBACK_LEAST`, 200, to the traceback, the edges cut first and counted), `scene` under

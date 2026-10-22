@@ -17,6 +17,8 @@ export interface DiagnosedEdge {
   direction?: [number, number, number]
   /** Of a circle. */
   radius?: number
+  /** Points along it at each eighth of its length: what tells it from another edge with the same ends and length (`match_edges`). */
+  samples?: Array<[number, number, number]>
   /** The kinds of the faces that meet at it. */
   between: string[]
   /** Of an edge that fails alone: the largest size that works for it alone (null: none down to the step), the least seen to fail. */

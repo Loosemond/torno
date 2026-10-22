@@ -263,6 +263,63 @@ def test_a_diagnosis_that_fails_leaves_the_error_as_it_was(tmp_path, monkeypatch
     assert reply["ok"] is False and "fillet" in reply["error"]["message"] and "diagnosis" not in reply["error"]
 
 
+def test_it_stops_trying_when_what_is_left_is_under_twice_the_longest_try(pocket):
+    """One try cannot be stopped: a try as slow as the one before must still end before the time runs out."""
+    plate, edges = pocket
+    call = diagnose.find_call(failure(lambda: plate.fillet(6, edges)))
+    now = [0.0]
+
+    def slow(self, indexes, size):
+        now[0] += 1.5
+        return True
+
+    original = diagnose._Trier._works
+    diagnose._Trier._works = slow
+    try:
+        found = diagnose.diagnose(call, budget=4, clock=lambda: now[0])
+    finally:
+        diagnose._Trier._works = original
+    # At 1.5 s, 2.5 s are left and the next try may take 1.5 more: under twice that, it is not started.
+    assert found["alone"]["tried"] == 1 and found["complete"] is False
+    assert now[0] <= 4
+
+
+def _breaking_diagnosis(tmp_path, how: str):
+    """A model whose fillet fails and which makes the diagnosis of it crash or hang: the build's error must survive."""
+    folder = tmp_path / "plate"
+    folder.mkdir()
+    (folder / "plate.py").write_text(
+        "import os, signal, time\n"
+        "from build123d import *\n"
+        "from torno_kernel import diagnose\n"
+        f"diagnose.diagnose = lambda *a, **k: {how}\n"
+        "plate = Box(20, 20, 5) - Box(12, 12, 5)\n"
+        "plate = fillet(plate.edges().filter_by(Axis.Z), 6)\n"
+    )
+    return folder
+
+
+@pytest.mark.parametrize(
+    ("how", "kind", "timeout"),
+    [("os.kill(os.getpid(), signal.SIGSEGV)", "crash", 30), ("time.sleep(30)", "timeout", 8)],
+)
+def test_a_diagnosis_that_crashes_or_runs_out_of_time_leaves_the_error_in_the_output(tmp_path, how, kind, timeout):
+    from kclient import Kernel
+
+    kernel = Kernel()
+    try:
+        id = kernel.send("build", dir=str(_breaking_diagnosis(tmp_path, how)), model="plate.py", timeout=timeout)
+        started, _ = kernel.recv(5)
+        assert started["event"] == "build.started"
+        reply, _ = kernel.recv(timeout + 20)
+    finally:
+        kernel.close()
+    assert reply["id"] == id and reply["ok"] is False and reply["error"]["kind"] == kind
+    output = reply["error"]["output"]
+    assert "Failed creating a fillet with radius of 6" in output
+    assert "ValueError" in output
+
+
 # The trial, on the last good build
 
 
@@ -345,3 +402,50 @@ def test_an_edge_of_the_failed_build_is_matched_to_the_last_good_build_only_wher
     moved = Pos(0, 0, 0.001) * plate
     elsewhere = diagnose.from_exception(failure(lambda: moved.fillet(3, moved.edges().group_by(Axis.Z)[-1])))
     assert queries.run(built, "match_edges", {"edges": elsewhere["edges"]})["matches"] == [[]] * len(elsewhere["edges"])
+
+
+def _wanted(edge):
+    """An edge as a diagnosis tells it, of an edge of any shape."""
+    return {k: v for k, v in diagnose.describe_edge(edge.wrapped).items() if k in ("type", "start", "end", "length", "samples")}
+
+
+def test_an_arc_bulging_the_other_way_is_not_the_same_edge():
+    from build123d import Edge, GeomType, Line, Wire, extrude, make_face
+
+    up = Edge.make_three_point_arc((0, 0, 0), (5, 5, 0), (10, 0, 0))
+    down = Edge.make_three_point_arc((0, 0, 0), (5, -5, 0), (10, 0, 0))
+    good = extrude(make_face(Wire([up, Line((10, 0, 0), (0, 0, 0))])), 3)
+    bad = extrude(make_face(Wire([down, Line((10, 0, 0), (0, 0, 0))])), 3)
+    arc = [x for x in bad.edges() if x.geom_type == GeomType.CIRCLE and abs(x.center().Z) < 1e-9][0]
+    same = [x for x in good.edges() if x.geom_type == GeomType.CIRCLE and abs(x.center().Z) < 1e-9][0]
+    assert queries.match_edges({"main:plate": good}, [_wanted(arc)])["matches"] == [[]]
+    # The arc it is, of the same plate, is matched.
+    assert len(queries.match_edges({"main:plate": good}, [_wanted(same)])["matches"][0]) == 1
+
+
+def test_a_full_circle_in_another_plane_through_the_same_seam_is_not_the_same_edge():
+    from build123d import Cylinder, Plane, Rot
+
+    flat = Cylinder(5, 2)  # its circles lie in planes across Z
+    turned = Rot(90, 0, 0) * Cylinder(5, 2)
+    circles = [e for e in flat.edges() if e.geom_type.name == "CIRCLE"]
+    for circle in circles:
+        assert queries.match_edges({"main:turned": turned}, [_wanted(circle)])["matches"] == [[]]
+        assert len(queries.match_edges({"main:flat": flat}, [_wanted(circle)])["matches"][0]) == 1
+
+
+def test_two_parts_that_share_an_edge_are_both_named():
+    from build123d import Box
+
+    base, lid = Box(20, 20, 5), Box(20, 20, 5)
+    edge = base.edges()[0]
+    assert sorted(queries.match_edges({"main:base": base, "main:lid": lid}, [_wanted(edge)])["matches"][0]) == [
+        "main:base/E0",
+        "main:lid/E0",
+    ]
+
+
+def test_an_edge_told_without_its_samples_matches_none(built, rim):
+    plate, top = rim
+    told = {k: v for k, v in _wanted(top[0]).items() if k != "samples"}
+    assert queries.match_edges(built, [told])["matches"] == [[]]

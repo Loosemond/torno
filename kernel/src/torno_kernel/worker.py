@@ -143,18 +143,22 @@ def _build(
         error = _exception(str(e) or type(e).__name__)
         failed = e
     _flush_output()
-    diagnosis = _diagnose(failed, deadline)
+    diagnosis = _diagnose(failed, error, deadline)
     if diagnosis is not None:
         error["diagnosis"] = diagnosis
     write_frame(channel, {"ok": False, "error": error})
     return None
 
 
-def _diagnose(error: BaseException, deadline: float | None) -> dict[str, Any] | None:
+def _diagnose(error: BaseException, told: dict[str, Any], deadline: float | None) -> dict[str, Any] | None:
     """Why a fillet or a chamfer of build123d failed, if one raised ``error``; None otherwise.
 
     It runs in this worker, which is about to exit: no fork, no other process. What OCC
-    might print meanwhile is not the model's output, and is not captured with it.
+    might print meanwhile is not the model's output, and is not captured with it. It runs
+    fillets the model never ran, and one of them may crash the worker or run past the
+    build's timeout: so the error as it stands (``told``) is written to the captured output
+    first, where a crash or a timeout still reports it, and taken out again once the
+    diagnosis is over.
     """
     from . import diagnose
 
@@ -162,6 +166,7 @@ def _diagnose(error: BaseException, deadline: float | None) -> dict[str, Any] | 
     try:
         if diagnose.find_call(error) is None:
             return None
+        noted = _note(told)
         saved = [os.dup(1), os.dup(2)]
         devnull = os.open(os.devnull, os.O_WRONLY)
     except Exception:
@@ -178,6 +183,37 @@ def _diagnose(error: BaseException, deadline: float | None) -> dict[str, Any] | 
         os.dup2(saved[1], 2)
         for fd in (*saved, devnull):
             os.close(fd)
+        if noted is not None:
+            _unnote(noted)
+
+
+def _note(told: dict[str, Any]) -> int | None:
+    """Write the build's error at the end of the captured output, saying a diagnosis follows; where it began,
+    or None when the capture cannot be cut back to that (it is then not written)."""
+    try:
+        at = os.lseek(1, 0, os.SEEK_END)
+    except OSError:
+        return None
+    last = [line for line in str(told.get("traceback") or "").splitlines() if line.strip()][-1:]
+    text = (
+        f"[torno] The build failed: {told.get('message', '')}\n"
+        + "".join(f"[torno] {line.strip()}\n" for line in last)
+        + "[torno] It was being tried again in parts to say why; if the build ends here, that stopped it.\n"
+    )
+    try:
+        os.write(1, text.encode("utf-8", "replace"))
+    except OSError:
+        return None
+    return at
+
+
+def _unnote(at: int) -> None:
+    """Cut the captured output back to where the note began: the diagnosis ended, and the error says it all."""
+    try:
+        os.ftruncate(1, at)
+        os.lseek(1, at, os.SEEK_SET)
+    except OSError:
+        pass
 
 
 def _serve(channel: Any, shapes: dict[str, Any], kept: dict[Any, Any] | None = None) -> None:

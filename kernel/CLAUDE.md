@@ -197,14 +197,22 @@ is the detail of this folder, under the headings it has there.
   half of what is left; then the largest size that works for them all and for each edge that fails alone, bisected
   on a grid of `STEP` (0.001 mm) under the size asked. An uneven chamfer keeps its proportions. No fork and no other
   process. It has `BUDGET` (5 s), or what the build's timeout leaves less `MARGIN` (1 s) when that is less: the
-  supervisor passes the worker its deadline. OCC's tries cannot be stopped, so the clock is read between them;
-  what it had no time for is said (`complete: false`) and never told as a finding. What OCC prints meanwhile goes
-  to `/dev/null`, not into the model's output. A diagnosis that fails is none: the build's error is written as it
-  was. The error carries it as `diagnosis`: the shape filleted is an
+  supervisor passes the worker its deadline. OCC's tries cannot be stopped, so the clock is read between them, and
+  no try is started with less left than `SLACK` (2) times the longest try so far; what it had no time for is said
+  (`complete: false`) and never told as a finding. What OCC prints meanwhile goes to `/dev/null`, not into the
+  model's output. A diagnosis that fails is none: the build's error is written as it was. It runs fillets the model
+  never ran, and one may crash the worker or overrun the build's timeout: so before the first try the error's
+  message and the last line of its traceback are written at the end of the captured output (`[torno] The build
+  failed: …`), where a `crash` or a `timeout` still reports them, and the capture is cut back to before them
+  (`ftruncate`; the supervisor reads it by `pread`) once the diagnosis is over. The error carries it as `diagnosis`: the shape filleted is an
   intermediate one with no place in the scene, so its edges are numbered by their place in the call (from 0) and
   described with their ends in its frame, `frame: "local"`. `match_edges`, asked of the live worker of the last
-  good build by main, names the edges of that build that are exactly one of them (the same curve, ends and length
-  within `SAME_EDGE`, 1e-6 mm, either way round): an edge of a shape moved or changed since matches none.
+  good build by main, names the edges of that build that are exactly one of them: the same curve, ends and length
+  within `SAME_EDGE`, 1e-6 mm, either way round, and every one of the points the diagnosis sampled along it
+  (`samples`, at each eighth of its length, `diagnose.describe_edge`) within `SAME_EDGE` of that edge. Ends and a
+  length alone are not enough: an arc bulging the other way, or a circle in another plane through the same seam,
+  has them. An edge told without samples, or of a shape moved or changed since, matches none. It names every
+  part's edge that matches; which, if any, the edge is, is main's to say.
   `try_fillet` (`queries.try_fillet`, `diagnose.trial`) is the same trial asked by the agent of the live worker,
   on a part of the last good build (`part` as `layout:name`, `edges` as `name/E<i>`, 200 at most, `radius`,
   `kind`): the fillet of them all is tried first, and only when it fails is it diagnosed, in `TRIAL_BUDGET` (20 s)
