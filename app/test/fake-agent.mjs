@@ -64,10 +64,11 @@
 //     said (`slow`) or while the CLI is between commands waits for the turn to end and is a turn of its own;
 //   - an `interrupt` while an ask waits sends `control_cancel_request` for it first, then answers the interrupt, as the CLI does;
 //   - when stdin ends it posts `SessionEnd` and exits 0; on SIGTERM it exits 0.
-// With FAKE_AGENT_INIT=<json object> in stream mode its fields are put in every `init` after the usual ones, so a case of
-// the CLI's own account of itself is played: `{"plugins":[],"skills":[]}` (torno's plugin did not load),
-// `{"apiKeySource":"user"}`, `{"claude_code_version":"2.1.307"}`, `{"mcp_servers":[{"name":"torno","status":"failed"}],
-// "mcp_server_errors":[...]}`, `{"plugin_errors":[...]}`. Without it the `init` has none of those fields.
+// Every `init` has the CLI's account of itself as the recordings have it: `plugins` (torno's, when started with
+// `--plugin-dir`), `skills` (the person's own, none of a plugin's), `apiKeySource` `none` and `claude_code_version`
+// 2.1.300. With FAKE_AGENT_INIT=<json object> in stream mode its fields replace these, so a case is played:
+// `{"plugins":[]}` (torno's plugin did not load), `{"apiKeySource":"user"}`, `{"claude_code_version":"2.2.0"}`,
+// `{"mcp_servers":[{"name":"torno","status":"failed"}],"mcp_server_errors":[...]}`, `{"plugin_errors":[...]}`.
 // With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
 // (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
 import { spawn } from 'node:child_process'
@@ -118,7 +119,14 @@ async function streamMode() {
   })
   let model = 'fake-model'
   /** FAKE_AGENT_INIT: fields of the CLI's own account of itself, put in every `init`. */
-  const account = JSON.parse(process.env.FAKE_AGENT_INIT || '{}')
+  const account = {
+    // As the recordings are (2.1.300): the plugins loaded are listed (torno's when it was given a folder), `skills` holds only the person's own.
+    plugins: argv.includes('--plugin-dir') ? [{ name: 'torno', path: after('--plugin-dir'), source: 'torno@inline' }] : [],
+    skills: ['humanizer', 'log-note', 'vault-report'],
+    apiKeySource: 'none',
+    claude_code_version: '2.1.300',
+    ...JSON.parse(process.env.FAKE_AGENT_INIT || '{}')
+  }
   let counter = 0
   const next = (prefix) => `${prefix}_${(counter += 1)}`
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

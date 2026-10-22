@@ -84,11 +84,11 @@ comes while a tool runs is folded into the running turn (its hook, no `init`, on
 request waits sends `control_cancel_request` first. An interrupt keeps the prompts queued behind the turn (it lists their
 uuids in `still_queued`) and runs them afterwards together, one `init`; every prompt torno writes has a `uuid`, and the
 stand-in says `command_lifecycle` `queued`/`started`/`completed` for it, as the real CLI does. A queued prompt is
-therefore never "Not sent" after a Stop. `FAKE_AGENT_INIT=<json>` puts its fields in every `init` (what the CLI says of
-itself: `plugins`, `skills`, `apiKeySource`, `claude_code_version`, `mcp_servers` with `mcp_server_errors`;
-`e2e/account.spec.ts`), and the commands `retry <attempt> [<s>]` (`api_retry`), `deny <tool> <json>` (a permission
-denial in the turn's `result`) and `argv` play the rest; without `FAKE_AGENT_INIT` the `init` has none of those
-fields, which torno reads as "not known". `FAKE_AGENT_FAIL=<text>` makes it write that to stderr and exit 1
+therefore never "Not sent" after a Stop. Every `init` has what the CLI says of itself as the recordings have it (`plugins`
+with torno's when `--plugin-dir` was given, `skills` of the person's only, `apiKeySource` `none`,
+`claude_code_version` 2.1.300), and `FAKE_AGENT_INIT=<json>` replaces fields of it or adds `mcp_servers` with
+`mcp_server_errors` or `plugin_errors` (`e2e/account.spec.ts`), and the commands `retry <attempt> [<s>]` (`api_retry`), `deny <tool> <json>` (a permission
+denial in the turn's `result`) and `argv` play the rest. `FAKE_AGENT_FAIL=<text>` makes it write that to stderr and exit 1
 at once; `FAKE_AGENT_INIT_ERROR=<text>` makes it answer `initialize` with that error. Its permission suggestions are the three kinds the real CLI sends, so a test
 proves that only the session rule is passed on. Specs that drive a terminal call `inTerminal` (`e2e/terminal.ts`),
 which writes `view: 'terminal'` into their temporary copy's `.torno/agent.json`. Give the run a HOME of its own

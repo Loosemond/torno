@@ -39,7 +39,7 @@ export interface AgentAdapter {
   skills: boolean
   /** The plugin of skills it passes (when `skills`): the CLI's `init` is read for whether it loaded. */
   plugin?: { name: string; skills: readonly string[] }
-  /** The versions of the agent torno was checked against, inclusive (`2.1.300`): one outside is said once. */
+  /** The versions of the agent torno was checked against, inclusive (`2.1.300`): one older, or of a newer major or minor, is said once. */
   tested?: { min: string; max: string }
   /** How this agent's client names a tool of torno's to the model: `mcp__torno__scene`. */
   toolName(tool: string): string

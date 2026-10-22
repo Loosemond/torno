@@ -17,7 +17,7 @@ let page: Page
 test.beforeAll(async () => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-account-'))
   cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
-  const init = JSON.stringify({ plugins: [], skills: ['humanizer'], apiKeySource: 'user', claude_code_version: '2.1.307' })
+  const init = JSON.stringify({ plugins: [], apiKeySource: 'user', claude_code_version: '2.2.0' })
   app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root, FAKE_AGENT_INIT: init } })
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
@@ -32,7 +32,7 @@ const dock = () => page.locator('[data-region="session"]')
 const chat = () => dock().locator('.chat')
 const composer = () => dock().locator('[data-chat-composer]')
 
-test('the chat says that torno\'s skills did not load, that an API key is billed and that the CLI is newer, and shows a retry while it lasts; the whole prompt is offered and restarts the session', async () => {
+test('the chat says that torno\'s skills did not load, that an API key is billed and that the CLI is a newer minor, and shows a retry while it lasts; the whole prompt is offered and restarts the session', async () => {
   await page.getByRole('button', { name: 'bracket', exact: true }).click()
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect(chat()).toBeVisible()
@@ -46,8 +46,8 @@ test('the chat says that torno\'s skills did not load, that an API key is billed
 
   const notes = chat().locator('.chat-note')
   await expect(notes.filter({ hasText: "torno's skills did not load" }).first()).toHaveAttribute('data-tone', 'warn')
-  await expect(notes.filter({ hasText: 'ANTHROPIC_API_KEY' })).toHaveAttribute('data-tone', 'quiet')
-  await expect(notes.filter({ hasText: 'Claude Code 2.1.307 is outside' })).toHaveCount(1)
+  await expect(notes.filter({ hasText: 'billed to an API key' })).toHaveAttribute('data-tone', 'quiet')
+  await expect(notes.filter({ hasText: 'Claude Code 2.2.0 is newer' })).toHaveCount(1)
 
   // The offer; taking it ends this session and starts another on the same conversation, which expects no plugin.
   const first = await chat().getAttribute('data-session')

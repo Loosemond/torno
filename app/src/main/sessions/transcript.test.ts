@@ -605,7 +605,7 @@ describe('meta', () => {
 describe('what the CLI says of itself (#116)', () => {
   const PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d', 'scans', 'dimensions'] }
   const TESTED = { min: '2.1.300', max: '2.1.301' }
-  const loaded = { plugins: [{ name: 'torno', path: '/p', source: 'torno@inline' }], skills: ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions', 'humanizer'] }
+  const loaded = { plugins: [{ name: 'torno', path: '/p', source: 'torno@inline' }], skills: ['humanizer', 'log-note'] }
 
   it('warns once when torno\'s plugin is not among the plugins, and says the skills are missing', () => {
     const t = new Transcript({ plugin: PLUGIN })
@@ -625,13 +625,41 @@ describe('what the CLI says of itself (#116)', () => {
     expect(note.text).toContain('bad manifest')
   })
 
-  it('warns when a skill of the plugin is missing from the skills, whether they are named with the plugin or not', () => {
+  it('reads the skills only when they show skills of plugins: the recorded CLI lists none, and that is not a warning', () => {
+    // As the recordings are: three plugins loaded, and in `skills` only the person's own.
+    const recorded = FIXTURE.find((m) => m.type === 'system' && m.subtype === 'init')!
+    const a = new Transcript({ plugin: PLUGIN })
+    a.message({ ...recorded, plugins: [...(recorded.plugins as object[]), { name: 'torno', path: '/p', source: 'torno@inline' }] })
+    expect(a.meta().pluginLoaded).toBe(true)
+    expect(of(a, 'note')).toEqual([])
+    // Torno's plugin is not among the three the recording lists: that one is a warning.
+    const b = new Transcript({ plugin: PLUGIN })
+    b.message(recorded)
+    expect(b.meta().pluginLoaded).toBe(false)
+    // Skills of plugins shown, and some of torno's missing: a warning; all there, named with the plugin or not: none.
+    const c = new Transcript({ plugin: PLUGIN })
+    c.message(init({ ...loaded, skills: ['superpowers:brainstorming', 'torno:torno-model', 'build123d', 'scans'] }))
+    expect(c.meta().pluginLoaded).toBe(false)
+    const d = new Transcript({ plugin: PLUGIN })
+    d.message(init({ ...loaded, skills: ['superpowers:brainstorming', 'torno-model', 'build123d', 'scans', 'dimensions'] }))
+    expect(d.meta().pluginLoaded).toBe(true)
+    const e = new Transcript({ plugin: PLUGIN })
+    e.message(init({ ...loaded, skills: ['humanizer'] }))
+    expect(e.meta().pluginLoaded).toBe(true)
+    expect(of(e, 'note')).toEqual([])
+  })
+
+  it('takes an error as torno\'s only when it names torno, not when a path or another plugin\'s message holds the word', () => {
+    const other = [{ plugin: 'superpowers', error: 'cannot read /home/me/torno/x/plugin.json' }, { name: 'agent-deck', message: 'torno is not installed' }, 'agent-deck@x: torno failed']
     const t = new Transcript({ plugin: PLUGIN })
-    t.message(init({ ...loaded, skills: ['torno:torno-model', 'build123d', 'scans'] }))
-    expect(t.meta().pluginLoaded).toBe(false)
-    const u = new Transcript({ plugin: PLUGIN })
-    u.message(init({ ...loaded, skills: ['torno-model', 'build123d', 'scans', 'dimensions'] }))
-    expect(u.meta().pluginLoaded).toBe(true)
+    t.message(init({ ...loaded, plugin_errors: other, mcp_servers: [{ name: 'torno', status: 'failed' }], mcp_server_errors: other }))
+    expect(t.meta().pluginLoaded).toBe(true)
+    expect(of(t, 'note').map((n) => n.text)).toEqual(["torno's tools are not connected to Claude Code: it cannot see the part."])
+    for (const own of [{ plugin_name: 'torno', message: 'bad' }, { name: 'torno@inline', error: 'bad' }, 'torno: bad', 'torno@inline: bad']) {
+      const u = new Transcript({ plugin: PLUGIN })
+      u.message(init({ ...loaded, plugin_errors: [own] }))
+      expect([own, u.meta().pluginLoaded]).toEqual([own, false])
+    }
   })
 
   it('is quiet when the plugin loaded, when torno passed none, and when the CLI did not say', () => {
@@ -652,30 +680,36 @@ describe('what the CLI says of itself (#116)', () => {
     expect(of(c, 'note')).toEqual([])
   })
 
-  it('says once that the chat is billed to an API key, and says nothing for the login or for no word', () => {
+  it('says once that the chat is billed to an API key, with the source the CLI names, and says nothing for the login or for no word', () => {
     const t = new Transcript()
     t.message(init({ apiKeySource: 'none' }))
     t.message(init({ apiKeySource: 'oauth' }))
     t.message(init())
     expect(of(t, 'note')).toEqual([])
-    t.message(init({ apiKeySource: 'user' }))
+    t.message(init({ apiKeySource: 'project' }))
     t.message(init({ apiKeySource: 'user' }))
     expect(t.meta().apiKeySource).toBe('user')
-    expect(of(t, 'note')).toMatchObject([{ tone: 'quiet', text: 'This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per token.' }])
+    expect(of(t, 'note')).toMatchObject([{ tone: 'quiet', text: "This chat is billed to an API key (Claude Code names its source: `project`), not to your Claude login: you pay per token. An `ANTHROPIC_API_KEY` in torno's environment, for example, does this." }])
   })
 
-  it('says once that the CLI is outside the range torno was checked with, and keeps its version', () => {
+  it('says once that the CLI is older or of a newer minor than torno was checked with, and keeps its version', () => {
     const t = new Transcript({ tested: TESTED })
-    t.message(init({ claude_code_version: '2.1.300' }))
-    t.message(init({ claude_code_version: '2.1.301' }))
+    // The tested minor, any patch of it: quiet.
+    for (const v of ['2.1.300', '2.1.301', '2.1.307', '2.1.999']) t.message(init({ claude_code_version: v }))
     expect(of(t, 'note')).toEqual([])
-    t.message(init({ claude_code_version: '2.1.307' }))
-    t.message(init({ claude_code_version: '2.1.307' }))
-    expect(t.meta().version).toBe('2.1.307')
-    expect(of(t, 'note')).toMatchObject([{ tone: 'quiet', text: 'Claude Code 2.1.307 is outside the versions torno was checked with (2.1.300 to 2.1.301)' }])
+    t.message(init({ claude_code_version: '2.2.0' }))
+    t.message(init({ claude_code_version: '2.2.0' }))
+    expect(t.meta().version).toBe('2.2.0')
+    expect(of(t, 'note')).toMatchObject([{ tone: 'quiet', text: 'Claude Code 2.2.0 is newer than the versions torno was checked with (2.1.300 to 2.1.301): if something in the chat looks wrong, this may be why.' }])
+    const major = new Transcript({ tested: TESTED })
+    major.message(init({ claude_code_version: '3.0.1' }))
+    expect(of(major, 'note')).toHaveLength(1)
     const older = new Transcript({ tested: TESTED })
-    older.message(init({ claude_code_version: '2.0.9' }))
-    expect(of(older, 'note')).toHaveLength(1)
+    older.message(init({ claude_code_version: '2.1.299' }))
+    expect(of(older, 'note')[0].text).toMatch(/^Claude Code 2\.1\.299 is older than/)
+    const oldest = new Transcript({ tested: TESTED })
+    oldest.message(init({ claude_code_version: '2.0.9' }))
+    expect(of(oldest, 'note')).toHaveLength(1)
     // A version it cannot read, or none, or no range: not known.
     const odd = new Transcript({ tested: TESTED })
     odd.message(init({ claude_code_version: 'next' }))

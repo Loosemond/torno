@@ -46,7 +46,7 @@ export interface TranscriptOptions {
   emitMeta?: (meta: ChatMeta) => void
   /** The plugin of skills torno passed to the CLI: its `init` is then read for whether it loaded. Absent: none was passed, and nothing is expected. */
   plugin?: { name: string; skills: readonly string[] }
-  /** The versions of the CLI torno was checked against, inclusive: one outside is said once. Absent: no version is judged. */
+  /** The versions of the CLI torno was checked against, inclusive: one older, or of a newer major or minor, is said once. Absent: no version is judged. */
   tested?: { min: string; max: string }
 }
 
@@ -447,14 +447,15 @@ export class Transcript {
       if (plugin.loaded === false && this.info.pluginLoaded !== false) {
         this.put({ kind: 'note', id: this.newId('i'), text: `torno's skills did not load: the agent is told to read skills it does not have${plugin.why ? `. Claude Code said: ${this.redact(plugin.why)}` : ''}`, tone: 'warn' })
       }
-      // In `-p` an API key wins over the person's login, and bills per token: said once, whatever the key's source is called.
+      // An API key, whatever its source (the environment, a helper, a setting), is billed per token and not to the login: said once, with the name the CLI gives its source.
       if (keySource !== undefined && keySource !== '' && keySource !== 'none' && keySource !== 'oauth' && !this.keyNoted) {
         this.keyNoted = true
-        this.put({ kind: 'note', id: this.newId('i'), text: 'This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per token.', tone: 'quiet' })
+        this.put({ kind: 'note', id: this.newId('i'), text: `This chat is billed to an API key (Claude Code names its source: \`${this.redact(keySource)}\`), not to your Claude login: you pay per token. An \`ANTHROPIC_API_KEY\` in torno's environment, for example, does this.`, tone: 'quiet' })
       }
-      if (version && this.tested && !this.versionNoted && outside(version, this.tested)) {
+      const compared = version && this.tested && !this.versionNoted ? outside(version, this.tested) : null
+      if (compared) {
         this.versionNoted = true
-        this.put({ kind: 'note', id: this.newId('i'), text: `Claude Code ${this.redact(version)} is outside the versions torno was checked with (${this.tested.min} to ${this.tested.max})`, tone: 'quiet' })
+        this.put({ kind: 'note', id: this.newId('i'), text: `Claude Code ${this.redact(version!)} is ${compared} than the versions torno was checked with (${this.tested!.min} to ${this.tested!.max}): if something in the chat looks wrong, this may be why.`, tone: 'quiet' })
       }
       const { retrying: _retrying, ...settled } = next
       next = settled
@@ -474,9 +475,11 @@ export class Transcript {
   }
 
   /**
-   * Whether torno's plugin loaded, by what an `init` lists: `loaded` is false when the plugin is not among the `plugins`,
-   * a skill of it is not among the `skills`, or an entry of `plugin_errors` names it; true when it is listed and nothing
-   * is missing; undefined when torno passed none or the CLI did not say (a field that is missing is not a warning).
+   * Whether torno's plugin loaded, by what an `init` lists: `loaded` is false when the plugin is not among the `plugins`
+   * or an entry of `plugin_errors` is its own; true when it is listed; undefined when torno passed none or the CLI did
+   * not list its plugins. The `skills` are read only when they show skills of plugins at all (an entry with a
+   * `<plugin>:` namespace): the CLI (2.1.300, 2.1.301) lists its loaded plugins and, in `skills`, none of theirs, so
+   * a list without any is "not known" and never a warning.
    */
   private pluginState(m: StreamMessage): { loaded?: boolean; why?: string } {
     const want = this.plugin
@@ -484,11 +487,12 @@ export class Transcript {
     const why = errorText(m.plugin_errors, want.name)
     if (why !== undefined) return { loaded: false, why }
     const plugins = Array.isArray(m.plugins) ? m.plugins.map((p) => str(obj(p)?.name) ?? str(p)) : null
-    const skills = Array.isArray(m.skills) ? m.skills.filter((s): s is string => typeof s === 'string') : null
-    if (plugins && !plugins.includes(want.name)) return { loaded: false }
-    // A skill of a plugin is named with it (`torno:scans`) or, as the CLI's own skills are, alone.
-    if (skills && want.skills.some((skill) => !skills.includes(skill) && !skills.includes(`${want.name}:${skill}`))) return { loaded: false }
-    return plugins ? { loaded: true } : {}
+    if (!plugins) return {}
+    if (!plugins.includes(want.name)) return { loaded: false }
+    const skills = Array.isArray(m.skills) ? m.skills.filter((s): s is string => typeof s === 'string') : []
+    // A skill of a plugin is named with it (`torno:scans`).
+    if (skills.some((skill) => skill.includes(':')) && want.skills.some((skill) => !skills.includes(`${want.name}:${skill}`) && !skills.includes(skill))) return { loaded: false }
+    return { loaded: true }
   }
 
   private streamEvent(event: Record_ | null): void {
@@ -882,13 +886,23 @@ export class Transcript {
 }
 
 /** What the CLI answers for a tool the person stopped or refused. */
-/** The text of the first error in a list the CLI printed that names `who` (a string, or an object whose fields hold it); undefined when none does, '' when it names it but says nothing more. */
+/** Whether a name is `who`, or is one of its qualified forms (`torno:scans`, `torno@inline`). */
+const isNamed = (name: unknown, who: string): boolean => typeof name === 'string' && (name === who || name.startsWith(`${who}:`) || name.startsWith(`${who}@`))
+
+/**
+ * The text of the first error in a list the CLI printed that is `who`'s own: an object whose `name`, `plugin`,
+ * `plugin_name` or `server` is `who`, or a string that is `who` or begins `who:` or `who@`. Text that only mentions
+ * `who` (a path with the name in it, another plugin's message) is not its own. Undefined when none is; '' when one is
+ * but says nothing more.
+ */
 function errorText(list: unknown, who: string): string | undefined {
   if (!Array.isArray(list)) return undefined
   for (const entry of list) {
-    const text = typeof entry === 'string' ? entry : obj(entry) ? (str(obj(entry)!.error) ?? str(obj(entry)!.message) ?? '') : ''
-    const names = typeof entry === 'string' ? entry.includes(who) : JSON.stringify(entry).includes(who)
-    if (names) return text.length > 300 ? text.slice(0, 300) : text
+    const fields = obj(entry)
+    const own = typeof entry === 'string' ? isNamed(entry, who) : fields !== null && ['name', 'plugin', 'plugin_name', 'server'].some((key) => isNamed(fields[key], who))
+    if (!own) continue
+    const text = typeof entry === 'string' ? entry : (str(fields!.error) ?? str(fields!.message) ?? '')
+    return text.length > 300 ? text.slice(0, 300) : text
   }
   return undefined
 }
@@ -898,14 +912,18 @@ const parts = (version: string): [number, number, number] | null => {
   return found ? [Number(found[1]), Number(found[2]), Number(found[3])] : null
 }
 
-/** Whether a version is outside a range, both ends inclusive; false for one that cannot be read (not known). */
-function outside(version: string, range: { min: string; max: string }): boolean {
+/**
+ * Whether a version is older than the tested minimum, or of a newer major or minor than the tested maximum (a patch
+ * of the tested minor is quiet); null for one inside, or one that cannot be read (not known).
+ */
+function outside(version: string, range: { min: string; max: string }): 'older' | 'newer' | null {
   const v = parts(version)
   const lo = parts(range.min)
   const hi = parts(range.max)
-  if (!v || !lo || !hi) return false
+  if (!v || !lo || !hi) return null
   const compare = (a: number[], b: number[]): number => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
-  return compare(v, lo) < 0 || compare(v, hi) > 0
+  if (compare(v, lo) < 0) return 'older'
+  return compare([v[0], v[1], 0], [hi[0], hi[1], 0]) > 0 ? 'newer' : null
 }
 
 const REJECTED = /^The user doesn't want to proceed with this tool use/

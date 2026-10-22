@@ -1737,7 +1737,7 @@ describe('what Claude Code says of itself', () => {
   }
 
   it("warns when torno's plugin is not in the CLI's init, and a restart on the whole prompt leaves the plugin out and warns no more", async () => {
-    const c = await chat({ plugins: [], skills: ['humanizer'] })
+    const c = await chat({ plugins: [] })
     await c.send('say hi')
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
     expect(c.meta().pluginLoaded).toBe(false)
@@ -1750,7 +1750,7 @@ describe('what Claude Code says of itself', () => {
 
     // The person says to start on the whole prompt: the same conversation, without the plugin.
     await own.stop(c.id)
-    const again = await chat({ plugins: [], skills: ['humanizer'] }, { folder: c.obj.id, resume: true, skills: false })
+    const again = await chat({ plugins: [] }, { folder: c.obj.id, resume: true, skills: false })
     expect(again.id).not.toBe(c.id)
     await again.send('argv')
     await expect.poll(() => again.turns(), { timeout: 5000 }).toBe(1)
@@ -1762,22 +1762,30 @@ describe('what Claude Code says of itself', () => {
     expect(again.notes()).toEqual([])
   })
 
+  it('says nothing of a session whose init is as the recordings have it: its plugin listed, none of its skills in `skills`', async () => {
+    const c = await chat(undefined)
+    await c.send('say hi')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.meta()).toMatchObject({ pluginLoaded: true, apiKeySource: 'none', version: '2.1.300' })
+    expect(c.notes()).toEqual([])
+  })
+
   it('says the API key and the version outside the tested range, once each, and keeps the cost', async () => {
-    const c = await chat({ plugins: [{ name: 'torno' }], skills: ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions'], apiKeySource: 'user', claude_code_version: '2.1.307' })
+    const c = await chat({ apiKeySource: 'user', claude_code_version: '2.2.0' })
     await c.send('say one')
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
     await c.send('say two')
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
-    expect(c.meta()).toMatchObject({ pluginLoaded: true, apiKeySource: 'user', version: '2.1.307' })
+    expect(c.meta()).toMatchObject({ pluginLoaded: true, apiKeySource: 'user', version: '2.2.0' })
     expect(c.notes().map((n) => n.text)).toEqual([
-      'This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per token.',
-      'Claude Code 2.1.307 is outside the versions torno was checked with (2.1.300 to 2.1.301)'
+      "This chat is billed to an API key (Claude Code names its source: `user`), not to your Claude login: you pay per token. An `ANTHROPIC_API_KEY` in torno's environment, for example, does this.",
+      'Claude Code 2.2.0 is newer than the versions torno was checked with (2.1.300 to 2.1.301): if something in the chat looks wrong, this may be why.'
     ])
     expect(c.notes().map((n) => n.tone)).toEqual(['quiet', 'quiet'])
   })
 
   it("says torno's tools are not connected with what the CLI said, and a retry and a denial no card shows", async () => {
-    const c = await chat({ mcp_servers: [{ name: 'torno', status: 'failed' }], mcp_server_errors: [{ name: 'torno', error: 'connection refused' }], plugins: [{ name: 'torno' }], skills: ['torno-model', 'build123d', 'scans', 'dimensions'] })
+    const c = await chat({ mcp_servers: [{ name: 'torno', status: 'failed' }], mcp_server_errors: [{ name: 'torno', error: 'connection refused' }] })
     await c.send('retry 3\nslow 0.3\ndeny Write {"file_path":"/etc/x","content":"y"}')
     await expect.poll(() => metas.some((m) => m.sessionId === c.id && m.meta.retrying?.attempt === 3), { timeout: 5000 }).toBe(true)
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)

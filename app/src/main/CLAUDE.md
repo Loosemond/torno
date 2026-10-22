@@ -685,14 +685,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `context` (the tokens of the last request, `usage.iterations`' last or else `usage`, against the `contextWindow` of
   the session's model in `modelUsage`; unchanged when the result has no tokens, as a `/compact`'s has none);
   `api_retry` sets `retrying` (`{ attempt }`) until a `stream_event`, an `assistant`, a `user` or a `result` comes.
-  Notes: a `warn` when torno's tools are `failed` (with the text of the entry of `mcp_server_errors` that names
-  `torno`), a `warn` when the plugin torno passed did not load, a `quiet` once a session when `apiKeySource` is
-  anything but `none` or `oauth` ("This chat uses `ANTHROPIC_API_KEY`, not your Claude login: it is billed per
-  token."), a `quiet` once a session when the version is outside `TESTED_CLAUDE` (`claude.ts`: the versions of the
-  recordings in `test/fixtures/`, held to them by `claude.test.ts`), and a `warn` at a `result` for each
+  Notes: a `warn` when torno's tools are `failed` (with the text of the entry of `mcp_server_errors` that is
+  `torno`'s own: a `name`, `plugin`, `plugin_name` or `server` field that is `torno`, or a string that is or begins
+  `torno:` or `torno@`; a path or another plugin's message that holds the word is not), a `warn` when the plugin torno passed did not load, a `quiet` once a session when `apiKeySource` is
+  anything but `none` or `oauth` ("This chat is billed to an API key (Claude Code names its source: `user`), not to
+  your Claude login: you pay per token."; `ANTHROPIC_API_KEY` is named only as an example, since the source may be a
+  helper or a setting), a `quiet` once a session when the version is older than `TESTED_CLAUDE`'s minimum or of a
+  newer major or minor than its maximum (`claude.ts`: the versions of the recordings in `test/fixtures/`, held to them
+  by `claude.test.ts`; any patch of the tested minor is quiet; the note ends "if something in the chat looks wrong,
+  this may be why"), and a `warn` at a `result` for each
   `permission_denials` entry no card shows (a tool card `denied`, `cancelled` or `stopped` is shown), once per
-  `tool_use_id`. The plugin did not load when it is not in `plugins`, a skill of it (`TORNO_PLUGIN`, named alone or
-  as `torno:<skill>`) is not in `skills`, or an entry of `plugin_errors` names `torno`; it is judged only when the
+  `tool_use_id`. The plugin did not load when it is not in `plugins` or an entry of `plugin_errors` is `torno`'s own. The
+  `skills` are read only when they show skills of plugins (an entry with a `<plugin>:` name): the recordings list
+  the plugins loaded and, in `skills`, none of theirs, so a list without any says nothing; with some, a skill of
+  `TORNO_PLUGIN` missing (named alone or as `torno:<skill>`) is a failure. It is judged only when the
   session was started with the plugin (`Transcript` `plugin`, from `adapter.plugin` and `skills`). **A field that is
   missing or is not the shape expected is "not known", never a warning,** and nothing here throws. `Sessions.start`
   takes `skills: false` (the window's "Restart with the whole prompt", which stops the session and starts it again
