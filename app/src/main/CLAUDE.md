@@ -800,6 +800,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `build.error.diagnosis` (the data and its `reading`) and in its error before a first build that worked, `state.md`,
   and the error sheet (`ui/BuildErrorSheet.tsx`, under "Why", and in what Copy takes). Nothing is retried in the
   model: the agent decides.
+- A `StopFailure` hook (a turn an error of the API ended: a login that failed, an overload; posted in place of the
+  `Stop`) is idle and ends the turn as a `Stop` does, and is never held back (`stopAnswer` is not asked; the CLI reads
+  no answer to it), so a terminal session is not left "working" until its next prompt.
 - A `Notification` hook is a question (`needs_input`) unless its body says it is none (`reduceStatus` in
   `sessions/status.ts`: `notification_type` `idle_prompt` or `auth_success`, or, without a type, a message that
   it is waiting for input): Claude Code also posts one when it has only been idle at its prompt for a while.

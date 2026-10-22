@@ -74,7 +74,7 @@ describe('the Claude Code adapter', () => {
 
   it('registers an http hook for each event it follows, and no other', () => {
     const settings = JSON.parse(after(claudeAdapter().launch(ctx).args, '--settings'))
-    expect(HOOK_EVENTS).toEqual(['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd'])
+    expect(HOOK_EVENTS).toEqual(['UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd'])
     expect(Object.keys(settings)).toEqual(['hooks'])
     expect(Object.keys(settings.hooks)).toEqual(HOOK_EVENTS)
     for (const event of HOOK_EVENTS) {

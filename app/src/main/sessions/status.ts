@@ -5,9 +5,12 @@ import type { SessionStatus } from '../../shared/bridge'
  * The hooks torno listens to. `SessionStart` is absent on purpose: Claude Code
  * does not fire it as an http hook. `PreToolUse` and `PostToolUse` are there
  * only to say the agent is at work again after a question was answered:
- * nothing else tells that a permission prompt has gone.
+ * nothing else tells that a permission prompt has gone. `StopFailure` is the
+ * end of a turn that an error of the API ended (a login that failed, an
+ * overload): it is posted in place of the `Stop`, ends the turn as one does,
+ * and is never held back (Claude Code reads no answer to it).
  */
-export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']
+export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']
 
 /**
  * The status of a session after an event: the name of a hook the agent posted,
@@ -24,6 +27,7 @@ export function reduceStatus(prev: SessionStatus, event: string, body?: unknown)
     case 'PostToolUse':
       return 'working'
     case 'Stop':
+    case 'StopFailure':
       return 'idle'
     case 'Notification':
       // Claude Code also posts one when it has merely been idle for a while, or has signed in: no question.

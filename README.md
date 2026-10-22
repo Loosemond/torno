@@ -650,7 +650,9 @@ with numbers from `measure`. It changes nothing. Claude Code is told to call
 it after a change of several steps, before saying it is done.
 
 The status follows the hooks Claude Code posts: `UserPromptSubmit`,
-`PreToolUse` and `PostToolUse` mean working, `Stop` idle, `PermissionRequest`
+`PreToolUse` and `PostToolUse` mean working, `Stop` idle (and so does
+`StopFailure`, which ends a turn an error of the API cut short, and is never
+held back), `PermissionRequest`
 and a `Notification` that asks something needs input. A `Notification` that
 only says Claude Code has been waiting at its prompt for a while (or has
 signed in) leaves the status as it was. In a terminal, the first time Claude

@@ -1157,7 +1157,7 @@ export class Sessions {
       return sendJson(res, 200, held)
     }
     if (event !== 'SessionEnd') this.advance(session, event, fields)
-    if (event === 'Stop') session.turn = undefined
+    if (event === 'Stop' || event === 'StopFailure') session.turn = undefined
     if (event === 'UserPromptSubmit') session.turn = this.beginTurn(session)
 
     if (event !== 'UserPromptSubmit') {

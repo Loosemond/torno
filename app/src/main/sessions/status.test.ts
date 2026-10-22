@@ -22,6 +22,9 @@ describe('reduceStatus', () => {
     expect(reduceStatus('working', 'PermissionRequest')).toBe('needs_input')
     expect(reduceStatus('needs_input', 'UserPromptSubmit')).toBe('working')
     expect(reduceStatus('needs_input', 'Stop')).toBe('idle')
+    // A turn that ended on an error of the API (a login that failed, an overload) ends as a Stop does.
+    expect(reduceStatus('working', 'StopFailure')).toBe('idle')
+    expect(reduceStatus('needs_input', 'StopFailure')).toBe('idle')
     expect(reduceStatus('idle', 'SessionEnd')).toBe('exited')
   })
 
@@ -52,7 +55,7 @@ describe('reduceStatus', () => {
   })
 
   it('stays exited', () => {
-    for (const event of ['output', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd', 'ask', 'answered']) {
+    for (const event of ['output', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd', 'ask', 'answered']) {
       expect(reduceStatus('exited', event)).toBe('exited')
     }
   })

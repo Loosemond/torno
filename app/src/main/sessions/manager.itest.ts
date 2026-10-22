@@ -2163,6 +2163,22 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     expect(seen.at(-1)).toBe('idle')
   })
 
+  it('takes a StopFailure for the end of the turn: idle, answered {}, and never held back', async () => {
+    const { obj, post, changes, seen } = await begun()
+    await post('UserPromptSubmit', { prompt: 'make it' })
+    await changes()
+    land(building(obj.id, 7))
+    land(failed(obj.id, 7))
+    expect(seen.at(-1)).toBe('working')
+    // A Stop would be held for the build the turn broke; the turn that ended on an error of the API is not.
+    expect(await post('StopFailure', { error: 'authentication_failed' })).toEqual({})
+    expect(seen.at(-1)).toBe('idle')
+    // The turn is over: the next begins afresh, and a Stop of it with no build of its own holds nothing back.
+    await post('UserPromptSubmit', { prompt: 'again' })
+    expect(seen.at(-1)).toBe('working')
+    expect(await post('Stop', {})).toEqual({})
+  })
+
   it('does not hold a Stop back for a build that failed before the turn', async () => {
     const { obj, post } = await begun()
     land(building(obj.id, 8))
