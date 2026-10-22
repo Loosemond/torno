@@ -7,6 +7,7 @@ import type { TornoState } from '../src/renderer/state/store'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { DimensionMark, MarksFile } from '../src/shared/marks'
 import type { Camera } from '../src/shared/view'
+import { openListed } from './objects'
 
 // The Measure tool and the dimensions it leaves, on the `measures` fixture: a
 // plate 40 × 30 × 6 with two Ø8 holes 20 apart, a 45° chamfer and a pocket.
@@ -96,7 +97,7 @@ async function atRest(p: Page): Promise<void> {
 }
 
 async function openMeasures(p: Page): Promise<void> {
-  await p.getByRole('button', { name: 'measures', exact: true }).click()
+  await openListed(p, 'measures')
   await expect.poll(async () => (await state(p)).build?.status, { timeout: 90_000 }).toBe('ok')
   await expect.poll(async () => (await state(p)).scene !== null).toBe(true)
   await atRest(p)
@@ -435,7 +436,7 @@ const GAUGE_HOLE: Vec3 = [10 - 2.83, 2.83, 3.2]
 
 test('on the gauge, the thickness of the plate and the diameter of its hole are measured, and what they should be is typed', async () => {
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
-  await page.getByRole('button', { name: 'gauge', exact: true }).click()
+  await openListed(page, 'gauge')
   await expect.poll(async () => (await state(page)).build, { timeout: 90_000 }).toMatchObject({ objectId: 'gauge', status: 'ok', revision: 1 })
   await expect.poll(async () => (await state(page)).scene !== null).toBe(true)
   await atRest(page)

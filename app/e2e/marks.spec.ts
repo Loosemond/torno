@@ -5,6 +5,8 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import type { TornoState } from '../src/renderer/state/store'
 import type { Mark, MarksFile, NewMark } from '../src/shared/marks'
 import type { Camera, LookRequest } from '../src/shared/view'
+import { openListed } from './objects'
+import { box, stl } from '../src/test/scanFixtures'
 
 // Marks as they are seen: drawn in the viewport and in the pictures the agent
 // gets, each with its number, and listed in the left column. The tools that
@@ -61,7 +63,7 @@ const rows = (p: Page = page) => p.locator('.mark-row')
 const markScreen = (id: string, p: Page = page) => p.evaluate((mark) => window.__tornoTest!.markScreen(mark), id)
 
 async function openObject(name: string, p: Page = page): Promise<void> {
-  await p.getByRole('button', { name, exact: true }).click()
+  await openListed(p, name)
   await expect.poll(async () => (await state(p)).build?.status, { timeout: 30_000 }).toBe('ok')
 }
 
@@ -357,6 +359,48 @@ test('what was wrong with a marks file is said in the panel in full, to a window
   await expect(rows()).toHaveCount(1)
   await expect(line).toHaveCount(0)
 })
+
+test('with a scan\'s detail open and the objects folded to their switcher, five mark rows and more are in view at 1440 × 900', async () => {
+  test.setTimeout(120_000)
+  const own = copyFixtures()
+  const camera = { position: [120, -90, 60], target: [0, 0, 6], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
+  const at = { author: 'user', status: 'draft', anchorState: 'ok', layout: 'assembly', revision: 1, camera, createdAt: '2026-10-09T20:00:00.000Z' }
+  mkdirSync(join(own, 'hollow', '.torno'), { recursive: true })
+  const pins = Array.from({ length: 8 }, (_, n) => ({ ...at, id: `M${n + 1}`, kind: 'pin', note: `note ${n + 1}`, anchor: { point: [20, 0, 5 + 4 * n], normal: [1, 0, 0], part: 'tub' } }))
+  writeFileSync(join(own, 'hollow', '.torno', 'marks.json'), JSON.stringify({ next: 9, marks: pins }))
+  const scan = join(own, 'floor.stl')
+  writeFileSync(scan, stl(box([60, 50, 2], [0, 0, -10])))
+  const ownApp = await launch({ TORNO_WORKSPACE: own })
+  try {
+    const p = await ownApp.firstWindow()
+    await p.waitForSelector('[data-region="left"]')
+    expect(await p.evaluate(() => [innerWidth, innerHeight])).toEqual([1440, 900])
+    await openListed(p, 'hollow')
+    await expect.poll(async () => (await state(p)).build?.status, { timeout: 30_000 }).toBe('ok')
+    await expect(rows(p)).toHaveCount(8)
+    await ownApp.evaluate((_electron, path) => void ((globalThis as unknown as { __tornoMain: { pickFile: string | null } }).__tornoMain.pickFile = path), scan)
+    await p.getByRole('button', { name: 'Import scan…' }).click()
+    await expect.poll(async () => (await state(p)).scans.length, { timeout: 60_000 }).toBe(1)
+    const asked = p.getByRole('dialog', { name: 'How is S1 read?' })
+    if (await asked.isVisible()) await asked.getByRole('button', { name: 'Later' }).click()
+    await p.getByRole('button', { name: 'Details of S1' }).click()
+    await expect(p.locator('.scan-detail')).toBeVisible()
+    await expect(p.locator('.object-switcher')).toHaveAttribute('data-object', 'hollow')
+    // The rows wholly in sight in the marks' own scroller.
+    const whole = await p.evaluate(() => {
+      const body = document.querySelector('.marks-body')!.getBoundingClientRect()
+      return [...document.querySelectorAll('.mark-row')].filter((row) => {
+        const r = row.getBoundingClientRect()
+        return r.top >= body.top - 0.5 && r.bottom <= body.bottom + 0.5 && r.height > 0
+      }).length
+    })
+    expect(whole).toBeGreaterThanOrEqual(5)
+  } finally {
+    await ownApp.close()
+    rmSync(own, { recursive: true, force: true })
+  }
+})
+
 
 // Set TORNO_SHOTS=<dir> to write marks-light.png and marks-dark.png there: the
 // window with the bracket and five marks, one of each kind, three of them the

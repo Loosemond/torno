@@ -12,6 +12,7 @@ import { type SavedView, MAX_VIEWS, TOO_MANY_VIEWS, cleanViewName, findView, own
 import { sameCamera, viewOnScreen } from './savedViews'
 import type { LayerSettings, SceneFile } from '../../shared/scenefile'
 import type { WorkspaceInfo } from '../../shared/workspace'
+import { type ColumnPrefs, type ColumnSection, readColumn, windowStorage, writeColumn } from './column'
 
 /** The agent session of an object. Its output is not here: it goes straight into the terminal. */
 export interface SessionView {
@@ -47,6 +48,8 @@ export interface TornoState {
   fixRequest: string | null
   /** Whether the session dock is shown. The window's, not an object's: another object or workspace leaves it as it is. */
   dockOpen: boolean
+  /** How the left column is laid out: the sections folded, the marks' height (`state/column.ts`). The window's, kept in its own storage. */
+  column: ColumnPrefs
   /** The last good scene of the open object, and the revision it is. */
   scene: Scene | null
   revision: number
@@ -173,9 +176,15 @@ export const store = createStore<TornoState>(() => ({
   edits: 0,
   sessions: {},
   dockOpen: true,
+  column: readColumn(windowStorage()),
   page: 'object',
   exportOf: null
 }))
+
+function setColumn(column: ColumnPrefs): void {
+  store.setState({ column })
+  writeColumn(windowStorage(), column)
+}
 
 export function useStore<T>(selector: (s: TornoState) => T): T {
   return useZustand(store, selector)
@@ -641,6 +650,13 @@ export const actions = {
   },
 
   /** The session dock is shown or hidden. */
+  /** Folds a section of the left column above the marks, or unfolds it; the window keeps it for the next time. */
+  foldSection(section: ColumnSection, folded: boolean): void {
+    const { column } = store.getState()
+    if (column.folded[section] === folded) return
+    setColumn({ ...column, folded: { ...column.folded, [section]: folded } })
+  },
+
   setDockOpen(open: boolean): void {
     if (store.getState().dockOpen !== open) store.setState({ dockOpen: open })
   },

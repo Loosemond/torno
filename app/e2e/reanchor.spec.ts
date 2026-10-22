@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Anchor, Mark, MarksFile, PinMark } from '../src/shared/marks'
+import { openListed } from './objects'
 
 // Marks across rebuilds (review focus 1): a mark stays at its point; after every
 // build its ref is that of the face now there, and it says so when the surface
@@ -106,7 +107,7 @@ let placed: { top: Anchor; post: Anchor }
 let edges: { e1: string; e2: string }
 
 test('pins on the top of the plate and on the post are on those faces', async () => {
-  await page.getByRole('button', { name: 'morph', exact: true }).click()
+  await openListed(page, 'morph')
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
   expect((await state()).layout).toBe('main')
 

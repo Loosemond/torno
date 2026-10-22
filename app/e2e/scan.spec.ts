@@ -6,6 +6,7 @@ import type { TornoState } from '../src/renderer/state/store'
 import type { LookRequest, ViewState } from '../src/shared/view'
 import { box, grid, stl } from '../src/test/scanFixtures'
 import type { ScanLayerState } from '../src/renderer/viewport/scans'
+import { openListed } from './objects'
 
 // A scan on screen: imported from the panel with the real import process, drawn with the parts, switched and
 // thinned from its row, cut open by the section, named in pictures, and kept in scene.json as it was looked at.
@@ -40,7 +41,7 @@ test.afterAll(async () => {
 const state = (p: Page = page): Promise<TornoState> => p.evaluate(() => window.__tornoTest!.state())
 
 async function open(name: string, p: Page = page): Promise<void> {
-  await p.getByRole('button', { name, exact: true }).click()
+  await openListed(p, name)
   await expect.poll(async () => ((await state(p)).objectId === name ? (await state(p)).build?.status : null), { timeout: 90_000 }).toBe('ok')
   await expect.poll(async () => (await state(p)).scene !== null).toBe(true)
 }

@@ -7,6 +7,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import type { TornoState } from '../src/renderer/state/store'
 import type { Mark, Vec3 } from '../src/shared/marks'
 import { SESSION_HEADER } from '../src/main/http'
+import { openListed } from './objects'
 
 // Explode, through the window and through the agent's tools: the parts are drawn apart, and nothing that is
 // picked, kept, measured or told is of a part as it is drawn apart. The agent in the session pane is the stand-in.
@@ -37,7 +38,7 @@ test.beforeAll(async () => {
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
   await page.emulateMedia({ colorScheme: 'light' })
-  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await openListed(page, 'hollow')
   await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
   const { url, token } = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(id), 'hollow')
   client = new Client({ name: 'torno-e2e', version: '0' })
@@ -369,7 +370,7 @@ test('a dimension between two parts drawn apart is drawn dashed between them, sa
 })
 
 test('the view bar is one row for an object with two layouts, apart or together; and a stroke begun as the parts come together keeps nothing of where they were drawn', async () => {
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
   expect(await page.evaluate(() => [innerWidth, innerHeight])).toEqual([1440, 900])
   const height = async (): Promise<number> => (await page.locator('.viewbar').boundingBox())!.height
@@ -407,7 +408,7 @@ test('the view bar is one row for an object with two layouts, apart or together;
 })
 
 test('drawn apart by any way, every part stays in sight and clear of the bars; together, the camera goes back to where it was', async () => {
-  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await openListed(page, 'hollow')
   await expect.poll(async () => (await state()).objectId).toBe('hollow')
   await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
   if ((await amount()) > 0) await page.keyboard.press('e')

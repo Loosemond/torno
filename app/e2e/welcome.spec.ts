@@ -5,6 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import type { TornoState } from '../src/renderer/state/store'
 import { EXAMPLE_OBJECTS } from '../src/main/example'
 import { KEYS } from '../src/shared/keys'
+import { openListed } from './objects'
 
 // The first screen, and the sheet of keys: what someone who has never seen torno meets, and where they look a key up.
 const appDir = resolve(__dirname, '..')
@@ -41,7 +42,7 @@ const tool = (): Promise<string | null> => page.locator('.toolbox [aria-pressed=
 const sheet = () => page.getByRole('dialog', { name: 'Keys' })
 
 async function open(id: string): Promise<void> {
-  await page.getByRole('button', { name: id, exact: true }).click()
+  await openListed(page, id)
   await expect.poll(async () => ((await state()).objectId === id ? (await state()).build?.status : null), { timeout: 30_000 }).toBe('ok')
   await expect.poll(async () => (await state()).scene !== null).toBe(true)
 }

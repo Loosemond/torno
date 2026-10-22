@@ -7,6 +7,7 @@ import type { TornoExport } from '../src/export/viewer/main'
 import { type ExportData, SCAN_WARNING } from '../src/shared/exportdata'
 import type { Mark } from '../src/shared/marks'
 import { box, stl } from '../src/test/scanFixtures'
+import { openListed } from './objects'
 
 // Export: one HTML file of an object, or of several, that opens by itself; or a STEP, STL or 3MF file of one. The file is written where the save
 // dialog says (under test, where `__tornoMain.pickSave` says: no dialog is ever shown), and is then opened in a
@@ -85,7 +86,7 @@ const sheet = (p: Page = page) => p.getByRole('dialog', { name: 'Export' })
 
 async function open(id: string, p: Page = page): Promise<void> {
   if ((await state(p)).page === 'objects') await p.locator(`.card[data-object="${id}"]`).click()
-  else await p.getByRole('button', { name: id, exact: true }).click()
+  else await openListed(p, id)
   await expect.poll(async () => (await state(p)).build?.status, { timeout: 60_000 }).toBe('ok')
   expect((await state(p)).objectId).toBe(id)
 }

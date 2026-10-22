@@ -5,6 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import type { TornoState } from '../src/renderer/state/store'
 import { letGoText } from '../src/shared/build'
 import type { Camera, LookRequest, LookResult, ViewState } from '../src/shared/view'
+import { openListed, switcher } from './objects'
 
 // The whole loop through the window: choose an object, see its parts, change
 // layers and views, save the model and watch it rebuild, break it and mend it.
@@ -125,7 +126,7 @@ test('asked for a picture with no object open, the window says so at once', asyn
 })
 
 test('clicking an object builds it: status ok, revision 1, its parts as layers', async () => {
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).build?.status, { timeout: 20_000 }).toBe('ok')
   const s = await state()
   expect(s.build).toMatchObject({ objectId: 'bracket', revision: 1, stale: false })
@@ -140,7 +141,8 @@ test('clicking an object builds it: status ok, revision 1, its parts as layers',
   // Every number and ref is in the monospace face.
   const face = await status(page).locator('[data-part="revision"] .num').evaluate((el) => getComputedStyle(el).fontFamily)
   expect(face).toContain('IBM Plex Mono')
-  await expect(page.getByRole('button', { name: 'bracket', exact: true })).toHaveAttribute('aria-current', 'true')
+  // Folded to the switcher, the list names the object open.
+  await expect(switcher(page)).toHaveAttribute('data-object', 'bracket')
 })
 
 test('a look draws the parts', async () => {
@@ -265,7 +267,7 @@ test('clicking the object that is already open does nothing: its parts, its came
     }, 5)
     setTimeout(() => clearInterval(seen), 1500)
   })
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await page.waitForTimeout(600)
   expect(await page.evaluate(() => (window as unknown as { __emptied: number }).__emptied)).toBe(0)
   expect(await camera()).toEqual(before.camera)
@@ -433,7 +435,7 @@ test('the layers come back as they were left when the object is opened again', a
   await Promise.all([page.waitForEvent('load'), page.evaluate(() => window.location.reload())])
   await page.waitForSelector('[data-region="left"]')
   expect((await state()).objectId).toBeNull()
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   // Built already: main sends the last scene again.
   await expect.poll(async () => (await state()).scene !== null, { timeout: 10_000 }).toBe(true)
   const s = await state()
@@ -448,7 +450,7 @@ test('the layers come back as they were left when the object is opened again', a
 })
 
 test('an object with two candidate models says what was looked for, and nothing breaks', async () => {
-  await page.getByRole('button', { name: 'two', exact: true }).click()
+  await openListed(page, 'two')
   await expect.poll(async () => (await state()).build?.status).toBe('failed')
   const s = await state()
   expect(s).toMatchObject({ objectId: 'two', scene: null, revision: 0 })
@@ -468,12 +470,12 @@ test('an object with two candidate models says what was looked for, and nothing 
   expect(readFileSync(join(kept, 'state.md'), 'utf8')).toMatch(/## Build\n\nBUILD FAILED\. Nothing has been built yet\.\n\n```\nmore than one model file in .*two: a\.py, b\.py/)
 
   // An object with a model but no scene: the kernel's reason, the same way.
-  await page.getByRole('button', { name: 'noscene', exact: true }).click()
+  await openListed(page, 'noscene')
   await expect.poll(async () => (await state()).build?.error?.kind, { timeout: 20_000 }).toBe('no_scene')
   await expect(reason).not.toBeEmpty()
 
   // And the app carries on: the bracket opens again, as it was.
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).scene !== null, { timeout: 20_000 }).toBe(true)
   expect(await layerNames()).toEqual(['base', 'post'])
 })
@@ -553,7 +555,7 @@ for (const scheme of ['light', 'dark'] as const) {
     try {
       const shotPage = await shotApp.firstWindow()
       await shotPage.emulateMedia({ colorScheme: scheme })
-      await shotPage.getByRole('button', { name: objectId, exact: true }).click()
+      await openListed(shotPage, objectId)
       await expect.poll(async () => (await state(shotPage)).build?.status, { timeout: 90_000 }).not.toBe('building')
       if (process.env.TORNO_SHOTS_ERROR) await shotPage.getByRole('button', { name: 'Build failed' }).click()
       await shotPage.evaluate(async () => {

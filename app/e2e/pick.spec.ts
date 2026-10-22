@@ -7,6 +7,7 @@ import type { TornoState } from '../src/renderer/state/store'
 import { TOOLS } from '../src/renderer/state/tools'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { Camera } from '../src/shared/view'
+import { openListed } from './objects'
 
 // Pointing at the parts: what is under the pointer, selecting it, what the
 // kernel says of it, and putting its ref in the agent's prompt.
@@ -83,7 +84,7 @@ async function clickOver(point: Vec3, opts: { shift?: boolean } = {}, p: Page = 
 
 /** Open the bracket and look at it from above. Its base is 40 × 30 × 5 about the origin; its post stands on the middle, to z = 22.5. */
 async function openFromAbove(p: Page = page): Promise<void> {
-  await p.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(p, 'bracket')
   await expect.poll(async () => (await state(p)).build?.status, { timeout: 20_000 }).toBe('ok')
   await p.getByRole('button', { name: 'Top', exact: true }).click()
   await expect
@@ -336,7 +337,7 @@ for (const scheme of ['light', 'dark'] as const) {
     try {
       const shotPage = await shotApp.firstWindow()
       await shotPage.emulateMedia({ colorScheme: scheme })
-      await shotPage.getByRole('button', { name: 'bracket', exact: true }).click()
+      await openListed(shotPage, 'bracket')
       await expect.poll(async () => (await state(shotPage)).build?.status, { timeout: 90_000 }).toBe('ok')
       await shotPage.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
       await expect.poll(() => termText(shotPage)).toContain('READY')

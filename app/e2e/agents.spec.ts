@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
+import { openListed, switcher } from './objects'
 
 // The agent of an object: Claude Code, the one torno runs, and what is said of an `.torno/agent.json` that names
 // another (one an older torno ran, or one torno does not know). The agent is the stand-in (test/fake-agent.mjs,
@@ -46,7 +47,7 @@ const status = () => page.locator('.session-status')
 const onDisk = (object: string): unknown => existsSync(join(root, object, '.torno', 'agent.json')) && JSON.parse(readFileSync(join(root, object, '.torno', 'agent.json'), 'utf8'))
 
 async function open(name: string): Promise<void> {
-  await page.getByRole('button', { name, exact: true }).click()
+  await openListed(page, name)
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: name, status: 'ok' })
 }
 
@@ -112,8 +113,16 @@ test('a file that names an agent torno does not know is said, and choosing a vie
   await expect(note()).toHaveCount(0)
 })
 
-test('a session at work or waiting for the answer shows on its object\'s row and in the status line while another object is open, with the dock shown or hidden; ended, it shows nothing', async () => {
-  const row = (name: string) => page.locator('.object-row', { hasText: name })
+test('a session at work or waiting for the answer shows on the switcher, on its object\'s item of the menu and in the status line while another object is open, with the dock shown or hidden; ended, it shows nothing', async () => {
+  // The list is folded to the switcher of the object open; the menu has an item for each object, as a row.
+  const item = (name: string) => page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name, exact: true })
+  /** The menu opened, what is said of an object's item looked at, and the menu put away. */
+  const inMenu = async (look: () => Promise<void>): Promise<void> => {
+    await switcher(page).click()
+    await look()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu', { name: 'Objects' })).toHaveCount(0)
+  }
   const needs = () => page.locator('.status-needs')
   const toggle = () => page.locator('.dock-toggle')
   // A session in its terminal, the stand-in posting the hooks the CLI would.
@@ -131,22 +140,34 @@ test('a session at work or waiting for the answer shows on its object\'s row and
   await typeLine('hook')
   await expect(status()).toHaveText('Working')
   await open('bracket')
-  await expect(row('measures')).toHaveAttribute('data-session', 'working')
-  await expect(row('measures')).toHaveAttribute('aria-description', 'session is working')
-  await expect(row('measures').locator('.session-sign-word')).toHaveCount(0)
+  await expect(switcher(page)).toHaveAttribute('data-session', 'working')
+  await expect(switcher(page)).toHaveAttribute('aria-description', 'measures is working')
+  await expect(switcher(page).locator('.session-sign-word')).toHaveCount(0)
+  await inMenu(async () => {
+    await expect(item('measures')).toHaveAttribute('data-session', 'working')
+    await expect(item('measures')).toHaveAttribute('aria-description', 'session is working')
+    await expect(item('measures').locator('.session-sign-word')).toHaveCount(0)
+    await expect(item('bracket')).not.toHaveAttribute('data-session', /./)
+  })
   await expect(needs()).toHaveCount(0)
-  await expect(row('bracket')).not.toHaveAttribute('data-session', /./)
 
   // Waiting: the Notification of the CLI posted for measures, bracket open.
   await open('measures')
   await typeLine('hook Notification')
   await expect(status()).toHaveText('Needs input')
   await open('bracket')
-  await expect(row('measures')).toHaveAttribute('data-session', 'needs_input')
-  await expect(row('measures')).toHaveAttribute('aria-description', 'session needs you')
-  // Still found by its name alone: the state is the row's description, not part of its name.
-  await expect(page.getByRole('button', { name: 'measures', exact: true, description: 'session needs you' })).toHaveCount(1)
-  await expect(row('measures').locator('.session-sign-word')).toHaveText('needs you')
+  await expect(switcher(page)).toHaveAttribute('data-session', 'needs_input')
+  await expect(switcher(page)).toHaveAttribute('aria-description', 'measures needs you')
+  // Its words name the object whose session waits: they are not the open object's.
+  await expect(switcher(page).locator('.session-sign-word')).toHaveText('measures needs you')
+  // The switcher is named by the object open, whatever the sessions do.
+  await expect(page.getByRole('button', { name: 'bracket', exact: true, description: 'measures needs you' })).toHaveCount(1)
+  await inMenu(async () => {
+    await expect(item('measures')).toHaveAttribute('data-session', 'needs_input')
+    // Still found by its name alone: the state is the item's description, not part of its name.
+    await expect(page.getByRole('menuitem', { name: 'measures', exact: true, description: 'session needs you' })).toHaveCount(1)
+    await expect(item('measures').locator('.session-sign-word')).toHaveText('needs you')
+  })
   await expect(needs()).toContainText('measures needs you')
   // The button opens it and shows the dock, hidden or not.
   for (const hidden of [false, true]) {
@@ -165,14 +186,15 @@ test('a session at work or waiting for the answer shows on its object\'s row and
   await typeLine('hook Stop')
   await expect(status()).toHaveText('Idle')
   await expect(needs()).toHaveCount(0)
-  await expect(row('measures')).not.toHaveAttribute('data-session', /./)
+  await expect(switcher(page)).not.toHaveAttribute('data-session', /./)
   // An ended session shows nothing either.
   await typeLine('hook Notification')
   await expect(status()).toHaveText('Needs input')
   await page.evaluate(() => window.torno.session.stop(window.__tornoTest!.state().sessions.measures.sessionId))
   await expect(status()).toHaveText('Ended')
   await expect(needs()).toHaveCount(0)
-  await expect(row('measures')).not.toHaveAttribute('data-session', /./)
+  await expect(switcher(page)).not.toHaveAttribute('data-session', /./)
+  await inMenu(() => expect(item('measures')).not.toHaveAttribute('data-session', /./))
 })
 
 test('the error sheet starts a session in the terminal and leaves the request at its prompt, unsent', async () => {

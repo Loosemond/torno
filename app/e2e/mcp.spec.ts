@@ -11,6 +11,7 @@ import type { PinMark } from '../src/shared/marks'
 import type { Camera } from '../src/shared/view'
 import { grid, stl } from '../src/test/scanFixtures'
 import { SESSION_HEADER } from '../src/main/http'
+import { openListed } from './objects'
 
 // What the agent is given, through the real path: the SDK's MCP client in this
 // process against the app's own server, answered by the window's renderer. The
@@ -113,7 +114,7 @@ function drawn(base64: string): Promise<{ width: number; height: number; drawn: 
 }
 
 async function openObject(name: string): Promise<void> {
-  await page.getByRole('button', { name, exact: true }).click()
+  await openListed(page, name)
   await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
 }
 

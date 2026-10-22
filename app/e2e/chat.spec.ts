@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Mark } from '../src/shared/marks'
+import { openListed } from './objects'
 
 // The chat pane of Claude Code, through the window: what is said and shown, what torno added to a prompt, every torno
 // tool the agent used (through the real MCP server), refs that point into the viewport, stopping, the switch to the
@@ -75,7 +76,7 @@ async function say(prompt: string): Promise<void> {
 }
 
 test('a new session is a chat, with no terminal; a prompt is answered, and what torno added to it is shown with the mark it sent', async () => {
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
 
   // A mark the person has left, not yet sent.
@@ -292,7 +293,7 @@ test('an ended session can still be read, and nothing more can be written to it'
   // And after the window is loaded again: main still holds what it said.
   await Promise.all([page.waitForEvent('load'), page.evaluate(() => window.location.reload())])
   await page.waitForSelector('[data-region="left"]')
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect(chat()).toBeVisible({ timeout: 15_000 })
   await expect(chat().locator('.chat-note').last()).toContainText('The session ended')
   await expect(chat().locator('.chat-user', { hasText: 'say hello there' })).toHaveCount(1)
@@ -308,7 +309,7 @@ test('the window reloaded in the middle of a stream shows every item once and go
   await expect(chat().locator('.chat-text').last().locator('.chat-dot')).toBeVisible()
   await Promise.all([page.waitForEvent('load'), page.evaluate(() => window.location.reload())])
   await page.waitForSelector('[data-region="left"]')
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect(chat()).toBeVisible({ timeout: 15_000 })
   await expect(chat().locator('.chat-user', { hasText: 'slow 3' })).toHaveCount(1)
   // It finishes: the turn is told, and nothing is drawn twice.
@@ -319,7 +320,7 @@ test('the window reloaded in the middle of a stream shows every item once and go
 })
 
 test('what goes with the next prompt is chips of the marks themselves: the drafts, and the dimensions that fail', async () => {
-  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await openListed(page, 'hollow')
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: 'hollow', status: 'ok' })
   await dock().getByRole('button', { name: 'New session' }).click()
   const next = chat().locator('.chat-next')

@@ -6,6 +6,7 @@ import type { TornoState } from '../src/renderer/state/store'
 import { BAR_SIDE, SCALE_BAR_MAX, SCREEN_UNIT, TRIAD_CLEAR } from '../src/renderer/viewport/overlay'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { Camera, LookRequest, SectionPlane, ViewState } from '../src/shared/view'
+import { openListed } from './objects'
 
 // The section: a plane that takes half of the parts away and shows what they
 // are inside. Set from the bar and with the tool, drawn in pictures, kept in
@@ -63,7 +64,7 @@ const sceneFile = (object = 'bracket') => join(root, object, '.torno', 'scene.js
 const saved = (object = 'bracket'): { section?: SectionPlane } => (existsSync(sceneFile(object)) ? JSON.parse(readFileSync(sceneFile(object), 'utf8')) : {})
 
 async function open(name: string, p: Page = page): Promise<void> {
-  await p.getByRole('button', { name, exact: true }).click()
+  await openListed(p, name)
   await expect.poll(async () => ((await state(p)).objectId === name ? (await state(p)).build?.status : null), { timeout: 90_000 }).toBe('ok')
   await expect.poll(async () => (await state(p)).scene !== null).toBe(true)
 }

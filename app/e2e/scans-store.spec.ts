@@ -5,6 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import type { TornoState } from '../src/renderer/state/store'
 import type { ScanInfo, ScansFile } from '../src/shared/scans'
 import { box, stl } from '../src/test/scanFixtures'
+import { openListed } from './objects'
 
 // Scans from the window to the files and back: the bridge, the store in main
 // that owns <object>/.torno/scans.json and .torno/scans/, and the real import
@@ -42,7 +43,7 @@ test.beforeAll(async () => {
   })
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).scene?.parts.length ?? 0, { timeout: 20_000 }).toBeGreaterThan(0)
 })
 
@@ -215,7 +216,7 @@ test('a scans file that cannot be read is said to the window, until it is dismis
   // In an object that is not open yet: its scans are first read when it is.
   mkdirSync(join(root, 'hollow', '.torno'), { recursive: true })
   writeFileSync(join(root, 'hollow', '.torno', 'scans.json'), '{"next": 4, "scans": [')
-  await page.getByRole('button', { name: 'hollow', exact: true }).click()
+  await openListed(page, 'hollow')
   const problem = page.locator('[data-part="problem"]')
   await expect(problem).toContainText('The scans file of this object could not be read')
   await expect(problem).toContainText('still in .torno/scans/')
@@ -223,7 +224,7 @@ test('a scans file that cannot be read is said to the window, until it is dismis
   await problem.getByRole('button', { name: 'Dismiss' }).click()
   await expect(problem).toHaveCount(0)
   expect(await page.evaluate(() => window.torno.scans.problem('hollow'))).toBeNull()
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).objectId).toBe('bracket')
 })
 

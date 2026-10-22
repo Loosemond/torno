@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { inTerminal } from './terminal'
+import { objectList, openListed, switcher } from './objects'
 import type { TornoState } from '../src/renderer/state/store'
 import type { ObjectCard } from '../src/shared/show'
 
@@ -394,6 +395,78 @@ test('the left column keeps the objects and the marks while the page is up, and 
   await expect(all).toBeFocused()
 })
 
+test('with an object open the list folds to a switcher, the marks start high, and its menu opens another object by the keys alone', async () => {
+  // hollow open (from the switcher, with the pointer), and the list of every object of the workspace is its title and one row.
+  expect((await state()).page).toBe('object')
+  await openListed(page, 'hollow')
+  await expect.poll(async () => (await state()).build).toMatchObject({ objectId: 'hollow', status: 'ok' })
+  const count = (await state()).workspace!.objects.length
+  expect(count).toBeGreaterThanOrEqual(15)
+  const left = page.locator('[data-region="left"]')
+  const objects = objectList(page)
+  const fold = (name: string) => left.locator('.section-fold').and(left.getByRole('button', { name, exact: true }))
+  await expect(switcher(page)).toHaveAttribute('data-object', 'hollow')
+  await expect(switcher(page)).toHaveAttribute('aria-haspopup', 'menu')
+  await expect(fold('Objects')).toHaveAttribute('aria-expanded', 'false')
+  await expect(fold('Objects')).toHaveAttribute('aria-description', `${count}`)
+  await expect(objects.locator('.object-row')).toHaveCount(0)
+  await expect(objects.getByRole('button', { name: 'All objects' })).toBeVisible()
+  expect((await objects.boundingBox())!.height).toBeLessThanOrEqual(64)
+  // Layers and Scans folded as well: their title rows say what matters, and the marks start high in the column.
+  for (const name of ['Layers', 'Scans']) {
+    await fold(name).click()
+    await expect(fold(name)).toHaveAttribute('aria-expanded', 'false')
+  }
+  await expect(fold('Layers')).toHaveAttribute('aria-description', '2')
+  await expect(fold('Layers').locator('.section-said')).toHaveText('2')
+  await expect(fold('Scans')).toHaveAttribute('aria-description', '0')
+  await expect(left.getByRole('region', { name: 'Layers' }).getByRole('listitem')).toHaveCount(0)
+  expect((await left.getByRole('region', { name: 'Marks' }).boundingBox())!.y).toBeLessThan(160)
+  // The window keeps what is folded, in its own storage: nothing of it is in the workspace.
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('torno.column')))!)).toMatchObject({ folded: { objects: true, layers: true, scans: true } })
+  expect(readdirSync(join(root, 'hollow', '.torno'))).not.toContain('column.json')
+  for (const name of ['Layers', 'Scans']) await fold(name).click()
+
+  // By the keys alone: Enter opens the menu on the open object; a muted one says why on a second line; Home, End
+  // and the arrows go about it; Enter opens the one in focus, and the keys are the switcher's again.
+  await switcher(page).focus()
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu', { name: 'Objects' })
+  await expect(menu.getByRole('menuitem', { name: 'hollow', exact: true })).toBeFocused()
+  await expect(menu.getByRole('menuitem', { name: 'hollow', exact: true })).toHaveAttribute('aria-current', 'true')
+  await expect(menu.getByRole('menuitem')).toHaveCount(count + 1)
+  await expect(menu.getByRole('menuitem', { name: 'two', exact: true }).locator('.object-item-problem')).toContainText('more than one model file')
+  await page.keyboard.press('End')
+  await expect(menu.getByRole('menuitem', { name: 'New object' })).toBeFocused()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: 'broken', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(menu.getByRole('menuitem', { name: 'bracket', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(menu).toHaveCount(0)
+  await expect.poll(async () => (await state()).objectId).toBe('bracket')
+  await expect(switcher(page)).toHaveAttribute('data-object', 'bracket')
+  await expect(switcher(page)).toBeFocused()
+  // Escape puts the menu away, and nothing is opened.
+  await page.keyboard.press('Enter')
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(switcher(page)).toBeFocused()
+  expect((await state()).objectId).toBe('bracket')
+
+  // The title unfolds the list in place, as it was; it gives way to the layers and the scans, a share of the column.
+  await fold('Objects').click()
+  await expect(fold('Objects')).toHaveAttribute('aria-expanded', 'true')
+  await expect(objects.locator('.object-row')).toHaveCount(count)
+  await expect(objects.getByRole('button', { name: 'bracket', exact: true })).toHaveAttribute('aria-current', 'true')
+  const column = (await left.boundingBox())!.height
+  expect((await objects.boundingBox())!.height).toBeLessThanOrEqual(column * 0.38 + 1)
+  await fold('Objects').click()
+  await expect(switcher(page)).toBeVisible()
+})
+
 // Forty objects, none opened: what the page costs when it is the face of a full workspace. Thirty have a picture
 // on file. Nothing is built, and only the pictures of the cards in view, or near it, are asked for.
 test('with forty objects the page is there at once, builds nothing, and asks for the pictures in view only', async () => {
@@ -516,9 +589,9 @@ for (const shot of ['light', 'dark', 'empty-light', 'empty-dark'] as const) {
         await shotPage.evaluate(() => window.torno.marks.add('hollow', { kind: 'pin', author: 'user', layout: 'assembly', revision: 1, camera: window.__tornoTest!.camera(), note: 'too thin here', anchor: { point: [20, 0, 20], part: 'tub' } }))
         // plain built, and then stopped building.
         appendFileSync(join(shotRoot, 'plain', 'plain.py'), '\nraise ValueError("the plate is thinner than its fillet")\n')
-        await shotPage.locator('.object-row', { hasText: 'plain' }).click()
+        await openListed(shotPage, 'plain')
         await expect.poll(async () => (await state(shotPage)).build?.status, { timeout: 30_000 }).toBe('failed')
-        await shotPage.locator('.object-row', { hasText: 'hollow' }).click()
+        await openListed(shotPage, 'hollow')
         await expect.poll(async () => (await state(shotPage)).objectId).toBe('hollow')
         await shotPage.keyboard.press('w')
         await expect(shotPage.locator('.card[data-object="plain"]')).toContainText('Failed')

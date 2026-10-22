@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import { box, stl } from '../src/test/scanFixtures'
+import { openListed } from './objects'
 
 // The app is driven by single letters. After a click or an action, wherever it was, the next letter is the
 // view's: it takes a tool in hand, and is never typed into what was clicked, nor swallowed by it. One walk
@@ -28,7 +29,7 @@ test.beforeAll(async () => {
   app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root } })
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
 })
 
@@ -127,6 +128,24 @@ test('after each step of a session of work, P takes the pin tool', async () => {
   await page.getByRole('button', { name: 'Show post' }).click()
   await page.getByRole('button', { name: 'Show post' }).click()
   await pinIsInHand('a part switched off and on')
+  // A section of the left column folded and unfolded by its title, and the list of objects unfolded and folded again.
+  const fold = (name: string) => page.locator('.section-fold').and(page.getByRole('button', { name, exact: true }))
+  for (const name of ['Layers', 'Scans', 'Objects']) {
+    await fold(name).click()
+    await pinIsInHand(`${name} folded or unfolded`)
+    await fold(name).click()
+    await pinIsInHand(`${name} as it was`)
+  }
+  await expect(fold('Objects')).toHaveAttribute('aria-expanded', 'false')
+  // Another object chosen in the switcher's menu with the pointer, and back.
+  for (const name of ['hollow', 'bracket']) {
+    await page.locator('.object-switcher').click()
+    await page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name, exact: true }).click()
+    await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: name, status: 'ok' })
+    await pinIsInHand(`${name} chosen in the switcher`)
+  }
+  // As it was for what follows: the detail of S1 open.
+  await page.getByRole('button', { name: 'Details of S1' }).click()
 })
 
 test('a choice made with the keys keeps them: the next arrow is the list\'s', async () => {

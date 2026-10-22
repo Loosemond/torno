@@ -1,4 +1,15 @@
-/* ---- Left column: objects, then the layers of the open one ---- */
+/* ---- Left column: objects, then the layers and the scans of the open one, then its marks ---- */
+
+/*
+ * The marks are the section read most, after every reply: they keep room for five rows at least (their title, a
+ * group's heading and five rows of 30 px; `MARKS_FLOOR` in `state/column.ts`), and every section above gives way
+ * before they do, each down to its title.
+ */
+.left {
+  --marks-floor: 212px;
+  /* A section's title row (28 px), with its divider and the space above it: its least. */
+  --section-least: 33px;
+}
 
 .section {
   display: flex;
@@ -10,6 +21,7 @@
   /* The list that gives way first: with a scan in, the layers and the marks need their rows. */
   flex: 0 2 auto;
   max-height: 38%;
+  min-height: calc(var(--section-least) + 28px);
   padding-bottom: var(--space-2);
 }
 
@@ -19,10 +31,18 @@
   max-height: none;
 }
 
+/* Folded to its switcher, the list is its title and one row, and is never cut. */
+.objects[data-switcher] {
+  flex: none;
+  max-height: none;
+  min-height: 0;
+  padding-bottom: var(--space-1);
+}
+
 .layers {
-  /* Never cut mid-row: an object has a handful of parts, and they are all shown. */
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   max-height: 34%;
+  min-height: var(--section-least);
   border-top: var(--divider);
   padding: var(--space-1) 0 var(--space-2);
 }
@@ -30,14 +50,23 @@
 .scans {
   flex: 0 1 auto;
   max-height: 32%;
+  min-height: var(--section-least);
   border-top: var(--divider);
   padding: var(--space-1) 0 var(--space-2);
 }
 
+/* Folded, a section is its title row (and, for the scans, what is said of an import). */
+.layers[data-folded],
+.scans[data-folded] {
+  flex: none;
+  max-height: none;
+  min-height: 0;
+  padding: 0;
+}
+
 .marks {
   flex: 1 1 0;
-  /* The scans above may be many: the marks keep room for a few rows. */
-  min-height: 96px;
+  min-height: var(--marks-floor);
   border-top: var(--divider);
   padding-top: var(--space-1);
 }
@@ -58,6 +87,152 @@
   font-size: var(--text-small);
   font-weight: 400;
   color: var(--muted);
+}
+
+/* A title that folds its section: the chevron in the gutter, so the word stands where the rows' names do. */
+.section-head .section-title {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.section-fold {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  height: 24px;
+  margin-left: -15px;
+  padding: 0 var(--space-1) 0 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.section-fold svg {
+  flex: none;
+  width: 11px;
+  height: 11px;
+}
+
+.section-fold:hover {
+  color: var(--ink);
+}
+
+.section-said {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The count and what else is said, after the name, a step apart. */
+.section-said::before {
+  content: '';
+  padding-left: var(--space-1);
+}
+
+/* Folded to the switcher: the way to the page beside the title, as the scans have their import. */
+.page-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The switcher: the open object in ink, the sign of any session that works or waits, and the chevron of its menu. */
+.object-switcher-host {
+  position: relative;
+  flex: none;
+}
+
+.object-switcher {
+  border: 0;
+  background: var(--accent-wash);
+  color: var(--ink);
+  font-weight: 500;
+  text-align: left;
+}
+
+.object-switcher[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+.object-switcher[data-problem] .row-name {
+  color: var(--muted);
+}
+
+.object-switcher:focus-visible {
+  outline-offset: -2px;
+}
+
+.object-switcher-chevron {
+  flex: none;
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+/* Over `.menu` (`viewbars.css`, later in the cascade): above the sections under it and the splitter. */
+.objects .object-menu {
+  z-index: 20;
+  top: calc(100% + 2px);
+  right: var(--space-2);
+  left: var(--space-2);
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
+/* An item may be two lines: over the menu's one-line height (`viewbars.css`, later in the cascade). */
+.object-menu .object-item {
+  display: grid;
+  height: auto;
+  min-height: 26px;
+  padding: 4px 9px;
+}
+
+.object-item-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.object-item[aria-current='true'] {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.object-item[data-problem] .row-name {
+  color: var(--muted);
+}
+
+/* Why it cannot be built: a second line, not only a tooltip. */
+.object-item-problem {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.object-item-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.object-item-new svg {
+  width: 14px;
+  height: 14px;
 }
 
 .section-note {
@@ -210,4 +385,21 @@
 .layer-opacity:hover::-webkit-slider-thumb,
 .layer-opacity:focus-visible::-webkit-slider-thumb {
   background: var(--accent);
+}
+
+.page-button[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+/* Another object's waiting session, named on the switcher: the name and the words share what room there is. */
+.object-switcher .row-name,
+.object-switcher .session-sign {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.object-switcher .session-sign-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

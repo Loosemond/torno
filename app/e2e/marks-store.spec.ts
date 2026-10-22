@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Mark, MarksFile, PinMark } from '../src/shared/marks'
+import { openListed } from './objects'
 
 // Marks from the window to the file and back: the bridge, the store in main
 // that owns <object>/.torno/marks.json, and the renderer's copy of the list.
@@ -60,7 +61,7 @@ function bracketFiles(): Record<string, string> {
 }
 
 async function openBracket(): Promise<void> {
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await expect.poll(async () => (await state()).scene?.parts.length ?? 0, { timeout: 20_000 }).toBeGreaterThan(0)
 }
 

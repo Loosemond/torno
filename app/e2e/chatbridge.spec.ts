@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { ChatHistory, ChatItem } from '../src/shared/chat'
 import type { TornoState } from '../src/renderer/state/store'
+import { openListed } from './objects'
 
 // What the window may ask of main about a chat session (`window.torno.chat`), through the real preload and IPC, with
 // the stand-in agent (test/fake-agent.mjs) in the stream mode of Claude Code's headless CLI. The pane of the chat
@@ -23,7 +24,7 @@ test.beforeAll(async () => {
   app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_AGENT_CMD: `node ${fakeAgent}`, TORNO_WORKSPACE: root } })
   page = await app.firstWindow()
   await page.waitForSelector('[data-region="left"]')
-  await page.getByRole('button', { name: 'measures', exact: true }).click()
+  await openListed(page, 'measures')
   await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.state() as TornoState)).build, { timeout: 30_000 }).toMatchObject({ objectId: 'measures', status: 'ok' })
 })
 

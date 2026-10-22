@@ -328,12 +328,29 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 - `ui/ShowPage.tsx`, over the 3D view (`store.page`: `'object' | 'objects'`; the view stays mounted under it,
   `inert` and not painted, and the open object keeps its selection, camera and note). A workspace of several
-  objects, or of none, starts on it; one object alone is shown itself. `W` outside a field or the first row of
-  the object list brings it up (not while a button of the pointer is held: a drag in the view is not over); a
-  card, or Escape, leaves it, and what had the focus has it again.
-- The list of objects in the left column gives way to the layers and the scans under it (a share of the
-  column at most); with neither there (no object open, or the page up) it has their room, every object in
-  sight (`panels.css`, `e2e/show.spec.ts`).
+  objects, or of none, starts on it; one object alone is shown itself. `W` outside a field or "All objects"
+  brings it up (not while a button of the pointer is held: a drag in the view is not over); a card, or Escape,
+  leaves it, and what had the focus has it again. "All objects" is the first row of the list while no object is
+  open, and beside the list's title while one is (`ofObject` in `ui/ObjectList.tsx`), the page up or not: the one
+  control, so the focus it had comes back to it.
+- **The left column gives the room to the marks** (`styles/panels.css`, `state/column.ts`). Objects, Layers and
+  Scans each have a title that folds them (`ui/SectionTitle.tsx`, `aria-expanded`; folded with the pointer, the
+  keys go back to the view); folded, a section is its title row, which says what matters (`ui/sectionSaid.ts`:
+  `Layers 12 · 3 hidden`, `Scans 1 · unaligned`, `Objects 17`), and Scans keeps only what is said of an import
+  and the question it asks. Marks never folds: it keeps `--marks-floor` (`MARKS_FLOOR`: its title, a group's
+  heading and five rows), and every section above gives way before it, each down to its title. What is folded is
+  the window's (`store.column`, in `localStorage` under `torno.column`, read and written in try/catch), never the
+  workspace's.
+- **Objects folds to a switcher by default** (`switcherShown`): folded, with an object open or a new one being
+  made, in a workspace of more than one object, the list is one row, the open object's name in ink
+  (`ObjectSwitcher`; "New object", pressed, on the page of a new object). Its accessible name is the object's
+  name, as a row's is; what the sessions do is its `aria-description`. A click or Enter opens a menu
+  (`role="menu"`, the keys of `FolderMenu`: `menu.next`, `menu.previous`, `menu.ends`, `menu.close`) of every
+  object as the rows (the item's name is the object's; a muted one has its reason as a second line), then "New
+  object". Chosen with the keys, the focus goes back to the switcher; with the pointer, the keys to the view.
+  Unfolded, the list is as it always was and gives way first (a share of the column at most); with no object
+  open, or the page up, it is whole and has the room of the layers and the scans, every object in sight
+  (`e2e/show.spec.ts`).
 - **The keys on the page** are one capture-phase listener. Left alone: what is typed in a field or the
   terminal (`TYPING`), any `input` outside the page (a slider of the left column keeps its arrows), and
   whatever is inside a `[role="dialog"]` or `[role="alertdialog"]`. Everything else is the page's and goes no
@@ -364,7 +381,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 - `ui/onboard/NewObject.tsx` is a page in place of the viewport (`store.page`: `'new'`; the view is `covered` and
   inert under it as under the page of objects, and the layers, scans and marks are hidden). No row of the list is
-  current (the "New object" button is pressed), and the status line is "New object" and the build123d version alone:
+  current (the "New object" button is pressed; folded, the switcher reads "New object", pressed), and the status line is "New object" and the build123d version alone:
   no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (from `draftSummary`):
   what Claude Code will start with, live; unless the open object's session is live, which stays whole (see Agents).
   All of it reads `store.page`, and nothing under the page changes, so leaving it brings everything back as it was.
@@ -475,7 +492,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   in a `role="status"` that is always there) names the first object of the list whose session waits, with "and N
   more"; it opens that object, shows the dock (`dockOpen` and `actions.setDockOpen` are in the store, not in
   `App.tsx`) and `focusAsk` takes the focus to the open card or the terminal once the pane is of that object. The
-  toggle's dot is of the open object's session and only while the dock is hidden. The folded Objects switcher (Task 23) carries the same dot.
+  toggle's dot is of the open object's session and only while the dock is hidden. The switcher the list folds to
+  carries the dot of any object of the list whose session works or waits (`switcherSign`: a waiting one first);
+  its words name the object whose session waits (`bracket needs you`), "needs you" alone when it is the open
+  object's, and its description says each (`session is working; bracket needs you`); its menu has the rows' dots.
 - On the New object page the pane is of the object being made (`drafting` in `SessionPane`): no status, no End,
   New session or Resume, no view switch, no held prompt, and `DraftPane` in the body; `.session-term` stays laid out.
   A live session (any status but `exited`) of the object that was open stays as it is, with the note

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { agentsIn, inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
+import { openListed } from './objects'
 
 // What torno asks before it ends a session that is in the middle of something:
 // a new session in its place, or another workspace. The agent is the stand-in
@@ -67,7 +68,7 @@ function pick(folder: string | null): Promise<void> {
 const picks = (): Promise<number> => app.evaluate(() => (globalThis as unknown as { __tornoMain: { picks: number } }).__tornoMain.picks)
 
 test('a new session takes the place of an idle one without asking', async () => {
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect.poll(text).toContain('READY')
   await expect(sessionStatus()).toHaveText('Idle')
@@ -186,7 +187,7 @@ test('"Open another folder" goes on to the folder, and the sessions end', async 
 })
 
 test('with no session in the middle of anything, another folder is opened without asking', async () => {
-  await page.getByRole('button', { name: 'plain', exact: true }).click()
+  await openListed(page, 'plain')
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect(sessionStatus()).toHaveText('Idle')
   await pick(root)

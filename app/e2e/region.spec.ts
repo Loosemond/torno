@@ -11,6 +11,7 @@ import type { RegionMark } from '../src/shared/marks'
 import type { LookRequest } from '../src/shared/view'
 import { grid, stl } from '../src/test/scanFixtures'
 import { SESSION_HEADER } from '../src/main/http'
+import { openListed } from './objects'
 
 // Regions: a part of a scan is painted with the brush, kept as a mark whose triangles are a file beside the
 // mesh, told to the agent, left out of a clash when the agent says so, and goes on as a mark when its scan is
@@ -54,7 +55,7 @@ const terminal = (): Promise<string> => page.evaluate(() => window.__tornoTerm!.
 const said = async (): Promise<string> => (await terminal()).replace(/\s+/g, '')
 
 async function open(name: string): Promise<void> {
-  await page.getByRole('button', { name, exact: true }).click()
+  await openListed(page, name)
   await expect.poll(async () => ((await state()).objectId === name ? (await state()).build?.status : null), { timeout: 90_000 }).toBe('ok')
   await expect.poll(async () => (await state()).scene !== null).toBe(true)
 }

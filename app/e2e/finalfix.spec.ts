@@ -5,6 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
 import { EXAMPLE_NOTE } from '../src/shared/workspace'
+import { openListed } from './objects'
 
 // The final fix wave of Milestone 5, through the hidden window: what was made easier to use (a real Rebuild,
 // a cut at once, fields that give the keys back, the line that says what the next prompt carries), the folder
@@ -43,7 +44,7 @@ const focused = (): Promise<string> => page.evaluate(() => document.activeElemen
 const canvas = () => page.locator('[data-region="viewport"] canvas').first()
 
 async function open(id: string): Promise<void> {
-  await page.getByRole('button', { name: id, exact: true }).click()
+  await openListed(page, id)
   await expect.poll(async () => ((await state()).objectId === id ? (await state()).build?.status : null), { timeout: 30_000 }).toBe('ok')
   await expect.poll(async () => (await state()).scene !== null).toBe(true)
 }
@@ -243,7 +244,7 @@ test('the sheet of keys ends inside the window, however small, and what does not
 
 test('Rebuild takes no press while a build runs: it says Building, and the key starts nothing over', async () => {
   // An object whose model takes a minute.
-  await page.getByRole('button', { name: 'slow', exact: true }).click()
+  await openListed(page, 'slow')
   await expect.poll(async () => ((await state()).objectId === 'slow' ? (await state()).build?.status : null)).toBe('building')
   const started = (await state()).build!.startedAt
   expect(started).toBeGreaterThan(0)

@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import { SESSION_HEADER } from '../src/main/http'
+import { openListed } from './objects'
 
 // The model's groups of parts (groups(p)) in the layers list: a header each, which folds, hides or shows its
 // parts, or shows only them; the fold is kept in scene.json. A model without groups draws the list as before.
@@ -40,7 +41,7 @@ const visible = async (): Promise<string[]> => {
 }
 
 async function open(name: string): Promise<void> {
-  await page.getByRole('button', { name, exact: true }).click()
+  await openListed(page, name)
   await expect.poll(async () => { const s = await state(); return s.objectId === name && s.build?.status }, { timeout: 30_000 }).toBe('ok')
 }
 

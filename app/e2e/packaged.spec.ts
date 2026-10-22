@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
 import { EXAMPLE_OBJECTS } from '../src/main/example'
+import { openListed } from './objects'
 
 // The packaged app: skipped unless TORNO_PACKAGED names its executable. On a Mac that is
 // `…/torno.app/Contents/MacOS/torno` (`pnpm dist:mac`); where macOS is not at hand, the Linux stand-in of
@@ -54,7 +55,7 @@ test('builds an object with the kernel it carries, in an environment outside the
     expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(false)
 
-    await page.getByRole('button', { name: 'hollow', exact: true }).click()
+    await openListed(page, 'hollow')
     await expect
       .poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).build?.status, { timeout: 360_000, intervals: [1000] })
       .toBe('ok')

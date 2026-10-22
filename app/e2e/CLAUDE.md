@@ -141,3 +141,7 @@ Two fixtures were recorded from the real CLI and scrubbed: `app/test/fixtures/cl
 - Tests: `__tornoMain.opened()` (the objects opened in this run: empty while only the page was looked at),
   `window.__tornoTest.timeThumbnail(count, given?)`. `TORNO_SHOTS=<dir>` has `e2e/show.spec.ts` write
   captures of the page, one launch each.
+- A spec opens an object as a person does, through `openListed(page, name)` of `e2e/objects.ts`: the row of the
+  list, or, with the list folded to its switcher (an object open in a workspace of several, the default), the
+  switcher's menu, whose items have the objects' names; `newFromList` is "New object" alike. Never a row by its
+  name alone: while an object is open there is none.

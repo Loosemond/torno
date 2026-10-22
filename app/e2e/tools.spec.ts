@@ -6,6 +6,7 @@ import type { TornoState } from '../src/renderer/state/store'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { ArrowMark, MarksFile, PickMark, PinMark, ShapeMark, StrokeMark } from '../src/shared/marks'
 import type { Camera, LookRequest } from '../src/shared/view'
+import { openListed } from './objects'
 
 // The tools that leave marks with the pointer: pin, arrow, a note on the
 // selection, draw and shape; the note that opens beside a mark just made; and
@@ -251,7 +252,7 @@ async function countChanges(p: Page = page): Promise<() => Promise<number>> {
 
 /** Open the bracket and look at it from above. Its base is 40 × 30 × 5 about the origin; its post stands on the middle, to z = 22.5. */
 async function openFromAbove(p: Page = page): Promise<void> {
-  await p.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(p, 'bracket')
   await expect.poll(async () => (await state(p)).build?.status, { timeout: 30_000 }).toBe('ok')
   await fromAbove(p)
 }
@@ -1070,7 +1071,7 @@ for (const shot of ['pin-light', 'pin-dark', 'arrow-light', 'arrow-dark', 'draw-
     try {
       const shotPage = await shotApp.firstWindow()
       await shotPage.emulateMedia({ colorScheme: shot.endsWith('dark') ? 'dark' : 'light' })
-      await shotPage.getByRole('button', { name: 'bracket', exact: true }).click()
+      await openListed(shotPage, 'bracket')
       await expect.poll(async () => (await state(shotPage)).build?.status, { timeout: 90_000 }).toBe('ok')
       if (shot.startsWith('pin')) {
         await shotPage.keyboard.press('p')

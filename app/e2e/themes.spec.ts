@@ -9,6 +9,7 @@ import { contrast } from '../src/shared/contrast'
 import { png } from '../src/test/pngFixtures'
 import { grid, stl } from '../src/test/scanFixtures'
 import { SESSION_HEADER } from '../src/main/http'
+import { openListed, switcher } from './objects'
 
 // Light and dark. In each theme the window is held to the contrasts its tokens promise, as it computes them,
 // and pictures are made for someone to look at: of the parts, as the agent gets them, and of the window.
@@ -62,7 +63,7 @@ async function start(theme: Theme, env: Record<string, string>): Promise<{ app: 
 const state = (page: Page): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
 
 async function open(page: Page, id: string, status = 'ok'): Promise<void> {
-  await page.locator('.object-row', { hasText: id }).click()
+  await openListed(page, id)
   await expect.poll(async () => ((await state(page)).objectId === id ? (await state(page)).build?.status : null), { timeout: 60_000 }).toBe(status)
   if (status === 'ok') await expect.poll(async () => (await state(page)).scene !== null).toBe(true)
 }
@@ -154,10 +155,10 @@ for (const theme of ['light', 'dark'] as const) {
       // native bar in the dark theme. One scheme, said outright, and every scroller the thin one in the theme's grey.
       const scrolling = await page.evaluate(() => {
         const of = (el: Element) => ({ width: getComputedStyle(el).scrollbarWidth, colour: getComputedStyle(el).scrollbarColor })
-        return { scheme: getComputedStyle(document.documentElement).colorScheme, objects: of(document.querySelector('nav.objects .rows')!), body: of(document.body) }
+        return { scheme: getComputedStyle(document.documentElement).colorScheme, layers: of(document.querySelector('.layers .rows')!), body: of(document.body) }
       })
       const thin = { width: 'thin', colour: `${rgb(tokens['--scroll-thumb'])} rgba(0, 0, 0, 0)` }
-      expect(scrolling).toEqual({ scheme: theme, objects: thin, body: thin })
+      expect(scrolling).toEqual({ scheme: theme, layers: thin, body: thin })
 
       // The parts as the agent gets them: as on screen, cut, and apart.
       mkdirSync(out, { recursive: true })
@@ -217,7 +218,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'confirm-close'] as const
+const STATES = ['main', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'confirm-close'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -263,7 +264,9 @@ for (const theme of ['light', 'dark'] as const) {
           await page.keyboard.press('Enter')
           await expect(page.locator('.chat-ask[data-state="open"]')).toBeVisible({ timeout: 30_000 })
           await open(page, 'hollow')
-          await expect(page.locator('.object-row[data-session="needs_input"]')).toHaveAttribute('aria-description', 'session needs you')
+          // The list is folded to the switcher of hollow: it carries the sign of bracket's session, and names it.
+          await expect(switcher(page)).toHaveAttribute('data-session', 'needs_input')
+          await expect(switcher(page)).toHaveAttribute('aria-description', 'bracket needs you')
           await expect(page.locator('.status-needs')).toContainText('bracket needs you')
           // A mark's row opened, as when it is being read.
           await page.locator('.mark-row').first().click()
@@ -327,6 +330,18 @@ for (const theme of ['light', 'dark'] as const) {
         } else if (shot === 'folders') {
           await page.getByRole('button', { name: 'Folders' }).click()
           await expect(page.getByRole('menu', { name: 'Folders' }).getByRole('menuitem').first()).toBeVisible()
+        } else if (shot === 'switcher') {
+          // The layers and the scans folded to their titles, and the menu of the list folded to its switcher: a row that
+          // cannot be built says why on a second line.
+          for (const name of ['Layers', 'Scans']) await page.locator('.section-fold').and(page.getByRole('button', { name, exact: true })).click()
+          await switcher(page).click()
+          await expect(page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name: 'two', exact: true })).toContainText('more than one model file')
+        } else if (shot === 'folded') {
+          // A scan in, and the layers and the scans folded: each title row says what matters of what it holds.
+          await scan()
+          await page.getByRole('dialog', { name: 'How is S1 read?' }).getByRole('button', { name: 'Later' }).click()
+          for (const name of ['Layers', 'Scans']) await page.locator('.section-fold').and(page.getByRole('button', { name, exact: true })).click()
+          await expect(page.locator('.scans .section-said')).toHaveText('1 · unaligned')
         } else if (shot === 'chat') {
           // A conversation: a prompt with a mark, what torno added, a torno tool with its picture, another tool, and the reply.
           await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()

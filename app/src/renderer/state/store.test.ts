@@ -1389,3 +1389,17 @@ describe('the session dock', () => {
     expect(store.getState().dockOpen).toBe(true)
   })
 })
+
+describe('the left column', () => {
+  it('folds and unfolds a section, the window\'s and not an object\'s: another object or workspace leaves it as it is', () => {
+    expect(store.getState().column.folded).toEqual({ objects: true, layers: false, scans: false })
+    actions.foldSection('layers', true)
+    actions.foldSection('objects', false)
+    actions.openObject('gear', { layers: {} })
+    actions.setWorkspace({ root: '/ws', hasProject: true, objects: [] })
+    expect(store.getState().column.folded).toEqual({ objects: false, layers: true, scans: false })
+    actions.foldSection('layers', false)
+    actions.foldSection('objects', true)
+    expect(store.getState().column.folded).toEqual({ objects: true, layers: false, scans: false })
+  })
+})

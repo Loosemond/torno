@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSyn
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
+import { openListed } from './objects'
 
 const appDir = resolve(__dirname, '..')
 const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
@@ -108,7 +109,7 @@ test('a note still being typed when the window closes is kept: nothing ended it,
   try {
     const page = await app.firstWindow()
     await page.waitForSelector('[data-region="left"]')
-    await page.getByRole('button', { name: 'bracket', exact: true }).click()
+    await openListed(page, 'bracket')
     await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
 
     // A pin on the top of the base, clear of the post.
@@ -144,7 +145,7 @@ test('a layer hidden just before the window closes is in .torno/scene.json: the 
   try {
     const page = await app.firstWindow()
     await page.waitForSelector('[data-region="left"]')
-    await page.getByRole('button', { name: 'bracket', exact: true }).click()
+    await openListed(page, 'bracket')
     await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
     // Past the save that opening the object may have asked for.
     await page.waitForTimeout(1000)

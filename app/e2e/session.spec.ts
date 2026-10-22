@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { agentsIn, inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
+import { openListed } from './objects'
 
 // The session pane through the window, with a stand-in for the agent's CLI
 // (test/fake-agent.mjs, named by TORNO_AGENT_CMD): no test here runs `claude`.
@@ -52,7 +53,7 @@ const state = (p: Page = page): Promise<TornoState> => p.evaluate(() => window._
 const dock = (p: Page = page) => p.locator('[data-region="session"]')
 const text = (p: Page = page): Promise<string> => p.evaluate(() => window.__tornoTerm!.text())
 const sessionStatus = (p: Page = page) => dock(p).getByRole('status')
-const openObject = (name: string, p: Page = page) => p.getByRole('button', { name, exact: true }).click()
+const openObject = (name: string, p: Page = page) => openListed(p, name)
 
 /** Type a line into the terminal, as a person would. */
 async function typeLine(line: string, p: Page = page): Promise<void> {

@@ -2,6 +2,7 @@ import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { openListed } from './objects'
 
 // What Claude Code says of itself (its `init`, `api_retry`) as the chat shows it. The stand-in plays a CLI whose
 // plugin of skills did not load, that bills an API key, that is newer than torno was checked with, and whose API is
@@ -33,7 +34,7 @@ const chat = () => dock().locator('.chat')
 const composer = () => dock().locator('[data-chat-composer]')
 
 test('the chat says that torno\'s skills did not load, that an API key is billed and that the CLI is a newer minor, and shows a retry while it lasts; the whole prompt is offered and restarts the session', async () => {
-  await page.getByRole('button', { name: 'bracket', exact: true }).click()
+  await openListed(page, 'bracket')
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect(chat()).toBeVisible()
   await composer().focus()

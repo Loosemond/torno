@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { MarksFile, PinMark } from '../src/shared/marks'
+import { openListed } from './objects'
 
 // Marks in a print layout whose parts the kernel sets side by side: a mark on
 // a later part stays where it was put on that part when an earlier part
@@ -56,7 +57,7 @@ const under = (point: Vec3) =>
 let placed: PinMark
 
 test('a pin placed with the pointer on the lid records how far the lid was moved for display', async () => {
-  await page.getByRole('button', { name: 'spread', exact: true }).click()
+  await openListed(page, 'spread')
   await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok', revision: 1 })
   expect((await state()).scene?.layouts).toEqual(['print'])
   expect(await arranged('tray')).toBeUndefined()

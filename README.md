@@ -10,7 +10,8 @@ numbers; the agent is told what you pointed at and has tools to see what you
 see.
 
 The window has three columns. On the left, the objects of the folder you
-opened, and under them the parts, scans and marks of the open one. In the
+opened, and under them the parts, scans and marks of the open one; the marks
+have the room, and the sections above them fold. In the
 middle, the parts in 3D, with a bar of views above them and the tools down the
 left edge. On the right, the terminal the agent runs in. A line at the bottom
 says how the last build went.
@@ -216,6 +217,14 @@ the model it chose for as long as that file exists. A folder where no model
 can be chosen, or a model with none of the forms below, is listed with the
 reason it cannot be built.
 
+With an object open in a folder of several, the list of objects is folded to one row, the
+switcher: the open object's name, and "All objects `W`" beside the title. A click on the name,
+or `Enter`, opens a menu of every object (a dot for a session that works or waits, the reason
+under one that cannot be built) with "New object" at its foot; the arrows, `Home` and `End`
+move in it, `Enter` opens one, `Esc` puts it away. When a session of another object waits for
+you, the switcher has its dot and says so ("bracket needs you"). The "Objects" title unfolds the
+whole list in place. With no object open, or the page of objects up, the list is whole.
+
 The kernel imports the model file as a module (`if __name__ == "__main__"` does
 not run) and takes the first of:
 
@@ -262,8 +271,12 @@ length and the points along it) is also named by that ref, as of that build. Not
 the result of its edit and in `scene`, and can try a fillet on the last good
 build with `try_fillet` before it edits the model again.
 
-**The window.** On the left, the layers (parts) of the open object each have a
-visibility switch. A model that says which of its parts belong together (an optional
+**The window.** On the left, the list of objects, then the layers and the scans of the
+open object, then its marks. Objects, Layers and Scans each fold by their title; folded, the
+title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
+it keeps room for five rows at least, and the sections above give way first. What is folded
+is kept by the window, not in the folder. The
+layers (parts) of the open object each have a visibility switch. A model that says which of its parts belong together (an optional
 `groups(p)` beside `assembly`, group name to part names) has them listed under a
 header each, which folds the group, hides or shows all of it, or, on "Show only",
 shows that group alone in the layout; ask the agent to group parts and it edits
@@ -314,7 +327,7 @@ failed) nothing is picked, and the pointer says why.
 
 ### Making a new object
 
-"New object" starts one from what you have. It is at the foot of the list of objects, in the header of the page
+"New object" starts one from what you have. It is at the foot of the list of objects (of the switcher's menu when the list is folded), in the header of the page
 of objects and in its empty state. The page asks for a name and "What is it?" (what it is for, what it must fit or
 hold, sizes you know, how it will be made), and then for what you have, each with a note for Claude:
 
@@ -362,7 +375,8 @@ pictures are not sent then: the text says each is "not attached" and names the f
 the scans were not imported, and the page says so and where the folder is. While "Creating…" shows, `Esc`, Cancel
 and Discard do nothing.
 
-While the page is up the window is about the object being made: no object of the list is selected, the Marks
+While the page is up the window is about the object being made: no object of the list is selected (folded, the
+list reads "New object"), the Marks
 section gives way, and the status line says "New object" with the build123d version alone. The session pane says
 what Claude Code will start with once you create the object (the name, whether you said what it is, and how many
 photos, doodles, scans and objects you gave), filled in as you go. A session of the object that was open that is
@@ -386,7 +400,9 @@ it. It keeps running while another object is shown. A session that works or
 that waits for your answer (a permission, a question, a plan) says so wherever
 you are, not only in its own pane. In the list of objects its row has a dot
 after the name: a quiet one while it works, and, in the warning colour with the
-words "needs you", while it waits. Nothing is shown for a session that is idle
+words "needs you", while it waits. Folded, the list's one row has the dot of any
+session of the folder that works or waits, and names the object of one that
+waits ("bracket needs you"); its menu has a dot on each row as the list does. Nothing is shown for a session that is idle
 or ended. When the session pane is hidden, its button has the same dot for the
 open object's session. And when any session of the folder waits for you, the
 status line has a button "*bracket* needs you" (with "and N more" if several do,
@@ -1124,7 +1140,7 @@ replace its own proposals (12 at most) and never a view of yours.
 
 ## The page of objects
 
-`W`, or "All objects" at the top of the list, shows every object of the folder
+`W`, or "All objects" at the top of the list (beside its title once an object is open), shows every object of the folder
 as a card; a workspace of several objects starts there. `/` or a letter
 filters by name, the arrows move, `Enter` opens, `Esc` goes back. A card has:
 
@@ -1580,6 +1596,10 @@ On the screen:
 - **Focus.** Start torno a second time with another folder: the window that is open comes to the front (on Hyprland only where `focus_on_activate` is on). Start dragging the section's arrow, switch workspace, come back: the plane is where it was before the drag, and the next drag turns the camera.
 - **Closing.** With a session working, close the window through the window manager: torno asks "Close torno?", "Keep it open" keeps everything as it was, "Close torno" ends torno and the session. With nothing under way it closes at once.
 - **A session that needs you, away from its pane.** In two objects, ask Claude Code in one for something that needs a permission, then open the other (and again with the session pane hidden): the first one's row has a dot and "needs you" in the warning colour, the status line has the button "*name* needs you", which opens it and brings you to the card, and a working session's dot is a quiet grey. In a window that is not in front (another window on top, or a workspace switched away) the frame should flash on Linux, and the dock icon bounce once on a Mac: no test shows a window, so only the rule is tested.
+- **The left column.** With a folder of many objects, open one: the list is one row, "All objects `W`" beside its
+  title. Its menu, by the mouse and by the keys, opens another; folding Layers and Scans gives their room to the
+  marks, and their titles say how many parts and scans there are. Start torno again: what was folded is as you left
+  it. Legible in light and dark.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.
