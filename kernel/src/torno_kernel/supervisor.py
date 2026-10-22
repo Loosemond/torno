@@ -190,8 +190,10 @@ class _Worker:
     capture: BinaryIO | None  # the model's stdout and stderr, until the build ends
     outbox: _Outbox  # queries on their way to it
     decoder: _Decoder = field(default_factory=_Decoder)
-    # Queries sent and not yet answered, oldest first: (id, when to give up on it).
-    queries: list[tuple[Any, float]] = field(default_factory=list)
+    # Queries sent and not yet answered, oldest first: (id, when to give up on it). The worker answers
+    # one at a time, in order, so a query's time starts when the one ahead of it is answered, not when it was
+    # queued: None until then (``start_next``), so that a few read at once do not time each other out.
+    queries: list[tuple[Any, float | None]] = field(default_factory=list)
     # Queries to it that timed out and that it has not answered yet: it answers one at a
     # time, so it is still busy with them, and with nothing else until it has sent as many frames.
     abandoned: int = 0
@@ -205,8 +207,14 @@ class _Worker:
         for index, (waiting, _) in enumerate(self.queries):
             if waiting == id:
                 del self.queries[index]
+                self.start_next()
                 return True
         return False
+
+    def start_next(self) -> None:
+        """Start the clock of the query the worker has now taken up: the oldest, once it has none to finish."""
+        if self.queries and self.queries[0][1] is None and not self.stalled:
+            self.queries[0] = (self.queries[0][0], time.monotonic() + QUERY_TIMEOUT)
 
 
 class Supervisor:
@@ -254,7 +262,7 @@ class Supervisor:
         # one of them, and the replies that one has already sent are passed on
         # before its unanswered queries are called cancelled.
         workers = list(self._live.values())
-        deadlines = [w.queries[0][1] for w in workers if w.queries]
+        deadlines = [w.queries[0][1] for w in workers if w.queries and w.queries[0][1] is not None]
         if self._building:
             workers.append(self._building)
             deadlines.append(self._building.deadline)
@@ -398,14 +406,10 @@ class Supervisor:
             # It answers one query at a time: this one would only wait its own 30 s behind
             # the one that was given up on. The app knows this answer by its words (isBusy in
             # app/src/main/kernel/client.ts, pinned by client.busy.test.ts): change both.
-            self._fail(
-                id,
-                "timeout",
-                f"the build of {dir} is still busy with a query it did not answer "
-                f"within {QUERY_TIMEOUT:g} s; ask again when it has",
-            )
+            self._fail(id, "timeout", _busy(dir))
             return
-        live.queries.append((id, time.monotonic() + QUERY_TIMEOUT))
+        live.queries.append((id, None))
+        live.start_next()
         try:
             live.outbox.push(query)
         except OSError:
@@ -489,6 +493,7 @@ class Supervisor:
                 elif worker.queries:
                     id, _ = worker.queries.pop(0)
                     self._send({**header, "id": id}, blob)
+                    worker.start_next()
             else:
                 if worker.answered(header.get("id")):
                     # As it was written to see that it can be: not written again.
@@ -568,15 +573,22 @@ class Supervisor:
 
     def _time_out_queries(self, worker: _Worker, now: float) -> None:
         """Answer the queries a live worker has had for too long. The worker is left alone."""
-        while worker.queries and worker.queries[0][1] <= now:
-            id, _ = worker.queries.pop(0)
+        deadline = worker.queries[0][1] if worker.queries else None
+        if deadline is None or deadline > now:
+            return
+        id, _ = worker.queries.pop(0)
+        worker.abandoned += 1
+        self._fail(
+            id,
+            "timeout",
+            f"the query was not answered within {QUERY_TIMEOUT:g} s; the build it was sent to is still there",
+        )
+        # The worker is stuck on that one, so those queued behind it would wait for it with no end:
+        # they are told so as a new query would be. They were sent, and it answers them in their turn.
+        while worker.queries:
+            behind, _ = worker.queries.pop(0)
             worker.abandoned += 1
-            self._fail(
-                id,
-                "timeout",
-                f"the query was not answered within {QUERY_TIMEOUT:g} s; "
-                "the build it was sent to is still there",
-            )
+            self._fail(behind, "timeout", _busy(worker.dir))
 
     def _live_died(self, worker: _Worker) -> None:
         del self._live[worker.dir]
@@ -618,6 +630,18 @@ class Supervisor:
 
     def _fail(self, id: Any, kind: str, message: str, **extra: str) -> None:
         self._send({"id": id, "ok": False, "error": {"kind": kind, "message": message, **extra}})
+
+
+def _busy(dir: str) -> str:
+    """What a query is told when its worker is past the time of a query it was given: busy with it still.
+
+    The app knows this answer by its words (isBusy in app/src/main/kernel/client.ts, pinned by
+    client.busy.test.ts): change both.
+    """
+    return (
+        f"the build of {dir} is still busy with a query it did not answer "
+        f"within {QUERY_TIMEOUT:g} s; ask again when it has"
+    )
 
 
 def _no_room(dir: str) -> str:

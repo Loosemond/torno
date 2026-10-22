@@ -128,7 +128,11 @@ export function planeArg(value: unknown): SectionPlane | ToolResult {
 export function registerTools(server: McpServer, deps: ToolDeps, objectId: string): void {
   const tool = <A>(name: keyof typeof TOOLS, run: (args: A) => ToolResult | Promise<ToolResult>): void => {
     const of = TOOLS[name]
-    server.registerTool(name, { description: of.description, inputSchema: z.looseObject('inputSchema' in of ? of.inputSchema : {}) }, async (args: unknown) => refusedKeys(name, args) ?? run(args as A))
+    server.registerTool(
+      name,
+      { title: of.title, description: of.description, annotations: of.annotations, ...('meta' in of ? { _meta: of.meta } : {}), inputSchema: z.looseObject('inputSchema' in of ? of.inputSchema : {}) },
+      async (args: unknown) => refusedKeys(name, args) ?? run(args as A)
+    )
   }
   tool('scene', async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined)))
   tool<LookArgs>('look', (args) => lookTool(deps, objectId, args))

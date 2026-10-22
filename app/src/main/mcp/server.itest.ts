@@ -6,6 +6,7 @@ import type { Part } from '../../shared/scene'
 import type { LookRequest, SaveViewRequest, ShowRequest, ViewState } from '../../shared/view'
 import type { SavedView } from '../../shared/views'
 import { type HttpRouter, SESSION_HEADER, startHttp } from '../http'
+import { INSTRUCTIONS_LIMIT, SERVER_INSTRUCTIONS } from './schemas'
 import { mountMcp } from './server'
 import type { ToolDeps } from './tools'
 
@@ -184,6 +185,27 @@ describe('the MCP server', () => {
     const look = tools.find((t) => t.name === 'look')!
     expect(Object.keys(look.inputSchema.properties ?? {}).sort()).toEqual(['explode', 'frame', 'layout', 'marks', 'parts', 'scanColour', 'scans', 'section', 'size', 'view'])
     expect(look.inputSchema.required ?? []).toEqual([])
+  })
+
+  it('tells a client at initialize what the server is for, with a line for every tool', async () => {
+    const client = await connect('bracket')
+    const instructions = client.getInstructions()
+    expect(instructions).toBe(SERVER_INSTRUCTIONS)
+    expect(instructions!.length).toBeLessThan(INSTRUCTIONS_LIMIT)
+    for (const name of ALL) expect(instructions, name).toContain(`- ${name}: `)
+  })
+
+  it('lists each tool with a title, annotations that say what only reads, and the five that load upfront', async () => {
+    const client = await connect('bracket')
+    const { tools } = await client.listTools()
+    const readOnly = tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => t.name).sort()
+    expect(readOnly).toEqual(['check', 'describe', 'diff', 'look', 'marks', 'measure', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section'])
+    for (const tool of tools) {
+      expect(tool.title, tool.name).toBeTruthy()
+      expect(tool.annotations?.openWorldHint, tool.name).toBe(false)
+      if (!readOnly.includes(tool.name)) expect(tool.annotations, tool.name).toEqual(expect.objectContaining({ readOnlyHint: false, destructiveHint: false }))
+    }
+    expect(tools.filter((t) => t._meta?.['anthropic/alwaysLoad'] === true).map((t) => t.name).sort()).toEqual(['describe', 'look', 'marks', 'measure', 'scene'])
   })
 
   it('lists the tools that ask about a scan, each with a description and a schema that requires nothing and names every argument', async () => {

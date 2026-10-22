@@ -656,6 +656,12 @@ build that worked, say which revision that is, and say so when a newer build
 is running or has failed. A tool given a key it does not take is refused,
 naming the keys it takes.
 
+The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`, `scans`,
+`scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
+Code at the start, in a few lines, what each tool is for. Claude Code's tool search keeps an MCP server's tools out
+of the model's sight until it searches for them; five are loaded from the start because nearly every turn uses
+them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found by that search.
+
 | Tool | What it gives |
 |---|---|
 | `mcp__torno__scene` | The build status and error, what the model printed in the last build (`output`), the layouts, every part with its size, bounding box, volume and whether it is visible, the model's groups of parts, your camera, section and explode, the saved views, the scans, and how many dimensions pass, fail and are not measured. It notes when the parts of the print layout were spread along X. |

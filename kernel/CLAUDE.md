@@ -141,9 +141,12 @@ is the detail of this folder, under the headings it has there.
   set (`kernel/tests/conftest.py`, `app/vitest.config.ts`,
   `app/playwright.config.ts`) and nothing in use ever does. A worker keeps what `nearest`
   worked out of each part it was asked about. A query names its folder (`dir`)
-  and has 30 s, after which it is answered `timeout` and the worker left alone.
-  Until that worker has answered every query that was given up on, new queries
-  to it are answered `timeout` at once: it answers one at a time, and is still
+  and has 30 s from when the worker takes it up, not from when it was queued: it answers one at a time, in
+  order, so the clock of a query starts when the one ahead of it is answered (`_Worker.start_next`), and a few
+  asked at once (read tools called together) do not time each other out. Past its 30 s a query is answered
+  `timeout` and the worker left alone; those queued behind it are answered `timeout` at once, as busy (they were
+  sent, and the worker answers them in their turn). Until that worker has answered every query that was given up
+  on, new queries to it are answered `timeout` at once the same way: it answers one at a time, and is still
   busy with those.
   A worker leaves through `os._exit`.
 - **prctl.** Each worker sets `PR_SET_PDEATHSIG` to SIGKILL, so it dies with

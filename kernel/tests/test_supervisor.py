@@ -1287,6 +1287,73 @@ def test_after_a_timeout_later_queries_are_timeouts_at_once_until_the_worker_ans
     assert not gone(live.pid)
 
 
+def test_a_query_has_its_time_from_when_the_worker_takes_it_up_not_from_when_it_was_queued(routed, monkeypatch):
+    """Three read tools called at once: the third waits behind two that each take most of a query's time."""
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.4)
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    for id in ("first", "second", "third"):
+        routed.request(id=id, op="query", dir="/object", name="check", args={})
+    sup._step()
+    # The worker is slow over each, 0.25 s: the third has been waiting 0.75 s, more than a query has.
+    for index, id in enumerate(("first", "second", "third")):
+        time.sleep(0.25)
+        live_end.sendall(frame({"id": id, "ok": True, "result": {"n": index}}))
+        sup._step()
+    assert routed.sent() == [{"id": id, "ok": True, "result": {"n": n}} for n, id in enumerate(("first", "second", "third"))]
+    assert live.queries == [] and not live.stalled
+
+
+def test_a_query_that_the_worker_never_takes_up_in_time_is_a_timeout_with_the_ones_behind_it(routed, monkeypatch):
+    """The worker that is past a query's time is busy: what waits behind it is told so at once, not left to wait."""
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.3)
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    for id in ("slow", "behind", "last"):
+        routed.request(id=id, op="query", dir="/object", name="check", args={})
+    sup._step()
+    sup._step()  # the deadline of the first, which the worker took up at once
+    by_id = {f["id"]: f["error"] for f in routed.sent()}
+    assert list(by_id) == ["slow", "behind", "last"]
+    assert all(error["kind"] == "timeout" for error in by_id.values())
+    assert "was not answered within 0.3 s" in by_id["slow"]["message"]
+    for id in ("behind", "last"):
+        assert by_id[id]["message"] == (
+            "the build of /object is still busy with a query it did not answer within 0.3 s; ask again when it has"
+        )
+    assert live.queries == [] and live.abandoned == 3
+    # It answers the three, late, one by one, and is free after the last.
+    for id in ("slow", "behind"):
+        live_end.sendall(frame({"id": id, "ok": True, "result": {}}))
+        sup._step()
+        assert routed.sent() == [] and live.stalled
+    live_end.sendall(frame({"id": "last", "ok": True, "result": {}}))
+    sup._step()
+    assert routed.sent() == [] and not live.stalled
+
+
+def test_the_clock_of_a_query_queued_behind_another_does_not_run_while_the_worker_is_on_that_one(routed, monkeypatch):
+    from torno_kernel import supervisor
+
+    monkeypatch.setattr(supervisor, "QUERY_TIMEOUT", 0.5)
+    sup = routed.supervisor
+    live, live_end = routed.worker("/object")
+    sup._live["/object"] = live
+    routed.request(id="first", op="query", dir="/object", name="check", args={})
+    routed.request(id="second", op="query", dir="/object", name="check", args={})
+    sup._step()
+    assert live.queries[0][1] is not None and live.queries[1][1] is None
+    live_end.sendall(frame({"id": "first", "ok": True, "result": {}}))
+    sup._step()
+    assert [(id, deadline is not None) for id, deadline in live.queries] == [("second", True)]
+
+
 def test_the_wait_ends_at_the_earlier_of_the_build_and_query_deadlines(routed, monkeypatch):
     from torno_kernel import supervisor
 

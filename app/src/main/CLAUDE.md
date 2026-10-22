@@ -143,6 +143,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   revision they answer from, and that it is stale while a newer build runs or
   has failed. `scene` counts the unresolved dimensions held to a value
   (`dimensions: {pass, fail, notMeasured}`).
+  - What a client reads of a tool before it calls one is beside its description in `TOOLS`: a `title` (sentence
+    case), `annotations` and, for the tools loaded upfront, `meta`. Every tool has `openWorldHint: false`; the
+    ones that only read have `readOnlyHint: true` (`scene`, `look`, `marks`, `describe`, `measure`, `section`,
+    `check`, `diff`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
+    `look` reads, the picture it writes under `.torno/views/` being torno's own), the rest `readOnlyHint: false,
+    destructiveHint: false`. `scene`, `look`, `marks`, `describe` and `measure` have
+    `_meta["anthropic/alwaysLoad"]` (Claude Code's tool search defers every other MCP tool until it is searched for,
+    and each upfront tool costs context in every turn and sits in the prompt cache's prefix: the list stays short).
+    The server gives `instructions` at `initialize` (`SERVER_INSTRUCTIONS`: a paragraph on what the server is for,
+    then a line for every tool in the words an agent would search with; under 4,096 characters, which Claude Code
+    cuts at: `schemas.test.ts` holds that, every tool's line, and every description under the same length). A
+    tool added to `TOOLS` has a title, annotations and a line there, or the test fails. Annotations change nothing
+    of what `--allowedTools` permits.
   - Every tool is registered through `registerTools`, which refuses a key the
     tool's schema in `TOOLS` does not name (`refusedKeys`, `mcp/keys.ts`),
     naming the keys it takes: a dropped key would change what is measured. A

@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { BodyTooLarge, type HttpRouter, readBody } from '../http'
 import { registerPrompts } from './prompts'
+import { SERVER_INSTRUCTIONS } from './schemas'
 import { registerTools, type ToolDeps } from './tools'
 
 const BODY_LIMIT = 4 * 1024 * 1024
@@ -32,7 +33,7 @@ export function mountMcp(http: HttpRouter, deps: ToolDeps): void {
       return rpcError(400, 'Parse error: the body is not JSON')
     }
 
-    const server = new McpServer({ name: 'torno', version: VERSION })
+    const server = new McpServer({ name: 'torno', version: VERSION }, { instructions: SERVER_INSTRUCTIONS })
     // An id the workspace does not have is answered by the tools, in words the agent reads.
     registerTools(server, deps, rest[0])
     registerPrompts(server)
