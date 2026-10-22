@@ -15,7 +15,7 @@ export interface PointerRow {
 }
 
 export const POINTER: readonly PointerRow[] = [
-  { id: 'turn', gesture: 'Drag', does: 'Turn the view; with a tool that marks, a drag that starts on the part marks instead', line: 'drag to turn' },
+  { id: 'turn', gesture: 'Drag', does: 'Turn the view; with Arrow or Draw in hand, a drag that starts on the part draws instead', line: 'drag to turn' },
   { id: 'pan', gesture: 'Right drag', does: 'Pan the view (a middle drag does too)', line: 'right drag to pan' },
   { id: 'zoom', gesture: 'Scroll', does: 'Zoom, towards the pointer', line: 'scroll to zoom' },
   { id: 'round', gesture: 'Double click', does: 'With Measure in hand: measure something round, its diameter or its radius', line: null }

@@ -99,9 +99,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   not there or refuses shows it again; never in a workspace). The line stands on `--bar-floor` and, while it is
   there (`:has(.tool-hint)`), lifts every bar at the foot of the view by a row (`--hint-lift`, 40 px) so that none meets it
   (`styles/layout.css`, held by `viewport/overlay.test.ts`). The sheet of keys starts with a group "Pointer"
-  (`POINTER` in `shared/pointer.ts`: drag, right drag, scroll, double click with Measure; "In the view": a drag that
-  starts on the part marks instead with a tool that marks): gestures, no row of `KEYS`, searched with them and counted
-  after them (`59 keys, 4 of the pointer`); README's table of them is held to it (`readme.test.ts`).
+  (`POINTER` in `shared/pointer.ts`: drag, right drag, scroll, double click with Measure; "In the view": with Arrow or
+  Draw in hand a drag that starts on the part draws instead; the others' own press is in their step lines): gestures, no row of `KEYS`, searched with them and counted
+  after them (the count line gives the keys, then `, N of the pointer`); README's table of them is held to it (`readme.test.ts`).
 - A mark's row and its chip in the view point at each other. The pointer on a row or chip, or the keys' focus in a
   row (on one of its buttons, `:focus-visible` only: a click on a button focuses it too, and is the pointer's; a
   note being typed is not), is the store's

@@ -43,7 +43,7 @@ export function matchingKeys(typed: string): ReturnType<typeof cheatSheet> {
     .filter((group) => group.rows.length > 0)
 }
 
-/** The rows of the pointer's group that say all of what was typed, as the keys' do. They are no keys: the count above the sheet leaves them out. */
+/** The rows of the pointer's group that say all of what was typed, as the keys' do. They are no keys: the count above the sheet gives the keys first, then these rows (`N keys`, `, M of the pointer`). */
 export function matchingPointer(typed: string): PointerRow[] {
   const words = typed.toLowerCase().split(/\s+/).filter(Boolean)
   return POINTER.filter((row) => words.every((word) => `${row.gesture} ${row.does} ${POINTER_GROUP.context} ${POINTER_GROUP.when}`.toLowerCase().includes(word)))
