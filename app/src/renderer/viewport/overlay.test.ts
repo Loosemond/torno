@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DEVIATION_RAMP, chipSize, drawDeviationLegend, drawLabels, type LabelStyle } from './overlay'
+import { DEVIATION_RAMP, PERSPECTIVE_NOTE, SCREEN_UNIT, TRIAD_CLEAR, chipSize, drawDeviationLegend, drawFrameCues, drawLabels, drawOverlay, type LabelStyle } from './overlay'
 
 /** A canvas context that keeps what was drawn on it: each text with how opaque it was, and each stroke with its colour and its moves. */
 function recorder() {
@@ -131,5 +133,121 @@ describe('the legend of a scan drawn by its distance to a part', () => {
     drawDeviationLegend(ctx, { ...SHEET, width: 2000, height: 1500 }, { near: '#8A4594', far: '#D3D8DF', inside: null, range: 2.5, title: 'S1 to shell' })
     expect(texts).toEqual(['S1 to shell', '0', '2.5 mm'])
     expect(fills.find((fill) => fill.style === gradient)!.w).toBeCloseTo(187.5, 6)
+  })
+})
+
+describe('the axes and the scale on the person’s screen', () => {
+  /** A context that keeps the arms drawn (each with the colour it was stroked in and where it ends), the dots, the texts with their faces, and the bar's strokes. */
+  function frame() {
+    const arms: Array<{ colour: string; from: [number, number]; to: [number, number] }> = []
+    const dots: Array<{ colour: string; at: [number, number] }> = []
+    const texts: Array<{ text: string; font: string; colour: unknown }> = []
+    let path: Array<[number, number]> = []
+    const ctx = {
+      globalAlpha: 1,
+      strokeStyle: '',
+      fillStyle: '' as unknown,
+      font: '',
+      lineWidth: 1,
+      textAlign: '',
+      textBaseline: '',
+      lineCap: '',
+      lineJoin: '',
+      save: () => {},
+      restore: () => {},
+      beginPath: () => void (path = []),
+      moveTo: (x: number, y: number) => void path.push([x, y]),
+      lineTo: (x: number, y: number) => void path.push([x, y]),
+      arc: (x: number, y: number) => void dots.push({ colour: ctx.fillStyle as string, at: [x, y] }),
+      fill: () => {},
+      stroke: () => {
+        if (path.length === 2) arms.push({ colour: ctx.strokeStyle, from: path[0], to: path[1] })
+      },
+      strokeText: () => {},
+      fillText: (text: string) => void texts.push({ text, font: ctx.font, colour: ctx.fillStyle })
+    }
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, arms, dots, texts }
+  }
+  const AXES = ['#9A3350', '#457528', '#2E5FA9']
+  const [X, Y, Z] = AXES
+  const BASE = { width: 900, height: 600, mmPerPx: null, ink: '#22252a', muted: '#555a63', surface: '#f1efea' }
+  const looking = (right: [number, number, number], up: [number, number, number]) => ({ ...BASE, right, up })
+  const origin = (unit: number): [number, number] => [26 * unit + 38 * unit, 600 - 26 * unit - 38 * unit]
+
+  it('draws each axis that lies across the view as an arm from the corner, in its own colour, and the one along the view as a dot', () => {
+    // Looking along +Y (the front view): X runs right, Z up, Y into the screen.
+    const front = frame()
+    drawFrameCues(front.ctx, looking([1, 0, 0], [0, 0, 1]), { unit: SCREEN_UNIT })
+    const [cx, cy] = origin(SCREEN_UNIT)
+    const arm = 38 * SCREEN_UNIT
+    expect(front.arms).toHaveLength(2)
+    expect(front.arms.find((a) => a.colour === X)).toMatchObject({ from: [cx, cy], to: [cx + arm, cy] })
+    expect(front.arms.find((a) => a.colour === Z)).toMatchObject({ from: [cx, cy], to: [cx, cy - arm] })
+    expect(front.dots.map((d) => d.colour)).toEqual([Y])
+    expect(front.texts.map((t) => t.text).filter((t) => t.length === 1).sort()).toEqual(['X', 'Y', 'Z'])
+  })
+
+  it('does so for a camera looking along each axis: the arms are the two the view does not look along', () => {
+    const cases: Array<{ along: string; right: [number, number, number]; up: [number, number, number]; arms: string[]; dot: string; right_: string; up_: string }> = [
+      // Looking along -X (the right view): Y runs right, Z up.
+      { along: 'X', right: [0, 1, 0], up: [0, 0, 1], arms: [Y, Z], dot: X, right_: Y, up_: Z },
+      // Looking along -Z (the top view): X runs right, Y up.
+      { along: 'Z', right: [1, 0, 0], up: [0, 1, 0], arms: [X, Y], dot: Z, right_: X, up_: Y },
+      // Looking along -Y (seen from behind): X runs left, Z up.
+      { along: 'Y', right: [-1, 0, 0], up: [0, 0, 1], arms: [X, Z], dot: Y, right_: X, up_: Z }
+    ]
+    for (const c of cases) {
+      const { ctx, arms, dots } = frame()
+      drawFrameCues(ctx, looking(c.right, c.up), { unit: 1 })
+      const [cx, cy] = origin(1)
+      expect(arms.map((a) => a.colour).sort(), c.along).toEqual([...c.arms].sort())
+      expect(dots.map((d) => d.colour), c.along).toEqual([c.dot])
+      // The arm that runs right ends right of the corner (X seen from behind: left of it), the one that runs up above it.
+      const toRight = arms.find((a) => a.colour === c.right_)!
+      const toUp = arms.find((a) => a.colour === c.up_)!
+      if (c.along === 'Y') expect(toRight.to[0]).toBeLessThan(cx)
+      else expect(toRight.to[0]).toBeGreaterThan(cx)
+      expect(toUp.to[1]).toBeLessThan(cy)
+    }
+  })
+
+  it('takes the axes from the stylesheet when it is given them, and the light theme’s when not', () => {
+    const given = frame()
+    drawFrameCues(given.ctx, { ...looking([1, 0, 0], [0, 0, 1]), axes: ['#aa0001', '#00aa02', '#0003aa'] }, { unit: 1 })
+    expect(given.arms.map((a) => a.colour).sort()).toEqual(['#0003aa', '#aa0001'])
+    expect(given.dots.map((d) => d.colour)).toEqual(['#00aa02'])
+  })
+
+  it('in perspective says the grid’s step, in the monospace face; in an orthographic view draws the scale bar instead', () => {
+    const persp = frame()
+    drawFrameCues(persp.ctx, looking([1, 0, 0], [0, 0, 1]), { unit: SCREEN_UNIT, gridStep: 5 })
+    const step = persp.texts.find((t) => t.text === 'grid 5 mm')
+    expect(step?.font).toContain('Plex Mono')
+    expect(persp.texts.map((t) => t.text)).not.toContain(PERSPECTIVE_NOTE)
+
+    const small = frame()
+    drawFrameCues(small.ctx, looking([1, 0, 0], [0, 0, 1]), { unit: SCREEN_UNIT, gridStep: 0.5 })
+    expect(small.texts.map((t) => t.text)).toContain('grid 0.5 mm')
+
+    const ortho = frame()
+    drawFrameCues(ortho.ctx, { ...looking([1, 0, 0], [0, 0, 1]), mmPerPx: 0.25 }, { unit: SCREEN_UNIT, gridStep: 5 })
+    // 0.25 mm a pixel and a quarter of 900 px at most: 50 mm.
+    expect(ortho.texts.map((t) => t.text)).toContain('50 mm')
+    expect(ortho.texts.map((t) => t.text).some((t) => t.startsWith('grid'))).toBe(false)
+  })
+
+  it('leaves the note of a picture as it is: no grid, a note in the face of text', () => {
+    const { ctx, texts } = frame()
+    drawOverlay(ctx, looking([1, 0, 0], [0, 0, 1]))
+    expect(texts.map((t) => t.text)).toContain(PERSPECTIVE_NOTE)
+    expect(texts.find((t) => t.text === PERSPECTIVE_NOTE)?.font).toContain('Plex Sans')
+  })
+
+  it('keeps the measure strip clear of the triad: the stylesheet’s clearance is the triad’s height', () => {
+    const css = readFileSync(resolve(__dirname, '../styles/tools.css'), 'utf8')
+    const strip = css.slice(css.indexOf('.measure-choice {'), css.indexOf('}', css.indexOf('.measure-choice {')))
+    expect(strip).toContain(`${TRIAD_CLEAR}px`)
+    // The triad's corner, its arms, the letter beyond the tip of the longest and half the letter's height.
+    expect(TRIAD_CLEAR).toBeGreaterThanOrEqual(Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT))
   })
 })

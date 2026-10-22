@@ -80,6 +80,8 @@ export class Viewport {
   /** Everything drawn in the current layout, for the clip planes: the parts and the grid (`groundExtent`), and the marks. */
   private extent = new THREE.Sphere(new THREE.Vector3(), 100)
   private groundExtent = this.extent
+  /** The step of the grid on the ground, in mm: what the overlay says in perspective, where there is no scale bar. */
+  private gridStepMm = 1
 
   private theme: Theme = LIGHT_THEME
   private readonly scheme: MediaQueryList | null
@@ -152,7 +154,7 @@ export class Viewport {
     this.ground.frustumCulled = false
     this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor)
 
-    this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices(), exploded: () => this.apart.any })
+    this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), frame: () => ({ muted: this.theme.muted, axes: [this.theme.axisX, this.theme.axisY, this.theme.axisZ] as const, gridStep: this.gridStepMm }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices(), exploded: () => this.apart.any })
     // A label drawn before its face has loaded is in the fallback face: draw again once it is there.
     void overlayFonts().then(() => this.invalidate())
 
@@ -1062,7 +1064,8 @@ export class Viewport {
 
   /** Lays the grid under a layout's parts, on the lowest z of the layout, and returns a sphere around the parts and the grid. */
   private rebuildGround(layout: string): THREE.Sphere {
-    const { points, extent } = groundOf(boxOf(this.partsOf(layout)) ?? EMPTY_BOX)
+    const { points, step, extent } = groundOf(boxOf(this.partsOf(layout)) ?? EMPTY_BOX)
+    this.gridStepMm = step
     this.ground.geometry.dispose()
     this.ground.geometry = new THREE.BufferGeometry()
     this.ground.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3))

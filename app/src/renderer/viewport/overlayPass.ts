@@ -1,11 +1,14 @@
-import type * as THREE from 'three'
+import * as THREE from 'three'
 import type { Vec3 } from '../../shared/marks'
 import { type AlignPoint, drawAlignPoints } from './alignPoints'
 import { type BrushRing, drawBrushRing } from './brushRing'
 import type { MarkLayer } from './marks/MarkLayer'
 import type { Placed } from './marks/labels'
 import { markPoints } from './marks/markObjects'
-import { chipSize, drawLabels, type LabelStyle } from './overlay'
+import { mmPerPx } from './marks/labels'
+import { SCREEN_UNIT, chipSize, drawFrameCues, drawLabels, type LabelStyle } from './overlay'
+
+const ORIGIN = new THREE.Vector3()
 
 /** What the overlay needs of the viewport it lies over. */
 export interface OverlayHost {
@@ -14,6 +17,8 @@ export interface OverlayHost {
   camera(): THREE.Camera
   layout(): string
   style(): LabelStyle & { accent: string }
+  /** What the axes and the scale are drawn in: the colours of the three axes and of the quiet text, and the step of the grid in mm. */
+  frame(): { muted: string; axes: readonly [string, string, string]; gridStep: number }
   /** Where a point of the object frame falls in the window, in client pixels. */
   project(point: Vec3): [number, number]
   syncMatrices(): void
@@ -23,7 +28,8 @@ export interface OverlayHost {
 
 /**
  * What is drawn over the 3D view with every frame, on a canvas of its own and never through React: the labels of
- * the marks, the points of an alignment being made, the ring of the Region tool's brush. None of the last two is
+ * the marks, the axis triad bottom left and bottom right the scale bar (orthographic) or the grid's step
+ * (perspective), as a picture for the agent has them, the points of an alignment being made, the ring of the Region tool's brush. None of the last two is
  * in a picture for the agent. It also says where a mark's label is, for whatever is put beside a mark.
  */
 export class OverlayPass {
@@ -54,10 +60,35 @@ export class OverlayPass {
     ctx.setTransform(this.canvas.width / size.width, 0, 0, this.canvas.height / size.height, 0, 0)
     ctx.clearRect(0, 0, size.width, size.height)
     drawLabels(ctx, host.marks.labels(host.layout(), host.camera(), size, 1, chipSize(ctx, 1)), style, 1, host.marks.activeId)
+    this.drawFrame(ctx, size, style)
     // Not while the parts are drawn apart: a point picked on the model would be drawn where its part is not.
     if (host.exploded?.()) return
     drawAlignPoints(ctx, this.alignPoints, host.camera(), size, { accent: style.accent, paper: style.paper })
     drawBrushRing(ctx, this.brush, host.camera(), size, { mark: style.user, paper: style.paper })
+  }
+
+  /** The triad and the scale: of the camera and the object frame, so drawn whatever the parts are doing. */
+  private drawFrame(ctx: CanvasRenderingContext2D, size: { width: number; height: number }, style: LabelStyle): void {
+    const { host } = this
+    const camera = host.camera()
+    const m = camera.matrixWorld.elements
+    const ortho = (camera as THREE.OrthographicCamera).isOrthographicCamera
+    const frame = host.frame()
+    drawFrameCues(
+      ctx,
+      {
+        width: size.width,
+        height: size.height,
+        right: [m[0], m[1], m[2]],
+        up: [m[4], m[5], m[6]],
+        mmPerPx: ortho ? mmPerPx(camera, ORIGIN, size.height) : null,
+        ink: style.ink,
+        muted: frame.muted,
+        surface: style.surface,
+        axes: frame.axes
+      },
+      { unit: SCREEN_UNIT, gridStep: frame.gridStep }
+    )
   }
 
   /** Where the label of a mark of the layout shown is on the canvas, in client pixels, and whether it is in view; null for a mark that is not drawn. */

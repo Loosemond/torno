@@ -1,3 +1,4 @@
+import { number } from '../../shared/format'
 import { scaleBarLength } from './views'
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
@@ -44,17 +45,37 @@ export function overlayUnit(width: number, height: number): number {
 }
 
 /**
+ * How many pixels of the window a nominal one is, for the triad and the scale on the person's screen: its arms are
+ * about 32 px, not the 38 of a picture 1280 px across.
+ */
+export const SCREEN_UNIT = 0.85
+
+/** How far above the bottom of the view the triad reaches on the person's screen, in px: what the strip of the Measure tool stands clear of (`styles/tools.css`). */
+export const TRIAD_CLEAR = Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT)
+
+/**
  * Draws what a still picture needs to be read without the app around it: an
  * axis triad bottom left, and bottom right a scale bar in mm (orthographic) or a
  * note that there is none (perspective).
  */
 export function drawOverlay(ctx: Ctx, o: OverlayOptions): void {
-  const unit = overlayUnit(o.width, o.height)
+  drawFrameCues(ctx, o, { unit: overlayUnit(o.width, o.height) })
+}
+
+/**
+ * The cues to the frame, `unit` pixels to a nominal one: the axis triad bottom left, and bottom right a scale bar
+ * in an orthographic view. In perspective, where no single scale holds, the grid's step if it is given (the grid
+ * lies on the ground in the object frame, so its step is a true length in any projection), else the note that
+ * there is none.
+ */
+export function drawFrameCues(ctx: Ctx, o: OverlayOptions, cues: { unit: number; gridStep?: number }): void {
+  const { unit } = cues
   ctx.save()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
   drawTriad(ctx, o, unit)
   if (o.mmPerPx !== null && o.mmPerPx > 0) drawScaleBar(ctx, o, o.mmPerPx, unit)
+  else if (cues.gridStep !== undefined) drawGridStep(ctx, o, cues.gridStep, unit)
   else drawNote(ctx, o, unit)
   ctx.restore()
 }
@@ -137,7 +158,7 @@ function drawScaleBar(ctx: Ctx, o: OverlayOptions, mmPerPx: number, unit: number
   ctx.font = `${Math.round(13 * unit)}px ${MONO}`
   ctx.textAlign = 'right'
   ctx.textBaseline = 'alphabetic'
-  haloText(ctx, `${formatLength(mm)} mm`, x1, y - tick - 5 * unit, o.ink, o.surface, unit)
+  haloText(ctx, `${number(mm)} mm`, x1, y - tick - 5 * unit, o.ink, o.surface, unit)
 }
 
 function drawNote(ctx: Ctx, o: OverlayOptions, unit: number): void {
@@ -146,6 +167,14 @@ function drawNote(ctx: Ctx, o: OverlayOptions, unit: number): void {
   ctx.textAlign = 'right'
   ctx.textBaseline = 'alphabetic'
   haloText(ctx, PERSPECTIVE_NOTE, o.width - pad, o.height - pad, o.muted, o.surface, unit)
+}
+
+function drawGridStep(ctx: Ctx, o: OverlayOptions, step: number, unit: number): void {
+  const pad = 26 * unit
+  ctx.font = `${Math.round(13 * unit)}px ${MONO}`
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'alphabetic'
+  haloText(ctx, `grid ${number(step)} mm`, o.width - pad, o.height - pad, o.muted, o.surface, unit)
 }
 
 /** What the legend of a scan drawn by its distance to a part says: the two ends of the ramp, the colour of what is inside (null of a part that is no solid), the range in mm, and what it is of. */
@@ -205,11 +234,6 @@ function haloText(ctx: Ctx, text: string, x: number, y: number, color: string, h
   ctx.strokeText(text, x, y)
   ctx.fillStyle = color
   ctx.fillText(text, x, y)
-}
-
-/** A round length without float noise: 20, 0.5, 0.002. */
-function formatLength(mm: number): string {
-  return String(Number(mm.toPrecision(1)))
 }
 
 function dot(a: Vec3, b: Vec3): number {

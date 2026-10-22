@@ -75,6 +75,27 @@ async function agent(app: ElectronApplication, id: string): Promise<Client> {
 }
 
 /** The whole window as it is drawn, once: its fonts loaded, a frame drawn, and its focus shown as in a window in use. */
+/**
+ * How many pixels of one corner of the 3D view's overlay canvas (the labels, the triad, the scale) are within a few
+ * steps of a colour: `corner` is the 120 × 120 px square (of the window's px) at the bottom left or bottom right.
+ */
+async function cornerPixels(page: Page, corner: 'left' | 'right', hex: string): Promise<number> {
+  return page.evaluate(
+    ([corner, hex]) => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-region="viewport"] canvas.mark-labels')!
+      const scale = canvas.width / canvas.clientWidth
+      const side = Math.round(120 * scale)
+      const x = corner === 'left' ? 0 : canvas.width - side
+      const { data } = canvas.getContext('2d')!.getImageData(x, canvas.height - side, side, side)
+      const want = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16))
+      let found = 0
+      for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 200 && want.every((w, n) => Math.abs(data[i + n] - w) <= 24)) found += 1
+      return found
+    },
+    [corner, hex] as const
+  )
+}
+
 async function capture(app: ElectronApplication, page: Page, name: string, dir = out): Promise<void> {
   const devtools = await page.context().newCDPSession(page)
   await devtools.send('Emulation.setFocusEmulationEnabled', { enabled: true })
@@ -87,7 +108,7 @@ async function capture(app: ElectronApplication, page: Page, name: string, dir =
   writeFileSync(join(dir, `${name}.png`), Buffer.from(png, 'base64'))
 }
 
-const TOKENS = ['--surface', '--panel', '--ink', '--muted', '--accent', '--hairline', '--user-mark', '--agent-mark', '--ok', '--warn', '--fail', '--scroll-thumb'] as const
+const TOKENS = ['--surface', '--panel', '--ink', '--muted', '--accent', '--hairline', '--user-mark', '--agent-mark', '--ok', '--warn', '--fail', '--scroll-thumb', '--axis-x', '--axis-y', '--axis-z'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   test(`${theme}: the window has the theme's tokens at their contrasts, and the pictures of the parts are made`, async () => {
@@ -122,6 +143,9 @@ for (const theme of ['light', 'dark'] as const) {
       const hairline = contrast(tokens['--hairline'], tokens['--surface'])
       expect(hairline).toBeGreaterThanOrEqual(1.15)
       expect(hairline).toBeLessThanOrEqual(2)
+      // The axes are on the view, bottom left, each in its own colour; in perspective the grid's step is told bottom right in the quiet one.
+      for (const name of ['--axis-x', '--axis-y', '--axis-z']) expect([name, (await cornerPixels(page, 'left', tokens[name])) > 2]).toEqual([name, true])
+      expect(await cornerPixels(page, 'right', tokens['--muted'])).toBeGreaterThan(2)
       // What is drawn has them: muted text is the muted token, and the window's own ground is the surface.
       const drawn = await page.evaluate(() => ({ muted: getComputedStyle(document.querySelector('.section-title')!).color, ground: getComputedStyle(document.body).backgroundColor }))
       const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)).join(', ')})`
@@ -175,6 +199,14 @@ for (const theme of ['light', 'dark'] as const) {
       const again = await look()
       expect(again.length).toBeGreaterThan(5000)
       expect(again.equals(pictures[0])).toBe(false)
+
+      // In an orthographic view the scale bar stands where the grid's step was, in the ink: none of that colour is there in perspective.
+      const ink = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ink').trim())
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog', { name: 'Keys' })).toBeHidden()
+      expect(await cornerPixels(page, 'right', ink)).toBe(0)
+      await page.getByRole('group', { name: 'Projection' }).getByRole('button', { name: 'Ortho' }).click()
+      await expect.poll(() => cornerPixels(page, 'right', ink)).toBeGreaterThan(2)
     } finally {
       await client?.close()
       await app.close()

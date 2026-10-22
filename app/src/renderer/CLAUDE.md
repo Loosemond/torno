@@ -217,6 +217,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `viewport/focus.ts`: a line cast at the meshes of the parts drawn, both faces, what a cut takes away left out,
   the box's own surface not in the way). Parts are drawn together unless the picture says otherwise; `show`
   refuses a focus while the screen is exploded. All of it is synchronous once started, like the rest of a picture.
+- **The frame in the view** (`drawFrameCues` in `viewport/overlay.ts`, drawn by `OverlayPass` with every frame on the
+  canvas the labels are on, never through React): the axis triad bottom left, its arms about 32 px (`SCREEN_UNIT`)
+  in `--axis-x`, `-y`, `-z`, and bottom right the scale bar in an orthographic view or, in perspective, where no one
+  scale holds, the grid's step as `grid 5 mm` (`groundOf`'s `step`; the grid lies on the ground in the object frame, so
+  its step is a true length in any projection). It is of the camera and the object frame only, so it stays while the
+  parts are apart. A picture for the agent has the same triad and bar, and in perspective its note `perspective, no
+  scale bar`, as before. The strip of the Measure tool stands above the triad (`TRIAD_CLEAR`, which `tools.css`
+  holds to).
 - **The strip** (`ui/ViewsStrip.tsx`, the last child of `.viewbars`,
   `role="toolbar"`): a chip per view (`button.view-chip[data-view]`), the
   one that is on marked (`aria-pressed`: `activeView`, while the screen
@@ -291,8 +299,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - No text is dimmed by `opacity`, and nothing animates without end
   (`styles/styles.test.ts` reads the stylesheets): the dot of a session at
   work is still, and a build's beats with the count of its seconds
-  (`data-beat`, set by `BuildStatus` once a second). The axes (`--axis-x`, `-y`, `-z`) are the gizmo's and the triad's of
-  a picture, and are neither mark colour.
+  (`data-beat`, set by `BuildStatus` once a second). The axes (`--axis-x`, `-y`, `-z`) are the gizmo's and the triad's, in the view and in a
+  picture, and are neither mark colour.
 - The light values are written out where no stylesheet is read
   (`viewport/theme.ts` `LIGHT_THEME`, `viewport/sectionDrawing.ts` `SHEET`,
   `viewport/overlay.ts` `AXIS_COLOURS`, `SURFACE` in `src/main/index.ts`,

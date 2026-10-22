@@ -268,7 +268,10 @@ visibility switch. A model that says which of its parts belong together (an opti
 header each, which folds the group, hides or shows all of it, or, on "Show only",
 shows that group alone in the layout; ask the agent to group parts and it edits
 `groups(p)`. In the viewport, drag to orbit, drag with the right or
-middle button to pan, scroll to zoom; the bar at the top switches layout
+middle button to pan, scroll to zoom; a triad in the bottom left corner shows which way X
+(red), Y (green) and Z (blue) run in the object's own frame, as the agent's pictures
+do, and in the bottom right corner are a scale bar (orthographic) or the step of the grid,
+`grid 5 mm` (perspective); the bar at the top switches layout
 (`assembly`, `print`), view and projection. The folder button (top left)
 opens a menu of the folders opened lately (the open one marked "current"),
 "Open folder…" and the example; opening another ends the sessions of this one,
