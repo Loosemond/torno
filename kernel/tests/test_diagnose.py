@@ -1,5 +1,6 @@
 """Why a fillet or a chamfer failed, found by trying (``diagnose``), and the trial the agent asks for (``try_fillet``)."""
 
+import io
 import json
 import time
 
@@ -225,6 +226,41 @@ def test_a_build_that_fails_otherwise_has_no_diagnosis(tmp_path):
     finally:
         kernel.close()
     assert reply["ok"] is False and "diagnosis" not in reply["error"]
+
+
+def _failing_fillet(tmp_path):
+    folder = tmp_path / "plate"
+    folder.mkdir()
+    (folder / "plate.py").write_text(
+        "from build123d import *\nplate = Box(20, 20, 5) - Box(12, 12, 5)\nplate = fillet(plate.edges().filter_by(Axis.Z), 6)\n"
+    )
+    return folder
+
+
+def test_the_diagnosis_keeps_within_what_the_build_has_left(tmp_path):
+    from torno_kernel import worker
+    from torno_kernel.frames import read_frame
+
+    channel = io.BytesIO()
+    assert worker._build(channel, str(_failing_fillet(tmp_path)), "plate.py", deadline=time.monotonic()) is None
+    channel.seek(0)
+    found = read_frame(channel)[0]["error"]["diagnosis"]
+    assert (found["budget"], found["complete"], found["alone"]["tried"]) == (0, False, 0)
+
+
+def test_a_diagnosis_that_fails_leaves_the_error_as_it_was(tmp_path, monkeypatch):
+    from torno_kernel import worker
+    from torno_kernel.frames import read_frame
+
+    def broken(error):
+        raise RuntimeError("the diagnosis broke")
+
+    monkeypatch.setattr(diagnose, "find_call", broken)
+    channel = io.BytesIO()
+    assert worker._build(channel, str(_failing_fillet(tmp_path)), "plate.py") is None
+    channel.seek(0)
+    reply = read_frame(channel)[0]
+    assert reply["ok"] is False and "fillet" in reply["error"]["message"] and "diagnosis" not in reply["error"]
 
 
 # The trial, on the last good build

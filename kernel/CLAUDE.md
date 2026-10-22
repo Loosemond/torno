@@ -199,7 +199,8 @@ is the detail of this folder, under the headings it has there.
   process. It has `BUDGET` (5 s), or what the build's timeout leaves less `MARGIN` (1 s) when that is less: the
   supervisor passes the worker its deadline. OCC's tries cannot be stopped, so the clock is read between them;
   what it had no time for is said (`complete: false`) and never told as a finding. What OCC prints meanwhile goes
-  to `/dev/null`, not into the model's output. The error carries it as `diagnosis`: the shape filleted is an
+  to `/dev/null`, not into the model's output. A diagnosis that fails is none: the build's error is written as it
+  was. The error carries it as `diagnosis`: the shape filleted is an
   intermediate one with no place in the scene, so its edges are numbered by their place in the call (from 0) and
   described with their ends in its frame, `frame: "local"`. `match_edges`, asked of the live worker of the last
   good build by main, names the edges of that build that are exactly one of them (the same curve, ends and length

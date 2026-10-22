@@ -334,6 +334,21 @@ test('a broken save fails the build and keeps the last good parts, dimmed; the e
   await expect(sheet).toBeVisible()
 })
 
+test('a fillet that fails says why in the error sheet, under the message', async () => {
+  writeFileSync(model(), 'from build123d import *\nplate = Box(20, 20, 5) - Box(12, 12, 5)\nplate = fillet(plate.edges().filter_by(Axis.Z), 6)\n')
+  await expect.poll(async () => (await state()).build?.error?.diagnosis?.operation, { timeout: 30_000 }).toBe('fillet')
+  const sheet = page.getByRole('dialog', { name: 'Build error' })
+  if ((await sheet.count()) === 0) await page.getByRole('button', { name: 'Build failed' }).click()
+  const why = sheet.locator('[data-part="diagnosis"]')
+  await expect(why).toContainText('fillet R6 of 8 edges: each works alone; 4 pairs of adjacent edges fail (edges 4-5, 4-6, 5-7, 6-7: 12 mm apart, two R6 need more); the 8 together work up to R5.999')
+  await expect(why).toContainText('4: line, 5 mm, along Z, between 2 planes')
+  // Under the message, before the traceback; set as numbers are.
+  const order = await sheet.locator('.sheet-message, [data-part="diagnosis"], [data-part="traceback"]').evaluateAll((els) => els.map((el) => el.getAttribute('data-part') ?? 'message'))
+  expect(order).toEqual(['message', 'diagnosis', 'traceback'])
+  expect(await why.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('IBM Plex Mono')
+  await expect(sheet.getByRole('heading', { name: 'Why' })).toBeVisible()
+})
+
 test('mending the model builds the next revision and clears the failure', async () => {
   cpSync(join(fixtures, 'bracket', 'bracket.py'), model())
   await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(3)

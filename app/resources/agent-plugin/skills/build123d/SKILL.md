@@ -170,43 +170,32 @@ must never be written into it.
 
 ## Fillets and chamfers
 
-- `fillet(edges, radius)`, `chamfer(edges, length)`. The radius must be under the wall and under half the
-  shortest adjacent edge: a radius at or above the wall fails (`ValueError: Failed creating a fillet with radius
-  of 1.5, try a smaller value or use max_fillet()`). `shape.max_fillet(edges)` gives the largest that works.
-- Two fillets or chamfers on edges of one face need more than twice their size of face between them.
+- `fillet(edges, radius)`, `chamfer(edges, length)`. A radius must be under the wall and under half the shortest
+  adjacent edge, and two fillets or chamfers on edges of one face need more than twice their size of face between
+  them.
 - Order matters: make all the solid geometry first (bosses, cuts, holes), then fillet; fillet the larger radii
   before the smaller, and vertical edges before the ones round the top. A fillet that meets another fillet's edge
-  often fails: select edges from the shape just before (Silent failures, 2).
-- A fillet that fails after a boolean usually means the selection includes tiny edges the boolean left: narrow it
-  (`filter_by`, `group_by`) or fillet before the boolean.
-- **A batch can fail where each edge passes alone.** Find out which: try each alone, then the halves. The cause is
-  usually two fillets that meet (here the top and the bottom of a 5 mm plate, 2.6 mm each).
-  **Never wrap a fillet in `try` and quietly use a smaller radius**: the part is then not the part asked for, and
-  nothing says so. Change the radius in `Params`, or the selection, and say it.
+  often fails: select edges from the shape just before (Silent failures, 2). A fillet that fails after a boolean
+  usually has tiny edges the boolean left in its selection: narrow it (`filter_by`, `group_by`) or fillet first.
+- **When one fails, read why before you edit.** The build's error says it under the message (`Why: fillet R6 of 8
+  edges: each works alone; 4 pairs of adjacent edges fail (edges 4-5, ...: 12 mm apart, two R6 need more); the 8
+  together work up to R5.999`), and `mcp__torno__scene` has it under `build.error.diagnosis`: the edges that fail
+  alone, else the pairs that fail, and the largest radius that works. Its edges are numbered by their place in the
+  call, with their ends in the frame of the shape filleted; one that is an edge of the last good build is named by
+  that ref too. Then try the change on the last good build with `mcp__torno__try_fillet` (`{"part": "lid",
+  "edges": ["lid/E3", "lid/E7"], "radius": 2}`, `"kind": "chamfer"` for a chamfer) before editing again: it
+  changes nothing. Do not call `max_fillet()`: it often raises where the radius can be found.
+- **Never wrap a fillet in `try` and quietly use a smaller radius**, nor lower it on every edge when only some
+  fail: the part is then not the part asked for, and nothing says so. Change the radius in `Params`, or the
+  selection (a smaller radius on the edges that need it), and say it.
 
 ```python
-plate = Box(40, 30, 5)
-
-
-def fails_alone(edges, radius):
-    """The edges of the batch that cannot be filleted on their own."""
-    bad = []
-    for edge in edges:
-        try:
-            fillet(edge, radius)
-        except ValueError:
-            bad.append(edge)
-    return bad
-
-
-try:
-    fillet(plate.edges(), 2.6)
-except ValueError as error:
-    assert "Failed creating a fillet" in str(error)
-else:
-    raise AssertionError("a 2.6 mm fillet top and bottom of a 5 mm plate should fail")
-assert fails_alone(plate.edges(), 2.6) == []     # each passes alone: they fail together
-assert plate.max_fillet(plate.edges()) < 2.5
+plate = Box(20, 20, 5) - Box(12, 12, 5)  # a 12 mm pocket: two R6 on its corners need more than its 12 mm side
+corners = plate.edges().filter_by(Axis.Z).group_by(SortBy.DISTANCE)
+assert [len(group) for group in corners] == [4, 4]  # the pocket's corners, then the outside's
+plate = fillet(corners[-1], 6)  # the outside keeps R6
+plate = fillet(plate.edges().filter_by(Axis.Z).group_by(SortBy.DISTANCE)[0], 5)  # the pocket's take R5
+assert plate.is_valid and len(plate.solids()) == 1
 ```
 
 ## Booleans

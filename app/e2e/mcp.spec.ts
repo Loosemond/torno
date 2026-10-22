@@ -123,14 +123,15 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
     ['describe', { ref: 'base' }],
     ['highlight', { refs: ['base'] }],
     ['show', { view: 'top' }],
-    ['add_mark', { kind: 'pin', note: '', ref: 'base' }]
+    ['add_mark', { kind: 'pin', note: '', ref: 'base' }],
+    ['try_fillet', { part: 'base', edges: ['base/E0'], radius: 1 }]
   ]
   for (const [name, args] of asked) {
     const result = await call(bracket, name, args)
@@ -162,6 +163,18 @@ test('scene reports the build, the parts and what the window shows', async () =>
   expect(scene.parts.map((p: { layout: string; name: string }) => `${p.layout}:${p.name}`)).toEqual(['assembly:base', 'assembly:post', 'print:base', 'print:post'])
   expect(scene.parts[0]).toMatchObject({ name: 'base', visible: true, size: [40, 30, 5], bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, faces: 6, edges: 12, valid: true })
   expect(scene.parts[1]).toMatchObject({ name: 'post', visible: true, size: [8, 8, 20], volume: 1005.31 })
+})
+
+test('try_fillet tries a fillet on the last build, throws it away and says so', async () => {
+  const works = await call(bracket, 'try_fillet', { part: 'base', edges: ['base/E0', 'base/E1'], radius: 1 })
+  expect(works.isError).toBe(false)
+  expect(JSON.parse(works.text)).toMatchObject({ layout: 'assembly', revision: 1, part: 'base', works: true, reading: 'Tried on r1 and thrown away, nothing changed: fillet R1 of 2 edges works.' })
+  // The base is 5 mm thick: an R6 of an edge along its top (E1, 30 mm) fails, and the largest that works is found under 5.
+  const fails = JSON.parse((await call(bracket, 'try_fillet', { part: 'base', edges: ['base/E1'], radius: 6 })).text)
+  expect(fails).toMatchObject({ works: false, frame: 'object', edges: [{ ref: 'base/E1', length: 30 }] })
+  expect(fails.together.worksUpTo).toBeLessThan(5)
+  expect(fails.reading).toMatch(/^Tried on r1 and thrown away, nothing changed: fillet R6 of 1 edge: the edge works up to R4.99/)
+  expect((await call(bracket, 'scene')).text).toContain('"revision":1')
 })
 
 test('look returns the picture the window draws, and keeps a copy under .torno/views', async () => {
@@ -739,7 +752,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })

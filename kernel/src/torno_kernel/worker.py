@@ -158,14 +158,20 @@ def _diagnose(error: BaseException, deadline: float | None) -> dict[str, Any] | 
     """
     from . import diagnose
 
-    if diagnose.find_call(error) is None:
+    # Whatever goes wrong here, the build's own error is still written: a diagnosis that fails is none.
+    try:
+        if diagnose.find_call(error) is None:
+            return None
+        saved = [os.dup(1), os.dup(2)]
+        devnull = os.open(os.devnull, os.O_WRONLY)
+    except Exception:
         return None
-    saved = [os.dup(1), os.dup(2)]
-    devnull = os.open(os.devnull, os.O_WRONLY)
     try:
         os.dup2(devnull, 1)
         os.dup2(devnull, 2)
         return diagnose.from_exception(error, diagnose.budget_left(deadline))
+    except Exception:
+        return None
     finally:
         _flush_output()
         os.dup2(saved[0], 1)
