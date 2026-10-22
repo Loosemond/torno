@@ -300,6 +300,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   object it is of, as a link that goes to that object (or to the page of a new one) and puts the question away
   (`closingWhy`, `leavingWhy` in `closing.ts` return those items). `ui/Confirm.tsx` stays the strip for a question
   about one panel (a scan, a mark, the session).
+- **What torno needs** is one block, "Ready to work" (`ui/Readiness.tsx`; its words are `ui/readiness.ts`, pure and held by
+  `readiness.test.ts`; its state is `store.ready`, asked of main once and told on each change, `useReadyFeed`). A line each
+  for Claude Code, uv (only when missing), a folder's own environment (only with a `pyproject.toml`) and the kernel; a dot
+  in `--ok`, `--warn` or `--fail` (a wait is `--muted`), the label in the muted face, versions, paths and commands in
+  the monospace face, and a note in the muted face under it. When every line is ready it folds to one quiet line ("Claude
+  Code and build123d 0.13.0 are ready") that a click opens; a kernel that is only starting, its environment there, does
+  not keep it open. Nothing is claimed until main has said. It is under the tagline of the first screen, in the empty
+  workspace above "New object", on the page of a new object above Create in the `missing` form (only the lines that
+  say something is amiss, none when none does, and for Claude Code a failure adds that the object will be made but the agent
+  cannot start in it), and in the sheet of the folder menu ("Check what torno needs", a dialog over the window asked afresh,
+  with "Check again"). "Make it now" is on the kernel's line when torno's own environment is not made, no workspace's kernel is
+  starting and uv is there, and "Try again" when it failed. The status line says "Making torno's Python environment, first
+  time only" in place of `Building N s` while the kernel is starting over an environment that was not made.
 - A workspace with no object says what to make (`ui/ShowPage.tsx`), and one
   without a `pyproject.toml` that its models are built with torno's own
   build123d. torno runs no `uv` command there.

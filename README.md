@@ -42,6 +42,24 @@ Linux or macOS. Developed on Arch with Wayland (Hyprland). macOS is tested on Gi
   time a scan is imported. The checks against a scan use the `scipy` of the
   workspace's environment, which build123d brings.
 
+Torno checks these when it starts, before anything fails, and says so in a block
+called "Ready to work" on the first screen, in a workspace with no object and on
+the page of a new object (below): a line for Claude Code, for `uv` when it is
+missing, and for the kernel's Python environment. When everything is there the
+block is one quiet line ("Claude Code and build123d 0.13.0 are ready"), and a
+click opens it. It looks for `claude` and `uv` on the `PATH` torno was started
+with. It also runs `claude --version` and `claude auth status`, once at start and
+within 3 seconds each (nothing written, nothing of your Claude Code settings
+read), to say its version and whether you are signed in, and `uv --version`;
+under test it only looks on the `PATH` and never runs `claude`. "Check what torno
+needs" in the folder menu opens the same lines in a dialog and asks again
+("Check again"). The first time, torno's own Python environment is made by uv and
+about 900 MB is fetched, so that first run needs the network; until then the
+block says "Not made yet", and "Make it now" makes it (`uv sync` on torno's own
+kernel project, never on a workspace) with uv's lines shown as it goes, so that
+the first build does not have to. A workspace with its own `pyproject.toml` is
+only reported on: whether its `.venv` is there. Torno never makes one.
+
 ## Install
 
 ```sh
@@ -76,7 +94,8 @@ Only the launcher writes it: after a `pnpm build` or a test run of your own on
 changed sources, the first start from the launcher builds again (some ten
 seconds, written into `app/out`).
 
-With no folder to open, the first screen says what torno is, draws how a folder
+With no folder to open, the first screen says what torno is, says what is ready
+and what is missing (see Requirements), draws how a folder
 of objects is laid out and offers "Open folder" (an empty one is fine) and
 "Open the example"; coming back, it lists the folders opened lately first. The
 example is four small objects
@@ -88,7 +107,7 @@ folders opened lately, as one opened from the window is.
 
 Once a folder is open, the folder button at the top left opens a menu with the
 same ways to another: the folders opened lately (one that is not found is
-struck and can be removed), "Open folder…" and "Open the example".
+struck and can be removed), "Open folder…" and "Open the example", and "Check what torno needs".
 
 Left alone, Electron chooses whether to draw on Wayland or X11. If the window
 does not come up, or comes up wrong, `TORNO_OZONE=wayland` or `TORNO_OZONE=x11`
@@ -163,7 +182,8 @@ that was not shown; step 7 with a stand-in for the agent.
    are there to fail; leave them.
 
 2. Click `hollow`. It is built (a second or two; longer the very first time,
-   while uv makes torno's own Python environment) and drawn: a tub and its
+   while uv makes torno's own Python environment, which the status line says:
+   "Making torno's Python environment, first time only") and drawn: a tub and its
    lid. Drag to turn it, drag with the right button to pan, scroll to zoom,
    `F` to fit. `1` to `4` are the iso, front, right and top views.
 
@@ -370,7 +390,8 @@ from nowhere in one round (a card in the chat, at most four questions, each with
 "build with assumptions" is an answer) before it builds. What it builds without an answer is marked "assumed" in the
 model, and its reply lists those. If Claude Code cannot start (the command is not found, or the
 trust question stands, or the CLI starts and leaves at once because it is signed out or too old), the object is made
-and open anyway: the pane says why and the text of the prompt waits in the message box for you to send. The
+and open anyway: the pane says why and the text of the prompt waits in the message box for you to send. Where
+torno already knows Claude Code is not found or not signed in, the page says so above "Create", before the folder is made. The
 pictures are not sent then: the text says each is "not attached" and names the file in `reference/` (and the
 `.torno/thumb.png` of another object) for Claude to read. If the object was made but the workspace does not list it,
 the scans were not imported, and the page says so and where the folder is. While "Creating…" shows, `Esc`, Cancel
@@ -1511,6 +1532,22 @@ build is not built again until a source changes.
   `.torno/chat` stops only what goes there (the agent's pictures, an export,
   the scans, the log of a chat): torno writes nothing through it and deletes
   nothing behind it. Take the link away.
+- **The first screen says Claude Code is not found on `PATH`, or not signed
+  in.** Install Claude Code and log in (`claude` in a terminal), then reopen torno,
+  or press "Check again" in the sheet of the folder menu ("Check what torno needs").
+  Torno looks on the `PATH` it was started with, which the line shows, and which a
+  desktop launcher may have shorter than your shell's. The page of a new object
+  says the same above "Create": the object is made all the same, but Claude Code
+  cannot start in it.
+- **The first screen says `uv` is not found.** Install it from
+  [docs.astral.sh/uv](https://docs.astral.sh/uv/) and reopen torno. Without it no
+  build can run: the kernel is started by uv.
+- **The first build is slow, or fails offline.** The first time, uv makes torno's
+  own Python environment and fetches about 900 MB. The first screen says so
+  ("Not made yet"); "Make it now" does it before the first build, and the status
+  line says "Making torno's Python environment, first time only" if the build does
+  it. Offline it fails with uv's reason, which the kernel's line shows; press
+  "Make it now" again, or rebuild, once there is a network.
 - **"New session" says the agent's command was not found on PATH.** Torno
   looks for `claude` on the `PATH` it was started with. Started from a desktop launcher, that may
   not be your shell's: start torno from a terminal, or set
@@ -1563,7 +1600,7 @@ code: its table of keys, and the tools it names.
 | `TORNO_OZONE=wayland` or `x11` | read by `scripts/torno` only, on Linux: the platform Electron is told to draw on. Unset, Electron chooses. On macOS it is ignored, with a line on stderr. |
 | `TORNO_CONFIG=<path>` | the config file to use instead of `~/.config/torno/config.json` (on macOS `~/Library/Application Support/torno/config.json`) |
 | `TORNO_DEBUG=1` | print to stderr the workspace opened at start, the address of the MCP server, and the command line and hooks of every session |
-| `TORNO_TEST=1` | create the window hidden and never show it; keep Electron's own files in a temporary folder of the run; expose the test hooks. For tests only. |
+| `TORNO_TEST=1` | create the window hidden and never show it; keep Electron's own files in a temporary folder of the run; expose the test hooks; look for `claude` on the `PATH` without running it. For tests only. |
 
 The agent inherits torno's environment without these, and without the variables
 a parent Claude Code session exports (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` and
@@ -1689,3 +1726,4 @@ With a real agent:
   plays it as the documentation says. Whether the hooks of a `torno-reviewer`'s `look` arrive on the session's
   address (so that its look counts) has not been seen.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
+- **What torno says it needs, with the real CLI, a machine without `claude` and one without `uv`.** Tests look for `claude` on the `PATH` and never run it; the stand-in plays `--version` and `auth status`. With the real CLI: the first screen says `claude` is found, its version (`claude --version` prints it first, as `2.1.307 (Claude Code)`) and "signed in" (look at the real output of `claude auth status`: torno reads `loggedIn` and `authMethod` of its JSON, and says nothing of the account where it finds neither); signed out (`claude auth logout`) the line says so and the page of a new object warns above "Create"; a `claude` that hangs or is too old to know `auth status` is said to have not answered, within 3 seconds. On a machine without `claude` on the `PATH` the line says "Not found on PATH", and without `uv` the uv line does and the kernel's is left out. With no `kernel/.venv` (or no `kernel-env` under torno's data folder, packaged), "Not made yet" and "Make it now" run `uv sync` on the network and show its lines, then the line says torno's environment is made; offline the reason is uv's. Started from the Finder or a desktop launcher the `PATH` shown is the one torno has.

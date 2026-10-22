@@ -43,6 +43,7 @@ import { onboardObject, sessionRunning } from './onboard'
 import { createObject, readPhoto, sweepStaleNew } from './objects/create'
 import { Offered } from './objects/offered'
 import { scanOrder, scanWorkspace } from './workspace'
+import type { ReadyKeeper } from './readiness'
 
 /**
  * Every channel the window invokes is registered here: a `Refusal` (what the
@@ -55,7 +56,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 }
 
 // Channel names, repeated in src/preload/index.ts.
-//   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions,
+//   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions, ready:check, ready:make,
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:stop, session:chooseView,
@@ -71,7 +72,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, chat:item, chat:meta, chat:capabilities, workspace:requested and window:closeAsked (sent by src/main/index.ts,
 //           which hears the answer, window:closeAnswer),
-//           marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
+//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
 
 /** The longest prompt the window may send. */
 const MAX_PROMPT_CHARS = 200_000
@@ -108,6 +109,9 @@ let sessions: Sessions | null = null
 
 /** The marks of the objects of the open workspace, once `registerIpc` has been given them. */
 let marks: MarkStore | null = null
+
+/** What torno needs and whether it is there, once `registerIpc` has been given it: told the kernel of each workspace as it starts. */
+let readiness: ReadyKeeper | null = null
 
 /** The scans of the objects of the open workspace, once `registerIpc` has been given them. */
 let scans: ScanStore | null = null
@@ -210,6 +214,7 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
   while (current) await closeWorkspace()
 
   const kernel = startKernel({ workspaceRoot: info.root, hasProject: info.hasProject, kernelDir: kernelDir(), ...kernelRun(info.hasProject) })
+  readiness?.opened({ root: info.root, hasProject: info.hasProject }, kernel)
   const builds: Builds = new Builds({
     kernel,
     timeout: buildTimeout(process.env),
@@ -331,6 +336,7 @@ export async function closeWorkspace(): Promise<void> {
   const ws = current
   if (!ws) return
   current = null
+  readiness?.closed()
   offered.clear()
   forgetViews()
   forgetSceneFiles()
@@ -434,6 +440,8 @@ export function registerIpc(
     onSceneFile?: (objectId: string) => void
     /** The open workspace was left: object ids mean nothing any more. */
     onWorkspaceClosed?: () => void
+    /** What torno needs and whether it is there: Claude Code, uv, the kernel's Python environment. */
+    ready?: ReadyKeeper
     /** The folders opened lately, each with whether it is still there. */
     recent?: () => Promise<RecentFolder[]>
     /** Takes a folder off that list, and answers with the list. */
@@ -471,6 +479,8 @@ export function registerIpc(
   onMarksChecked = opts.onMarksChecked ?? null
   onSceneFile = opts.onSceneFile ?? null
   onWorkspaceClosed = opts.onWorkspaceClosed ?? null
+  readiness = opts.ready ?? null
+  readiness?.on('changed', (m) => broadcast('ready:changed', m))
   marks = opts.marks ?? null
   marks?.on('changed', (m) => broadcast('marks:changed', m))
   marks?.on('problem', (m) => broadcast('marks:problem', m))
@@ -515,6 +525,15 @@ export function registerIpc(
     const folder = await opts.example?.()
     if (!folder) throw new Error('this torno has no example beside it')
     return openWorkspace(folder, { example: true })
+  })
+
+  handle('ready:check', async (_event, fresh: unknown) => {
+    if (!readiness) throw new Error('readiness is not available')
+    return readiness.get(fresh === true)
+  })
+  handle('ready:make', async () => {
+    if (!readiness) throw new Error('readiness is not available')
+    await readiness.makeNow()
   })
 
   handle('workspace:versions', async () => {

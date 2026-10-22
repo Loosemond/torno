@@ -8,7 +8,7 @@ export function folderName(root: string): string {
 }
 
 /** What the menu asks to be opened: a folder by its path, the one still to be chosen in the dialog, or the example. */
-export type FolderChoice = { root: string } | 'pick' | 'example'
+export type FolderChoice = { root: string } | 'pick' | 'example' | 'ready'
 
 /**
  * The folder button at the top of the left column, and its menu: the folders opened lately (the open one
@@ -118,6 +118,10 @@ export function FolderMenu({ open: current, disabled, onChoose }: { open: string
               Open the example
             </button>
           )}
+          <hr className="menu-rule" />
+          <button type="button" role="menuitem" className="menu-item" title="Whether Claude Code, uv and the kernel's Python environment are there" onClick={() => choose('ready')}>
+            Check what torno needs
+          </button>
         </div>
       )}
     </div>

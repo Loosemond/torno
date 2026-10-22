@@ -25,6 +25,7 @@ import { NewObject, openNewObject } from './ui/onboard/NewObject'
 import { draftHas, onboard, onboarding } from './state/onboard'
 import { ViewportPane } from './ui/ViewportPane'
 import { KeySheet, useKeysKey } from './ui/KeySheet'
+import { ReadinessSheet, useReadyFeed } from './ui/Readiness'
 import { Welcome } from './ui/Welcome'
 import { giveKeysBack } from './ui/typing'
 
@@ -223,6 +224,7 @@ function useRebuildKey(): void {
 
 export function App() {
   useMain()
+  useReadyFeed()
   useRebuildKey()
   usePageKey()
   useKeysKey()
@@ -275,6 +277,8 @@ export function App() {
   const [leaving, setLeaving] = useState<{ to: string; reasons: Reason[] } | null>(null)
   // What went wrong with the last folder asked for, said under the folder button until the next action.
   const [openFailed, setOpenFailed] = useState<string | null>(null)
+  // The sheet that says what torno needs, from the folder menu.
+  const [checking, setChecking] = useState(false)
   const go = useCallback((to: string) => {
     setOpenFailed(null)
     void goTo(to).then(setOpenFailed)
@@ -365,7 +369,7 @@ export function App() {
             {basename(workspace.root)}
           </h1>
           {/* The way to another folder: those opened lately, the dialog, the example. */}
-          <FolderMenu open={workspace.root} disabled={leaving !== null} onChoose={(choice) => leave(choice === 'pick' ? PICK : choice === 'example' ? EXAMPLE : choice.root)} />
+          <FolderMenu open={workspace.root} disabled={leaving !== null} onChoose={(choice) => (choice === 'ready' ? setChecking(true) : leave(choice === 'pick' ? PICK : choice === 'example' ? EXAMPLE : choice.root))} />
         </header>
         {/* For as long as the example is open: what is made here does not outlive torno, and it says so where the folder is named. */}
         {workspace.example && (
@@ -453,6 +457,7 @@ export function App() {
         />
       )}
       <BuildStatus onOpen={(id) => void openObject(id)} />
+      {checking && <ReadinessSheet onClose={() => setChecking(false)} />}
       {/* Over everything: the keys, asked for with ? or at the foot of the tools. */}
       <KeySheet />
     </div>

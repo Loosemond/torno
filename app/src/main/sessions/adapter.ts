@@ -45,6 +45,11 @@ export interface LaunchContext {
 export interface AgentAdapter {
   /** The command looked for on PATH. */
   command: string
+  /**
+   * The command a session runs and the arguments it is given before all others, for asking the CLI about itself before
+   * any session (`main/ready.ts`: `--version`, `auth status`, outside tests only). With `TORNO_AGENT_CMD`, the stand-in's.
+   */
+  probe: { command: string; args: string[] }
   /** It is given torno's skills (Claude Code's `--plugin-dir`): its system prompt leaves to them what they say. */
   skills: boolean
   /** The plugin of skills it passes (when `skills`): the CLI's `init` is read for whether it loaded. */

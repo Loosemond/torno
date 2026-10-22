@@ -218,21 +218,29 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'confirm-close'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close'] as const
+
+/** Shots of a window with no folder open, or an empty one, where no object is opened. */
+const FIRST_SCREEN = ['welcome-first', 'welcome-first-ready', 'welcome-first-open'] as const
+const NOTHING_OPENED = ['welcome', ...FIRST_SCREEN, 'empty', 'ready-sheet', 'onboard-missing', 'error'] as string[]
+/** Shots where Claude Code is not on the PATH, so that the block says what is missing. */
+const WITHOUT_CLAUDE = ['welcome-first', 'ready-sheet', 'onboard-missing'] as string[]
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
     test(`capture of the window, ${shot}, ${theme}`, async () => {
       test.skip(!process.env.TORNO_SHOTS, 'TORNO_SHOTS is not set')
       test.setTimeout(120_000)
-      const root = shot === 'empty' || shot === 'welcome' ? temp('bare') : workspace()
+      const root = ['empty', 'welcome', 'ready-sheet', 'onboard-missing', ...FIRST_SCREEN].includes(shot) ? temp('bare') : workspace()
       const env: Record<string, string> = {}
       if (shot === 'welcome') {
         // The first screen with folders opened lately, one of them gone. The file is this test's own.
         for (const name of ['objects', 'printer-parts']) mkdirSync(join(root, name))
         writeFileSync(join(root, 'config.json'), JSON.stringify({ recent: [join(root, 'objects'), join(root, 'helmet'), join(root, 'printer-parts')] }))
         env.TORNO_CONFIG = join(root, 'config.json')
-      } else env.TORNO_WORKSPACE = root
+      } else if (!(FIRST_SCREEN as readonly string[]).includes(shot)) env.TORNO_WORKSPACE = root
+      // The first run: no folder was ever opened, and Claude Code is where it should be, or is not.
+      if (WITHOUT_CLAUDE.includes(shot)) env.TORNO_AGENT_CMD = join(root, 'no-such-claude')
       if (shot === 'folders') {
         // The menu of the folder button, with folders opened lately, one of them gone. The file is this test's own, outside the workspace.
         const home = temp('folders')
@@ -252,9 +260,10 @@ for (const theme of ['light', 'dark'] as const) {
       }
       try {
         if (shot === 'welcome') await expect(page.getByRole('navigation', { name: 'Recent folders' }).locator('li')).toHaveCount(3)
+        else if ((FIRST_SCREEN as readonly string[]).includes(shot)) await expect(page.locator('.ready')).toBeVisible()
         else await page.waitForSelector('[data-region="left"]')
-        if (shot === 'empty') await expect(page.locator('.show-empty')).toBeVisible()
-        if (shot !== 'welcome' && shot !== 'empty' && shot !== 'error') await open(page, 'hollow')
+        if (shot === 'empty' || shot === 'ready-sheet' || shot === 'onboard-missing') await expect(page.locator('.show-empty')).toBeVisible()
+        if (!NOTHING_OPENED.includes(shot)) await open(page, 'hollow')
         if (shot === 'main') {
           // Another object whose session waits for an answer, while hollow is open: its row and the status line say so.
           await open(page, 'bracket')
@@ -463,6 +472,20 @@ for (const theme of ['light', 'dark'] as const) {
             await new_.getByRole('button', { name: 'Change doodle 1' }).click()
             await expect(page.getByRole('dialog', { name: 'Doodle board' })).toBeVisible()
           } else await new_.getByLabel('Name', { exact: true }).focus()
+        } else if (shot === 'welcome-first-open') {
+          // Everything is there: the one line, opened to the lines it stands for.
+          await page.locator('.ready-fold').click()
+          await expect(page.locator('.ready-line[data-line="claude"]')).toBeVisible()
+        } else if (shot === 'ready-sheet') {
+          await page.getByRole('button', { name: 'Folders' }).click()
+          await page.getByRole('menuitem', { name: 'Check what torno needs' }).click()
+          await expect(page.getByRole('dialog', { name: 'What torno needs' })).toBeVisible()
+        } else if (shot === 'onboard-missing') {
+          // The page of a new object when Claude Code is not found: the line above Create.
+          await page.locator('.show-empty').getByRole('button', { name: 'New object' }).click()
+          await page.getByLabel('Name', { exact: true }).fill('cable-clip')
+          await page.getByLabel('What is it?').fill('A clip that holds a 6 mm cable to the edge of a desk, printed in PETG.')
+          await expect(page.locator('.new-foot .ready[data-variant="missing"]')).toBeVisible()
         } else if (shot === 'error') {
           await open(page, 'bracket')
           appendFileSync(join(root, 'bracket', 'bracket.py'), '\nraise ValueError("the post is taller than the base is wide")\n')

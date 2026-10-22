@@ -4,6 +4,7 @@ import type { ObjectCard } from '../../shared/show'
 import { actions, store, useStore } from '../state/store'
 import { BEHIND, buildLine, cardChips, matching, pictureLine, stepCard } from './cards'
 import { Logo } from './Logo'
+import { Readiness } from './Readiness'
 import { numbered } from './numbered'
 import { openNewObject } from './onboard/NewObject'
 import { TYPING } from './typing'
@@ -224,6 +225,7 @@ export function ShowPage({ onOpen }: { onOpen: (id: string) => void }) {
           <p>
             Make a folder with a Python model in it, for example <span className="num">part/part.py</span>, and it appears here.
           </p>
+          <Readiness variant="block" />
           <button type="button" className="button button-primary show-empty-new" onClick={openNewObject}>
             New object
           </button>

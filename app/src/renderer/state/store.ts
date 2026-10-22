@@ -5,6 +5,7 @@ import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { BuildState } from '../../shared/build'
 import { type ExplodeState, NO_EXPLODE, SECTION_FIRST, explodeOf, explodeShown, isExploded, neverBoth, sameExplode } from '../../shared/explode'
 import type { Mark, Vec3 } from '../../shared/marks'
+import type { Ready } from '../../shared/ready'
 import type { Part, Scene } from '../../shared/scene'
 import type { ScanInfo, ScanView } from '../../shared/scans'
 import { sectionOf, snappedSection, type Camera, type SectionPlane, type ViewName } from '../../shared/view'
@@ -39,6 +40,8 @@ export interface TornoState {
   workspaceKnown: boolean
   /** Versions the kernel reported: build123d, python. */
   versions: Record<string, string>
+  /** What torno needs and whether it is there (Claude Code, uv, the kernel's Python environment); null until main has said. The window's, not a workspace's. */
+  ready: Ready | null
   objectId: string | null
   /** Build state of the open object. */
   build: BuildState | null
@@ -175,6 +178,7 @@ export const store = createStore<TornoState>(() => ({
   workspace: null,
   workspaceKnown: false,
   versions: {},
+  ready: null,
   ...NO_OBJECT,
   markFocus: 0,
   markReveal: 0,
@@ -225,6 +229,10 @@ export const actions = {
 
   setVersions(versions: Record<string, string>): void {
     store.setState({ versions })
+  },
+
+  setReady(ready: Ready): void {
+    store.setState({ ready })
   },
 
   /** Start showing an object, as its scene file left it. Its build state and scene follow. */

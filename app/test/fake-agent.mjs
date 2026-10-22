@@ -90,6 +90,34 @@ import { resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 
 const argv = process.argv.slice(2)
+
+// What torno asks of the CLI before any session (`main/ready.ts`), outside tests only; answered here so a test of that
+// check can run it: `--version` prints the version as the CLI does, `auth status` its JSON (exit 1 when signed out).
+// FAKE_AGENT_VERSION=<version> (`hang`: never answers) and FAKE_AGENT_AUTH=out|hang|garbage|<anything else is signed in>.
+if (argv[0] === '--version') {
+  if (process.env.FAKE_AGENT_VERSION === 'hang') {
+    setInterval(() => {}, 1000)
+    await new Promise(() => {})
+  } else {
+    console.log(`${process.env.FAKE_AGENT_VERSION ?? '2.1.300'} (Claude Code)`)
+    process.exit(0)
+  }
+} else if (argv[0] === 'auth' && argv[1] === 'status') {
+  const auth = process.env.FAKE_AGENT_AUTH
+  if (auth === 'hang') {
+    setInterval(() => {}, 1000)
+    await new Promise(() => {})
+  } else if (auth === 'garbage') {
+    console.log('Something else entirely')
+    process.exit(0)
+  } else if (auth === 'out') {
+    console.log(JSON.stringify({ loggedIn: false, authMethod: 'none', apiProvider: 'firstParty' }))
+    process.exit(1)
+  } else {
+    console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', email: 'person@example.com' }))
+    process.exit(0)
+  }
+}
 const after = (flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined)
 /** The words of a command's rest: bare ones, or JSON strings (which may hold spaces); a `\n` of a bare one is a new line. */
 const words = (rest) => (rest.match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((w) => (w.startsWith('"') ? JSON.parse(w) : w.replaceAll('\\n', '\n')))

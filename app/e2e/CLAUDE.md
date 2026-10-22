@@ -67,6 +67,10 @@ window on it.
 - The save dialog of an export is answered by `__tornoMain.pickSave` (the path to write, or null; `savePicks`,
   `saveOffered`), the question before a replace by `replace` (`replaceAsked`), and a 3MF asked to be opened once
   saved is never opened: its path goes into `openedFiles`. No test opens a slicer or a CAD program.
+- What torno needs (the first screen's "Ready to work") is found under `TORNO_TEST=1` by looking on the `PATH` alone: `claude`
+  is never run, so there is no version and no account to see (`welcome.spec.ts`). A test that points `TORNO_AGENT_CMD` at a
+  file that is not there sees "Not found on PATH"; one that takes `uv` off the `PATH` gives the app a folder of links to every
+  other command (`pathWithout`), never a `PATH` of `node` alone: Electron does not start on that.
 - `TORNO_TEST=1` also skips the single-instance lock, so test launches can run
   side by side.
 

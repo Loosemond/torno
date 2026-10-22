@@ -333,6 +333,28 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   The fixtures are never opened in place and never written to. The copy is
   not remembered: not as the workspace to open next, not as a recent folder.
 
+- **What torno needs** (`main/ready.ts`, `main/readiness.ts` `ReadyKeeper`, `shared/ready.ts` `Ready`; the channels `ready:check`,
+  `ready:make`, `ready:changed`) is found before anything fails, for the first screen, the empty workspace, the page of a
+  new object and the sheet of the folder menu. `checkTools` looks for the agent's command (`AgentAdapter.probe`: with
+  `TORNO_AGENT_CMD`, the stand-in's) and for `uv` on `process.env.PATH` (the login shell's, on a Mac, after
+  `applyLoginPath`) with the `findCommand` a session uses, and runs nothing for it. Outside tests (`askCli`, false under
+  `TORNO_TEST=1`) it also asks the CLI `--version` and `auth status`, once per run and again only for "Check again" (`get(true)`), each
+  within `ASK_MS` (3 s, then the process is killed: a runner that never answers is given up on as well), nothing
+  written, standard input closed; and `uv --version`. The runner is an argument (`Runner`) so a test runs the
+  stand-in, which answers both (`FAKE_AGENT_VERSION`, `FAKE_AGENT_AUTH`). The version rule is Task 5's (`outside`,
+  `TESTED_CLAUDE`: quiet inside the tested minor); the account is read from the JSON's `loggedIn` and `authMethod` only
+  (`signed-out` on `loggedIn: false` or `none`; any other shape is not known, and the email is never kept); a CLI that
+  does not answer is `silent`. Whether the Python environment is made is whether `pyvenv.cfg` and a `site-packages/build123d`
+  are there (`ownEnvironmentMade`: a folder uv began and did not finish is not made): torno's (`ownEnvironment()` in
+  `paths.ts`: `kernel-env` under `userData` packaged, `kernel/.venv` otherwise), or, for a workspace with a
+  `pyproject.toml`, its `.venv`, which is only reported (`environmentOf`). The kernel of the open workspace is
+  `none`/`starting`/`ready` (versions)/`failed` (its reason, 600 characters at most), set by `ReadyKeeper.opened` and
+  `closed` from `openWorkspace` and `closeWorkspace`; a kernel of a workspace that was left no longer speaks (`epoch`).
+  `ReadyKeeper.makeNow` ("Make it now") runs `environmentCommand` (`uv sync --project <kernel dir>`, `--frozen` and
+  `UV_PROJECT_ENVIRONMENT` when packaged) on torno's own kernel project, never on a workspace: it refuses a folder
+  with its own project, no `uv`, and a kernel that is starting (it makes the environment itself); it tells uv's lines as
+  `changed`. The window is told the whole `Ready` at each change; the window sends nothing that is run or written.
+
 ## The page of objects
 
 - **A card is read, never made** (`shared/show.ts` `ObjectCard`, `src/main/show/cards.ts` `cardsOf`). Asking
@@ -839,8 +861,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   missing or is not the shape expected is "not known", never a warning,** and nothing here throws. `Sessions.start`
   takes `skills: false` (the window's "Restart with the whole prompt", which stops the session and starts it again
   resumed): the system prompt is then the whole text (`systemPromptFor` is given the adapter with `skills` false) and
-  `--plugin-dir` is left out (`LaunchContext.skills`). Torno does not run `claude auth status` to learn the same
-  earlier: the `init` says it at no cost. Nothing of the person's settings is read.
+  `--plugin-dir` is left out (`LaunchContext.skills`). What is known before any session (`main/ready.ts`, The first screen) is the one place torno
+  runs `claude --version` and `claude auth status`; a session says what it can of itself through its `init`. Nothing
+  of the person's settings is read.
 - Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and
   show the status `needs_input` while open. They end when the CLI cancels the request (`control_cancel_request`,
   which it sends right after an `interrupt`; the card reads "Cancelled: the turn was stopped", `why`), at any

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { cannotStart, kernelCommand, kernelEnv, KernelError, type RunningKernel, startKernel, startKernelCommand } from './client'
+import { cannotStart, environmentCommand, kernelCommand, kernelEnv, KernelError, type RunningKernel, startKernel, startKernelCommand } from './client'
 
 // These run the client against fake-kernel.mjs. client.itest.ts runs it against the real kernel.
 const FAKE = join(__dirname, 'fake-kernel.mjs')
@@ -42,6 +42,13 @@ describe('kernelCommand', () => {
     expect(kernelCommand({ workspaceRoot: '/ws', hasProject: true, kernelDir: '/Resources/kernel', frozen: true })).toEqual(
       kernelCommand({ workspaceRoot: '/ws', hasProject: true, kernelDir: '/Resources/kernel' })
     )
+  })
+})
+
+describe('environmentCommand', () => {
+  it("syncs torno's own kernel project, never a workspace, and frozen when packaged", () => {
+    expect(environmentCommand({ kernelDir: '/repo/kernel' })).toEqual(['uv', 'sync', '--project', '/repo/kernel'])
+    expect(environmentCommand({ kernelDir: '/Resources/kernel', frozen: true })).toEqual(['uv', 'sync', '--frozen', '--project', '/Resources/kernel'])
   })
 })
 

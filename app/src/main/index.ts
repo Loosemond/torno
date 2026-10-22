@@ -15,7 +15,8 @@ import { startHttp } from './http'
 import { buildContextFor, contextFor } from './context'
 import { listReferences } from './sessions/reference'
 import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
-import { cannotStart } from './kernel/client'
+import { cannotStart, environmentCommand } from './kernel/client'
+import { ReadyKeeper } from './readiness'
 import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
 import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
@@ -24,7 +25,7 @@ import { MarkStore } from './marks/store'
 import { mountMcp } from './mcp/server'
 import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
-import { agentPluginDir, kernelDir, kernelRun, windowIcon } from './paths'
+import { agentPluginDir, kernelDir, kernelRun, ownEnvironment, windowIcon } from './paths'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { systemPrompt } from './prompt'
@@ -453,13 +454,14 @@ void app.whenReady().then(async () => {
   // The files an agent is given by path (its MCP server's, which holds no secret): what a torno that crashed left is of no use.
   const configDir = join(app.getPath('userData'), 'agent')
   rmSync(configDir, { recursive: true, force: true })
+  const adapter = claudeAdapter(process.env.TORNO_AGENT_CMD, agentPluginDir())
   sessions = new Sessions({
     http,
     configDir,
     // Whether a chat may start in a folder with Claude Code settings of its own: asked once, and kept beside the recent folders.
     trust: new Trust(configPath ? join(dirname(configPath), 'trusted.json') : null),
     // Claude Code, given torno's skills. TORNO_AGENT_CMD is run in place of `claude`.
-    adapter: claudeAdapter(process.env.TORNO_AGENT_CMD, agentPluginDir()),
+    adapter,
     // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat unless it says terminal).
     viewFor: async (obj) => (await readChoice(obj.dir)).view,
     // The viewport as the person has it, for a prompt that attaches the view: of the object the session is of.
@@ -509,6 +511,15 @@ void app.whenReady().then(async () => {
     else win.flashFrame(true)
   })
   registerIpc({
+    // What torno needs, found before it fails. The CLI is looked for on the PATH under test and never run: a person's login is not a test's.
+    ready: new ReadyKeeper({
+      probe: adapter.probe,
+      ...(adapter.tested ? { tested: adapter.tested } : {}),
+      path: () => process.env.PATH ?? '',
+      askCli: !isTest,
+      own: ownEnvironment(),
+      make: { command: environmentCommand({ kernelDir: kernelDir(), frozen: kernelRun(false).frozen }), env: kernelRun(false).env, cwd: kernelDir() }
+    }),
     onWorkspaceChosen: (root) => void rememberWorkspace(root),
     // The folders opened lately, for the first screen, and the one way one leaves the list: the person removes it.
     recent: async () => listed((await readConfig()).recent),

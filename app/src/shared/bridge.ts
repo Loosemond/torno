@@ -10,6 +10,7 @@ import type { ObjectCard, ThumbnailOf } from './show'
 import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, SectionDrawingResult, ShowRequest, ShowResult, ViewState } from './view'
 import type { RecentFolder, WorkspaceInfo } from './workspace'
 import type { ViewDrawing } from './drawing'
+import type { Ready } from './ready'
 
 /** What the onboarding page asks for when the person presses "Create": the new object and everything they gave. */
 export interface CreateRequest {
@@ -72,6 +73,14 @@ export interface TornoBridge {
     onCloseAsked(cb: () => void): () => void
     /** The answer: `true` closes the window, and torno with it; `false` says the person is being asked, and it stays. */
     answerClose(close: boolean): void
+  }
+  /** What torno needs before anything runs (Claude Code, uv, the kernel's Python environment), found before it fails. */
+  ready: {
+    /** As it stands; `fresh` asks the CLI and looks on the PATH again (the CLI is otherwise asked once per run, and never under test). */
+    check(fresh?: boolean): Promise<Ready>
+    /** Makes torno's own Python environment (never a workspace's) with uv; progress comes as `onChanged`. Rejects with why not. */
+    make(): Promise<void>
+    onChanged(cb: (ready: Ready) => void): () => void
   }
   object: {
     open(id: string): Promise<BuildState>            // starts watching and building

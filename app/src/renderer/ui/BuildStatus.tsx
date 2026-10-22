@@ -4,6 +4,7 @@ import { hint } from '../../shared/keys'
 import { unmetDimensions } from '../../shared/dimension'
 import type { Part } from '../../shared/scene'
 import { partDefects } from '../../shared/sanity'
+import { makesEnvironment } from './readiness'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
@@ -75,6 +76,8 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   const defects = useStore((s) => defectsSaid(partsInLayout(s)))
   const broken = defects === '' ? 0 : defects.split('; ').length
   const build123d = useStore((s) => s.versions.build123d)
+  // The kernel is starting and torno's own Python environment is not made: this build is the one that makes it, once.
+  const firstTime = useStore((s) => makesEnvironment(s.ready))
   const marks = useStore((s) => s.marks)
   const revision = useStore((s) => (s.scene ? s.revision : 0))
   const { failing, unmeasured } = unmetDimensions(marks, revision)
@@ -109,11 +112,12 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
           <span className="status-build" data-status={build.status}>
             {/* While a build runs its dot beats with the count of its seconds: once a second, by this render, and by no animation that runs on. */}
             <span className="status-dot" data-beat={building && elapsed % 2 === 1 ? 'off' : undefined} aria-hidden="true" />
-            {build.status === 'building' && (
+            {build.status === 'building' && !firstTime && (
               <span>
                 Building <span className="num">{elapsed}</span> s
               </span>
             )}
+            {build.status === 'building' && firstTime && <span>Making torno's Python environment, first time only</span>}
             {build.status === 'ok' && (
               <span>Built{build.seconds !== undefined && <> in <span className="num">{seconds(build.seconds)}</span> s</>}</span>
             )}

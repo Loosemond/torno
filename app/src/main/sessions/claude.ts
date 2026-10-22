@@ -90,6 +90,7 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
   const [command = 'claude', ...before] = (agentCmd ?? '').split(' ').filter(Boolean)
   return {
     command: 'claude',
+    probe: { command, args: before },
     skills: Boolean(pluginDir),
     ...(pluginDir ? { plugin: TORNO_PLUGIN } : {}),
     tested: TESTED_CLAUDE,

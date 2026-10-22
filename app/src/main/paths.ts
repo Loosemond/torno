@@ -30,6 +30,14 @@ export function windowIcon(): string {
 }
 
 /**
+ * torno's own Python environment, where the kernel of a workspace with no project of its own runs: `kernel-env` under
+ * `userData` in a packaged app (`kernelRun`), `.venv` of the repository's `kernel/` otherwise.
+ */
+export function ownEnvironment(): string {
+  return app.isPackaged ? (kernelRun(false).env.UV_PROJECT_ENVIRONMENT as string) : join(kernelDir(), '.venv')
+}
+
+/**
  * How `uv` is run for the kernel and the import process in this app: `frozen`, and the environment folder under
  * `userData`, in a packaged app, and neither otherwise (`kernelEnv`, `CommandOpts` in kernel/client.ts).
  */

@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import type { RecentFolder, WorkspaceInfo } from '../../shared/workspace'
 import { Logo } from './Logo'
 import { nameOf, openProblem } from './openFolder'
+import { Readiness } from './Readiness'
 
 /** The idea of a folder of objects, drawn: the folder opened, an object in it, and its model. */
 const TREE: readonly (readonly [name: string, label: string])[] = [
@@ -80,6 +81,8 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
     <div className="welcome-page">
       {head}
       <p className="welcome-tagline">Make CAD parts with an AI agent: it writes the model, you point at what to change.</p>
+      {/* What is ready and what is missing, before anything fails: folded to a line when all is well. */}
+      <Readiness variant="block" />
       {!returning && <Tree />}
       {returning && (
         <nav className="welcome-recent" aria-label="Recent folders">

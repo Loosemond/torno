@@ -5,6 +5,7 @@ import { actions, store, useStore } from '../../state/store'
 import { draftHas, onboard, onboarding, useOnboard, type Stroke } from '../../state/onboard'
 import { Confirm } from '../Confirm'
 import { numbered } from '../numbered'
+import { Readiness } from '../Readiness'
 import { isScan, NO_PATH } from '../scanDrop'
 import { TYPING, giveKeysBack } from '../typing'
 import { Doodle } from './Doodle'
@@ -320,6 +321,8 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         </div>
 
         <footer className="new-foot">
+          {/* What is missing, before the folder is made: the object is made without it, and the agent cannot start in it. */}
+          <Readiness variant="missing" />
           <p className="new-will">
             {ready ? (
               <>

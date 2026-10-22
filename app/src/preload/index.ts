@@ -40,6 +40,11 @@ const bridge: TornoBridge = {
     onCloseAsked: (cb) => subscribe('window:closeAsked', cb),
     answerClose: (close) => ipcRenderer.send('window:closeAnswer', close)
   },
+  ready: {
+    check: (fresh) => invoke('ready:check', fresh === true),
+    make: () => invokePlain('ready:make'),
+    onChanged: (cb) => subscribe('ready:changed', cb)
+  },
   object: {
     open: (id) => invoke('object:open', id),
     rebuild: (id) => invoke('object:rebuild', id),

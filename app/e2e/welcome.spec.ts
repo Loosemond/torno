@@ -1,6 +1,6 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import { EXAMPLE_OBJECTS } from '../src/main/example'
@@ -79,7 +79,7 @@ test('the first run shows what to open and how a folder of objects is laid out, 
     })
     expect(logo).toEqual({ parts: 1, part: logo.accent, vise: logo.ink, accent: logo.accent, ink: logo.ink })
     // Run from the repository it has its example beside it; with no folder ever opened there is no list.
-    await expect(first.getByRole('button')).toHaveText(['Open folder', 'Open the example'])
+    await expect(first.locator('.welcome-ways').getByRole('button')).toHaveText(['Open folder', 'Open the example'])
     await expect(first.getByRole('navigation', { name: 'Recent folders' })).toHaveCount(0)
     // The keys are there before any folder is.
     await first.keyboard.press('?')
@@ -270,4 +270,133 @@ test('Ctrl+Shift+E brings up the export sheet, also from a field, where it types
   // The plain letter is still explode's, outside a field.
   await page.keyboard.press('Escape')
   expect((await state()).explode).toEqual({})
+})
+
+// What torno needs, said on the first screen before anything fails (`ui/Readiness.tsx`, `main/ready.ts`). Under TORNO_TEST=1
+// the CLI is looked for on the PATH and never run: no version, no account.
+
+/** The line of one thing, the block opened if it is folded to a sentence. */
+async function readyLine(window: Page, id: string) {
+  const fold = window.locator('.ready-fold[aria-expanded="false"]')
+  if ((await fold.count()) > 0) await fold.click()
+  return window.locator(`.ready-line[data-line="${id}"]`)
+}
+
+test('the first screen says Claude Code is found, or that it is not on the PATH, before anything is tried', async () => {
+  const found = await launch()
+  const lost = await launch({ TORNO_AGENT_CMD: join(tmpdir(), 'torno-no-such-claude') })
+  try {
+    const here = await found.firstWindow()
+    await expect(here.locator('.ready')).toBeVisible()
+    const claude = await readyLine(here, 'claude')
+    await expect(claude).toHaveAttribute('data-tone', 'ok')
+    await expect(claude).toContainText('found at')
+    // The CLI was not run: nothing of its version or its account.
+    await expect(claude).not.toContainText('version')
+    await expect(claude).not.toContainText('signed in')
+
+    const gone = await lost.firstWindow()
+    const missing = await readyLine(gone, 'claude')
+    await expect(missing).toHaveAttribute('data-tone', 'fail')
+    await expect(missing).toContainText('Not found on PATH. Install Claude Code and log in, then reopen torno. See Requirements in the README.')
+    await expect(missing.locator('.ready-note')).toContainText('Looked in')
+    // Something is missing: the block is open, not folded to a sentence.
+    await expect(gone.locator('.ready-fold')).toHaveCount(0)
+    await expect(gone.getByRole('heading', { name: 'Ready to work' })).toBeVisible()
+    // The ways in are there all the same.
+    await expect(gone.getByRole('button', { name: 'Open folder' })).toBeEnabled()
+  } finally {
+    await found.close()
+    await lost.close()
+  }
+})
+
+/**
+ * A folder of links to every command the PATH has but `uv`, to put in its place: the PATH of the person with one command
+ * fewer. (A PATH of nothing but `node` keeps the app from starting.)
+ */
+function pathWithout(command: string): string {
+  const bin = temp('path')
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    for (const name of existsSync(dir) ? readdirSync(dir) : []) {
+      if (name === command || existsSync(join(bin, name))) continue
+      try {
+        symlinkSync(join(dir, name), join(bin, name))
+      } catch {
+        // A name twice, or one that cannot be linked: the command is not wanted for the check.
+      }
+    }
+  }
+  return bin
+}
+
+test('the first screen says uv is missing on a PATH without it', async () => {
+  const bin = pathWithout('uv')
+  const bare = await launch({ PATH: bin })
+  try {
+    const first = await bare.firstWindow()
+    const uv = await readyLine(first, 'uv')
+    await expect(uv).toHaveAttribute('data-tone', 'fail')
+    await expect(uv).toContainText('Not found on PATH. Install it from docs.astral.sh/uv, then reopen torno.')
+    // The stand-in is found (node is on that PATH): only uv is missing.
+    await expect(first.locator('.ready-line[data-line="claude"]')).toHaveAttribute('data-tone', 'ok')
+  } finally {
+    await bare.close()
+    rmSync(bin, { recursive: true, force: true })
+  }
+})
+
+test('the empty workspace and the page of a new object say what is missing, and the folder menu checks it again', async () => {
+  const empty = temp('ready-empty')
+  const project = temp('ready-project')
+  writeFileSync(join(project, 'pyproject.toml'), '[project]\nname = "mine"\nversion = "0.1.0"\n')
+  const lost = await launch({ TORNO_WORKSPACE: empty, TORNO_AGENT_CMD: join(tmpdir(), 'torno-no-such-claude') })
+  const ok = await launch({ TORNO_WORKSPACE: empty })
+  const own = await launch({ TORNO_WORKSPACE: project })
+  try {
+    const gone = await lost.firstWindow()
+    await gone.waitForSelector('[data-region="left"]')
+    const block = gone.locator('.show-empty .ready')
+    await expect(block.locator('.ready-line[data-line="claude"]')).toContainText('Not found on PATH')
+    // The page of a new object has the line above Create, and says what that means for the object.
+    await gone.locator('.show-empty').getByRole('button', { name: 'New object' }).click()
+    const foot = gone.locator('.new-foot .ready[data-variant="missing"]')
+    await expect(foot.locator('.ready-line[data-line="claude"]')).toHaveAttribute('data-tone', 'fail')
+    await expect(foot).toContainText('The object will be made, but Claude Code cannot start in it until this is put right.')
+    // Above Create, not under it.
+    expect(await foot.evaluate((el) => !!(el.compareDocumentPosition(document.querySelector('.new-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+
+    // With Claude Code found the new object's page has no such block.
+    const fine = await ok.firstWindow()
+    await fine.waitForSelector('[data-region="left"]')
+    await fine.locator('.show-empty').getByRole('button', { name: 'New object' }).click()
+    await expect(fine.locator('.new-foot')).toBeVisible()
+    await expect(fine.locator('.new-foot .ready')).toHaveCount(0)
+    await fine.keyboard.press('Escape')
+    await expect(fine.locator('.show-empty')).toBeVisible()
+
+    // The folder menu has the check, as a dialog over the window.
+    await fine.getByRole('button', { name: 'Folders' }).click()
+    await fine.getByRole('menuitem', { name: 'Check what torno needs' }).click()
+    const sheet = fine.getByRole('dialog', { name: 'What torno needs' })
+    await expect(sheet).toBeVisible()
+    await expect(sheet.locator('.ready-line[data-line="claude"]')).toContainText('found at')
+    await expect(sheet.getByRole('button', { name: 'Check again' })).toBeVisible()
+    await fine.keyboard.press('Escape')
+    await expect(sheet).toBeHidden()
+
+    // A folder with a pyproject.toml and no .venv: said before the first build, and nothing is made there.
+    const mine = await own.firstWindow()
+    await mine.waitForSelector('[data-region="left"]')
+    const line = await readyLine(mine, 'project')
+    await expect(line).toHaveAttribute('data-tone', 'fail')
+    await expect(line).toContainText('has a pyproject.toml but no .venv. Run uv sync in it once and open it again: torno never does that.')
+    expect(readdirSync(project)).toEqual(['pyproject.toml'])
+  } finally {
+    await lost.close()
+    await ok.close()
+    await own.close()
+    rmSync(empty, { recursive: true, force: true })
+    rmSync(project, { recursive: true, force: true })
+  }
 })

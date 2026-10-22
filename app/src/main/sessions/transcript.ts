@@ -924,7 +924,7 @@ const parts = (version: string): [number, number, number] | null => {
  * Whether a version is older than the tested minimum, or of a newer major or minor than the tested maximum (a patch
  * of the tested minor is quiet); null for one inside, or one that cannot be read (not known).
  */
-function outside(version: string, range: { min: string; max: string }): 'older' | 'newer' | null {
+export function outside(version: string, range: { min: string; max: string }): 'older' | 'newer' | null {
   const v = parts(version)
   const lo = parts(range.min)
   const hi = parts(range.max)

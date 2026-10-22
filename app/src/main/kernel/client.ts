@@ -80,6 +80,15 @@ export function kernelCommand(opts: CommandOpts): string[] {
 }
 
 /**
+ * The command that makes torno's own Python environment before any build asks for it ("Make it now"): `uv sync` on the
+ * kernel's own project, which is what `kernelCommand` runs without a workspace project of its own. It takes no workspace:
+ * the environment of a folder with a `pyproject.toml` is the person's, and torno never makes it.
+ */
+export function environmentCommand(opts: { kernelDir: string; frozen?: boolean }): string[] {
+  return ['uv', 'sync', ...(opts.frozen ? ['--frozen'] : []), '--project', opts.kernelDir]
+}
+
+/**
  * The command that runs the kernel package's import process for a workspace:
  * the kernel's own, with the `scans` extra. Only this process asks for the
  * extra (trimesh, pillow): no kernel start depends on it.

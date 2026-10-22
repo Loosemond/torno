@@ -153,8 +153,8 @@ test('the folder button opens a menu: the folders opened lately, the dialog and 
   const menu = page.getByRole('menu', { name: 'Folders' })
   await expect(menu).toBeVisible()
   // Whole when it comes: never the dialog alone first, with the list arriving after.
-  expect(await menu.getByRole('menuitem').count()).toBe(3)
-  await expect(menu.getByRole('menuitem')).toHaveText([/torno-e2e-finalfix-/, 'Open folder…', 'Open the example'])
+  expect(await menu.getByRole('menuitem').count()).toBe(4)
+  await expect(menu.getByRole('menuitem')).toHaveText([/torno-e2e-finalfix-/, 'Open folder…', 'Open the example', 'Check what torno needs'])
   // The open one is marked, and is not to be opened again.
   await expect(menu.locator('.folder-row[data-open]')).toContainText('current')
   await expect(menu.getByRole('menuitem').first()).toBeDisabled()
