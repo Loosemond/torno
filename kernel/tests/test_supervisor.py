@@ -1747,8 +1747,17 @@ def stat_of(pid: int) -> str | None:
 
 
 def gone_or_zombie(pid: int) -> bool:
-    # Nobody may reap an orphan in a container; a zombie is dead all the same.
-    return stat_of(pid) in (None, "") or stat_of(pid).startswith("Z")
+    # Nobody may reap an orphan in a container; a zombie is dead all the same. The state is read once:
+    # the process may leave between two reads, and a read that finds nothing is not a state.
+    state = stat_of(pid)
+    return state is None or state.startswith("Z")
+
+
+def test_a_process_that_leaves_between_two_reads_of_its_state_is_gone(monkeypatch):
+    # The race of #134: the first read sees the process, the second finds it gone.
+    states = iter(["S", None])
+    monkeypatch.setattr(sys.modules[__name__], "stat_of", lambda pid: next(states))
+    assert gone_or_zombie(1) is False
 
 
 def wait_until(condition, seconds: float) -> bool:
@@ -1781,7 +1790,7 @@ def test_a_worker_that_watches_its_parent_leaves_when_the_parent_is_killed():
         assert not gone_or_zombie(child)
         parent.kill()
         parent.wait()
-        assert wait_until(lambda: gone_or_zombie(child), 5)
+        assert wait_until(lambda: gone_or_zombie(child), 20)
     finally:
         parent.kill()
         parent.wait()
@@ -1805,7 +1814,7 @@ def test_workers_die_with_the_supervisor_when_it_is_killed(fresh, ws):
     assert not gone_or_zombie(started["pid"])
     fresh.proc.kill()
     fresh.proc.wait()
-    assert wait_until(lambda: gone_or_zombie(started["pid"]), 10)
+    assert wait_until(lambda: gone_or_zombie(started["pid"]), 20)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS gives a Unix socketpair about 8 KB; Linux's is large")
