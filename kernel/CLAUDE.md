@@ -55,7 +55,8 @@ is the detail of this folder, under the headings it has there.
   is a reversed solid; torno never mends the shape (`Solid.fix()`). A volume is exact
   only of a part all planes, cylinders, cones, spheres and tori that end in lines and circles. Of any other part
   the volume is integrated by Gauss-Kronrod, never to 1e-9: at finer and finer tolerances for
-  as long as the looser ones together took under 0.1 s of processor time (`VOLUME_TOLERANCES`, `_SPARE`), once
+  as long as the looser ones together took under 0.1 s of processor time (`VOLUME_TOLERANCES`, `_SPARE`; one budget
+  for the whole part, all its freeform solids refined together a tolerance at a time), once
   per solid in a build, and told as approximate (`volumeExact: false` in the scene, `describe` and `check
   overlap`; `exact: false` in `measure volume` and `mass`). How far it can be relied on is what two integrals
   that differ agree to, one digit fewer, two to six (`good to about N significant digits`), or, when they agree

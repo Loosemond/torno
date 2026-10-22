@@ -144,3 +144,56 @@ def test_check_overlap_names_the_parts_with_a_reversed_solid():
 def test_the_descriptor_of_a_sound_part_is_unchanged():
     facts = {"bbox": {"min": [0, 0, 0], "max": [10, 10, 10]}, "faceCount": 6, "volume": 1000.0}
     assert descriptor("part", facts) == "part, 10 × 10 × 10 mm, 1000 mm³, 6 faces"
+
+
+def test_a_solid_and_its_inside_out_twin_are_not_one_whichever_is_measured_first():
+    from build123d import Box, Solid
+
+    sound = Box(10, 10, 10)
+    twin = Solid(sound.wrapped.Reversed())
+    for first, second, reversed_first in ((sound, twin, ()), (twin, sound, (0,))):
+        known: list = []
+        assert extent.volume(first, known).reversed == reversed_first
+        assert extent.volume(second, known).reversed == tuple(i for i in (0,) if not reversed_first)
+        assert len(known) == 2
+    # The same solid turned the same way is still integrated once.
+    known = []
+    extent.volume(sound, known)
+    assert extent.volume(Solid(sound.wrapped), known) is known[0][1]
+    assert len(known) == 1
+
+
+def test_the_budget_for_refining_a_volume_is_the_part_s_and_not_each_solid_s(monkeypatch):
+    from build123d import Compound, Pos, Sphere, scale
+
+    asked: list[float] = []
+    clock = [0.0]
+    integrate = extent._gauss_kronrod
+
+    def counted(wrapped, tolerance, centre):
+        asked.append(tolerance)
+        clock[0] += 0.06
+        return integrate(wrapped, tolerance, centre)
+
+    monkeypatch.setattr(extent, "_gauss_kronrod", counted)
+    monkeypatch.setattr(extent, "_clock", lambda: clock[0])
+    four = Compound([Pos(30 * i, 0, 0) * scale(Sphere(5), by=(1, 2, 3)) for i in range(4)])
+    assert len(topo.solids(four)) == 4
+    volume = extent.volume(four)
+    first = extent.VOLUME_TOLERANCES[0]
+    # The four first integrals took the 0.1 s the part has: no solid is refined, none is left behind.
+    assert asked == [first] * 4
+    assert volume.exact is False and volume.value == pytest.approx(4 * 4 / 3 * math.pi * 5 * 10 * 15, rel=1e-3)
+    # Cheaper integrals go on together, all the solids one tolerance after another, while the part's total
+    # is under the budget: as many levels as a single solid of the same cost would have.
+    del asked[:]
+    clock[0] = 0.0
+
+    def cheaper(wrapped, tolerance, centre):
+        asked.append(tolerance)
+        clock[0] += 0.01
+        return integrate(wrapped, tolerance, centre)
+
+    monkeypatch.setattr(extent, "_gauss_kronrod", cheaper)
+    extent.volume(four)
+    assert asked == [tolerance for tolerance in extent.VOLUME_TOLERANCES[:3] for _ in range(4)]

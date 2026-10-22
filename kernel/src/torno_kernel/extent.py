@@ -142,8 +142,12 @@ def volume(shape: Any, known: list[tuple[Any, "Volume"]] | None = None) -> Volum
 
 
 def _same_solid(one: Any, other: Any) -> bool:
-    """Whether two shapes are one, placed twice: a placement that scaled it would change its volume."""
-    if not one.IsPartner(other):
+    """Whether two shapes are one, placed twice: a placement that scaled it would change its volume.
+
+    Turned the same way: a solid and its inside-out twin share their ``TShape`` and have volumes of
+    opposite signs.
+    """
+    if not one.IsPartner(other) or one.Orientation() != other.Orientation():
         return False
     scales = [abs(shape.Location().Transformation().ScaleFactor()) for shape in (one, other)]
     return abs(scales[0] - scales[1]) <= 1e-12
@@ -162,7 +166,7 @@ def volume_and_centre(shape: Any, centre: bool = True) -> tuple[Volume, Any]:
     solids = topo.solids(_topods(shape))
     if not solids:
         return Volume(0.0, True), None
-    each = [_solid_volume(solid, centre) for solid in solids]
+    each = _solid_volumes(solids, centre)
     inverted = tuple(i for i, (signed, *_) in enumerate(each) if signed < 0)
     value = math.fsum(abs(signed) for signed, *_ in each)
     at = _centre_of([(abs(signed), point) for signed, _, _, point in each]) if centre else None
@@ -186,43 +190,58 @@ def _centre_of(weighed: list[tuple[float, Any]]) -> Any:
     )
 
 
-def _solid_volume(wrapped: Any, centre: bool) -> tuple[float, bool, float, Any]:
-    """The volume of one solid with OCC's sign (negative when its faces point inward), whether it
-    is exact, how far it is in doubt (its spread) and, if wanted, its centre of mass."""
+def _solid_volumes(solids: list[Any], centre: bool) -> list[tuple[float, bool, float, Any]]:
+    """For each solid its volume with OCC's sign (negative when its faces point inward), whether it
+    is exact, how far it is in doubt (its spread) and, if wanted, its centre of mass.
+
+    The solids that are not exact are refined together, one tolerance after another for all of
+    them, and by one budget for the part: a part of many freeform solids costs what the same
+    surfaces in one solid would, and is as good.
+    """
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
 
-    if round_and_straight(wrapped):
+    told: list[tuple[float, bool, float, Any] | None] = [None] * len(solids)
+    freeform = []
+    for i, wrapped in enumerate(solids):
+        if not round_and_straight(wrapped):
+            freeform.append(i)
+            continue
         # The quick integral is exact of these (1e-15 wherever it was checked),
         # and Gauss-Kronrod takes 2 ms more of every torus: 0.9 s against
         # 0.07 s on a block with 289 filleted holes, at every build.
         measured = GProp_GProps()
         BRepGProp.VolumeProperties_s(wrapped, measured)
-        return float(measured.Mass()), True, 0.0, measured.CentreOfMass() if centre else None
+        told[i] = (float(measured.Mass()), True, 0.0, measured.CentreOfMass() if centre else None)
     # Gauss-Kronrod: the quick integral is 0.02 % out on a prism with a spline
     # for its outline and 0.6 % on a loft, and the form of it that takes an
     # epsilon does not converge there (0.7 % out at 1e-9).
-    spent, taken, at = 0.0, [], None
+    spent = 0.0
+    taken: dict[int, list[float]] = {i: [] for i in freeform}
+    at: dict[int, Any] = {}
     for tolerance in VOLUME_TOLERANCES:
         # It cannot be interrupted: what bounds its cost is the tolerance it is
         # asked for, and a finer one is asked only while the looser ones left
         # time. Not even a second is taken of a part whose first took it all.
-        if taken and spent >= _SPARE:
+        if spent >= _SPARE:
             break
-        started = _clock()
-        value, at = _gauss_kronrod(wrapped, tolerance, centre)
-        spent += _clock() - started
-        taken.append(value)
-    value = taken[-1]
-    # Held against the last integral before it that gave another number: two
-    # that give the same did not refine (at 1 and at 0.1 a part of 92 faces
-    # had the same to 1e-13, 2e-5 out). When none did, or there is one only,
-    # against an integral of another kind, whose cost is that of its order:
-    # a value that agrees with itself says nothing.
-    other = next((earlier for earlier in reversed(taken) if earlier != value), None)
-    if other is None:
-        other = _fixed_order(wrapped)
-    return value, False, abs(value - other), at
+        for i in freeform:
+            started = _clock()
+            value, at[i] = _gauss_kronrod(solids[i], tolerance, centre)
+            spent += _clock() - started
+            taken[i].append(value)
+    for i in freeform:
+        value = taken[i][-1]
+        # Held against the last integral before it that gave another number: two
+        # that give the same did not refine (at 1 and at 0.1 a part of 92 faces
+        # had the same to 1e-13, 2e-5 out). When none did, or there is one only,
+        # against an integral of another kind, whose cost is that of its order:
+        # a value that agrees with itself says nothing.
+        other = next((earlier for earlier in reversed(taken[i]) if earlier != value), None)
+        if other is None:
+            other = _fixed_order(solids[i])
+        told[i] = (value, False, abs(value - other), at[i])
+    return [one for one in told if one is not None]
 
 
 def _gauss_kronrod(wrapped: Any, tolerance: float, centre: bool) -> tuple[float, Any]:
