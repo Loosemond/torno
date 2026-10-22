@@ -50,3 +50,56 @@ export interface ViewDrawing {
   /** Strokes not in `under`, beyond `MOST_STROKES_TOLD`. */
   moreStrokes?: number
 }
+
+/** The most faces the line a drawing is shown by lists; the rest are counted. */
+export const MOST_FACES_LISTED = 8
+
+/**
+ * What a drawing's ink lies over, as the person is shown it before the drawing goes and under it once it has: refs and
+ * counts, no kernel line and no pixel. The chat keeps it on the prompt's item (text, so the log may hold it); the
+ * picture is never kept.
+ */
+export interface DrawnOver {
+  /** The build the drawing was made on: the faces are of it. */
+  revision: number
+  /** The object's latest build when the prompt went, when it was another than `revision`. */
+  latest?: number
+  /** Null when the view moved while it was drawn and it could not be said. */
+  over: {
+    /** The faces, once each, in the order the strokes first cross them (`lid/F12`). */
+    faces: string[]
+    moreFaces?: number
+    /** The parts whose cut face, where a section cuts them, is under the ink. */
+    cuts: string[]
+    scans: string[]
+    /** The strokes, by number from 1, that lie over no part and no scan. */
+    bare: number[]
+    /** How many strokes have ink left. */
+    strokes: number
+    moreStrokes?: number
+  } | null
+}
+
+const once = (all: string[]): string[] => [...new Set(all)]
+
+/** What the ink of a drawing lies over, as `DrawnOver`; `latest` is the object's last build now. */
+export function drawnOver(d: Pick<ViewDrawing, 'revision' | 'under' | 'moreStrokes'>, latest?: number): DrawnOver {
+  const stamp = latest !== undefined && latest !== d.revision ? { latest } : {}
+  if (d.under === null) return { revision: d.revision, ...stamp, over: null }
+  const all = once(d.under.flatMap((s) => s.refs.map((r) => r.ref)))
+  const unlisted = all.length - MOST_FACES_LISTED
+  const moreFaces = Math.max(0, unlisted) + d.under.reduce((n, s) => n + (s.moreRefs ?? 0), 0)
+  return {
+    revision: d.revision,
+    ...stamp,
+    over: {
+      faces: all.slice(0, MOST_FACES_LISTED),
+      ...(moreFaces > 0 ? { moreFaces } : {}),
+      cuts: once(d.under.flatMap((s) => s.cuts)),
+      scans: once(d.under.flatMap((s) => s.scans)),
+      bare: d.under.flatMap((s, i) => (s.refs.length === 0 && s.cuts.length === 0 && s.scans.length === 0 ? [i + 1] : [])),
+      strokes: d.under.length,
+      ...(d.moreStrokes ? { moreStrokes: d.moreStrokes } : {})
+    }
+  }
+}

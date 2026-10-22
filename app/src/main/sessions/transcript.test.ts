@@ -253,6 +253,17 @@ describe('what is sent', () => {
     expect(t.userSent([...text('look'), img], false)).toMatchObject({ text: 'look' })
   })
 
+  it('keeps what the ink of a drawing lies over on the user item, as data, and the caption it came with out of its text', () => {
+    const t = new Transcript({ redact: (x) => x.replaceAll('secret-token', '[redacted]') })
+    const img = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_1X1 } } as const
+    const over = { revision: 3, over: { faces: ['tub/F3', 'secret-token/F1'], cuts: ['lid'], scans: [], bare: [2], strokes: 2 } }
+    const item = t.userSent([...text('thicker'), ...text('Picture: the view as the person saw it when they drew on it, on r3 (...)'), img], false, undefined, over)
+    expect(item).toMatchObject({ kind: 'user', text: 'thicker', drawing: { revision: 3, over: { faces: ['tub/F3', '[redacted]/F1'], cuts: ['lid'], bare: [2], strokes: 2 } } })
+    expect(JSON.stringify(item)).not.toContain('Picture: the view')
+    // A prompt with none has no field.
+    expect(t.userSent(text('plain'), false)).not.toHaveProperty('drawing')
+  })
+
   it('names the file in reference/ of a picture of the first prompt, and of no other picture', () => {
     const t = new Transcript()
     const png = { mediaType: 'image/png' as const, width: 1, height: 1, bytes: Buffer.from(PNG_1X1, 'base64') }

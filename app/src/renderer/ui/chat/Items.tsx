@@ -6,6 +6,7 @@ import { AskCard } from './AskCard'
 import { BuildLine } from './BuildLine'
 import { Markdown } from './markdown'
 import { YOUR_MESSAGE } from './gone'
+import { DrawnOverLine } from './DrawnOver'
 import { Pictures } from './Pictures'
 import { RefChip } from './RefChip'
 import { ToolCard } from './ToolCard'
@@ -73,6 +74,11 @@ const User = memo(function User({ item }: { item: Of<'user'> }) {
     <div className="chat-item chat-user" data-kind="user" data-state={item.state}>
       {item.text !== '' && <p className="chat-user-text selectable">{numbered(item.text)}</p>}
       <Pictures images={item.images} what={YOUR_MESSAGE} />
+      {item.drawing && (
+        <p className="chat-user-drawing">
+          <DrawnOverLine drawn={item.drawing} />
+        </p>
+      )}
       {item.state === 'queued' && <p className="chat-user-state">Queued</p>}
       {item.state === 'not-sent' && <p className="chat-user-state">Not sent</p>}
     </div>

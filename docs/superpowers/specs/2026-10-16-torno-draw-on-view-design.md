@@ -50,13 +50,16 @@ which faces, parts and scans each stroke lies over.
    under it). Main checks every field (`main/sessions/drawing.ts` `drawingOf`: a PNG of at most 2000 px and
    3.75 MB, a caption of one line, refs of the ref grammar, caps on strokes and refs) and writes the caption
    (`drawingText`). The prompt is the person's text, the caption, the picture: the transcript already shows the
-   first text and the pictures, and hides a caption right before a picture.
+   first text and the pictures, and hides a caption right before a picture; what the ink lies over is shown
+   under the picture from data on the user item (`DrawnOver`: refs and counts), as the chip above the box shows
+   it before the drawing is sent.
 6. **The revision is said.** The caption names the build the drawing was made on; when the model has been built
    again by the time it is sent, it says so: the refs are of that build.
 7. **One prompt, no file.** The drawing waits in the composer (a chip with its thumbnail, "Edit", "Remove") until
    it is sent, then is gone; it is kept per session in the window's store while the pane shows something else, and
-   counts as an unsent prompt when the window is closed. Nothing is written under `.torno/` (the chat log keeps
-   text only, as for every picture).
+   counts as an unsent prompt when the window is closed. The picture is written nowhere (the chat log keeps
+   text only, as for every picture); the line of what its ink lies over, refs and counts, is text on the prompt's
+   item and may be in the log.
 8. **Where it is**: "Draw on view" beside "Attach view" in the chat's composer. The terminal view has neither: a
    picture reaches the CLI only through the chat's stream.
 9. **Keys**: `board.undo` (`Ctrl+Z`) moves from the scope `newobject` to `sheet`: the board is a sheet wherever it

@@ -455,14 +455,22 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   words: its card counts the steps it took ("12 steps") and, opened, lists the
   tools it used.
 - **"Attach view"** adds a picture of the viewport as you see it to the next
-  prompt only.
+  prompt only. Pressed, it shows a small picture of the view as it is now above
+  the box, with "Remove", beside the drawing's row when there is one; the
+  picture that goes is taken again as the prompt is sent.
 - **"Draw on view"** opens a board over a picture of the view: the very picture
   the agent's `look` makes of it, with the axes, the scale bar and the marks
   numbered. Draw on it as on the doodle board (two pens, an eraser that takes
   away only your ink, "Undo" and `Ctrl+Z`, "Clear"); the ink is magenta, edged
   with a thin line, which no mark is drawn in. "Done" puts the drawing above the
   box, with "Edit" and "Remove", and the box has the keys again, for the prompt
-  it goes with; it goes with your next prompt only. Claude
+  it goes with; it goes with your next prompt only. The row says what the ink
+  lies over, before anything is sent: `Over tub/F3, tub/F1, the cut face of lid
+  · stroke 2 over no part`, the refs as chips that light their face in the view
+  when the pointer is on them. If the view moved while you drew, it says in
+  amber that this was not worked out, with "Draw again"; if the model has been
+  built again since, it says the faces are of the build you drew on. The prompt,
+  once sent, shows the same line under its picture. Claude
   Code gets the picture with your ink, and before it a caption torno writes: that
   the strokes are your drawing, which build it was drawn on, the camera it was
   seen from (so that it can `look` from there again), and stroke by stroke the
@@ -472,8 +480,9 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   coordinate is taken from the drawing. If the view moved while you drew (the
   agent's `show`, a build), the caption says what lies under the ink was not
   worked out; if the model was built again before you sent it, it says the refs
-  are of the build you drew on. The terminal view has no "Draw on view", and a
-  drawing is never written to disk.
+  are of the build you drew on. The terminal view has no "Draw on view". The
+  picture is never written to disk; the line of what it lies over, refs only, is
+  text in the chat's log like the rest of the prompt.
 - **What Claude Code says of itself.** torno reads the account the CLI gives at
   the start of a turn and says what a person would miss: a warning when torno's
   tools did not connect, with what the CLI said; a warning when torno's skills
@@ -1574,7 +1583,7 @@ On the screen:
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.
 - **The Scans panel.** Import a scan of your own: the sheet `How is S1 read?` is at the top of the Scans panel with the size it would have; "Later" leaves a dot on the row. The row is one line at the column's default width, the name cut with an ellipsis and whole in its tooltip, the word legible in both themes, the dot and a `check` or `rough` word told apart from the rest. Open its detail and another's: one is open at a time, and Frame, Align and Rename are on one line.
-- **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the chat shows the picture with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
+- **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the row above the box names the faces the ink lies over before anything is sent (and says so, in amber, when it could not be worked out), "Attach view" shows a small picture of the view before it goes, the chat shows the picture and that line with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
 - **A broken part in the layers.** Build a model with a cavity whose shell faces into it, or a part made of a shell
   with a face left out: its layer row says "not valid" (or "not closed") after its name in the colour of a failure,
   with what that means in its tooltip, and the line at the bottom says "1 part has a defect"; legible in light and

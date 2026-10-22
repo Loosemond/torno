@@ -558,7 +558,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   ("Edit", "Remove"); the board put away, by Done or Cancel, gives the keys to the composer's box (its own giving back
   finds "Draw on view" disabled once a drawing waits). It is taken by the next send and given back if that fails, counts as an unsent prompt when the
   window is closed (`unsentSessions`), and goes with the workspace (`clearDrafts`). The composer's box takes the pane's
-  width; its buttons are a row under it.
+  width; its buttons are a row under it. The drawing's row says what its ink lies over, in live chips
+  (`ui/chat/DrawnOver.tsx`, from `drawnOver` of `shared/drawing.ts`: the faces, `the cut face of lid`, scans, `stroke 2
+  over no part`; the hover lights a face in the view as everywhere): one that was not worked out says so in `--warn` with
+  "Draw again" (which drops it and opens a new board); one drawn on an earlier build says its faces are of that build.
+  The sent prompt shows the same line under its picture (`drawing` on the user item). "Attach view", pressed, shows a
+  thumbnail of the view as it is now in a row of its own beside the drawing's, with "Remove"; the picture sent is taken
+  again when the prompt goes. The board is titled "Draw on view", as its button.
 
 ## Export
 

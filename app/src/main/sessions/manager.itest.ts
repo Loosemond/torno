@@ -1459,15 +1459,32 @@ describe('the transcript of a chat session', () => {
   it('adds a drawing on the view to the prompt: the text, the caption, then the picture; the prompt shows the text and the picture', async () => {
     const c = await start()
     await c.send('images', { drawing: drawingFor(c.obj.id) })
-    const user = c.items()[0] as { kind: string; text: string; images: Array<{ width?: number; height?: number }> }
+    const user = c.items()[0] as { kind: string; text: string; images: Array<{ width?: number; height?: number }>; drawing?: unknown }
     expect(user).toMatchObject({ kind: 'user', text: 'images' })
     expect(user.images).toEqual([expect.objectContaining({ width: 4, height: 4 })])
+    // What the ink lies over stays on the item as data (refs), not the caption's words, no pixel and no kernel line.
+    expect(user.drawing).toEqual({ revision: 1, over: { faces: ['a/F1'], cuts: [], scans: [], bare: [], strokes: 1 } })
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
     // The stand-in says what came: one picture, and each line of the caption (a line that is no command is said).
     const said = c.items().filter((i) => i.kind === 'text').map((i) => (i as { text: string }).text)
     expect(said).toContain('images: 1 4x4')
     expect(said.some((t) => t.startsWith('Picture: the view as the person saw it when they drew on it, on r1'))).toBe(true)
     expect(said).toContain('- stroke 1, x 0–3, y 0–3: a/F1 (plane, normal +Z); partly over no part')
+  })
+
+  it('logs what the ink lies over as text, with no picture, no caption, no coordinate and no kernel line', async () => {
+    const c = await start()
+    await c.send('images', { drawing: drawingFor(c.obj.id) })
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    await tSessions.stop(c.id)
+    const [file] = c.logFile()
+    // The stand-in echoes the caption it was sent, so only the prompt's own line is looked at for the words.
+    const user = JSON.stringify(lines(file)[0])
+    expect(readFileSync(file, 'utf8')).not.toContain('iVBOR')
+    expect(user).not.toContain('Picture: the view as the person saw it')
+    expect(user).not.toContain('plane, normal')
+    expect(user).not.toContain('position')
+    expect(lines(file)[0]).toMatchObject({ kind: 'user', drawing: { revision: 1, over: { faces: ['a/F1'] } } })
   })
 
   it('refuses a drawing of another object than the session is of, sending nothing', async () => {

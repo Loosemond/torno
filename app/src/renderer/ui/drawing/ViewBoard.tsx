@@ -12,7 +12,7 @@ export function ViewBoard() {
   const { picture } = board
   return (
     <Board
-      title="Draw on the view"
+      title="Draw on view"
       label="Drawing on the view"
       hint="Ring it, point at it, sketch beside it. Claude gets this picture with your ink, and what the ink lies over."
       size={{ width: picture.width, height: picture.height }}

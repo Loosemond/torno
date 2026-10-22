@@ -863,7 +863,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   text, `drawingText` (what the picture is and on which build, the ink and its colour, the camera as JSON with how
   to `look` from it, a line per stroke of what it lies over, and that the model was built again since when it was),
   the picture, then the picture "Attach view" asks for. No line of the caption begins with a word the stand-in agent
-  takes for a command. Nothing of it is written anywhere.
+  takes for a command. The picture is written nowhere. What the ink lies over goes on the prompt's user item as
+  `drawing` (`drawnOver`, `shared/drawing.ts`: the faces once each, the cut faces, the scans, the strokes over no part,
+  the build it was drawn on and the latest when that is another; refs and counts only, no kernel line, no box, no
+  camera, each ref through `redact`), which the window shows under the picture and the chat's log keeps as text. The
+  caption's words are not the item's text.
 - When the CLI stops without being asked to (not through `stop`), or with a non-zero code, the pane gets a `warn`
   note "Claude Code stopped (exit code N): <its last stderr line>" (the last 20 lines of stderr are kept, redacted)
   and, when it never printed a line, "It did not start: is `claude` up to date and signed in? …". An `initialize`

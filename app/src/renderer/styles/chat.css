@@ -621,25 +621,70 @@ button.ref-chip {
   gap: var(--space-2);
 }
 
-/* A drawing on the view that goes with the next prompt: its picture small, what it is, Edit and Remove. */
-.chat-drawing {
+/* What goes with the next prompt besides its words, a row each: a drawing on the view and what its ink lies over, the picture "Attach view" will add. */
+.chat-with {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
 }
 
-.chat-drawing img {
+.chat-drawing,
+.chat-attached {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-drawing img,
+.chat-attached img,
+.chat-attached-wait {
   flex: none;
   height: 40px;
   border: var(--divider);
   border-radius: 4px;
 }
 
-.chat-drawing-what {
+.chat-attached-wait {
+  width: 60px;
+  background: var(--surface);
+}
+
+.chat-with-what {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
   color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* What the ink of a drawing lies over: refs as chips in a running line, then what else is to be said, each part set off by a dot. */
+.over {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.over-note,
+.over-warn,
+.over > .button {
+  margin-left: var(--space-1);
+}
+
+.over-note {
+  color: var(--muted);
+}
+
+.over-note::before {
+  content: '\00b7\00a0';
+}
+
+.over-warn {
+  color: var(--warn);
+}
+
+.chat-user-drawing {
+  margin-top: var(--space-1);
   font-size: var(--text-small);
 }
 

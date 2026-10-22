@@ -1,4 +1,5 @@
 import { type ChatImage, type ChatItem, type ChatMeta, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import type { DrawnOver } from '../../shared/drawing'
 import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
 import type { PromptBlock, StreamAsk, StreamMessage } from './stream'
@@ -152,7 +153,7 @@ export class Transcript {
   // --- what torno records ---------------------------------------------------------------------------------
 
   /** A prompt for the agent. Queued when it will wait for the one at work; it is sent once the CLI takes it up (its hook, or an `init` for a command). */
-  userSent(content: PromptBlock[], queued: boolean, uuid?: string): ChatItem {
+  userSent(content: PromptBlock[], queued: boolean, uuid?: string, drawing?: DrawnOver): ChatItem {
     let made!: ChatItem
     this.run(() => {
       const texts: string[] = []
@@ -167,7 +168,7 @@ export class Transcript {
           images.push(this.image(block.source.media_type, block.source.data, caption?.[1]))
         }
       })
-      made = { kind: 'user', id: this.newId('i'), text: this.redact(texts.join('\n')), images, state: this.closed ? 'not-sent' : queued ? 'queued' : 'sent', at: this.now() }
+      made = { kind: 'user', id: this.newId('i'), text: this.redact(texts.join('\n')), images, state: this.closed ? 'not-sent' : queued ? 'queued' : 'sent', at: this.now(), ...(drawing ? { drawing: this.drawnOver(drawing) } : {}) }
       this.put(made)
       this.keepImages(made.id, images)
       if (!this.closed) {
@@ -177,6 +178,12 @@ export class Transcript {
       }
     })
     return made
+  }
+
+  /** What the ink of a drawing lies over, with every ref through `redact` like any text the log holds. */
+  private drawnOver(d: DrawnOver): DrawnOver {
+    const { over } = d
+    return over === null ? d : { ...d, over: { ...over, faces: over.faces.map((ref) => this.redact(ref)), cuts: over.cuts.map((part) => this.redact(part)) } }
   }
 
   /**

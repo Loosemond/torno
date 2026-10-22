@@ -7,7 +7,7 @@ import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
 import { type BuildState, errorLine, failedAfter } from '../../shared/build'
-import type { ViewDrawing } from '../../shared/drawing'
+import { type DrawnOver, type ViewDrawing, drawnOver } from '../../shared/drawing'
 import type { Scene } from '../../shared/scene'
 import type { ObjectInfo } from '../../shared/workspace'
 import { FOLDER } from '../own'
@@ -667,14 +667,14 @@ export class Sessions {
    * A chat session: a prompt for its agent, which queues it if it is at work. Nothing for a terminal session
    * (its prompts are typed: `write`) or one that has ended or been told to.
    */
-  prompt(sessionId: string, content: PromptBlock[]): void {
+  prompt(sessionId: string, content: PromptBlock[], drawing?: DrawnOver): void {
     const s = this.chat(sessionId, 'prompt')
     if (!s?.stream || !s.chat) return
     // It waits when the agent is at work, or has been sent a prompt it has not taken up yet (its hook has not moved the status).
     const queued = s.status === 'working' || s.status === 'needs_input' || s.chat.transcript.untakenCount() > 0
     // Its own id: the CLI says in `command_lifecycle` when it queues, begins and ends the prompt it names.
     const uuid = randomUUID()
-    s.chat.transcript.userSent(content, queued, uuid)
+    s.chat.transcript.userSent(content, queued, uuid, drawing)
     s.stream.prompt(content, s.conversationId, uuid)
   }
 
@@ -720,12 +720,16 @@ export class Sessions {
 
   private async sendOne(sessionId: string, s: Session, prompt: { text: string; attachView?: boolean; drawing?: ViewDrawing }): Promise<void> {
     const content: PromptBlock[] = []
+    let over: DrawnOver | undefined
     if (prompt.text !== '') content.push({ type: 'text', text: prompt.text })
     if (prompt.drawing) {
       // Drawn on the view of this session's object, or not sent.
       if (prompt.drawing.objectId !== s.object.id) throw new Error(`The drawing is of ${prompt.drawing.objectId}, not of ${s.object.id}`)
-      // What the agent reads of it right before it: the transcript shows the text and the picture, not a caption.
-      content.push({ type: 'text', text: drawingText(prompt.drawing, { revision: this.deps.build?.(s.object.id)?.revision, toolName: this.deps.adapter.toolName }) })
+      // What the agent reads of it right before it. The transcript shows the text and the picture, and under them what
+      // the ink lies over as data (`DrawnOver`, refs only), not the caption's words.
+      const latest = this.deps.build?.(s.object.id)?.revision
+      content.push({ type: 'text', text: drawingText(prompt.drawing, { revision: latest, toolName: this.deps.adapter.toolName }) })
+      over = drawnOver(prompt.drawing, latest)
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(prompt.drawing.png).toString('base64') } })
     }
     if (prompt.attachView === true) {
@@ -736,7 +740,7 @@ export class Sessions {
     if (content.length === 0) return
     // The picture took a moment, and the prompts before this one: the session may have gone meanwhile.
     if (!this.chat(sessionId, 'send')) throw new Error('This session has ended')
-    this.prompt(sessionId, content)
+    this.prompt(sessionId, content, over)
   }
 
   /**

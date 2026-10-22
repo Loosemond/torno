@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
+import { drawnOver } from '../../../shared/drawing'
 import { hint, pressed, which } from '../../../shared/keys'
 import { unmetDimensions } from '../../../shared/dimension'
 import { useChat } from '../../state/chat'
 import { drawingActions, drawingWaits, useDrawing } from '../../state/drawing'
+import { picture } from '../../state/agent'
 import { onboarding } from '../../state/onboard'
 import { store, useStore } from '../../state/store'
 import { numbered } from '../numbered'
 import { giveKeysBack } from '../typing'
 import { openDrawing } from '../drawing/make'
+import { DrawnOverLine } from './DrawnOver'
 import { commandsFor, rateLine } from './foot'
 import { RefChip } from './RefChip'
 
@@ -118,7 +121,12 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const [text, setText] = useState(() => drafts.get(sessionId) ?? onboarding.take(store.getState().objectId))
   const [problem, setProblem] = useState<string | null>(null)
   const [attach, setAttach] = useState(false)
+  /** The picture "Attach view" shows (an object URL), once it is made. */
+  const [attached, setAttached] = useState<string | null>(null)
+  /** Which press of "Attach view" the picture being made is for: an answer for an earlier one is let go. */
+  const pressing = useRef(0)
   const drawn = useDrawing((s) => s.drawn[sessionId])
+  const revision = useStore((s) => s.revision)
   const opening = useDrawing((s) => s.opening === sessionId)
   const drawingHere = useDrawing((s) => s.board?.sessionId === sessionId)
   const [choice, setChoice] = useState(0)
@@ -170,6 +178,40 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   // Kept as it is written, so that what closing the window would lose can be asked of it, and kept when the pane goes.
   useEffect(() => void drafts.set(sessionId, text), [sessionId, text])
 
+  /** Lets go of the preview of "Attach view", and of the picture being made for it. */
+  function unattach(): void {
+    pressing.current++
+    setAttach(false)
+    setAttached((url) => {
+      if (url !== null) URL.revokeObjectURL(url)
+      return null
+    })
+  }
+
+  /** "Attach view" pressed: the picture the send would take, made now, to look at before it goes. */
+  function attachView(): void {
+    const press = ++pressing.current
+    setProblem(null)
+    setAttach(true)
+    picture({ view: 'current' }).then(
+      (look) => {
+        if (press !== pressing.current) return
+        setAttached(URL.createObjectURL(new Blob([look.png as BlobPart], { type: 'image/png' })))
+      },
+      (e: unknown) => {
+        if (press !== pressing.current) return
+        setAttach(false)
+        setProblem(reason(e))
+      }
+    )
+  }
+  // The preview is let go of with the composer.
+  const attachedUrl = useRef<string | null>(null)
+  attachedUrl.current = attached
+  useEffect(() => () => {
+    if (attachedUrl.current !== null) URL.revokeObjectURL(attachedUrl.current)
+  }, [])
+
   async function send(): Promise<void> {
     const prompt = text.trim()
     if (prompt === '' || !live) return
@@ -177,7 +219,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     // The drawing goes with this prompt and with no other; given back if the prompt is not sent.
     const drawing = drawingActions.taken(sessionId)
     setText('')
-    setAttach(false)
+    unattach()
     setProblem(null)
     onSent()
     try {
@@ -186,7 +228,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     } catch (e) {
       // Nothing was sent: what was written is given back, unless more has been written since.
       setText((now) => (now === '' ? prompt : now))
-      setAttach(withView)
+      if (withView) attachView()
       if (drawing) drawingActions.giveBack(sessionId, drawing)
       setProblem(reason(e))
     }
@@ -204,16 +246,46 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     <div className="chat-foot">
       <Next />
       {offered.length > 0 && <Commands offered={offered} at={at} onChoose={complete} />}
-      {drawn && (
-        <div className="chat-drawing" role="group" aria-label="Drawing on the view">
-          <img src={drawn.thumb} alt="" draggable={false} />
-          <span className="chat-drawing-what">Your drawing on the view goes with your next prompt</span>
-          <button type="button" className="button button-quiet" onClick={() => drawingActions.edit(sessionId)}>
-            Edit
-          </button>
-          <button type="button" className="button button-quiet" onClick={() => drawingActions.remove(sessionId)}>
-            Remove
-          </button>
+      {(drawn || attach) && (
+        <div className="chat-with">
+          {drawn && (
+            <div className="chat-drawing" role="group" aria-label="Drawing on the view">
+              <img src={drawn.thumb} alt="" draggable={false} />
+              <span className="chat-with-what">
+                <span>Your drawing on the view goes with your next prompt</span>
+                <DrawnOverLine drawn={drawnOver(drawn.drawing, revision)}>
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    onClick={() => {
+                      setProblem(null)
+                      drawingActions.remove(sessionId)
+                      openDrawing(sessionId).catch((e: unknown) => setProblem(reason(e)))
+                    }}
+                  >
+                    Draw again
+                  </button>
+                </DrawnOverLine>
+              </span>
+              <button type="button" className="button button-quiet" onClick={() => drawingActions.edit(sessionId)}>
+                Edit
+              </button>
+              <button type="button" className="button button-quiet" onClick={() => drawingActions.remove(sessionId)}>
+                Remove
+              </button>
+            </div>
+          )}
+          {attach && (
+            <div className="chat-attached" role="group" aria-label="View attached">
+              {attached !== null ? <img src={attached} alt="The view as it is now" draggable={false} /> : <span className="chat-attached-wait" aria-hidden="true" />}
+              <span className="chat-with-what" title="The picture is taken again, as the view is, when the prompt is sent">
+                <span>The view goes with your next prompt</span>
+              </span>
+              <button type="button" className="button button-quiet" onClick={unattach}>
+                Remove
+              </button>
+            </div>
+          )}
         </div>
       )}
       <div className="chat-composer">
@@ -264,7 +336,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
             aria-pressed={attach}
             disabled={!live}
             title="Add a picture of the view as it is now to the next prompt"
-            onClick={() => setAttach(!attach)}
+            onClick={() => (attach ? unattach() : attachView())}
           >
             Attach view
           </button>

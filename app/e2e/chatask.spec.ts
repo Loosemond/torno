@@ -36,6 +36,7 @@ test.afterAll(async () => {
   rmSync(home, { recursive: true, force: true })
 })
 
+const peeked = (): Promise<string[]> => page.evaluate(() => window.__tornoTest!.peeked())
 const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
 const dock = () => page.locator('[data-region="session"]')
 const chat = () => dock().locator('.chat')
@@ -293,9 +294,19 @@ test('Attach view adds a picture of the viewport at 1280 px to the next prompt o
   await expect(attach).toHaveAttribute('aria-pressed', 'false')
   await attach.click()
   await expect(attach).toHaveAttribute('aria-pressed', 'true')
-  await say('images')
-  // Off after each send.
+  // The picture the send would take is shown before it is sent, with a way to take it away.
+  const attached = dock().getByRole('group', { name: 'View attached' })
+  await expect(attached.locator('img')).toBeVisible()
+  expect(await attached.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(100)
+  await attached.getByRole('button', { name: 'Remove' }).click()
+  await expect(attached).toHaveCount(0)
   await expect(attach).toHaveAttribute('aria-pressed', 'false')
+  await attach.click()
+  await expect(attached.locator('img')).toBeVisible()
+  await say('images')
+  // Off after each send, the preview with it.
+  await expect(attach).toHaveAttribute('aria-pressed', 'false')
+  await expect(attached).toHaveCount(0)
   const user = chat().locator('.chat-user').first()
   await expect(user.locator('.chat-thumb')).toHaveCount(1, { timeout: 20_000 })
   await expect(chat().locator('.chat-text').first()).toContainText(/images: 1 (1280x\d+|\d+x1280)/, { timeout: 20_000 })
@@ -349,6 +360,17 @@ test('Draw on view: a board over the agent\'s picture of the view; the drawing g
   await expect(drawingBoard()).toHaveCount(0)
   await expect(waiting()).toBeVisible()
   await expect(drawButton()).toBeDisabled()
+  // What the ink lies over is told before it is sent, as chips that are live: a face of the part drawn across, lit in the view by the pointer.
+  const over = waiting().locator('.over[data-over="known"]')
+  await expect(over).toContainText('Over')
+  const face = over.locator(`.ref-chip[data-ref^="${part}/F"]`).first()
+  await expect(face).toBeVisible()
+  const ref = (await face.getAttribute('data-ref'))!
+  expect(await peeked()).toEqual([])
+  await face.hover()
+  await expect.poll(peeked).toEqual([ref])
+  await page.mouse.move(0, 0)
+  await expect.poll(peeked).toEqual([])
   // The keys are the box's again: what is typed next is the prompt, not a key of the view.
   await page.keyboard.type('thicker')
   await expect(composer()).toHaveValue('thicker')
@@ -359,6 +381,10 @@ test('Draw on view: a board over the agent\'s picture of the view; the drawing g
   const user = chat().locator('.chat-user').last()
   await expect(user.locator('.chat-thumb')).toHaveCount(1, { timeout: 20_000 })
   await expect(user).not.toContainText('Picture:')
+  // The prompt shows the same line under its picture; the caption's words are not among its text.
+  await expect(user.locator('.chat-user-drawing')).toContainText('Over')
+  await expect(user.locator('.chat-user-drawing').locator(`.ref-chip[data-ref="${ref}"]`)).toBeVisible()
+  await expect(user.locator('.chat-user-drawing')).not.toContainText('stroke 1, x')
   // The stand-in says the size of each picture, then each line of the caption.
   await expect(chat()).toContainText(/images: 1 (1280x\d+|\d+x1280)/, { timeout: 20_000 })
   await expect(chat()).toContainText('Picture: the view as the person saw it when they drew on it')
@@ -371,6 +397,38 @@ test('Draw on view: a board over the agent\'s picture of the view; the drawing g
   await say('images')
   await expect(chat().locator('.chat-text').last()).toContainText('images: 0')
   await finished()
+})
+
+test('a drawing made while the camera moved says that what its ink lies over was not worked out, and "Draw again" starts anew', async () => {
+  await drawButton().click()
+  await expect(drawingBoard()).toBeVisible()
+  // The agent's `show` moves the view under the board.
+  const show = (request: object): Promise<void> => app.evaluate(({ BrowserWindow }, req) => BrowserWindow.getAllWindows()[0].webContents.send('view:show', { id: 987701, request: req }), request)
+  await show({ objectId: 'bracket', view: 'top' })
+  await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.camera())).position[2]).toBeGreaterThan(0)
+  await line(drawingBoard(), [0.45, 0.5], [0.55, 0.5])
+  await drawingBoard().getByRole('button', { name: 'Done' }).click()
+  await expect(waiting()).toBeVisible()
+  const warn = waiting().locator('.over-warn')
+  await expect(warn).toContainText('was not worked out')
+  await expect(waiting().locator('.ref-chip')).toHaveCount(0)
+  // It is shown in the colour of a warning.
+  const [own, wanted] = await warn.evaluate((el) => {
+    const probe = document.createElement('i')
+    probe.style.color = 'var(--warn)'
+    document.body.append(probe)
+    const colour = getComputedStyle(probe).color
+    probe.remove()
+    return [getComputedStyle(el).color, colour]
+  })
+  expect(own).toBe(wanted)
+  await waiting().getByRole('button', { name: 'Draw again' }).click()
+  // The drawing is gone, and the board is open over a new picture.
+  await expect(drawingBoard()).toBeVisible()
+  await expect(waiting()).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(drawingBoard()).toHaveCount(0)
+  await show({ objectId: 'bracket', view: 'iso' })
 })
 
 test('a drawing waits in the composer: Edit opens it with its strokes, Remove takes it away, and a board discarded keeps nothing', async () => {
@@ -420,6 +478,7 @@ test('ink over the face a section cuts is told as the cut face of its part, not 
   await line(drawingBoard(), [fx - 0.005, fy], [fx + 0.005, fy])
   await drawingBoard().getByRole('button', { name: 'Done' }).click()
   await expect(waiting()).toBeVisible()
+  await expect(waiting().locator('.over')).toContainText(`the cut face of ${part}`)
   await say('images')
   await expect(chat()).toContainText(new RegExp(`stroke 1, x \\d+–\\d+, y \\d+–\\d+: (.*, )?the cut face of ${part}`), { timeout: 20_000 })
   await finished()

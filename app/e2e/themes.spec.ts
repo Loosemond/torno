@@ -217,7 +217,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'view-board', 'onboard', 'onboard-board', 'confirm-close'] as const
+const STATES = ['main', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'empty', 'folders', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'confirm-close'] as const
 
 for (const theme of ['light', 'dark'] as const) {
   for (const shot of STATES) {
@@ -364,8 +364,10 @@ for (const theme of ['light', 'dark'] as const) {
           const asked = page.getByRole('alertdialog', { name: 'Close torno?' })
           await expect(asked.getByRole('listitem')).toHaveText(['hollow: Claude Code is waiting for your answer', 'hollow: a prompt is not sent'])
           await expect(asked.getByRole('button', { name: 'Keep it open' })).toBeFocused()
-        } else if (shot === 'view-board') {
+        } else if (shot === 'view-board' || shot === 'view-board-chip' || shot === 'view-board-sent') {
           // The board over the view, from the chat's "Draw on view": a ring round the middle and an arrow to it.
+          // Then (`-chip`) the board put away with Done: the drawing waits above the box with what its ink lies over, and the view attached beside it;
+          // or (`-sent`) the prompt it went with, which shows the same line under its picture.
           await page.locator('[data-region="session"]').getByRole('button', { name: 'New session' }).click()
           await expect(page.locator('[data-chat-composer]')).toBeFocused()
           await page.locator('[data-region="session"]').getByRole('button', { name: 'Draw on view' }).click()
@@ -381,6 +383,24 @@ for (const theme of ['light', 'dark'] as const) {
             await page.mouse.up()
           }
           await expect(board.locator('canvas')).toHaveAttribute('data-strokes', '4')
+          if (shot !== 'view-board') {
+            await board.getByRole('button', { name: 'Done' }).click()
+            const waiting = page.getByRole('group', { name: 'Drawing on the view' })
+            await expect(waiting.locator('.over')).toBeVisible()
+            await expect(waiting.locator('.ref-chip').first()).toBeVisible()
+            const dock = page.locator('[data-region="session"]')
+            if (shot === 'view-board-chip') {
+              await dock.getByRole('button', { name: 'Attach view' }).click()
+              await expect(dock.getByRole('group', { name: 'View attached' }).locator('img')).toBeVisible()
+            } else {
+              await page.locator('[data-chat-composer]').fill('make this wall thicker')
+              await page.keyboard.press('Enter')
+              await expect(page.locator('.chat-user-drawing .ref-chip').first()).toBeVisible({ timeout: 30_000 })
+              await expect(page.locator('.chat-turn')).toBeVisible({ timeout: 30_000 })
+              // The stand-in echoes the caption at length, which pushes the prompt up: it is the one looked at.
+              await page.locator('.chat-user-drawing').scrollIntoViewIfNeeded()
+            }
+          }
         } else if (shot === 'onboard' || shot === 'onboard-board') {
           // The page of a new object with something of every kind given, and, for the second, the doodle board open on a drawing.
           const new_ = page.getByRole('region', { name: 'New object' })

@@ -141,7 +141,9 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
 - A drawing on the view ("Draw on view" in the chat) goes with one prompt as a picture: the agent's own picture of
   the view with the person's ink on it, after a caption main writes from data the window sends and main checks
   (`shared/drawing.ts`, `main/sessions/drawing.ts`). It names what the ink lies over by ref, with the kernel's line,
-  and never a coordinate (the hit points are of the mesh). It is kept nowhere: not under `.torno/`, not in the log.
+  and never a coordinate (the hit points are of the mesh). The picture is kept nowhere: not under `.torno/`, not in the log. What the ink lies over (the refs and the counts, `DrawnOver`,
+  never a coordinate or a pixel) is text on the prompt's item, shown to the person before the drawing goes and under
+  it after, and the transcript and the chat's log may hold it (the caption's text, refs and descriptors, the camera, is of that kind: text, never the picture).
 
 ## Where the detail is
 
