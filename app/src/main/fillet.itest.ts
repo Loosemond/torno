@@ -6,6 +6,8 @@ import type { BuildState } from '../shared/build'
 import { diagnosisText } from '../shared/diagnosis'
 import { Builds } from './builds'
 import { type RunningKernel, startKernel } from './kernel/client'
+import { tryFilletTool } from './mcp/readTools'
+import type { ToolDeps } from './mcp/tools'
 
 const KERNEL_DIR = resolve(__dirname, '../../../kernel')
 
@@ -71,6 +73,27 @@ describe('a fillet that fails in a build', () => {
       expect(described.length).toBeCloseTo(edge.length!, 9)
     }
     expect(diagnosisText(diagnosis!)).toMatch(/, which is plate\/E\d+ of r1 \(layout main\)/)
+
+    // try_fillet, on r1, of the edges by those refs: it agrees.
+    const refs = diagnosis!.edges.map((edge) => edge.sameAs!.ref)
+    const deps = {
+      object: (id: string) => (id === 'plate' ? { id, name: id, dir, model: 'plate.py' } : undefined),
+      build: (id: string) => builds.state(id),
+      scene: (id: string) => builds.scene(id),
+      view: () => undefined,
+      openObjectId: () => null,
+      query: (id: string, name: string, args: object) => builds.query(id, name, args)
+    } as unknown as ToolDeps
+    const textOf = (result: Awaited<ReturnType<typeof tryFilletTool>>): string => (result.content[0] as { text: string }).text
+    const tried = JSON.parse(textOf(await tryFilletTool(deps, 'plate', { part: 'plate', edges: refs, radius: 3 })))
+    expect(tried).toMatchObject({ layout: 'main', revision: 1, stale: expect.stringContaining('the latest build failed'), part: 'plate', works: false, frame: 'object', alone: { failing: [] } })
+    expect(tried.together.worksUpTo).toBe(diagnosis!.together!.worksUpTo)
+    expect(tried.pairs.failing.map((p: { edges: string[] }) => p.edges.sort().join(' ')).sort()).toEqual(
+      diagnosis!.pairs!.failing.map((p) => p.edges.map((i) => diagnosis!.edges.find((e) => e.index === i)!.sameAs!.ref).sort().join(' ')).sort()
+    )
+    expect(tried.reading).toMatch(/^Tried on r1 and thrown away, nothing changed: fillet R3 of 8 edges: each works alone; 4 pairs of adjacent edges fail \(plate\/E/)
+    const works = JSON.parse(textOf(await tryFilletTool(deps, 'plate', { part: 'plate', edges: refs, radius: tried.together.worksUpTo })))
+    expect(works).toMatchObject({ works: true })
   }, 60_000)
 
   it('names no edge by a ref when the shape filleted is not where the last good build has it', async () => {

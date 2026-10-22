@@ -6,7 +6,7 @@ import type { Part, Scene } from '../../shared/scene'
 import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState } from '../../shared/view'
 import { KernelError } from '../kernel/client'
 import { addMarkTool } from './markTools'
-import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned } from './readTools'
+import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned, tryFilletTool } from './readTools'
 import { TOOLS } from './schemas'
 import { type ToolDeps, type ToolResult, describeTool } from './tools'
 import { lookTool, sceneTool, showTool } from './viewTools'
@@ -973,5 +973,76 @@ describe('diff', () => {
 
   it('refuses a revision not kept, naming those that are', async () => {
     expect(await diffTool(kept([3, BEFORE], [4, AFTER]), 'box', { from: 1 })).toEqual(refused('revision 1 is not kept: revisions 3 and 4 are'))
+  })
+})
+
+describe('try_fillet', () => {
+  const FAILS = {
+    works: false,
+    operation: 'fillet',
+    size: 3,
+    frame: 'object',
+    edgeCount: 2,
+    step: 0.001,
+    budget: 20,
+    alone: { tried: 2, failing: [] },
+    pairs: { tried: 1, planned: 1, failing: [{ edges: ['lid/E4', 'lid/E9'], adjacent: true, apart: 4, apartExact: true }] },
+    together: { worksUpTo: 1.999, failsAt: 2 },
+    edges: [
+      { ref: 'lid/E4', type: 'line', length: 20, lengthExact: true, start: [-10, -10, 3], end: [10, -10, 3], along: 'X', between: ['plane', 'plane'] },
+      { ref: 'lid/E9', type: 'line', length: 12, lengthExact: true, start: [-6, -6, 3], end: [6, -6, 3], along: 'X', between: ['plane', 'plane'] }
+    ],
+    complete: true,
+    seconds: 0.1
+  }
+
+  it('asks the kernel to try the fillet on the last build, and says why it fails, of that build', async () => {
+    const deps = fake(() => FAILS)
+    const result = await tryFilletTool(deps, 'box', { part: 'lid', edges: ['lid/E4', 'lid/E9'], radius: 3 })
+    expect(deps.queries).toEqual([{ name: 'try_fillet', args: { part: 'assembly:lid', edges: ['lid/E4', 'lid/E9'], radius: 3, kind: 'fillet' } }])
+    const said = data(result)
+    expect(said).toMatchObject({ layout: 'assembly', revision: 4, part: 'lid', works: false, together: { worksUpTo: 1.999 } })
+    expect(said.reading).toBe(
+      'Tried on r4 and thrown away, nothing changed: fillet R3 of 2 edges: each works alone; 1 pair of adjacent edges fails (lid/E4-lid/E9: 4 mm apart, two R3 need more); the 2 together work up to R1.999 (fail at R2, bisected to 0.001 mm).\nEdges (in the frame of the object):\nlid/E4: line, 20 mm, along X, between 2 planes, (-10, -10, 3) to (10, -10, 3)\nlid/E9: line, 12 mm, along X, between 2 planes, (-6, -6, 3) to (6, -6, 3)'
+    )
+  })
+
+  it('says a fillet that works, and a chamfer is asked for as one', async () => {
+    const deps = fake(() => ({ works: true, operation: 'chamfer', size: 1, edgeCount: 2, frame: 'object' }))
+    const said = data(await tryFilletTool(deps, 'box', { part: 'lid', edges: ['lid/E4', 'lid/E9'], radius: 1, kind: 'chamfer', layout: 'print' }))
+    expect(deps.queries[0]).toEqual({ name: 'try_fillet', args: { part: 'print:lid', edges: ['lid/E4', 'lid/E9'], radius: 1, kind: 'chamfer' } })
+    expect(said.reading).toBe('Tried on r4 and thrown away, nothing changed: chamfer 1 mm of 2 edges works.')
+  })
+
+  it('refuses what it cannot try, naming the way out, before the kernel is asked', async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ edges: ['lid/E4'], radius: 3 }, 'try_fillet needs part, the name of a part as scene lists it: {"part": "lid", "edges": ["lid/E3"], "radius": 2}'],
+      [{ part: 'cap', edges: ['cap/E4'], radius: 3 }, "no part 'cap' in layout assembly (parts: tub, lid)"],
+      [{ part: 'lid/F2', edges: ['lid/E4'], radius: 3 }, 'part is a part, not a face: give lid'],
+      [{ part: 'lid', radius: 3 }, 'edges is a list of refs of edges of lid, as describe and the pointer give them: ["lid/E3", "lid/E7"]'],
+      [{ part: 'lid', edges: [], radius: 3 }, 'edges is a list of refs of edges of lid, as describe and the pointer give them: ["lid/E3", "lid/E7"]'],
+      [{ part: 'lid', edges: ['tub/E4'], radius: 3 }, 'tub/E4 is not an edge of lid: give edges of lid, lid/E<n>'],
+      [{ part: 'lid', edges: ['lid/F4'], radius: 3 }, 'lid/F4 is not an edge of lid: give edges of lid, lid/E<n>'],
+      [{ part: 'lid', edges: ['lid/E40'], radius: 3 }, 'lid has 30 edges, E0 to E29: there is no E40'],
+      [{ part: 'lid', edges: ['lid/E4'] }, 'radius is the radius of the fillet (or the length of the chamfer), a number of mm above 0: 2'],
+      [{ part: 'lid', edges: ['lid/E4'], radius: -1 }, 'radius is the radius of the fillet (or the length of the chamfer), a number of mm above 0: 2'],
+      [{ part: 'lid', edges: ['lid/E4'], radius: 2, kind: 'round' }, 'kind is fillet (the default) or chamfer']
+    ]
+    for (const [args, said] of cases) {
+      const deps = fake(() => FAILS)
+      expect(await tryFilletTool(deps, 'box', args as never), JSON.stringify(args)).toEqual(refused(said))
+      expect(deps.queries).toEqual([])
+    }
+  })
+
+  it('tells a refusal of the kernel in its words, and a query that took its time as that', async () => {
+    expect(await tryFilletTool(fake(() => new KernelError('bad_request', 'assembly:lid is not a solid: it is a shell')), 'box', { part: 'lid', edges: ['lid/E4'], radius: 3 })).toEqual(refused('lid is not a solid: it is a shell'))
+    const slow = await tryFilletTool(fake(() => new KernelError('timeout', 'the query took too long')), 'box', { part: 'lid', edges: ['lid/E4'], radius: 3 })
+    expect(text(slow)).toBe('the kernel did not answer within 30 s; the part may be too large for this trial')
+  })
+
+  it('says where a part torno moved for display is, as the other tools of one part do', async () => {
+    const said = data(await tryFilletTool(spread(() => FAILS), 'box', { part: 'lid', edges: ['lid/E4'], radius: 3, layout: 'print' }))
+    expect(said).toMatchObject({ arranged: [45, 0, 0], note: MOVED })
   })
 })

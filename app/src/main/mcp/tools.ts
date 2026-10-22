@@ -30,7 +30,7 @@ import { movedForDisplay } from '../marks/spread'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { onlyKeysWrong, unknownKeys } from './keys'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
-import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, checkTool, diffTool, measureTool, sectionTool } from './readTools'
+import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, checkTool, diffTool, measureTool, sectionTool, tryFilletTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
 import { type AddMarkArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
 import { lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
@@ -82,7 +82,7 @@ export interface ToolDeps {
    * Asks the kernel about the last successful build of an object: an exact measurement, what a plane cuts, a check
    * of two parts or of a mesh. Refs go with the layout in front. Rejects with a `KernelError`, whose kind says why.
    */
-  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section', args: object): Promise<T>
+  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section' | 'try_fillet', args: object): Promise<T>
   /** The scans of an object, as main keeps them. Rejects with a text. */
   scans(objectId: string): Promise<ScanInfo[]>
   /** Where a scan's mesh and a region's mask are on the disk, for the kernel: of the scans as `scans` last read them, so it is asked at once after. */
@@ -148,6 +148,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<SectionToolArgs>('section', (args) => sectionTool(deps, objectId, args))
   tool<Parameters<typeof checkTool>[2]>('check', (args) => checkTool(deps, objectId, args))
   tool<DiffToolArgs>('diff', (args) => diffTool(deps, objectId, args))
+  tool<TryFilletToolArgs>('try_fillet', (args) => tryFilletTool(deps, objectId, args))
   tool<ScansArgs>('scans', (args) => scansTool(deps, objectId, args))
   tool<ScanClashArgs>('scan_clash', (args) => scanClashTool(deps, objectId, args))
   tool<ScanDeviationArgs>('scan_deviation', (args) => scanDeviationTool(deps, objectId, args))

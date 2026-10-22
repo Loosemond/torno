@@ -204,6 +204,19 @@ def _named(told: dict[str, Any], names: Sequence[str]) -> dict[str, Any]:
     return told
 
 
+def trial(
+    shape: Any, kind: str, edges: list[Any], size: float, names: Sequence[str], budget: float
+) -> dict[str, Any]:
+    """Whether a fillet (or a chamfer) of ``size`` of these edges of ``shape`` works, and when it does not, why
+    (``diagnose``, edges named by ``names``, in the object frame). The result is thrown away."""
+    call = Call(kind, shape, size, None, None, edges)
+    started = time.monotonic()
+    if _Trier(call, started + budget, time.monotonic).works(list(range(len(edges))), size):
+        return {"operation": kind, "size": size, "edgeCount": len(edges), "works": True, "frame": "object"}
+    spent = time.monotonic() - started
+    return {"works": False, **diagnose(call, max(0.0, budget - spent), names, "object")}
+
+
 def _pairs(trier: "_Trier", told: dict[str, Any], clock: Callable[[], float], share: float) -> bool:
     """Try the pairs of edges, those that share a face first, within ``share`` seconds; whether all were tried."""
     until = clock() + share

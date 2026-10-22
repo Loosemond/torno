@@ -74,6 +74,8 @@ def run(
         from . import export
 
         return export.export(shapes, args, kept) if name == "export" else export.export_check(shapes, args, kept)
+    if name == "try_fillet":
+        return try_fillet(shapes, args)
     if name == "match_edges":
         return match_edges(shapes, args.get("edges"), kept)
     if name == "describe":
@@ -91,7 +93,7 @@ def run(
     raise QueryError(
         "bad_request",
         f"unknown query {name!r}; the queries are describe, nearest, measure, section, check, "
-        "scan_clash, scan_deviation, scan_section, export, export_check and match_edges",
+        "scan_clash, scan_deviation, scan_section, export, export_check, try_fillet and match_edges",
     )
 
 
@@ -111,8 +113,48 @@ def describe(
     return _describe_edge(ref, shape)
 
 
+# The seconds a trial fillet may take of its query's 30: OCC's tries cannot be stopped, so some are left over.
+TRIAL_BUDGET = 20.0
+# The most edges one trial takes.
+MOST_TRIAL_EDGES = 200
 # Two edges are the same when their ends and their lengths are this close, mm.
 SAME_EDGE = 1e-6
+
+
+def try_fillet(shapes: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    """A fillet (or a chamfer, ``kind``) of ``radius`` of the edges of ``part`` (``layout:name``) named by
+    ``edges`` (``name/E<i>``), made and thrown away: whether it works and, when it does not, why
+    (``diagnose.trial``: which edges fail alone, the pairs that fail, the largest radius that works), each edge
+    told by its ref, in the object frame. The shapes are left as they were."""
+    from . import diagnose
+
+    part, edges, radius, kind = args.get("part"), args.get("edges"), args.get("radius"), args.get("kind", "fillet")
+    if not isinstance(part, str):
+        raise QueryError("bad_request", "try_fillet needs args.part, a part as layout:name")
+    if kind not in ("fillet", "chamfer"):
+        raise QueryError("bad_request", f"try_fillet makes a fillet or chamfer, not {kind!r}")
+    if not isinstance(radius, (int, float)) or isinstance(radius, bool) or not math.isfinite(radius) or radius <= 0:
+        raise QueryError("bad_request", "try_fillet needs a radius above 0, mm")
+    if radius > FARTHEST:
+        raise QueryError("bad_request", f"try_fillet takes a radius of at most {FARTHEST:g} mm")
+    key, what, shape = resolve(shapes, part)
+    if what != "part":
+        raise QueryError("bad_request", f"try_fillet needs a part as layout:name, not {part!r}")
+    need_solid(shape, key)
+    if not isinstance(edges, list) or not edges:
+        raise QueryError("bad_request", "try_fillet needs at least one edge, as a list of refs")
+    if len(edges) > MOST_TRIAL_EDGES:
+        raise QueryError("bad_request", f"try_fillet takes at most {MOST_TRIAL_EDGES} edges at a time")
+    name = key.split(":", 1)[1]
+    every = topo.edges(shape)
+    picked: dict[str, Any] = {}
+    for ref in edges:
+        match = _SUBSHAPE.match(ref) if isinstance(ref, str) else None
+        if not match or match["key"] != name or match["kind"] != "E":
+            raise QueryError("bad_ref", f"try_fillet takes edges of {name}, named {name}/E<i>; not {ref!r}")
+        picked.setdefault(ref, _pick(every, _index(match), name, "edges", "E"))
+    refs = list(picked)
+    return diagnose.trial(shape.wrapped, kind, list(picked.values()), float(radius), refs, TRIAL_BUDGET)
 
 
 def match_edges(shapes: dict[str, Any], edges: Any, kept: dict[Any, Any] | None = None) -> dict[str, Any]:

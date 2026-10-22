@@ -272,6 +272,15 @@ const checkInput = {
   size: loose(z.array(z.number())).optional().describe('For bed: the build volume of the printer, [x, y, z] in mm.')
 }
 
+// Loose: what is not a list of refs or a number reaches the tool, which says what it takes (`tryFilletTool`).
+const tryFilletInput = {
+  part: loose(z.string()).optional().describe('The name of a part, as listed by scene: "lid".'),
+  edges: loose(z.array(z.string())).optional().describe('Refs of edges of that part, as describe, look and the pointer give them: ["lid/E3", "lid/E7"]; 200 at most.'),
+  radius: loose(z.number()).optional().describe('The radius of the fillet, or the length of the chamfer, in mm.'),
+  kind: loose(z.enum(['fillet', 'chamfer'])).optional().describe('fillet (the default) or chamfer, of equal lengths.'),
+  layout: z.string().optional().describe('The layout the part is in, as listed by scene. Default: the one on screen.')
+}
+
 const resolveMarkInput = {
   id: z.string().describe('The number of the mark: M3.'),
   note: z.string().optional().describe('What was done about it, in a line, for the user.')
@@ -439,6 +448,13 @@ export const TOOLS = {
       "Returns JSON of what changed between two successful builds (by default the one before the last and the last; only those two are kept): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face, edge and solid counts before and after, changed, and a line saying what changed (the volume's change also in percent; a number that is not exact has changed only by more than both builds' doubt of it). Call it after an edit to see what it did; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
     inputSchema: diffInput
   },
+  try_fillet: {
+    title: 'Try a fillet or chamfer',
+    annotations: READ_ONLY,
+    description:
+      "Returns JSON and a reading of a fillet (or a chamfer) of radius mm of some edges of a part, tried by the kernel on the last build that worked and thrown away: works, and when it does not, why: the edges that fail alone, else the pairs that fail (those that share a face first, with how far apart they are), and the largest radius that works for them all and for each edge that fails alone, bisected to 0.001 mm within the query's 30 s (complete false when time ran out), each edge named by its ref of that build, with its ends in the frame of the layout. It changes nothing: the model is yours to edit, and a ref may name another edge after it changes. Call it before you edit a fillet or a chamfer again after one failed, with the edges the build's error names (a ref where it is one of the last build), instead of lowering the radius blind or wrapping it in try.",
+    inputSchema: tryFilletInput
+  },
   scans: {
     title: 'List scans',
     annotations: READ_ONLY,
@@ -479,6 +495,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - section: the outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut.
 - check: overlap and clearance between parts, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
 - diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
+- try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
 - scans: the scans the person imported, and how each is aligned to the model.
 - scan_clash: what of a scan is inside a part, as clusters with their depth.
 - scan_deviation: how far a part, or some of its faces, lie from a scan (min, mean, max, percentiles).

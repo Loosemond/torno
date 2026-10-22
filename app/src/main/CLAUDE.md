@@ -131,7 +131,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `show`, `save_view`, `add_mark`, `resolve_mark`,
-  `measure`, `section`, `check`, `diff`, `scans`, `scan_clash`, `scan_deviation`.
+  `measure`, `section`, `check`, `diff`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`.
   `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept; each
   part by `partDiff` of `sanity.ts`)
   from what the kernel sent with each, asking it nothing: a number is `exact` only where both builds say so.
@@ -146,7 +146,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   - What a client reads of a tool before it calls one is beside its description in `TOOLS`: a `title` (sentence
     case), `annotations` and, for the tools loaded upfront, `meta`. Every tool has `openWorldHint: false`; the
     ones that only read have `readOnlyHint: true` (`scene`, `look`, `marks`, `describe`, `measure`, `section`,
-    `check`, `diff`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
+    `check`, `diff`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
     `look` reads, the picture it writes under `.torno/views/` being torno's own), the rest `readOnlyHint: false,
     destructiveHint: false`. `scene`, `look`, `marks`, `describe` and `measure` have
     `_meta["anthropic/alwaysLoad"]` (Claude Code's tool search defers every other MCP tool until it is searched for,
@@ -186,6 +186,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     moved for display is framed where it is shown, and the reply says so. The window says what stands between the
     camera and the middle of the focus (`LookResult.hiddenBy`) and the reply tells the agent how to see it
     (`hiddenText`).
+  - `try_fillet` (`tryFilletTool` in `mcp/readTools.ts`) has the kernel try a fillet or a chamfer of edges of one
+    part on the last build that worked and throw it away (`try_fillet` in `queries.py`). The part and its edges are
+    checked against the scene before the kernel is asked (`checkRef`: refs of that part's edges, 200 at most; a
+    radius above 0; `kind` fillet or chamfer), each refusal saying what to give. It answers with the kernel's reply
+    (`works`, and when false the diagnosis of a failed build, `frame: 'object'`, its edges by ref) and a `reading`:
+    `Tried on rN and thrown away, nothing changed:` and `diagnosisText`. Read-only: it changes no model and no mark.
   - The picture `section` returns is a 2D drawing of the kernel's outlines
     (`src/renderer/viewport/sectionDrawing.ts`), made by the window on a
     canvas of its own whichever object it shows, on the light sheet whatever

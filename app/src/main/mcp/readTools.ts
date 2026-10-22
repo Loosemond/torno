@@ -5,6 +5,7 @@ import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeT
 import type { ObjectInfo } from '../../shared/workspace'
 import { KernelError, isBusy } from '../kernel/client'
 import { scanNumber } from '../../shared/format'
+import { type FilletDiagnosis, WHY, diagnosisText, sizeText } from '../../shared/diagnosis'
 import { number, sizes, vector } from '../marks/describe'
 import { DIFF_APPROXIMATE, DIFF_REFS, clean, partDiff } from '../sanity'
 import { plain, wire } from '../marks/measure'
@@ -37,6 +38,14 @@ export interface SectionToolArgs {
   /** A scan to cut by the same plane. */
   scan?: string
 }
+export interface TryFilletToolArgs {
+  part?: unknown
+  edges?: unknown
+  radius?: unknown
+  kind?: unknown
+  layout?: string
+}
+
 export interface CheckToolArgs {
   kind: 'overlap' | 'clearance' | 'mesh' | 'overhang' | 'thin' | 'bed'
   a?: string
@@ -275,6 +284,54 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   if (reading === null) return failure('the kernel did not answer with a check')
   // Where the open edges of a mesh are is where its part is shown.
   return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), reading })
+}
+
+/** The most edges one trial takes: the kernel's `MOST_TRIAL_EDGES`. */
+const MOST_TRIAL_EDGES = 200
+const TRY_PART = 'try_fillet needs part, the name of a part as scene lists it: {"part": "lid", "edges": ["lid/E3"], "radius": 2}'
+const TRY_EDGES = (part: string): string => `edges is a list of refs of edges of ${part}, as describe and the pointer give them: ["${part}/E3", "${part}/E7"]`
+const TRY_RADIUS = 'radius is the radius of the fillet (or the length of the chamfer), a number of mm above 0: 2'
+
+/**
+ * A fillet or a chamfer of some edges of a part, tried by the kernel on the last build that worked and thrown away
+ * (`try_fillet` in queries.py): whether it works and, when it does not, why (`diagnose.py`: the edges that fail
+ * alone, the pairs that fail, the largest radius that works, bisected), with a reading (`diagnosisText`). Its
+ * edges are named by their refs, of that build, in the frame of the layout. It changes nothing.
+ */
+export async function tryFilletTool(deps: ToolDeps, objectId: string, args: TryFilletToolArgs): Promise<ToolResult> {
+  if (typeof args.part !== 'string' || args.part === '') return failure(TRY_PART)
+  const kind = args.kind ?? 'fillet'
+  if (kind !== 'fillet' && kind !== 'chamfer') return failure('kind is fillet (the default) or chamfer')
+  const asked = await ofOneBuild(deps, objectId, async (found) => {
+    const layout = layoutFor(deps, objectId, found.scene, args.layout)
+    if (typeof layout !== 'string') return layout
+    const named = checkRef(found.scene, layout, args.part as string)
+    if (typeof named === 'string') return failure(named)
+    if (named.target !== 'part') return failure(`part is a part, not ${named.target === 'face' ? 'a face' : 'an edge'}: give ${named.part.name}`)
+    const part = named.part
+    const edges = args.edges
+    if (!Array.isArray(edges) || edges.length === 0 || edges.length > MOST_TRIAL_EDGES || !edges.every((e) => typeof e === 'string')) return failure(TRY_EDGES(part.name))
+    for (const ref of edges as string[]) {
+      const edge = checkRef(found.scene, layout, ref)
+      if (!ref.startsWith(`${part.name}/E`) || (typeof edge !== 'string' && edge.target !== 'edge')) return failure(`${ref} is not an edge of ${part.name}: give edges of ${part.name}, ${part.name}/E<n>`)
+      // Of the part, and past its last edge: said with how many it has.
+      if (typeof edge === 'string') return failure(edge)
+    }
+    if (typeof args.radius !== 'number' || !Number.isFinite(args.radius) || args.radius <= 0) return failure(TRY_RADIUS)
+    try {
+      const tried = await deps.query<FilletDiagnosis & { works: boolean }>(objectId, 'try_fillet', { part: `${layout}:${part.name}`, edges, radius: args.radius, kind })
+      return { got: { layout, part, tried } }
+    } catch (e) {
+      return refusal(e, layout, 'trial')
+    }
+  })
+  if ('content' in asked) return asked
+  const { layout, part, tried } = asked.got
+  const head = `Tried on r${asked.found.revision} and thrown away, nothing changed: `
+  const reading = tried.works
+    ? `${head}${tried.operation} ${sizeText(tried.operation, tried.size)} of ${tried.edgeCount} edge${tried.edgeCount === 1 ? '' : 's'} works.`
+    : `${head}${diagnosisText(tried).slice(WHY.length)}`
+  return reply({ layout, ...ofBuild(deps, objectId), part: part.name, ...clean(tried), ...movedForDisplay(part, layout, { points: tried.edges ?? [] }), reading })
 }
 
 /** A check in a line. Null for a reply that is none. */

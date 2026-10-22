@@ -259,7 +259,8 @@ The shape being filleted is not a part on screen, so its edges are numbered by
 their place in the call, from 0, and their ends are in its own frame (`local`);
 one that is exactly an edge of the last good build is also named by that ref, as
 of that build. Nothing is retried in the model. The agent is told the same with
-the result of its edit and in `scene`.
+the result of its edit and in `scene`, and can try a fillet on the last good
+build with `try_fillet` before it edits the model again.
 
 **The window.** On the left, the layers (parts) of the open object each have a
 visibility switch. A model that says which of its parts belong together (an optional
@@ -679,8 +680,8 @@ build that worked, say which revision that is, and say so when a newer build
 is running or has failed. A tool given a key it does not take is refused,
 naming the keys it takes.
 
-The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`, `scans`,
-`scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
+The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`,
+`try_fillet`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
 Code at the start, in a few lines, what each tool is for. Claude Code's tool search keeps an MCP server's tools out
 of the model's sight until it searches for them; five are loaded from the start because nearly every turn uses
 them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found by that search.
@@ -700,6 +701,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
 | `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. |
+| `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
 | `mcp__torno__scans` | The scans of the object and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
 | `mcp__torno__scan_deviation` | How far a part lies from a scan. |

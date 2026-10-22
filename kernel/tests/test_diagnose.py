@@ -247,6 +247,55 @@ def edge_refs(shapes, edges):
     return refs
 
 
+def test_try_fillet_agrees_with_the_diagnosis(built, rim):
+    plate, top = rim
+    refs = edge_refs(built, top)
+    told = queries.run(built, "try_fillet", {"part": "main:plate", "edges": refs, "radius": 3, "kind": "fillet"})
+    assert told["works"] is False and told["frame"] == "object"
+    assert told["alone"]["failing"] == []
+    failing = sorted(tuple(sorted(p["edges"])) for p in told["pairs"]["failing"])
+    assert len(failing) == 4 and all(a.startswith("plate/E") for pair in failing for a in pair)
+    diagnosed = diagnose.from_exception(failure(lambda: plate.fillet(3, top)))
+    assert told["together"]["worksUpTo"] == pytest.approx(diagnosed["together"]["worksUpTo"])
+    # Each edge told is named by its ref, in the frame of the object.
+    assert all(edge["ref"].startswith("plate/E") for edge in told["edges"])
+    json.dumps(told, allow_nan=False)
+
+
+def test_try_fillet_that_works_says_so_and_changes_nothing(built, rim):
+    plate, top = rim
+    refs = edge_refs(built, top)
+    before = len(topo.faces(built["main:plate"]))
+    told = queries.run(built, "try_fillet", {"part": "main:plate", "edges": refs, "radius": 1.5, "kind": "fillet"})
+    assert told["works"] is True and "together" not in told and "alone" not in told
+    assert len(topo.faces(built["main:plate"])) == before
+
+
+def test_try_fillet_of_a_chamfer(built, rim):
+    _, top = rim
+    refs = edge_refs(built, top)
+    told = queries.run(built, "try_fillet", {"part": "main:plate", "edges": refs, "radius": 1, "kind": "chamfer"})
+    assert told["works"] is True and told["operation"] == "chamfer"
+
+
+@pytest.mark.parametrize(
+    ("args", "words"),
+    [
+        ({"part": "main:plate", "edges": [], "radius": 1}, "at least one edge"),
+        ({"part": "main:plate", "edges": ["plate/F1"], "radius": 1}, "edges of plate"),
+        ({"part": "main:plate", "edges": ["lid/E1"], "radius": 1}, "edges of plate"),
+        ({"part": "main:plate", "edges": ["plate/E999"], "radius": 1}, "there is no E999"),
+        ({"part": "main:plate", "edges": ["plate/E1"], "radius": 0}, "above 0"),
+        ({"part": "main:plate", "edges": ["plate/E1"], "radius": 1, "kind": "round"}, "fillet or chamfer"),
+        ({"part": "main:lid", "edges": ["lid/E1"], "radius": 1}, "no part 'main:lid'"),
+    ],
+)
+def test_try_fillet_refuses_what_it_cannot_try_and_says_how(built, args, words):
+    with pytest.raises(queries.QueryError) as refused:
+        queries.run(built, "try_fillet", args)
+    assert words in refused.value.message
+
+
 # Edges of the last good build that are, exactly, edges of the failed build
 
 

@@ -204,6 +204,11 @@ is the detail of this folder, under the headings it has there.
   described with their ends in its frame, `frame: "local"`. `match_edges`, asked of the live worker of the last
   good build by main, names the edges of that build that are exactly one of them (the same curve, ends and length
   within `SAME_EDGE`, 1e-6 mm, either way round): an edge of a shape moved or changed since matches none.
+  `try_fillet` (`queries.try_fillet`, `diagnose.trial`) is the same trial asked by the agent of the live worker,
+  on a part of the last good build (`part` as `layout:name`, `edges` as `name/E<i>`, 200 at most, `radius`,
+  `kind`): the fillet of them all is tried first, and only when it fails is it diagnosed, in `TRIAL_BUDGET` (20 s)
+  of the query's 30, its edges named by their refs, ends in the object frame (`frame: "object"`). Every try is a
+  new shape thrown away: the worker's shapes are left as they were.
 - **A worker is not trusted.** A frame from the building worker that is not a
   result (not JSON, or without its scene or error) is a `crash` of that build;
   the supervisor carries on. Frames are written with `allow_nan=False`: a scene
