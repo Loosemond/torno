@@ -674,8 +674,8 @@ for (const shot of [
   })
 }
 
-test('the bar stays clear of the triad bottom left and the scale bottom right, in a wide view and in a narrow one', async () => {
-  test.setTimeout(90_000)
+test('the bar stays clear of the triad bottom left and the scale bottom right, in a wide view and in a narrow one, raised or not', async () => {
+  test.setTimeout(180_000)
   await open('bracket')
   if ((await section()) === null) {
     if ((await page.locator('.tool-button[data-tool="section"]').getAttribute('aria-pressed')) !== 'true') await page.keyboard.press('x')
@@ -686,15 +686,25 @@ test('the bar stays clear of the triad bottom left and the scale bottom right, i
   const was = await page.evaluate(() => [window.innerWidth, window.innerHeight])
   const widths: number[] = []
   try {
-    for (const tool of ['section', 'measure'] as const) {
+    for (const [selected, tool] of [[false, 'section'], [false, 'measure'], [true, 'section'], [true, 'measure']] as const) {
+      if (selected && (await state()).selection.length === 0) {
+        // A face of the post below the plane: the selection's bar takes the bottom row, and the section's stands a row up.
+        await page.locator('.tool-button[data-tool="select"]').click()
+        const [x, y] = await pageXY([0, -4, 8])
+        await page.mouse.click(x, y)
+        await expect.poll(async () => (await state()).selection.length).toBe(1)
+      }
+      if (selected) await expect(bar()).toHaveAttribute('data-raised', '1')
+      else await expect(bar()).not.toHaveAttribute('data-raised')
       // The strip of the Measure tool is in the corner too: with it in hand the bar, which stays while a plane is cut, must clear it as well.
       const hand = page.locator(`.tool-button[data-tool="${tool}"]`)
       if ((await hand.getAttribute('aria-pressed')) !== 'true') await hand.click()
       await expect(hand).toHaveAttribute('aria-pressed', 'true')
       await expect(page.locator('.measure-choice')).toHaveCount(tool === 'measure' ? 1 : 0)
       // The window narrows the view with it: the pane is the window less the left column and the dock.
-      for (const width of [1100, 1300, 1440, 1700, 2000, 2600]) {
-        await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, 900])
+      // 1280 by 800 is a short window with the dock open: the palette, centred on the left, reaches low.
+      for (const [width, height] of [[1100, 900], [1280, 800], [1300, 900], [1440, 900], [1700, 900], [2000, 900], [2600, 900]]) {
+        await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height])
         await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width)
         // The attribute follows the view's width, set when the observer is told.
         await expect
@@ -713,11 +723,24 @@ test('the bar stays clear of the triad bottom left and the scale bottom right, i
         const meets = (corner: { left: number; right: number; top: number }): boolean => box.x < corner.right && box.x + box.width > corner.left && box.y + box.height > corner.top && box.y < bottom
         expect([width, 'triad', meets(triad)]).toEqual([width, 'triad', false])
         expect([width, 'scale', meets(scale)]).toEqual([width, 'scale', false])
+        // Nor does it reach the palette of tools on the left, however high it is raised.
+        const palette = (await page.getByRole('toolbar', { name: 'Tools' }).boundingBox())!
+        const besides = box.x >= palette.x + palette.width || box.y + box.height <= palette.y || box.y >= palette.y + palette.height
+        expect([width, height, selected, tool, 'palette', besides]).toEqual([width, height, selected, tool, 'palette', true])
+        // In the room that leaves, all of it is there, nothing running past its edge: in a view as narrow as the short window's
+        // (512px) and wider. One narrower than the bar's least (about 374px and the sides) has it run over.
+        if (pane.width >= 512) {
+          const fits = await bar().evaluate((el) => [...el.children].every((child) => child.getBoundingClientRect().right <= el.getBoundingClientRect().right + 0.5))
+          expect([width, height, 'bar whole', fits]).toEqual([width, height, 'bar whole', true])
+        }
         if (tool === 'measure') {
           const strip = (await page.locator('.measure-choice').boundingBox())!
           // Above the triad, and not under the bar: one of them is wholly above the other.
           expect([width, 'strip over the triad', strip.y + strip.height <= triad.top]).toEqual([width, 'strip over the triad', true])
-          expect([width, 'strip clear of the bar', strip.y + strip.height <= box.y || box.y + box.height <= strip.y || strip.x + strip.width <= box.x || box.x + box.width <= strip.x]).toEqual([width, 'strip clear of the bar', true])
+          const apart = (other: { x: number; y: number; width: number; height: number }): boolean =>
+            strip.y + strip.height <= other.y || other.y + other.height <= strip.y || strip.x + strip.width <= other.x || other.x + other.width <= strip.x
+          expect([width, selected, 'strip clear of the bar', apart(box)]).toEqual([width, selected, 'strip clear of the bar', true])
+          if (selected) expect([width, 'strip clear of the selection', apart((await page.getByRole('group', { name: 'Selection' }).boundingBox())!)]).toEqual([width, 'strip clear of the selection', true])
         }
       }
     }

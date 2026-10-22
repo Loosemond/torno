@@ -131,12 +131,13 @@
 }
 
 /* Above the selection, and above what the agent points at: each has a row of its own. */
+/* Never under the strip of the Measure tool (`--strip-top`, styles/layout.css). */
 .sectionbar[data-raised='1'] {
-  bottom: calc(var(--space-3) + 40px + var(--bar-lift));
+  bottom: max(calc(var(--space-3) + 40px + var(--bar-lift)), var(--strip-top));
 }
 
 .sectionbar[data-raised='2'] {
-  bottom: calc(var(--space-3) + 80px + var(--bar-lift));
+  bottom: max(calc(var(--space-3) + 80px + var(--bar-lift)), calc(var(--strip-top) + 40px));
 }
 
 /* The three axes in their own colours, as on the gizmo: this letter is that direction. */
@@ -273,9 +274,9 @@
   font-size: var(--text-small);
 }
 
-/* Above the selection, when something is selected too. */
+/* Above the selection, when something is selected too; never under the strip of the Measure tool. */
 .agent-line[data-above] {
-  bottom: calc(var(--space-3) + 40px + var(--bar-lift));
+  bottom: max(calc(var(--space-3) + 40px + var(--bar-lift)), var(--strip-top));
 }
 
 .agent-refs {

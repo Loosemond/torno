@@ -304,9 +304,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   triad, and the bars at the bottom of the view (the section's, the selection's, the Align and Region tools', the
   agent's line) keep `BAR_SIDE` in from each side, clear of the triad and of the scale; where the view is narrower than
   the widest of them needs (`NARROW_BELOW`, `data-narrow` on `.viewport-pane`, set by `ViewportPane` as the view is
-  resized) they stand above the triad (`--bar-lift`) instead, and above the strip of the Measure tool while it is in hand (the strip is also above the triad, at the left, and the two never meet). `TRIAD_CLEAR`, `BAR_SIDE` and `NARROW_BELOW` are in
+  resized) they stand above the triad (`--bar-lift`) instead, and above the strip of the Measure tool while it is in hand (the strip is also above the triad, at the left, and the two never meet),
+  60 px in from each side (`--bar-side` of `[data-narrow]`), clear of the palette of tools, which a short view's raised bars
+  would reach. In a wide view the bottom row stands below the strip, beside the triad, and a bar raised a row up (the
+  section's over the selection or the agent's line, the agent's line over the selection) stands at `--strip-top` at the
+  least while the strip is there, above it. `TRIAD_CLEAR`, `BAR_SIDE` and `NARROW_BELOW` are in
   `viewport/overlay.ts`, and `--triad-clear`, `--bar-side` in `styles/layout.css` are held to them by `overlay.test.ts`;
-  `e2e/section.spec.ts` reads the bar's box against the corners, and the strip's against the bar's, at six widths.
+  `e2e/section.spec.ts` reads the bar's box against the corners, the palette and the strip, and the strip's against the
+  selection's, at seven sizes, with a selection and without.
 - **The strip** (`ui/ViewsStrip.tsx`, the last child of `.viewbars`,
   `role="toolbar"`): a chip per view (`button.view-chip[data-view]`), the
   one that is on marked (`aria-pressed`: `activeView`, while the screen
