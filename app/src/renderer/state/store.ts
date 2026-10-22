@@ -672,7 +672,6 @@ export const actions = {
     if (store.getState().noting !== null) store.setState({ noting: null })
   },
 
-  /** The session dock is shown or hidden. */
   /** Folds a section of the left column above the marks, or unfolds it; the window keeps it for the next time. */
   foldSection(section: ColumnSection, folded: boolean): void {
     const { column } = store.getState()
@@ -686,6 +685,7 @@ export const actions = {
     if (column.marks !== height) setColumn({ ...column, marks: height })
   },
 
+  /** The session dock is shown or hidden. */
   setDockOpen(open: boolean): void {
     if (store.getState().dockOpen !== open) store.setState({ dockOpen: open })
   },

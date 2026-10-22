@@ -212,6 +212,17 @@ test('Insert puts the refs of the selection in the box at the cursor and sends n
   await page.keyboard.press('Control+A')
   await page.keyboard.press('Backspace')
   await expect(composer()).toHaveValue('')
+  // With the dock hidden, Insert shows it and gives the box the keys: what is typed next is not the view's.
+  await page.getByRole('button', { name: 'Hide session', exact: true }).click()
+  await expect(composer()).toBeHidden()
+  await page.getByRole('button', { name: 'Insert', exact: true }).click()
+  await expect(composer()).toBeVisible()
+  await expect(composer()).toBeFocused()
+  await page.keyboard.type('m')
+  await expect(composer()).toHaveValue(`${ref} m`)
+  await page.keyboard.press('Control+A')
+  await page.keyboard.press('Backspace')
+  await expect(composer()).toHaveValue('')
 })
 
 test('Shift+Enter breaks the line and Enter sends it, queued while the agent works; Stop ends the turn within moments', async () => {

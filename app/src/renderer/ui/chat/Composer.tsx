@@ -140,6 +140,8 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const rate = rateLine(chat?.meta.rate)
   const field = useRef<HTMLTextAreaElement>(null)
   const cursor = useRef<number | null>(null)
+  /** Where the cursor goes when the box is next given the keys: after what was inserted while it could not take them. */
+  const unfocused = useRef<number | null>(null)
   const latest = useRef(text)
   latest.current = text
 
@@ -158,6 +160,8 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
         cursor.current = (before + lead + inserted + tail).length
         setText(before + lead + inserted + tail + after)
         box?.focus()
+        // A box in a hidden dock takes no focus, and the cursor it is given is lost by the time it does.
+        unfocused.current = box && document.activeElement !== box ? cursor.current : null
       }
     }
     return () => {
@@ -333,6 +337,12 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
           placeholder={live ? (working ? 'Claude Code is working: this goes next' : 'Message Claude Code') : 'The session has ended'}
           aria-controls={offered.length > 0 ? 'chat-commands' : undefined}
           aria-activedescendant={offered.length > 0 ? `chat-command-${offered[at].name}` : undefined}
+          onFocus={(e) => {
+            // What was inserted while the box could not take the keys (in a hidden dock): the cursor goes after it now.
+            if (unfocused.current === null) return
+            e.currentTarget.setSelectionRange(unfocused.current, unfocused.current)
+            unfocused.current = null
+          }}
           onChange={(e) => {
             setText(e.target.value)
             setChoice(0)

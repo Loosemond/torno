@@ -2,7 +2,7 @@ import { pressed } from '../../shared/keys'
 import { useEffect, useState } from 'react'
 import { EXPLODED_TOOLS } from '../../shared/explode'
 import { describe, descriptorOf } from '../state/descriptors'
-import { actions, explodeNow, runningSession, useStore } from '../state/store'
+import { actions, explodeNow, runningSession, store, useStore } from '../state/store'
 import { useTool } from '../state/tools'
 import { noteSelection } from '../tools/pickMarks'
 import { staleMessage } from '../tools/Tool'
@@ -75,7 +75,12 @@ export function Selection({ viewport }: { viewport: Viewport }) {
         // Not on a stale build either: the refs would name other geometry in the build the agent then asks about.
         disabled={!canInsert || stale !== null}
         title={stale ?? (canInsert ? "Put the selection in the session's prompt" : 'Start a session to put the selection in its prompt')}
-        onClick={() => void insertIntoSession(selection.join(' '))}
+        onClick={() => {
+          // The dock may be away: the box takes no focus in a hidden one, so it is given the keys a frame after it is shown.
+          const hidden = !store.getState().dockOpen
+          actions.setDockOpen(true)
+          insertIntoSession(selection.join(' '), { later: hidden })
+        }}
       >
         Insert
       </button>

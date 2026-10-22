@@ -162,7 +162,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - A click on a row puts `Params.<name>` at the cursor of the open object's session by `insertIntoSession`
   (`ui/insertIntoSession.ts`, also the selection's "Insert" and the build error sheet's ask: the box of the chat,
   `insertIntoComposer`, else a paste at the terminal's prompt, never sent; it says whether it went in), and shows the
-  dock first (`later`: a box in a hidden dock takes no focus). `Params.x` names no geometry, so it is plain text in the
+  dock first (`later`: a box in a hidden dock takes no focus), as the selection's "Insert" does; the box puts its cursor
+  after the text once it is given the keys (`unfocused` in `Composer`: a hidden box loses the one it was given). `Params.x` names no geometry, so it is plain text in the
   prompt: `refsIn` and `RefChip` do not see it. A row's accessible name stays `Params.<name>`; its `aria-description` holds
   the row's title (type, value whole, comment) and then what a click does. With no session running a row is text, not a
   button, and the description says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a
