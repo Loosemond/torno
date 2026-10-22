@@ -1,6 +1,7 @@
 import { type DimensionStanding, standingOf } from '../../shared/dimension'
 import type { DimensionMark, Mark } from '../../shared/marks'
 import { letGoText } from '../../shared/build'
+import { diagnosisText } from '../../shared/diagnosis'
 import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, explodeText, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
@@ -78,7 +79,9 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   const error = build.error && {
     kind: build.error.kind,
     message: build.error.message,
-    ...(build.error.traceback ? { traceback: lastLines(build.error.traceback, TRACEBACK_LINES) } : {})
+    ...(build.error.traceback ? { traceback: lastLines(build.error.traceback, TRACEBACK_LINES) } : {}),
+    // Why a fillet or a chamfer failed: the kernel's data, and the same in words.
+    ...(build.error.diagnosis ? { diagnosis: { ...build.error.diagnosis, reading: diagnosisText(build.error.diagnosis) } } : {})
   }
   // What the model printed in the build that ended last (the failed one when the last failed): its tail, as `buildContextFor` tells it.
   const printed = modelOutput(deps, objectId)

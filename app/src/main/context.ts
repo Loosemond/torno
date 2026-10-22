@@ -1,4 +1,5 @@
 import type { BuildState } from '../shared/build'
+import { diagnosisText } from '../shared/diagnosis'
 import { standingOf, unmetDimensions } from '../shared/dimension'
 import { explodeText, isExploded } from '../shared/explode'
 import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
@@ -27,6 +28,11 @@ export const OUTPUT_CHARS = 1000
 const MIN_OUTPUT_CHARS = 60
 const OUTPUT_HEAD = (lines: number, cut: boolean): string => `Model printed (last ${lines} line${lines === 1 ? '' : 's'}${cut ? ', earlier output cut' : ''}):`
 const MESSAGE_LIMIT = 400
+/** The most of a failed build's lines that says why a fillet or a chamfer failed (`diagnosisText`), and the least it leaves the traceback. */
+const DIAGNOSIS_LIMIT = 1000
+const TRACEBACK_LEAST = 200
+/** Less room than this for it, and it is not told: its first line would be cut to nothing. */
+const MIN_WHY = 60
 /** The most of it that says what is selected, and of that the most that is said of one ref. */
 const SELECTION_LIMIT = 1000
 const SELECTED_DESCRIPTOR_LIMIT = 100
@@ -438,10 +444,15 @@ function status(deps: ContextDeps, objectId: string, limit: number): string {
     const first = `${head} · BUILD FAILED · ${shown}.`
     const message = cutEnd(build.error?.message ?? 'no reason was given', MESSAGE_LIMIT)
     const traceback = lastLines(build.error?.traceback ?? '', TRACEBACK_LINES)
-    const room = limit - first.length - message.length - 2
-    if (!traceback || room < 2) return `${first}\n${message}`
+    // Why a fillet or a chamfer failed, under the error: in what it may have and leaves the end of the traceback.
+    const diagnosis = build.error?.diagnosis
+    const whyRoom = Math.min(DIAGNOSIS_LIMIT, limit - first.length - message.length - 3 - (traceback ? TRACEBACK_LEAST : 0))
+    const why = diagnosis && whyRoom >= MIN_WHY ? diagnosisText(diagnosis, whyRoom) : ''
+    const said = why ? `${message}\n${why}` : message
+    const room = limit - first.length - said.length - 2
+    if (!traceback || room < 2) return `${first}\n${said}`
     // What is cut is the start of the traceback: its end says what went wrong.
-    return `${first}\n${message}\n${cutStart(traceback, room)}`
+    return `${first}\n${said}\n${cutStart(traceback, room)}`
   }
 
   const start = `${head} · build ok · r${build.revision}${took(build.seconds)}`

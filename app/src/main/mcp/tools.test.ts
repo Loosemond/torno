@@ -9,6 +9,7 @@ import type { Camera, LookRequest, LookResult, SaveViewRequest, ShowRequest, Vie
 import type { SavedView } from '../../shared/views'
 import type { ObjectInfo } from '../../shared/workspace'
 import type { NearestAnchor } from '../marks/reanchor'
+import { probe } from '../../test/diagnosisFixtures'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
 import { TOOLS, refusedKeys } from './schemas'
 import { describeTool, marksTool, type ToolDeps } from './tools'
@@ -336,6 +337,17 @@ describe('scene', () => {
       error: { kind: 'exception', message: 'ValueError: no', traceback: Array.from({ length: 30 }, (_, i) => `line ${i + 16}`).join('\n') }
     })
     expect(scene.parts).toHaveLength(4)
+  })
+
+  it('gives why a fillet failed under build.error, as data with its reading', () => {
+    const state: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'ValueError: fillet', diagnosis: probe() } }
+    const error = JSON.parse(textOf(sceneTool(fake({ state }), 'bracket'))).build.error
+    expect(error.diagnosis).toMatchObject({ operation: 'fillet', size: 6, frame: 'local', together: { worksUpTo: 5.999, failsAt: 6 } })
+    expect(error.diagnosis.pairs.failing).toHaveLength(4)
+    expect(error.diagnosis.reading).toMatch(/^Why: fillet R6 of 8 edges: each works alone; 4 pairs of adjacent edges fail/)
+    // And before the first build that worked, in the error it answers with.
+    const first: BuildState = { ...state, revision: 0, stale: false }
+    expect(textOf(sceneTool(fake({ state: first, noScene: true }), 'bracket'))).toMatch(/^no build yet: failed: ValueError: fillet\nWhy: fillet R6 of 8 edges/)
   })
 
   describe('what the model printed', () => {

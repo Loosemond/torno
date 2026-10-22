@@ -74,6 +74,8 @@ def run(
         from . import export
 
         return export.export(shapes, args, kept) if name == "export" else export.export_check(shapes, args, kept)
+    if name == "match_edges":
+        return match_edges(shapes, args.get("edges"), kept)
     if name == "describe":
         ref = args.get("ref")
         if not isinstance(ref, str):
@@ -89,7 +91,7 @@ def run(
     raise QueryError(
         "bad_request",
         f"unknown query {name!r}; the queries are describe, nearest, measure, section, check, "
-        "scan_clash, scan_deviation, scan_section, export and export_check",
+        "scan_clash, scan_deviation, scan_section, export, export_check and match_edges",
     )
 
 
@@ -107,6 +109,47 @@ def describe(
     if kind == "face":
         return _describe_face(ref, shape, _held(kept, "span", key, lambda: extent.span(shapes[key])))
     return _describe_edge(ref, shape)
+
+
+# Two edges are the same when their ends and their lengths are this close, mm.
+SAME_EDGE = 1e-6
+
+
+def match_edges(shapes: dict[str, Any], edges: Any, kept: dict[Any, Any] | None = None) -> dict[str, Any]:
+    """Which edges of the last good build are, exactly, the edges given: for each, the refs (``layout:name/E<i>``)
+    of the edges of the same curve whose ends are within ``SAME_EDGE`` of its own (either way round) and whose
+    length is as close. ``edges`` are as a diagnosis tells them (``type``, ``start``, ``end``, ``length``). An edge
+    of a shape the build moved or changed matches none."""
+    from . import diagnose
+
+    if not isinstance(edges, list) or not all(isinstance(e, dict) for e in edges):
+        raise QueryError("bad_request", "match_edges needs args.edges, a list of edges as a diagnosis tells them")
+    matches: list[list[str]] = []
+    for wanted in edges:
+        start, end, length = as_point(wanted.get("start")), as_point(wanted.get("end")), wanted.get("length")
+        if start is None or end is None or not _is_coordinate(length):
+            matches.append([])
+            continue
+        found = []
+        for key, shape in shapes.items():
+            for index, (a, b, edge) in enumerate(_held(kept, "edge ends", key, lambda shape=shape: _edge_ends(shape))):
+                if a is None or not (_near(a, start) and _near(b, end) or _near(a, end) and _near(b, start)):
+                    continue
+                measured = diagnose._length(edge)
+                if measured is not None and abs(measured - length) <= SAME_EDGE and diagnose._curve(edge) == wanted.get("type"):
+                    found.append(f"{key}/E{index}")
+        matches.append(found)
+    return {"matches": matches}
+
+
+def _edge_ends(shape: Any) -> list[tuple[Any, Any, Any]]:
+    from . import diagnose
+
+    return [(*diagnose.ends(edge), edge) for edge in topo.edges(shape)]
+
+
+def _near(a: list[float], b: list[float]) -> bool:
+    return all(abs(x - y) <= SAME_EDGE for x, y in zip(a, b, strict=True))
 
 
 def resolve(shapes: dict[str, Any], ref: str) -> tuple[str, str, Any]:

@@ -245,6 +245,22 @@ with the time it took and the revision (`r3`), or failed. A failed build keeps
 the last good parts on screen, and its status opens the error with the
 traceback.
 
+**A failed fillet or chamfer.** build123d and OpenCascade say only that a fillet
+or a chamfer could not be made, naming neither the edges nor the radius. When a
+build fails inside one, the kernel tries it again in parts before it reports the
+failure, for 5 s at most (less when the build's own limit is nearer, and it says
+when it ran out): each edge alone at the radius asked; if each works alone, the
+pairs, those that share a face first; and the largest radius that works for all
+of them, and for each edge that fails alone, to 0.001 mm. The error says it
+under its message, such as `fillet R6 of 8 edges: each works alone; 4 pairs of
+adjacent edges fail (edges 4-5, 4-6, 5-7, 6-7: 12 mm apart, two R6 need more);
+the 8 together work up to R5.999`, then a line for each edge of the failures.
+The shape being filleted is not a part on screen, so its edges are numbered by
+their place in the call, from 0, and their ends are in its own frame (`local`);
+one that is exactly an edge of the last good build is also named by that ref, as
+of that build. Nothing is retried in the model. The agent is told the same with
+the result of its edit and in `scene`.
+
 **The window.** On the left, the layers (parts) of the open object each have a
 visibility switch. A model that says which of its parts belong together (an optional
 `groups(p)` beside `assembly`, group name to part names) has them listed under a

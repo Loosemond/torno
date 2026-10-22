@@ -7,6 +7,7 @@ import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { Builds, NotBuilding, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, KernelError, startKernel } from './kernel/client'
+import { probe } from '../test/diagnosisFixtures'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
 
@@ -57,10 +58,13 @@ class FakeKernel implements KernelClient {
   retired = new Set<string>()
   /** Why: `memory` when the kernel says it let them go to make room. */
   retiredFor: string | undefined
+  /** What a query of this name is answered with, given its arguments, when set. */
+  answers = new Map<string, (args: object) => unknown>()
   query<T>(dir: string, name: string, args: object): Promise<T> {
     this.queries.push({ dir, name, args })
     if (this.retired.has(dir)) return Promise.reject(new KernelError('no_build', `no build of ${dir} to ask`, this.retiredFor))
-    return this.queryError ? Promise.reject(this.queryError) : Promise.resolve({ dir, name, args } as T)
+    const answer = this.answers.get(name)
+    return this.queryError ? Promise.reject(this.queryError) : Promise.resolve((answer ? answer(args) : { dir, name, args }) as T)
   }
   cancel(): void {
     this.cancels += 1
@@ -526,6 +530,44 @@ describe('Builds', () => {
     expect(builds.scenes('bracket').map((s) => s.revision)).toEqual([2, 3])
     expect(builds.scenes('bracket').map((s) => s.scene)).toEqual([scenes[1].scene, scenes[2].scene])
     expect(builds.scenes('nothing')).toEqual([])
+  })
+
+  describe('a failed fillet', () => {
+    const failing = (): BuildError => ({ kind: 'exception', message: 'ValueError: fillet', diagnosis: probe() })
+
+    it('names an edge by the ref of the last good build that is exactly it, as of that build, and no other', async () => {
+      const { kernel, builds } = setup()
+      kernel.answers.set('match_edges', () => ({ matches: [['assembly:plate/E12', 'print:plate/E12'], [], [], ['assembly:plate/E3']] }))
+      builds.open(bracket)
+      kernel.succeed(0)
+      await flush()
+      builds.changed('bracket', ['/ws/bracket/bracket.py'])
+      kernel.fail(1, failing())
+      await flush()
+      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      expect(edges.map((e) => e.sameAs)).toEqual([{ ref: 'plate/E12', layout: 'assembly', revision: 1 }, undefined, undefined, { ref: 'plate/E3', layout: 'assembly', revision: 1 }])
+      const asked = kernel.queries.find((q) => q.name === 'match_edges')
+      expect(asked).toMatchObject({ dir: '/ws/bracket', args: { edges: [{ type: 'line', start: [-6, -6, -2.5], end: [-6, -6, 2.5], length: 5 }, {}, {}, {}] } })
+    })
+
+    it('names none when there is no good build to match against, or the kernel cannot say', async () => {
+      const first = setup()
+      first.builds.open(bracket)
+      first.kernel.fail(0, failing())
+      await flush()
+      expect(first.kernel.queries).toEqual([])
+      expect(first.builds.state('bracket')?.error?.diagnosis).toEqual(probe())
+
+      const { kernel, builds } = setup()
+      builds.open(bracket)
+      kernel.succeed(0)
+      await flush()
+      kernel.queryError = new KernelError('timeout', 'busy')
+      builds.changed('bracket', ['/ws/bracket/bracket.py'])
+      kernel.fail(1, failing())
+      await flush()
+      expect(builds.state('bracket')).toMatchObject({ status: 'failed', error: { diagnosis: probe() } })
+    })
   })
 
   it('goes to failed with the error when the first build fails, with nothing stale on screen', async () => {

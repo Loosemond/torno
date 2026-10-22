@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import type { BuildState } from '../shared/build'
+import { diagnosisText } from '../shared/diagnosis'
 import type { Mark } from '../shared/marks'
 import type { BuildDigest } from '../shared/sanity'
 import { type ScanInfo, importText } from '../shared/scans'
@@ -126,7 +127,9 @@ function buildLines(build: BuildState | undefined, revision = 0): string[] {
   if (build.status === 'building') return [`A build is running. ${shown}`]
   if (build.status === 'failed') {
     const traceback = (build.error?.traceback ?? '').trimEnd().split('\n').slice(-TRACEBACK_LINES).join('\n')
-    return [`BUILD FAILED. ${shown}`, '', '```', build.error?.message ?? 'no reason was given', ...(traceback ? [traceback] : []), '```']
+    // Why a fillet or a chamfer failed, as the tools say it.
+    const why = build.error?.diagnosis ? [diagnosisText(build.error.diagnosis)] : []
+    return [`BUILD FAILED. ${shown}`, '', '```', build.error?.message ?? 'no reason was given', ...why, ...(traceback ? [traceback] : []), '```']
   }
   return [`Build ok, r${build.revision}.`]
 }

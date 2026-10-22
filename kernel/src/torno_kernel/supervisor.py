@@ -448,6 +448,7 @@ class Supervisor:
         sys.stdout.flush()
         sys.stderr.flush()
         parent = os.getpid()  # read before the fork: a worker's getppid() may already be 1
+        deadline = time.monotonic() + timeout  # the worker's: a failed fillet's diagnosis keeps within it
         pid = os.fork()
         if pid == 0:
             try:
@@ -456,7 +457,7 @@ class Supervisor:
                 for live in self._live.values():
                     live.sock.close()
             finally:
-                worker_module.run(theirs, capture.fileno(), dir, model, parent)
+                worker_module.run(theirs, capture.fileno(), dir, model, parent, deadline)
         theirs.close()
         ours.setblocking(False)
         now = time.monotonic()

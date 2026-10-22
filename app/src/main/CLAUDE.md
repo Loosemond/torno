@@ -739,6 +739,18 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   what is left of `CONTEXT_LIMIT` after the status, the dimensions and the count of those that pass, so a traceback
   and a dimension outrank it; with less than `MIN_OUTPUT_CHARS` left it is a line that there is output and that
   `scene` has it, or nothing.
+- **Why a fillet or a chamfer failed** (`BuildError.diagnosis`, the kernel's `diagnose.py`; the words are
+  `diagnosisText` of `shared/diagnosis.ts`, numbers through `shared/format.ts`, a bisected size by `thousandth`).
+  Before a failed build that carries one is told, `Builds.withRefs` asks the live worker of the last good build
+  (`match_edges`, `MATCH_MS`, 2 s at most; nothing when there is none, it was let go, or the kernel cannot say) which
+  of its edges are exactly those of the diagnosis, and sets `sameAs` (`{ ref, layout, revision }`) on those: a ref
+  only where an edge matches exactly, said as of that build; the rest are known by their number in the call and their
+  ends in the frame of the shape filleted (`local`). It is told under the error's message, before the traceback,
+  wherever the error is: the status lines of `contextFor` and `buildContextFor` (in `DIAGNOSIS_LIMIT`, 1,000
+  characters, leaving `TRACEBACK_LEAST`, 200, to the traceback, the edges cut first and counted), `scene` under
+  `build.error.diagnosis` (the data and its `reading`) and in its error before a first build that worked, `state.md`,
+  and the error sheet (`ui/BuildErrorSheet.tsx`, under "Why", and in what Copy takes). Nothing is retried in the
+  model: the agent decides.
 - A `Notification` hook is a question (`needs_input`) unless its body says it is none (`reduceStatus` in
   `sessions/status.ts`: `notification_type` `idle_prompt` or `auth_success`, or, without a type, a message that
   it is waiting for input): Claude Code also posts one when it has only been idle at its prompt for a while.

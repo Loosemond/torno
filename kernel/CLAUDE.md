@@ -188,6 +188,22 @@ is the detail of this folder, under the headings it has there.
   A build past it is killed and answered with `error.kind: "timeout"`. A
   worker that crashes is answered with `crash`, one that is superseded with
   `cancelled`. The supervisor never blocks on a write.
+- **A failed fillet says why** (`diagnose.py`). When a build fails inside build123d's `fillet` or `chamfer`
+  (the innermost frame of such a method of a build123d shape in the traceback, or in that of the exception it was
+  raised from), the worker that failed, before it writes the error and exits, takes the call's `self`, size and
+  edges from that frame's locals and tries it again in parts with OCC's own `BRepFilletAPI` (a try works when the
+  result is done and `BRepCheck_Analyzer` finds it valid, as build123d asks): each edge alone at the size asked; if
+  each works alone, the pairs, those that share a face first and the others only when none of those fails, within
+  half of what is left; then the largest size that works for them all and for each edge that fails alone, bisected
+  on a grid of `STEP` (0.001 mm) under the size asked. An uneven chamfer keeps its proportions. No fork and no other
+  process. It has `BUDGET` (5 s), or what the build's timeout leaves less `MARGIN` (1 s) when that is less: the
+  supervisor passes the worker its deadline. OCC's tries cannot be stopped, so the clock is read between them;
+  what it had no time for is said (`complete: false`) and never told as a finding. What OCC prints meanwhile goes
+  to `/dev/null`, not into the model's output. The error carries it as `diagnosis`: the shape filleted is an
+  intermediate one with no place in the scene, so its edges are numbered by their place in the call (from 0) and
+  described with their ends in its frame, `frame: "local"`. `match_edges`, asked of the live worker of the last
+  good build by main, names the edges of that build that are exactly one of them (the same curve, ends and length
+  within `SAME_EDGE`, 1e-6 mm, either way round): an edge of a shape moved or changed since matches none.
 - **A worker is not trusted.** A frame from the building worker that is not a
   result (not JSON, or without its scene or error) is a `crash` of that build;
   the supervisor carries on. Frames are written with `allow_nan=False`: a scene

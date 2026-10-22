@@ -25,17 +25,25 @@ _PR_SET_PDEATHSIG = 1
 _PR_SET_DUMPABLE = 4
 
 
-def run(sock: socket.socket, capture_fd: int, dir: str, model: str, parent: int | None = None) -> NoReturn:
+def run(
+    sock: socket.socket,
+    capture_fd: int,
+    dir: str,
+    model: str,
+    parent: int | None = None,
+    deadline: float | None = None,
+) -> NoReturn:
     """Build ``dir/model`` and serve queries on ``sock``. Never returns.
 
     The caller has already closed the supervisor's other descriptors.
     ``capture_fd`` receives everything the model writes to stdout and stderr.
-    ``parent`` is the supervisor's pid, read before the fork.
+    ``parent`` is the supervisor's pid, read before the fork. ``deadline``
+    (``time.monotonic``) is when the build's timeout runs out.
     """
     try:
         _isolate(capture_fd, os.getppid() if parent is None else parent)
         channel = sock.makefile("rwb")
-        built = _build(channel, dir, model)
+        built = _build(channel, dir, model, deadline)
         if built is not None:
             _serve(channel, *built)
     except BaseException:
@@ -97,11 +105,16 @@ def _watch_parent(parent: int, leave: Callable[[int], Any] = os._exit) -> None:
     leave(0)
 
 
-def _build(channel: Any, dir: str, model: str) -> tuple[dict[str, Any], dict[Any, Any]] | None:
+def _build(
+    channel: Any, dir: str, model: str, deadline: float | None = None
+) -> tuple[dict[str, Any], dict[Any, Any]] | None:
     """Send the build's one result frame.
 
     Returns the shapes and what the build worked out of each part that its
-    queries would otherwise work out again, or None on failure.
+    queries would otherwise work out again, or None on failure. A failure
+    inside a fillet or a chamfer of build123d carries why it failed
+    (``diagnose``), found here, before the frame is written, within what the
+    build's ``deadline`` leaves.
     """
     try:
         layouts, params, groups = loader.load_model(Path(dir), model)
@@ -122,13 +135,43 @@ def _build(channel: Any, dir: str, model: str) -> tuple[dict[str, Any], dict[Any
         return shapes, kept
     except loader.LoadError as e:
         error = {"kind": e.kind, "message": e.message, "traceback": e.traceback}
+        failed: BaseException = e
     except SystemExit as e:
         error = _exception(f"{model} exited instead of defining a scene: sys.exit({e.code!r})")
+        failed = e
     except BaseException as e:
         error = _exception(str(e) or type(e).__name__)
+        failed = e
     _flush_output()
+    diagnosis = _diagnose(failed, deadline)
+    if diagnosis is not None:
+        error["diagnosis"] = diagnosis
     write_frame(channel, {"ok": False, "error": error})
     return None
+
+
+def _diagnose(error: BaseException, deadline: float | None) -> dict[str, Any] | None:
+    """Why a fillet or a chamfer of build123d failed, if one raised ``error``; None otherwise.
+
+    It runs in this worker, which is about to exit: no fork, no other process. What OCC
+    might print meanwhile is not the model's output, and is not captured with it.
+    """
+    from . import diagnose
+
+    if diagnose.find_call(error) is None:
+        return None
+    saved = [os.dup(1), os.dup(2)]
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        return diagnose.from_exception(error, diagnose.budget_left(deadline))
+    finally:
+        _flush_output()
+        os.dup2(saved[0], 1)
+        os.dup2(saved[1], 2)
+        for fd in (*saved, devnull):
+            os.close(fd)
 
 
 def _serve(channel: Any, shapes: dict[str, Any], kept: dict[Any, Any] | None = None) -> None:

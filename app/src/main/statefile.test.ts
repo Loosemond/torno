@@ -8,6 +8,7 @@ import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import type { Part, Scene } from '../shared/scene'
 import type { SavedView } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
+import { probe } from '../test/diagnosisFixtures'
 import { StateFiles, stateText, writtenLine } from './statefile'
 
 const part = (layout: string, name: string, min: number[], max: number[]): Part => ({ key: `${layout}:${name}`, name, layout, bbox: { min, max }, bboxExact: true, volumeExact: true }) as Part
@@ -173,6 +174,13 @@ describe('stateText', () => {
     expect(text).toContain('line 20\n```\n')
     expect(text).not.toContain('line 8\n')
     expect(text).toContain('## Marks\n\nNone.\n')
+  })
+
+  it('says why a fillet failed under the error, as the tools do', () => {
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'ValueError: fillet', traceback: 'line 1', diagnosis: probe() } }
+    const text = stateText(obj, failed, { revision: 3, scene: SCENE }, [])
+    expect(text).toContain('```\nValueError: fillet\nWhy: fillet R6 of 8 edges: each works alone;')
+    expect(text).toMatch(/\n7: line, 5 mm, along Z, between 2 planes, \(6, 6, -2.5\) to \(6, 6, 2.5\)\nline 1\n```/)
   })
 
   it('lists the scans after the parts, each with how it is aligned in every layout, and tells regions with the marks', () => {

@@ -1,9 +1,13 @@
+import type { FilletDiagnosis } from './diagnosis'
+
 export type BuildStatus = 'idle' | 'building' | 'ok' | 'failed'
 export interface BuildError {
   kind: string
   message: string
   traceback?: string
   output?: string
+  /** Why a fillet or a chamfer of build123d failed, found by the worker that failed (`diagnose.py`); `sameAs` of its edges is main's. */
+  diagnosis?: FilletDiagnosis
   /** `output` is the stderr of the kernel process that stopped (set by main where it makes that error), not what the model printed. */
   kernelStderr?: true
 }

@@ -4,11 +4,13 @@ import { watch as chokidarWatch } from 'chokidar'
 import { type BuildError, type BuildState, REBUILD_KEY } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { type KernelClient, KernelError } from './kernel/client'
+import { type BuildResult, type KernelClient, KernelError } from './kernel/client'
 import { FOLDER } from './own'
 import { realPathOrNearest } from './sessions/inside'
 
 const DEBOUNCE_MS = 300
+/** The most a failed build's error waits for the last good build to say which of its edges are those of a failed fillet. */
+const MATCH_MS = 2000
 // torno's own folder, and where models and tools keep what they make: exports,
 // caches, environments. A model may write there while it builds.
 const IGNORED_FOLDERS = new Set(['out', FOLDER, '__pycache__', 'cache', 'build', 'dist', 'node_modules', '.venv', '.git'])
@@ -411,7 +413,7 @@ export class Builds {
       }
     }
     const opts = { ...(this.timeout === undefined ? {} : { timeout: this.timeout }), onStarted }
-    void this.kernel.build(obj.dir, obj.model, opts).then((result) => {
+    void this.kernel.build(obj.dir, obj.model, opts).then((result) => this.withRefs(entry, result)).then((result) => {
       const current = this.entries.get(id) === entry && entry.attempt === attempt
       if (current && this.running === id) this.running = null
       if (current) {
@@ -436,6 +438,37 @@ export class Builds {
       // was closed: whatever the result says, it is not shown.
       this.startDisplaced()
     })
+  }
+
+  /**
+   * A failed fillet's diagnosis names the edges of a shape that has no place in the scene, by their place in the
+   * call and their ends in its own frame (`local`). Where one of them is, exactly, an edge of the last good build
+   * (the same curve, ends and length, `match_edges` of its live worker), it is named by that ref too, as of that
+   * build (`sameAs`); else by nothing more. Waited for `MATCH_MS` at most; whatever goes wrong leaves it as it was.
+   */
+  private async withRefs(entry: Entry, result: BuildResult): Promise<BuildResult> {
+    const diagnosis = !result.ok ? result.error.diagnosis : undefined
+    const good = entry.lastGood
+    if (result.ok || !diagnosis || diagnosis.edges.length === 0 || !good || entry.letGo) return result
+    const edges = diagnosis.edges.map(({ type, start, end, length }) => ({ type, start, end, length }))
+    let timer: NodeJS.Timeout | undefined
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), MATCH_MS)
+    })
+    try {
+      const asked = this.kernel.query<{ matches?: unknown }>(entry.obj.dir, 'match_edges', { edges }).catch(() => null)
+      const matches = (await Promise.race([asked, late]))?.matches
+      if (!Array.isArray(matches)) return result
+      const named = diagnosis.edges.map((edge, i) => {
+        const first = Array.isArray(matches[i]) ? matches[i].find((ref: unknown): ref is string => typeof ref === 'string' && ref.includes(':')) : undefined
+        if (!first) return edge
+        const [layout, ref] = [first.slice(0, first.indexOf(':')), first.slice(first.indexOf(':') + 1)]
+        return { ...edge, sameAs: { ref, layout, revision: good.revision } }
+      })
+      return { ok: false, error: { ...result.error, diagnosis: { ...diagnosis, edges: named } } }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   private succeeded(entry: Entry, scene: Scene, blob: Buffer): void {

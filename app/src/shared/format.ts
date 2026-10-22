@@ -39,6 +39,15 @@ export function fitNumber(mm: number): string {
 }
 
 /**
+ * A size found by bisection to the thousandth of a millimetre (a fillet's largest radius, `diagnosis.ts`): to
+ * the thousandth whatever its magnitude, so that `59.999` is never told as the `60` that failed.
+ */
+export function thousandth(mm: number): string {
+  const text = (Math.round(mm * 1000) / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
+  return text === '-0' ? '0' : text
+}
+
+/**
  * A length or a coordinate taken from a scan, in millimetres: to the tenth, and never -0. A scan is true to a
  * few millimetres at best; `0.008139 mm` of one says nothing `0 mm` does not, and reads as if it did.
  */

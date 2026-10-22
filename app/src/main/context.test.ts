@@ -5,6 +5,7 @@ import type { ViewState } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import type { Mark } from '../shared/marks'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
+import { probe } from '../test/diagnosisFixtures'
 import { buildContextFor, CONTEXT_LIMIT, contextFor, modelOutput, type ContextDeps } from './context'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
@@ -975,5 +976,54 @@ describe('the digest of the build of an edit', () => {
       expect(lines[1].length + lines[2].length + 1).toBeLessThanOrEqual(1200)
       if (count > 0) expect(lines[3]).toBe('Dimensions (measured on r4):')
     }
+  })
+})
+
+describe('a failed fillet', () => {
+  const MESSAGE = 'ValueError: Failed creating a fillet with radius of 6, try a smaller value or use max_fillet() to find the largest valid fillet radius'
+  const failed = (over: Partial<NonNullable<BuildState['error']>> = {}): BuildState => ({
+    objectId: 'bracket',
+    status: 'failed',
+    revision: 3,
+    stale: true,
+    error: { kind: 'exception', message: MESSAGE, traceback: 'Traceback (most recent call last):\n  File "bracket.py", line 9\nValueError: Failed creating a fillet', diagnosis: probe(), output: 'making the plate', ...over }
+  })
+
+  it('is told why under the error line, before the traceback, so that the agent has it without a call', () => {
+    const text = buildContextFor(deps({ build: failed(), scene: SCENE }), 'bracket').text
+    const lines = text.split('\n')
+    expect(lines[0]).toBe('[torno] bracket · BUILD FAILED · showing r3 (stale).')
+    expect(lines[1]).toBe(MESSAGE)
+    expect(lines[2]).toBe(
+      'Why: fillet R6 of 8 edges: each works alone; 4 pairs of adjacent edges fail (edges 4-5, 4-6, 5-7, 6-7: 12 mm apart, two R6 need more); the 8 together work up to R5.999 (fail at R6, bisected to 0.001 mm).'
+    )
+    expect(lines[3]).toMatch(/^Edges \(local: /)
+    expect(text.indexOf('Traceback (most recent call last):')).toBeGreaterThan(text.indexOf('4: line, 5 mm'))
+    expect(text.endsWith('Model printed (last 1 line):\nmaking the plate')).toBe(true)
+  })
+
+  it('is told with a prompt too, as the error is', () => {
+    expect(contextFor(deps({ build: failed(), scene: SCENE }), 'bracket').text.split('\n')[2]).toMatch(/^Why: fillet R6 of 8 edges/)
+  })
+
+  it('fits under the error within the limits the failed line keeps: the traceback keeps its last line', () => {
+    const traceback = Array.from({ length: 12 }, (_, i) => `frame ${i + 1} ${'x'.repeat(900)}`).join('\n')
+    const many = { ...probe(), edges: Array.from({ length: 24 }, (_, i) => ({ ...probe().edges[0]!, index: i })) }
+    const build = failed({ message: `ValueError: ${'m'.repeat(900)}`, traceback: `${traceback}\nValueError: the last line`, diagnosis: many })
+    // Alone, and beside marks, where the build's lines keep a third of the room.
+    const marks = Array.from({ length: 50 }, (_, i) => ({ id: `M${i + 1}`, kind: 'pin', status: 'draft', author: 'user', note: 'n'.repeat(80), layout: 'assembly', anchor: { point: [0, 0, 0], ref: 'base/F1' } }) as unknown as Mark)
+    for (const [text, room] of [
+      [textFor(deps({ build, scene: SCENE }), 'bracket'), CONTEXT_LIMIT],
+      [buildContextFor(deps({ build, scene: SCENE }), 'bracket').text, CONTEXT_LIMIT],
+      [contextFor(deps({ build, scene: SCENE }), 'bracket', marks).text.split('\nMarks from the user')[0]!, 2000]
+    ] as const) {
+      expect(text.length).toBeLessThanOrEqual(room)
+      const lines = text.split('\n')
+      expect(lines[2]).toMatch(/^Why: fillet R6 of 8 edges: each works alone; 4 pairs/)
+      expect(text).toContain('\nValueError: the last line')
+      expect(text.match(/\n\d+: line/g)?.length ?? 0).toBeLessThan(24)
+    }
+    // What is cut of the edges is counted.
+    expect(textFor(deps({ build, scene: SCENE }), 'bracket')).toMatch(/\nand \d+ more edges\n/)
   })
 })

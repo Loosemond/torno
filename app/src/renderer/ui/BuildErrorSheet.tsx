@@ -1,17 +1,19 @@
 import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import type { BuildError } from '../../shared/build'
+import { WHY, diagnosisText } from '../../shared/diagnosis'
 
-/** Everything the kernel said about a failed build, as one text to paste elsewhere. */
+/** Everything the kernel said about a failed build, as one text to paste elsewhere: why a fillet failed after the message. */
 export function errorText(error: BuildError): string {
-  return [error.message, error.traceback, error.output]
+  return [error.message, error.diagnosis && diagnosisText(error.diagnosis), error.traceback, error.output]
     .map((part) => part?.trimEnd())
     .filter(Boolean)
     .join('\n\n')
 }
 
 /**
- * The failed build in full: message, traceback and what the model printed. It
+ * The failed build in full: message, why a fillet or a chamfer failed (when the kernel found out), traceback and
+ * what the model printed. It
  * rises from the status line over the viewport; the parts of the last good
  * build stay visible above it.
  */
@@ -63,6 +65,12 @@ export function BuildErrorSheet({ objectName, error, onClose }: { objectName: st
       </header>
       <div className="sheet-body" ref={body}>
         <p className="sheet-message">{error.message}</p>
+        {error.diagnosis && (
+          <>
+            <h3 className="section-title">Why</h3>
+            <pre className="sheet-pre" data-part="diagnosis">{diagnosisText(error.diagnosis).slice(WHY.length)}</pre>
+          </>
+        )}
         {error.traceback?.trim() && (
           <>
             <h3 className="section-title">Traceback</h3>

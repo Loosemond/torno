@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { BuildState } from '../../shared/build'
+import { diagnosisText } from '../../shared/diagnosis'
 import type { Described } from '../../shared/geometry'
 import type { Mark, MarkPatch, NewMark } from '../../shared/marks'
 import type { ScanInfo } from '../../shared/scans'
@@ -170,7 +171,8 @@ export function built(deps: ToolDeps, objectId: string): { obj: ObjectInfo; buil
   if (build && last) return { obj, build, ...last }
   if (!build) return failure(`no build yet: ${obj.name} has not been opened in the torno window`)
   const traceback = lastLines(build.error?.traceback, TRACEBACK_LINES)
-  return failure(`no build yet: ${build.status}${build.error ? `: ${build.error.message}` : ''}${traceback ? `\n${traceback}` : ''}`)
+  const why = build.error?.diagnosis ? `\n${diagnosisText(build.error.diagnosis)}` : ''
+  return failure(`no build yet: ${build.status}${build.error ? `: ${build.error.message}` : ''}${why}${traceback ? `\n${traceback}` : ''}`)
 }
 
 /** Coordinates as the agent is given them: to a tenth of a micron, which is past what any of them means. */
