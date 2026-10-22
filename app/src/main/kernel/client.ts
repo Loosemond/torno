@@ -121,6 +121,13 @@ export function kernelEnv(opts: { packaged: boolean; userData: string; hasProjec
   return { UV_PROJECT_ENVIRONMENT: resolve(opts.userData, 'kernel-env') }
 }
 
+/**
+ * The queries a cancel is not retried for: what they answer is of the build they were asked of (an export is refused
+ * once a newer build lands, a trial fillet is told on the revision it was tried on), and they would hold the new
+ * build's worker for minutes, its `nearest` and `measure` waiting behind them.
+ */
+const NOT_RETRIED = new Set(['export', 'export_check', 'try_fillet'])
+
 type Pending =
   | { type: 'build'; resolve: (r: BuildResult) => void; onStarted?: (started: { retired: string[] }) => void }
   | { type: 'query'; resolve: (result: unknown) => void; reject: (e: KernelError) => void; blob?: boolean }
@@ -172,8 +179,8 @@ class Kernel implements KernelClient {
       return (await this.queryOnce(dir, name, args, opts?.blob === true)) as T
     } catch (e) {
       // The build this query was sent to has just been replaced by a newer
-      // one of the same object: ask the newer one.
-      if (e instanceof KernelError && e.kind === 'cancelled' && !this.disposed) {
+      // one of the same object: ask the newer one, unless its answer is of the build that went.
+      if (e instanceof KernelError && e.kind === 'cancelled' && !this.disposed && !NOT_RETRIED.has(name)) {
         return (await this.queryOnce(dir, name, args, opts?.blob === true)) as T
       }
       throw e

@@ -642,7 +642,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   window sends names and two numbers, never a path (`exportAsked`). It is made by the kernel's live worker of the
   last good build (`Builds.query` of `export` with `blob`, `KernelClient.query`'s `{ result, blob }`), before
   the dialog is up, of the revision there was when it was asked for (`NEW_BUILD` if another landed while it was
-  made); `writeExport` is given a `check`, run on the `.tmp` once it is whole and closed and before
+  made, or replaced the worker that made it: `KernelClient.query` asks a cancelled query again of the new worker, but
+  never `export`, `export_check` or `try_fillet`, `NOT_RETRIED`, whose answer is of the build that went and which
+  would hold up the new build's checks for minutes); `writeExport` is given a `check`, run on the `.tmp` once it is whole and closed and before
   the rename: `checkModelFile` has the same worker read that file back (`export_check`) and throws, with every
   problem it found (`FAILED_CHECK`), when it did not pass, or when another build of the object landed since the
   file was made (`NEW_BUILD`). A write under way is in `exportsUnderWay` until it ends; `will-quit` gives each up

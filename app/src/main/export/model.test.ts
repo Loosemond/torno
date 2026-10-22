@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Part, Scene } from '../../shared/scene'
 import type { SceneFile } from '../../shared/scenefile'
+import { KernelError } from '../kernel/client'
 import { ONE_OBJECT } from './build'
 import { type FileCheck, type MadeFile, type ModelDeps, FAILED_CHECK, NEW_BUILD, NOT_SOLID, NO_PARTS, ONE_PART, checkModelFile, makeModelFile, modelArgs } from './model'
 import { writeExport } from './save'
@@ -25,7 +26,7 @@ const SCENE: Scene = {
 }
 
 /** Deps of an object `hollow` at `revision`, whose kernel answers `export` with `bytes` and `export_check` with `check`; every query is kept. */
-function deps(opts: { file?: SceneFile; bytes?: Buffer; check?: Partial<FileCheck>; revision?: number; onCheck?: () => void; onExport?: () => void } = {}) {
+function deps(opts: { file?: SceneFile; bytes?: Buffer; check?: Partial<FileCheck>; revision?: number; onCheck?: () => void; onExport?: () => void; cancelled?: string } = {}) {
   const asked: Array<{ name: string; args: Record<string, unknown>; blob?: boolean }> = []
   const state = { revision: opts.revision ?? 4 }
   const bytes = opts.bytes ?? Buffer.from('solid-ish bytes')
@@ -35,6 +36,8 @@ function deps(opts: { file?: SceneFile; bytes?: Buffer; check?: Partial<FileChec
     sceneFile: async () => opts.file ?? { layers: {} },
     query: async <T,>(_id: string, name: string, args: object, o?: { blob?: boolean }): Promise<T> => {
       asked.push({ name, args: args as Record<string, unknown>, blob: o?.blob })
+      // As the kernel answers a query whose build a newer one replaced while it was asked.
+      if (name === opts.cancelled) throw new KernelError('cancelled', 'a newer build replaced the one this query was sent to')
       if (name === 'export') {
         opts.onExport?.()
         const a = args as { format: MadeFile['format']; layout: string; parts: string[]; tolerance?: number; angle?: number }
@@ -121,6 +124,15 @@ describe('making and checking the file', () => {
     holder.state = state
     await expect(makeModelFile(d, { objects: ['hollow'], marks: false, scans: [], format: '3mf' })).rejects.toThrow(NEW_BUILD)
     expect(asked.map((one) => one.name)).toEqual(['export'])
+  })
+
+  it('a build that replaces the one the kernel makes or checks the file of has it refused, as a build that landed', async () => {
+    await expect(makeModelFile(deps({ cancelled: 'export' }).d, { objects: ['hollow'], marks: false, scans: [], format: '3mf' })).rejects.toThrow(NEW_BUILD)
+    const { d } = deps({ cancelled: 'export_check' })
+    const file = await makeModelFile(d, { objects: ['hollow'], marks: false, scans: [], format: 'step' })
+    const path = join(root, 'replaced.step')
+    await expect(writeExport(path, file.bytes, async (beside) => void (await checkModelFile(d, file, beside)))).rejects.toThrow(NEW_BUILD)
+    expect(readdirSync(root).filter((name) => name.startsWith('replaced'))).toEqual([])
   })
 
   it('a build that lands while the file is checked has it fail: the shapes are no longer the file\'s', async () => {

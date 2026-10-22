@@ -54,7 +54,9 @@ function handle(request) {
       send({ id, ok: true, scene }, Buffer.from([1, 2, 3, 4, 5]))
     }
   } else if (op === 'query') {
-    if (request.name === 'always-cancelled' || (request.name === 'cancelled-once' && !cancelled.has(request.name))) {
+    // `cancelOnce` in the arguments: any query is refused the first time, as one sent to a build a newer one replaced.
+    const once = request.name === 'cancelled-once' || request.args?.cancelOnce === true
+    if (request.name === 'always-cancelled' || (once && !cancelled.has(request.name))) {
       cancelled.add(request.name)
       fail(id, 'cancelled', 'a newer build replaced the one this query was sent to')
     } else if (request.name === 'bad-ref') fail(id, 'bad_ref', 'no part named x')

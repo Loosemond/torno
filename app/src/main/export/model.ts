@@ -3,6 +3,7 @@ import { partsNamed } from '../../shared/groups'
 import type { Scene } from '../../shared/scene'
 import type { SceneFile } from '../../shared/scenefile'
 import type { ObjectInfo } from '../../shared/workspace'
+import { KernelError } from '../kernel/client'
 import { NOT_BUILT, NO_OBJECT, ONE_OBJECT, hasSolid, partColors, switchedOff } from './build'
 
 // A file of the model: STEP, STL or 3MF. It is made by the kernel's worker of the last good build, which holds the
@@ -90,13 +91,19 @@ export async function modelArgs(deps: ModelDeps, req: ExportRequest & { format: 
   }
 }
 
+/** A query of the file whose build a newer one replaced (the kernel does not ask the new one: `NOT_RETRIED`) is refused as a build that landed. */
+function replaced(e: unknown): never {
+  if (e instanceof KernelError && e.kind === 'cancelled') throw new Error(NEW_BUILD)
+  throw e
+}
+
 /** The file, made by the kernel of the last good build: its bytes and what it holds. */
 export async function makeModelFile(deps: ModelDeps, req: ExportRequest & { format: ModelFormat }): Promise<ModelFile> {
   const { objectId, args } = await modelArgs(deps, req)
   // Of the build there was when it was asked for: one that landed while the worker made it would have other shapes,
   // and the check would be of those.
   const revision = deps.last(objectId)?.revision ?? 0
-  const { result, blob } = await deps.query<{ result: MadeFile; blob: Buffer }>(objectId, 'export', args, { blob: true })
+  const { result, blob } = await deps.query<{ result: MadeFile; blob: Buffer }>(objectId, 'export', args, { blob: true }).catch(replaced)
   if (deps.last(objectId)?.revision !== revision) throw new Error(NEW_BUILD)
   if (blob.length !== result.bytes) throw new Error(`The kernel said ${result.bytes} bytes and gave ${blob.length}: nothing was saved`)
   return { objectId, revision, args, made: result, bytes: blob }
@@ -109,7 +116,7 @@ export async function makeModelFile(deps: ModelDeps, req: ExportRequest & { form
  */
 export async function checkModelFile(deps: ModelDeps, file: ModelFile, beside: string): Promise<ExportChecked> {
   if (deps.last(file.objectId)?.revision !== file.revision) throw new Error(NEW_BUILD)
-  const found = await deps.query<FileCheck>(file.objectId, 'export_check', { ...file.args, path: beside })
+  const found = await deps.query<FileCheck>(file.objectId, 'export_check', { ...file.args, path: beside }).catch(replaced)
   if (deps.last(file.objectId)?.revision !== file.revision) throw new Error(NEW_BUILD)
   if (!found.passed) throw new Error(`${FAILED_CHECK}: ${found.problems.join('; ')}`)
   const { made } = file

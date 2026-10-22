@@ -188,6 +188,16 @@ describe('kernel client', () => {
     const k = start()
     expect(await k.query('/ws/a', 'cancelled-once', {})).toMatchObject({ dir: '/ws/a', name: 'cancelled-once' })
     await expect(k.query('/ws/a', 'always-cancelled', {})).rejects.toMatchObject({ kind: 'cancelled' })
+    expect(await k.query('/ws/a', 'measure', { cancelOnce: true })).toMatchObject({ name: 'measure' })
+  })
+
+  it('does not retry an export, its check or a trial fillet: their answer is of the build that was replaced, and would hold up the new one', async () => {
+    const k = start()
+    await expect(k.query('/ws/a', 'export', { cancelOnce: true }, { blob: true })).rejects.toMatchObject({ kind: 'cancelled' })
+    await expect(k.query('/ws/a', 'export_check', { cancelOnce: true })).rejects.toMatchObject({ kind: 'cancelled' })
+    await expect(k.query('/ws/a', 'try_fillet', { cancelOnce: true })).rejects.toMatchObject({ kind: 'cancelled' })
+    // Asked again, of the build there is now, they are answered.
+    expect(await k.query('/ws/a', 'try_fillet', { cancelOnce: true })).toMatchObject({ name: 'try_fillet' })
   })
 
   it('fails what is pending with kind crash when the kernel dies, and restarts it once', async () => {
