@@ -130,6 +130,31 @@ describe('the instruction files of a session', () => {
     expect(told.text).toContain('BUILD FAILED')
   })
 
+  it('keep their room against the selection and the scans, all at their limits', () => {
+    const deep = `/${'a-very-long-folder-name/'.repeat(40)}`
+    const long = Array.from({ length: 6 }, (_, i) => ({ path: `${deep}${i}/CLAUDE.md`, shown: `${deep}${i}/CLAUDE.md`, kind: 'project', bytes: 1 }) as InstructionFile)
+    const LONG = instructionsLine(long)!
+    const scans = Array.from({ length: 12 }, (_, i) => ({ id: `S${i + 1}`, name: `${'scan-of-the-loom-'.repeat(6)}${i}.glb`, alignments: {}, checks: {} }) as unknown as ScanInfo)
+    // A failed build whose traceback would fill what the status may have, and the scans.
+    const traceback = Array.from({ length: 200 }, (_, i) => `  File "x.py", line ${i}, in f${i}: ${'y'.repeat(60)}`).join('\n')
+    const failed: BuildState = { objectId: 'bracket', status: 'failed', revision: 1, stale: true, error: { kind: 'exception', message: 'boom', traceback } }
+    const broken = contextFor(deps({ build: failed, scene: SCENE }), 'bracket', [], { scans, instructions: long })
+    expect(broken.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+    expect(broken.text).toContain('BUILD FAILED')
+    expect(broken.text).toContain('Scans: S1')
+    expect(broken.text.split('\n').at(-1)).toBe(LONG)
+    // A build that worked, of so many parts that the status would fill its room, with the selection too.
+    const parts = Array.from({ length: 120 }, (_, i) => part('assembly', `${'p'.repeat(40)}${i}`))
+    const many: Scene = { ...SCENE, layouts: ['assembly'], parts }
+    const refs = Array.from({ length: 8 }, (_, i) => ({ ref: `${parts[i].name}/F${i}`, descriptor: 'd'.repeat(300) }))
+    const view: ViewState = { objectId: 'bracket', layout: 'assembly', camera: CAMERA, visible: parts.map((p) => p.key), selection: { revision: 1, total: 20, refs } }
+    const ok = contextFor(deps({ build: OK, scene: many, view }), 'bracket', [], { scans, instructions: long })
+    expect(ok.text.length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+    expect(ok.text).toMatch(/\nSelected: .* and 12 more\n/)
+    expect(ok.text).toContain('Scans: S1')
+    expect(ok.text.split('\n').at(-1)).toBe(LONG)
+  })
+
   it('come after the references of a new conversation, and keep their room against the marks', () => {
     const d = deps({ build: OK, scene: SCENE, references: ['photo-1.jpg'] })
     const lines = contextFor(d, 'bracket', [], { newConversation: true, instructions: FILES }).text.split('\n')

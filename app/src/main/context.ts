@@ -162,7 +162,7 @@ export interface PromptContext {
  *
  * The first prompt of a session, resumed or not, is given the instruction files Claude Code reads for the object
  * (`opts.instructions`, found by `main/instructions.ts`: paths and sizes, never their text) and which wins for seeing
- * the build (`instructionsLine`), in the very last line. Its room is kept before any mark is listed, and it outranks
+ * the build (`instructionsLine`), in the very last line. Its room is kept before the status is fitted and any mark is listed, and it outranks
  * the references. None of it is told with the answer to an edit.
  *
  * A tool of torno's is named as the agent's client names it to its model
@@ -223,15 +223,18 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // The files Claude Code reads, told once, last: their room is kept before the status and the marks are given theirs.
   // `instructionsLine` is at most INSTRUCTIONS_LIMIT, so the limit below is never short of room.
   const instructed = opts.buildOnly ? '' : (instructionsLine(opts.instructions ?? []) ?? '')
-  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - (instructed ? instructed.length + 1 : 0)
+  const selected = opts.buildOnly ? '' : selection(deps, objectId)
+  // Before the marks are given their room: the line is counted in what they have left.
+  const scanned = scansLine(deps, objectId, opts.scans ?? [])
+  // With no marks the status has what the selection, the scans and the files' line leave; with marks STATUS_LIMIT,
+  // which with the three at their limits is still within CONTEXT_LIMIT. The files' line is never what the cut below takes.
+  const room = (line: string): number => (line ? line.length + 1 : 0)
+  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - room(instructed) - room(selected) - room(scanned)
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
   // foresaw, such as a very long name.
   const lines = [cutEnd(status(deps, objectId, limit), limit)]
   if (lines[0] === '') return { text: '', sentMarkIds: [] }
-  const selected = opts.buildOnly ? '' : selection(deps, objectId)
   if (selected) lines.push(selected)
-  // Before the marks are given their room: the line is counted in what they have left.
-  const scanned = scansLine(deps, objectId, opts.scans ?? [])
   if (scanned) lines.push(scanned)
   const openLine = open.length > 0 && !opts.buildOnly ? `Open marks: ${openMarks(open, revision, toolName)}` : ''
   const named = layoutNamed(deps, objectId)

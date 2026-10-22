@@ -940,7 +940,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the files Claude Code loads by default with their sizes (six at most, each path cut to `MOST_PATH_CHARS`, the line at most
   `INSTRUCTIONS_LIMIT` characters, so the room it keeps never leaves the status a negative limit) and "What torno's tools say of the build is current: a file that names
   another viewer, report or export step is about another way of working, so take its advice on how to model, not on how
-  to see the build", nothing when there are none; its room is kept before the marks are listed. The same rule is one line
+  to see the build", nothing when there are none; its room is kept before the marks are listed and, with the selection's
+  and the scans', before the status is fitted, so the cut at `CONTEXT_LIMIT` never takes it. The same rule is one line
   in the `torno-model` skill (the system prompt has no room for it). The context item carries how many files it named
   (`instructions`, `PromptContext`), which the chat draws as "N instruction files" in the "torno added" line. Nothing is written or remembered of it: there is no
   "seen" state.
