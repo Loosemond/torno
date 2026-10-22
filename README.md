@@ -750,7 +750,8 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
   and the tool to read it with. The first build of a run has only `Check`.
 - A part that is not valid, has a solid inside out, came apart into more solids
   or has a mesh that disagrees with it, where the build the turn began with did
-  not, holds Claude Code back once when it would stop (see below): it is asked
+  not, holds Claude Code back once when it would stop, if the turn caused that
+  build (see below): it is asked
   to mend the model or to say why that is meant. A change of volume alone never
   does.
 - The chat shows it under the edit's card (the build line: the parts that
@@ -758,8 +759,8 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
   and `state.md` carries it under the build. It is not told with a prompt.
 
 When Claude Code would stop, torno holds it back for what the turn itself did:
-once for each reason, and twice in a turn at most. The reasons that name a build
-(1, 2 and 5) are for a build the turn caused: one that began after the turn first
+once for each reason, and twice in a turn at most. Every reason is for a build
+the turn caused: one that began after the turn first
 changed a source, by an edit of a `.py` of the object or a Bash command after
 which one is newer. The first build of an object you have just opened, a save of
 yours in your own editor before the agent's first edit, and any build in a turn

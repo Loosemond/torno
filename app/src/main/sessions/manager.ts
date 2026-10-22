@@ -564,13 +564,13 @@ export class Sessions {
    * dimensions to be measured on it, then judges on the result, by the first of these. A build is the turn's own
    * (`caused`) only if it began after the turn first changed a source (`TurnState.changedAt`); the first build of an
    * object just opened, a save of the person's before the agent's first edit, or any build in a turn with no edit
-   * is told to the agent but holds nothing back (the first, second and fifth reasons):
+   * is told to the agent but holds nothing back, for any of the five reasons:
    * - the build the turn caused is still running (`running`);
    * - the latest build, caused by the turn and ended in it, failed (`failed`);
-   * - the last successful build, built in the turn, has a hard defect (`hardDefects`: not valid, inside out, more
+   * - the last successful build, caused by the turn, has a hard defect (`hardDefects`: not valid, inside out, more
    *   solids than before, a mesh that disagrees with its volume) that the build the turn began with had not
    *   (`defect`), which the agent may answer is meant;
-   * - a dimension that passed on the build the turn began with fails on the latest (`dimension`);
+   * - a dimension that passed on the build the turn began with fails on the latest, which the turn caused (`dimension`);
    * - a build the turn caused ended after its last `look`, however the file was written (`unlooked`), unless the digest
    *   says nothing in the parts changed since the build the turn began with (`partsUnchanged`: the same shapes, by
    *   hash, in the same places; a volume or a count alone would miss a moved hole).
@@ -591,7 +591,7 @@ export class Sessions {
     if (!turn.held.has('running')) while (runs() && Date.now() < deadline) await this.nextBuild(deadline)
     // Judged on the build there is once it has ended, with its dimensions measured as far as they are in the time left.
     const ended = build(objectId)
-    if (!turn.held.has('dimension') && ended?.status === 'ok' && (this.buildEnds.get(objectId) ?? 0) > turn.since && turn.beforeVerdicts && [...turn.beforeVerdicts.values()].includes('pass')) {
+    if (!turn.held.has('dimension') && caused() && ended?.status === 'ok' && (this.buildEnds.get(objectId) ?? 0) > turn.since && turn.beforeVerdicts && [...turn.beforeVerdicts.values()].includes('pass')) {
       await this.deps.settled?.(objectId, ended.revision, deadline)
     }
     const state = build(objectId)
@@ -608,8 +608,9 @@ export class Sessions {
     }
     const builtInTurn = (this.buildEnds.get(objectId) ?? 0) > turn.since
     if (!builtInTurn) return null
+    // A build the turn did not cause holds nothing back, for any reason: it is told to the agent, which may have been asked a question.
+    if (!caused()) return null
     if (state.status === 'failed') {
-      if (!caused()) return null
       return hold('failed', `The ${failedAfter(state.revision)} failed: ${(state.error?.message ?? 'no reason was given').trim()}. Fix it, or say it is still broken.`)
     }
     if (state.status !== 'ok') return null
@@ -618,7 +619,7 @@ export class Sessions {
     const defects = digest ? hardDefects(digest) : []
     // Nothing in the parts changed since the turn began (a comment, a rename: the same shapes in the same places): there is nothing to look at.
     const nothingChanged = last !== undefined && last.revision === state.revision && turn.before !== undefined && partsUnchanged(turn.before.scene, last.scene) && defects.length === 0
-    const unlooked = caused() && this.buildEnds.get(objectId)! > turn.lookedAt && !nothingChanged && !turn.held.has('unlooked')
+    const unlooked = this.buildEnds.get(objectId)! > turn.lookedAt && !nothingChanged && !turn.held.has('unlooked')
     // A look still lacking is said with a hold for something else, which the cap would leave no room to ask for after.
     const lacking = unlooked ? ` You have not looked at it either: call ${toolName('look')}.` : ''
     const alongside: StopReason[] = unlooked ? ['unlooked'] : []

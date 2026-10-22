@@ -2381,9 +2381,10 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     const detail = vi.fn(async (_id: string, _mark: string, _revision: number) => '6 mm, expected 8 ± 0.05')
     const settled = vi.fn(async () => {})
     let kept = keptAs(7)
-    const { obj, post } = await begun({ verdicts, detail, settled, scene: () => kept })
+    const { obj, post, changes } = await begun({ verdicts, detail, settled, scene: () => kept })
     land(ok(obj.id, 7))
     await post('UserPromptSubmit', { prompt: 'make it thinner' })
+    await changes()
     kept = keptAs(9)
     builds(obj.id, 7, 9)
     await looks(post)
@@ -2404,9 +2405,10 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       [9, [['M4', 'fail'], ['M5', 'fail']]]
     ])
     let kept = keptAs(7)
-    const { obj, post } = await begun({ verdicts, detail: async (_id, mark) => (mark === 'M4' ? '6 mm, expected 8 ± 0.05' : undefined), scene: () => kept })
+    const { obj, post, changes } = await begun({ verdicts, detail: async (_id, mark) => (mark === 'M4' ? '6 mm, expected 8 ± 0.05' : undefined), scene: () => kept })
     land(ok(obj.id, 7))
     await post('UserPromptSubmit', { prompt: 'thinner' })
+    await changes()
     kept = keptAs(9)
     builds(obj.id, 7, 9)
     await looks(post)
@@ -2414,6 +2416,25 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       decision: 'block',
       reason: 'M4 passed on r7 and fails on r9 (6 mm, expected 8 ± 0.05); M5 passed on r7 and fails on r9. Fix them, or say why they must change.'
     })
+  })
+
+  it('holds no Stop back for a dimension the person broke: their save before the agent edited anything', async () => {
+    const verdicts = REVISIONS([
+      [7, [['M4', 'pass']]],
+      [9, [['M4', 'fail']]]
+    ])
+    const settled = vi.fn(async () => {})
+    let kept = keptAs(7)
+    const { obj, post } = await begun({ verdicts, settled, scene: () => kept })
+    land(ok(obj.id, 7))
+    await post('UserPromptSubmit', { prompt: 'is M4 still right?' })
+    // The person saves their own change in an editor while the agent reads: no edit of the turn's.
+    kept = keptAs(9)
+    builds(obj.id, 7, 9)
+    await looks(post)
+    expect(await post('Stop', {})).toEqual({})
+    // Nor is the dimension waited for: there is nothing the turn would be held to.
+    expect(settled).not.toHaveBeenCalled()
   })
 
   it('holds a Stop back for the dimension with the look it still lacks, and counts both reasons as held', async () => {
@@ -2685,11 +2706,24 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     }
   }, 60_000)
 
+  it('holds no Stop back for a defect of the first build of an object, in a turn that edited nothing', async () => {
+    let kept: { revision: number; scene: Scene } | undefined
+    const { obj, post } = await begun({ scene: () => kept })
+    // A question asked before the object's first build has landed: the turn begins with no build to compare to.
+    await post('UserPromptSubmit', { prompt: 'why is the plate flagged?' })
+    kept = { revision: 1, scene: sceneOf({ valid: false }) }
+    builds(obj.id, 0, 1)
+    await looks(post)
+    expect(await post('Stop', {})).toEqual({})
+  })
+
   it('does not hold a Stop back for a change of volume alone, nor for a defect the turn began with', async () => {
     const sound = (more: object = {}): Scene => ({ model: 'part.py', layouts: ['assembly'], seconds: 0.1, output: '', parts: [{ key: 'assembly:plate', name: 'plate', layout: 'assembly', bbox: { min: [0, 0, 0], max: [20, 20, 2] }, volume: 800, faceCount: 6, edgeCount: 12, valid: true, solids: 1, ...more }] }) as unknown as Scene
     let kept = { revision: 3, scene: sound() }
-    const { obj, post } = await begun({ scene: () => kept })
+    const { obj, post, changes } = await begun({ scene: () => kept })
+    // The agent's own edits: what holds nothing back is the change and the defect, not who made them.
     await post('UserPromptSubmit', { prompt: 'thinner' })
+    await changes()
     kept = { revision: 4, scene: sound({ volume: 200 }) }
     builds(obj.id, 3, 4)
     await looks(post)
@@ -2697,6 +2731,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
 
     kept = { revision: 5, scene: sound({ valid: false }) }
     await post('UserPromptSubmit', { prompt: 'what is wrong?' })
+    await changes()
     builds(obj.id, 4, 6)
     kept = { revision: 6, scene: sound({ valid: false, volume: 700 }) }
     await looks(post)
