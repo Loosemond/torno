@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { letGoText } from '../../shared/build'
 import { hint } from '../../shared/keys'
 import { unmetDimensions } from '../../shared/dimension'
+import type { Part } from '../../shared/scene'
+import { partDefects } from '../../shared/sanity'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
@@ -9,6 +11,15 @@ import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
 /** `2 dimensions fail`, `1 dimension not measured`. */
 export function dimensionCount(count: number, what: 'fail' | 'not measured'): string {
   return `${count === 1 ? 'dimension' : 'dimensions'} ${what === 'fail' && count === 1 ? 'fails' : what}`
+}
+
+/** The parts with a defect, a part each: `tub: not valid, inside out; lid: not closed`. '' when there is none. */
+export function defectsSaid(parts: readonly Part[]): string {
+  return parts
+    .map((p) => ({ name: p.name, found: partDefects(p) }))
+    .filter((p) => p.found.length > 0)
+    .map((p) => `${p.name}: ${p.found.join(', ')}`)
+    .join('; ')
 }
 
 /**
@@ -45,13 +56,17 @@ function seconds(s: number): string {
  * screen, and the kernel at the far right. A failed build is a button that
  * opens the error sheet. Beside the build it says how many dimensions the
  * build on show fails, and how many have no value of it; either goes to the
- * first such in the marks panel.
+ * first such in the marks panel. After the count of parts, how many of the
+ * layout's parts the build says are broken (`partDefects`), each in the title.
  */
 export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; onErrorOpen: (open: boolean) => void }) {
   const name = useStore((s) => s.workspace?.objects.find((o) => o.id === s.objectId)?.name ?? s.objectId)
   const build = useStore((s) => s.build)
   const hasScene = useStore((s) => s.scene !== null)
   const partCount = useStore((s) => partsInLayout(s).length)
+  // A string, so that the store hands the same value while nothing changed.
+  const defects = useStore((s) => defectsSaid(partsInLayout(s)))
+  const broken = defects === '' ? 0 : defects.split('; ').length
   const build123d = useStore((s) => s.versions.build123d)
   const marks = useStore((s) => s.marks)
   const revision = useStore((s) => (s.scene ? s.revision : 0))
@@ -130,6 +145,11 @@ export function BuildStatus({ errorOpen, onErrorOpen }: { errorOpen: boolean; on
           {hasScene && (
             <span data-part="parts">
               <span className="num">{partCount}</span> {partCount === 1 ? 'part' : 'parts'}
+            </span>
+          )}
+          {hasScene && broken > 0 && (
+            <span className="status-defects" data-part="defects" title={`Of r${revision}: ${defects}`}>
+              <span className="num">{broken}</span> {broken === 1 ? 'part has a defect' : 'parts have defects'}
             </span>
           )}
         </>

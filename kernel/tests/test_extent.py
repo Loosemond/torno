@@ -141,6 +141,15 @@ def test_check_overlap_names_the_parts_with_a_reversed_solid():
     assert both["reversed"] == ["c"]
 
 
+def test_check_clearance_names_the_parts_with_a_reversed_solid_too():
+    from build123d import Box, Pos
+
+    # Whether they overlap is the boolean's answer, which a part inside out does not give soundly.
+    shapes = shapes_of(a=Box(10, 10, 10), b=Pos(30, 0, 0) * Box(10, 10, 10), c=Pos(5, 0, 0) * cube_reversed())
+    assert "reversed" not in checks.check(shapes, {"kind": "clearance", "layout": "assembly", "a": "a", "b": "b"}, {})
+    assert checks.check(shapes, {"kind": "clearance", "layout": "assembly", "a": "a", "b": "c"}, {})["reversed"] == ["c"]
+
+
 def test_the_descriptor_of_a_sound_part_is_unchanged():
     facts = {"bbox": {"min": [0, 0, 0], "max": [10, 10, 10]}, "faceCount": 6, "volume": 1000.0}
     assert descriptor("part", facts) == "part, 10 × 10 × 10 mm, 1000 mm³, 6 faces"

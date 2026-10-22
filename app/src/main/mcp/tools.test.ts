@@ -1789,6 +1789,13 @@ describe('groups of parts', () => {
     expect(told).toMatchObject({ bboxExact: false, volumeExact: false, descriptor: 'group of 2 parts, ≈ 30 × 10 × 2 mm, ≈ 12000 mm³' })
   })
 
+  it('describe of a group names the parts of it with a solid inside out, and says nothing of a sound group', async () => {
+    const turned: Scene = { ...GROUPED, parts: GROUPED.parts.map((p) => (p.name === 'flat-b' ? { ...p, reversed: [0] } : p)) }
+    const told = JSON.parse(textOf(await describeTool(grouped({ scene: () => ({ revision: 3, scene: turned }) }), 'bracket', { ref: 'flat' })))
+    expect(told).toMatchObject({ reversed: { 'flat-b': [0] }, descriptor: 'group of 2 parts, 30 × 10 × 2 mm, 12000 mm³, flat-b solid 0 reversed' })
+    expect('reversed' in JSON.parse(textOf(await describeTool(grouped(), 'bracket', { ref: 'flat' })))).toBe(false)
+  })
+
   it('highlight says a group has no faces of its own', async () => {
     const deps = grouped()
     const result = await highlightTool(deps, 'bracket', { refs: ['flat/F1'] })

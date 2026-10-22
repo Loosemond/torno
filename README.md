@@ -265,6 +265,12 @@ It is always there, and is the thing to press when the last build failed for a
 reason outside the model, or was let go to make room. While a build runs it
 reads "Building…" and takes no press: that build is of the sources as they are.
 
+A part the build says is broken (not valid, inside out, not closed, or with a
+mesh that disagrees with its volume) has the word beside its name in the
+layers, with every defect it has in its tooltip, and the line at the bottom
+counts such parts ("1 part has a defect"). The agent is told the same after its
+edit (What the agent is told).
+
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
 of it (`lid/E3`), with a line from the kernel on what that is, such as
 `plane, normal +Z, z = 20, 1180 mm²`. Hidden parts are never picked. While the
@@ -1194,8 +1200,9 @@ and says `approximate`, and `how` says why.
   sizes, and `reversed` lists the solids that were negative, their numbers
   counted from 0 among the part's solids, in the order faces are numbered
   (`reversed: [2]` in `scene` and `describe`, with `solid 2 reversed` in the
-  descriptor; `measure volume` and `mass` say so in `how`; `check overlap`
-  names the parts). A sound part has no `reversed`. torno never mends the
+  descriptor; `describe` of a group names the part; `measure volume` and
+  `mass` say so in `how`; `check overlap` and `check clearance` name the
+  parts). A sound part has no `reversed`. torno never mends the
   shape: the volume of a part with a reversed solid is the material it
   encloses, not a sign that the part is sound, and the model is to be fixed.
   A cavity whose shell faces into it is counted as material, and positive: what
@@ -1409,6 +1416,10 @@ On the screen:
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.
 - **The Scans panel.** Import a scan of your own: the sheet `How is S1 read?` is at the top of the Scans panel with the size it would have; "Later" leaves a dot on the row. The row is one line at the column's default width, the name cut with an ellipsis and whole in its tooltip, the word legible in both themes, the dot and a `check` or `rough` word told apart from the rest. Open its detail and another's: one is open at a time, and Frame, Align and Rename are on one line.
 - **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the chat shows the picture with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
+- **A broken part in the layers.** Build a model with a cavity whose shell faces into it, or a part made of a shell
+  with a face left out: its layer row says "not valid" (or "not closed") after its name in the colour of a failure,
+  with what that means in its tooltip, and the line at the bottom says "1 part has a defect"; legible in light and
+  dark, and the row still one line in a narrow column.
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.

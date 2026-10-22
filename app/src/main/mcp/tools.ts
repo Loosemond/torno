@@ -311,8 +311,11 @@ function groupDescribed(scene: Scene, layout: string, name: string, names: reado
   const volume = parts.reduce((sum, p) => sum + p.volume, 0)
   const bboxExact = parts.every((p) => p.bboxExact === true)
   const volumeExact = parts.every((p) => p.volumeExact === true)
-  const descriptor = `group of ${parts.length} part${parts.length === 1 ? '' : 's'}, ${bboxExact ? '' : '≈ '}${sizes(max.map((m, i) => m - min[i]))} mm, ${volumeExact ? '' : '≈ '}${number(volume)} mm³`
-  return { type: 'group', name, parts: parts.map((p) => p.name), bbox: { min, max }, bboxExact, volume, volumeExact, descriptor }
+  // A member with a solid inside out makes the volume a size only, as of a part (`reversed` in the scene).
+  const turned = parts.filter((p) => p.reversed && p.reversed.length > 0)
+  const said = turned.map((p) => `, ${p.name} solid${p.reversed!.length === 1 ? '' : 's'} ${p.reversed!.join(', ')} reversed`).join('')
+  const descriptor = `group of ${parts.length} part${parts.length === 1 ? '' : 's'}, ${bboxExact ? '' : '≈ '}${sizes(max.map((m, i) => m - min[i]))} mm, ${volumeExact ? '' : '≈ '}${number(volume)} mm³${said}`
+  return { type: 'group', name, parts: parts.map((p) => p.name), bbox: { min, max }, bboxExact, volume, volumeExact, ...(turned.length > 0 ? { reversed: Object.fromEntries(turned.map((p) => [p.name, p.reversed])) } : {}), descriptor }
 }
 
 /** The object a tool that touches the window works on, or the error to answer with when the window shows another. */

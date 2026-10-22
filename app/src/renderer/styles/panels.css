@@ -126,6 +126,12 @@
   font-size: var(--text-small);
 }
 
+.layer-defect {
+  flex: none;
+  font-size: var(--text-small);
+  color: var(--fail);
+}
+
 .layer-row[data-hidden] .row-name {
   color: var(--muted);
 }

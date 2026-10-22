@@ -103,17 +103,17 @@ interface Shape {
 }
 
 function shapeOf(all: readonly Part[]): Shape {
-  const [first] = all
   const solids = all.map((p) => p.solids).filter((n): n is number => n !== undefined)
   const off = all.find((p) => p.meshDisagrees === true && p.meshVolume !== undefined)
-  const empty = solids.length > 0 && Math.min(...solids) === 0 ? 'no solid' : all.some((p) => p.volume <= 0 && p.solids !== 0) ? 'no volume' : undefined
+  // A shell or a face has no solid; a solid that encloses nothing, no volume.
+  const empty = all.some((p) => p.solids === 0) ? 'no solid' : all.some((p) => p.volume <= 0) ? 'no volume' : undefined
   return {
     invalid: all.some((p) => p.valid === false),
     reversed: all.find((p) => p.reversed && p.reversed.length > 0)?.reversed ?? [],
     ...(solids.length > 0 ? { solids: Math.max(...solids) } : {}),
     open: Math.max(0, ...all.map((p) => p.openShells ?? 0)),
     ...(off ? { mesh: { mesh: off.meshVolume!, volume: off.volume, exact: off.volumeExact === true } } : {}),
-    ...(empty ? { empty } : first && first.volume <= 0 && first.solids === undefined ? { empty: 'no volume' as const } : {})
+    ...(empty ? { empty } : {})
   }
 }
 
@@ -140,8 +140,7 @@ function partFlags(name: string, now: Shape, was: Shape | undefined, since: numb
     // More solids than before is a part come apart; fewer, or as many, is told and held against nothing.
     flags.push({ kind: 'solids', part: name, new: moved || before === undefined, hard: moved && now.solids > before, text: moved ? `${text} (was ${before})` : before === undefined ? text : `${text}${asBefore}` })
   }
-  if (now.empty && now.solids !== 0) flag('empty', was?.empty === undefined, false, `${name} has no volume`)
-  else if (now.empty === 'no solid') flag('empty', was?.empty === undefined, false, `${name} has no solid`)
+  if (now.empty) flag('empty', was?.empty === undefined, false, `${name} has ${now.empty}`)
   if (now.open > 0) flag('open', !was || was.open === 0, false, `${name} has ${now.open === 1 ? 'an open shell' : `${now.open} open shells`} (an edge only one face has)`)
   return flags
 }
@@ -177,7 +176,8 @@ export function sanity(previous: Kept | undefined, current: Kept, verdicts: read
       } else unchanged += 1
       if (told.refsMoved) refs.push(name)
     }
-    flags.push(...partFlags(name, shapeOf(all), before ? shapeOf(before.all) : was ? undefined : undefined, before ? since : undefined))
+    // A part new in this build has nothing to be held against: whatever it has is new.
+    flags.push(...partFlags(name, shapeOf(all), before ? shapeOf(before.all) : undefined, before ? since : undefined))
   }
   if (was && previous) {
     const layoutsOf = (scene: Scene, name: string): string[] => scene.layouts.filter((layout) => scene.parts.some((p) => p.layout === layout && p.name === name))
@@ -192,11 +192,12 @@ export function sanity(previous: Kept | undefined, current: Kept, verdicts: read
       if (gone.length > 0) flags.push({ kind: 'removed', part: name, new: true, hard: false, text: whereText(name, gone, had, 'is gone') })
     }
   }
-  for (const name of refs) flags.push({ kind: 'refs', part: name, new: true, hard: false, text: name })
+  // Said of all of them in one piece by `digestText`.
+  for (const name of refs) flags.push({ kind: 'refs', part: name, new: true, hard: false, text: `the face or edge numbers of ${name} may name others now` })
   for (const change of verdicts) {
     if (change.was === 'pass' && change.now === 'fail') flags.push({ kind: 'dimension', mark: change.id, new: true, hard: false, text: `${change.id} FAIL, passed on r${since}` })
   }
-  // The hard defects first: what is cut to fit is never one of them.
+  // The hard defects first: the last to be cut, when not all can be told.
   flags.sort((a, b) => Number(b.hard) - Number(a.hard))
   const comeOrGone = flags.some((f) => f.kind === 'added' || f.kind === 'removed')
   return {

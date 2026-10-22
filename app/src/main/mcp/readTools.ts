@@ -283,27 +283,28 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
   const about = (checked as { exact?: unknown } | null)?.exact === false ? '≈ ' : ''
   const roughly = about ? ', approximate' : ''
   const pair = `between ${args.a} and ${args.b}`
+  // A boolean of a part with a solid turned inside out is no answer to rely on, nor whether two such overlap: the kernel names the parts.
+  const reversed = (checked as { reversed?: unknown } | null)?.reversed
+  const inside = Array.isArray(reversed) ? reversed.filter((name): name is string => typeof name === 'string') : []
+  const broken = inside.length > 0 ? `; ${inside.join(' and ')} ${inside.length === 1 ? 'has' : 'have'} a solid turned inside out (reversed), so this is not to be relied on` : ''
   if (args.kind === 'overlap') {
     const { volume, bbox } = checked as Partial<CheckedOverlap>
-    const { volumeExact, bboxExact, how, reversed } = checked as { volumeExact?: unknown; bboxExact?: unknown; how?: unknown; reversed?: unknown }
+    const { volumeExact, bboxExact, how } = checked as { volumeExact?: unknown; bboxExact?: unknown; how?: unknown }
     if (!finite(volume)) return null
-    if (!bbox || !isVec(bbox.min) || !isVec(bbox.max)) return `no overlap ${pair}`
+    if (!bbox || !isVec(bbox.min) || !isVec(bbox.max)) return `no overlap ${pair}${broken}`
     // The common volume of freeform parts is integrated: told with ≈ and how good the kernel says it is.
     const rough = volumeExact === false
     const good = rough ? ` (${typeof how === 'string' && how.includes('approximate') ? how.slice(how.indexOf('approximate')) : 'approximate'})` : ''
-    // A boolean of a part with a solid turned inside out is no answer to rely on: the kernel names the parts.
-    const inside = Array.isArray(reversed) ? reversed.filter((name): name is string => typeof name === 'string') : []
-    const broken = inside.length > 0 ? `; ${inside.join(' and ')} ${inside.length === 1 ? 'has' : 'have'} a solid turned inside out (reversed), so this is not to be relied on` : ''
     return `overlap ${rough ? '≈ ' : about}${number(volume)} mm³ ${pair}${good}${roughly}, within ${bboxExact === false ? '≈ ' : ''}${vector(bbox.min)} to ${vector(bbox.max)}${broken}`
   }
   if (args.kind === 'clearance') {
     const { distance, overlapping, how } = checked as Partial<CheckedClearance>
     if (!finite(distance)) return null
     const base = `clearance ${about}${number(distance)} mm ${pair}${roughly}`
-    if (overlapping === true) return `${base}: the parts overlap`
+    if (overlapping === true) return `${base}: the parts overlap${broken}`
     // Of a part that is no solid the kernel says how far, and that it cannot say whether they overlap.
-    if (overlapping !== false) return `${base}${typeof how === 'string' && how ? ` (${how})` : ''}`
-    return distance === 0 ? `${base}: the parts touch` : base
+    if (overlapping !== false) return `${base}${typeof how === 'string' && how ? ` (${how})` : ''}${broken}`
+    return `${distance === 0 ? `${base}: the parts touch` : base}${broken}`
   }
   if (args.kind === 'overhang' || args.kind === 'thin' || args.kind === 'bed') return printReading(args, checked)
   const { watertight, openEdges, where, triangles } = checked as Partial<CheckedMesh>

@@ -351,6 +351,14 @@ describe('check', () => {
     expect(data(await checkTool(fake(() => shared), 'box', { kind: 'overlap', a: 'lid', b: 'tub' })).reading).not.toContain('inside out')
   })
 
+  it('names the parts of a clearance that have a solid turned inside out, whatever it says of overlapping', async () => {
+    const apart = { distance: 4, points: [[0, 0, 0], [4, 0, 0]], how: 'minimum', overlapping: false, exact: true }
+    expect(data(await checkTool(fake(() => ({ ...apart, reversed: ['tub'] })), 'box', { kind: 'clearance', a: 'lid', b: 'tub' })).reading).toBe('clearance 4 mm between lid and tub; tub has a solid turned inside out (reversed), so this is not to be relied on')
+    const over = { distance: 0, points: [[1, 1, 1], [1, 1, 1]], how: 'the parts overlap; the points are the centre of what they share', overlapping: true, exact: true }
+    expect(data(await checkTool(fake(() => ({ ...over, reversed: ['lid', 'tub'] })), 'box', { kind: 'clearance', a: 'lid', b: 'tub' })).reading).toBe('clearance 0 mm between lid and tub: the parts overlap; lid and tub have a solid turned inside out (reversed), so this is not to be relied on')
+    expect(data(await checkTool(fake(() => apart), 'box', { kind: 'clearance', a: 'lid', b: 'tub' })).reading).toBe('clearance 4 mm between lid and tub')
+  })
+
   it('reads a volume and a mass of a freeform part as approximate, with the digits the kernel says are good, whatever their number', async () => {
     for (const digits of [2, 3, 6]) {
       const how = `of the solid, approximate, good to about ${digits} significant digits`

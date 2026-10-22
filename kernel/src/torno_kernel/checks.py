@@ -43,7 +43,7 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
       share, which need not be in it (of a ring through a slab it is in the
       ring's hole): it is the same verdict ``overlap`` gives. Of a part that is not a
       solid the distance is told and ``overlapping`` is null. ``how`` says
-      which of these it is.
+      which of these it is. ``reversed`` names, as of ``overlap``, the parts with a solid inside out.
     - ``mesh``: whether the mesh of the part is ``watertight``: its vertices
       welded where they are within 0.0001 mm, how many edges are then of one
       triangle only (``openEdges``), the middles of at most twenty of them
@@ -91,17 +91,21 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
             held[pair] = _shared(_topods(first), _topods(second), f"{a} and {b}")
         return held[pair]
 
+    # A part with a solid turned inside out is cut by the boolean as no sound one is: said by name, of what the
+    # two share and of whether they overlap.
+    inside_out = [
+        name
+        for name, shape in ((a, first), (b, second))
+        if topo.solids(shape) and volume_of(shape, f"{layout}:{name}", held).reversed
+    ]
     if kind == "overlap":
         need_solid(first, a)
         need_solid(second, b)
         told = {key: shared()[key] for key in ("volume", "volumeExact", "how", "bbox", "bboxExact")}
-        # A part with a solid turned inside out is cut by the boolean as no sound one is: said by name.
-        inside_out = [
-            name for name, shape in ((a, first), (b, second)) if volume_of(shape, f"{layout}:{name}", held).reversed
-        ]
         return {**told, "reversed": inside_out} if inside_out else told
     not_solid = [name for name, shape in ((a, first), (b, second)) if not topo.solids(shape)]
-    return _clearance(_topods(first), _topods(second), f"{a} and {b}", shared, not_solid)
+    told = _clearance(_topods(first), _topods(second), f"{a} and {b}", shared, not_solid)
+    return {**told, "reversed": inside_out} if inside_out else told
 
 
 def _topods(shape: Any) -> Any:

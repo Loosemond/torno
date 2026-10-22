@@ -5,6 +5,8 @@
  * is exact.
  */
 
+import type { Part } from './scene'
+
 /** A dimension's verdict on one build: `none` when it has no value of that build (not measured, not measurable). */
 export type Verdict = 'pass' | 'fail' | 'none'
 
@@ -89,4 +91,29 @@ export interface BuildDigest {
   flags: DigestFlag[]
   /** The dimensions whose verdict on this build is another than on `since`, as far as both were measured. */
   dimensions: VerdictChange[]
+}
+
+/** What the shape of a part on one build says is wrong with it, in the window's words. */
+export type PartDefect = 'not valid' | 'inside out' | 'not closed' | 'mesh disagrees'
+
+/** What each defect means, said where the window says one (a title). */
+export const DEFECT_MEANS: Record<PartDefect, string> = {
+  'not valid': "OCC's check of the shape finds a defect",
+  'inside out': 'a solid of it has its faces pointing inward: its volume is a size only',
+  'not closed': 'a shell of it has an edge only one face has',
+  'mesh disagrees': 'what its mesh encloses is not its volume: one of them is wrong'
+}
+
+/**
+ * The defects of a part that the kernel's numbers of this build say it has, whatever the build before had: what the
+ * window marks in the layers and counts in the status line. The digest (`main/sanity.ts`) tells the agent the same
+ * from the same fields, and which of them are new.
+ */
+export function partDefects(part: Pick<Part, 'valid' | 'reversed' | 'openShells' | 'meshDisagrees'>): PartDefect[] {
+  const found: PartDefect[] = []
+  if (part.valid === false) found.push('not valid')
+  if (part.reversed && part.reversed.length > 0) found.push('inside out')
+  if ((part.openShells ?? 0) > 0) found.push('not closed')
+  if (part.meshDisagrees === true) found.push('mesh disagrees')
+  return found
 }

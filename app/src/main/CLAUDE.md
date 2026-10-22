@@ -194,7 +194,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `partsNamed` before the request goes to the window; the window expands what reaches it by the same rule. A
   saved view is kept with part names. `scene` lists `groups` for the layout shown (`{name, parts, visible}`) and
   each part's `group`; `describe` of a group's name is the box of its parts and their volume, from the scene,
-  exact only where every part's is. `state.md` names each layout's groups before its parts.
+  exact only where every part's is, naming by part a member with a solid inside out (`reversed`). `state.md` names each layout's groups before its parts.
 - `<object>/.torno/state.md` says the same as the tools, as text
   (`src/main/statefile.ts`): the build (and under it the digest of a build that
   worked, naming tools as `the diff tool`), the parts, the scans with how each is
@@ -546,7 +546,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   before such a size; `measureReading` and `checkReading` (`mcp/readTools.ts`) write `≈` and the kernel's `how`.
   `scene`'s sizes are for orientation: its description sends the agent to `measure` for a number to rely on.
   A part with solids turned inside out (`Part.reversed`, indexes 0-based in the kernel's order) lists them in `scene`
-  with a note (`REVERSED_NOTE`), and `checkReading` of an overlap names the parts the kernel says have one.
+  with a note (`REVERSED_NOTE`), and `checkReading` of an overlap or a clearance names the parts the kernel says have one.
   `scene` gives each part `solids`, `openShells` only above 0 (`OPEN_NOTE`) and `meshVolume` only beside
   `meshDisagrees` (`MESH_NOTE`): what a mesh encloses is never exact, is said with `≈` wherever it is said, and is
   only ever a warning.

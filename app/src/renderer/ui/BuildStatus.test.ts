@@ -3,7 +3,7 @@ import type { DimensionMark, Mark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { letGoText } from '../../shared/build'
 import { store } from '../state/store'
-import { BuildStatus, dimensionCount, goToRow } from './BuildStatus'
+import { BuildStatus, defectsSaid, dimensionCount, goToRow } from './BuildStatus'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { OFF_EDGE_ADVICE, shownValue, verdictShown, whyNotMeasurable } from './DimensionFields'
@@ -131,5 +131,31 @@ describe('the status line on the New object page', () => {
     store.setState({ page: 'object' })
     expect(line()).toContain('Rebuild')
     expect(line()).toContain('Export…')
+  })
+})
+
+describe('the parts the build says are broken', () => {
+  afterEach(() => store.setState({ page: 'object', objectId: null, build: null, scene: null, revision: 0 }))
+  const line = (): string => {
+    const now = vi.spyOn(store, 'getInitialState').mockReturnValue(store.getState())
+    try {
+      return renderToStaticMarkup(createElement(BuildStatus, { errorOpen: false, onErrorOpen: () => {} }))
+    } finally {
+      now.mockRestore()
+    }
+  }
+  const part = (name: string, more: object = {}) => ({ key: `assembly:${name}`, name, layout: 'assembly', valid: true, ...more })
+  const scene = (parts: object[]) => ({ ...SCENE, parts }) as unknown as Scene
+
+  it('are counted after the parts, each with its defects in the title, and nothing is said of a sound build', () => {
+    store.setState({ page: 'object', objectId: 'bracket', build: { status: 'ok', revision: 4, seconds: 1 } as never, scene: scene([part('tub', { valid: false, reversed: [0] }), part('lid', { openShells: 1 }), part('cap'), { ...part('tub'), key: 'print:tub', layout: 'print', valid: false }]), revision: 4, layout: 'assembly', marks: [] })
+    const out = line()
+    expect(out).toContain('<span class="num">2</span> parts have defects')
+    expect(out).toContain('title="Of r4: tub: not valid, inside out; lid: not closed"')
+    expect(defectsSaid([part('cap')] as never)).toBe('')
+    store.setState({ scene: scene([part('cap'), part('lid', { meshDisagrees: true })]) })
+    expect(line()).toContain('<span class="num">1</span> part has a defect')
+    store.setState({ scene: scene([part('cap')]) })
+    expect(line()).not.toContain('defect')
   })
 })

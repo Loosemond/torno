@@ -147,3 +147,7 @@ agent is never told to remove a view.
   (`describe.number`'s `least`), by the app in a mark's line (`describeMark` given the `scene`,
   `numberWithin` in `shared/format.ts`). A direction of a region is told to two decimals (`directionText`).
   A new cut is put at the middle of the parts to 0.01 mm (`newCut` in `shared/cut.ts`).
+- What the window says is wrong with the shape of a part is one rule, `partDefects` in `shared/sanity.ts`, read
+  from the kernel's own fields (`valid`, `reversed`, `openShells`, `meshDisagrees`) and nothing else; main's digest
+  (`main/sanity.ts`) flags those same fields, in its own words, with which are new. The digest's types (`BuildDigest`, `DigestFlag`,
+  `VerdictChange`) are there too, as the data of a chat item the window draws.

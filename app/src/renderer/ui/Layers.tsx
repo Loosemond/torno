@@ -4,13 +4,15 @@ import { colorFor, colorsByName } from '../../shared/palette'
 import { groupsIn, groupVisibility } from '../../shared/groups'
 import type { Part, PartGroup } from '../../shared/scene'
 import type { LayerSettings } from '../../shared/scenefile'
+import { DEFECT_MEANS, partDefects } from '../../shared/sanity'
 
 /**
  * The parts of the layout shown: colour, name, an opacity slider that appears
  * on hover, and a switch for visibility. A setting belongs to the part's name,
  * so it holds in every layout. The model's groups (`groups(p)`) come first, each
  * a header that folds, hides or shows its parts, or shows only them; the parts
- * in no group follow, in the model's order.
+ * in no group follow, in the model's order. A part whose build says its shape is broken (`partDefects`) has the
+ * first defect in a word beside its name, and every one in its title.
  */
 export function Layers() {
   const scene = useStore((s) => s.scene)
@@ -88,10 +90,21 @@ function LayerRow({ part, layer, color, inGroup }: { part: Part; layer: LayerSet
   const { name } = part
   const visible = layer?.visible !== false
   const opacity = layer?.opacity ?? 1
+  const defects = partDefects(part)
   return (
     <li className="row layer-row" data-layer={name} data-in-group={inGroup} data-hidden={visible ? undefined : ''}>
       <span className="swatch" style={{ background: layer?.color ?? color ?? colorFor(name, -1) }} aria-hidden="true" />
       <span className="row-name num">{name}</span>
+      {defects.length > 0 && (
+        <span className="layer-defect" data-part="defect" title={defects.map((d) => `${d[0].toUpperCase()}${d.slice(1)}: ${DEFECT_MEANS[d]}`).join('. ')}>
+          {defects[0]}
+          {defects.length > 1 && (
+            <>
+              {' '}+<span className="num">{defects.length - 1}</span>
+            </>
+          )}
+        </span>
+      )}
       <input
         type="range"
         className="layer-opacity"

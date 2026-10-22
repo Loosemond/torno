@@ -90,6 +90,11 @@
   color: var(--warn);
 }
 
+.status-defects {
+  color: var(--fail);
+  font-weight: 500;
+}
+
 .status-dimensions:hover,
 .status-fail:hover,
 .status-fail[aria-expanded='true'] {

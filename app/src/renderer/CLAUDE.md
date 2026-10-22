@@ -86,6 +86,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   Its parts follow, indented, with `data-in-group`; a folded group draws none (`actions.setFolded`, kept in the
   scene file as `folded`, and dropped for a group the model no longer has). The parts in no group come last. A
   model without groups draws the list as it always was (`e2e/groups.spec.ts`).
+- A part whose build says its shape is broken (`partDefects` of `shared/sanity.ts`: not valid, inside out, not
+  closed, mesh disagrees) has its first defect in a word after its name (`.layer-defect`, `--fail`, `+N` for the
+  others) and every one in the row's title; the status line counts the layout's broken parts after its parts
+  (`.status-defects`, `defectsSaid` in its title). Of the build on show alone: whether a defect is new is for the
+  agent's digest (`main/sanity.ts`) to say.
 
 ## Section
 
