@@ -500,8 +500,32 @@ test('the line above the marks gives them more room, from the sections above dow
   const layers = (await left.getByRole('region', { name: 'Layers' }).boundingBox())!
   expect(layers.height).toBeLessThanOrEqual(34)
   expect((await marks.boundingBox())!.y).toBeGreaterThan(layers.y + layers.height - 1)
-  // By the keys: Down gives back a step of 16 px, Up takes it again.
   const most = (await kept())!
+  await expect(line).toHaveAttribute('aria-valuenow', `${most}`)
+  // A shorter window has less room than that: the marks take what there is, never running under the status line, and
+  // the line says the height shown. What is kept is as it was, and a taller window gives it back.
+  const was = await page.evaluate(() => [window.innerWidth, window.innerHeight])
+  const size = (w: number, h: number) => app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [w, h])
+  try {
+    await size(was[0], was[1] - 200)
+    await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(was[1] - 200)
+    await expect
+      .poll(async () => {
+        const box = (await marks.boundingBox())!
+        const column = (await left.boundingBox())!
+        return box.y + box.height <= column.y + column.height + 0.5
+      })
+      .toBe(true)
+    await expect(line).toHaveAttribute('aria-valuenow', `${Math.round((await marks.boundingBox())!.height)}`)
+    expect(Math.round((await marks.boundingBox())!.height)).toBeLessThan(most)
+    expect(await kept()).toBe(most)
+  } finally {
+    await size(was[0], was[1])
+    await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(was[1])
+  }
+  await expect.poll(async () => Math.round((await marks.boundingBox())!.height)).toBe(most)
+  await expect(line).toHaveAttribute('aria-valuenow', `${most}`)
+  // By the keys: Down gives back a step of 16 px, Up takes it again.
   await line.focus()
   await page.keyboard.press('ArrowDown')
   await expect.poll(kept).toBe(most - 16)

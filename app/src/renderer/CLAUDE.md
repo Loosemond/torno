@@ -429,7 +429,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   and the question it asks. Parameters, under the layers, starts folded. Marks never folds: it keeps `--marks-floor` (`MARKS_FLOOR`: its title, a group's
   heading and five rows), and every section above gives way before it, each down to its title. The splitter
   above Marks (`ui/ColumnSplit.tsx`, `role="separator"`, `column.resize` Up/Down) gives Marks more: its drag writes
-  `--marks-h` on the column, nothing through React per move; a double click puts back the shares. What is
+  `--marks-h` on the column, nothing through React per move; a double click puts back the shares. The room is read
+  from the column as it is laid out (`tallest`: the column less everything else in it, each section that gives way at
+  its least), at the drag and whenever the column or a section in it is resized, comes or goes (a `ResizeObserver` and
+  a `MutationObserver`): `--marks-h` is the height kept cut to that room, so a shorter window or Parameters coming
+  above never push Marks under the status line, `aria-valuenow` is that height, and what is kept is not touched. What is
   folded and the splitter's height are the window's (`store.column`, in `localStorage` under `torno.column`, read
   and written in try/catch), never the workspace's.
 - **Objects folds to a switcher by default** (`switcherShown`): folded, with an object open or a new one being

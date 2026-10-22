@@ -81,9 +81,9 @@
   padding-top: var(--space-1);
 }
 
-/* Given more room by the splitter: never past the column, less the titles above. */
+/* Given more room by the splitter: `ui/ColumnSplit.tsx` keeps `--marks-h` to what the column has room for, as it is now. */
 .left:has(> .column-split) > .marks {
-  min-height: max(var(--marks-floor), min(var(--marks-h, 0px), 100% - 160px));
+  min-height: max(var(--marks-floor), var(--marks-h, 0px));
 }
 
 /* The splitter: the hairline above the marks, a band of 7 px to take hold of. */
