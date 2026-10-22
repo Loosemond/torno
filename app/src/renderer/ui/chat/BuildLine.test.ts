@@ -59,8 +59,8 @@ describe('the build line under an edit', () => {
     expect(stillLatest(null, item)).toBe(false)
   })
 
-  it('says a build still running as that, with no revision', () => {
-    expect(text(drawn(context({ buildState: 'building' })))).toContain('Build running')
+  it('says a build still running when the edit was answered as that, in the past, with no revision', () => {
+    expect(text(drawn(context({ buildState: 'building' })))).toContain('Still building when Claude Code was answered')
   })
 
   it('shows the dimensions whose verdict the build changed, each as a chip with the word', () => {

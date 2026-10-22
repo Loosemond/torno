@@ -51,7 +51,8 @@ export const BuildLine = memo(function BuildLine({ item }: { item: Context }) {
             {item.error ? <>: {numbered(item.error)}</> : ''}
           </span>
         )}
-        {item.buildState === 'building' && <span className="chat-build-head">Build running</span>}
+        {/* Main writes it once, when the edit's answer could wait no longer, and never again: true when read later too. */}
+        {item.buildState === 'building' && <span className="chat-build-head">Still building when Claude Code was answered</span>}
         {item.buildState === undefined && <span className="chat-build-head">Build</span>}
         {item.buildState === 'failed' && latest && (
           <button type="button" className="chat-more" aria-expanded={errorShown} onClick={() => actions.setErrorOpen(!errorShown)}>

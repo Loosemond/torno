@@ -598,7 +598,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   card (`forTool`: the build an edit of the model started) is a build line under that card (`BuildLine`), drawn from
   its fields alone: `Built r2 · ok · 1.2 s`, or `Build after r2 failed: <the last line of the traceback>` in `--fail` (a revision names a build that worked, as
   `main/builds.ts` counts them: a failure has no number of its own and is the build after the one on show, `failedAfter`
-  of `shared/build.ts`, which the Stop hook says too; the prompt's "torno added" line says it alike), "Show
+  of `shared/build.ts`, which the Stop hook says too; the prompt's "torno added" line says it alike), or, of a build
+  still running when the edit's answer could wait no longer (main writes that line once and never again), "Still
+  building when Claude Code was answered", in the past so that it stays true, "Show
   error" while that failure is still the latest build, the dimensions whose verdict it changed (`digest.dimensions`,
   from `verdictChanges`, never worked out again here) as chips with `now passes` / `now fails`, and the parts it
   changed (`digest.parts[].text`, four at most, the rest counted), then "Show text". The sheet of a failed build is
