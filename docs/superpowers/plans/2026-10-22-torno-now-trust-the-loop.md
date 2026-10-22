@@ -1985,3 +1985,23 @@ say so. Do not weaken what the test proves.
 
 - `pnpm -C app exec playwright test e2e/session.spec.ts --repeat-each 20` passes (after `pnpm build`).
 - The spec passes in two full e2e runs in a row.
+
+## Task 33: Stop hook: do not hold the agent back for a build it did not cause (#138)
+
+Issue: https://github.com/luisg0nc/torno/issues/138. Added during the run: found by Task 32 (#137), whose flaky test was the
+Stop hook holding a turn for the object's cold first build, which the agent never caused.
+
+#### The rule
+
+Since #110 the Stop hook's "the build failed" and "a build was not looked at" reasons look at any build that ended during the
+turn. Hold for those two only when the build is of sources the turn changed: a build begun after the turn's first change of a
+source (an `Edit`, `Write` or `MultiEdit` of a `.py` in the object, or a Bash that rewrote one, as #110 already detects). A
+build the turn did not cause (the first build of an object just opened; a save the person made in their own editor) is told as
+today in the digest and the context, and never holds the Stop. The dimension rule and the hard-defect rule stay as they are,
+judged against what the turn began with.
+
+#### Done when
+
+- `manager.itest.ts`: a build that began before the turn's first edit, or in a turn with no edit, ends in the turn (ok or
+  failed) and the Stop is not held; one caused by the turn's edit is held as now.
+- `app/src/main/CLAUDE.md` ("The build after an edit, and the Stop of a turn") says the rule.
