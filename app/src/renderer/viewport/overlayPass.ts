@@ -6,7 +6,7 @@ import type { MarkLayer } from './marks/MarkLayer'
 import type { Placed } from './marks/labels'
 import { markPoints } from './marks/markObjects'
 import { mmPerPx } from './marks/labels'
-import { SCREEN_UNIT, chipSize, drawFrameCues, drawLabels, type LabelStyle } from './overlay'
+import { SCALE_BAR_MAX, SCREEN_UNIT, chipSize, drawFrameCues, drawLabels, type LabelStyle } from './overlay'
 
 const ORIGIN = new THREE.Vector3()
 
@@ -87,7 +87,7 @@ export class OverlayPass {
         surface: style.surface,
         axes: frame.axes
       },
-      { unit: SCREEN_UNIT, gridStep: frame.gridStep }
+      { unit: SCREEN_UNIT, gridStep: frame.gridStep, barMax: SCALE_BAR_MAX }
     )
   }
 

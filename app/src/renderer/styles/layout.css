@@ -89,6 +89,17 @@ button {
 .viewport-pane {
   position: absolute;
   inset: 0 var(--dock-space) var(--status-h) var(--left-w);
+  /* What the corners of the view hold: the axis triad bottom left reaches this high (`TRIAD_CLEAR` in viewport/overlay.ts, which a test holds this to), and
+     the scale bar or the grid's step bottom right. The bars at the bottom keep BAR_SIDE in from each side, so as not to cover them, and where the view
+     is narrower than they need (`data-narrow`, set by ViewportPane) they stand above the triad instead. */
+  --triad-clear: 102px;
+  --bar-side: 124px;
+  --bar-lift: 0px;
+}
+
+.viewport-pane[data-narrow] {
+  --bar-side: var(--space-3);
+  --bar-lift: calc(var(--triad-clear) + var(--space-1));
 }
 
 .viewport-canvas,

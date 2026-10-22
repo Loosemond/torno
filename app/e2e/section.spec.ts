@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
+import { BAR_SIDE, SCALE_BAR_MAX, SCREEN_UNIT, TRIAD_CLEAR } from '../src/renderer/viewport/overlay'
 import type { Hit } from '../src/renderer/viewport/picking'
 import type { Camera, LookRequest, SectionPlane, ViewState } from '../src/shared/view'
 
@@ -670,3 +671,41 @@ for (const shot of [
     }
   })
 }
+
+test('the bar stays clear of the triad bottom left and the scale bottom right, in a wide view and in a narrow one', async () => {
+  await open('bracket')
+  if ((await section()) === null) await page.keyboard.press('x')
+  await expect(bar()).toBeVisible()
+  const was = await page.evaluate(() => [window.innerWidth, window.innerHeight])
+  const widths: number[] = []
+  try {
+    // The window narrows the view with it: the pane is the window less the left column and the dock.
+    for (const width of [1100, 1300, 1440, 1700, 2000, 2600]) {
+      await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, 900])
+      await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width)
+      // The attribute follows the view's width, set when the observer is told.
+      await expect
+        .poll(async () => {
+          const pane = (await page.locator('.viewport-pane').boundingBox())!
+          return (await page.locator('.viewport-pane').getAttribute('data-narrow')) === null === pane.width >= 560 + 2 * BAR_SIDE
+        })
+        .toBe(true)
+      const pane = (await page.locator('.viewport-pane').boundingBox())!
+      const box = (await bar().boundingBox())!
+      widths.push(Math.round(pane.width))
+      const bottom = pane.y + pane.height
+      // The corners as the overlay draws them: the triad's reach (its corner, arms and letters) and the scale bar or the grid's step at its longest.
+      const triad = { left: pane.x, right: pane.x + Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT), top: bottom - TRIAD_CLEAR }
+      const scale = { left: pane.x + pane.width - Math.ceil(26 * SCREEN_UNIT + SCALE_BAR_MAX), right: pane.x + pane.width, top: bottom - Math.ceil(26 * SCREEN_UNIT + 20) }
+      const meets = (corner: { left: number; right: number; top: number }): boolean => box.x < corner.right && box.x + box.width > corner.left && box.y + box.height > corner.top && box.y < bottom
+      expect([width, 'triad', meets(triad)]).toEqual([width, 'triad', false])
+      expect([width, 'scale', meets(scale)]).toEqual([width, 'scale', false])
+    }
+    // The widths cover both the lifted bar and the one between the corners.
+    expect(Math.min(...widths)).toBeLessThan(560 + 2 * BAR_SIDE)
+    expect(Math.max(...widths)).toBeGreaterThan(560 + 2 * BAR_SIDE)
+  } finally {
+    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), was)
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(was[0])
+  }
+})

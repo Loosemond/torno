@@ -4,16 +4,16 @@
    holds what is in hand, and keeps nothing until "Apply". */
 .alignbar {
   position: absolute;
-  bottom: var(--space-3);
+  bottom: calc(var(--space-3) + var(--bar-lift));
   left: 50%;
   transform: translateX(-50%);
   display: grid;
   gap: 5px;
   width: max-content;
-  min-width: min(380px, calc(100% - 2 * var(--space-3)));
-  max-width: min(560px, calc(100% - 2 * var(--space-3)));
-  /* Never more than a third of the view: the points to click are under it. What does not fit is scrolled. */
-  max-height: max(33%, 150px);
+  min-width: min(380px, calc(100% - 2 * var(--bar-side)));
+  max-width: min(560px, calc(100% - 2 * var(--bar-side)));
+  /* Never more than a third of the view (where it stands above the triad, the third is of what is above that): the points to click are under it. What does not fit is scrolled. */
+  max-height: max(calc(33% - var(--bar-lift)), 150px);
   overflow-y: auto;
   padding: 6px 8px 5px;
   border: var(--divider);
@@ -24,15 +24,15 @@
 }
 
 .alignbar[data-raised='1'] {
-  bottom: calc(var(--space-3) + 40px);
+  bottom: calc(var(--space-3) + 40px + var(--bar-lift));
 }
 
 .alignbar[data-raised='2'] {
-  bottom: calc(var(--space-3) + 80px);
+  bottom: calc(var(--space-3) + 80px + var(--bar-lift));
 }
 
 .alignbar[data-raised='3'] {
-  bottom: calc(var(--space-3) + 120px);
+  bottom: calc(var(--space-3) + 120px + var(--bar-lift));
 }
 
 .alignbar p {

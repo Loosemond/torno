@@ -52,13 +52,13 @@
 
 .selection {
   position: absolute;
-  bottom: var(--space-3);
+  bottom: calc(var(--space-3) + var(--bar-lift));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 2px;
-  max-width: calc(100% - 2 * var(--space-3));
+  max-width: calc(100% - 2 * var(--bar-side));
   padding: 3px;
   border: var(--divider);
   border-radius: var(--radius-palette);
@@ -108,13 +108,13 @@
 
 .sectionbar {
   position: absolute;
-  bottom: var(--space-3);
+  bottom: calc(var(--space-3) + var(--bar-lift));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 2px;
-  max-width: calc(100% - 2 * var(--space-3));
+  max-width: calc(100% - 2 * var(--bar-side));
   padding: 3px;
   border: var(--divider);
   border-radius: var(--radius-palette);
@@ -126,11 +126,11 @@
 
 /* Above the selection, and above what the agent points at: each has a row of its own. */
 .sectionbar[data-raised='1'] {
-  bottom: calc(var(--space-3) + 40px);
+  bottom: calc(var(--space-3) + 40px + var(--bar-lift));
 }
 
 .sectionbar[data-raised='2'] {
-  bottom: calc(var(--space-3) + 80px);
+  bottom: calc(var(--space-3) + 80px + var(--bar-lift));
 }
 
 /* The three axes in their own colours, as on the gizmo: this letter is that direction. */
@@ -252,13 +252,13 @@
 
 .agent-line {
   position: absolute;
-  bottom: var(--space-3);
+  bottom: calc(var(--space-3) + var(--bar-lift));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  max-width: calc(100% - 2 * var(--space-3));
+  max-width: calc(100% - 2 * var(--bar-side));
   padding: 3px 3px 3px 9px;
   border: var(--divider);
   border-radius: var(--radius-palette);
@@ -269,7 +269,7 @@
 
 /* Above the selection, when something is selected too. */
 .agent-line[data-above] {
-  bottom: calc(var(--space-3) + 40px);
+  bottom: calc(var(--space-3) + 40px + var(--bar-lift));
 }
 
 .agent-refs {

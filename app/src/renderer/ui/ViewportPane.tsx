@@ -26,6 +26,7 @@ import { selectTool } from '../tools/selectTool'
 import { connectShapeEdit, shapeTool } from '../tools/shapeTool'
 import { routePointer, staleMessage, type Tool, type ToolContext } from '../tools/Tool'
 import { Readout } from '../viewport/highlight'
+import { NARROW_BELOW } from '../viewport/overlay'
 import { meshOf } from '../viewport/scans'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
@@ -529,9 +530,14 @@ export function ViewportPane() {
     }
     const readout = new Readout(host.current!)
     const disconnect = connect(made, readout)
-    const sized = new ResizeObserver(() => made.resize())
+    const pane = host.current!.parentElement!
+    // Where the view is narrower than the bars at its bottom need, they stand above the corners' triad and scale (styles/layout.css). Set on the element, not through React: it follows the size.
+    const sized = new ResizeObserver(() => {
+      made.resize()
+      pane.toggleAttribute('data-narrow', host.current!.clientWidth < NARROW_BELOW)
+    })
     sized.observe(host.current!)
-    const offDrop = acceptDrops(host.current!.parentElement!)
+    const offDrop = acceptDrops(pane)
     setViewport(made)
     return () => {
       offDrop()

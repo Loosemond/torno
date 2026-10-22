@@ -53,6 +53,22 @@ export const SCREEN_UNIT = 0.85
 /** How far above the bottom of the view the triad reaches on the person's screen, in px: what the strip of the Measure tool stands clear of (`styles/tools.css`). */
 export const TRIAD_CLEAR = Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT)
 
+/** The longest the scale bar is on the person's screen, in px: it stands in the corner a bar of the view keeps clear of. */
+export const SCALE_BAR_MAX = 100
+
+/**
+ * How far in from each side of the view the bars at its bottom (the section's, the selection's, the Align and Region
+ * tools', the agent's line) keep, in px: past the triad on the left, and past the scale bar or the grid's step on
+ * the right (`--bar-side`, `styles/layout.css`).
+ */
+export const BAR_SIDE = 124
+
+/** The widest a bar at the bottom of the view is (the Align tool's, `styles/align.css`), in px. */
+const WIDEST_BAR = 560
+
+/** Under this width of the view the bars at its bottom stand above the triad and the scale, not between them (`data-narrow`, `--bar-lift`). */
+export const NARROW_BELOW = WIDEST_BAR + 2 * BAR_SIDE
+
 /**
  * Draws what a still picture needs to be read without the app around it: an
  * axis triad bottom left, and bottom right a scale bar in mm (orthographic) or a
@@ -68,13 +84,13 @@ export function drawOverlay(ctx: Ctx, o: OverlayOptions): void {
  * lies on the ground in the object frame, so its step is a true length in any projection), else the note that
  * there is none.
  */
-export function drawFrameCues(ctx: Ctx, o: OverlayOptions, cues: { unit: number; gridStep?: number }): void {
+export function drawFrameCues(ctx: Ctx, o: OverlayOptions, cues: { unit: number; gridStep?: number; barMax?: number }): void {
   const { unit } = cues
   ctx.save()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
   drawTriad(ctx, o, unit)
-  if (o.mmPerPx !== null && o.mmPerPx > 0) drawScaleBar(ctx, o, o.mmPerPx, unit)
+  if (o.mmPerPx !== null && o.mmPerPx > 0) drawScaleBar(ctx, o, o.mmPerPx, unit, cues.barMax ?? o.width * 0.25)
   else if (cues.gridStep !== undefined) drawGridStep(ctx, o, cues.gridStep, unit)
   else drawNote(ctx, o, unit)
   ctx.restore()
@@ -130,9 +146,9 @@ function drawTriad(ctx: Ctx, o: OverlayOptions, unit: number): void {
   }
 }
 
-function drawScaleBar(ctx: Ctx, o: OverlayOptions, mmPerPx: number, unit: number): void {
+function drawScaleBar(ctx: Ctx, o: OverlayOptions, mmPerPx: number, unit: number, maxPx: number): void {
   const pad = 26 * unit
-  const mm = scaleBarLength(mmPerPx, o.width * 0.25)
+  const mm = scaleBarLength(mmPerPx, maxPx)
   const px = mm / mmPerPx
   const x1 = o.width - pad
   const x0 = x1 - px

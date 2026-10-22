@@ -4,13 +4,13 @@
    the second what to do next and how much is painted. Nothing in it moves with the pointer. */
 .regionbar {
   position: absolute;
-  bottom: var(--space-3);
+  bottom: calc(var(--space-3) + var(--bar-lift));
   left: 50%;
   transform: translateX(-50%);
   display: grid;
   gap: 4px;
   width: max-content;
-  max-width: calc(100% - 2 * var(--space-3));
+  max-width: calc(100% - 2 * var(--bar-side));
   padding: 4px 5px 5px;
   border: var(--divider);
   border-radius: var(--radius-palette);
@@ -20,15 +20,15 @@
 }
 
 .regionbar[data-raised='1'] {
-  bottom: calc(var(--space-3) + 40px);
+  bottom: calc(var(--space-3) + 40px + var(--bar-lift));
 }
 
 .regionbar[data-raised='2'] {
-  bottom: calc(var(--space-3) + 80px);
+  bottom: calc(var(--space-3) + 80px + var(--bar-lift));
 }
 
 .regionbar[data-raised='3'] {
-  bottom: calc(var(--space-3) + 120px);
+  bottom: calc(var(--space-3) + 120px + var(--bar-lift));
 }
 
 .regionbar-row {

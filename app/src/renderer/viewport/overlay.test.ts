@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DEVIATION_RAMP, PERSPECTIVE_NOTE, SCREEN_UNIT, TRIAD_CLEAR, chipSize, drawDeviationLegend, drawFrameCues, drawLabels, drawOverlay, type LabelStyle } from './overlay'
+import { DEVIATION_RAMP, BAR_SIDE, NARROW_BELOW, PERSPECTIVE_NOTE, SCALE_BAR_MAX, SCREEN_UNIT, TRIAD_CLEAR, chipSize, drawDeviationLegend, drawFrameCues, drawLabels, drawOverlay, type LabelStyle } from './overlay'
 
 /** A canvas context that keeps what was drawn on it: each text with how opaque it was, and each stroke with its colour and its moves. */
 function recorder() {
@@ -243,11 +243,33 @@ describe('the axes and the scale on the person’s screen', () => {
     expect(texts.find((t) => t.text === PERSPECTIVE_NOTE)?.font).toContain('Plex Sans')
   })
 
-  it('keeps the measure strip clear of the triad: the stylesheet’s clearance is the triad’s height', () => {
-    const css = readFileSync(resolve(__dirname, '../styles/tools.css'), 'utf8')
-    const strip = css.slice(css.indexOf('.measure-choice {'), css.indexOf('}', css.indexOf('.measure-choice {')))
-    expect(strip).toContain(`${TRIAD_CLEAR}px`)
+  it('keeps the strip of the Measure tool and the bars at the bottom clear of the triad and the scale: the stylesheet’s sizes are these', () => {
+    const layout = readFileSync(resolve(__dirname, '../styles/layout.css'), 'utf8')
+    expect(layout).toContain(`--triad-clear: ${TRIAD_CLEAR}px;`)
+    expect(layout).toContain(`--bar-side: ${BAR_SIDE}px;`)
     // The triad's corner, its arms, the letter beyond the tip of the longest and half the letter's height.
     expect(TRIAD_CLEAR).toBeGreaterThanOrEqual(Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT))
+    // The bars stand in from the side by as much as the triad reaches across (its corner, its arm, its letter and half of it), and the scale bar.
+    expect(BAR_SIDE).toBeGreaterThanOrEqual(Math.ceil((26 + 2 * 38 + 11 + 6) * SCREEN_UNIT))
+    expect(BAR_SIDE).toBeGreaterThanOrEqual(Math.ceil(26 * SCREEN_UNIT + SCALE_BAR_MAX))
+    // Every bar at the bottom is held in from both sides, and lifted by the same amount where the view is narrow.
+    for (const sheet of ['overlays.css', 'align.css', 'regions.css']) {
+      const css = readFileSync(resolve(__dirname, '../styles', sheet), 'utf8')
+      expect(css, sheet).not.toMatch(/bottom: (var\(--space-3\)|calc\(var\(--space-3\) \+ \d+px\));/)
+      expect(css, sheet).not.toContain('2 * var(--space-3)')
+    }
+    expect(layout).toMatch(/\.viewport-pane\[data-narrow\] \{[^}]*--bar-lift: calc\(var\(--triad-clear\) \+ var\(--space-1\)\)/)
+    // Where the view is as wide as the widest bar and both sides, the bars are not lifted.
+    expect(NARROW_BELOW).toBe(560 + 2 * BAR_SIDE)
+  })
+
+  it('draws the scale bar no longer than the screen allows, and a picture’s a quarter of its width', () => {
+    const wide = frame()
+    drawFrameCues(wide.ctx, { ...looking([1, 0, 0], [0, 0, 1]), width: 2000, mmPerPx: 0.25 }, { unit: SCREEN_UNIT, barMax: SCALE_BAR_MAX })
+    // 100 px at 0.25 mm: 25 mm, 20 at most, not the 100 a quarter of 2000 px would allow.
+    expect(wide.texts.map((t) => t.text)).toContain('20 mm')
+    const picture = frame()
+    drawOverlay(picture.ctx, { ...looking([1, 0, 0], [0, 0, 1]), width: 2000, mmPerPx: 0.25 })
+    expect(picture.texts.map((t) => t.text)).toContain('100 mm')
   })
 })

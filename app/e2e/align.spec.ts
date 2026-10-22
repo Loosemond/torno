@@ -88,6 +88,21 @@ async function frame(points: Vec3[]): Promise<void> {
   }
   throw new Error('the points never came into view')
 }
+/** Goes to the top view and waits until the camera has stopped there: what is aimed at is where it is drawn. */
+async function fromAbove(): Promise<void> {
+  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  const at = async (): Promise<number[]> => (await page.evaluate(() => window.__tornoTest!.camera())).position.map((c) => Math.round(c * 100))
+  let was = await at()
+  await expect
+    .poll(async () => {
+      await page.waitForTimeout(120)
+      const now = await at()
+      const still = now.every((c, i) => c === was[i])
+      was = now
+      return still
+    })
+    .toBe(true)
+}
 const alignment = async (layout: string) => (await state()).scans[0].alignments[layout]
 
 test('three pairs and a fourth bring a displaced scan onto the model, and say how well', async () => {
@@ -397,7 +412,7 @@ test('by hand, the gizmo is on the scan: a drag of a handle draws it as dragged,
 // Fix round 1: the floor on a face of the model, and what a build that moves the model makes of an alignment tied to it.
 test('a floor is laid on a face of the model at the point that was clicked, either way up, and the build finds the model under it', async () => {
   await open('hollow')
-  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await fromAbove()
   const lid = (await state()).scene!.parts.find((p) => p.name === 'lid')!
   const top: Vec3 = [(lid.bbox.min[0] + lid.bbox.max[0]) / 2 + 3, (lid.bbox.min[1] + lid.bbox.max[1]) / 2 + 2, lid.bbox.max[2]]
   await page.keyboard.press('l')

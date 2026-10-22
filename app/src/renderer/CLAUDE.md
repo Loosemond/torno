@@ -223,8 +223,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   scale holds, the grid's step as `grid 5 mm` (`groundOf`'s `step`; the grid lies on the ground in the object frame, so
   its step is a true length in any projection). It is of the camera and the object frame only, so it stays while the
   parts are apart. A picture for the agent has the same triad and bar, and in perspective its note `perspective, no
-  scale bar`, as before. The strip of the Measure tool stands above the triad (`TRIAD_CLEAR`, which `tools.css`
-  holds to).
+  scale bar`, as before. The scale bar is 100 px at most on screen. The strip of the Measure tool stands above the
+  triad, and the bars at the bottom of the view (the section's, the selection's, the Align and Region tools', the
+  agent's line) keep `BAR_SIDE` in from each side, clear of the triad and of the scale; where the view is narrower than
+  the widest of them needs (`NARROW_BELOW`, `data-narrow` on `.viewport-pane`, set by `ViewportPane` as the view is
+  resized) they stand above the triad (`--bar-lift`) instead. `TRIAD_CLEAR`, `BAR_SIDE` and `NARROW_BELOW` are in
+  `viewport/overlay.ts`, and `--triad-clear`, `--bar-side` in `styles/layout.css` are held to them by `overlay.test.ts`;
+  `e2e/section.spec.ts` reads the bar's box against the corners at six widths.
 - **The strip** (`ui/ViewsStrip.tsx`, the last child of `.viewbars`,
   `role="toolbar"`): a chip per view (`button.view-chip[data-view]`), the
   one that is on marked (`aria-pressed`: `activeView`, while the screen

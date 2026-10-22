@@ -53,10 +53,10 @@
 }
 
 /* In the bottom corner of the viewport while the Measure tool is in hand, clear of the part and of the bars: what its clicks measure.
-   Above the axis triad that corner holds: 102px is its reach (`TRIAD_CLEAR` in viewport/overlay.ts, which a test holds to this). */
+   Above the axis triad that corner holds (`--triad-clear`, `styles/layout.css`). */
 .measure-choice {
   position: absolute;
-  bottom: calc(102px + var(--space-1));
+  bottom: calc(var(--triad-clear) + var(--space-1));
   left: var(--space-3);
   display: flex;
   align-items: center;
