@@ -1,3 +1,4 @@
+import math
 import json
 from itertools import pairwise
 from pathlib import Path
@@ -465,3 +466,86 @@ def test_a_box_is_not_widened_by_what_single_precision_leaves_of_a_mesh(monkeypa
     drawn = {"min": [-2.7e-6, 0.0, -1.0], "max": [10.000001, 10.0, 9.0]}
     # A vertex 0.0000027 mm under a part of 17 mm is on it: one a millimetre under is not.
     assert tess.part_box(Sphere(7), drawn=drawn) == ([0.0, 0.0, -1.0], [10.0, 10.0, 10.0])
+
+
+# The sanity of a part, told with every build: its solids, its open shells and what its own mesh encloses
+
+
+def sanity_of(**named):
+    scene, _, _ = build_scene({"assembly": named}, "sane.py")
+    return {p["name"]: p for p in scene["parts"]}
+
+
+def open_box():
+    """A 10 mm box without its top: one shell with four free edges, and no solid."""
+    from build123d import Box, Shell
+
+    return Shell(Box(10, 10, 10).faces()[:-1])
+
+
+def void_turned_outward():
+    """A 20 mm box with a 10 mm cavity whose shell faces into it: OCC integrates the void as material."""
+    from build123d import Box, Solid
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.TopoDS import TopoDS
+
+    made = BRepBuilderAPI_MakeSolid(TopoDS.Shell(Box(20, 20, 20).shells()[0].wrapped))
+    made.Add(TopoDS.Shell(Box(10, 10, 10).shells()[0].wrapped))
+    return Solid(made.Solid())
+
+
+def test_a_part_says_how_many_solids_it_has():
+    from build123d import Box, Compound, Pos
+
+    parts = sanity_of(one=Box(10, 10, 10), two=Compound([Box(10, 10, 10), Pos(30, 0, 0) * Box(5, 5, 5)]), shell=open_box())
+    assert [parts[name]["solids"] for name in ("one", "two", "shell")] == [1, 2, 0]
+
+
+def test_a_part_counts_the_shells_with_free_edges():
+    from build123d import Box, Cylinder, Sphere
+
+    # A seam and a pole are no free edge: a cylinder and a sphere are closed.
+    parts = sanity_of(box=Box(10, 10, 10), cylinder=Cylinder(5, 10), ball=Sphere(5), shell=open_box(), void=void_turned_outward())
+    assert {name: p["openShells"] for name, p in parts.items()} == {"box": 0, "cylinder": 0, "ball": 0, "shell": 1, "void": 0}
+
+
+def test_a_void_turned_outward_is_not_valid():
+    from build123d import Box
+
+    # Its volume reads 9000 where 7000 is the material, and positive: only OCC's check says it is broken.
+    parts = sanity_of(void=void_turned_outward(), cut=Box(20, 20, 20) - Box(10, 10, 10))
+    assert (parts["void"]["valid"], parts["void"]["volume"]) == (False, pytest.approx(9000))
+    assert (parts["cut"]["valid"], parts["cut"]["volume"]) == (True, pytest.approx(7000))
+
+
+def test_a_part_tells_the_volume_its_mesh_encloses_and_that_it_agrees():
+    from build123d import Box, Compound, Cylinder, Pos, Sphere
+
+    parts = sanity_of(box=Box(10, 10, 10), cylinder=Cylinder(5, 10), ball=Sphere(5), two=Compound([Box(10, 10, 10), Pos(30, 0, 0) * Box(5, 5, 5)]))
+    assert parts["box"]["meshVolume"] == pytest.approx(1000)
+    assert parts["two"]["meshVolume"] == pytest.approx(1125)
+    # Chords cut inside a curved face: a little less, within what the mesh's deflection explains.
+    for name, exact in (("cylinder", math.pi * 25 * 10), ("ball", 4 / 3 * math.pi * 125)):
+        assert exact * 0.99 < parts[name]["meshVolume"] < exact
+    assert all("meshDisagrees" not in p for p in parts.values())
+    json.dumps(list(parts.values()), allow_nan=False)
+
+
+def test_a_mesh_that_disagrees_with_the_b_rep_is_said(monkeypatch):
+    from build123d import Box
+
+    from torno_kernel import extent, tess
+
+    # As a boolean that left the B-rep smaller than what is drawn of it.
+    monkeypatch.setattr(tess.extent, "volume", lambda shape, known=None: extent.Volume(700.0, True))
+    parts = sanity_of(box=Box(10, 10, 10))
+    assert (parts["box"]["volume"], parts["box"]["meshVolume"], parts["box"]["meshDisagrees"]) == (700.0, pytest.approx(1000), True)
+
+
+def test_a_mesh_is_not_held_against_a_part_whose_volume_says_nothing():
+    from test_extent import cube_reversed
+
+    # Inside out, or open: the mesh's volume is no check of it, and what is wrong is said otherwise.
+    parts = sanity_of(bad=cube_reversed(), shell=open_box())
+    assert parts["bad"]["meshVolume"] == pytest.approx(1000)
+    assert all("meshDisagrees" not in p for p in parts.values())

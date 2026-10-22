@@ -75,6 +75,14 @@ is the detail of this folder, under the headings it has there.
   neither is told as the other; an area that is exact is one number, measured once whoever asks first. A part has one box, told alike by the scene, `describe` and `measure bbox`
   (`tess.part_box`), exact only of planes and cylinders with straight and circular edges
   (`extent.boxed_exactly`, `bboxExact`).
+- What a build tells of a part besides its sizes (`tess._sanity`): `solids`, how many it has; `openShells`, how many
+  of its shells have a free edge (one that only one of their faces has: a seam and a pole are none); and
+  `meshVolume`, the size of what the part's own mesh encloses, a sum over the triangles it is drawn with. That is
+  never exact and never a number to rely on: it is there to raise `meshDisagrees` (present only when true) when it
+  and the B-rep's volume are further apart than `MESH_SLACK` (2) deflections over the mesh's area and the volume's
+  own doubt explain. It is not judged of a part with no solid, an open shell or a solid inside out. None of it is a
+  boolean or a second integral. A void whose shell faces into it integrates as material, and positive: OCC's check
+  (`valid`) is what finds it.
 - A build spends about a second on the volume of a part of a hundred freeform faces and up to a second on its
   box: on the owner's `guitar-wall-stand` (two halves of 92 and 94 faces, in two layouts) 3.7 s on volumes and
   1.3 s on boxes, where volumes to 1e-9 took 164 s. The whole area of a freeform part costs three

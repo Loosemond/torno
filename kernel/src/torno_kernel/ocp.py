@@ -7,6 +7,7 @@ from OCP.TopAbs import (
     TopAbs_COMPSOLID,
     TopAbs_EDGE,
     TopAbs_FACE,
+    TopAbs_SHELL,
     TopAbs_SOLID,
     TopAbs_VERTEX,
     TopAbs_WIRE,

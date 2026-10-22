@@ -11,6 +11,7 @@ from typing import Any
 from .ocp import (
     TopAbs_EDGE,
     TopAbs_FACE,
+    TopAbs_SHELL,
     TopAbs_SOLID,
     TopAbs_WIRE,
     TopExp,
@@ -45,6 +46,32 @@ def loose_faces(shape: Any) -> int:
     for solid in solids(shape):
         TopExp.MapShapes_s(solid, TopAbs_FACE, of_solids)
     return len(faces(shape)) - of_solids.Extent()
+
+
+def open_shells(shape: Any) -> int:
+    """How many of the shape's shells have a free edge: one that only one of their faces has.
+
+    A seam is had twice by its face, and a degenerate edge (a sphere's pole) bounds nothing: neither is free.
+    """
+    from OCP.BRep import BRep_Tool
+    from OCP.TopExp import TopExp_Explorer
+
+    told = 0
+    for shell in _subshapes(shape, TopAbs_SHELL):
+        seen = TopTools_IndexedMapOfShape()
+        uses: list[int] = []
+        # Each edge once for each face that has it: a seam twice for its one face.
+        explorer = TopExp_Explorer(shell, TopAbs_EDGE)
+        while explorer.More():
+            edge = downcast(explorer.Current())
+            if not BRep_Tool.Degenerated_s(edge):
+                i = seen.Add(edge)
+                if i > len(uses):
+                    uses.append(0)
+                uses[i - 1] += 1
+            explorer.Next()
+        told += any(count == 1 for count in uses)
+    return told
 
 
 def what(shape: Any) -> str:

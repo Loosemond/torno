@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from . import arrange, extent
+from . import arrange, extent, topo
 from .describe import OF_THE_PART
 
 DEVIATION = 0.1
@@ -18,6 +18,11 @@ ARRANGED_LAYOUT = "print"
 # box of the part's mesh, as approximate, and the kernel's is worked out when
 # it is first asked for.
 BOX_SECONDS = 1.0
+
+# How much of what a part's own mesh encloses its B-rep volume may differ by and still agree: this many times its
+# deflection over the mesh's area (chords cut inside a curved face by at most the deflection), and the B-rep's own
+# doubt. Measured: a cylinder of 10 mm and a sphere of 5 mm, 0.2 and 0.5 of one deflection over their areas.
+MESH_SLACK = 2.0
 
 # Scene mesh key → (ocp-tessellate key, little-endian dtype in the blob).
 _BUFFERS = {
@@ -63,7 +68,7 @@ def build_scene(
             key = f"{layout}:{name}"
             shapes[key] = shape
             volume = extent.volume(shape, solids)
-            part = _part(key, name, layout, shape, mesh, loc, cache_id, blob, volume)
+            part = _part(key, name, layout, shape, mesh, loc, cache_id, blob, volume, drawn_at)
             # Whether its box is the kernel's, to keep for queries: not for the scene.
             boxed = part.pop("boxed")
             if kept is not None:
@@ -204,6 +209,7 @@ def _part(
     cache_id: str | None,
     blob: bytearray,
     volume: extent.Volume,
+    drawn_at: float = 0.0,
 ) -> dict[str, Any]:
     t = [float(x) for x in loc[0]]
     q = [float(x) for x in loc[1]]
@@ -240,7 +246,40 @@ def _part(
     if volume.reversed:
         # Which solids of the part are inside out, 0-based in OCC's order: absent of a sound part.
         told["reversed"] = list(volume.reversed)
+    told.update(_sanity(shape, arrays, volume, drawn_at))
     return told
+
+
+def _sanity(shape: Any, arrays: dict[str, np.ndarray], volume: extent.Volume, drawn_at: float) -> dict[str, Any]:
+    """What a build tells of a part besides its sizes, for main to hold one build against the next.
+
+    ``solids``, how many it has, and ``openShells``, how many of its shells have a free edge; ``meshVolume``, the size
+    of what its own mesh encloses (never exact: a sum over the triangles it is drawn with, no integral), and
+    ``meshDisagrees``, only when that and the B-rep's volume are further apart than the mesh's deflection and the
+    volume's own doubt explain (``MESH_SLACK``): one of the two is wrong. Not judged of a part with no solid, an open
+    shell or a solid inside out, whose mesh is no check of its volume and which is told as broken otherwise.
+    """
+    shells = topo.open_shells(shape)
+    told: dict[str, Any] = {"solids": len(topo.solids(shape)), "openShells": shells}
+    enclosed, area = _enclosed(arrays["vertices"], arrays["triangles"])
+    told["meshVolume"] = abs(enclosed)
+    if told["solids"] > 0 and shells == 0 and not volume.reversed:
+        slack = MESH_SLACK * drawn_at * area + volume.spread + 1e-9 * volume.value
+        if abs(abs(enclosed) - volume.value) > slack:
+            told["meshDisagrees"] = True
+    return told
+
+
+def _enclosed(vertices: np.ndarray, triangles: np.ndarray) -> tuple[float, float]:
+    """The volume a mesh encloses, with the sign its triangles' winding gives it, and its area: part-local, mm³ and mm²."""
+    points = vertices.reshape(-1, 3).astype(np.float64)
+    corners = triangles.reshape(-1, 3)
+    if len(corners) == 0:
+        return 0.0, 0.0
+    a, b, c = points[corners[:, 0]], points[corners[:, 1]], points[corners[:, 2]]
+    volume = float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum()) / 6
+    area = float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum()) / 2
+    return volume, area
 
 
 def _append(blob: bytearray, array: np.ndarray) -> dict[str, int]:
