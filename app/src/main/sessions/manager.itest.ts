@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
-import { type HttpRouter, startHttp } from '../http'
+import { type HttpRouter, readBody, SESSION_HEADER, startHttp } from '../http'
 import { Trust } from '../trust'
 import { claudeAdapter } from './claude'
 import { killGroup, Sessions } from './manager'
@@ -23,7 +23,25 @@ const FAKE = resolve(__dirname, '../../../test/fake-agent.mjs')
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 let root: string
+/** torno's own folder of the files an agent is given by path: never in a workspace, as `<userData>/agent` is not. */
+let configDir: string
 let http: HttpRouter
+/** Every token a router of these tests made, with the paths it opens: a session's is the one that opens its hooks. */
+const grants: Array<{ token: string; paths: string[] }> = []
+/** A router that records the tokens it makes, so that a test can post a hook as that session's agent does. */
+function recording(router: HttpRouter): HttpRouter {
+  const grant = router.grant
+  router.grant = (paths) => {
+    const token = grant(paths)
+    grants.push({ token, paths })
+    return token
+  }
+  return router
+}
+/** The token of a session, which its agent has in its environment. */
+const tokenOf = (sessionId: string): string => grants.find((g) => g.paths.includes(`/hooks/${sessionId}`))!.token
+/** The header a request of that session's agent carries. */
+const as = (sessionId: string): Record<string, string> => ({ [SESSION_HEADER]: tokenOf(sessionId) })
 let sessions: Sessions
 let context = (id: string) => `context for ${id}`
 /** By object: the marks its next prompt would tell of. What was delivered is taken out, as the store would. */
@@ -50,6 +68,7 @@ let views = new Map<string, AgentView>()
 
 function make(command = `node ${FAKE}`): Sessions {
   const made = new Sessions({
+    configDir,
     http,
     adapter: claudeAdapter(command),
     viewFor: (obj) => views.get(obj.id) ?? 'terminal',
@@ -92,7 +111,8 @@ function alive(pid: number): boolean {
 
 beforeAll(async () => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-sessions-'))
-  http = await startHttp()
+  configDir = mkdtempSync(join(realpathSync(tmpdir()), 'torno-agent-config-'))
+  http = recording(await startHttp())
   sessions = make()
 })
 
@@ -114,6 +134,7 @@ afterEach(async () => {
 afterAll(async () => {
   await http.close()
   rmSync(root, { recursive: true, force: true })
+  rmSync(configDir, { recursive: true, force: true })
 })
 
 describe('a session', () => {
@@ -122,7 +143,7 @@ describe('a session', () => {
     await expect.poll(() => said(sessionId)).toContain('READY')
     const args = argv(sessionId)
     expect(args[args.indexOf('--session-id') + 1]).toMatch(UUID)
-    expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.torno.url).toBe(http.url('/mcp/bracket'))
+    expect(JSON.parse(readFileSync(args[args.indexOf('--mcp-config') + 1], 'utf8')).mcpServers.torno.url).toBe(http.url('/mcp/bracket'))
     expect(args).not.toContain('--append-system-prompt')
     expect(sessions.current('bracket')).toMatchObject({ sessionId, status: 'idle', cols: 100, rows: 30 })
   })
@@ -236,7 +257,7 @@ describe('a session', () => {
     const gone = new AbortController()
     const post = fetch(http.url(`/hooks/${sessionId}/UserPromptSubmit`), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...as(sessionId) },
       body: JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: 'hello' }),
       signal: gone.signal
     })
@@ -420,7 +441,8 @@ describe('a session', () => {
     expect(alive(pid)).toBe(false)
     expect(statuses.get(sessionId)).toEqual(['starting', 'idle', 'exited'])
     expect(sessions.current('bracket')).toBeNull()
-    const reply = await fetch(http.url(`/hooks/${sessionId}/Stop`), { method: 'POST', body: '{}' })
+    // Its token opens nothing any more.
+    const reply = await fetch(http.url(`/hooks/${sessionId}/Stop`), { method: 'POST', body: '{}', headers: as(sessionId) })
     expect(reply.status).toBe(404)
     // Writes to a session that is gone are dropped.
     sessions.write(sessionId, 'x')
@@ -523,7 +545,7 @@ describe('a session', () => {
       sessions.write(sessionId, 'env\r')
       await expect.poll(() => said(sessionId)).toMatch(/env: (\[.*?\])\r?\n/)
       const names: string[] = JSON.parse(/env: (\[.*?\])\r?\n/.exec(said(sessionId))![1])
-      expect(names.filter((name) => name.startsWith('TORNO'))).toEqual(['TORNO_OBJECT', 'TORNO_SESSION_ID'])
+      expect(names.filter((name) => name.startsWith('TORNO'))).toEqual(['TORNO_OBJECT', 'TORNO_SESSION', 'TORNO_SESSION_ID'])
       // Of Claude Code's, only the marks of a parent session are withheld: the person's own settings pass.
       expect(names.filter((name) => name.startsWith('CLAUDE')).sort()).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CONFIG_DIR'])
       // Everything else is passed on.
@@ -586,6 +608,7 @@ describe('stopAll', () => {
     let release!: () => void
     const held = new Promise<void>((resolve) => (release = resolve))
     const made = new Sessions({
+      configDir,
       http,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: async (obj): Promise<AgentView> => {
@@ -617,15 +640,16 @@ describe('the hook endpoint', () => {
   it('knows only live sessions, only POST, and only bodies it can read', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
     const url = http.url(`/hooks/${sessionId}/Stop`)
-    expect((await fetch(http.url('/hooks/nobody/Stop'), { method: 'POST', body: '{}' })).status).toBe(404)
-    expect((await fetch(http.url(`/hooks/${sessionId}`), { method: 'POST', body: '{}' })).status).toBe(404)
-    expect((await fetch(url)).status).toBe(405)
-    expect((await fetch(url, { method: 'POST', body: 'not json' })).status).toBe(400)
-    const fine = await fetch(url, { method: 'POST', body: '{}' })
+    const headers = as(sessionId)
+    expect((await fetch(http.url('/hooks/nobody/Stop'), { method: 'POST', body: '{}', headers })).status).toBe(404)
+    expect((await fetch(http.url(`/hooks/${sessionId}`), { method: 'POST', body: '{}', headers })).status).toBe(404)
+    expect((await fetch(url, { headers })).status).toBe(405)
+    expect((await fetch(url, { method: 'POST', body: 'not json', headers })).status).toBe(400)
+    const fine = await fetch(url, { method: 'POST', body: '{}', headers })
     expect(fine.status).toBe(200)
     expect(fine.headers.get('content-type')).toBe('application/json')
     expect(await fine.json()).toEqual({})
-    expect((await fetch(http.url('/elsewhere'), { method: 'POST', body: '{}' })).status).toBe(404)
+    expect((await fetch(http.url('/elsewhere'), { method: 'POST', body: '{}', headers })).status).toBe(404)
   })
 
   it('knows only the hooks of the agent: no other name moves the status', async () => {
@@ -633,20 +657,20 @@ describe('the hook endpoint', () => {
     await expect.poll(() => said(sessionId)).toContain('READY')
     // `exit` and `output` are what the PTY tells the session, not hooks.
     for (const name of ['exit', 'output', 'SessionStart', 'stop']) {
-      const reply = await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}' })
+      const reply = await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}', headers: as(sessionId) })
       expect(reply.status).toBe(404)
     }
     expect(statuses.get(sessionId)).toEqual(['starting', 'idle'])
     expect(sessions.current('bracket')?.status).toBe('idle')
     for (const name of ['UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']) {
-      expect((await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}' })).status).toBe(200)
+      expect((await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}', headers: as(sessionId) })).status).toBe(200)
     }
   })
 
   it('reads what a Notification says: one that the agent has only been idle a while is no question', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
     await expect.poll(() => said(sessionId)).toContain('READY')
-    const notify = (body: object) => fetch(http.url(`/hooks/${sessionId}/Notification`), { method: 'POST', body: JSON.stringify(body) })
+    const notify = (body: object) => fetch(http.url(`/hooks/${sessionId}/Notification`), { method: 'POST', body: JSON.stringify(body), headers: as(sessionId) })
     // Seen on a visible screen: the header said "Needs input" with Claude Code at its empty prompt.
     expect((await notify({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' })).status).toBe(200)
     expect(sessions.current('bracket')?.status).toBe('idle')
@@ -659,13 +683,13 @@ describe('the hook endpoint', () => {
     await expect.poll(() => said(sessionId)).toContain('READY')
     const body = JSON.stringify({ tool_response: 'x'.repeat(2 * 1024 * 1024) })
     for (const event of ['PreToolUse', 'PostToolUse']) {
-      const reply = await fetch(http.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body })
+      const reply = await fetch(http.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body, headers: as(sessionId) })
       expect(reply.status).toBe(200)
       expect(await reply.json()).toEqual({})
     }
     expect(statuses.get(sessionId)?.at(-1)).toBe('working')
     // Nor is it parsed: what is not JSON is as good.
-    expect((await fetch(http.url(`/hooks/${sessionId}/PostToolUse`), { method: 'POST', body: 'not json' })).status).toBe(200)
+    expect((await fetch(http.url(`/hooks/${sessionId}/PostToolUse`), { method: 'POST', body: 'not json', headers: as(sessionId) })).status).toBe(200)
   })
 
   it('says a prompt is in a conversation that has not seen the marks when the agent names another than before, once', async () => {
@@ -691,57 +715,122 @@ describe('the hook endpoint', () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
     const url = http.url(`/hooks/${sessionId}/UserPromptSubmit`)
     const body = JSON.stringify({ prompt: 'x'.repeat(1024 * 1024) })
-    expect((await fetch(url, { method: 'POST', body })).status).toBe(413)
+    expect((await fetch(url, { method: 'POST', body, headers: as(sessionId) })).status).toBe(413)
     expect(statuses.get(sessionId)).not.toContain('working')
     const under = JSON.stringify({ prompt: 'x'.repeat(1024 * 1024 - 100) })
-    expect((await fetch(url, { method: 'POST', body: under })).status).toBe(200)
+    expect((await fetch(url, { method: 'POST', body: under, headers: as(sessionId) })).status).toBe(200)
   })
 
   it('listens on the loopback address only', () => {
-    expect(http.url('/a')).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${http.port}/a/[A-Za-z0-9_-]{43}$`))
+    expect(http.url('/a')).toBe(`http://127.0.0.1:${http.port}/a`)
     expect(http.port).toBeGreaterThan(0)
   })
 
-  // Final review M15: another process of this machine can find the port, and not the secret of the run.
-  it('is nothing to whoever has not the secret of the run: 404, and the session is where it was', async () => {
+  // #113: another process of this machine can find the port and read the agent's command line, not its environment.
+  it("is nothing to a request without this session's token in its header: 404, and the session is where it was", async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
+    const other = await sessions.start(object('lid'), {})
     await expect.poll(() => said(sessionId)).toContain('READY')
-    const secret = new URL(http.url('/hooks/x')).pathname.split('/')[2]
-    for (const path of [`/hooks/${sessionId}/UserPromptSubmit`, `/hooks/${'A'.repeat(43)}/${sessionId}/UserPromptSubmit`, `/hooks/${sessionId}/${secret}/UserPromptSubmit`]) {
-      const reply = await fetch(`http://127.0.0.1:${http.port}${path}`, { method: 'POST', body: '{"prompt":"hello"}' })
-      expect([path, reply.status, await reply.json()]).toEqual([path, 404, { error: 'not found' }])
+    const token = tokenOf(sessionId)
+    const url = http.url(`/hooks/${sessionId}/UserPromptSubmit`)
+    const refused: Array<[string, Record<string, string>]> = [
+      [url, {}],
+      [url, { [SESSION_HEADER]: '' }],
+      // What Claude Code would send should it not expand the token: the placeholder as torno wrote it.
+      [url, { [SESSION_HEADER]: '$TORNO_SESSION' }],
+      [url, { [SESSION_HEADER]: '${TORNO_SESSION}' }],
+      [url, { [SESSION_HEADER]: 'A'.repeat(43) }],
+      [url, { authorization: `Bearer ${token}` }],
+      // Another session's token, of another object.
+      [url, as(other.sessionId)],
+      [`${url}?token=${token}`, {}],
+      [http.url(`/hooks/${token}/${sessionId}/UserPromptSubmit`), {}]
+    ]
+    for (const [address, headers] of refused) {
+      const reply = await fetch(address, { method: 'POST', body: '{"prompt":"hello"}', headers })
+      expect([address, headers, reply.status, await reply.json()]).toEqual([address, headers, 404, { error: 'not found' }])
     }
     expect(statuses.get(sessionId)).toEqual(['starting', 'idle'])
-    expect((await fetch(http.url(`/hooks/${sessionId}/UserPromptSubmit`), { method: 'POST', body: '{"prompt":"hello"}' })).status).toBe(200)
+    expect((await fetch(url, { method: 'POST', body: '{"prompt":"hello"}', headers: as(sessionId) })).status).toBe(200)
     expect(statuses.get(sessionId)?.at(-1)).toBe('working')
   })
 
-  it('gives the secret to the agent in what it is started with, and to nothing else: no file of the object, no log', async () => {
+  it('gives the token to the agent in its environment alone: not in its arguments, no file, no log; and lets it go with the session', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const secret = new URL(http.url('/hooks/x')).pathname.split('/')[2]
     const filesOf = (dir: string): string[] => readdirSync(dir, { withFileTypes: true, recursive: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name))
+    // A router of its own: on the shared one the hooks are the first manager's.
+    const http = recording(await startHttp())
     try {
-      const made = new Sessions({ http, debug: true, adapter: claudeAdapter(`node ${FAKE}`), contextFor: () => ({ text: 'Build ok.', sentMarkIds: [] }), systemPromptFor: () => 'You are in torno.', mcpUrlFor: (id) => http.url(`/mcp/${id}`) })
+      const made = new Sessions({ configDir, http, debug: true, adapter: claudeAdapter(`node ${FAKE}`), contextFor: () => ({ text: 'Build ok.', sentMarkIds: [] }), systemPromptFor: () => 'You are in torno.', mcpUrlFor: (id) => http.url(`/mcp/${id}`) })
       others.push(made)
       let all = ''
       made.on('data', (m) => (all += m.data))
       const obj = object('secret')
       const { sessionId } = await made.start(obj, {})
       await expect.poll(() => all).toContain('READY')
-      // The agent has it: in the address of the MCP server, and in that of every hook it is given.
+      const token = tokenOf(sessionId)
+      expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      // Its arguments, which `ps` shows every user, name the addresses and hold no token.
       const args: string[] = JSON.parse(/READY (\[.*\])/s.exec(all.replace(/\r?\n/g, ''))![1])
-      const mcp = JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.torno.url
-      expect(mcp).toBe(`http://127.0.0.1:${http.port}/mcp/${secret}/${obj.id}`)
-      expect(JSON.parse(args[args.indexOf('--settings') + 1]).hooks.Stop[0].hooks[0].url).toBe(`http://127.0.0.1:${http.port}/hooks/${secret}/${sessionId}/Stop`)
-      // Nothing torno wrote in the object holds it.
-      const files = filesOf(obj.dir)
-      for (const file of files) expect([file, readFileSync(file, 'utf8').includes(secret)]).toEqual([file, false])
-      // What is logged of the start names the arguments, with the secret taken out.
+      for (const arg of args) expect(arg).not.toContain(token)
+      const mcpFile = args[args.indexOf('--mcp-config') + 1]
+      expect(mcpFile).toBe(join(configDir, `${sessionId}.mcp.json`))
+      const mcp = JSON.parse(readFileSync(mcpFile, 'utf8')).mcpServers.torno
+      expect(mcp).toEqual({ type: 'http', url: `http://127.0.0.1:${http.port}/mcp/${obj.id}`, headers: { [SESSION_HEADER]: '${TORNO_SESSION}' } })
+      const hook = JSON.parse(args[args.indexOf('--settings') + 1]).hooks.Stop[0].hooks[0]
+      expect(hook).toMatchObject({ url: `http://127.0.0.1:${http.port}/hooks/${sessionId}/Stop`, headers: { [SESSION_HEADER]: '$TORNO_SESSION' }, allowedEnvVars: ['TORNO_SESSION'] })
+      // Its environment has it: the stand-in puts it in the header from there, as Claude Code does, and is let in.
+      made.write(sessionId, 'hook Stop\r')
+      await expect.poll(() => all).toContain('Stop: ok')
+      // Nothing torno wrote holds it: no file of the object, not the file of the MCP server.
+      for (const file of [...filesOf(obj.dir), ...filesOf(configDir)]) expect([file, readFileSync(file, 'utf8').includes(token)]).toEqual([file, false])
+      // What is logged of the start names the arguments, and none holds the token.
       const lines = logged.mock.calls.map((call) => call.join(' '))
-      expect(lines.some((line) => line.includes(`session ${sessionId}`) && line.includes('/mcp/<secret>/'))).toBe(true)
-      for (const line of lines) expect(line).not.toContain(secret)
+      expect(lines.some((line) => line.includes(`session ${sessionId}`) && line.includes('--mcp-config'))).toBe(true)
+      for (const line of lines) expect(line).not.toContain(token)
+      // Gone with the session: the token opens nothing, and the file is removed.
+      await made.stop(sessionId)
+      expect((await fetch(http.url(`/hooks/${sessionId}/Stop`), { method: 'POST', body: '{}', headers: as(sessionId) })).status).toBe(404)
+      expect(existsSync(mcpFile)).toBe(false)
     } finally {
       logged.mockRestore()
+      await http.close()
+    }
+  })
+
+  it("sends the agent's tools the token from its environment, and nothing to an agent that did not expand it", async () => {
+    const own = recording(await startHttp())
+    const heard: Array<string | undefined> = []
+    // Stands in for torno's MCP server: what a request carries is the router's to check, and it gets here only with the token.
+    own.route('/mcp', async (req, res, rest) => {
+      const body = JSON.parse(await readBody(req, 1024 * 1024)) as { id?: number; method: string }
+      heard.push(rest[0])
+      const result = body.method === 'tools/call' ? { content: [{ type: 'text', text: `served ${rest[0]}` }] } : { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'torno', version: '0' } }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id ?? null, result }))
+    })
+    const made = new Sessions({ configDir, http: own, adapter: claudeAdapter(`node ${FAKE}`), viewFor: () => 'chat', contextFor: () => ({ text: '', sentMarkIds: [] }), systemPromptFor: () => '', mcpUrlFor: (id) => own.url(`/mcp/${id}`) })
+    let results: StreamMessage[] = []
+    made.on('stream', (m) => m.message.type === 'user' && results.push(m.message))
+    const toolText = (): string => JSON.stringify(results)
+    try {
+      const { sessionId } = await made.start(object('tooled'), {})
+      void made.send(sessionId, { text: 'tool mcp__torno__scene {}' })
+      await expect.poll(toolText).toContain('served tooled')
+      expect(heard).toEqual(['tooled', 'tooled'])
+      await made.stopAll()
+      // A CLI that sent the placeholder as it is written gets 404: no tool of torno's answers it.
+      process.env.FAKE_AGENT_NO_EXPAND = '1'
+      results = []
+      heard.length = 0
+      const second = await made.start(object('tooled'), {})
+      void made.send(second.sessionId, { text: 'tool mcp__torno__scene {}' })
+      await expect.poll(toolText).toContain('not found')
+      expect(heard).toEqual([])
+    } finally {
+      delete process.env.FAKE_AGENT_NO_EXPAND
+      await made.stopAll()
+      await own.close()
     }
   })
 })
@@ -793,8 +882,9 @@ describe('a chat session', () => {
   const chatDelivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
 
   beforeAll(async () => {
-    chatHttp = await startHttp()
+    chatHttp = recording(await startHttp())
     chatSessions = new Sessions({
+      configDir,
       http: chatHttp,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
@@ -1143,8 +1233,9 @@ describe('the transcript of a chat session', () => {
   const givenUp: string[] = []
 
   beforeAll(async () => {
-    tHttp = await startHttp()
+    tHttp = recording(await startHttp())
     tSessions = new Sessions({
+      configDir,
       http: tHttp,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
@@ -1272,8 +1363,9 @@ describe('the transcript of a chat session', () => {
 
   it('writes each item to the conversation\'s file when it is final, with no picture data and no address', async () => {
     const c = await start()
-    const secret = new URL(tHttp.url('/x')).pathname.split('/')[2]
-    await c.send(`tool Bash {"command":"echo ${tHttp.url('/mcp/obj')}"}\nsay logged`)
+    // What a tool's input or output might hold of the session's environment.
+    const secret = tokenOf(c.id)
+    await c.send(`tool Bash {"command":"echo ${secret}"}\nsay logged`)
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
     await tSessions.stop(c.id)
     const [file] = c.logFile()
@@ -1692,9 +1784,10 @@ describe('what Claude Code says of itself', () => {
   const prompts: string[] = []
 
   beforeAll(async () => {
-    ownHttp = await startHttp()
+    ownHttp = recording(await startHttp())
     // Given a folder for torno's plugin, as the app is: its skills are expected in the `init`.
     own = new Sessions({
+      configDir,
       http: ownHttp,
       adapter: claudeAdapter(`node ${FAKE}`, '/fake/agent-plugin'),
       viewFor: () => 'chat',
@@ -1800,8 +1893,9 @@ describe('the question before a chat in a folder with settings of its own', () =
   const trust = () => new Trust(null, root)
 
   beforeAll(async () => {
-    tHttp = await startHttp()
+    tHttp = recording(await startHttp())
     trustSessions = new Sessions({
+      configDir,
       http: tHttp,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
@@ -1841,6 +1935,7 @@ describe('the question before a chat in a folder with settings of its own', () =
 
   it('asks nothing for the terminal, which has Claude Code\'s own question', async () => {
     const terminal = new Sessions({
+      configDir,
       http: tHttp,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'terminal',
@@ -1879,9 +1974,10 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
   }
   async function begun(opts: { wait?: number; grace?: number; context?: (id: string) => PromptContext } = {}) {
     states = new Map()
-    own = await startHttp()
+    own = recording(await startHttp())
     const server = own
     made = new Sessions({
+      configDir,
       http: server,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'terminal',
@@ -1901,7 +1997,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     made.on('status', (m) => seen.push(m.status))
     const { sessionId } = await made.start(obj, {})
     await expect.poll(() => all).toContain('READY')
-    const post = async (event: string, body: unknown) => (await fetch(server.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) })).json()
+    const post = async (event: string, body: unknown) => (await fetch(server.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body), headers: as(sessionId) })).json()
     const edit = (file = join(obj.dir, 'part.py'), tool = 'Edit') => post('PostToolUse', { tool_name: tool, tool_use_id: 'toolu_1', tool_input: { file_path: file } })
     return { obj, sessionId, post, edit, seen }
   }

@@ -8,6 +8,7 @@ import type { TornoState } from '../src/renderer/state/store'
 import { contrast } from '../src/shared/contrast'
 import { png } from '../src/test/pngFixtures'
 import { grid, stl } from '../src/test/scanFixtures'
+import { SESSION_HEADER } from '../src/main/http'
 
 // Light and dark. In each theme the window is held to the contrasts its tokens promise, as it computes them,
 // and pictures are made for someone to look at: of the parts, as the agent gets them, and of the window.
@@ -21,7 +22,7 @@ const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
 const out = resolve(appDir, 'e2e/.results/themes')
 
 type Theme = 'light' | 'dark'
-type Main = { mcpUrlFor(id: string): string; pickFile: string | null }
+type Main = { mcpFor(id: string): { url: string; token: string }; pickFile: string | null }
 const temp = (name: string): string => mkdtempSync(join(realpathSync(tmpdir()), `torno-e2e-themes-${name}-`))
 
 const CAMERA = { position: [120, -90, 60], target: [0, 0, 6], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
@@ -66,9 +67,9 @@ async function open(page: Page, id: string, status = 'ok'): Promise<void> {
 }
 
 async function agent(app: ElectronApplication, id: string): Promise<Client> {
-  const url = await app.evaluate((_electron, object) => (globalThis as unknown as { __tornoMain: Main }).__tornoMain.mcpUrlFor(object), id)
+  const { url, token } = await app.evaluate((_electron, object) => (globalThis as unknown as { __tornoMain: Main }).__tornoMain.mcpFor(object), id)
   const client = new Client({ name: 'torno-e2e', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)))
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
   return client
 }
 

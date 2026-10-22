@@ -11,8 +11,19 @@ const ctx = {
   cwd: '/ws/bracket',
   mcpUrl: 'http://127.0.0.1:4100/mcp/bracket',
   hookUrl: (event: string) => `http://127.0.0.1:4100/hooks/s1/${event}`,
+  token: 'kQ2v7xT0pZ_session-token-of-forty-three-ch',
+  configDir: '/home/p/.config/torno/agent',
   systemPrompt: 'You are in torno.'
 }
+
+/** The http hook of an event, as torno registers it: the token comes from the environment, named in `allowedEnvVars`. */
+const hookOf = (url: string, event: string) => ({
+  type: 'http',
+  url,
+  timeout: event === 'PostToolUse' ? 60 : 5,
+  headers: { 'X-Torno-Session': '$TORNO_SESSION' },
+  allowedEnvVars: ['TORNO_SESSION']
+})
 
 /** The value that follows a flag in an argument list. */
 function after(args: string[], flag: string): string {
@@ -39,9 +50,26 @@ describe('the Claude Code adapter', () => {
     expect(launch.args).not.toContain('--strict-mcp-config')
   })
 
-  it("names torno's MCP server by its URL", () => {
-    const config = JSON.parse(after(claudeAdapter().launch(ctx).args, '--mcp-config'))
-    expect(config).toEqual({ mcpServers: { torno: { type: 'http', url: ctx.mcpUrl } } })
+  it("names torno's MCP server in a file of torno's own, by its URL, with the placeholder of the token and not the token", () => {
+    const launch = claudeAdapter().launch(ctx)
+    const path = after(launch.args, '--mcp-config')
+    expect(path).toBe('/home/p/.config/torno/agent/s1.mcp.json')
+    expect(launch.files.map((file) => file.path)).toEqual([path])
+    const text = launch.files[0].text
+    expect(JSON.parse(text)).toEqual({ mcpServers: { torno: { type: 'http', url: ctx.mcpUrl, headers: { 'X-Torno-Session': '${TORNO_SESSION}' } } } })
+    expect(text).not.toContain(ctx.token)
+  })
+
+  // #113: whatever is on a command line every user of the machine can read (`/proc/<pid>/cmdline`, `ps`).
+  it("never puts the session's token on its command line: it is in its environment alone, as TORNO_SESSION", () => {
+    for (const view of ['terminal', 'chat'] as const) {
+      for (const resume of [false, true]) {
+        const launch = claudeAdapter('node /abs/fake-agent.mjs', '/p').launch({ ...ctx, view, resume })
+        for (const arg of [launch.command, ...launch.args]) expect(arg).not.toContain(ctx.token)
+        for (const file of launch.files) expect(file.text).not.toContain(ctx.token)
+        expect(launch.env).toEqual({ TORNO_SESSION: ctx.token })
+      }
+    }
   })
 
   it('registers an http hook for each event it follows, and no other', () => {
@@ -50,9 +78,7 @@ describe('the Claude Code adapter', () => {
     expect(Object.keys(settings)).toEqual(['hooks'])
     expect(Object.keys(settings.hooks)).toEqual(HOOK_EVENTS)
     for (const event of HOOK_EVENTS) {
-      expect(settings.hooks[event]).toEqual([
-        { hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: event === 'PostToolUse' ? 60 : 5 }] }
-      ])
+      expect(settings.hooks[event]).toEqual([{ hooks: [hookOf(`http://127.0.0.1:4100/hooks/s1/${event}`, event)] }])
     }
   })
 
@@ -75,19 +101,20 @@ describe('the Claude Code adapter', () => {
       '--session-id',
       ctx.conversationId,
       '--mcp-config',
-      '{"mcpServers":{"torno":{"type":"http","url":"http://127.0.0.1:4100/mcp/lid%202"}}}',
+      // Since #113 a file of torno's: what it holds is above.
+      '/home/p/.config/torno/agent/s1.mcp.json',
       '--allowedTools',
       'mcp__torno__*',
       '--settings',
-      JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: 'http', url: `http://127.0.0.1:4100/hooks/s1/${event}`, timeout: event === 'PostToolUse' ? 60 : 5 }] }]])) }),
+      JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, [{ hooks: [hookOf(`http://127.0.0.1:4100/hooks/s1/${event}`, event)] }]])) }),
       // Added since (#6): the reviewer subagent.
       '--agents',
       JSON.stringify(reviewerAgents((tool) => `mcp__torno__${tool}`)),
       '--append-system-prompt',
       'You are in torno. Mind the "quotes" and $HOME.'
     ])
-    // It adds nothing to the environment: everything is on its command line.
-    expect(launch.env).toEqual({})
+    // It adds the token to the environment, and nothing else.
+    expect(launch.env).toEqual({ TORNO_SESSION: ctx.token })
   })
 
   it('is the terminal one plus the flags of the headless mode in chat, `-p` first after what the command brings', () => {

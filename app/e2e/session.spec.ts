@@ -83,7 +83,10 @@ test('a new session runs the agent in a terminal, and what is typed reaches it',
   // Started in the object's folder, with Claude Code's arguments.
   expect(agentsIn(join(root, 'bracket'))).toHaveLength(1)
   for (const flag of ['--session-id', '--mcp-config', '--allowedTools', '--settings']) expect(await text()).toContain(flag)
-  expect((await text()).replace(/\s+/g, '')).toMatch(/http:\/\/127\.0\.0\.1:\d+\/mcp\/[A-Za-z0-9_-]{43}\/bracket/)
+  // Its hooks' addresses hold no secret: the token is in its environment, named in each hook's headers (#113).
+  const said = (await text()).replace(/\s+/g, '')
+  expect(said).toMatch(/http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f-]{36}\/Stop/)
+  expect(said).toContain('"X-Torno-Session\\":\\"$TORNO_SESSION\\"')
 
   // The terminal has the focus from the start.
   await page.keyboard.type('hi')
@@ -185,6 +188,12 @@ test('Ctrl+` goes between the session and the viewport; keys typed in the termin
   expect(await text()).not.toContain('`')
 })
 
+/** The address of torno's MCP server the session shown was given: in the file its `--mcp-config` names. */
+async function mcpAddress(): Promise<string> {
+  const file = /"--mcp-config","([^"]+\.mcp\.json)"/.exec((await text()).replace(/\s+/g, ''))![1]
+  return JSON.parse(readFileSync(file, 'utf8')).mcpServers.torno.url
+}
+
 test('each object has its own session, kept while another is shown', async () => {
   await openObject('plain')
   await expect(dock().getByRole('button', { name: 'New session' })).toBeVisible()
@@ -192,14 +201,14 @@ test('each object has its own session, kept while another is shown', async () =>
   expect(await text()).toBe('')
   await dock().getByRole('button', { name: 'New session' }).click()
   await expect.poll(text).toContain('READY')
-  // The address it was given ends in its object, after the secret of the run.
-  expect((await text()).replace(/\s+/g, '')).toMatch(/\/mcp\/[A-Za-z0-9_-]{43}\/plain(?![\w/-])/)
+  // The address it was given, in the file its `--mcp-config` names, ends in its object.
+  expect(await mcpAddress()).toMatch(/\/mcp\/plain$/)
   expect(await text()).not.toContain('> hi')
 
   await openObject('bracket')
   await expect(sessionStatus()).toHaveText('Idle')
   expect(await text()).toContain('> hi')
-  expect((await text()).replace(/\s+/g, '')).toMatch(/\/mcp\/[A-Za-z0-9_-]{43}\/bracket(?![\w/-])/)
+  expect(await mcpAddress()).toMatch(/\/mcp\/bracket$/)
   await typeLine('still here')
   await expect.poll(text).toContain('> still here')
   expect(agentsIn(join(root, 'bracket'))).toHaveLength(1)

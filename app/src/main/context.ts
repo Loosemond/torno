@@ -77,7 +77,7 @@ export interface ContextDeps {
   /** The files of the object's `reference/` (`photo-1.jpg`), photos then doodles: told to a new conversation. None when it has none or cannot be read. */
   references?(objectId: string): string[]
   now?(): number
-  /** Takes out of text that is not torno's own what must not be told or logged (the run's secret): applied to what the model printed. */
+  /** Takes out of text that is not torno's own what must not be told or logged (the tokens of the sessions): applied to what the model printed. */
   redact?(text: string): string
 }
 

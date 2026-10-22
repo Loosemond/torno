@@ -69,24 +69,47 @@
 // 2.1.300. With FAKE_AGENT_INIT=<json object> in stream mode its fields replace these, so a case is played:
 // `{"plugins":[]}` (torno's plugin did not load), `{"apiKeySource":"user"}`, `{"claude_code_version":"2.2.0"}`,
 // `{"mcp_servers":[{"name":"torno","status":"failed"}],"mcp_server_errors":[...]}`, `{"plugin_errors":[...]}`.
+// Its requests carry headers as Claude Code's do: `--mcp-config` is a file path or a JSON text, whose `headers` have
+// `${VAR}` and `${VAR:-default}` expanded from its environment (one unset with no default is sent as written); an http
+// hook's `headers` have `$VAR` and `${VAR}` interpolated only for names in that hook's `allowedEnvVars`, any other
+// read as empty. With FAKE_AGENT_NO_EXPAND=1 it sends the MCP headers as written, as a CLI that expands nothing would.
 // With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
 // (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const argv = process.argv.slice(2)
 const after = (flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined)
-const settings = JSON.parse(after('--settings') ?? '{}')
+/** A flag's JSON, given as a text or as the path of a file that holds it, as the CLI takes `--settings` and `--mcp-config`. */
+const jsonOf = (value) => (value === undefined ? {} : JSON.parse(value.trimStart().startsWith('{') ? value : readFileSync(value, 'utf8')))
+const settings = jsonOf(after('--settings'))
 const conversation = after('--session-id') ?? after('--resume') ?? ''
+
+/** torno's MCP server, its `${VAR}` expanded in `headers` as a `.mcp.json`'s are. */
+const tornoServer = (() => {
+  const server = jsonOf(after('--mcp-config')).mcpServers?.torno
+  if (!server) return undefined
+  const expand = (text) => text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (whole, name, fallback) => process.env[name] ?? fallback ?? whole)
+  const headers = Object.fromEntries(Object.entries(server.headers ?? {}).map(([key, value]) => [key, process.env.FAKE_AGENT_NO_EXPAND === '1' ? value : expand(value)]))
+  return { url: server.url, headers }
+})()
+
+/** An http hook's headers: `$VAR` and `${VAR}` interpolated for the names in its `allowedEnvVars`, any other empty. */
+function hookHeaders(handler) {
+  const allowed = new Set(handler?.allowedEnvVars ?? [])
+  const value = (name) => (allowed.has(name) ? (process.env[name] ?? '') : '')
+  return Object.fromEntries(Object.entries(handler?.headers ?? {}).map(([key, text]) => [key, text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, braced, bare) => value(braced ?? bare))]))
+}
 
 if (process.env.FAKE_AGENT_STUBBORN === '1') process.on('SIGHUP', () => {})
 
 async function hook(event, sessionId) {
-  const url = settings.hooks?.[event]?.[0]?.hooks?.[0]?.url
-  if (!url) return console.log(`no ${event} hook`)
+  const handler = settings.hooks?.[event]?.[0]?.hooks?.[0]
+  if (!handler?.url) return console.log(`no ${event} hook`)
   const body = { session_id: sessionId, cwd: process.cwd(), hook_event_name: event }
   if (event === 'UserPromptSubmit') body.prompt = 'hello'
-  const reply = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  const reply = await fetch(handler.url, { method: 'POST', headers: { ...hookHeaders(handler), 'content-type': 'application/json' }, body: JSON.stringify(body) })
   const answer = await reply.json().catch(() => ({}))
   if (!reply.ok) console.log(`${event}: HTTP ${reply.status}`)
   else if (event === 'UserPromptSubmit') console.log(`context: ${answer.hookSpecificOutput?.additionalContext ?? '(none)'}`)
@@ -147,10 +170,10 @@ async function streamMode() {
   const message = (content, id = next('msg')) => ({ type: 'assistant', message: { id, type: 'message', role: 'assistant', model, content }, ...base, uuid: next('uuid') })
 
   const post = async (event, extra = {}) => {
-    const url = settings.hooks?.[event]?.[0]?.hooks?.[0]?.url
-    if (!url) return undefined
+    const handler = settings.hooks?.[event]?.[0]?.hooks?.[0]
+    if (!handler?.url) return undefined
     const body = { session_id: conversation, cwd: process.cwd(), hook_event_name: event, ...extra }
-    const reply = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined)
+    const reply = await fetch(handler.url, { method: 'POST', headers: { ...hookHeaders(handler), 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined)
     return reply?.ok ? await reply.json().catch(() => undefined) : undefined
   }
 
@@ -173,10 +196,9 @@ async function streamMode() {
   }
 
   async function mcp(name, input) {
-    const url = JSON.parse(after('--mcp-config') ?? '{}').mcpServers?.torno?.url
-    if (!url) return { content: [{ type: 'text', text: 'no torno MCP server' }], isError: true }
+    if (!tornoServer?.url) return { content: [{ type: 'text', text: 'no torno MCP server' }], isError: true }
     const rpc = async (method, params, id) => {
-      const reply = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', method, params, ...(id ? { id } : {}) }) })
+      const reply = await fetch(tornoServer.url, { method: 'POST', headers: { ...tornoServer.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', method, params, ...(id ? { id } : {}) }) })
       const text = await reply.text()
       const data = text.startsWith('event:') || text.startsWith('data:') ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).at(-1) : text
       return data ? JSON.parse(data) : undefined

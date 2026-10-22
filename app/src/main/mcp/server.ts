@@ -8,8 +8,8 @@ const BODY_LIMIT = 4 * 1024 * 1024
 const VERSION = '0.1.0'
 
 /**
- * Serves `POST /mcp/<secret>/<objectId>` (the router takes the run's secret off the path, and answers 404
- * without it): the MCP server an agent working on that object
+ * Serves `POST /mcp/<objectId>` (the router lets a request through only with a token of that object in its
+ * `X-Torno-Session` header, its session's, and answers 404 otherwise): the MCP server an agent working on that object
  * is given, as Streamable HTTP without sessions. Each request gets a server and
  * a transport of its own, closed when its response is, so nothing is kept
  * between requests and any number of agents can ask at once.

@@ -31,6 +31,8 @@ function png(w: number, h: number): Uint8Array {
 }
 
 let root: string
+/** torno's own folder of the files an agent is given by path, outside the workspace. */
+let configDir: string
 let http: HttpRouter
 let sessions: Sessions
 let scans: ScanStore
@@ -39,6 +41,7 @@ const objects = new Map<string, ObjectInfo>()
 
 function make(command: string): Sessions {
   const made = new Sessions({
+    configDir,
     http,
     adapter: claudeAdapter(command),
     viewFor: () => 'chat',
@@ -90,6 +93,7 @@ beforeAll(async () => {
   mkdirSync(join(root, 'lid', '.torno'))
   writeFileSync(join(root, 'lid', '.torno', 'thumb.png'), png(480, 360))
   objects.set('lid', { id: 'lid', name: 'lid', dir: join(root, 'lid'), model: null })
+  configDir = mkdtempSync(join(realpathSync(tmpdir()), 'torno-agent-config-'))
   http = await startHttp()
   sessions = make(`node ${FAKE}`)
   const importer = processImporter((args) => scanCommand({ workspaceRoot: root, hasProject: false, kernelDir: KERNEL_DIR }, args), root)
@@ -104,6 +108,7 @@ afterEach(async () => {
 afterAll(async () => {
   await http.close()
   rmSync(root, { recursive: true, force: true })
+  rmSync(configDir, { recursive: true, force: true })
 })
 
 const userItem = (s: Sessions, id: string): Extract<ChatItem, { kind: 'user' }> =>

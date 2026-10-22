@@ -1,11 +1,13 @@
 import type { AgentView } from '../../shared/bridge'
 
-/** What to run for a session: the command, its arguments, and variables to add to its environment. */
+/** What to run for a session: the command, its arguments, variables to add to its environment, and files of torno's it is given by path. */
 export interface AgentLaunch {
   command: string
-  /** One string each, as the process gets them: never a line for a shell to split. */
+  /** One string each, as the process gets them: never a line for a shell to split. Never the token. */
   args: string[]
   env: Record<string, string>
+  /** Written before the agent starts and removed when it ends, each under `LaunchContext.configDir`. None holds a secret. */
+  files: Array<{ path: string; text: string }>
 }
 
 export interface LaunchContext {
@@ -19,6 +21,13 @@ export interface LaunchContext {
   /** torno's MCP server, for this object alone. */
   mcpUrl: string
   hookUrl: (event: string) => string
+  /**
+   * The session's token, which every request to `mcpUrl` and `hookUrl` carries in the header `X-Torno-Session`. Only
+   * ever in the agent's environment: a command line is readable by every user of the machine.
+   */
+  token: string
+  /** A folder of torno's own, never in a workspace, for the files the agent is given by path (`AgentLaunch.files`). */
+  configDir: string
   /** What to add to the agent's system prompt; '' or absent for nothing. */
   systemPrompt?: string
   /** False: leave out the skills the adapter would give (a session started on the full prompt, since they did not load). Absent: as the adapter is. */
@@ -28,9 +37,10 @@ export interface LaunchContext {
 /**
  * How the agent CLI is started so that it knows torno: where torno's MCP
  * server is, where to post its hooks, and what it is told of torno.
- * Everything goes on its command line or in its environment: nothing of the
- * person's configuration of that agent is read or changed. Claude Code
- * (./claude.ts) is the one there is.
+ * Everything goes on its command line, in its environment, or in a config file
+ * of torno's that holds no secret; the session's token is in the environment
+ * alone. Nothing of the person's configuration of that agent is read or
+ * changed. Claude Code (./claude.ts) is the one there is.
  */
 export interface AgentAdapter {
   /** The command looked for on PATH. */

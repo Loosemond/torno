@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
+import { SESSION_HEADER } from '../src/main/http'
 
 // The model's groups of parts (groups(p)) in the layers list: a header each, which folds, hides or shows its
 // parts, or shows only them; the fold is kept in scene.json. A model without groups draws the list as before.
@@ -101,9 +102,9 @@ test('drawn apart, a group moves as one body', async () => {
 })
 
 test("the agent's tools take a group's name for its parts, against the real kernel", async () => {
-  const url = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpUrlFor(id: string): string } }).__tornoMain.mcpUrlFor(id), 'grouped')
+  const { url, token } = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(id), 'grouped')
   const client = new Client({ name: 'torno-e2e', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)))
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
   try {
     const text = async (name: string, args: Record<string, unknown>): Promise<string> => {
       const result = (await client.callTool({ name, arguments: args })) as { content: Array<{ type: string; text?: string }> }

@@ -12,7 +12,7 @@ import { type ScanAlignment, maskFile, parseScanMesh } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
 import { TriangleSet, gatherSphere } from '../../renderer/viewport/scanPaint'
 import { grid, meshBin, stl } from '../../test/scanFixtures'
-import { type HttpRouter, startHttp } from '../http'
+import { type HttpRouter, SESSION_HEADER, startHttp } from '../http'
 import { type RunningKernel, startKernel } from '../kernel/client'
 import { addRegion, meshesOf, repaintRegion } from '../marks/regions'
 import { MarkStore } from '../marks/store'
@@ -124,7 +124,9 @@ beforeAll(async () => {
   http = await startHttp()
   mountMcp(http, deps)
   client = new Client({ name: 'torno-test', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(http.url('/mcp/hollow'))))
+  // With a token for the object, as the session of an agent working on it has.
+  const headers = { [SESSION_HEADER]: http.grant(['/mcp/hollow']) }
+  await client.connect(new StreamableHTTPClientTransport(new URL(http.url('/mcp/hollow')), { requestInit: { headers } }))
 
   // One dab of a 3 mm brush on the sheet, off its middle, kept as the window would have it kept.
   painted = await brush([-5, -5, 1], 3)

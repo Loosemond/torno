@@ -10,6 +10,7 @@ import type { TornoState } from '../src/renderer/state/store'
 import type { PinMark } from '../src/shared/marks'
 import type { Camera } from '../src/shared/view'
 import { grid, stl } from '../src/test/scanFixtures'
+import { SESSION_HEADER } from '../src/main/http'
 
 // What the agent is given, through the real path: the SDK's MCP client in this
 // process against the app's own server, answered by the window's renderer. The
@@ -72,14 +73,16 @@ async function checked(objectId: string, before: { finished: number }): Promise<
 }
 const terminal = (): Promise<string> => page.evaluate(() => window.__tornoTerm!.text())
 
-/** The address an agent working on that object is given. */
-function mcpUrl(objectId: string): Promise<string> {
-  return app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpUrlFor(id: string): string } }).__tornoMain.mcpUrlFor(id), objectId)
+/** The address an agent working on that object is given, and a token that opens it, as its session has. */
+function mcpFor(objectId: string): Promise<{ url: string; token: string }> {
+  return app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(id), objectId)
 }
+const mcpUrl = async (objectId: string): Promise<string> => (await mcpFor(objectId)).url
 
 async function connect(objectId: string): Promise<Client> {
   const client = new Client({ name: 'torno-e2e', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(await mcpUrl(objectId))))
+  const { url, token } = await mcpFor(objectId)
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
   clients.push(client)
   return client
 }
@@ -228,7 +231,7 @@ test('the agent is told of torno in its system prompt, and of the build with eve
   const prompt = argv[argv.indexOf('--append-system-prompt') + 1]
   expect(argv).toContain('--append-system-prompt')
   expect(prompt).toContain('mcp__torno__look')
-  expect(argv[argv.indexOf('--mcp-config') + 1]).toContain(await mcpUrl('bracket'))
+  expect(JSON.parse(readFileSync(argv[argv.indexOf('--mcp-config') + 1], 'utf8')).mcpServers.torno.url).toBe(await mcpUrl('bracket'))
 
   await page.locator('.session-term textarea').focus()
   await page.keyboard.type('hook')
@@ -239,29 +242,49 @@ test('the agent is told of torno in its system prompt, and of the build with eve
   for (const tool of ['marks', 'describe', 'highlight', 'show', 'add_mark', 'resolve_mark']) expect(prompt).toContain(`mcp__torno__${tool}`)
 })
 
-// Final review M15: the port can be found by any process of this machine; the secret in the address cannot.
-test('the address the agent is given has a secret of the run, which is in no file of the workspace; without it there is nothing', async () => {
-  const url = new URL(await mcpUrl('bracket'))
-  const [, mcp, secret, object] = url.pathname.split('/')
-  expect([mcp, object]).toEqual(['mcp', 'bracket'])
-  expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/)
-  // The stand-in was given it for its hooks too, and has just posted one with it.
-  const hook = new RegExp(`http://127\\.0\\.0\\.1:${url.port}/hooks/${secret}/[0-9a-f-]{36}/UserPromptSubmit`).exec(await said())?.[0]
-  expect(hook).toBeDefined()
+// #113: the port can be found by any process of this machine, and the agent's command line read by any user; its
+// environment, which holds the session's token, by none but the person.
+test('the agent is given its token in its environment and only a placeholder in its arguments; without the token there is nothing', async () => {
+  // The READY line, now followed by what the session printed since: the shortest list from it that is JSON.
+  const shown = (await terminal()).replace(/\n/g, '')
+  const from = shown.indexOf('READY [') + 'READY '.length
+  let argv: string[] = []
+  for (let end = shown.indexOf(']', from); end >= 0 && argv.length === 0; end = shown.indexOf(']', end + 1)) {
+    try {
+      argv = JSON.parse(shown.slice(from, end + 1))
+    } catch {
+      // Not the end of the list yet.
+    }
+  }
+  const file = argv[argv.indexOf('--mcp-config') + 1]
+  // A file of torno's own, not of the workspace, which holds the placeholder.
+  expect(file.startsWith(root)).toBe(false)
+  const server = JSON.parse(readFileSync(file, 'utf8')).mcpServers.torno
+  expect(server).toEqual({ type: 'http', url: await mcpUrl('bracket'), headers: { [SESSION_HEADER]: '${TORNO_SESSION}' } })
+  const hook = JSON.parse(argv[argv.indexOf('--settings') + 1]).hooks.Stop[0].hooks[0]
+  expect(hook).toMatchObject({ headers: { [SESSION_HEADER]: '$TORNO_SESSION' }, allowedEnvVars: ['TORNO_SESSION'] })
+  const url = new URL(server.url)
+  expect(url.pathname).toBe('/mcp/bracket')
 
-  // By now the workspace has every file a session and a build leave: the state file, the scene, the marks.
-  await expect.poll(() => existsSync(stateFile())).toBe(true)
-  const files = readdirSync(root, { withFileTypes: true, recursive: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name))
-  expect(files.length).toBeGreaterThan(10)
-  for (const file of files) expect([file, readFileSync(file).includes(secret)]).toEqual([file, false])
+  // The stand-in takes the token from its environment, as Claude Code does, and is let in (a SessionEnd moves nothing).
+  await page.locator('.session-term textarea').focus()
+  await page.keyboard.type('hook SessionEnd')
+  await page.keyboard.press('Enter')
+  await expect.poll(said).toContain('SessionEnd:ok')
 
   const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
   const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }
-  for (const path of ['/mcp/bracket', `/mcp/${'A'.repeat(43)}/bracket`, `/hooks/${hook!.split('/').slice(-2).join('/')}`]) {
-    const reply = await fetch(`${url.origin}${path}`, { method: 'POST', headers, body })
-    expect([path, reply.status]).toEqual([path, 404])
+  for (const address of [server.url, hook.url]) {
+    const refused: Array<Record<string, string>> = [{}, { [SESSION_HEADER]: '' }, { [SESSION_HEADER]: '${TORNO_SESSION}' }, { [SESSION_HEADER]: '$TORNO_SESSION' }, { [SESSION_HEADER]: 'A'.repeat(43) }]
+    for (const sent of refused) {
+      const reply = await fetch(address, { method: 'POST', headers: { ...headers, ...sent }, body })
+      expect([address, sent, reply.status]).toEqual([address, sent, 404])
+    }
   }
-  expect((await fetch(url, { method: 'POST', headers, body })).status).toBe(200)
+  const { token } = await mcpFor('bracket')
+  expect((await fetch(url, { method: 'POST', headers: { ...headers, [SESSION_HEADER]: token }, body })).status).toBe(200)
+  // A token of one object opens no other.
+  expect((await fetch(await mcpUrl('pocket'), { method: 'POST', headers: { ...headers, [SESSION_HEADER]: token }, body })).status).toBe(404)
 })
 
 // ---- Marks and the window, from the agent's side ----

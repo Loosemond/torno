@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Mark, Vec3 } from '../src/shared/marks'
+import { SESSION_HEADER } from '../src/main/http'
 
 // Explode, through the window and through the agent's tools: the parts are drawn apart, and nothing that is
 // picked, kept, measured or told is of a part as it is drawn apart. The agent in the session pane is the stand-in.
@@ -38,9 +39,9 @@ test.beforeAll(async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   await page.getByRole('button', { name: 'hollow', exact: true }).click()
   await expect.poll(async () => (await state()).build?.status, { timeout: 30_000 }).toBe('ok')
-  const url = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpUrlFor(id: string): string } }).__tornoMain.mcpUrlFor(id), 'hollow')
+  const { url, token } = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(id), 'hollow')
   client = new Client({ name: 'torno-e2e', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)))
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
 })
 
 test.afterAll(async () => {

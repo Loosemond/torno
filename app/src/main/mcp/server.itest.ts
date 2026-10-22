@@ -5,7 +5,7 @@ import type { Mark, NewMark } from '../../shared/marks'
 import type { Part } from '../../shared/scene'
 import type { LookRequest, SaveViewRequest, ShowRequest, ViewState } from '../../shared/view'
 import type { SavedView } from '../../shared/views'
-import { type HttpRouter, startHttp } from '../http'
+import { type HttpRouter, SESSION_HEADER, startHttp } from '../http'
 import { mountMcp } from './server'
 import type { ToolDeps } from './tools'
 
@@ -87,9 +87,12 @@ const deps: ToolDeps = {
   saveView: async (objectId, req) => (savedViews.push(req), { objectId, revision: 2, replaced: false, view: { ...SIDE, name: req.name, author: 'agent', proposed: true } })
 }
 
+/** The header of a request for an object's tools: a token for that object, as the session of an agent working on it has. */
+const tokenFor = (objectId: string): Record<string, string> => ({ [SESSION_HEADER]: http.grant([`/mcp/${encodeURIComponent(objectId)}`]) })
+
 async function connect(objectId: string): Promise<Client> {
   const client = new Client({ name: 'torno-test', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(http.url(`/mcp/${encodeURIComponent(objectId)}`))))
+  await client.connect(new StreamableHTTPClientTransport(new URL(http.url(`/mcp/${encodeURIComponent(objectId)}`)), { requestInit: { headers: tokenFor(objectId) } }))
   clients.push(client)
   return client
 }
@@ -439,32 +442,37 @@ describe('the MCP server', () => {
 
   it('answers GET and DELETE with 405', async () => {
     for (const method of ['GET', 'DELETE']) {
-      const reply = await fetch(http.url('/mcp/bracket'), { method, headers: { accept: 'text/event-stream' } })
+      const reply = await fetch(http.url('/mcp/bracket'), { method, headers: { accept: 'text/event-stream', ...tokenFor('bracket') } })
       expect(reply.status).toBe(405)
       expect(reply.headers.get('allow')).toBe('POST')
       expect(await reply.json()).toMatchObject({ jsonrpc: '2.0', error: { message: expect.stringContaining('POST only') } })
     }
   })
 
-  it('answers a body that is not JSON with 400, and an address without an object with 404', async () => {
-    const bad = await fetch(http.url('/mcp/bracket'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' })
+  it('answers a body that is not JSON with 400, and an address that is not of one object with 404', async () => {
+    const bad = await fetch(http.url('/mcp/bracket'), { method: 'POST', headers: { 'content-type': 'application/json', ...tokenFor('bracket') }, body: '{' })
     expect(bad.status).toBe(400)
-    const nowhere = await fetch(http.url('/mcp'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    const below = await fetch(http.url('/mcp/bracket/more'), { method: 'POST', headers: { 'content-type': 'application/json', ...tokenFor('bracket') }, body: '{}' })
+    expect(below.status).toBe(404)
+    expect(await below.json()).toMatchObject({ jsonrpc: '2.0', error: { message: expect.stringContaining('ends in the id of an object') } })
+    // No token opens `/mcp` itself: it is nothing.
+    const nowhere = await fetch(http.url('/mcp'), { method: 'POST', headers: { 'content-type': 'application/json', ...tokenFor('bracket') }, body: '{}' })
     expect(nowhere.status).toBe(404)
-    expect(await nowhere.json()).toMatchObject({ jsonrpc: '2.0', error: { message: expect.stringContaining('ends in the id of an object') } })
   })
 
-  // Final review M15: the tools are for whoever was given the address, with the secret of the run in it.
-  it('answers 404 to an address without the secret of the run, and no tool is called', async () => {
+  // #113: the tools are for whoever has a token of that object, which only its session's agent has, in its environment.
+  it("answers 404 to a request without a token of the object it names, and no tool is called", async () => {
     const init = { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }
     const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }
-    const secret = new URL(http.url('/mcp/x')).pathname.split('/')[2]
-    for (const path of ['/mcp/bracket', `/mcp/${secret.split('').reverse().join('')}/bracket`, `/mcp/bracket/${secret}`]) {
-      const reply = await fetch(`http://127.0.0.1:${http.port}${path}`, { method: 'POST', headers, body: JSON.stringify(init) })
-      expect([path, reply.status, await reply.text()]).toEqual([path, 404, '{"error":"not found"}'])
+    const token = tokenFor('bracket')[SESSION_HEADER]
+    for (const sent of [{}, { [SESSION_HEADER]: '' }, { [SESSION_HEADER]: '${TORNO_SESSION}' }, { [SESSION_HEADER]: token.split('').reverse().join('') }, tokenFor('lid'), { authorization: `Bearer ${token}` }]) {
+      const reply = await fetch(http.url('/mcp/bracket'), { method: 'POST', headers: { ...headers, ...sent }, body: JSON.stringify(init) })
+      expect([sent, reply.status, await reply.text()]).toEqual([sent, 404, '{"error":"not found"}'])
     }
-    const fine = await fetch(http.url('/mcp/bracket'), { method: 'POST', headers, body: JSON.stringify(init) })
+    const fine = await fetch(http.url('/mcp/bracket'), { method: 'POST', headers: { ...headers, [SESSION_HEADER]: token }, body: JSON.stringify(init) })
     expect(fine.status).toBe(200)
+    http.revoke(token)
+    expect((await fetch(http.url('/mcp/bracket'), { method: 'POST', headers: { ...headers, [SESSION_HEADER]: token }, body: JSON.stringify(init) })).status).toBe(404)
   })
 
   it('serves an object id the workspace does not have, whose tools say so', async () => {

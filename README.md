@@ -430,9 +430,14 @@ and any other "Picture not kept".
 ### What Claude Code is given
 
 Torno runs Claude Code, and reads and changes nothing of its settings:
-everything it gives it is on the command line or in the environment.
+everything it gives it is on the command line, in the environment, or in a
+file of torno's own that holds no secret.
 
-- Torno's tools: `--mcp-config`, `--allowedTools mcp__torno__*`.
+- Torno's tools: `--mcp-config` (the path of a file under torno's own data
+  folder that names torno's MCP server), `--allowedTools mcp__torno__*`.
+- The session's token: `TORNO_SESSION` in the environment, which Claude Code
+  sends in the `X-Torno-Session` header of every request to torno. It is never
+  on the command line (see "Limits and exactness").
 - Torno's instructions: `--append-system-prompt`, and torno's skills with
   `--plugin-dir`.
 - Hooks: `--settings`; it posts them to torno, which follows its status by
@@ -547,8 +552,8 @@ torno has quit.
 
 ### Tools
 
-Torno's MCP server (on `127.0.0.1`, a port of its own choosing, at an address
-with a secret of the run in it) gives the
+Torno's MCP server (on `127.0.0.1`, a port of its own choosing, answering only
+requests that carry the token of the object's session) gives the
 agent of an object these tools for that object. They answer from the last
 build that worked, say which revision that is, and say so when a newer build
 is running or has failed. A tool given a key it does not take is refused,
@@ -1106,6 +1111,9 @@ Outside the workspace:
 
 - `~/.config/torno/` (on macOS `~/Library/Application Support/torno/`): `config.json` holds the workspace last opened and the
   folders opened lately (eight at most); the rest is Electron's own cache.
+- `~/.config/torno/agent/<session>.mcp.json` (on macOS under `~/Library/Application Support/torno/`): the file
+  `--mcp-config` names, which tells a session where torno's MCP server is. It holds the placeholder
+  `${TORNO_SESSION}`, never the token, and is removed when the session ends (and at the next start after a crash).
 - `~/Library/Application Support/torno/kernel-env` on macOS, for the packaged app only: the kernel's Python
   environment, made at the first build of a workspace with no `pyproject.toml`. Never inside `torno.app`.
 - The one file an export writes, at the path you choose.
@@ -1178,16 +1186,22 @@ ask (three integrals of every freeform face, to say how many digits agree);
 Both are then kept until the next build. A question the kernel has not answered within
 30 s is an error that says so.
 
-**The agent's tools are for whoever was given their address.** The MCP
-server and the address the agent's hooks post to listen on `127.0.0.1` alone,
-check that a request comes from no web page (`Origin`, `Host`), and have a
-secret in their address: 32 random bytes made anew each time torno starts,
-without which every request is answered 404. The secret is given to the agent
-in the arguments it is started with and nowhere else: torno does not log it
-and writes it to no file. That keeps out another user of this machine and any
-program that only finds the port. It does not keep out a program running as
-you that reads the command line of the agent's process: such a program can
-call `show`, `add_mark`, `resolve_mark` and `save_view` of an open object.
+**The agent's tools are for its session alone.** The MCP server and the
+address the agent's hooks post to listen on `127.0.0.1` alone, check that a
+request comes from no web page (`Origin`, `Host`), and answer 404 to any
+request without its session's token in the `X-Torno-Session` header: 32
+random bytes made when the session starts, which open that session's hooks
+and its object's tools, and nothing once the session has ended. The token is
+in the agent's environment (`TORNO_SESSION`) and nowhere else: not in the
+arguments it is started with, which every user of this machine can read (`ps`),
+and not in the file `--mcp-config` names, which holds only the placeholder
+`${TORNO_SESSION}` that Claude Code expands. Torno does not log it and writes
+it to no file. That keeps out another user of this machine, any program that
+only finds the port or reads the agent's command line, and the session of
+another object. It does not keep out a program running as you, which can read
+the agent's environment, nor a script the agent runs, which inherits it: such
+a program can call `show`, `add_mark`, `resolve_mark` and `save_view` of that
+object, and post its hooks, while the session lasts.
 
 **Parts that fit together.** `overlap`, `clearance` and a distance between two
 parts are of the parts where the layout has them, so fit can only be checked
@@ -1300,7 +1314,8 @@ code: its table of keys, and the tools it names.
 The agent inherits torno's environment without these, and without the variables
 a parent Claude Code session exports (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` and
 the like), so torno can be started from inside one. Variables you set yourself,
-such as `CLAUDE_CODE_USE_BEDROCK`, are passed on.
+such as `CLAUDE_CODE_USE_BEDROCK`, are passed on. It is given `TORNO_SESSION`,
+its session's token, which no address and no argument holds.
 
 ## Not yet verified on a visible screen
 
@@ -1368,4 +1383,11 @@ With a real agent:
 - **What Claude Code says of itself, with the real CLI.** The stand-in plays each case (`FAKE_AGENT_INIT`); the real CLI has not: with `ANTHROPIC_API_KEY` set the chat says it is billed to an API key and names what `apiKeySource` is then (look at the value in a real `init`: `user`, `project`, `org`, `temporary`, or another), with it unset and logged in it says nothing (`none` or `oauth`); in a new session with torno's plugin, `init` lists `torno` among its `plugins` and no warning appears, and `/skills` lists the four skills (what `skills` holds with a `--plugin-dir` plugin is not recorded: the recordings' lists hold no plugin skill at all, so torno judges the skills only when `skills` shows some with a `plugin:` name); a `claude` of another minor than 2.1 (or older than 2.1.300) says so once; with the torno server made to fail the warning carries what the CLI said; a real overload shows "retrying (attempt N)" and it goes with the answer; a command refused by a rule of `settings.json` leaves the warning "Permission denied: …" (and the fields `mcp_server_errors`, `plugin_errors` and `permission_denials` are read as their form is guessed from the documentation). When the CLI moves, record a new stream (`app/test/fixtures/RECORDING.md`) and move the range.
 - **The torno-reviewer subagent.** One run with the real CLI, in chat and in the terminal: after a change of several steps Claude Code calls `torno-reviewer`, which uses only its read-only tools, reports with numbers from `measure` and changes nothing; whether the subagent's MCP calls go through `--allowedTools 'mcp__torno__*'` without a permission prompt; and that an invalid `--agents` would have stopped the start (it did not). The stand-in only shows the argument is passed.
 - **Pictures of a resumed chat, with the real Claude Code.** Make an object with one photo and one doodle and send the first prompt; let Claude Code take one `look`; quit torno. Start it again and open the object (the chat resumes): the photo and the doodle show, and the `look` picture says "Picture of an earlier build, not kept". Ask "Without reading any file, describe the doodle I gave at the start": a right answer confirms that `--resume` gives the model its pictures again. Then `/clear` and ask what references the object has: it names them from the line in `reference/`. The stand-in agent shows only that the window reads the files and the line is sent.
+- **The session's token with the real Claude Code.** Start a chat and a terminal session: torno's tools connect (no
+  "torno's tools are not connected" warning; `look` answers) and the hooks arrive (the status moves to working and
+  back, a pin turns to sent), all with the token in the `X-Torno-Session` header. `ps -eo args` shows the `--mcp-config`
+  path and no token. The documentation says `${VAR}` is expanded in the `headers` of a `.mcp.json`, and an http hook
+  interpolates `$VAR` for the names in its `allowedEnvVars`; that a file given to `--mcp-config` is expanded the same way
+  it only implies. If it is not, Claude Code sends the placeholder, torno answers 404 and the chat warns that the tools
+  are not connected; the way out would be a small stdio bridge that reads the token from its environment.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.

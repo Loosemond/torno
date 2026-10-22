@@ -577,10 +577,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - Claude Code is the one agent torno runs. It is started by an adapter (`src/main/sessions/adapter.ts`: `AgentAdapter`; `claude.ts`
   `claudeAdapter`, the one there is), which says the `command` looked for on PATH, whether it is given torno's
   `skills`, how its client names a tool of torno's to the model (`toolName`: `mcp__torno__scene`), and
-  `launch(ctx)`: the command, its arguments as a list of strings (never a line for a shell), and variables to
-  add to the environment. Everything the agent is given of torno is on its command line or in its environment.
-  Nothing of the person's configuration of it is read or written, and nothing is written in the object folder
-  outside `.torno/`. The MCP address given is of that object alone.
+  `launch(ctx)`: the command, its arguments as a list of strings (never a line for a shell), variables to
+  add to the environment, and files to write (`AgentLaunch.files`). Everything the agent is given of torno is on its
+  command line, in its environment, or in a config file of torno's that holds no secret (the `--mcp-config` file,
+  `<userData>/agent/<session id>.mcp.json`, written before the agent starts and removed when it has gone; the folder
+  is cleared at start). The session's token (`LaunchContext.token`) is in its environment alone, as `TORNO_SESSION`:
+  never in an argument or a file. Nothing of the person's configuration of it is read or written, and nothing is
+  written in the object folder outside `.torno/`. The MCP address given is of that object alone, and the session's
+  token opens that object's MCP server and that session's hooks, nothing else.
 - The system prompt is one text (`src/main/prompt.ts` `systemPrompt(toolName, skills)`). Claude Code is
   given torno's skills, a plugin in `app/resources/agent-plugin` (`torno-model`, `build123d`, `scans`,
   `dimensions`) passed with `--plugin-dir` (`paths.ts` `agentPluginDir()`; nothing is installed in the person's

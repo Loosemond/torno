@@ -72,15 +72,21 @@ what was never seen on a visible screen is one section.
 - Kernel stdout carries protocol frames only. Model output goes to a captured buffer.
 - Units are millimetres, Z up. Coordinates crossing a process boundary are in the object frame unless named `local`.
 - Renderer: `contextIsolation: true`, `nodeIntegration: false`, `backgroundThrottling: false`. No per-frame state in React.
-- HTTP server binds `127.0.0.1` only, on an OS-assigned port. Every address it hands to an agent has the run's
-  secret after the prefix (`/mcp/<secret>/<object id>`, `/hooks/<secret>/<session id>/<event>`: 32 random bytes
-  as base64url, made in `startHttp` and kept nowhere), compared in constant time; without it the answer is 404.
-  An address is made only by `HttpRouter.url`. The secret reaches an agent only in what it is started with
-  (argv, settings, env); it is never logged (`HttpRouter.redact` for whatever is logged of an address or of an
-  agent's arguments) and never written to `state.md`, `.torno/chat/` or any other file. Should a
-  file under `.torno/` ever have to hold an address for a running session, it is one git passes over
-  (`ensureIgnored`) and is written anew at each start. The test hook `__tornoMain.mcpUrlFor(id)` gives the
-  whole address, secret and all; the stand-in agent reads its hook addresses from its `--settings`.
+- HTTP server binds `127.0.0.1` only, on an OS-assigned port. An address holds no secret (`/mcp/<object id>`,
+  `/hooks/<session id>/<event>`) and is made only by `HttpRouter.url`. Every request carries a token in the
+  `X-Torno-Session` header, compared in constant time (hashed, against every live token); a missing, empty, wrong,
+  revoked or unexpanded one (`${TORNO_SESSION}`, `$TORNO_SESSION`), or one of another session, is answered 404. Each
+  session has its own (`HttpRouter.grant` in `Sessions.begin`: 32 random bytes as base64url), which opens its own
+  hooks and its object's MCP server and is revoked when it has gone. It reaches the agent only in its environment
+  (`TORNO_SESSION`), never in an argument: a command line is readable by every user of the machine
+  (`/proc/<pid>/cmdline`, `ps`), the environment by its owner alone. Claude Code sends it itself: each http hook has
+  `headers` with `$TORNO_SESSION` and `allowedEnvVars: ["TORNO_SESSION"]`, and `--mcp-config` is the path of a file
+  under `<userData>/agent/` (never a workspace; removed with the session, the folder cleared at start) whose
+  `headers` hold the placeholder `${TORNO_SESSION}`, never the token. It is kept in memory only, never logged
+  (`HttpRouter.redact` takes every token of the run out of whatever is logged or kept of an agent's arguments or
+  output) and never written to `state.md`, `.torno/chat/` or any other file. The test hook `__tornoMain.mcpFor(id)`
+  gives an object's MCP address and a token that opens it; the stand-in agent reads `--mcp-config` from its file and
+  expands both placeholders from its environment, as Claude Code does.
 - Images for the agent: long edge at most 2000 px, default 1280.
 - Do not copy nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
 - UI text is sentence case. Every number and ref is set in the monospace face.

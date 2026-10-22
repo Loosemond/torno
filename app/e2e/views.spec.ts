@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
 import type { Camera } from '../src/shared/view'
+import { SESSION_HEADER } from '../src/main/http'
 
 // Saved views, through the window and through the agent's tools: the view on screen is kept under a name in the
 // object's scene file, put back with a click, drawn and shown by name for the agent, which proposes its own.
@@ -84,9 +85,9 @@ async function open(id: string): Promise<void> {
 }
 
 async function clientFor(id: string): Promise<Client> {
-  const url = await app.evaluate((_electron, object) => (globalThis as unknown as { __tornoMain: { mcpUrlFor(id: string): string } }).__tornoMain.mcpUrlFor(object), id)
+  const { url, token } = await app.evaluate((_electron, object) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(object), id)
   const client = new Client({ name: 'torno-e2e', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)))
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
   clients.push(client)
   return client
 }

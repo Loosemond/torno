@@ -46,7 +46,8 @@ window on it.
   `.projectScan(id, local)` and `.timeScanPicks(count)` as the same for
   scans, `.regions()` for what is tinted,
   `window.__tornoTerm.text()` for what the terminal shows (`.ground()` for the colour of its inset), and
-  `globalThis.__tornoMain` in main (`app.evaluate`) for the MCP address, the
+  `globalThis.__tornoMain` in main (`app.evaluate`) for an object's MCP address and a token that opens it
+  (`mcpFor(id)`: send the token in the `X-Torno-Session` header, or every request is 404), the
   mark store (to leave the marks an agent would), the scan store (`scans`),
   `marksChecks(objectId)`
   (started and finished counts: equal when no check of the marks is under way)

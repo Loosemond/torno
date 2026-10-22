@@ -10,6 +10,7 @@ import type { ScanLayerState } from '../src/renderer/viewport/scans'
 import type { RegionMark } from '../src/shared/marks'
 import type { LookRequest } from '../src/shared/view'
 import { grid, stl } from '../src/test/scanFixtures'
+import { SESSION_HEADER } from '../src/main/http'
 
 // Regions: a part of a scan is painted with the brush, kept as a mark whose triangles are a file beside the
 // mesh, told to the agent, left out of a clash when the agent says so, and goes on as a mark when its scan is
@@ -66,9 +67,9 @@ async function prompt(): Promise<void> {
 
 type Content = Array<{ type: string; text?: string }>
 async function connect(objectId: string): Promise<Client> {
-  const url = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpUrlFor(id: string): string } }).__tornoMain.mcpUrlFor(id), objectId)
+  const { url, token } = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(id), objectId)
   const client = new Client({ name: 'torno-e2e', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)))
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
   clients.push(client)
   return client
 }

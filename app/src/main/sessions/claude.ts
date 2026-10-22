@@ -1,9 +1,16 @@
+import { join } from 'node:path'
+import { SESSION_HEADER } from '../http'
 import type { AgentAdapter } from './adapter'
 import { HOOK_EVENTS } from './status'
 
 export { HOOK_EVENTS }
 
 const HOOK_TIMEOUT_S = 5
+/**
+ * The variable of the agent's environment that holds the session's token. Claude Code reads names that look like a
+ * credential (`*_API_KEY`, `NPM_TOKEN`, ...) as empty toward a remote server: this one does not look like one.
+ */
+const TOKEN_VARIABLE = 'TORNO_SESSION'
 /**
  * The `PostToolUse` of an edit of the model is answered once the build the save started has ended (`Sessions.afterEdit`,
  * which answers by 55 s that a build is running): builds of seconds are usual. Every other tool's is answered at once,
@@ -55,9 +62,16 @@ export const TORNO_PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d'
 export const TESTED_CLAUDE = { min: '2.1.300', max: '2.1.301' } as const
 
 /**
- * Claude Code. Everything torno adds is passed on the command line, so the
- * person's own settings and MCP servers are neither read nor changed
- * (no --strict-mcp-config: their servers keep working beside torno's).
+ * Claude Code. Everything torno adds is passed on the command line, in the
+ * environment or in a file of torno's own, so the person's own settings and
+ * MCP servers are neither read nor changed (no --strict-mcp-config: their
+ * servers keep working beside torno's).
+ *
+ * The session's token is in the environment alone (`TORNO_SESSION`), never in
+ * an argument: Claude Code puts it in the `X-Torno-Session` header itself. Each
+ * hook names it in `allowedEnvVars` (an http hook expands only those), and the
+ * MCP server is given in a file (`--mcp-config <path>`, as a `.mcp.json` is,
+ * whose `headers` expand `${VAR}`) that holds the placeholder, not the token.
  *
  * `agentCmd` replaces the command `claude`: TORNO_AGENT_CMD, split on spaces,
  * so a path with a space in it cannot be named this way.
@@ -76,16 +90,29 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
     tested: TESTED_CLAUDE,
     toolName,
     launch(ctx) {
-      const hook = (event: string) => [{ hooks: [{ type: 'http', url: ctx.hookUrl(event), timeout: event === 'PostToolUse' ? EDIT_HOOK_TIMEOUT_S : HOOK_TIMEOUT_S }] }]
+      const hook = (event: string) => [
+        {
+          hooks: [
+            {
+              type: 'http',
+              url: ctx.hookUrl(event),
+              timeout: event === 'PostToolUse' ? EDIT_HOOK_TIMEOUT_S : HOOK_TIMEOUT_S,
+              headers: { [SESSION_HEADER]: `$${TOKEN_VARIABLE}` },
+              allowedEnvVars: [TOKEN_VARIABLE]
+            }
+          ]
+        }
+      ]
       const settings = { hooks: Object.fromEntries(HOOK_EVENTS.map((event) => [event, hook(event)])) }
-      const mcp = { mcpServers: { torno: { type: 'http', url: ctx.mcpUrl } } }
+      const mcp = { mcpServers: { torno: { type: 'http', url: ctx.mcpUrl, headers: { [SESSION_HEADER]: `\${${TOKEN_VARIABLE}}` } } } }
+      const mcpFile = join(ctx.configDir, `${ctx.sessionId}.mcp.json`)
       const args = [
         ...before,
         ...(ctx.view === 'chat' ? HEADLESS : []),
         ctx.resume ? '--resume' : '--session-id',
         ctx.conversationId,
         '--mcp-config',
-        JSON.stringify(mcp),
+        mcpFile,
         '--allowedTools',
         'mcp__torno__*',
         '--settings',
@@ -94,7 +121,7 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
       args.push('--agents', JSON.stringify(reviewerAgents(toolName)))
       if (pluginDir && ctx.skills !== false) args.push('--plugin-dir', pluginDir)
       if (ctx.systemPrompt) args.push('--append-system-prompt', ctx.systemPrompt)
-      return { command, args, env: {} }
+      return { command, args, env: { [TOKEN_VARIABLE]: ctx.token }, files: [{ path: mcpFile, text: `${JSON.stringify(mcp, null, 2)}\n` }] }
     }
   }
 }

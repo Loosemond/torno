@@ -8,7 +8,7 @@ import { apply } from '../../shared/align'
 import type { Scene } from '../../shared/scene'
 import type { ScanAlignment, ScanInfo } from '../../shared/scans'
 import { grid, meshBin } from '../../test/scanFixtures'
-import { type HttpRouter, startHttp } from '../http'
+import { type HttpRouter, SESSION_HEADER, startHttp } from '../http'
 import { type RunningKernel, startKernel } from '../kernel/client'
 import { mountMcp } from './server'
 import type { ToolDeps } from './tools'
@@ -88,7 +88,9 @@ beforeAll(async () => {
   http = await startHttp()
   mountMcp(http, deps)
   client = new Client({ name: 'torno-test', version: '0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(http.url('/mcp/hollow'))))
+  // With a token for the object, as the session of an agent working on it has.
+  const headers = { [SESSION_HEADER]: http.grant(['/mcp/hollow']) }
+  await client.connect(new StreamableHTTPClientTransport(new URL(http.url('/mcp/hollow')), { requestInit: { headers } }))
 })
 
 afterAll(async () => {

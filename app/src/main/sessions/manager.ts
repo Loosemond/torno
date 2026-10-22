@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { isInsideFolder } from './inside'
@@ -43,6 +44,10 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
 interface Session {
   id: string
   object: ObjectInfo
+  /** What its requests carry in `X-Torno-Session` (`HttpRouter.grant`): revoked when it has gone. In memory only. */
+  token: string
+  /** The files of torno's it was given by path (`AgentLaunch.files`): removed when it has gone. */
+  files: string[]
   /** The agent's id of the conversation, as its last hook named it. */
   conversationId: string
   /** The conversation the last prompt was in: the one it was started with, until a prompt names another. */
@@ -170,7 +175,8 @@ interface Events {
 /**
  * The agent sessions: each the real CLI in a PTY, or headless on pipes for a chat, in the folder of one object,
  * and at most one per object. The status of a session follows the hooks the
- * agent posts to `/hooks/<secret>/<sessionId>/<event>` on the local HTTP server (`http.url`: the address has the run's secret).
+ * agent posts to `/hooks/<sessionId>/<event>` on the local HTTP server, with the session's token in a header: a
+ * token made when it starts, that opens its own hooks and its object's MCP server, and nothing once it has gone.
  */
 export class Sessions {
   private readonly sessions = new Map<string, Session>()
@@ -213,6 +219,11 @@ export class Sessions {
       /** What is added to the agent's system prompt. */
       systemPromptFor: (adapter: AgentAdapter) => string
       mcpUrlFor: (objectId: string) => string
+      /**
+       * A folder of torno's own, never in a workspace (`<userData>/agent`), for the files an agent is given by path
+       * (`AgentLaunch.files`, which hold no secret): written when it starts, removed when it has gone.
+       */
+      configDir: string
       /**
        * Whether a chat may start in a folder: Claude Code run headless does not ask whether to trust a folder that has
        * settings of its own. Absent: no question is asked.
@@ -269,31 +280,48 @@ export class Sessions {
     const person = agentEnv(process.env)
     // `skills: false`: the person said to start on the whole prompt, since the plugin of skills did not load (the system prompt is fixed at the start).
     const skills = adapter.skills && opts.skills !== false
+    const mcpUrl = this.deps.mcpUrlFor(obj.id)
+    // The session's own: its hooks and its object's MCP server, for as long as it is there.
+    const token = http.grant([new URL(mcpUrl).pathname, `/hooks/${id}`])
     const launch = adapter.launch({
       sessionId: id,
       conversationId,
       resume: stored !== null,
       view,
       cwd: obj.dir,
-      mcpUrl: this.deps.mcpUrlFor(obj.id),
+      mcpUrl,
       hookUrl: (event) => http.url(`/hooks/${id}/${encodeURIComponent(event)}`),
+      token,
+      configDir: this.deps.configDir,
       systemPrompt: this.deps.systemPromptFor({ ...adapter, skills }),
       skills
     })
-    // The arguments hold the addresses the agent is given: the run's secret in them is not for a log.
-    if (this.deps.debug) console.error(http.redact(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`))
-    const env: Record<string, string> = { ...person, ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id }
-    // node-pty reports a command that does not exist only as a process that exits at once.
-    if (!findCommand(launch.command, env.PATH)) throw new Error(`cannot start the agent: '${launch.command}' was not found on PATH`)
-
-    // What a chat shows of the conversation it resumes is read before the session exists: it is the log's as it was.
-    if (view === 'chat' && stored !== null) await trimLog(obj.dir, stored)
-    const earlier = view === 'chat' && stored !== null ? await earlierOf(obj.dir, stored) : []
-
+    const files = launch.files.map((file) => file.path)
+    let child: pty.IPty | null
+    let stream: ClaudeStream | null
+    let earlier: ChatItem[]
     const cols = size(opts.cols, 80)
     const rows = size(opts.rows, 24)
-    const child = view === 'terminal' ? pty.spawn(launch.command, launch.args, { name: 'xterm-256color', cols, rows, cwd: obj.dir, env }) : null
-    const stream = view === 'chat' ? new ClaudeStream({ command: launch.command, args: launch.args, cwd: obj.dir, env }) : null
+    try {
+      // Redacted whatever it holds: nothing secret is in the arguments, and what is logged stays so should that change.
+      if (this.deps.debug) console.error(http.redact(`[torno] session ${id} in ${obj.dir}: ${JSON.stringify([launch.command, ...launch.args])}`))
+      const env: Record<string, string> = { ...person, ...launch.env, COLORTERM: 'truecolor', TORNO_OBJECT: obj.id, TORNO_SESSION_ID: id }
+      // node-pty reports a command that does not exist only as a process that exits at once.
+      if (!findCommand(launch.command, env.PATH)) throw new Error(`cannot start the agent: '${launch.command}' was not found on PATH`)
+
+      // What a chat shows of the conversation it resumes is read before the session exists: it is the log's as it was.
+      if (view === 'chat' && stored !== null) await trimLog(obj.dir, stored)
+      earlier = view === 'chat' && stored !== null ? await earlierOf(obj.dir, stored) : []
+
+      // The person's alone to read, though none of them holds a secret.
+      mkdirSync(this.deps.configDir, { recursive: true, mode: 0o700 })
+      for (const file of launch.files) writeFileSync(file.path, file.text, { mode: 0o600 })
+      child = view === 'terminal' ? pty.spawn(launch.command, launch.args, { name: 'xterm-256color', cols, rows, cwd: obj.dir, env }) : null
+      stream = view === 'chat' ? new ClaudeStream({ command: launch.command, args: launch.args, cwd: obj.dir, env }) : null
+    } catch (e) {
+      this.release({ token, files })
+      throw e
+    }
     let ended!: () => void
     const chat: ChatRecord | null =
       view === 'chat'
@@ -322,6 +350,8 @@ export class Sessions {
     const session: Session = {
       id,
       object: obj,
+      token,
+      files,
       conversationId,
       promptedIn: conversationId,
       unprompted: stored === null,
@@ -357,6 +387,7 @@ export class Sessions {
     child?.onExit(() => {
       clearTimeout(session.killTimer)
       this.sessions.delete(id)
+      this.release(session)
       this.advance(session, 'exit')
       ended()
     })
@@ -673,6 +704,12 @@ export class Sessions {
     return undefined
   }
 
+  /** A session that has gone: its token opens nothing any more, and the files it was given are removed. */
+  private release(session: Pick<Session, 'token' | 'files'>): void {
+    this.deps.http.revoke(session.token)
+    for (const file of session.files) rmSync(file, { force: true })
+  }
+
   /** The stream of a chat session: what it says moves the status, and goes to whoever listens. */
   private follow(session: Session, stream: ClaudeStream, ended: () => void): void {
     const redact = this.deps.http.redact
@@ -715,6 +752,7 @@ export class Sessions {
       clearTimeout(session.termTimer)
       clearTimeout(session.graceTimer)
       this.sessions.delete(session.id)
+      this.release(session)
       // Nobody can answer what the agent was waiting for any more.
       for (const requestId of session.asks.keys()) this.emit('asked', { sessionId: session.id, requestId, answered: false })
       session.asks.clear()
@@ -894,7 +932,7 @@ export class Sessions {
     return isInsideFolder(session.object.dir, path)
   }
 
-  /** `POST /hooks/<secret>/<sessionId>/<event>`, with the hook's JSON as the body; `rest` is what comes after the secret. */
+  /** `POST /hooks/<sessionId>/<event>`, with the hook's JSON as the body (the router let it through only with that session's token); `rest` is what comes after `/hooks`. */
   private async hook(req: IncomingMessage, res: ServerResponse, rest: string[]): Promise<void> {
     const [sessionId, event] = rest
     const session = rest.length === 2 ? this.sessions.get(sessionId) : undefined

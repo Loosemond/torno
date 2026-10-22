@@ -39,7 +39,7 @@ export interface TranscriptOptions {
   /** Put before the id of every item and picture: what keeps the ids of two sessions of one conversation apart. */
   prefix?: string
   now?: () => number
-  /** Applied to every string kept: an address the agent was given has the run's secret in it. */
+  /** Applied to every string kept: what the agent says or runs may hold its session's token, from its environment. */
   redact?: (text: string) => string
   /** An item that changed (streaming text no oftener than every 50 ms). */
   emit?: (item: ChatItem) => void

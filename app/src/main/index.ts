@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, rmSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -393,9 +393,10 @@ scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
  * an export is answered with (the path to write, or null), `savePicks` counts
  * how often it was asked and `saveOffered` is the path it would have opened on; `replace` answers the question asked before an export replaces a file the dialog did not ask about, and `replaceAsked` counts it. `letGo` has an object's status
  * say that the kernel let its build go, which no test's kernel does. `opened`
- * are the objects opened in this run: those that are watched and built.
+ * are the objects opened in this run: those that are watched and built. `mcpFor` gives the address of an
+ * object's MCP server and a token that opens it, to send in `X-Torno-Session`.
  */
-const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpUrlFor: (_id: string): string => '', pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickPhotos: [] as string[], photoPicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0 }
+const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpFor: (_id: string): { url: string; token: string } => ({ url: '', token: '' }), pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickPhotos: [] as string[], photoPicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0 }
 
 /** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
 let requested: string | null = null
@@ -435,8 +436,12 @@ void app.whenReady().then(async () => {
   redactAddresses = http.redact
   const mcpUrlFor = (id: string): string => http.url(`/mcp/${encodeURIComponent(id)}`)
   mountMcp(http, toolDeps)
+  // The files an agent is given by path (its MCP server's, which holds no secret): what a torno that crashed left is of no use.
+  const configDir = join(app.getPath('userData'), 'agent')
+  rmSync(configDir, { recursive: true, force: true })
   sessions = new Sessions({
     http,
+    configDir,
     // Whether a chat may start in a folder with Claude Code settings of its own: asked once, and kept beside the recent folders.
     trust: new Trust(configPath ? join(dirname(configPath), 'trusted.json') : null),
     // Claude Code, given torno's skills. TORNO_AGENT_CMD is run in place of `claude`.
@@ -523,10 +528,11 @@ void app.whenReady().then(async () => {
         }
       : undefined
   })
-  testHooks.mcpUrlFor = mcpUrlFor
+  // Under test only: an object's MCP address and a token that opens it, as a session of that object has one.
+  if (isTest) testHooks.mcpFor = (id) => ({ url: mcpUrlFor(id), token: http.grant([new URL(mcpUrlFor(id)).pathname]) })
   if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
-  // With the run's secret taken out: an address that is logged is an address anyone who reads the log can call.
-  if (isDebug) console.error(http.redact(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`))
+  // An address holds no secret: a request needs the token of a session as well.
+  if (isDebug) console.error(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`)
   // What a torno that crashed left in the temporary folder: only copies of the example its own marker names.
   if (exampleFrom !== null) void sweepExamples(realpathSync(tmpdir())).catch(() => {})
   const named = process.env.TORNO_WORKSPACE
