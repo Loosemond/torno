@@ -10,6 +10,7 @@ import { png } from '../src/test/pngFixtures'
 import { grid, stl } from '../src/test/scanFixtures'
 import { SESSION_HEADER } from '../src/main/http'
 import { newFromList, openListed, switcher } from './objects'
+import { stableBox } from './stable'
 
 // Light and dark. In each theme the window is held to the contrasts its tokens promise, as it computes them,
 // and pictures are made for someone to look at: of the parts, as the agent gets them, and of the window.
@@ -218,7 +219,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys', 'instructions'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys', 'instructions', 'measure-raised', 'measure-raised-narrow', 'marks-tall'] as const
 
 /** Shots of a window with no folder open, or an empty one, where no object is opened. */
 const FIRST_SCREEN = ['welcome-first', 'welcome-first-ready', 'welcome-first-open'] as const
@@ -332,6 +333,34 @@ for (const theme of ['light', 'dark'] as const) {
           await page.keyboard.press('x')
           await page.getByRole('button', { name: 'Cut across Y' }).click()
           await expect.poll(async () => (await state(page)).section !== null).toBe(true)
+        } else if (shot === 'measure-raised' || shot === 'measure-raised-narrow') {
+          // A face selected, the parts cut, and Measure in hand: the section's bar a row up, over the selection's, clear of the
+          // Measure strip in the corner; in a wide view (the dock hidden) and in a narrow one (beside it), clear of the palette too.
+          if (shot === 'measure-raised') await page.getByRole('button', { name: 'Hide session', exact: true }).click()
+          if (shot === 'measure-raised') await expect(page.locator('.viewport-pane')).not.toHaveAttribute('data-narrow')
+          else await expect(page.locator('.viewport-pane')).toHaveAttribute('data-narrow')
+          await page.keyboard.press('v')
+          await canvas.click({ position: { x: (await canvas.boundingBox())!.width / 2, y: (await canvas.boundingBox())!.height / 2 } })
+          await expect.poll(async () => (await state(page)).selection.length).toBe(1)
+          await page.keyboard.press('x')
+          await page.getByRole('button', { name: 'Cut across Y' }).click()
+          await expect.poll(async () => (await state(page)).section !== null).toBe(true)
+          await page.keyboard.press('m')
+          await expect(page.locator('.measure-choice')).toBeVisible()
+          await expect(page.locator('.sectionbar')).toHaveAttribute('data-raised', '1')
+          // The bars slide to their rows: the picture is of where they stop.
+          for (const bar of ['.sectionbar', '.selection', '.tool-hint']) await stableBox(page.locator(bar))
+        } else if (shot === 'marks-tall') {
+          // The line above the marks dragged to the top with Parameters unfolded, then the window made shorter: the marks
+          // take the room there is, above the status line.
+          await page.locator('.section-fold').and(page.getByRole('button', { name: 'Parameters', exact: true })).click()
+          const line = (await page.getByRole('separator', { name: 'Resize marks' }).boundingBox())!
+          await page.mouse.move(line.x + 120, line.y + line.height / 2)
+          await page.mouse.down()
+          await page.mouse.move(line.x + 120, 0, { steps: 4 })
+          await page.mouse.up()
+          await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 680))
+          await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(680)
         } else if (shot === 'explode') {
           await canvas.click({ position: { x: 5, y: 5 } })
           await page.keyboard.press('e')

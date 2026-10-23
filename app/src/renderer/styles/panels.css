@@ -275,6 +275,9 @@
 }
 
 .section-note {
+  /* It gives way with its section, down to the title, as the rows do: never over the section below. */
+  min-height: 0;
+  overflow: hidden;
   padding: 0 var(--space-4);
   color: var(--muted);
 }
