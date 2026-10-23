@@ -10,7 +10,7 @@
   display: grid;
   gap: 4px;
   width: max-content;
-  max-width: calc(100% - 2 * var(--bar-side));
+  max-width: calc(100% - 2 * var(--stack-side));
   padding: 4px 5px 5px;
   border: var(--divider);
   border-radius: var(--radius-palette);

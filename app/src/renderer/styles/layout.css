@@ -94,6 +94,9 @@ button {
      is narrower than they need (`data-narrow`, set by ViewportPane) they stand above the triad instead. */
   --triad-clear: 102px;
   --bar-side: 124px;
+  /* The sides of the bars that stack at the foot (the selection's, the section's, the agent's line, the step line, the
+     Region tool's): the same, but in a narrow view, where they also keep clear of the palette of tools. */
+  --stack-side: var(--bar-side);
   /* Where the bottom of the bars stands without the line at the foot of the view: clear of the corners. */
   --bar-floor: 0px;
   --hint-lift: 0px;
@@ -104,9 +107,11 @@ button {
 }
 
 .viewport-pane[data-narrow] {
-  /* Clear of the palette of tools, which stands at the left edge halfway up and in a short view reaches the raised bars:
-     its 12px from the edge, 42px wide (a 34px button, its padding and border), and a gap. */
-  --bar-side: 60px;
+  --bar-side: var(--space-3);
+  /* Clear of the palette of tools, which stands at the left edge halfway up and in a short view reaches the bars as they
+     stack: its 12px from the edge, 42px wide (a 34px button, its padding and border), and a gap. Not the Align tool's
+     bar, whose rows need the width and which stands alone. */
+  --stack-side: 60px;
   --bar-floor: calc(var(--triad-clear) + var(--space-1));
 }
 

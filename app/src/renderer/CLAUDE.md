@@ -305,8 +305,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   agent's line) keep `BAR_SIDE` in from each side, clear of the triad and of the scale; where the view is narrower than
   the widest of them needs (`NARROW_BELOW`, `data-narrow` on `.viewport-pane`, set by `ViewportPane` as the view is
   resized) they stand above the triad (`--bar-lift`) instead, and above the strip of the Measure tool while it is in hand (the strip is also above the triad, at the left, and the two never meet),
-  60 px in from each side (`--bar-side` of `[data-narrow]`), clear of the palette of tools, which a short view's raised bars
-  would reach. In a wide view the bottom row stands below the strip, beside the triad, and a bar raised a row up (the
+  the bars that stack there (the selection's, the section's, the agent's line, the step line, the Region tool's) 60 px in
+  from each side (`--stack-side` of `[data-narrow]`), clear of the palette of tools, which a short view's stacked bars
+  would reach; the Align tool's bar, which stands alone and whose rows need the width, keeps `--space-3`. In a wide view the bottom row stands below the strip, beside the triad, and a bar raised a row up (the
   section's over the selection or the agent's line, the agent's line over the selection) stands at `--strip-top` at the
   least while the strip is there, above it. `TRIAD_CLEAR`, `BAR_SIDE` and `NARROW_BELOW` are in
   `viewport/overlay.ts`, and `--triad-clear`, `--bar-side` in `styles/layout.css` are held to them by `overlay.test.ts`;
