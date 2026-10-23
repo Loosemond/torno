@@ -61,7 +61,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   table: it is another program. The palette's tools are `TOOL_KEYS` in the order of their groups (`group`:
   `inspect` Select, Measure, Section; `mark` Pin, Arrow, Draw, Shape, Region; `scan` Align), drawn as one
   `role="group"` each (`TOOL_GROUPS` in `state/tools.ts`, its `aria-label` the group's name) with a
-  `toolbox-rule` between them; the sheet of keys and README's table follow that order. The Measure tool is
+  `toolbox-rule` between them; the sheet of keys and the manual's table follow that order. The Measure tool is
   `tools/measureTool.ts`; what its clicks measure is chosen in the strip `MeasureChoice` of
   `ui/ToolPalette.tsx`, and a dimension's expectation is typed in
   `ui/DimensionFields.tsx`. **A measurement is no mark**: the tool asks main (`ctx.measure`, `geometry.measure`)
@@ -77,7 +77,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`src/renderer/tools/Tool.ts`) and gets every pointer event the chips of the marks do not take from the one
   subscription in `ui/ViewportPane.tsx`. Nothing of a pointer move goes
   through React or the store.
-- **Learning the tools and the pointer without the README** (`ui/ToolPalette.tsx`, `ui/ToolHint.tsx`,
+- **Learning the tools and the pointer without the manual** (`ui/ToolPalette.tsx`, `ui/ToolHint.tsx`,
   `state/step.ts`, `shared/pointer.ts`). The palette has no `title`: each button has torno's own tip beside it (`ToolTip`,
   at once on the pointer and on the keys' focus, `:focus-visible` only; any key puts it away; it takes no pointer
   and is `aria-hidden`, the button holding the same words as its `aria-description`): the name, the key cap from
@@ -101,7 +101,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`styles/layout.css`, held by `viewport/overlay.test.ts`). The sheet of keys starts with a group "Pointer"
   (`POINTER` in `shared/pointer.ts`: drag, right drag, scroll, double click with Measure; "In the view": with Arrow or
   Draw in hand a drag that starts on the part draws instead; the others' own press is in their step lines): gestures, no row of `KEYS`, searched with them and counted
-  after them (the count line gives the keys, then `, N of the pointer`); README's table of them is held to it (`readme.test.ts`).
+  after them (the count line gives the keys, then `, N of the pointer`); the manual's table of them is held to it (`readme.test.ts`).
 - A mark's row and its chip in the view point at each other. The pointer on a row or chip, or the keys' focus in a
   row (on one of its buttons, `:focus-visible` only: a click on a button focuses it too, and is the pointer's; a
   note being typed is not), is the store's

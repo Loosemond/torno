@@ -1,7 +1,7 @@
 # torno
 
 A desktop workbench for making CAD parts with an AI coding agent. `README.md`
-says what it does and how to run it; the design is
+introduces it and says how to run it; `docs/manual.md` says everything it does; the design is
 `docs/superpowers/specs/2026-10-08-torno-design.md`.
 
 - `app/`: the Electron app (pnpm, TypeScript, electron-vite). `src/main` is the
@@ -59,11 +59,13 @@ One file: `pnpm -C app exec vitest run src/main/context.test.ts`,
 
 While iterating run the focused test; run all four suites before a commit.
 
-`app/src/readme.test.ts` holds `README.md` to the code: its table of keys is
+`app/src/readme.test.ts` holds `docs/manual.md` to the code: its table of keys is
 `cheatSheet()` (`TORNO_README=write pnpm -C app exec vitest run
 src/readme.test.ts` writes it anew after a key changes), the tools it names as
 `mcp__torno__<name>` are exactly `TOOLS`, its headings are in their order, and
-what was never seen on a visible screen is one section.
+what was never seen on a visible screen is one section. `README.md` is the short introduction for a
+newcomer, held only to keep `Requirements` and `Run` (the window and the launcher send readers there) and to link
+to headings the manual has; the reference goes in the manual.
 
 ## Global Constraints
 
@@ -177,7 +179,7 @@ Tests set `TORNO_AGENT_CMD` to the stand-in, `node app/test/fake-agent.mjs`,
 which prints its arguments and posts hooks on request. No test runs `claude`:
 a real CLI spends the person's subscription, depends on their login and
 settings, and asks questions in folders it has not seen. Checking torno against a real CLI is done by hand, once per change that
-needs it (the README lists what is still to be checked). The one thing torno itself asks of the CLI before a session is
+needs it (the manual's last section lists what is still to be checked). The one thing torno itself asks of the CLI before a session is
 `claude --version` and `claude auth status`, for what the first screen says is ready (`main/ready.ts`): once, outside tests
 only, each within 3 s. Under `TORNO_TEST=1` the command is only looked for on `PATH`; the stand-in answers both for the
 test of that check, which is given its runner.

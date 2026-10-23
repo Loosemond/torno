@@ -1,7 +1,7 @@
 /**
  * What the pointer does in the view, as the sheet of keys lists it (a group of its own, first) and as the line at
  * the foot of the view tells a newcomer once. These are gestures, not keys: they are no row of `KEYS` and nothing
- * here is listened to by a handler (the camera's controls are the viewport's). The README's table of them is held
+ * here is listened to by a handler (the camera's controls are the viewport's). The manual's table of them is held
  * to this one (`readme.test.ts`).
  */
 export interface PointerRow {

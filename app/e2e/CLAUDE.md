@@ -119,7 +119,7 @@ when a spec checks that nothing is written to the person's settings.
 
 Two fixtures were recorded from the real CLI and scrubbed: `app/test/fixtures/claude-stream.jsonl` (Claude Code
 2.1.300: a turn, tool use, hooks) and `claude-stream-asks.jsonl` (2.1.301: a permission, a question and
-`/compact`). Every line of both parses as JSON. Never run the real `claude` to record or check; that is done by hand (README, last section).
+`/compact`). Every line of both parses as JSON. Never run the real `claude` to record or check; that is done by hand (`docs/manual.md`, last section).
 
 ## Making a new object
 

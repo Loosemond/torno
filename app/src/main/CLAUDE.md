@@ -220,7 +220,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - The MCP prompts (`mcp/prompts.ts`, `PROMPTS`, registered by `registerPrompts` beside the tools): `review`,
   `printable` (argument `bed`, `XxYxZ` in mm, read by `parseBed`) and `explain`, each one user message. Their text
   names tools through a `toolName`, Claude Code's (`mcp__torno__<tool>`): the server is stateless and does not know
-  the client. The README lists them as `/mcp__torno__<name>` (`readme.test.ts` holds it to `PROMPTS`).
+  the client. The manual lists them as `/mcp__torno__<name>` (`readme.test.ts` holds it to `PROMPTS`).
 - **Groups of parts.** `show`, `look` and `save_view` take group names in `parts`, and `highlight` in `refs` (a
   bare name only: `flat/F1` is refused, saying that `flat` is a group and naming its parts), expanded in main by
   `partsNamed` before the request goes to the window; the window expands what reaches it by the same rule. A
@@ -993,7 +993,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   which fails should anything be put in it meanwhile. One that appears empty while a create works is not taken. When a
   workspace is opened, `sweepStaleNew` removes the hidden `.<name>.torno-new-<12 hex>` folders more than ten minutes old
   (real folders only; a link of that name is left alone; the age, not the run, since another torno may be creating),
-  but not one that holds files in `reference/`: its doodles are nowhere else, so it stays (the README says it can be
+  but not one that holds files in `reference/`: its doodles are nowhere else, so it stays (the manual says it can be
   deleted).
 - Photos come as paths, copied as `reference/photo-<n>.<ext>` (png, jpg, jpeg, webp; at most 25 MB; `lstat` and an
   `O_NOFOLLOW` open, so no link, folder or pipe; read through the open handle, never more than the size said). Doodles

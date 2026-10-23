@@ -27,7 +27,7 @@ export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' 
 
 /**
  * The palette's tools, in the order of their groups (`TOOL_GROUPS` in `renderer/state/tools.ts`): those that inspect
- * and leave nothing, those that leave a mark, and the scan's. The palette, the sheet of keys and README's table are
+ * and leave nothing, those that leave a mark, and the scan's. The palette, the sheet of keys and the manual's table are
  * in this order.
  */
 export const TOOL_KEYS = [

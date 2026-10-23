@@ -2,7 +2,7 @@
 
 The two recordings here, `claude-stream.jsonl` (Claude Code 2.1.300) and `claude-stream-asks.jsonl` (2.1.301), are what
 the reducer (`src/main/sessions/transcript.ts`) is held to, and the versions in their `init` are the range torno was
-checked with (`TESTED_CLAUDE` in `src/main/sessions/claude.ts`; the README names it). When the CLI moves, record a new
+checked with (`TESTED_CLAUDE` in `src/main/sessions/claude.ts`; `docs/manual.md` names it). When the CLI moves, record a new
 stream and move both. This is done by a person, by hand, with their own login. Never in a test, and never by an agent.
 
 1. In an empty folder with a `note.txt` holding `hello`, start the CLI as torno does in a chat, with the person's own
@@ -16,5 +16,5 @@ stream and move both. This is done by a person, by hand, with their own login. N
    the plugins and skills as they are in the files here), and keep every field name and shape, which are the point.
 3. Every line must parse as JSON. Run `pnpm test`: `transcript.test.ts` plays the files.
 4. Read the new `init` for a field torno should know that the old one lacks, and the `result` likewise.
-5. Move `TESTED_CLAUDE` to the versions of the recordings you hold, and the line of the README that names the range
+5. Move `TESTED_CLAUDE` to the versions of the recordings you hold, and the line of `docs/manual.md` that names the range
    ("checked with …"). The test in `claude.test.ts` holds the range to the files here.

@@ -3,6 +3,7 @@ name = "torno-kernel"
 version = "0.1.0"
 description = "Loads build123d models and serves their geometry to the torno app"
 requires-python = ">=3.11,<3.13"
+license = "Apache-2.0"
 dependencies = [
     "ocp-tessellate>=3.5,<4",
     "numpy",

@@ -6,11 +6,13 @@ import { TOOLS } from './main/mcp/schemas'
 import { cheatSheet, TOOL_KEYS } from './shared/keys'
 import { POINTER } from './shared/pointer'
 
-// The README is held to the code where it names what the code names: its table of keys is the sheet of keys
-// (`cheatSheet()`), the tools it names are the tools there are, and its headings are in the order a first-time
-// reader needs. `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes the table of keys anew.
-const path = resolve(__dirname, '../../README.md')
+// The manual (`docs/manual.md`) is held to the code where it names what the code names: its table of keys is the
+// sheet of keys (`cheatSheet()`), the tools it names are the tools there are, and its headings are in the order a
+// first-time reader needs. `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes the table of
+// keys anew. The README is the short introduction; it is held only to the headings the window and the launcher name.
+const path = resolve(__dirname, '../../docs/manual.md')
 const readme = readFileSync(path, 'utf8')
+const intro = readFileSync(resolve(__dirname, '../../README.md'), 'utf8')
 const headings = readme.split('\n').filter((line) => /^#{1,3} /.test(line))
 
 const BEGIN = '<!-- keys: generated from cheatSheet() in app/src/shared/keys.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->'
@@ -18,7 +20,7 @@ const END = '<!-- keys: end -->'
 const POINTER_BEGIN = '<!-- pointer: generated from POINTER in app/src/shared/pointer.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->'
 const POINTER_END = '<!-- pointer: end -->'
 
-/** The pointer's gestures as the README has them: one table, a row for each row of the sheet's first group. */
+/** The pointer's gestures as the manual has them: one table, a row for each row of the sheet's first group. */
 function pointerTable(): string {
   return ['| Pointer | What it does |', '|---|---|', ...POINTER.map((row) => `| ${row.gesture} | ${row.does} |`)].join('\n')
 }
@@ -26,7 +28,7 @@ function pointerTable(): string {
 /** A key as Markdown code: one that holds a backtick needs two around it. */
 const cap = (key: string): string => (key.includes('`') ? `\`\` ${key} \`\`` : `\`${key}\``)
 
-/** The sheet of keys as the README has it: one table, a row for each row of the sheet, by where it is listened to. */
+/** The sheet of keys as the manual has it: one table, a row for each row of the sheet, by where it is listened to. */
 function keysTable(): string {
   const lines = ['| Where | Keys | What it does |', '|---|---|---|']
   for (const group of cheatSheet()) {
@@ -67,7 +69,7 @@ it('names every prompt the server offers, as a slash command, and no prompt ther
 
 it('is laid out for a first-time reader: what it is, how to start it, a walk-through, then the reference', () => {
   expect(headings.filter((line) => /^#{1,2} /.test(line))).toEqual([
-    '# torno',
+    '# The torno manual',
     '## Requirements',
     '## Install',
     '## Run',
@@ -113,4 +115,14 @@ it('lists in one section what nobody has seen on a visible screen or with a real
   for (const item of ['Hyprland', 'flicker', 'comes to the front', 'Closing', 'clipboard', 'dark', 'dropped on the view', 'folder dialog', 'save dialog', 'replace', 'Claude Code', 'Firefox', 'Safari', 'phone', 'file://', '--install-desktop', 'another workspace with a session working']) {
     expect([item, toTry.includes(item)]).toEqual([item, true])
   }
+})
+
+it('keeps in the README the sections the window and the launcher send a reader to, and leads to the manual', () => {
+  // "See Requirements in the README." (`ui/readyLines.ts`, `scripts/torno`) and "(README, Run)" (`scripts/torno`).
+  const headings = intro.split('\n').filter((line) => /^#{1,3} /.test(line))
+  for (const heading of ['### Requirements', '### Run']) expect(headings).toContain(heading)
+  expect(intro).toContain('(docs/manual.md)')
+  // Every link into the manual names a heading it has.
+  const anchors = new Set(readme.split('\n').filter((line) => /^#{1,3} /.test(line)).map((line) => line.replace(/^#+ /, '').toLowerCase().replace(/[^a-z0-9 -]/g, '').replaceAll(' ', '-')))
+  for (const [, anchor] of intro.matchAll(/docs\/manual\.md#([a-z0-9-]+)/g)) expect([anchor, anchors.has(anchor)]).toEqual([anchor, true])
 })

@@ -1,4 +1,4 @@
-# The macOS app (`pnpm dist:mac`, the README's "On macOS"). Paths are from app/.
+# The macOS app (`pnpm dist:mac`, the manual's "On macOS"). Paths are from app/.
 appId: io.github.luisg0nc.torno
 productName: torno
 directories:

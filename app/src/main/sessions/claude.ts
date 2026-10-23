@@ -63,7 +63,7 @@ export const TORNO_PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d'
  * The versions of Claude Code torno was checked against, inclusive: those of the recordings in `test/fixtures/`
  * (`claude_code_version` of their `init`). One older than its minimum, or of a newer major or minor than its maximum, is said once in a chat (a patch of
  * the tested minor is quiet), and nothing more is done
- * about it. The range moves when a new stream is recorded (`test/fixtures/RECORDING.md`) and the README's line with it.
+ * about it. The range moves when a new stream is recorded (`test/fixtures/RECORDING.md`) and the manual's line with it.
  */
 export const TESTED_CLAUDE = { min: '2.1.300', max: '2.1.301' } as const
 
